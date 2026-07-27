@@ -18,6 +18,23 @@ import { EligibilityService } from './services/eligibility.service'
 import { FilingInstructionsService } from './filingInstructions/filingInstructions.service'
 import { CampaignWith } from './campaigns.types'
 
+// IS_NON_PROD_DEPLOY is a module-level constant read inside testSetPro. Mock the
+// util so the guard is toggleable per-test via a getter. Default true because
+// the unit-test env has no OTEL_SERVICE_ENVIRONMENT (so the real value is
+// false) yet the happy-path cases need a non-prod deploy; other exports pass
+// through untouched.
+const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
+vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
+  return {
+    ...actual,
+    get IS_NON_PROD_DEPLOY() {
+      return envNonProd.value
+    },
+  }
+})
+
 const CREATED_AT = '2025-01-01'
 
 // Shared null-filled defaults for the fields RaceTargetMetrics gained when
@@ -144,6 +161,7 @@ describe('CampaignsController', () => {
       updateJsonFields: vi.fn(),
       launch: vi.fn(),
       fetchLiveRaceTargetMetrics: vi.fn().mockResolvedValue(null),
+      setIsPro: vi.fn(),
     }
     campaignsService = campaignsServiceMock as CampaignsService
 
@@ -354,6 +372,47 @@ describe('CampaignsController', () => {
         mockUser,
       )
       expect(result).toEqual({ success: true })
+    })
+  })
+
+  describe('testSetPro', () => {
+    it('rejects a non-@test.goodparty.org user with ForbiddenException', async () => {
+      const realUser = { ...mockUser, email: 'candidate@gmail.com' }
+
+      await expect(
+        controller.testSetPro(mockCampaign, realUser),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+      expect(campaignsService.setIsPro).not.toHaveBeenCalled()
+    })
+
+    it('flips isPro for a @test.goodparty.org user on their own campaign', async () => {
+      const testUser = { ...mockUser, email: 'test-42@test.goodparty.org' }
+
+      const result = await controller.testSetPro(mockCampaign, testUser)
+
+      expect(campaignsService.setIsPro).toHaveBeenCalledWith(
+        mockCampaign.id,
+        true,
+        false,
+      )
+      expect(result).toEqual({ isPro: true })
+    })
+
+    it('refuses outside a known non-prod deploy, even for a @test.goodparty.org user', async () => {
+      // envNonProd toggles the mocked IS_NON_PROD_DEPLOY getter (see top of
+      // file); false models prod or a misconfigured/absent env, where the
+      // fail-closed guard must deny.
+      envNonProd.value = false
+      const testUser = { ...mockUser, email: 'test-42@test.goodparty.org' }
+
+      try {
+        await expect(
+          controller.testSetPro(mockCampaign, testUser),
+        ).rejects.toBeInstanceOf(ForbiddenException)
+        expect(campaignsService.setIsPro).not.toHaveBeenCalled()
+      } finally {
+        envNonProd.value = true
+      }
     })
   })
 

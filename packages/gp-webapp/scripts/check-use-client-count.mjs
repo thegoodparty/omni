@@ -45,7 +45,86 @@ import { dirname, join, relative } from 'node:path'
 // 2026-07-10: 533 -> 534 for useCampaignStoryComplete — a React Query hook
 // (useQuery + useCampaignStory) that gates the campaign-plan router on story
 // completeness, so it must run on the client.
-const BASELINE = 534
+// 2026-07-13: 534 -> 536 for the Ordinances list page's two sections
+// (MyOrdinancesSection, MyPriorityIssuesSection): both are interactive —
+// client-side status filtering, and the "Work on this" seed action with
+// useRouter — so they can't be server components. The page.tsx shell stays a
+// server component.
+// 2026-07-10: 536 -> 538 for BriefingDispatchBanner and
+// CommunityIssuesDispatchBanner — both poll gp-api client-side after mount
+// (useState + useEffect + a react-query refetchInterval) to show a
+// "generating..." banner once the user lands back in the product; that
+// polling loop cannot run on the server.
+// 2026-07-15: the draft-detail screen supersedes develop's OrdinanceDraftDocument
+// (removed) with DraftDetail (contentEditable inline editor with autosave +
+// selection toolbar) and DraftChat (streaming chat in a drawer). Both are
+// stateful client components; the page.tsx shell stays server.
+// 2026-07-16: 540 -> 541 for useCrmEnabled — a hook composing
+// useWinVoterContext (React Query) with two feature-flag reads, so it must
+// run on the client, like the sibling useWinVoterContext.
+// 2026-07-16: 541 -> 542 for ContactTypeahead — the CRM contacts search
+// dropdown holds input/debounce state and a React Query fetch, so it cannot
+// be a server component (same as the ContactSearch it flag-replaces).
+// 2026-07-16: 542 -> 543 for app/dashboard/error.tsx — error boundaries must
+// be client components (the Next.js error-file contract requires it), so the
+// new dashboard-segment boundary adds exactly one.
+// 2026-07-16: 543 -> 540 for removing the legacy impersonation path:
+// ImpersonateUserProvider, useImpersonateUser, and the orphaned
+// ImpersonateAction (gp-admin owns admin impersonation now).
+// 2026-07-16: 540 -> 542 for the whole-page CRM gate (ENG-10683):
+// ContactsPageGate branches on the client-resolved CRM flag, and
+// CrmContactsPage hosts the interactive typeahead + Pro-modal state, so
+// neither can be a server component. The crm/ moves themselves are
+// count-neutral.
+// ENG-10697: NotesSection.tsx is a new client component (useState +
+// react-query mutations for the person-record notes CRUD) — genuinely
+// interactive, can't render on the server.
+// ENG-10698: LogInteraction.tsx is genuinely stateful (form state, a
+// mutation, per-field validation) and can't be a server component.
+// 2026-07-16: +1 for QualityReport — the ordinance draft quality-report section
+// generates/re-runs and manages loading/error state, so it must be a client
+// component.
+// ENG-10711: -1 — LogInteraction.tsx removed (manual logging cut to match the
+// lovable person-record design).
+// 2026-07-17: 545 -> 550 for the ENG-10708 list creation wizard
+// (crm/wizard/): CreateListWizard (dialog/step state + create mutation),
+// BranchStep (controlled RadioGroup), VoterFileStep (checkbox filter state),
+// ActivityStep (stacked condition rows + a react-query outreach fetch), and
+// NameStep (name input) are all genuinely interactive and can't render on
+// the server.
+// 2026-07-17: 550 -> 555 for the ENG-10707 lists index + list-detail surface
+// (crm/lists/): ListsTable (per-row react-query fetch + row-click
+// navigation), ListDetailPage (multiple react-query reads, a rename/
+// duplicate/delete flow, and the download poll), ListDetailPageGate
+// (client-side CRM-flag redirect), RenameListDialog, and DeleteListDialog
+// (dialog state + mutations) are all genuinely interactive and can't render
+// on the server.
+// 2026-07-17: 555 -> 557 for the ENG-10721 locked-prototype presentation
+// refactor (no behavior change). ListsTable.tsx (a client component) was
+// deleted and replaced by two new ones: ListsIndex.tsx (reads the
+// useContactsTable() context hook) and ListCard.tsx (per-card useState for
+// the rename/delete dialogs + a react-query row fetch) — net +1. Plus a new
+// DistrictStatCard.tsx (a react-query read of the stats endpoint) — net +1.
+// All three are genuinely interactive/data-fetching and can't render on the
+// server; CrmContactsPage.tsx and the wizard step files were edited in place
+// (no new client files there).
+// ENG-10711: -1 — LogInteraction.tsx removed (manual logging cut to match the
+// lovable person-record design).
+// 2026-07-18: 556 -> 560 for the ENG-10737 contacts assistant bar: the four
+// new crm/assistant/ files (CrmAssistant, AssistantBar, AssistantDrawer,
+// assistantChat) hold composer/drawer state, stream SSE turns through the
+// shared agent-chat client, and invalidate react-query caches — none can be
+// server components.
+// 2026-07-27: 557 -> 558 for StoryReadyCard — the campaign-manager completion
+// card (localStorage-dismissed, reads useCampaignStoryComplete, routes on CTA),
+// so it must run on the client.
+// 2026-07-27: 558 -> 559 for CampaignManagerChatProvider — the always-present
+// campaign-manager chat dock lifted out of CampaignManagerHome so it mounts once
+// in DashboardLayout (footer chat on every page). It owns the drawer/kickoff
+// state, streams SSE, and reads localStorage/useUser, so it can't be a server
+// component. Net +1: it renders the footer + surface the home used to render
+// inline (no new files there), and CampaignManagerHome stays a client component.
+const BASELINE = 559
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

@@ -1,5 +1,6 @@
 'use client'
 import React, { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Button } from '@styleguide'
 import Link from 'next/link'
 import ResponsiveModal from '@shared/utils/ResponsiveModal'
@@ -60,6 +61,7 @@ export default function WebsiteCreateFlow({
 }: WebsiteCreateFlowProps): React.JSX.Element {
   const { errorSnackbar, successSnackbar } = useSnackbar()
   const { website, setWebsite } = useWebsite()
+  const router = useRouter()
   const [previewOpen, setPreviewOpen] = useState(false)
   const [step, setStep] = useState<number | typeof COMPLETE_STEP>(1)
   const [saveLoading, setSaveLoading] = useState(false)
@@ -89,7 +91,8 @@ export default function WebsiteCreateFlow({
     const saved = await handleSave()
 
     if (saved) {
-      window.location.href = '/dashboard/website'
+      router.push('/dashboard/website')
+      router.refresh()
     }
   }
 

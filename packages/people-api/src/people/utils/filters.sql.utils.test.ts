@@ -2,10 +2,50 @@ import { describe, expect, it } from 'vitest'
 import { Prisma } from '../../generated/prisma'
 import { buildVoterFiltersSql } from './filters.sql.utils'
 import { FilterData } from '../schemas/filters.schema'
+import {
+  classifyPoliticalParty,
+  POLITICAL_PARTY_RULES,
+  RULED_POLITICAL_PARTIES,
+} from './politicalParty.rules'
 
 const sqlToString = (sql: Prisma.Sql | null): string => {
   if (!sql) return ''
   return sql.strings.join('?')
+}
+
+const flatValues = (sql: Prisma.Sql | null): unknown[] =>
+  sql ? sql.values.flat(Infinity) : []
+
+const partyFilter = (values: string[]): FilterData => ({
+  filters: ['politicalParty'],
+  filterValues: { politicalParty: values },
+  filterOperators: {
+    politicalParty: { operator: 'in', values, includeNull: false },
+  },
+})
+
+// JS reference implementation of the SQL predicate the builder emits, used to
+// prove the FILTER selects exactly the rows the DISPLAY classifier
+// (classifyPoliticalParty) would label with the same party. ILIKE '%token%'
+// <=> value.toLowerCase().includes(token); tokens are already lowercase.
+const ilikeMatch = (value: string | null, token: string): boolean =>
+  value !== null && value.toLowerCase().includes(token)
+
+const matchesRule = (
+  value: string | null,
+  substrings: readonly string[],
+): boolean => substrings.some((token) => ilikeMatch(value, token))
+
+const selectedByFilter = (value: string | null, party: string): boolean => {
+  if (party === 'Unknown') return value === null || value === ''
+  const index = POLITICAL_PARTY_RULES.findIndex((rule) => rule.party === party)
+  const rule = POLITICAL_PARTY_RULES[index]
+  if (!rule) return false
+  const own = matchesRule(value, rule.substrings)
+  const noHigher = POLITICAL_PARTY_RULES.slice(0, index).every(
+    (higher) => !matchesRule(value, higher.substrings),
+  )
+  return own && noHigher
 }
 
 describe('buildVoterFiltersSql', () => {
@@ -279,6 +319,305 @@ describe('buildVoterFiltersSql', () => {
       const sqlStr = sqlToString(result)
 
       expect(sqlStr).toContain('IS NULL')
+    })
+  })
+
+  describe('politicalParty filter (reconciled with display classifier)', () => {
+    it('matches Democratic via case-insensitive substrings (not exact equality)', () => {
+      const result = buildVoterFiltersSql(partyFilter(['Democratic']))
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('Parties_Description')
+      expect(sqlStr).toContain('ILIKE')
+      // Highest precedence: no exclusion of any other party.
+      expect(sqlStr).not.toContain('NOT')
+      expect(flatValues(result)).toEqual(['%democratic%', '%democrat%'])
+    })
+
+    it('excludes higher-precedence parties when matching Republican', () => {
+      const result = buildVoterFiltersSql(partyFilter(['Republican']))
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('ILIKE')
+      // Republican rows must NOT also match the Democratic rule.
+      expect(sqlStr).toContain('NOT')
+      expect(flatValues(result)).toEqual([
+        '%republican%',
+        '%democratic%',
+        '%democrat%',
+      ])
+    })
+
+    it('excludes both Democratic and Republican when matching Independent', () => {
+      const result = buildVoterFiltersSql(partyFilter(['Independent']))
+
+      expect(flatValues(result)).toEqual([
+        '%independent%',
+        '%declined to state%',
+        '%non-partisan%',
+        // higher precedence exclusions, in order
+        '%democratic%',
+        '%democrat%',
+        '%republican%',
+      ])
+    })
+
+    it('maps Unknown to (IS NULL OR blank), never a literal string match', () => {
+      const result = buildVoterFiltersSql(partyFilter(['Unknown']))
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('Parties_Description')
+      expect(sqlStr).toContain('IS NULL')
+      expect(sqlStr).toContain("= ''")
+      expect(flatValues(result)).not.toContain('Unknown')
+    })
+
+    it('ORs per-party predicates together for a multi-select', () => {
+      const result = buildVoterFiltersSql(
+        partyFilter(['Democratic', 'Republican']),
+      )
+      const sqlStr = sqlToString(result)
+
+      const orCount = (sqlStr.match(/ OR /g) || []).length
+      // Democratic (1 internal OR) + Republican (1 internal OR) + 1 joining OR.
+      expect(orCount).toBe(3)
+      expect(flatValues(result)).toEqual([
+        '%democratic%',
+        '%democrat%',
+        '%republican%',
+        '%democratic%',
+        '%democrat%',
+      ])
+    })
+
+    it('combines a party selection with Unknown (party predicate OR null/blank)', () => {
+      const result = buildVoterFiltersSql(
+        partyFilter(['Independent', 'Unknown']),
+      )
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('ILIKE')
+      expect(sqlStr).toContain('IS NULL')
+      expect(sqlStr).toContain("= ''")
+      expect(flatValues(result)).toContain('%independent%')
+      expect(flatValues(result)).not.toContain('Non-Partisan')
+    })
+
+    it('supports the eq operator', () => {
+      const result = buildVoterFiltersSql({
+        filters: ['politicalParty'],
+        filterValues: { politicalParty: ['Republican'] },
+        filterOperators: {
+          politicalParty: { operator: 'eq', value: 'Republican' },
+        },
+      })
+
+      expect(sqlToString(result)).toContain('ILIKE')
+      expect(flatValues(result)).toEqual([
+        '%republican%',
+        '%democratic%',
+        '%democrat%',
+      ])
+    })
+
+    it('uses only parameterized values — no user input interpolated into SQL', () => {
+      const result = buildVoterFiltersSql(partyFilter(['Democratic']))
+      // Every dynamic token is a bound `%rule%` param; the static SQL text
+      // carries no party names.
+      expect(sqlToString(result)).not.toContain('democrat')
+      for (const value of flatValues(result)) {
+        expect(typeof value).toBe('string')
+        expect(String(value).startsWith('%')).toBe(true)
+      }
+    })
+
+    // The core correctness guarantee: for every real Parties_Description value,
+    // the filter selects a row for party P iff the display classifier labels it
+    // P. Emulates the emitted ILIKE/precedence SQL (see selectedByFilter).
+    describe('filter selection agrees with display classification', () => {
+      const DB_VALUES: Array<string | null> = [
+        null,
+        '',
+        'Democratic',
+        'Republican',
+        'Non-Partisan',
+        'Declined to State',
+        'American Independent',
+        'Registered Independent',
+        'Harold Washington Democrat',
+        'Harold Washington Republican',
+        'Social Democrat',
+        'Citizens Republican',
+        'Independent Democrat',
+        'Independent Republican',
+        'Independence',
+        'Green',
+        'Libertarian',
+        'Working Family Party',
+        'Independent Democratic Coalition',
+        'REPUBLICAN democrat',
+      ]
+
+      for (const party of RULED_POLITICAL_PARTIES) {
+        it(`selects exactly the rows that display as ${party}`, () => {
+          for (const value of DB_VALUES) {
+            const displayed = classifyPoliticalParty(value) === party
+            expect(selectedByFilter(value, party)).toBe(displayed)
+          }
+        })
+      }
+
+      it('Unknown selects exactly the null/blank rows (subset of display Other)', () => {
+        for (const value of DB_VALUES) {
+          const expected = value === null || value === ''
+          expect(selectedByFilter(value, 'Unknown')).toBe(expected)
+          if (expected) {
+            expect(classifyPoliticalParty(value)).toBe('Other')
+          }
+        }
+      })
+
+      it('assigns each non-null value to at most one ruled party (precedence is exclusive)', () => {
+        for (const value of DB_VALUES) {
+          if (value === null) continue
+          const hits = RULED_POLITICAL_PARTIES.filter((party) =>
+            selectedByFilter(value, party),
+          )
+          expect(hits.length).toBeLessThanOrEqual(1)
+        }
+      })
+    })
+  })
+
+  describe('id filter', () => {
+    it('emits = ANY with ::uuid[] for the in operator', () => {
+      const filterData: FilterData = {
+        filters: ['id'],
+        filterValues: {},
+        filterOperators: {
+          id: {
+            operator: 'in',
+            values: ['11111111-1111-1111-1111-111111111111'],
+          },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('v."id"')
+      expect(sqlStr).toContain('= ANY(')
+      expect(sqlStr).toContain('::uuid[]')
+    })
+
+    it('emits != ALL with ::uuid[] for the notIn operator', () => {
+      const filterData: FilterData = {
+        filters: ['id'],
+        filterValues: {},
+        filterOperators: {
+          id: {
+            operator: 'notIn',
+            values: ['11111111-1111-1111-1111-111111111111'],
+          },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('v."id"')
+      expect(sqlStr).toContain('!= ALL(')
+      expect(sqlStr).toContain('::uuid[]')
+    })
+
+    it('binds the whole id set as one array parameter, not one per id', () => {
+      const ids = [
+        '11111111-1111-1111-1111-111111111111',
+        '22222222-2222-2222-2222-222222222222',
+        '33333333-3333-3333-3333-333333333333',
+      ]
+      const filterData: FilterData = {
+        filters: ['id'],
+        filterValues: {},
+        filterOperators: {
+          id: { operator: 'in', values: ids },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+
+      expect(result?.values).toHaveLength(1)
+      expect(result?.values[0]).toEqual(ids)
+    })
+
+    it('combines with a demographic filter via AND', () => {
+      const filterData: FilterData = {
+        filters: ['id', 'gender'],
+        filterValues: {},
+        filterOperators: {
+          id: {
+            operator: 'in',
+            values: ['11111111-1111-1111-1111-111111111111'],
+          },
+          gender: { operator: 'eq', value: 'M' },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('v."id"')
+      expect(sqlStr).toContain('Gender')
+      expect(sqlStr).toContain('AND')
+    })
+
+    it('returns null when values are empty', () => {
+      const filterData: FilterData = {
+        filters: ['id'],
+        filterValues: {},
+        filterOperators: {
+          id: { operator: 'in', values: [] },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      expect(result).toBeNull()
+    })
+  })
+
+  describe('hasAddress filter', () => {
+    it('emits an IS NOT NULL + != empty check for true', () => {
+      const filterData: FilterData = {
+        filters: ['hasAddress'],
+        filterValues: {},
+        filterOperators: {
+          hasAddress: { operator: 'is', value: 'not_null' },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('Residence_Addresses_AddressLine')
+      expect(sqlStr).toContain('IS NOT NULL')
+      expect(sqlStr).toContain("!= ''")
+    })
+
+    it('emits an IS NULL OR empty check for false', () => {
+      const filterData: FilterData = {
+        filters: ['hasAddress'],
+        filterValues: {},
+        filterOperators: {
+          hasAddress: { operator: 'is', value: 'null' },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('Residence_Addresses_AddressLine')
+      expect(sqlStr).toContain('IS NULL')
+      expect(sqlStr).toContain("= ''")
     })
   })
 })

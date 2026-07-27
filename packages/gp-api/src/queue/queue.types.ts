@@ -1,5 +1,6 @@
 import { TcrCompliance } from '../generated/prisma'
 import z from 'zod'
+import { ISO_DATE_ONLY_RE } from '../shared/util/date.util'
 
 export enum QueueType {
   GENERATE_AI_CONTENT = 'generateAiContent',
@@ -13,6 +14,8 @@ export enum QueueType {
   AGENT_EXPERIMENT_RESULT = 'agentExperimentResult',
   AGENTIC_COMPLIANCE_KICKOFF = 'agenticComplianceKickoff',
   OCR_ATTACHMENT = 'ocrAttachment',
+  NIGHTLY_10DLC_REPORT = 'nightly10DlcReport',
+  ORDINANCE_QUALITY_LOOP = 'ordinanceQualityLoop',
 }
 
 export type QueueMessage =
@@ -50,6 +53,14 @@ export type QueueMessage =
   | {
       type: QueueType.OCR_ATTACHMENT
       data: OcrAttachmentMessage
+    }
+  | {
+      type: QueueType.NIGHTLY_10DLC_REPORT
+      data: Nightly10DlcReportMessage
+    }
+  | {
+      type: QueueType.ORDINANCE_QUALITY_LOOP
+      data: OrdinanceQualityLoopMessage
     }
 
 export type GenerateAiContentMessageData = {
@@ -158,6 +169,7 @@ export enum MessageGroup {
   polls = 'polls',
   weeklyTasksDigest = 'weeklyTasksDigest',
   agenticComplianceKickoff = 'agenticComplianceKickoff',
+  nightly10DlcReport = 'nightly10DlcReport',
 }
 
 const PollResponseJsonRowSchema = z.object({
@@ -200,3 +212,25 @@ export const OcrAttachmentMessageSchema = z.object({
   attachmentId: z.string(),
 })
 export type OcrAttachmentMessage = z.infer<typeof OcrAttachmentMessageSchema>
+
+export const Nightly10DlcReportMessageSchema = z.object({
+  reportDate: z.string().regex(ISO_DATE_ONLY_RE),
+})
+export type Nightly10DlcReportMessage = z.infer<
+  typeof Nightly10DlcReportMessageSchema
+>
+
+// One step of the ordinance quality loop (QC or revise). `attempt` exists
+// only to vary the FIFO deduplicationId on retries — the handler reads the
+// authoritative attempt count from the iteration row, never the message.
+export const OrdinanceQualityLoopMessageSchema = z.object({
+  ordinanceId: z.string(),
+  loopRunId: z.string(),
+  iteration: z.number().int(),
+  phase: z.enum(['qc', 'revise']),
+  expectedInputHash: z.string(),
+  attempt: z.number().int(),
+})
+export type OrdinanceQualityLoopMessage = z.infer<
+  typeof OrdinanceQualityLoopMessageSchema
+>

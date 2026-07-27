@@ -1,11 +1,17 @@
 import { ExperimentRunStatus } from '../../generated/prisma'
+import { subDays } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { useTestService } from '@/test-service'
+// Imported after useTestService: analytics.service sits on a circular import
+// chain (analytics -> users -> campaigns -> analytics) and must not be the
+// first app-graph module evaluated, or Nest sees an undefined DI token.
+import { AnalyticsService } from '@/analytics/analytics.service'
 import { DispatchRequestSchema } from '../schemas/communityIssues.schema'
 import { CommunityIssueDispatchService } from './communityIssueDispatch.service'
+import { INACTIVITY_THRESHOLD_DAYS } from '@/shared/util/userActivity.util'
 
 const service = useTestService()
 
@@ -402,6 +408,10 @@ describe('CommunityIssueDispatchService.dispatchForCohort', () => {
 // Freeze time to 2026-06-21 (Sunday) so the cron selects bucket 0.
 const CRON_BUCKET0_SLUG = 'cif-cron-2'
 const SUNDAY_UTC = new Date('2026-06-21T08:00:00.000Z')
+// 'cif-cron-top-31' hashes to bucket 17 (mod 28) via FNV-1a, matching
+// topIssuesBucketForDate(SUNDAY_UTC) — so the monthly top-issues cron
+// selects it on the same frozen date as the weekly trending tests above.
+const CRON_TOP_BUCKET_SLUG = 'cif-cron-top-31'
 
 describe(
   'CommunityIssueDispatchService.dispatchWeeklyTrendingIssues' +
@@ -465,6 +475,349 @@ describe(
     )
   },
 )
+
+describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
+  describe('cron path (dispatchWeeklyTrendingIssues)', () => {
+    beforeEach(() => {
+      vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
+      vi.useFakeTimers({ now: SUNDAY_UTC })
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+      vi.unstubAllEnvs()
+      vi.restoreAllMocks()
+    })
+
+    it('dispatches for a user active within the threshold', async () => {
+      await service.prisma.organization.upsert({
+        where: { slug: CRON_BUCKET0_SLUG },
+        create: { slug: CRON_BUCKET0_SLUG, ownerId: service.user.id },
+        update: {},
+      })
+      await service.prisma.electedOffice.create({
+        data: { userId: service.user.id, organizationSlug: CRON_BUCKET0_SLUG },
+      })
+      await service.prisma.user.update({
+        where: { id: service.user.id },
+        data: { metaData: { lastVisited: Date.now() } },
+      })
+      mockResolveServeContext({
+        state: 'MN',
+        positionName: 'City Council',
+        isServeIcp: true,
+      })
+      const dispatchSpy = mockDispatchRun()
+      const cronLock = service.app.get(CronLockService)
+      vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
+      vi.spyOn(cronLock, 'markCompleted').mockResolvedValue(undefined)
+
+      await service.app
+        .get(CommunityIssueDispatchService)
+        .dispatchWeeklyTrendingIssues()
+
+      const trendingCalls = dispatchSpy.mock.calls.filter(
+        (c) => c[0].type === 'trending_issues',
+      )
+      expect(trendingCalls).toHaveLength(1)
+    })
+
+    it('skips and tracks a re-engagement event for a user inactive beyond the threshold', async () => {
+      await service.prisma.organization.upsert({
+        where: { slug: CRON_BUCKET0_SLUG },
+        create: { slug: CRON_BUCKET0_SLUG, ownerId: service.user.id },
+        update: {},
+      })
+      await service.prisma.electedOffice.create({
+        data: { userId: service.user.id, organizationSlug: CRON_BUCKET0_SLUG },
+      })
+      const staleLastVisited = subDays(new Date(), 91).getTime()
+      await service.prisma.user.update({
+        where: { id: service.user.id },
+        data: { metaData: { lastVisited: staleLastVisited } },
+      })
+      mockResolveServeContext({
+        state: 'MN',
+        positionName: 'City Council',
+        isServeIcp: true,
+      })
+      const dispatchSpy = mockDispatchRun()
+      const trackSpy = vi
+        .spyOn(service.app.get(AnalyticsService), 'track')
+        .mockResolvedValue({ event: 'stub', userId: 'stub' })
+      const cronLock = service.app.get(CronLockService)
+      vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
+      vi.spyOn(cronLock, 'markCompleted').mockResolvedValue(undefined)
+
+      await service.app
+        .get(CommunityIssueDispatchService)
+        .dispatchWeeklyTrendingIssues()
+
+      const trendingCalls = dispatchSpy.mock.calls.filter(
+        (c) => c[0].type === 'trending_issues',
+      )
+      expect(trendingCalls).toHaveLength(0)
+      expect(trackSpy).toHaveBeenCalledWith(
+        service.user.id,
+        'Community Issues - Trending Issues Dispatch Skipped',
+        {
+          lastVisitedAt: staleLastVisited,
+          daysSinceLastVisit: expect.any(Number) as number,
+        },
+      )
+    })
+  })
+
+  describe('cron path (dispatchMonthlyTopIssues)', () => {
+    beforeEach(() => {
+      vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
+      vi.useFakeTimers({ now: SUNDAY_UTC })
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+      vi.unstubAllEnvs()
+      vi.restoreAllMocks()
+    })
+
+    it('dispatches for a user active within the threshold', async () => {
+      await service.prisma.organization.upsert({
+        where: { slug: CRON_TOP_BUCKET_SLUG },
+        create: { slug: CRON_TOP_BUCKET_SLUG, ownerId: service.user.id },
+        update: {},
+      })
+      await service.prisma.electedOffice.create({
+        data: {
+          userId: service.user.id,
+          organizationSlug: CRON_TOP_BUCKET_SLUG,
+        },
+      })
+      await service.prisma.user.update({
+        where: { id: service.user.id },
+        data: { metaData: { lastVisited: Date.now() } },
+      })
+      mockResolveServeContext({
+        state: 'MN',
+        positionName: 'City Council',
+        isServeIcp: true,
+      })
+      const dispatchSpy = mockDispatchRun()
+      const cronLock = service.app.get(CronLockService)
+      vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
+      vi.spyOn(cronLock, 'markCompleted').mockResolvedValue(undefined)
+
+      await service.app
+        .get(CommunityIssueDispatchService)
+        .dispatchMonthlyTopIssues()
+
+      const topCalls = dispatchSpy.mock.calls.filter(
+        (c) => c[0].type === 'top_community_issues',
+      )
+      expect(topCalls).toHaveLength(1)
+    })
+
+    it('skips and tracks a re-engagement event for a user inactive beyond the threshold', async () => {
+      await service.prisma.organization.upsert({
+        where: { slug: CRON_TOP_BUCKET_SLUG },
+        create: { slug: CRON_TOP_BUCKET_SLUG, ownerId: service.user.id },
+        update: {},
+      })
+      await service.prisma.electedOffice.create({
+        data: {
+          userId: service.user.id,
+          organizationSlug: CRON_TOP_BUCKET_SLUG,
+        },
+      })
+      const staleLastVisited = subDays(new Date(), 91).getTime()
+      await service.prisma.user.update({
+        where: { id: service.user.id },
+        data: { metaData: { lastVisited: staleLastVisited } },
+      })
+      mockResolveServeContext({
+        state: 'MN',
+        positionName: 'City Council',
+        isServeIcp: true,
+      })
+      const dispatchSpy = mockDispatchRun()
+      const trackSpy = vi
+        .spyOn(service.app.get(AnalyticsService), 'track')
+        .mockResolvedValue({ event: 'stub', userId: 'stub' })
+      const cronLock = service.app.get(CronLockService)
+      vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
+      vi.spyOn(cronLock, 'markCompleted').mockResolvedValue(undefined)
+
+      await service.app
+        .get(CommunityIssueDispatchService)
+        .dispatchMonthlyTopIssues()
+
+      const topCalls = dispatchSpy.mock.calls.filter(
+        (c) => c[0].type === 'top_community_issues',
+      )
+      expect(topCalls).toHaveLength(0)
+      expect(trackSpy).toHaveBeenCalledWith(
+        service.user.id,
+        'Community Issues - Top Issues Dispatch Skipped',
+        {
+          lastVisitedAt: staleLastVisited,
+          daysSinceLastVisit: expect.any(Number) as number,
+        },
+      )
+    })
+  })
+
+  describe('on-demand path (dispatchIfNeeded)', () => {
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('dispatches both types for an inactive user (activity gate skipped)', async () => {
+      const orgSlug = `ci-ondemand-${Date.now()}`
+      await seedOrg(orgSlug)
+      await service.prisma.electedOffice.create({
+        data: { userId: service.user.id, organizationSlug: orgSlug },
+      })
+      await service.prisma.user.update({
+        where: { id: service.user.id },
+        data: {
+          metaData: { lastVisited: subDays(new Date(), 200).getTime() },
+        },
+      })
+      mockResolveServeContext({
+        state: 'MN',
+        positionName: 'City Council',
+        isServeIcp: true,
+      })
+      const dispatchSpy = mockDispatchRun()
+
+      const result = await service.app
+        .get(CommunityIssueDispatchService)
+        .dispatchIfNeeded(orgSlug)
+
+      expect(result).toEqual({ dispatched: 2, skipped: 0 })
+      expect(dispatchSpy).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not double-dispatch a type with an in-flight run', async () => {
+      const orgSlug = `ci-ondemand-inflight-${Date.now()}`
+      await seedOrg(orgSlug)
+      await service.prisma.electedOffice.create({
+        data: { userId: service.user.id, organizationSlug: orgSlug },
+      })
+      await service.prisma.experimentRun.create({
+        data: {
+          organizationSlug: orgSlug,
+          experimentType: 'top_community_issues',
+          status: ExperimentRunStatus.RUNNING,
+        },
+      })
+      mockResolveServeContext({
+        state: 'MN',
+        positionName: 'City Council',
+        isServeIcp: true,
+      })
+      const dispatchSpy = mockDispatchRun()
+
+      const result = await service.app
+        .get(CommunityIssueDispatchService)
+        .dispatchIfNeeded(orgSlug)
+
+      const types = dispatchSpy.mock.calls.map((c) => c[0].type)
+      expect(types).not.toContain('top_community_issues')
+      expect(types).toContain('trending_issues')
+      expect(result).toEqual({ dispatched: 1, skipped: 1 })
+    })
+
+    it('skips a type whose last completed run is inside the freshness window', async () => {
+      const orgSlug = `ci-ondemand-fresh-${Date.now()}`
+      await seedOrg(orgSlug)
+      await service.prisma.electedOffice.create({
+        data: { userId: service.user.id, organizationSlug: orgSlug },
+      })
+      const run = await service.prisma.experimentRun.create({
+        data: {
+          organizationSlug: orgSlug,
+          experimentType: 'top_community_issues',
+          status: ExperimentRunStatus.COMPLETED,
+        },
+      })
+      // @updatedAt is Prisma-managed, so backdate the completion via raw SQL.
+      await service.prisma.$executeRaw`
+        UPDATE experiment_run
+        SET updated_at = ${subDays(new Date(), INACTIVITY_THRESHOLD_DAYS - 1)}
+        WHERE run_id = ${run.runId}
+      `
+      mockResolveServeContext({
+        state: 'MN',
+        positionName: 'City Council',
+        isServeIcp: true,
+      })
+      const dispatchSpy = mockDispatchRun()
+
+      const result = await service.app
+        .get(CommunityIssueDispatchService)
+        .dispatchIfNeeded(orgSlug)
+
+      const types = dispatchSpy.mock.calls.map((c) => c[0].type)
+      expect(types).not.toContain('top_community_issues')
+      expect(types).toContain('trending_issues')
+      expect(result).toEqual({ dispatched: 1, skipped: 1 })
+    })
+
+    it('re-dispatches a type whose last completed run is older than the window', async () => {
+      const orgSlug = `ci-ondemand-stale-${Date.now()}`
+      await seedOrg(orgSlug)
+      await service.prisma.electedOffice.create({
+        data: { userId: service.user.id, organizationSlug: orgSlug },
+      })
+      const run = await service.prisma.experimentRun.create({
+        data: {
+          organizationSlug: orgSlug,
+          experimentType: 'top_community_issues',
+          status: ExperimentRunStatus.COMPLETED,
+        },
+      })
+      await service.prisma.$executeRaw`
+        UPDATE experiment_run
+        SET updated_at = ${subDays(new Date(), INACTIVITY_THRESHOLD_DAYS + 10)}
+        WHERE run_id = ${run.runId}
+      `
+      mockResolveServeContext({
+        state: 'MN',
+        positionName: 'City Council',
+        isServeIcp: true,
+      })
+      const dispatchSpy = mockDispatchRun()
+
+      const result = await service.app
+        .get(CommunityIssueDispatchService)
+        .dispatchIfNeeded(orgSlug)
+
+      expect(result).toEqual({ dispatched: 2, skipped: 0 })
+      expect(dispatchSpy.mock.calls.map((c) => c[0].type)).toContain(
+        'top_community_issues',
+      )
+    })
+
+    it('skips entirely when the org fails the serve-ICP gate', async () => {
+      const orgSlug = `ci-ondemand-icp-${Date.now()}`
+      await seedOrg(orgSlug)
+      await service.prisma.electedOffice.create({
+        data: { userId: service.user.id, organizationSlug: orgSlug },
+      })
+      mockResolveServeContext({
+        state: 'MN',
+        positionName: 'City Council',
+        isServeIcp: false,
+      })
+      const dispatchSpy = mockDispatchRun()
+
+      const result = await service.app
+        .get(CommunityIssueDispatchService)
+        .dispatchIfNeeded(orgSlug)
+
+      expect(dispatchSpy).not.toHaveBeenCalled()
+      expect(result).toEqual({ dispatched: 0, skipped: 2 })
+    })
+  })
+})
 
 describe('DispatchRequestSchema — orgSlugs cap', () => {
   it('rejects an orgSlugs array longer than 200', () => {

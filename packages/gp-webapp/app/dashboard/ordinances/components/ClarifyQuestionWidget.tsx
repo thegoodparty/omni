@@ -8,35 +8,9 @@ import {
   Label,
   RadioGroup,
   RadioGroupItem,
-  SourceCitation,
 } from '@styleguide'
-import type {
-  OrdinanceClarifyQuestion,
-  OrdinanceSource,
-} from '@goodparty_org/contracts'
-
-// "source:" label + the styleguide source chip / hover popover (full org /
-// description / link). Its default hover is the loud green accent, overridden to
-// a muted tone to match the prototype's understated chip.
-function OptionSource({
-  source,
-}: {
-  source: OrdinanceSource
-}): React.JSX.Element {
-  return (
-    <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-      <span className="italic">source:</span>
-      <SourceCitation
-        organization={source.publisher ?? 'Source'}
-        title={source.title}
-        description={source.excerpt ?? source.title}
-        chipLabel={source.title}
-        className="hover:bg-muted"
-        {...(source.url ? { url: source.url } : {})}
-      />
-    </div>
-  )
-}
+import type { OrdinanceClarifyQuestion } from '@goodparty_org/contracts'
+import SourceLine from './SourceLine'
 
 // Renders one clarify question as selectable option cards (radio + title, with
 // the rationale and cited source in a divided section below) plus an
@@ -101,6 +75,13 @@ export default function ClarifyQuestionWidget({
             >
               <Label
                 htmlFor={id}
+                onClick={(e) => {
+                  // A drag to highlight the option text ends in a click on the
+                  // label; a non-empty selection here means the user was
+                  // selecting (a plain click clears any prior selection on
+                  // mousedown), so don't let it toggle the radio.
+                  if (window.getSelection()?.toString()) e.preventDefault()
+                }}
                 className={cn(
                   'flex items-center gap-3 text-left',
                   selectable ? 'cursor-pointer' : 'cursor-default',
@@ -112,7 +93,7 @@ export default function ClarifyQuestionWidget({
                   disabled={disabled || isAnswered}
                   className="shrink-0 disabled:cursor-default disabled:opacity-100"
                 />
-                <span className="text-sm font-medium text-foreground">
+                <span className="text-sm font-medium text-foreground select-text">
                   {option.label}
                 </span>
               </Label>
@@ -126,9 +107,7 @@ export default function ClarifyQuestionWidget({
                       {option.rationale}
                     </p>
                   ) : null}
-                  {option.source ? (
-                    <OptionSource source={option.source} />
-                  ) : null}
+                  {option.source ? <SourceLine source={option.source} /> : null}
                 </div>
               ) : null}
             </div>

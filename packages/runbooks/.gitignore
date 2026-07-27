@@ -20,6 +20,7 @@ experiments/index.json
 # Transient full-result report from scripts/python/analytics_event_health.py (--json).
 # The committed durable artifacts are the longitudinal log + the diff state, not this.
 scripts/python/analytics_event_health_report.json
+scripts/python/instrumentation_data/analytics_event_health_report.json
 
 # Event-health remediation payloads are transient dev-review artifacts (proposals fed to
 # the event-metadata skill), not durable state. See books/monitor-event-health.md.

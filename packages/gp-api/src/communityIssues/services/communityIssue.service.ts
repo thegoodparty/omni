@@ -9,6 +9,7 @@ import {
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
+import { DashboardCardsService } from '@/dashboardCards/services/dashboardCards.service'
 import { validateCommunityIssuesArtifact } from '../communityIssueArtifact.validation'
 import {
   CommunityIssueUpsertService,
@@ -61,6 +62,7 @@ export class CommunityIssueService extends createPrismaBase(
     private readonly s3: S3Service,
     private readonly upsert: CommunityIssueUpsertService,
     private readonly analytics: AnalyticsService,
+    private readonly dashboardCards: DashboardCardsService,
   ) {
     super()
   }
@@ -142,6 +144,43 @@ export class CommunityIssueService extends createPrismaBase(
     if (!summary) return
 
     await this.emitGenerationEvents(run, summary)
+    await this.syncCardsForCreatedIssues(run, summary)
+  }
+
+  // Turns each issue a non-initial run newly created into a Chief of Staff task
+  // card. Skips the list's first-ever generation (that is not "news"). Card
+  // writes are best-effort: a failure here must not throw out of the handler, or
+  // the SQS run-completed message would redeliver and the id-less issues would be
+  // re-created as duplicate rows on the already-committed upsert.
+  private async syncCardsForCreatedIssues(
+    run: ExperimentRun,
+    summary: CommunityIssueUpsertSummary,
+  ): Promise<void> {
+    if (summary.wasFirstGenerationForList) return
+    if (summary.createdIssues.length === 0) return
+
+    const office = await this.client.electedOffice.findFirst({
+      where: { organizationSlug: run.organizationSlug },
+      select: { id: true },
+    })
+    if (!office) {
+      this.logger.warn(
+        { runId: run.runId, organizationSlug: run.organizationSlug },
+        'community-issue run: no elected office; skipping task cards',
+      )
+      return
+    }
+
+    try {
+      for (const issue of summary.createdIssues) {
+        await this.dashboardCards.syncFromCommunityIssue(office.id, issue)
+      }
+    } catch (err) {
+      this.logger.error(
+        { runId: run.runId, organizationSlug: run.organizationSlug, err },
+        'community-issue run: failed to create task cards',
+      )
+    }
   }
 
   private async emitGenerationEvents(
@@ -177,26 +216,9 @@ export class CommunityIssueService extends createPrismaBase(
         where: { organizationSlug: run.organizationSlug, list: otherList },
       })
       if (otherListCount > 0) {
-        const [topIssues, trendingIssues] = await Promise.all([
-          this.model.findMany({
-            where: {
-              organizationSlug: run.organizationSlug,
-              list: CommunityIssueList.top_community,
-              archivedAt: null,
-            },
-            select: { title: true, summary: true, priority: true },
-            orderBy: { rank: Prisma.SortOrder.asc },
-          }),
-          this.model.findMany({
-            where: {
-              organizationSlug: run.organizationSlug,
-              list: CommunityIssueList.trending,
-              archivedAt: null,
-            },
-            select: { title: true, summary: true, priority: true },
-            orderBy: { rank: Prisma.SortOrder.asc },
-          }),
-        ])
+        const [topIssues, trendingIssues] = await this.loadCurrentIssues(
+          run.organizationSlug,
+        )
         if (topIssues.length > 0 && trendingIssues.length > 0) {
           void this.analytics
             .track(userId, EVENTS.CommunityIssues.InitialIssuesGenerated, {
@@ -208,43 +230,57 @@ export class CommunityIssueService extends createPrismaBase(
             .catch(() => undefined)
         }
       }
+      return
     }
 
-    // A high-priority trending issue that is newly created on a refresh run
-    // (never on the org's first trending generation, where every issue is new).
-    if (
-      summary.list === CommunityIssueList.trending &&
-      !summary.wasFirstGenerationForList
-    ) {
-      for (const issue of summary.newHighPriorityTrending) {
-        void this.analytics
-          .track(
-            userId,
-            EVENTS.CommunityIssues.HighPriorityTrendingIssueCreated,
-            {
-              issueId: issue.id,
-              title: issue.title,
-              summary: issue.summary,
-            },
-          )
-          .catch(() => undefined)
-      }
-    }
-
-    // An existing main-list issue whose priority moved this refresh — answers
-    // "is something on the main list changing in urgency?". Only top_community
-    // changes are collected, and these only occur on refreshes (a first
-    // generation has no existing issues to change).
-    for (const issue of summary.topPriorityChanges) {
+    // Every later refresh gets a fresh snapshot event of the list that just
+    // refreshed — no diffing against the prior state, just "here's what the
+    // list looks like now". Both counts ride along on either event so a
+    // downstream consumer always has the full-picture context.
+    const [topIssues, trendingIssues] = await this.loadCurrentIssues(
+      run.organizationSlug,
+    )
+    if (summary.list === CommunityIssueList.top_community) {
       void this.analytics
-        .track(userId, EVENTS.CommunityIssues.TopIssuePriorityChanged, {
-          issueId: issue.id,
-          title: issue.title,
-          summary: issue.summary,
-          previousPriority: issue.previousPriority,
-          priority: issue.priority,
+        .track(userId, EVENTS.CommunityIssues.TopIssuesRefreshed, {
+          topIssueCount: topIssues.length,
+          trendingIssueCount: trendingIssues.length,
+          ...flattenIssuesForEmail('topIssue', topIssues),
+        })
+        .catch(() => undefined)
+    } else {
+      void this.analytics
+        .track(userId, EVENTS.CommunityIssues.TrendingIssuesRefreshed, {
+          topIssueCount: topIssues.length,
+          trendingIssueCount: trendingIssues.length,
+          ...flattenIssuesForEmail('trendingIssue', trendingIssues),
         })
         .catch(() => undefined)
     }
+  }
+
+  private async loadCurrentIssues(
+    organizationSlug: string,
+  ): Promise<[EmailIssueFields[], EmailIssueFields[]]> {
+    return Promise.all([
+      this.model.findMany({
+        where: {
+          organizationSlug,
+          list: CommunityIssueList.top_community,
+          archivedAt: null,
+        },
+        select: { title: true, summary: true, priority: true },
+        orderBy: { rank: Prisma.SortOrder.asc },
+      }),
+      this.model.findMany({
+        where: {
+          organizationSlug,
+          list: CommunityIssueList.trending,
+          archivedAt: null,
+        },
+        select: { title: true, summary: true, priority: true },
+        orderBy: { rank: Prisma.SortOrder.asc },
+      }),
+    ])
   }
 }

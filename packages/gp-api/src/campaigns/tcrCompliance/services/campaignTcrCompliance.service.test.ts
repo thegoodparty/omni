@@ -2,12 +2,14 @@ import { Test, TestingModule } from '@nestjs/testing'
 import {
   BadGatewayException,
   BadRequestException,
+  ConflictException,
   NotFoundException,
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common'
 import { subMinutes } from 'date-fns'
 import { PeerlyBillingException } from '../../../vendors/peerly/utils/peerlyBillingError.util'
+import { PeerlyCvRejectionException } from '../../../vendors/peerly/utils/peerlyCvRejection.util'
 import {
   CommitteeType,
   ExperimentRunStatus,
@@ -21,12 +23,14 @@ import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import { CampaignTcrComplianceService } from './campaignTcrCompliance.service'
 import { ComplianceStateService } from './complianceState.service'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
+import { PeerlyCvVerificationStatus } from '../../../vendors/peerly/peerly.types'
 import { WebsitesService } from '../../../websites/services/websites.service'
 import { CampaignsService } from '../../services/campaigns.service'
 import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { SlackService } from '@/vendors/slack/services/slack.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { PrismaService } from '@/prisma/prisma.service'
 import { MessageGroup, QueueType } from '../../../queue/queue.types'
@@ -136,6 +140,10 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         {
           provide: AnalyticsService,
           useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
         CampaignTcrComplianceService,
       ],
@@ -706,6 +714,10 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
           provide: AnalyticsService,
           useValue: { track: vi.fn().mockResolvedValue(undefined) },
         },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -1131,7 +1143,8 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     details: { electionDate: '2026-11-03' },
   })
 
-  // A real bio (>= 500 chars, no template marker) plus one real issue, so the
+  // A real bio (well over MIN_BIO_LENGTH, no template marker) plus one real
+  // issue, so the
   // content gate passes by default; individual tests override this to
   // exercise the generic-content rejection path.
   const genuineContent = {
@@ -1248,6 +1261,10 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
         },
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: AnalyticsService, useValue: mockAnalytics },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -1740,6 +1757,76 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     })
   })
 
+  it('marks the record rejected, fires the rejection event, and rethrows on a CV data rejection', async () => {
+    const cvErr = new PeerlyCvRejectionException(
+      'Campaign Verify rejected the submission: FEC filing URLs are not allowed.',
+    )
+    mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(cvErr)
+
+    await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
+      cvErr,
+    )
+
+    // Claim (updateMany #1) then rollback (updateMany #2), same as the
+    // billing path — the rejected stamp must not leave the claim held.
+    expect(mockTcrModel.updateMany).toHaveBeenCalledTimes(2)
+    expect(mockTcrModel.update).toHaveBeenCalledWith({
+      where: { id: existingRecord.id },
+      data: { status: 'rejected' },
+    })
+    expect(mockAnalytics.track).toHaveBeenCalledWith(
+      user.id,
+      EVENTS.Outreach.ComplianceRejected,
+      expect.objectContaining({
+        rejection_source: 'cv_submit',
+        rejection_reason: cvErr.message,
+      }),
+    )
+  })
+
+  it('does not fire the rejection event when the rejected stamp fails to commit', async () => {
+    // If the rollback transaction fails, the record stays non-rejected and
+    // the deterministic retry would fire the event again — so no stamp, no
+    // event.
+    const cvErr = new PeerlyCvRejectionException(
+      'Campaign Verify rejected the submission: FEC filing URLs are not allowed.',
+    )
+    mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(cvErr)
+    mockPrisma.$transaction.mockRejectedValueOnce(new Error('connection lost'))
+
+    await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
+      cvErr,
+    )
+
+    const rejectionFires = mockAnalytics.track.mock.calls.filter(
+      (call) => call[1] === EVENTS.Outreach.ComplianceRejected,
+    )
+    expect(rejectionFires).toHaveLength(0)
+  })
+
+  it('does not stamp rejected or fire the event when a TTL re-claimant owns the record', async () => {
+    const cvErr = new PeerlyCvRejectionException(
+      'Campaign Verify rejected the submission: FEC filing URLs are not allowed.',
+    )
+    mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(cvErr)
+    // Pre-Peerly claim succeeds, but by rollback time this caller's claim has
+    // expired and a TTL re-claimant re-stamped it — the in-transaction release
+    // matches 0 rows, so this caller no longer owns the record.
+    mockTcrModel.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 })
+
+    await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
+      cvErr,
+    )
+
+    expect(mockTcrModel.update).not.toHaveBeenCalled()
+    const rejectionFires = mockAnalytics.track.mock.calls.filter(
+      (call) => call[1] === EVENTS.Outreach.ComplianceRejected,
+    )
+    expect(rejectionFires).toHaveLength(0)
+  })
+
   it('holds off re-submitting (no Peerly call) while the billing block is within cooldown', async () => {
     mockTcrModel.findUnique.mockResolvedValueOnce({
       ...existingRecord,
@@ -1818,6 +1905,10 @@ describe('CampaignTcrComplianceService - create (legacy) placeId guard', () => {
         {
           provide: AnalyticsService,
           useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
         CampaignTcrComplianceService,
       ],
@@ -1902,6 +1993,10 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
         {
           provide: AnalyticsService,
           useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
         CampaignTcrComplianceService,
       ],
@@ -2051,6 +2146,231 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
   })
 })
 
+describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
+  let service: CampaignTcrComplianceService
+  let mockPeerly: {
+    retrieveCampaignVerifyDetails: ReturnType<typeof vi.fn>
+    resendCampaignVerifyPin: ReturnType<typeof vi.fn>
+  }
+  let mockModel: { findUnique: ReturnType<typeof vi.fn> }
+  let mockAnalytics: { track: ReturnType<typeof vi.fn> }
+
+  const campaign = createMockCampaign({ id: 7, userId: 1 })
+
+  const withEnv = async (
+    value: string | undefined,
+    body: () => Promise<void>,
+  ) => {
+    const original = process.env.OTEL_SERVICE_ENVIRONMENT
+    if (value === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
+    else process.env.OTEL_SERVICE_ENVIRONMENT = value
+    try {
+      await body()
+    } finally {
+      if (original === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
+      else process.env.OTEL_SERVICE_ENVIRONMENT = original
+    }
+  }
+
+  beforeEach(async () => {
+    mockPeerly = {
+      retrieveCampaignVerifyDetails: vi.fn(),
+      resendCampaignVerifyPin: vi.fn().mockResolvedValue(undefined),
+    }
+    mockModel = { findUnique: vi.fn() }
+    mockAnalytics = { track: vi.fn().mockResolvedValue(undefined) }
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        { provide: PrismaService, useValue: { tcrCompliance: mockModel } },
+        { provide: PeerlyIdentityService, useValue: mockPeerly },
+        { provide: WebsitesService, useValue: {} },
+        { provide: CampaignsService, useValue: {} },
+        { provide: CrmCampaignsService, useValue: {} },
+        { provide: ComplianceStateService, useValue: {} },
+        { provide: QueueProducerService, useValue: {} },
+        { provide: ExperimentRunsService, useValue: {} },
+        { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: AnalyticsService, useValue: mockAnalytics },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
+        CampaignTcrComplianceService,
+      ],
+    }).compile()
+    service = module.get(CampaignTcrComplianceService)
+  })
+
+  it('throws NotFoundException when the campaign has no TCR record', async () => {
+    mockModel.findUnique.mockResolvedValueOnce(null)
+
+    await withEnv('prod', async () => {
+      await expect(service.resendCampaignVerifyPin(campaign)).rejects.toThrow(
+        NotFoundException,
+      )
+      expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
+    })
+  })
+
+  it('short-circuits in non-prod without touching Peerly', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: null,
+    })
+
+    await withEnv('dev', async () => {
+      await expect(
+        service.resendCampaignVerifyPin(campaign),
+      ).resolves.toBeUndefined()
+      expect(mockPeerly.retrieveCampaignVerifyDetails).not.toHaveBeenCalled()
+      expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
+      expect(mockAnalytics.track).toHaveBeenCalledWith(
+        campaign.userId,
+        EVENTS.Outreach.CompliancePinResent,
+        { triggered_by: 'admin' },
+      )
+    })
+  })
+
+  it('throws UnprocessableEntityException when no Peerly identity exists yet', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: null,
+    })
+
+    await withEnv('prod', async () => {
+      await expect(service.resendCampaignVerifyPin(campaign)).rejects.toThrow(
+        UnprocessableEntityException,
+      )
+      expect(mockPeerly.retrieveCampaignVerifyDetails).not.toHaveBeenCalled()
+      expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
+    })
+  })
+
+  it('throws ConflictException when the PIN was already verified', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: 'peerly-1',
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: PeerlyCvVerificationStatus.VERIFIED,
+      pinDelivery: null,
+    })
+
+    await withEnv('prod', async () => {
+      await expect(service.resendCampaignVerifyPin(campaign)).rejects.toThrow(
+        ConflictException,
+      )
+      expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
+      expect(mockAnalytics.track).not.toHaveBeenCalled()
+    })
+  })
+
+  it('throws UnprocessableEntityException when CV has not issued a PIN yet', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: 'peerly-1',
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: PeerlyCvVerificationStatus.REQUESTED,
+      pinDelivery: null,
+    })
+
+    await withEnv('prod', async () => {
+      await expect(service.resendCampaignVerifyPin(campaign)).rejects.toThrow(
+        UnprocessableEntityException,
+      )
+      expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
+    })
+  })
+
+  it('throws UnprocessableEntityException when Peerly has no CV request (404-as-null)', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: 'peerly-1',
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: null,
+      pinDelivery: null,
+    })
+
+    await withEnv('prod', async () => {
+      await expect(service.resendCampaignVerifyPin(campaign)).rejects.toThrow(
+        UnprocessableEntityException,
+      )
+      expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
+    })
+  })
+
+  it('resends the PIN when the live CV status is APPROVED', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: 'peerly-1',
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: PeerlyCvVerificationStatus.APPROVED,
+      pinDelivery: null,
+    })
+
+    await withEnv('prod', async () => {
+      await expect(
+        service.resendCampaignVerifyPin(campaign),
+      ).resolves.toBeUndefined()
+      expect(mockPeerly.resendCampaignVerifyPin).toHaveBeenCalledWith(
+        'peerly-1',
+        campaign,
+      )
+      expect(mockAnalytics.track).toHaveBeenCalledWith(
+        campaign.userId,
+        EVENTS.Outreach.CompliancePinResent,
+        { triggered_by: 'admin', peerly_identity_id: 'peerly-1' },
+      )
+    })
+  })
+
+  it('does not fire the resent event when the Peerly resend call fails', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: 'peerly-1',
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: PeerlyCvVerificationStatus.APPROVED,
+      pinDelivery: null,
+    })
+    mockPeerly.resendCampaignVerifyPin.mockRejectedValueOnce(
+      new BadGatewayException('Peerly API error'),
+    )
+
+    await withEnv('prod', async () => {
+      await expect(service.resendCampaignVerifyPin(campaign)).rejects.toThrow(
+        BadGatewayException,
+      )
+      expect(mockAnalytics.track).not.toHaveBeenCalled()
+    })
+  })
+
+  it('propagates a Peerly failure from the resend call', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: 'peerly-1',
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: PeerlyCvVerificationStatus.APPROVED,
+      pinDelivery: null,
+    })
+    mockPeerly.resendCampaignVerifyPin.mockRejectedValueOnce(
+      new BadGatewayException('Peerly API error'),
+    )
+
+    await withEnv('prod', async () => {
+      await expect(service.resendCampaignVerifyPin(campaign)).rejects.toThrow(
+        BadGatewayException,
+      )
+    })
+  })
+})
+
 describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
   let service: CampaignTcrComplianceService
   let mockPeerly: {
@@ -2136,6 +2456,10 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
         {
           provide: AnalyticsService,
           useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
         CampaignTcrComplianceService,
       ],
@@ -2317,5 +2641,221 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       where: { id: 'tcr-b' },
       data: { status: TcrComplianceStatus.pending },
     })
+  })
+})
+
+describe('CampaignTcrComplianceService - internal testing approval', () => {
+  let service: CampaignTcrComplianceService
+  let mockModel: {
+    findUnique: ReturnType<typeof vi.fn>
+    create: ReturnType<typeof vi.fn>
+    deleteMany: ReturnType<typeof vi.fn>
+  }
+
+  const campaign = createMockCampaign({ id: 7, userId: 1 })
+  const internalUser = createMockUser({ email: 'staff@goodparty.org' })
+
+  beforeEach(async () => {
+    mockModel = {
+      findUnique: vi.fn().mockResolvedValue(null),
+      create: vi
+        .fn()
+        .mockImplementation(({ data }) =>
+          Promise.resolve({ id: 'tcr-new', ...data }),
+        ),
+      deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+    }
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        { provide: PrismaService, useValue: { tcrCompliance: mockModel } },
+        { provide: PeerlyIdentityService, useValue: {} },
+        { provide: WebsitesService, useValue: {} },
+        { provide: CampaignsService, useValue: {} },
+        { provide: CrmCampaignsService, useValue: {} },
+        { provide: ComplianceStateService, useValue: {} },
+        { provide: QueueProducerService, useValue: {} },
+        { provide: ExperimentRunsService, useValue: {} },
+        { provide: PinoLogger, useValue: createMockLogger() },
+        {
+          provide: AnalyticsService,
+          useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
+        CampaignTcrComplianceService,
+      ],
+    }).compile()
+    service = module.get(CampaignTcrComplianceService)
+  })
+
+  it('rejects a non-internal email without creating anything', async () => {
+    const externalUser = createMockUser({ email: 'candidate@gmail.com' })
+
+    await expect(
+      service.grantInternalTestingApproval(externalUser, campaign),
+    ).rejects.toThrow(BadRequestException)
+    expect(mockModel.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects a lookalike domain that merely contains goodparty.org', async () => {
+    const lookalike = createMockUser({ email: 'a@goodparty.org.evil.com' })
+
+    await expect(
+      service.grantInternalTestingApproval(lookalike, campaign),
+    ).rejects.toThrow(BadRequestException)
+    expect(mockModel.create).not.toHaveBeenCalled()
+  })
+
+  it('creates an approved marker row for an internal email', async () => {
+    const created = await service.grantInternalTestingApproval(
+      internalUser,
+      campaign,
+    )
+
+    expect(mockModel.create).toHaveBeenCalledTimes(1)
+    const { data } = firstOrThrow(mockModel.create.mock.calls)[0]
+    expect(data.campaignId).toBe(campaign.id)
+    expect(data.status).toBe(TcrComplianceStatus.approved)
+    expect(data.internalTestingApprovedAt).toBeInstanceOf(Date)
+    expect(data.email).toBe(internalUser.email)
+    expect(created.status).toBe(TcrComplianceStatus.approved)
+  })
+
+  it('accepts @test.goodparty.org emails case-insensitively', async () => {
+    const testUser = createMockUser({ email: 'E2E@Test.GoodParty.org' })
+
+    await service.grantInternalTestingApproval(testUser, campaign)
+
+    expect(mockModel.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('is idempotent when the marker row already exists', async () => {
+    const existing = {
+      id: 'tcr-1',
+      internalTestingApprovedAt: new Date(),
+      status: TcrComplianceStatus.approved,
+    }
+    mockModel.findUnique.mockResolvedValueOnce(existing)
+
+    await expect(
+      service.grantInternalTestingApproval(internalUser, campaign),
+    ).resolves.toBe(existing)
+    expect(mockModel.create).not.toHaveBeenCalled()
+  })
+
+  it('refuses to overwrite a real compliance record', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      internalTestingApprovedAt: null,
+      status: TcrComplianceStatus.pending,
+    })
+
+    await expect(
+      service.grantInternalTestingApproval(internalUser, campaign),
+    ).rejects.toThrow(ConflictException)
+    expect(mockModel.create).not.toHaveBeenCalled()
+  })
+
+  it('returns the raced marker row when a concurrent grant wins the create', async () => {
+    const raced = {
+      id: 'tcr-raced',
+      internalTestingApprovedAt: new Date(),
+      status: TcrComplianceStatus.approved,
+    }
+    mockModel.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(raced)
+    mockModel.create.mockRejectedValueOnce(
+      new PrismaClientKnownRequestError('Unique constraint', {
+        code: 'P2002',
+        clientVersion: 'test',
+      }),
+    )
+
+    await expect(
+      service.grantInternalTestingApproval(internalUser, campaign),
+    ).resolves.toBe(raced)
+  })
+
+  it('409s cleanly when the racing row vanishes before the re-read', async () => {
+    mockModel.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(null)
+    mockModel.create.mockRejectedValueOnce(
+      new PrismaClientKnownRequestError('Unique constraint', {
+        code: 'P2002',
+        clientVersion: 'test',
+      }),
+    )
+
+    await expect(
+      service.grantInternalTestingApproval(internalUser, campaign),
+    ).rejects.toThrow(ConflictException)
+  })
+
+  it('409s when a real compliance record wins the create race', async () => {
+    mockModel.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      id: 'tcr-real',
+      internalTestingApprovedAt: null,
+      status: TcrComplianceStatus.submitted,
+    })
+    mockModel.create.mockRejectedValueOnce(
+      new PrismaClientKnownRequestError('Unique constraint', {
+        code: 'P2002',
+        clientVersion: 'test',
+      }),
+    )
+
+    await expect(
+      service.grantInternalTestingApproval(internalUser, campaign),
+    ).rejects.toThrow(ConflictException)
+  })
+
+  it('revoke deletes the marker row', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      internalTestingApprovedAt: new Date(),
+    })
+
+    await service.revokeInternalTestingApproval(campaign.id)
+
+    expect(mockModel.deleteMany).toHaveBeenCalledWith({
+      where: { id: 'tcr-1' },
+    })
+  })
+
+  it('revoke resolves even when a concurrent revoke already removed the row', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      internalTestingApprovedAt: new Date(),
+    })
+    mockModel.deleteMany.mockResolvedValueOnce({ count: 0 })
+
+    await expect(
+      service.revokeInternalTestingApproval(campaign.id),
+    ).resolves.toBeUndefined()
+  })
+
+  it('revoke is a no-op when no record exists', async () => {
+    mockModel.findUnique.mockResolvedValueOnce(null)
+
+    await expect(
+      service.revokeInternalTestingApproval(campaign.id),
+    ).resolves.toBeUndefined()
+    expect(mockModel.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('revoke refuses to delete a real compliance record', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      internalTestingApprovedAt: null,
+      status: TcrComplianceStatus.pending,
+    })
+
+    await expect(
+      service.revokeInternalTestingApproval(campaign.id),
+    ).rejects.toThrow(ConflictException)
+    expect(mockModel.deleteMany).not.toHaveBeenCalled()
   })
 })

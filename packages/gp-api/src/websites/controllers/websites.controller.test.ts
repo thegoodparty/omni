@@ -218,6 +218,60 @@ describe('WebsitesController', () => {
       expect(mockAnalytics.track).toHaveBeenCalledTimes(1)
     })
 
+    it('fires Candidate Profile Submitted when a save completes the compliance profile', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        content: {
+          ...completeContent,
+          about: { bio: 'Too short', issues: [] },
+        },
+        hasEverBeenPublished: false,
+        domain: { status: DomainStatus.submitted },
+      })
+
+      const body = new UpdateWebsiteSchema()
+      body.about = {
+        bio: GENUINE_BIO,
+        issues: [{ title: 'Roads', description: 'Fix the potholes' }],
+      }
+
+      await controller.updateWebsite(mockUser, mockCampaign, body)
+
+      expect(mockAnalytics.track).toHaveBeenCalledWith(
+        mockUser.id,
+        EVENTS.Outreach.ComplianceCandidateProfileSubmitted,
+      )
+    })
+
+    it('does not fire Candidate Profile Submitted when the profile was already complete', async () => {
+      const body = new UpdateWebsiteSchema()
+      body.about = {
+        bio: GENUINE_BIO,
+        issues: [{ title: 'Roads', description: 'Fix the potholes' }],
+      }
+
+      await controller.updateWebsite(mockUser, mockCampaign, body)
+
+      expect(mockAnalytics.track).not.toHaveBeenCalled()
+    })
+
+    it('does not fire Candidate Profile Submitted when the save leaves the profile incomplete', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        content: {
+          ...completeContent,
+          about: { bio: 'Too short', issues: [] },
+        },
+        hasEverBeenPublished: false,
+        domain: { status: DomainStatus.submitted },
+      })
+
+      const body = new UpdateWebsiteSchema()
+      body.about = { bio: 'Still too short', issues: [] }
+
+      await controller.updateWebsite(mockUser, mockCampaign, body)
+
+      expect(mockAnalytics.track).not.toHaveBeenCalled()
+    })
+
     it('should still return the update result when analytics tracking fails', async () => {
       const updateResult = {
         id: 1,

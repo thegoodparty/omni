@@ -1,6 +1,12 @@
-import { HttpStatus } from '@nestjs/common'
+import { BadRequestException, HttpStatus } from '@nestjs/common'
 import { isAxiosError } from 'axios'
 import { z } from 'zod'
+
+// Still a 400 to HTTP callers, but a distinct class so the TCR service can
+// recognize a CV data rejection (vs any other bad request) and persist the
+// rejected status + fire the rejection Segment event — mirrors
+// PeerlyBillingException.
+export class PeerlyCvRejectionException extends BadRequestException {}
 
 // Peerly proxies Campaign Verify on submit_cv: a CV failure comes back as
 // HTTP 400 with `Error: "Campaign Verify API request failed."` and CV's own

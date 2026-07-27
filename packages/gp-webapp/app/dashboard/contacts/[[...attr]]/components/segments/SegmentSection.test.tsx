@@ -4,15 +4,15 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import SegmentSection from './SegmentSection'
-import { useContactsTable } from '../../hooks/ContactsTableProvider'
-import { useShowContactProModal } from '../../hooks/ContactProModal'
+import { useContactsTable } from '../../../crm/ContactsTableProvider'
+import { useShowContactProModal } from '../../../crm/ContactProModal'
 import { useSnackbar } from 'helpers/useSnackbar'
 
-vi.mock('../../hooks/ContactsTableProvider', () => ({
+vi.mock('../../../crm/ContactsTableProvider', () => ({
   useContactsTable: vi.fn(),
 }))
 
-vi.mock('../../hooks/ContactProModal', () => ({
+vi.mock('../../../crm/ContactProModal', () => ({
   useShowContactProModal: vi.fn(),
 }))
 
@@ -43,6 +43,7 @@ function setContext(overrides: Partial<ContextValue> = {}) {
   const ctx: ContextValue = {
     filteredContacts: [],
     currentlySelectedPersonId: null,
+    currentlySelectedListId: null,
     currentlySelectedPerson: {
       person: null,
       isLoadingPerson: false,
@@ -79,6 +80,7 @@ function setContext(overrides: Partial<ContextValue> = {}) {
     goToPage: vi.fn(),
     setPageSize: vi.fn(),
     selectPerson: vi.fn(),
+    selectList: vi.fn(),
     selectSegment: vi.fn(),
     searchContacts: vi.fn(),
     refreshCustomSegments: vi.fn().mockResolvedValue(undefined),

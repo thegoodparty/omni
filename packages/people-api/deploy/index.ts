@@ -1,7 +1,6 @@
 import * as pulumi from '@pulumi/pulumi'
 import * as aws from '@pulumi/aws'
 import { createService } from './components/service'
-import { createRdsAdminRole } from './components/rds-admin-role'
 
 const extractDbCredentials = (dbUrl: string) => {
   const url = new URL(dbUrl)
@@ -17,11 +16,6 @@ export = async () => {
   const environment = config.require('environment') as 'dev' | 'prod'
   const imageUri = config.require('imageUri')
 
-  const externalId = process.env.ASTRO_ASSUME_ROLE_EXTERNAL_ID
-  if (!externalId) {
-    throw new Error('ASTRO_ASSUME_ROLE_EXTERNAL_ID env var must be set')
-  }
-
   const vpcId = 'vpc-0763fa52c32ebcf6a'
   const hostedZoneId = 'Z10392302OXMPNQLPO07K'
   const vpcSubnetIds = {
@@ -35,6 +29,17 @@ export = async () => {
   const select = <T>(values: Record<'dev' | 'prod', T>): T =>
     values[environment]
 
+  const { accountId } = await aws.getCallerIdentity({})
+
+  // The SSM parameter must exist before this stack is deployed. Create it once
+  // per environment with:
+  //   aws ssm put-parameter --name people-db-connection-string-<env> \
+  //     --value "<postgres-connection-string>" --type SecureString
+  // It is intentionally not a Pulumi resource: the DB connection string is a
+  // secret and would land in Pulumi state. If it is missing, DatabaseUrlProvider
+  // throws on startup and ECS fails to reach steady state.
+  const dbUrlParameterArn = `arn:aws:ssm:us-west-2:${accountId}:parameter/people-db-connection-string-${environment}`
+
   const secretName = select({
     dev: 'PEOPLE_API_DEV',
     prod: 'PEOPLE_API_PROD',
@@ -44,9 +49,26 @@ export = async () => {
     secretId: secretName,
   })
 
+  const secretMeta = await aws.secretsmanager.getSecret({
+    name: secretName,
+  })
+
   const secret: Record<string, string> = JSON.parse(
     secretVersion.secretString || '{}',
   ) as Record<string, string>
+
+  // NOTE: DATABASE_URL must remain a key in the PEOPLE_API_<ENV> Secrets Manager
+  // secret. The running service no longer receives it (it resolves the URL from
+  // SSM at runtime), but this stack still parses it here to derive the RDS
+  // cluster masterPassword. Guard explicitly so its absence fails with a clear
+  // message rather than an opaque `new URL(undefined)` TypeError at plan time.
+  if (!secret.DATABASE_URL) {
+    throw new Error(
+      `DATABASE_URL key is missing from the ${secretName} Secrets Manager ` +
+        'secret. It must remain present so this stack can derive the RDS ' +
+        'masterPassword.',
+    )
+  }
 
   const { password } = extractDbCredentials(secret.DATABASE_URL)
 
@@ -91,8 +113,6 @@ export = async () => {
     prod: ['tf-20250910223305753900000001', 'tf-20250910223305761900000002'],
   })
 
-  createRdsAdminRole({ environment, externalId })
-
   for (let i = 0; i < rdsInstanceIds.length; i++) {
     new aws.rds.ClusterInstance(`rdsInstance-${i}`, {
       identifier: rdsInstanceIds[i],
@@ -115,6 +135,7 @@ export = async () => {
     vpcId,
     securityGroupIds: vpcSecurityGroupIds,
     publicSubnetIds: vpcSubnetIds.public,
+    privateSubnetIds: vpcSubnetIds.private,
     hostedZoneId,
     domain: select({
       dev: 'people-api-dev.goodparty.org',
@@ -125,17 +146,18 @@ export = async () => {
       prod: 'arn:aws:acm:us-west-2:333022194791:certificate/fb247fc9-b03e-42de-86af-f7de15e4ef46',
     }),
     secrets: Object.fromEntries(
-      Object.keys(secret).map((key) => [
-        key,
-        pulumi.interpolate`${secretVersion.arn}:${key}::`,
-      ]),
+      Object.keys(secret)
+        .filter((key) => key !== 'DATABASE_URL')
+        .map((key) => [key, pulumi.interpolate`${secretVersion.arn}:${key}::`]),
     ),
     environmentVariables: {
       PORT: '80',
       HOST: '0.0.0.0',
       LOG_LEVEL: 'debug',
       OTEL_SERVICE_ENVIRONMENT: environment,
-      SECRET_NAMES: Object.keys(secret).join(','),
+      SECRET_NAMES: Object.keys(secret)
+        .filter((key) => key !== 'DATABASE_URL')
+        .join(','),
       CORS_ORIGIN: select({
         dev: 'https://dev.goodparty.org',
         prod: 'https://goodparty.org',
@@ -153,13 +175,13 @@ export = async () => {
     permissions: [
       {
         Effect: 'Allow',
-        Action: [
-          'secretsmanager:GetSecretValue',
-          'ssm:GetParameters',
-          'ssm:GetParameter',
-          'ssm:GetParameterHistory',
-        ],
-        Resource: ['*'],
+        Action: ['ssm:GetParameter'],
+        Resource: [dbUrlParameterArn],
+      },
+      {
+        Effect: 'Allow',
+        Action: ['secretsmanager:GetSecretValue'],
+        Resource: [secretMeta.arn],
       },
       {
         Effect: 'Allow',

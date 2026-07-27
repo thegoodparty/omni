@@ -1,12 +1,12 @@
 'use client'
 import { DataTableColumnHeader } from '@styleguide'
-import { useContactsTable } from '../hooks/ContactsTableProvider'
+import { useContactsTable } from '../../crm/ContactsTableProvider'
 import ServerDataTable from './ServerDataTable'
-import { useShowContactProModal } from '../hooks/ContactProModal'
+import { useShowContactProModal } from '../../crm/ContactProModal'
 import { type ColumnDef } from '@tanstack/react-table'
 import { type ReactNode } from 'react'
-import { Person } from './shared/contacts-types'
-import { formatPersonName } from './person/PersonOverlay'
+import { Person } from '../../crm/shared/contacts-types'
+import { formatPersonName } from '../../crm/person/PersonOverlay'
 
 interface MaybeBlurredContentProps {
   children: ReactNode
@@ -20,18 +20,21 @@ const MaybeBlurredContent = ({ children }: MaybeBlurredContentProps) => {
   return <span className="blur-[6px]">{children}</span>
 }
 
+type CellValue = string | number | null | undefined
+
 const blurredCell = ({
   row,
   column,
 }: {
-  row: { getValue: (key: string) => ReactNode }
+  row: { getValue: (key: string) => CellValue }
   column: { id: string }
 }) => {
   const value = row.getValue(column.id)
   return <MaybeBlurredContent>{valueFormatter(value)}</MaybeBlurredContent>
 }
 
-const valueFormatter = (value: any) => value || '--'
+const valueFormatter = (value: CellValue): string | number =>
+  value === null || value === undefined || value === '' ? '--' : value
 
 const columns: ColumnDef<Person>[] = [
   {
@@ -71,7 +74,7 @@ const columns: ColumnDef<Person>[] = [
     ),
     cell: ({ row }) => (
       <MaybeBlurredContent>
-        {valueFormatter(row.getValue('age'))}
+        {valueFormatter(row.getValue<CellValue>('age'))}
       </MaybeBlurredContent>
     ),
   },

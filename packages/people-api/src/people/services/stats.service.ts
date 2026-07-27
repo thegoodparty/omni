@@ -19,6 +19,14 @@ export class StatsService extends createPrismaBase(MODELS.DistrictStats) {
     return stats
   }
 
+  async findTotalConstituents(districtId: string): Promise<number | null> {
+    const stats = await this.model.findUnique({
+      select: { totalConstituents: true },
+      where: { districtId },
+    })
+    return stats?.totalConstituents ?? null
+  }
+
   async getTotalCounts(districtId: string) {
     const totalCounts = await this.model.findUnique({
       select: {

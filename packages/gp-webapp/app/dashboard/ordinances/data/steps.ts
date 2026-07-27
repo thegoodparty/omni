@@ -13,6 +13,22 @@ export const ORDINANCE_STEP_LABELS: Record<OrdinanceFlowStep, string> = {
   current_law: 'Current law',
   comparables: 'How others solved it',
   draft: 'Draft',
+  review: 'Review',
+}
+
+// Call-to-action shown on the "advance" button, keyed by the DESTINATION step.
+// Client-owned on purpose: the button's destination is derived from flow order
+// (nextOrdinanceStep), so its label must be too — letting the agent name the
+// destination produced buttons that contradicted where they went (e.g.
+// "Research current law" on the comparables step, whose next step is draft).
+export const ORDINANCE_NEXT_STEP_CTA: Record<OrdinanceFlowStep, string> = {
+  intro: 'Get started',
+  clarify: 'Start clarifying the goal',
+  authority: 'Check our legal authority',
+  current_law: 'Show me the current law',
+  comparables: 'See how others solved it',
+  draft: 'Write the first draft',
+  review: 'Review the draft',
 }
 
 export const isOrdinanceStep = (value: string): value is OrdinanceFlowStep =>

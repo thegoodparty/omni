@@ -82,38 +82,11 @@ module.exports = defineConfig([
       '@typescript-eslint/no-duplicate-type-constituents': 'error',
       '@typescript-eslint/no-duplicate-enum-values': 'error',
 
-      'max-lines-per-function': [
-        'warn',
-        {
-          max: 150,
-        },
-      ],
-
-      'max-lines': [
-        'warn',
-        {
-          max: 800,
-        },
-      ],
-
-      'max-params': ['warn', 4],
-      'max-depth': ['warn', 3],
-      complexity: ['warn', 15],
-      'sonarjs/cognitive-complexity': ['warn', 20],
-      'sonarjs/no-duplicate-string': 'warn',
-      'sonarjs/no-identical-functions': 'warn',
-
       // SonarJS Bug Detection (error - high confidence bugs)
       'sonarjs/no-all-duplicated-branches': 'error',
       'sonarjs/no-identical-expressions': 'error',
       'sonarjs/no-identical-conditions': 'error',
       'sonarjs/non-existent-operator': 'error',
-
-      // SonarJS Code Smells (warn - should fix but not blocking)
-      'sonarjs/no-duplicated-branches': 'warn',
-      'sonarjs/no-useless-catch': 'warn',
-      'sonarjs/no-collapsible-if': 'warn',
-      'sonarjs/no-collection-size-mischeck': 'warn',
 
       '@typescript-eslint/no-unsafe-call': 'error',
       '@typescript-eslint/no-unsafe-return': 'error',
@@ -192,8 +165,6 @@ module.exports = defineConfig([
       '@typescript-eslint/no-unsafe-argument': 'off',
       '@typescript-eslint/no-unsafe-type-assertion': 'off',
       '@typescript-eslint/no-unsafe-enum-comparison': 'off',
-      'max-lines-per-function': 'off',
-      complexity: 'off',
     },
   },
   {

@@ -4,7 +4,7 @@ import {
   Injectable,
 } from '@nestjs/common'
 import { ChatConversation, ChatScope } from '../../../generated/prisma'
-import type { LlmTool } from '@/llm/services/llm.service'
+import type { LlmStreamUsage, LlmTool } from '@/llm/services/llm.service'
 import {
   ChatAnchorSchema,
   type OrdinanceFlowStep,
@@ -22,12 +22,21 @@ import {
   OrdinanceFlowContextService,
 } from './services/ordinanceFlowContext.service'
 import { OrdinanceFlowToolsService } from './services/ordinanceFlowTools.service'
+import { OrdinanceFlowFetchService } from './services/ordinanceFlowFetch.service'
+import { OrdinanceFlowSearchService } from './services/ordinanceFlowSearch.service'
 import {
   buildAskClarifyQuestionTool,
-  buildGetCurrentCodeTool,
+  buildBraveSearchTool,
+  buildFetchUrlTool,
+  buildGetCodeSourceTool,
   buildOfferNextStepTool,
+  buildPresentAuthorityFindingTool,
+  buildPresentComparablesTool,
+  buildPresentCurrentLawSummaryTool,
+  buildPresentDraftTool,
+  buildPresentLegislativeHistoryTool,
   buildReadOrdinanceTool,
-  buildSaveAnswerTool,
+  buildSaveExistingLawTool,
   buildSaveNoteTool,
   buildSaveSynthesisTool,
   type OrdinanceToolDeps,
@@ -49,11 +58,20 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
   readonly scope = ChatScope.ordinance_flow
   readonly isSensitive = true
   readonly models = [...ORDINANCE_FLOW_MODELS]
+  // Per-turn tool-loop ceiling (stopWhen: stepCountIs), reset every message —
+  // not a whole-conversation budget. A current_law research turn chains
+  // get_code_source + repeated brave_search/fetch_url rounds (chasing a
+  // server-rendered copy when Municode renders blank) + save_existing_law + two
+  // present_* widgets; at 8 it exhausted the budget mid-research and never
+  // presented. 30 gives generous headroom; lighter steps stop well short.
+  readonly maxSteps = 30
 
   constructor(
     private readonly store: GeneralChatStoreService,
     private readonly contextService: OrdinanceFlowContextService,
     private readonly tools: OrdinanceFlowToolsService,
+    private readonly fetch: OrdinanceFlowFetchService,
+    private readonly search: OrdinanceFlowSearchService,
     private readonly features: FeaturesService,
     private readonly districtResolver?: DistrictResolverService,
   ) {}
@@ -155,16 +173,37 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
     return this.assembleTools(ctx)
   }
 
+  // Meter each turn's tokens onto the ordinance record (a full-draft total sums
+  // these with the quality loop's own tokens). The runtime only calls this on a
+  // clean finish and swallows a throw, so metering never affects the reply.
+  async onTurnUsage(
+    ctx: OrdinanceFlowContext,
+    usage: LlmStreamUsage,
+    model: string,
+  ): Promise<void> {
+    await this.tools.recordFlowUsage({
+      ordinanceId: ctx.ordinanceId,
+      electedOfficeId: ctx.electedOfficeId,
+      step: ctx.step,
+      model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+    })
+  }
+
   private assembleTools(ctx: OrdinanceFlowContext): Record<string, LlmTool> {
     const deps: OrdinanceToolDeps = {
       service: this.tools,
+      fetch: this.fetch,
+      search: this.search,
       ordinanceId: ctx.ordinanceId,
       electedOfficeId: ctx.electedOfficeId,
+      organizationSlug: ctx.organizationSlug,
       step: ctx.step,
     }
     const tools: Record<string, LlmTool> = {
       read_ordinance: buildReadOrdinanceTool(deps),
-      get_current_code: buildGetCurrentCodeTool(deps),
+      get_code_source: buildGetCodeSourceTool(deps),
       save_note: buildSaveNoteTool(deps),
     }
 
@@ -179,12 +218,47 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
     // (authority, comparables, draft) get their own tools in later slices.
     if (ctx.step === 'clarify') {
       tools.ask_clarify_question = buildAskClarifyQuestionTool()
-      tools.save_answer = buildSaveAnswerTool(deps)
       tools.save_synthesis = buildSaveSynthesisTool(deps)
     }
 
-    // Every step except the last can offer a button to advance the flow.
-    if (ctx.step !== 'draft') {
+    // Each step gets only the present_* display tools its page renders.
+    if (ctx.step === 'authority') {
+      tools.present_authority_finding = buildPresentAuthorityFindingTool(deps)
+    }
+
+    // Current-law research reads the live code and persists its findings, then
+    // presents the summary and legislative-history widgets.
+    if (ctx.step === 'current_law') {
+      tools.fetch_url = buildFetchUrlTool(deps)
+      tools.save_existing_law = buildSaveExistingLawTool(deps)
+      tools.present_current_law_summary = buildPresentCurrentLawSummaryTool()
+      tools.present_legislative_history = buildPresentLegislativeHistoryTool()
+      // Brave returns fetchable result URLs (Anthropic's native web_search
+      // hides them), so the model can find a server-rendered copy when
+      // fetch_url hits a browser-only page like Municode. Gated on the key so
+      // the system prompt never advertises a tool that was not registered.
+      if (process.env.BRAVE_API_KEY) {
+        tools.brave_search = buildBraveSearchTool(deps)
+      }
+    }
+
+    if (ctx.step === 'comparables') {
+      tools.present_comparables = buildPresentComparablesTool(deps)
+    }
+
+    // The terminal step synthesizes the prior steps into a complete draft and
+    // persists it to the ordinance's draft columns.
+    if (ctx.step === 'draft') {
+      tools.present_draft = buildPresentDraftTool(deps)
+      // For the rare drafting-blocker question only (DRAFT RULES cap it at
+      // one) — so even that question rides the widget and persists as a
+      // clarify answer instead of a prose interview the record never sees.
+      tools.ask_clarify_question = buildAskClarifyQuestionTool()
+    }
+
+    // A numbered flow step can offer a button to advance. The terminal draft
+    // step and the post-draft review chat have nowhere to advance to.
+    if (ctx.step !== 'draft' && ctx.step !== 'review') {
       tools.offer_next_step = buildOfferNextStepTool()
     }
 

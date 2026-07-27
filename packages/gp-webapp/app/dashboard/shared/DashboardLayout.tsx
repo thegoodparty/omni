@@ -19,6 +19,7 @@ import { useIsImpersonating } from '@shared/hooks/useIsImpersonating'
 import { isElectionResultDismissed } from '../election-result/dismissal'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
 import { useWinVoterContext } from './useWinVoterContext'
+import { DashboardCampaignManagerChat } from '../campaign-manager/CampaignManagerChatProvider'
 
 interface DashboardLayoutProps {
   children: ReactNode
@@ -104,15 +105,17 @@ const DashboardLayout = ({
               centered={navHeader.centered}
             />
           )}
-          <div className={`flex-1 p-2 md:p-4 ${wrapperClassName}`}>
-            <ProUpgradePrompt
-              campaign={activeCampaign}
-              user={user}
-              pathname={currentPath || undefined}
-              isElectedOffice={!!organization?.electedOfficeId}
-            />
-            {children}
-          </div>
+          <DashboardCampaignManagerChat>
+            <div className={`flex-1 p-2 md:p-4 ${wrapperClassName}`}>
+              <ProUpgradePrompt
+                campaign={activeCampaign}
+                user={user}
+                pathname={currentPath || undefined}
+                isElectedOffice={!!organization?.electedOfficeId}
+              />
+              {children}
+            </div>
+          </DashboardCampaignManagerChat>
         </SidebarInset>
       </SidebarProvider>
     </EcanvasserProvider>
@@ -127,9 +130,9 @@ const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/dashboard/briefings', 'Briefing Assistant'],
   ['/dashboard/community-issues', 'Community Issues'],
   ['/dashboard/public-profile', 'Public Profile'],
+  ['/dashboard/ordinances', 'Ordinances'],
   ['/dashboard/race-opponent', 'Know Your Opponent'],
   ['/dashboard/outreach', 'Voter Outreach'],
-  ['/dashboard/voter-records', 'Voter Data'],
   // /dashboard/contacts is intentionally absent: its title depends on Win vs
   // Serve, so MobileMenuTrigger resolves it from the org instead.
   ['/dashboard/polls', 'Polls'],

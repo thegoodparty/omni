@@ -17,7 +17,6 @@ We are using [conventional commits](https://www.conventionalcommits.org/)
 
 - [Next.js](https://nextjs.org/) - React SSR Framework
 - [Tailwind CSS](https://tailwindcss.com/) - CSS library
-- [Material UI](https://material-ui.com/) - UI Library
 - [Clerk](https://clerk.com/) - Authentication
 
 ## Get Started

@@ -36,6 +36,7 @@ import { CampaignTrackerDispatchService } from './campaignTracker/services/campa
 import { AiGenerationService } from './tasks/services/aiGeneration.service'
 import { CampaignTcrComplianceController } from './tcrCompliance/campaignTcrCompliance.controller'
 import { CampaignTcrComplianceService } from './tcrCompliance/services/campaignTcrCompliance.service'
+import { Nightly10DlcReportService } from './tcrCompliance/services/nightly10DlcReport.service'
 import { ComplianceStateService } from './tcrCompliance/services/complianceState.service'
 import { WeeklyTasksDigestService } from './tasks/services/weeklyTasksDigest.service'
 import { WeeklyTasksDigestHandlerService } from './tasks/services/weeklyTasksDigestHandler.service'
@@ -59,7 +60,9 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     forwardRef(() => EcanvasserIntegrationModule),
     ScheduledMessagingModule,
     StripeModule,
-    PeerlyModule,
+    // PeerlyModule -> ContactsModule -> CampaignsModule -> PeerlyModule:
+    // every edge of the cycle needs forwardRef
+    forwardRef(() => PeerlyModule),
     GoogleModule,
     AnalyticsModule,
     UsersModule,
@@ -93,6 +96,7 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     AiGenerationService,
     CampaignTcrComplianceService,
     ComplianceStateService,
+    Nightly10DlcReportService,
     WeeklyTasksDigestService,
     WeeklyTasksDigestHandlerService,
     PublicCampaignsService,
@@ -107,6 +111,7 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     CampaignTrackerTasksService,
     AiGenerationService,
     WeeklyTasksDigestHandlerService,
+    Nightly10DlcReportService,
     EligibilityService,
   ],
 })

@@ -32,6 +32,7 @@ export interface LlmChatCompletionOptions {
   maxTokens?: number
   userId?: string
   retries?: number
+  abortSignal?: AbortSignal
 }
 
 export interface LlmToolCompletionOptions extends LlmChatCompletionOptions {
@@ -113,6 +114,14 @@ export interface LlmStreamOptions {
     input: unknown
     output: unknown
   }) => void
+  // Fires when the model starts writing a tool call's arguments, before the
+  // call is complete. Lets the client show a per-tool "generating" indicator
+  // during the gap the tool_call event used to leave blank.
+  onToolInputStart?: (event: { toolName: string }) => void
+  // Fires on a mid-generation provider error. The AI SDK routes these to its
+  // onError callback rather than throwing from textStream, so a consumer that
+  // only reads textStream must be notified here to surface the failure.
+  onStreamError?: (error: Error) => void
 }
 
 export interface LlmStreamUsage {
@@ -243,6 +252,7 @@ export class LlmService {
       maxTokens,
       userId,
       retries = this.defaultRetries,
+      abortSignal,
     } = options
 
     const models = this.prepareModelList(providedModels)
@@ -259,15 +269,21 @@ export class LlmService {
           topP,
           maxTokens,
           userId,
+          abortSignal,
         }),
+      abortSignal,
     )
 
     return { ...result, model }
   }
 
-  async jsonCompletion<T>(
-    options: LlmJsonCompletionOptions<T>,
-  ): Promise<{ object: T; tokens: number; model: string }> {
+  async jsonCompletion<T>(options: LlmJsonCompletionOptions<T>): Promise<{
+    object: T
+    tokens: number
+    inputTokens: number
+    outputTokens: number
+    model: string
+  }> {
     const {
       messages,
       schema,
@@ -277,6 +293,7 @@ export class LlmService {
       maxTokens,
       userId,
       retries = this.defaultRetries,
+      abortSignal,
     } = options
 
     const models = this.prepareModelList(providedModels)
@@ -294,10 +311,18 @@ export class LlmService {
           topP,
           maxTokens,
           userId,
+          abortSignal,
         }),
+      abortSignal,
     )
 
-    return { object: result.object, tokens: result.tokens, model }
+    return {
+      object: result.object,
+      tokens: result.tokens,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      model,
+    }
   }
 
   async toolCompletion(
@@ -313,6 +338,7 @@ export class LlmService {
       maxTokens,
       userId,
       retries = this.defaultRetries,
+      abortSignal,
     } = options
 
     if (!tools.length) {
@@ -335,7 +361,9 @@ export class LlmService {
           topP,
           maxTokens,
           userId,
+          abortSignal,
         }),
+      abortSignal,
     )
 
     return { ...result, model }
@@ -365,6 +393,8 @@ export class LlmService {
       abortSignal,
       onToolCallStart,
       onToolCallEnd,
+      onToolInputStart,
+      onStreamError,
     } = options
 
     const models = this.prepareModelList(providedModels)
@@ -386,37 +416,59 @@ export class LlmService {
             messages: modelMessages,
             ...(toolSet && { tools: toolSet }),
             stopWhen: stepCountIs(maxSteps),
+            // streamText swallows errors by default (they surface only on the
+            // stream) — log them so a mid-generation provider failure is not
+            // silently lost.
+            onError: (event) => {
+              this.logger.error(
+                { err: event.error, userId, model: currentModel },
+                'streamText error during generation',
+              )
+              onStreamError?.(
+                event.error instanceof Error
+                  ? event.error
+                  : new Error(String(event.error)),
+              )
+            },
             ...(abortSignal && { abortSignal }),
             ...(temperature !== undefined && { temperature }),
             ...(topP !== undefined && { topP }),
             ...(maxOutputTokens !== undefined && { maxOutputTokens }),
             ...(userId && { headers: { 'X-User-Id': userId } }),
-            // Provider-run tools (Anthropic web search) have no execute hook, so
-            // surface their call/result from the stream to drive the same
-            // onToolCallStart/End the client-tool execute wrapper fires.
-            ...(providerToolNames &&
-              providerToolNames.size > 0 && {
-                onChunk: ({ chunk }) => {
-                  if (
-                    chunk.type === 'tool-call' &&
-                    providerToolNames.has(chunk.toolName)
-                  ) {
-                    onToolCallStart?.({
-                      name: chunk.toolName,
-                      input: chunk.input,
-                    })
-                  } else if (
-                    chunk.type === 'tool-result' &&
-                    providerToolNames.has(chunk.toolName)
-                  ) {
-                    onToolCallEnd?.({
-                      name: chunk.toolName,
-                      input: chunk.input,
-                      output: chunk.output,
-                    })
-                  }
-                },
-              }),
+            // The model streams a tool call's arguments before the call is
+            // complete; surface that start so the client can show a per-tool
+            // "generating" indicator. Provider-run tools (Anthropic web search)
+            // have no execute hook, so also surface their call/result from the
+            // stream to drive the same onToolCallStart/End the client-tool
+            // execute wrapper fires.
+            ...((onToolInputStart ||
+              (providerToolNames && providerToolNames.size > 0)) && {
+              onChunk: ({ chunk }) => {
+                if (chunk.type === 'tool-input-start') {
+                  onToolInputStart?.({ toolName: chunk.toolName })
+                  return
+                }
+                if (!providerToolNames || providerToolNames.size === 0) return
+                if (
+                  chunk.type === 'tool-call' &&
+                  providerToolNames.has(chunk.toolName)
+                ) {
+                  onToolCallStart?.({
+                    name: chunk.toolName,
+                    input: chunk.input,
+                  })
+                } else if (
+                  chunk.type === 'tool-result' &&
+                  providerToolNames.has(chunk.toolName)
+                ) {
+                  onToolCallEnd?.({
+                    name: chunk.toolName,
+                    input: chunk.input,
+                    output: chunk.output,
+                  })
+                }
+              },
+            }),
           }),
         ),
     )
@@ -518,6 +570,7 @@ export class LlmService {
     retries: number,
     operationLabel: string,
     fn: (model: string) => Promise<R>,
+    abortSignal?: AbortSignal,
   ): Promise<{ model: string; result: R }> {
     return retry(
       async () => {
@@ -533,6 +586,19 @@ export class LlmService {
           } catch (error) {
             lastError =
               error instanceof Error ? error : new Error(String(error))
+
+            // An abort is a caller decision (cancel/timeout), not a provider
+            // failure — cascading to another model or retrying would keep
+            // burning time the caller explicitly capped.
+            if (lastError.name === 'AbortError' || abortSignal?.aborted) {
+              this.logger.warn(
+                lastError,
+                `Aborted ${operationLabel} with model ${currentModel}, not retrying`,
+              )
+              const bailable: Error & { bail?: boolean } = lastError
+              bailable.bail = true
+              throw bailable
+            }
 
             if (this.isPermanentClientError(error)) {
               this.logger.error(
@@ -598,6 +664,7 @@ export class LlmService {
     topP,
     maxTokens,
     userId,
+    abortSignal,
   }: {
     model: string
     messages: LlmMessage[]
@@ -605,6 +672,7 @@ export class LlmService {
     topP: number
     maxTokens?: number
     userId?: string
+    abortSignal?: AbortSignal
   }): Promise<Omit<LlmCompletionResult, 'model'>> {
     const result = await this.generateTextFn({
       model: this.resolveChatModel(model),
@@ -613,6 +681,7 @@ export class LlmService {
       topP,
       ...(maxTokens !== undefined && { maxOutputTokens: maxTokens }),
       ...(userId && { headers: { 'X-User-Id': userId } }),
+      ...(abortSignal && { abortSignal }),
     })
     return {
       content: result.text.trim(),
@@ -628,6 +697,7 @@ export class LlmService {
     topP,
     maxTokens,
     userId,
+    abortSignal,
   }: {
     model: string
     messages: LlmMessage[]
@@ -636,7 +706,13 @@ export class LlmService {
     topP: number
     maxTokens?: number
     userId?: string
-  }): Promise<{ object: T; tokens: number }> {
+    abortSignal?: AbortSignal
+  }): Promise<{
+    object: T
+    tokens: number
+    inputTokens: number
+    outputTokens: number
+  }> {
     const result = await this.generateObjectFn({
       model: this.resolveChatModel(model),
       messages: toModelMessages(messages),
@@ -645,10 +721,13 @@ export class LlmService {
       topP,
       ...(maxTokens !== undefined && { maxOutputTokens: maxTokens }),
       ...(userId && { headers: { 'X-User-Id': userId } }),
+      ...(abortSignal && { abortSignal }),
     })
     return {
       object: result.object,
       tokens: result.usage.totalTokens ?? 0,
+      inputTokens: result.usage.inputTokens ?? 0,
+      outputTokens: result.usage.outputTokens ?? 0,
     }
   }
 
@@ -661,6 +740,7 @@ export class LlmService {
     topP,
     maxTokens,
     userId,
+    abortSignal,
   }: {
     model: string
     messages: LlmMessage[]
@@ -670,6 +750,7 @@ export class LlmService {
     topP: number
     maxTokens?: number
     userId?: string
+    abortSignal?: AbortSignal
   }): Promise<Omit<LlmCompletionResult, 'model'>> {
     const toolSet: ToolSet = {}
     for (const t of tools) {
@@ -700,6 +781,7 @@ export class LlmService {
       topP,
       ...(maxTokens !== undefined && { maxOutputTokens: maxTokens }),
       ...(userId && { headers: { 'X-User-Id': userId } }),
+      ...(abortSignal && { abortSignal }),
     })
 
     const toolCalls = this.mapAiSdkToolCalls(

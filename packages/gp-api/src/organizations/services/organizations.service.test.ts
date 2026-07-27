@@ -663,6 +663,179 @@ describe('OrganizationsService', () => {
     })
   })
 
+  describe('getCrmCompanyOrgContextByOrgSlug', () => {
+    let mockFindUnique: ReturnType<typeof vi.fn>
+
+    beforeEach(() => {
+      mockFindUnique = vi.fn().mockResolvedValue(null)
+      service.findUnique = mockFindUnique as typeof service.findUnique
+    })
+
+    const positionDistrict = {
+      id: 'district-1',
+      state: 'CA',
+      L2DistrictType: 'City',
+      L2DistrictName: 'Poway city',
+    }
+    const overrideDistrict = {
+      id: 'override-district-1',
+      state: 'CA',
+      L2DistrictType: 'County',
+      L2DistrictName: 'San Diego county',
+    }
+
+    // The combined resolver must return exactly the union of what the two
+    // legacy resolvers returned separately, or the CRM sync output changes.
+    const expectMatchesLegacy = async (slug: string) => {
+      const legacyDistrict =
+        await service.getDistrictAndBallotLevelForOrgSlug(slug)
+      const legacyPosition = await service.resolvePositionContextByOrgSlug(slug)
+      const combined = await service.getCrmCompanyOrgContextByOrgSlug(slug)
+
+      expect(combined).toEqual({ ...legacyDistrict, ...legacyPosition })
+      return combined
+    }
+
+    it('matches the legacy resolvers for a position with its own district', async () => {
+      mockFindUnique.mockResolvedValue({
+        slug: 'poway',
+        positionId: 'gp-pos-id',
+        customPositionName: null,
+        overrideDistrictId: null,
+      })
+      mockGetPositionById.mockResolvedValue({
+        id: 'gp-pos-id',
+        name: 'Poway City Council',
+        level: 'CITY',
+        brPositionId: 'br-pos-42',
+        district: positionDistrict,
+      })
+
+      const combined = await expectMatchesLegacy('poway')
+
+      expect(combined).toEqual({
+        district: {
+          id: 'district-1',
+          state: 'CA',
+          l2Type: 'City',
+          l2Name: 'Poway city',
+        },
+        ballotLevel: 'CITY',
+        positionName: 'Poway City Council',
+        ballotReadyPositionId: 'br-pos-42',
+      })
+    })
+
+    it('matches the legacy resolvers when an override district is set', async () => {
+      mockFindUnique.mockResolvedValue({
+        slug: 'poway',
+        positionId: 'gp-pos-id',
+        customPositionName: null,
+        overrideDistrictId: 'override-district-1',
+      })
+      mockGetPositionById.mockResolvedValue({
+        id: 'gp-pos-id',
+        name: 'US House',
+        level: 'FEDERAL',
+        brPositionId: 'br-pos-7',
+        district: positionDistrict,
+      })
+      mockGetDistrict.mockResolvedValue(overrideDistrict)
+
+      const combined = await expectMatchesLegacy('poway')
+
+      expect(combined.district?.id).toBe('override-district-1')
+      expect(combined.ballotLevel).toBe('FEDERAL')
+    })
+
+    it('matches the legacy resolvers for a custom position name and no positionId', async () => {
+      mockFindUnique.mockResolvedValue({
+        slug: 'campaign-2',
+        positionId: null,
+        customPositionName: 'Dog Catcher',
+        overrideDistrictId: null,
+      })
+
+      const combined = await expectMatchesLegacy('campaign-2')
+
+      expect(combined).toEqual({
+        district: null,
+        ballotLevel: null,
+        positionName: 'Dog Catcher',
+        ballotReadyPositionId: null,
+      })
+    })
+
+    it('matches the legacy resolvers when a custom name overrides the position name', async () => {
+      mockFindUnique.mockResolvedValue({
+        slug: 'poway',
+        positionId: 'gp-pos-id',
+        customPositionName: 'Chief Dog Catcher',
+        overrideDistrictId: null,
+      })
+      mockGetPositionById.mockResolvedValue({
+        id: 'gp-pos-id',
+        name: 'Poway City Council',
+        level: 'CITY',
+        brPositionId: 'br-pos-42',
+        district: positionDistrict,
+      })
+
+      const combined = await expectMatchesLegacy('poway')
+
+      expect(combined.positionName).toBe('Chief Dog Catcher')
+    })
+
+    it('matches the legacy resolvers when the org is not found', async () => {
+      const combined = await expectMatchesLegacy('missing')
+
+      expect(combined).toEqual({
+        district: null,
+        ballotLevel: null,
+        positionName: null,
+        ballotReadyPositionId: null,
+      })
+    })
+
+    it('throws like resolvePositionContext when a stored positionId is missing', async () => {
+      mockFindUnique.mockResolvedValue({
+        slug: 'poway',
+        positionId: 'gp-pos-id',
+        customPositionName: null,
+        overrideDistrictId: null,
+      })
+      mockGetPositionById.mockResolvedValue(null)
+
+      await expect(
+        service.getCrmCompanyOrgContextByOrgSlug('poway'),
+      ).rejects.toThrow('does not exist in election-api')
+      await expect(
+        service.resolvePositionContextByOrgSlug('poway'),
+      ).rejects.toThrow('does not exist in election-api')
+    })
+
+    it('deduplicates the org row and position fetch into a single lookup each', async () => {
+      mockFindUnique.mockResolvedValue({
+        slug: 'poway',
+        positionId: 'gp-pos-id',
+        customPositionName: null,
+        overrideDistrictId: null,
+      })
+      mockGetPositionById.mockResolvedValue({
+        id: 'gp-pos-id',
+        name: 'Poway City Council',
+        level: 'CITY',
+        brPositionId: 'br-pos-42',
+        district: positionDistrict,
+      })
+
+      await service.getCrmCompanyOrgContextByOrgSlug('poway')
+
+      expect(mockFindUnique).toHaveBeenCalledTimes(1)
+      expect(mockGetPositionById).toHaveBeenCalledTimes(1)
+    })
+  })
+
   describe('extractCityFromDistrictName', () => {
     const extract = OrganizationsService.extractCityFromDistrictName
 

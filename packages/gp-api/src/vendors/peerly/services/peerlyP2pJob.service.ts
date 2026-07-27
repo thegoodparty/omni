@@ -1,8 +1,13 @@
-import { BadGatewayException, Injectable } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  Injectable,
+} from '@nestjs/common'
 import { formatISO } from 'date-fns'
 import { Headers } from 'http-constants-ts'
 import { Readable } from 'stream'
 import { PinoLogger } from 'nestjs-pino'
+import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import {
   P2P_ERROR_MESSAGES,
   P2P_JOB_DEFAULTS,
@@ -12,7 +17,10 @@ import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
 import { PeerlyHttpService } from './peerlyHttp.service'
 import { PeerlyMediaService } from './peerlyMedia.service'
 import { PeerlyScheduleService } from './peerlySchedule.service'
-import { CreateJobResponseDto } from '../schemas/peerlyP2pSms.schema'
+import {
+  CreateJobResponseDto,
+  GetJobResponseDto,
+} from '../schemas/peerlyP2pSms.schema'
 import { CreateJobParams, PeerlyJob } from '../peerly.types'
 
 interface CreateP2pJobParams {
@@ -56,6 +64,12 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     didNpaSubset = [],
     scheduledDate,
   }: CreateP2pJobParams): Promise<string> {
+    // Peerly returns a 400 for oversized MMS template text; reject before
+    // creating media and a schedule that would be orphaned by that failure.
+    if (scriptText.length > P2P_SCRIPT_MAX_LENGTH) {
+      throw new BadRequestException(P2P_ERROR_MESSAGES.SCRIPT_TOO_LONG)
+    }
+
     let jobId: string | undefined
     let scheduleId: number | undefined
 
@@ -148,8 +162,17 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
         `/1to1/jobs/${jobId}`,
       )
       const { data: job } = response
+      // The schema is a deliberate subset of PeerlyJob (the sweep's fields),
+      // so the validated result is merged over the raw job rather than
+      // replacing it — callers keep the full shape, the guarded fields keep
+      // the parsed values.
+      const validated = this.peerlyHttpService.validateResponse(
+        job,
+        GetJobResponseDto,
+        'get job',
+      )
       this.logger.debug({ job }, 'Fetched P2P Job:')
-      return job
+      return { ...job, ...validated }
     } catch (error) {
       this.logger.error({ error }, P2P_ERROR_MESSAGES.RETRIEVE_JOB_FAILED)
       throw new BadGatewayException(P2P_ERROR_MESSAGES.RETRIEVE_JOB_FAILED)

@@ -1,0 +1,23 @@
+model ContactInteractionText {
+  id               String       @id @default(uuid(7))
+  createdAt        DateTime     @default(now()) @map("created_at")
+  organizationSlug String       @map("organization_slug")
+  organization     Organization @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  personId         String       @map("person_id")
+  occurredAt       DateTime     @map("occurred_at")
+  outreach         Outreach?    @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  // Null for manual logs; Postgres treats NULLs as distinct so the unique
+  // index never collides those rows.
+  outreachId       Int?         @map("outreach_id")
+  respondedAt      DateTime?    @map("responded_at")
+  optedOutAt       DateTime?    @map("opted_out_at")
+  // Peerly event id for write-back idempotency (feature 5).
+  sourceEventId    String?      @map("source_event_id")
+  note             String?
+  manual           Boolean      @default(false)
+
+  @@unique([outreachId, personId])
+  @@unique([organizationSlug, sourceEventId])
+  @@index([organizationSlug, personId, occurredAt])
+  @@map("contact_interaction_text")
+}

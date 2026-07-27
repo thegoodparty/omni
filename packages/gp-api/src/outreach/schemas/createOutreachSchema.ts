@@ -1,5 +1,6 @@
 import { createZodDto } from 'nestjs-zod'
 import { z } from 'zod'
+import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import { OutreachStatus, OutreachType } from '../../generated/prisma'
 import { isValid, parseISO } from 'date-fns'
 
@@ -72,6 +73,21 @@ export class CreateOutreachSchema extends createZodDto(
           message: 'Script is required for P2P outreach',
         })
       }
+      // The script field may hold an aiContent key rather than the script
+      // itself; the resolved text is re-checked in OutreachService.
+      if (
+        data.outreachType === OutreachType.p2p &&
+        data.script &&
+        data.script.length > P2P_SCRIPT_MAX_LENGTH
+      ) {
+        ctx.addIssue({
+          path: ['script'],
+          code: z.ZodIssueCode.custom,
+          message:
+            `Script cannot exceed ${P2P_SCRIPT_MAX_LENGTH} characters ` +
+            'for P2P outreach',
+        })
+      }
       if (data.draft && data.outreachType !== OutreachType.p2p) {
         ctx.addIssue({
           path: ['draft'],
@@ -84,6 +100,15 @@ export class CreateOutreachSchema extends createZodDto(
           path: ['status'],
           code: z.ZodIssueCode.custom,
           message: 'pending_payment is set by the draft flow, not the client',
+        })
+      }
+      if (data.outreachType === OutreachType.nativeDoorKnocking) {
+        ctx.addIssue({
+          path: ['outreachType'],
+          code: z.ZodIssueCode.custom,
+          message:
+            'nativeDoorKnocking outreach is created only by the knock ' +
+            'transaction, not the client',
         })
       }
     }),

@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
-import { endOfWeek, startOfWeek } from 'date-fns'
+import { addDays, endOfWeek, startOfWeek } from 'date-fns'
 import {
+  CommunityIssue,
   DashboardCard,
   DashboardCardType,
   MeetingBriefing,
@@ -14,6 +15,10 @@ import {
   briefingOverviewHref,
 } from '../util/briefingHref.util'
 import { BriefingArtifactCardSourceSchema } from '../schemas/briefingArtifactCardSource.schema'
+
+// Community issues have no natural deadline; give their cards a fixed window so
+// they ride the existing active/this_week/missed bucketing off dueDate.
+const COMMUNITY_ISSUE_CARD_DUE_DAYS = 7
 
 type DesiredCard = {
   type: DashboardCardType
@@ -41,18 +46,51 @@ export class DashboardCardsService extends createPrismaBase(
     if (!desired.length) return
 
     const electedOfficeId = briefing.electedOfficeId
-    const sourceBriefingId = briefing.id
+    const sourceExternalId = briefing.id
 
     await this.client.$transaction(async (tx) => {
       for (const card of desired) {
-        await this.upsertCard(tx, electedOfficeId, sourceBriefingId, card)
+        await this.upsertCard(tx, electedOfficeId, sourceExternalId, card)
       }
       await this.removeDeFeatured(
         tx,
         electedOfficeId,
-        sourceBriefingId,
+        sourceExternalId,
         desired,
       )
+    })
+  }
+
+  // Creates a single task card for a newly-surfaced community issue. Unlike
+  // briefings there is nothing to reconcile — an issue is created once and never
+  // de-featured — so this is a guarded create keyed on the issue id, idempotent
+  // against at-least-once redelivery of the run-completed event.
+  async syncFromCommunityIssue(
+    electedOfficeId: string,
+    issue: CommunityIssue,
+  ): Promise<void> {
+    const existing = await this.model.findFirst({
+      where: {
+        electedOfficeId,
+        type: DashboardCardType.community_issue,
+        sourceExternalId: issue.id,
+      },
+      select: { id: true },
+    })
+    if (existing) return
+
+    await this.model.create({
+      data: {
+        electedOfficeId,
+        type: DashboardCardType.community_issue,
+        sourceExternalId: issue.id,
+        sourceItemId: null,
+        title: issue.title,
+        summary: issue.summary,
+        ctaLabel: 'View issue',
+        ctaHref: `/dashboard/community-issues/${issue.id}`,
+        dueDate: addDays(issue.createdAt, COMMUNITY_ISSUE_CARD_DUE_DAYS),
+      },
     })
   }
 
@@ -111,7 +149,7 @@ export class DashboardCardsService extends createPrismaBase(
   private async upsertCard(
     tx: Prisma.TransactionClient,
     electedOfficeId: string,
-    sourceBriefingId: string,
+    sourceExternalId: string,
     card: DesiredCard,
   ): Promise<void> {
     const content = {
@@ -126,7 +164,7 @@ export class DashboardCardsService extends createPrismaBase(
       where: {
         electedOfficeId,
         type: card.type,
-        sourceBriefingId,
+        sourceExternalId,
         sourceItemId: card.sourceItemId,
       },
       select: { id: true },
@@ -146,7 +184,7 @@ export class DashboardCardsService extends createPrismaBase(
       data: {
         electedOfficeId,
         type: card.type,
-        sourceBriefingId,
+        sourceExternalId,
         sourceItemId: card.sourceItemId,
         ...content,
       },
@@ -156,7 +194,7 @@ export class DashboardCardsService extends createPrismaBase(
   private async removeDeFeatured(
     tx: Prisma.TransactionClient,
     electedOfficeId: string,
-    sourceBriefingId: string,
+    sourceExternalId: string,
     desired: DesiredCard[],
   ): Promise<void> {
     const keepItemIds = desired
@@ -167,7 +205,7 @@ export class DashboardCardsService extends createPrismaBase(
     await tx.dashboardCard.deleteMany({
       where: {
         electedOfficeId,
-        sourceBriefingId,
+        sourceExternalId,
         type: DashboardCardType.agenda_item,
         sourceItemId: { notIn: keepItemIds },
       },

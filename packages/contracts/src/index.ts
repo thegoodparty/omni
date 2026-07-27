@@ -17,6 +17,15 @@ export {
   type OutreachStatus,
   OUTREACH_STATUS_VALUES,
   OutreachStatusSchema,
+  type SupportAnswer,
+  SUPPORT_ANSWER_VALUES,
+  SupportAnswerSchema,
+  type DoorKnockOutcome,
+  DOOR_KNOCK_OUTCOME_VALUES,
+  DoorKnockOutcomeSchema,
+  type VoterOutreachAttributionSource,
+  VOTER_OUTREACH_ATTRIBUTION_SOURCE_VALUES,
+  VoterOutreachAttributionSourceSchema,
   type PollStatus,
   POLL_STATUS_VALUES,
   PollStatusSchema,
@@ -53,6 +62,12 @@ export {
   type OrdinanceSeedType,
   ORDINANCE_SEED_TYPE_VALUES,
   OrdinanceSeedTypeSchema,
+  type OrdinanceQualityLoopStatus,
+  ORDINANCE_QUALITY_LOOP_STATUS_VALUES,
+  OrdinanceQualityLoopStatusSchema,
+  type ActivityConditionAction,
+  ACTIVITY_CONDITION_ACTION_VALUES,
+  ActivityConditionActionSchema,
 } from './generated/enums'
 
 export {
@@ -63,7 +78,64 @@ export {
   PeopleListResponseSchema,
   type PeopleListResponse,
   HOUSEHOLD_KEY_RESIDENCE_COLUMNS,
+  SupportStatusRollupSchema,
+  type SupportStatusRollup,
 } from './people/Person.schema'
+
+export {
+  ContactNoteSchema,
+  type ContactNote,
+  ContactNoteInputSchema,
+  type ContactNoteInput,
+  ContactNoteListResponseSchema,
+  type ContactNoteListResponse,
+} from './people/ContactNote.schema'
+
+export {
+  ConstituentActivityTypeSchema,
+  type ConstituentActivityType,
+  ConstituentActivityEventTypeSchema,
+  type ConstituentActivityEventType,
+  ConstituentActivityEventSchema,
+  type ConstituentActivityEvent,
+  PollConstituentActivitySchema,
+  type PollConstituentActivity,
+  OutreachConstituentActivitySchema,
+  type OutreachConstituentActivity,
+  DoorKnockConstituentActivitySchema,
+  type DoorKnockConstituentActivity,
+  TextConstituentActivitySchema,
+  type TextConstituentActivity,
+  RobocallConstituentActivitySchema,
+  type RobocallConstituentActivity,
+  ConstituentActivitySchema,
+  type ConstituentActivity,
+  GetIndividualActivitiesResponseSchema,
+  type GetIndividualActivitiesResponse,
+} from './people/ContactActivity.schema'
+
+export {
+  LogContactInteractionInputSchema,
+  type LogContactInteractionInput,
+  LogContactInteractionResponseSchema,
+  type LogContactInteractionResponse,
+} from './people/LogContactInteraction.schema'
+
+export {
+  ListDetailDemographicsSchema,
+  type ListDetailDemographics,
+  ListDetailReachabilitySchema,
+  type ListDetailReachability,
+  ListDetailOutreachHistoryEntrySchema,
+  type ListDetailOutreachHistoryEntry,
+  ListDetailContactsResponseSchema,
+  type ListDetailContactsResponse,
+} from './people/ListDetailContacts.schema'
+
+export {
+  PeopleAggregatesResponseSchema,
+  type PeopleAggregatesResponse,
+} from './people/PeopleAggregates.schema'
 
 export { EmailSchema } from './shared/Email.schema'
 export { PhoneSchema } from './shared/Phone.schema'
@@ -542,6 +614,8 @@ export {
   CreateChatResponseSchema,
   type CreateChatResponse,
   CHAT_MESSAGE_MAX_LENGTH,
+  CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+  CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   SendChatMessageRequestSchema,
   type SendChatMessageRequest,
   ChatMessageSegmentSchema,
@@ -582,3 +656,49 @@ export {
 } from './communityIssues/CommunityIssueDispatch.schema'
 
 export * from './ordinances/Ordinance.schema'
+
+export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
+
+export { BboxSchema, type Bbox } from './shared/Bbox.schema'
+
+export {
+  PEOPLE_FILTER_VALUE_ENUMS,
+  createEnumFilterSchema,
+  createIdFilterSchema,
+  createNumericFilterSchema,
+  PeopleFiltersSchema,
+  type PeopleFilters,
+} from './people/PeopleFilters.schema'
+
+export {
+  DoorKnockingEvaluateRequestSchema,
+  type DoorKnockingEvaluateRequest,
+  DoorKnockingEvaluatedPersonSchema,
+  type DoorKnockingEvaluatedPerson,
+  DoorKnockingEvaluateResponseSchema,
+  type DoorKnockingEvaluateResponse,
+} from './doorKnocking/DoorKnockingEvaluation.schema'
+
+export {
+  DoorKnockingResidentsRequestSchema,
+  type DoorKnockingResidentsRequest,
+  DoorKnockingResidentTargetSchema,
+  type DoorKnockingResidentTarget,
+  DoorKnockingResidentsAddressSchema,
+  type DoorKnockingResidentsAddress,
+  DoorKnockingResidentsResponseSchema,
+  type DoorKnockingResidentsResponse,
+} from './doorKnocking/DoorKnockingResidents.schema'
+
+export {
+  DoorKnockingPackRequestSchema,
+  type DoorKnockingPackRequest,
+  PACK_ARRAY_TYPES,
+  PACK_CORE_ARRAYS,
+  DoorKnockingPackDimSchema,
+  type DoorKnockingPackDim,
+  DoorKnockingPackArraySchema,
+  type DoorKnockingPackArray,
+  DoorKnockingPackManifestSchema,
+  type DoorKnockingPackManifest,
+} from './doorKnocking/DoorKnockingPack.schema'

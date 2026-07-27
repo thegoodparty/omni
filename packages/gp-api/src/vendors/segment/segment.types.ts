@@ -49,6 +49,24 @@ export const EVENTS = {
     //  destination on the company and trigger the "check your texts/email"
     //  nudge. Fired once by the PIN-delivery detection sweep.
     CompliancePinSent: 'Voter Outreach - 10DLC Compliance PIN Sent',
+    // Fired when GoodParty staff trigger a CV PIN resend from the admin
+    // console (ENG-10689) so HubSpot can show resend activity on the
+    // contact/company. Requires a matching HubSpot custom-event definition
+    // (exact event string + property internal names) to be visible there.
+    CompliancePinResent: 'Voter Outreach - 10DLC Compliance PIN Resent',
+    // Server-side twin of gp-webapp's 'Pro Upgrade - Candidate Profile
+    // Submitted' (10DLC events must fire from gp-api for delivery
+    // reliability). Fired when a website content save transitions the
+    // compliance candidate profile from incomplete to complete.
+    ComplianceCandidateProfileSubmitted:
+      'Voter Outreach - 10DLC Compliance Candidate Profile Submitted',
+    // Fired once when Campaign Verify rejects the candidate's identity
+    // verification — either synchronously at submit (bad filing data,
+    // rejection_source 'cv_submit', carries rejection_reason) or when the
+    // PIN-delivery sweep finds the CV flipped to REJECTED after submission
+    // (rejection_source 'cv_status_check'). Drives Campaign Success
+    // fix-your-filing outreach from HubSpot.
+    ComplianceRejected: 'Voter Outreach - 10DLC Compliance Rejected',
     FreeTextsOfferRedeemed: 'Voter Outreach - Free Texts Offer Redeemed',
     CampaignVerifyTokenStatusUpdate: 'Campaign Verify Token Status Update',
     // Carries peerlyIdentityId so Segment can stamp it onto the campaign's
@@ -62,6 +80,13 @@ export const EVENTS = {
   },
   Polls: {
     ResultsSynthesisCompleted: 'Poll - Results Synthesis Complete',
+  },
+  // Meeting Briefings (Serve). Fires when the daily cron skips an
+  // otherwise-eligible office because its user has been inactive beyond the
+  // activity-gate threshold — feeds a HubSpot re-engagement email. The
+  // on-demand landing check skips this gate (see meetingBriefings.service).
+  BriefingAssistant: {
+    DispatchSkipped: 'Briefing Assistant - Dispatch Skipped',
   },
   Campaigns: {
     FollowOnCreated: 'Campaign - Follow-On Created',
@@ -117,9 +142,23 @@ export const EVENTS = {
   // issue headline + summary so a downstream email (HubSpot) can render them.
   CommunityIssues: {
     InitialIssuesGenerated: 'Community Issues - Initial Issues Generated',
-    HighPriorityTrendingIssueCreated:
-      'Community Issues - High Priority Trending Issue Created',
-    TopIssuePriorityChanged: 'Community Issues - Top Issue Priority Changed',
+    // Fire on every refresh after the first generation — a snapshot of the
+    // list's current state, not a diff against what changed.
+    TopIssuesRefreshed: 'Community Issues - Top Issues Refreshed',
+    TrendingIssuesRefreshed: 'Community Issues - Trending Issues Refreshed',
+    // Fires when the daily cron skips an otherwise-eligible org because its
+    // user has been inactive beyond the activity-gate threshold — feeds a
+    // HubSpot re-engagement email. The on-demand landing check skips this
+    // gate (see communityIssueDispatch.service).
+    TopIssuesDispatchSkipped: 'Community Issues - Top Issues Dispatch Skipped',
+    TrendingIssuesDispatchSkipped:
+      'Community Issues - Trending Issues Dispatch Skipped',
+  },
+  // Ordinance quality loop (Serve). Fires from the queue handler when a
+  // background quality-improvement loop reaches any terminal status — the
+  // browser only observes polling; completion is server truth.
+  Ordinances: {
+    QualityLoopCompleted: 'Ordinances - Quality Loop Completed',
   },
 }
 

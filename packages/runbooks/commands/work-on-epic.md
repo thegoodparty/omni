@@ -1,10 +1,12 @@
-<!-- v2 — 2026-06-17 -->
+<!-- v3 — 2026-07-18 -->
+
 # /work-on-epic
 
 Take a ClickUp Epic, derive a dependency-aware execution plan across its subtasks,
-then drive each ticket through implement → PR → merge → done — in parallel where
-it's safe and phased where it isn't — looping until the whole Epic is closed, and
-finishing with a Playwright pass over the behavior the Epic delivered.
+then drive each ticket through implement → PR → merge → done — as a dependency
+work queue: every ticket starts the moment the tickets it depends on have cleared
+the unblock point, not when a whole "phase" finishes — looping until the Epic is
+closed, and finishing with a Playwright pass over the behavior the Epic delivered.
 
 Runs in one of two modes, chosen up front (Phase 0): **controlled** (recommended —
 checks in with you per ticket and lets you merge each PR) or **automated** (one
@@ -17,11 +19,13 @@ repo's PR-shipping flow per branch. For a single ticket, use `/work-on-clickup`
 directly.
 
 <!-- BEGIN: resolve-runbooks-dir (keep in sync across commands/*.md) -->
+
 > **Where this runs:** Runbooks lives in the `omni` monorepo at `packages/runbooks`. All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to that package root. When invoked from any directory, first resolve and `cd` into it:
 >
 > 1. If `$RUNBOOKS_DIR` is set, use it.
 > 2. Else first that exists: `$HOME/Documents/gp/dev/omni/packages/runbooks`, `$HOME/code/omni/packages/runbooks`, `$HOME/omni/packages/runbooks`.
 > 3. Else ask the user where the omni repo is (the runbooks package is at `<omni>/packages/runbooks`); suggest `export RUNBOOKS_DIR=<omni>/packages/runbooks` in their shell profile.
+
 <!-- END: resolve-runbooks-dir -->
 
 ## Prerequisites
@@ -37,7 +41,8 @@ Defaults if a `books/.env` value is unset: `$CLICKUP_PLANS_DIR=$HOME/.claude/pla
 This command operates on a working repo (the codebase the Epic's tickets touch).
 It assumes that repo uses the standard GoodParty flow: a per-package "Verify"
 section in its `CLAUDE.md`, a PR-shipping skill (`ship-pr` in omni — drives the
-delegate-reviewer bot to `Approved.` and the E2E check to green), and PRs that
+delegate-reviewer bot to `Approved.` and every required GitHub check to green),
+and PRs that
 target the repo's integration branch (`develop` in omni). Outside that setup, the
 PR step degrades to `gh pr create` + the repo's normal review process.
 
@@ -51,15 +56,16 @@ the loop pauses for the user and whether merges are automatic. Recommend
   modes share the Phase 2 plan-approval gate; on top of that, controlled mode
   checks in per ticket — it surfaces the recommended implementation approach and
   waits for the user to reply **`go`** before implementing, rather than
-  auto-picking the recommended path. PRs are driven to green (delegate `Approved.`
-  + E2E) but **not merged by the bot** — the user merges each PR themselves, and
-  the loop resumes after each merge. Use this when tickets are loosely specified,
-  exploratory, or high-stakes, so a human stays in the decision loop.
+  auto-picking the recommended path. PRs are driven to green (delegate
+  `Approved.` and every required check) but **not merged by the bot** — the user
+  merges each PR themselves, and the loop resumes after each merge. Use this
+  when tickets are loosely specified, exploratory, or high-stakes, so a human
+  stays in the decision loop.
 
 - **Automated.** What the loop does today: a single plan-approval gate (Phase 2),
   then it runs unattended — subagents take the recommended implementation without
-  pausing, and each PR merges itself via GitHub auto-merge the moment delegate +
-  E2E are green. Only genuine blockers stop it.
+  pausing, and each PR merges itself via GitHub auto-merge the moment delegate
+  and every required check are green. Only genuine blockers stop it.
 
   > ⚠️ **Automated mode only works well when every ticket is very well defined.**
   > The loop picks the recommended implementation and merges without any human
@@ -101,11 +107,11 @@ User input may be passed as a ClickUp **Epic** task ID, a full URL
 
    > How should I run this Epic?
    > • **`controlled`** (recommended) — I check in with you per ticket: I'll
-   >   surface the recommended approach and wait for your `go` before
-   >   implementing, and you merge each PR yourself.
+   > surface the recommended approach and wait for your `go` before
+   > implementing, and you merge each PR yourself.
    > • **`automated`** — one plan approval, then I run unattended and auto-merge
-   >   each PR on green. ⚠️ Only works well if every ticket is very well defined;
-   >   a vague ticket can get the wrong implementation shipped and auto-merged.
+   > each PR on green. ⚠️ Only works well if every ticket is very well defined;
+   > a vague ticket can get the wrong implementation shipped and auto-merged.
 
    Wait for the user to choose; default to **controlled** if they don't specify.
    Record the chosen mode — it governs the approval prompt in Phase 2, the
@@ -118,18 +124,22 @@ User input may be passed as a ClickUp **Epic** task ID, a full URL
 
 2. **Fetch the Epic** and confirm it really is an Epic (a parent task with
    subtasks), not a leaf ticket:
+
    ```bash
    cd scripts/python && uv run clickup_api.py GET task/$EPIC_ID include_markdown_description=true subtasks=true
    ```
+
    If the task has a `parent` and no subtasks, it's a leaf — tell the user and
    suggest `/work-on-clickup <id>` instead. Capture the Epic `name`, `list.id`,
    and `subtasks`.
 
 3. **Fetch every subtask in full**, with its dependencies and status. For each
    subtask ID from step 2:
+
    ```bash
    cd scripts/python && uv run clickup_api.py GET task/<subtask_id> include_markdown_description=true
    ```
+
    Capture per subtask: `name`, `status.status`, `priority`, `markdown_description`,
    `.dependencies` (the array of `{ depends_on, type }`), and `tags`.
 
@@ -143,6 +153,7 @@ User input may be passed as a ClickUp **Epic** task ID, a full URL
    the user — the dependency graph will be derived in Phase 2.
 
 5. **Print an Epic brief** to the user:
+
    ```
    Epic: <epic name>  (<EPIC_ID>)
    List: <list name>
@@ -163,9 +174,9 @@ User input may be passed as a ClickUp **Epic** task ID, a full URL
    - The loaded plan's `## Dependency Graph`, as corroboration.
 
    **If explicit dependencies exist, use them.** Topologically order the tickets
-   into phases: phase 1 is everything with no open (not-yet-done) dependency; each
-   later phase unlocks once its prerequisites close. Within a phase, all tickets are
-   parallel-safe by definition.
+   into waves for presentation: wave 1 is everything with no open (not-yet-done)
+   dependency; each later wave's tickets list what they wait on. Scheduling at run
+   time is per-ticket (Phase 3), so the waves only communicate expected order.
 
 7. **If no dependencies exist**, derive a plan. Read each ticket's
    `## Implementation Details` (the "Files to touch" list especially) and group:
@@ -180,22 +191,40 @@ User input may be passed as a ClickUp **Epic** task ID, a full URL
    call is genuinely ambiguous, prefer the safer (sequential) ordering and say why.
 
 8. **Present the execution plan for the single approval.** Label every ticket by
-   name + ID:
+   name + ID. The waves are the *expected* order, not a gate — scheduling is
+   per-ticket (see Phase 3):
+
    ```
    Execution plan for "<epic name>":
 
-   Phase 1 (parallel — N tickets):
+   Wave 1 (no dependencies — N tickets):
+     - <id>  <name>   [review: --max-iter=1 | --no-loop]
      - <id>  <name>
-     - <id>  <name>
-   Phase 2 (after Phase 1; parallel — M tickets):
+   Wave 2 (M tickets):
      - <id>  <name>   (waits on: <id> <name>)
    ...
+   PR groups: <none | [<id>+<id>] one PR — same package, producer+consumer>
 
    Source: <explicit ClickUp dependencies | derived from file overlap — see notes>
    Mode: <controlled | automated>
    Merge policy: <controlled: drive each PR to green, then you merge it |
-     automated: GitHub auto-merge once delegate=Approved + E2E green, then poll>
+     automated: GitHub auto-merge once delegate=Approved + all required checks
+     green, then poll>
    ```
+
+   Annotate the plan with two per-ticket calls you make while grouping:
+
+   - **PR groups.** 2–3 small, tightly-coupled tickets in the **same package**
+     (e.g. a schema ticket plus the CRUD endpoints that consume it) may share one
+     worktree, one branch, and one PR. Each delegate + E2E cycle costs ~45–60 min
+     of merge-gate latency, so fewer, slightly larger PRs ship the Epic faster.
+     Keep a group reviewable: at most ~3 small tickets, never across packages,
+     never grouping a ticket that is genuinely risky on its own.
+   - **Review depth.** Default each ticket to `--max-iter=1`; mark trivial tickets
+     (pure schema, config, copy) `--no-loop`. The local pre-review exists to make
+     delegate approve on the first try; one round catches nearly everything a
+     second identical-lens round would, and delegate remains the hard gate at PR
+     time.
 
    Ask for one approval:
 
@@ -209,23 +238,58 @@ User input may be passed as a ClickUp **Epic** task ID, a full URL
    approval. If the user edits, apply and re-show the plan.
 
 9. **Persist the approved plan** into the local Epic plan file (create it from the
-   `clickup-epic-create` plan shape if it didn't exist). Record the phase grouping
+   `clickup-epic-create` plan shape if it didn't exist). Record the wave grouping,
+   the PR groups, the per-ticket review depth,
    and a per-ticket status table the loop will update as it runs. Bump
    `lastEdited:`.
 
 ### Phase 3: Run the loop
 
-Process the plan phase by phase. **Within a phase, work tickets in parallel; do not
-advance to the next phase until the current phase's tickets are all merged + done.**
+Run the plan as a **dependency work queue, not a phase barrier**. A ticket (or PR
+group) is **ready** the moment every ticket it depends on has cleared the unblock
+point below — dispatch it then, even if unrelated tickets from an earlier wave are
+still in flight. Never hold a ready ticket back waiting for a slow sibling: in past
+runs one 3.5-hour ticket stalled two finished phase-mates and everything behind
+them. Cap concurrent in-flight tickets at **3–4** so worktrees, polling, and merge
+traffic stay manageable; when a slot frees, dispatch the next ready ticket.
 
-For each ticket in the current phase (skip any already in a closed/done status):
+**Unblock point — when a dependency counts as satisfied:**
 
-10. **Create an isolated git worktree** for the ticket, off the repo's integration
-    branch, on a fresh branch named from the ticket (e.g.
-    `eng-<id>-<short-slug>`):
+- **Merged** — always sufficient.
+- **Delegate-approved with auto-merge armed** (automated mode) or **handed to the
+  user to merge** (controlled mode) — sufficient to *start* the dependent. Don't
+  wait for E2E + the actual merge to begin implementing; that adds a ~45–60 min
+  deploy wait per dependency edge. Base the dependent's worktree on the
+  dependency's branch (stacked — step 10). The dependent's own **PR still waits**:
+  open it only after the dependency has actually merged and the integration branch
+  has been merged into the dependent's worktree, so its PR diff is against
+  `develop` only.
+- If an approved dependency later gets a forced change (rare after approval),
+  merge its updated branch into the dependent's worktree and re-verify before
+  shipping the dependent.
+- **Stack on at most one unmerged dependency.** If a ticket depends on several
+  approved-but-unmerged branches, don't try to combine bases — wait until all but
+  one have merged, then stack on the last outstanding branch (or just wait for
+  all to merge and base on the integration branch).
+
+For each ready ticket (skip any already in a closed/done status):
+
+10. **Create an isolated git worktree** for the ticket (one worktree per PR group
+    if the plan grouped it), on a fresh branch named from the ticket (e.g.
+    `eng-<id>-<short-slug>`). Base it on the repo's integration branch — or, if
+    this ticket's dependency is approved-but-not-yet-merged (the stacked case from
+    Phase 3), on the dependency's branch:
+
     ```bash
+    # normal: dependency merged (or no dependency)
     git -C "<repo path>" worktree add "<worktrees dir>/<branch>" -b "<branch>" origin/<integration-branch>
+    # stacked: dependency approved but not merged yet
+    git -C "<repo path>" worktree add "<worktrees dir>/<branch>" -b "<branch>" "<dependency-branch>"
     ```
+
+    A stacked branch must merge `origin/<integration-branch>` after the dependency
+    lands, before its own PR opens (Phase 3 unblock rules).
+
     Then run that package's worktree setup as documented in its `CLAUDE.md` (e.g.
     in omni: `npm run generate` + a contracts build for gp-api; a `node_modules`
     symlink for gp-webapp). A fresh worktree that skips this fails to resolve types
@@ -233,63 +297,90 @@ For each ticket in the current phase (skip any already in a closed/done status):
     via the original repo's absolute paths writes outside the worktree and tests the
     wrong tree.
 
-11. **Controlled mode — check in before implementing.** Before dispatching the
-    phase's subagents, post the recommended implementation approach for each ticket
-    in the phase (named by ticket + ID: the files it will touch and the approach it
-    will take) and wait for the user's **`go`**. If the user redirects, fold that
-    into the subagent's instructions. In **automated** mode, skip this gate and
-    dispatch straight away with the recommended approach.
+11. **Controlled mode — check in before implementing.** Before dispatching a
+    ticket's subagent, post the recommended implementation approach (named by
+    ticket + ID: the files it will touch and the approach it will take) and wait
+    for the user's **`go`**. Batch these check-ins when several tickets become
+    ready together. If the user redirects, fold that into the subagent's
+    instructions. In **automated** mode, skip this gate and dispatch straight away
+    with the recommended approach.
 
-    **Dispatch a subagent per ticket** (one per parallel ticket in the phase) to do
-    the implementation. Give each subagent:
-    - The ticket ID, name, and full body.
+    **Dispatch a subagent per ticket** (or per PR group) to do the implementation.
+    **Dispatch on Sonnet** (`model: sonnet`), not the session's model — implementers
+    inherit the orchestrator's model by default, and an orchestrator on a
+    higher-tier model silently makes every implementation turn slower and several
+    times more expensive. Escalate a single ticket's subagent to a stronger model
+    only when the plan explicitly marks that ticket as hard. Give each subagent:
+    - The ticket ID, name, and full body (all tickets' bodies, for a PR group).
     - The worktree path it must work in.
+    - A **context pack**: paste the relevant recon/plan findings into the dispatch
+      prompt — the files to touch, the contract shapes this ticket produces or
+      consumes, and one existing file to imitate as the pattern. Every file the
+      subagent doesn't have to rediscover is minutes and tokens saved; don't make
+      each implementer re-explore the monorepo the plan already mapped.
     - The instruction: **run the `work-on-clickup` flow in auto-`go` mode** —
-      load repo conventions (its step 7), seed todos from the AC, implement, run the
-      package's Verify, then run its review loop (`gp-reviewer` over the diff, fixing
-      `blocker`/`major` findings) and walk the AC as a checklist. Skip the interactive
-      scope-confirm gate (the user already approved the Epic plan). Stay in scope.
+      load repo conventions (its step 7), seed todos from the AC, implement
+      (following its verify discipline: targeted tests while iterating, full
+      package Verify once at the end), then run its review loop (`gp-reviewer`
+      over the diff, fixing `blocker`/`major` findings) and walk the AC as a
+      checklist. Skip the interactive scope-confirm gate (the user already
+      approved the Epic plan). Stay in scope.
+    - **Pass the plan's review-depth knob** — `--max-iter=1` by default,
+      `--no-loop` for tickets the plan marked trivial. Delegate still gates the PR.
     - **Pass `--no-ui`.** `work-on-clickup` auto-starts a dev server for its
       `gp-ui-tester` pass, and parallel tickets on the same host would bind the same
       port and clash. Epic-level UI coverage is already handled once by Phase 4's
       Playwright pass over the delivered behavior, so per-ticket UI testing is both
-      redundant and unsafe here. (Other `work-on-clickup` knobs — `--max-iter=N`,
-      `--no-loop` — can be tuned per Epic if a phase warrants it.)
+      redundant and unsafe here.
     - On a gap the ticket body doesn't cover, or a Verify failure it can't resolve,
       the subagent **returns the blocker** (with evidence) rather than guessing —
       the loop surfaces it to the user named by ticket.
 
-    Dispatch the phase's subagents concurrently (in one batch) so they run in
-    parallel. Each subagent's worktree isolates its file changes.
+    Dispatch all currently-ready subagents concurrently (in one batch) so they run
+    in parallel. Each subagent's worktree isolates its file changes.
 
 12. **When a subagent reports its ticket implemented + Verify green**, open and
     drive its PR via the repo's **PR-shipping flow** (the `ship-pr` skill in omni:
-    open the PR, drive `delegate-reviewer[bot]` to `Approved.`, and the `E2E` check
-    to green). Then merge per the chosen mode:
-    - **Automated:** **enable GitHub auto-merge** so the PR merges itself the
-      moment both gates pass:
+    open the PR, drive `delegate-reviewer[bot]` to `Approved.`, and every
+    required GitHub check to green). **Stacked branches wait here:** if this
+    worktree was based on a dependency's branch (Phase 3), do not open its PR
+    until every dependency has actually merged and you've merged
+    `origin/<integration-branch>` into the worktree — otherwise the PR's diff
+    includes the dependency's commits and its base is wrong. Implementation may
+    run ahead of the merge gate; the PR may not. Then merge per the chosen mode:
+    - **Automated:** **enable GitHub auto-merge as a merge commit** so the PR
+      merges itself the moment both gates pass:
       ```bash
-      gh pr merge <pr-number> --squash --auto
+      gh pr merge <pr-number> --auto --merge
       ```
+      Never `--squash` and never a bare `--auto` (it can fall back to a
+      non-merge default). Confirm with
+      `gh pr view <pr-number> --json autoMergeRequest -q .autoMergeRequest.mergeMethod`
+      → `MERGE`.
     - **Controlled:** do **not** auto-merge. Once both gates are green, hand the PR
-      to the user named by ticket ("<id> <name>: PR <link> is Approved + E2E green
-      and ready to merge") and wait for them to merge it themselves. Do not run
-      `gh pr merge`. The loop resumes (step 13) once the user has merged.
+      to the user named by ticket ("<id> <name>: PR <link> is Approved + all
+      required checks green and ready to merge") and wait for them to merge it
+      themselves. Do not run `gh pr merge`. The loop resumes (step 13) once the
+      user has merged.
 
     Post a progress comment on the ticket linking the PR (build the comment payload
     via a Python temp `.json` file — never template text into a JSON literal):
+
     ```bash
     cd scripts/python && uv run clickup_api.py POST task/<ticket_id>/comment @/tmp/comment.json
     # /tmp/comment.json: {"comment_text": "<text incl. PR link>", "notify_all": false}
     ```
+
     Mark the ticket **in-flight** in the local Epic plan.
 
 13. **Poll the in-flight PRs** until each merges. In **automated** mode auto-merge
-    fires once delegate + E2E are green at the same HEAD; in **controlled** mode the
-    PR merges when the user merges it (after the hand-off in step 12). Use
+    fires once delegate and every required check are green at the same HEAD; in
+    **controlled** mode the PR merges when the user merges it (after the
+    hand-off in step 12). Use
     `gh pr view <n> --json state,mergedAt` / `gh pr checks <n>`. Polling cadence
     ~60–90s; budget generously — E2E waits on a deploy. As **each** PR reaches
-    `MERGED`:
+    `MERGED` (for a PR group, run this close-out for **every ticket in the
+    group** — each gets its status move, AC tick, and completion comment):
     - **Move its ticket to `done`** (status names are List-scoped; if `done` is
       rejected, `GET list/<list_id>` and pick the closest closed status):
       ```bash
@@ -318,11 +409,11 @@ For each ticket in the current phase (skip any already in a closed/done status):
         git -C "<repo path>" branch -D "<branch>" 2>/dev/null || true
       ```
 
-14. **Advance phases.** Once every ticket in the current phase is `done`,
-    recompute which tickets are now unblocked (all their dependencies closed) and
-    start the next phase at step 10. A ticket left **blocked** in a phase doesn't
-    block unrelated later tickets, but anything that depends on it waits; surface
-    the chain to the user by name.
+14. **Advance the queue.** On every state change (a subagent finishes, a PR is
+    approved, a PR merges), recompute the ready set against the Phase 3 unblock
+    rules and dispatch newly-ready tickets at step 10, up to the concurrency cap.
+    A **blocked** ticket doesn't stall unrelated tickets, but anything that
+    depends on it waits; surface the chain to the user by name.
 
 15. **Loop until the Epic is complete** — every non-milestone subtask is in a
     closed/done status. Then close out any milestone-marker tasks whose work tickets
@@ -363,6 +454,11 @@ For each ticket in the current phase (skip any already in a closed/done status):
 - **Pick the mode first.** Phase 0 (step 0) asks the user for controlled vs
   automated before any work. Default to controlled; only run automated when the
   user confirms the Epic's tickets are all very well defined.
+- **Schedule per ticket, never per phase.** The ready-queue + unblock rules
+  (Phase 3) are the main speed lever — a slow ticket must never gate ready,
+  unrelated work. Stacked branches accelerate *implementation* only; every PR
+  still opens against a base that includes its merged dependencies, and delegate +
+  required checks still gate every merge.
 - **Gates depend on the mode.** In **automated** mode the Phase 2 plan approval is
   the single interactive checkpoint — after `go`, don't re-ask per ticket; surface
   only genuine blockers, each named by ticket. In **controlled** mode you also
@@ -371,8 +467,8 @@ For each ticket in the current phase (skip any already in a closed/done status):
 - **Merging is mode-specific.** In **automated** mode use GitHub auto-merge
   (step 12) and let it fire on green; the loop polls for the `MERGED` state. Don't
   merge by hand in automated mode — it races the checks. In **controlled** mode the
-  bot never merges: it drives the PR to delegate `Approved.` + E2E green, hands it
-  to the user, and continues once the user has merged.
+  bot never merges: it drives the PR to delegate `Approved.` and every required
+  check green, hands it to the user, and continues once the user has merged.
 - **Pull the integration branch after every merge** (both modes). Once a PR merges,
   refresh local `develop` and merge it into the still-open worktree branches
   (step 13) so later tickets build on the latest and conflicts surface early.
@@ -394,15 +490,15 @@ For each ticket in the current phase (skip any already in a closed/done status):
 
 ## Troubleshooting
 
-| Failure | Fix |
-|---------|-----|
-| The task passed in is a leaf, not an Epic | It has a `parent` and no subtasks. Run `/work-on-clickup <id>` for a single ticket instead. |
-| Two "parallel" tickets keep producing merge conflicts | They share files — the derived graph was wrong. Re-sequence them into separate phases (consumer after producer) and continue. |
-| A subagent's Verify fails on something pre-existing on the integration branch | Not caused by this ticket. Surface it named by ticket; let the user decide to fix-now or proceed, same as the PR-shipping pre-flight escape hatch. |
-| Auto-merge never fires (automated mode) | Delegate isn't `Approved.` or E2E isn't green at HEAD. Drive the PR-shipping flow to converge both gates; auto-merge fires only when both are green at the same commit. |
-| Controlled mode: a PR is green but the loop is waiting | By design — in controlled mode you merge each PR yourself. Merge it; the loop resumes at step 13 once it sees `MERGED`. |
-| `merge origin/<integration-branch>` into an open worktree conflicts | Expected when two in-flight branches touched the same files. Resolve in that worktree (or let its subagent), then continue; surface as a blocker named by ticket only if it can't be cleanly resolved. |
-| `done` status rejected on the ticket's List | Status names are List-scoped. `GET list/<list_id>`, pick the closest closed status, retry. |
-| Worktree `add` fails: branch already exists | A prior run left it. `git worktree list` / `git branch`, remove the stale worktree + branch, retry. |
-| Playwright can't reach `localhost:4000` | The local web app isn't up. Start it (and the APIs it needs) per the working repo's `docs/development.md` before Phase 4. |
-| Loop runs very long | Expected — it waits on real merges and deploys (E2E waits on a gp-api deploy). It's not stuck unless a PR's gates have stalled; check `gh pr checks <n>`. |
+| Failure                                                                       | Fix                                                                                                                                                                                                    |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| The task passed in is a leaf, not an Epic                                     | It has a `parent` and no subtasks. Run `/work-on-clickup <id>` for a single ticket instead.                                                                                                            |
+| Two "parallel" tickets keep producing merge conflicts                         | They share files — the derived graph was wrong. Add the missing dependency edge (consumer after producer, or fold them into one PR group) and continue.                                                |
+| A subagent's Verify fails on something pre-existing on the integration branch | Not caused by this ticket. Surface it named by ticket; let the user decide to fix-now or proceed, same as the PR-shipping pre-flight escape hatch.                                                     |
+| Auto-merge never fires (automated mode)                                       | Delegate isn't `Approved.` or a required check isn't green at HEAD. Drive the PR-shipping flow to converge both gates; auto-merge fires only when both are green at the same commit.                   |
+| Controlled mode: a PR is green but the loop is waiting                        | By design — in controlled mode you merge each PR yourself. Merge it; the loop resumes at step 13 once it sees `MERGED`.                                                                                |
+| `merge origin/<integration-branch>` into an open worktree conflicts           | Expected when two in-flight branches touched the same files. Resolve in that worktree (or let its subagent), then continue; surface as a blocker named by ticket only if it can't be cleanly resolved. |
+| `done` status rejected on the ticket's List                                   | Status names are List-scoped. `GET list/<list_id>`, pick the closest closed status, retry.                                                                                                             |
+| Worktree `add` fails: branch already exists                                   | A prior run left it. `git worktree list` / `git branch`, remove the stale worktree + branch, retry.                                                                                                    |
+| Playwright can't reach `localhost:4000`                                       | The local web app isn't up. Start it (and the APIs it needs) per the working repo's `docs/development.md` before Phase 4.                                                                              |
+| Loop runs very long                                                           | Expected — it waits on real merges and deploys (E2E waits on a gp-api deploy). It's not stuck unless a PR's gates have stalled; check `gh pr checks <n>`.                                              |

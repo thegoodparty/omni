@@ -4,13 +4,15 @@ import {
   Logger,
   OnApplicationBootstrap,
   OnModuleDestroy,
+  OnModuleInit,
 } from '@nestjs/common'
 import type { FastifyReply } from 'fastify'
 import { Pool, PoolClient } from 'pg'
 import { CopyToStreamQuery, to as copyTo } from 'pg-copy-streams'
+import { DatabaseUrlProvider } from 'src/prisma/database-url.provider'
 import { DistrictService } from 'src/district/services/district.service'
 import { DownloadPeopleDTO } from '../people.schema'
-import { buildVoterSelectSql, ExtraSelectedField } from '../people.select'
+import { DOWNLOAD_COLUMNS, ExcludableVoterColumn } from '../people.select'
 import { buildVoterWhereSql } from '../utils/buildVoterWhereSql.utils'
 import { buildHouseholdKeySql } from '../utils/buildHouseholdKeySql.utils'
 import { inlinePrismaSql } from '../utils/inlinePrismaSql.utils'
@@ -20,51 +22,35 @@ const DATABASE_SCHEMA = 'green'
 const VOTER_TABLENAME = 'Voter'
 const DISTRICTVOTER_TABLENAME = 'DistrictVoter'
 
-// Same turnout columns as the previous fast-csv implementation; preserved
-// exactly so the exported CSV schema does not change.
-const EXTRA_FIELDS: ExtraSelectedField[] = [
-  'AnyElection_2017',
-  'AnyElection_2019',
-  'AnyElection_2021',
-  'AnyElection_2023',
-  'AnyElection_2025',
-  'General_2016',
-  'General_2018',
-  'General_2020',
-  'General_2022',
-  'General_2024',
-  'General_2026',
-  'OtherElection_2016',
-  'OtherElection_2018',
-  'OtherElection_2020',
-  'OtherElection_2022',
-  'OtherElection_2024',
-  'OtherElection_2026',
-  'PresidentialPrimary_2016',
-  'PresidentialPrimary_2020',
-  'PresidentialPrimary_2024',
-  'Primary_2016',
-  'Primary_2018',
-  'Primary_2020',
-  'Primary_2022',
-  'Primary_2024',
-  'Primary_2026',
-]
-
 const quoteIdent = (id: string) => `"${id.replace(/"/g, '""')}"`
 
 @Injectable()
 export class PeopleDownloadService
-  implements OnApplicationBootstrap, OnModuleDestroy
+  implements OnApplicationBootstrap, OnModuleInit, OnModuleDestroy
 {
   private readonly logger = new Logger(PeopleDownloadService.name)
-  private readonly pool: Pool
+  private pool!: Pool
+  private unsubscribe: (() => void) | null = null
 
-  constructor(private readonly districtService: DistrictService) {
-    const databaseUrl = process.env.DATABASE_URL
-    if (!databaseUrl) {
-      throw new Error('DATABASE_URL environment variable is required')
-    }
+  constructor(
+    private readonly districtService: DistrictService,
+    private readonly databaseUrl: DatabaseUrlProvider,
+  ) {}
+
+  async onModuleInit() {
+    this.pool = this.buildPool(await this.databaseUrl.ensureLoaded())
+    this.unsubscribe = this.databaseUrl.onChange((url) => {
+      const previous = this.pool
+      this.pool = this.buildPool(url)
+      // end() drains: it waits for checked-out clients (e.g. an in-flight COPY)
+      // to be released before closing, so no explicit delay is needed.
+      previous.end().catch((err: unknown) => {
+        this.logger.warn({ err }, 'Failed to end previous pg pool')
+      })
+    })
+  }
+
+  private buildPool(connectionString: string): Pool {
     // Each COPY holds one session for the entire download. Cap connections so
     // CSV downloads cannot crowd out other workloads.
     //
@@ -73,7 +59,7 @@ export class PeopleDownloadService
     // mode. People-api currently connects directly to Aurora Postgres (see
     // `deploy/index.ts`), which is session-mode. If a transaction-mode pooler
     // is ever introduced in front of the DB, this service must bypass it.
-    this.pool = new Pool({ connectionString: databaseUrl, max: 10 })
+    return new Pool({ connectionString, max: 10 })
   }
 
   onApplicationBootstrap() {
@@ -93,6 +79,7 @@ export class PeopleDownloadService
   }
 
   async onModuleDestroy() {
+    this.unsubscribe?.()
     await this.pool.end()
   }
 
@@ -100,8 +87,10 @@ export class PeopleDownloadService
     dto: DownloadPeopleDTO,
     res: FastifyReply,
   ): Promise<void> {
-    const { state, useVoterOnlyPath, districtId, districtType, districtName } =
-      await resolveDistrict(this.districtService, dto)
+    const { state, useVoterOnlyPath, districtId } = await resolveDistrict(
+      this.districtService,
+      dto,
+    )
     const effectiveDistrictId = useVoterOnlyPath ? null : districtId
 
     let client: PoolClient
@@ -137,9 +126,8 @@ export class PeopleDownloadService
         effectiveDistrictId,
         state,
         filters: dto.filters,
-        districtName,
-        districtType,
         groupByHousehold: dto.groupByHousehold,
+        excludeColumns: dto.excludeColumns,
       })
       copyStream = client.query(copyTo(sql))
     } catch (err) {
@@ -217,27 +205,28 @@ export class PeopleDownloadService
     effectiveDistrictId: string | null
     state: string
     filters: DownloadPeopleDTO['filters']
-    districtName: string
-    districtType: string
     groupByHousehold?: boolean
+    excludeColumns?: ExcludableVoterColumn[]
   }): string {
     const {
       client,
       effectiveDistrictId,
       state,
       filters,
-      districtName,
-      districtType,
       groupByHousehold,
+      excludeColumns,
     } = args
 
-    const { columnNames } = buildVoterSelectSql(EXTRA_FIELDS)
+    const excluded = new Set<string>(excludeColumns ?? [])
 
-    const voterCols = columnNames
-      .map((c) => `v.${quoteIdent(c)} AS ${quoteIdent(c)}`)
+    const voterCols = DOWNLOAD_COLUMNS.filter(
+      ({ column }) => !excluded.has(column),
+    )
+      .map(
+        ({ column, header }) =>
+          `v.${quoteIdent(column)} AS ${quoteIdent(header)}`,
+      )
       .join(', ')
-    const electionLocationLiteral = client.escapeLiteral(districtName)
-    const electionTypeLiteral = client.escapeLiteral(districtType)
 
     // Mirror the list endpoint's door-knocking de-dup: emit one row per
     // physical household. DISTINCT ON keeps a single representative voter per
@@ -249,7 +238,7 @@ export class PeopleDownloadService
     const distinctOn = groupByHousehold ? `DISTINCT ON (${householdKey}) ` : ''
     const orderBy = groupByHousehold ? `ORDER BY ${householdKey}, v."id"` : ''
 
-    const selectList = `SELECT ${distinctOn}${voterCols}, ${electionLocationLiteral} AS "electionLocation", ${electionTypeLiteral} AS "electionType"`
+    const selectList = `SELECT ${distinctOn}${voterCols}`
 
     const voterTable = `"${DATABASE_SCHEMA}"."${VOTER_TABLENAME}"`
     const dvTable = `"${DATABASE_SCHEMA}"."${DISTRICTVOTER_TABLENAME}"`

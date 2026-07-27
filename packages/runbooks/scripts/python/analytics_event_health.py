@@ -5,15 +5,16 @@ from the Govern description), code presence (the committed git-provenance CSV th
 beside this script in ``instrumentation_data/``), and firing volume (the event catalog plus
 a trailing weekly aggregate of the raw stream) — classifies each against the
 analytics-event-change SOP status model, detects firing-volume anomalies, and renders a
-severity-ranked digest section appended to ``instrumentation_data/analytics-event-health-log.md``.
+severity-ranked digest section prepended (newest first, below the header) to
+``instrumentation_data/analytics-event-health-log.md``.
 
 Hybrid scope: every catalog event gets an SOP status; a curated watchlist
 (``monitored_events.yaml``) drives severity elevation and the self-healing proposal queue
 (new events in watched families that are not yet on the list). The deeper per-flag code
 investigation (reading the diffs) is the runbook agent's job — see books/monitor-analytics-event-health.md.
 
-It READS from Databricks (the catalog ``int__amplitude_event_catalog`` and the raw stream
-``stg_airbyte_source__amplitude_api_events``, via OAuth in ``databricks_oauth`` — no PAT) for
+It READS from Databricks (the ``mart_analytics`` exposures ``amplitude_event_catalog`` and the
+event stream ``amplitude_events``, via OAuth in ``databricks_oauth`` — no PAT) for
 the firing axis, and the provenance CSV for the code axis. It WRITES nothing back to
 Amplitude; the CLI emits a markdown digest section and a JSON result.
 
@@ -46,8 +47,10 @@ import yaml
 # --- locations ---------------------------------------------------------------
 
 CATALOG = "goodparty_data_catalog"
-CATALOG_TABLE = f"{CATALOG}.dbt.int__amplitude_event_catalog"
-STREAM_TABLE = f"{CATALOG}.dbt.stg_airbyte_source__amplitude_api_events"
+# Read through mart_analytics exposures so access is granted at the mart schema,
+# not on individual dbt relations (dbt owns the models, Terraform owns the grant).
+CATALOG_TABLE = f"{CATALOG}.mart_analytics.amplitude_event_catalog"
+STREAM_TABLE = f"{CATALOG}.mart_analytics.amplitude_events"
 HERE = Path(__file__).resolve().parent
 DATA_DIR = HERE / "instrumentation_data"
 
@@ -61,6 +64,12 @@ DEFAULT_LOG = DATA_DIR / "analytics-event-health-log.md"
 # --- thresholds (SOP recommended defaults; tunable, pending Eng) --------------
 
 DORMANT_DAYS = 30
+# Grace after a lifecycle date (code retirement, or a gp-meta not-in-use declaration) before
+# trailing traffic counts as "still firing after" that date. Absorbs deploy lag (merge -> prod
+# rollout), the short client-cache drain tail, and Amplitude ingestion lag on last_seen. A
+# genuine orphan (stale clients emitting a removed event) keeps firing for weeks, well past this
+# window, so it is still caught; only the expected boundary tail is suppressed. (tunable, pending Eng)
+ORPHAN_GRACE_DAYS = 2
 RETIREMENT_FLOOR_PCT = 0.05  # current week below this fraction of baseline = anomaly drop
 ABSOLUTE_FLOOR = 5  # baseline fires/week below which a drop-to-zero rule replaces the %
 MIN_BASELINE_WEEKS = 5  # need >= current + 4 baseline complete weeks to judge an anomaly
@@ -135,8 +144,9 @@ def to_date(value: Any) -> date | None:
 def parse_gpmeta(description: str | None) -> dict | None:
     """Parse the ``<!-- gp-meta -->`` block from a Govern description.
 
-    Returns ``{"intent": "in_use"|"not_in_use"|None, "supersession": str|None, "purpose": str|None}`` or
-    ``None`` when no block is present. Sparse today; the logic is ready for when the
+    Returns ``{"intent": "in_use"|"not_in_use"|None, "intent_date": str|None,
+    "supersession": str|None, "purpose": str|None}`` (``intent_date`` is the YYYY-MM-DD on
+    the in-use / not-in-use status line) or ``None`` when no block is present. Sparse today; the logic is ready for when the
     instrument-analytics-event / event-metadata skills start writing it.
     """
     if not description:
@@ -146,10 +156,17 @@ def parse_gpmeta(description: str | None) -> dict | None:
         return None
     block = match.group(1)
     intent = None
-    if re.search(r"^\s*not in use", block, re.IGNORECASE | re.MULTILINE):
+    status_line = re.search(r"^\s*not in use[^\n]*", block, re.IGNORECASE | re.MULTILINE)
+    if status_line:
         intent = "not_in_use"
-    elif re.search(r"^\s*in use", block, re.IGNORECASE | re.MULTILINE):
-        intent = "in_use"
+    else:
+        status_line = re.search(r"^\s*in use[^\n]*", block, re.IGNORECASE | re.MULTILINE)
+        if status_line:
+            intent = "in_use"
+    intent_date = None
+    if status_line:
+        d = re.search(r"\d{4}-\d{2}-\d{2}", status_line.group(0))
+        intent_date = d.group(0) if d else None
     sup = re.search(r"supersession:\s*(.+)", block, re.IGNORECASE)
     # Purpose: the first content line that is neither a known field nor an in/out-of-use
     # status line. Trailing " |" (the gp-meta line separator) is stripped.
@@ -164,6 +181,7 @@ def parse_gpmeta(description: str | None) -> dict | None:
         break
     return {
         "intent": intent,
+        "intent_date": intent_date,
         "supersession": sup.group(1).rstrip().removesuffix("|").rstrip() if sup else None,
         "purpose": purpose,
     }
@@ -229,6 +247,7 @@ def classify_status(
     in_code: bool | None,
     firing_recent: bool,
     retired_date: date | None,
+    last_seen_date: date | None,
     today: date,
 ) -> str:
     """SOP status from the code x firing axes. ``in_code`` is None when the event has no
@@ -237,26 +256,56 @@ def classify_status(
         return "code_unknown"
     if retired_date is None:  # code present
         return "active" if firing_recent else "dormant"
-    if firing_recent:  # code removed but still firing
+    # Code removed. "Still firing" (orphaned) requires firing AFTER retirement, not merely a
+    # nonzero 30-day count: that window straddles the retirement date, so pre-retirement traffic
+    # would false-alarm every fresh retiree with prior volume as orphaned for up to 30 days
+    # (DATA-2140). Gate on last_seen past retirement + a grace window for deploy/pipeline lag. A
+    # missing last_seen (Databricks catalog data gap) is ambiguous, so fall back to firing_recent
+    # rather than hiding a genuine orphan behind a null date.
+    fired_after_retirement = last_seen_date is None or (
+        last_seen_date > retired_date + timedelta(days=ORPHAN_GRACE_DAYS)
+    )
+    if firing_recent and fired_after_retirement:
         return "orphaned_firing"
     return "deprecating" if (today - retired_date).days <= DORMANT_DAYS else "retired"
 
 
-def divergence(gpmeta: dict | None, status: str, firing_recent: bool) -> str | None:
+def divergence(
+    gpmeta: dict | None,
+    status: str,
+    firing_recent: bool,
+    last_seen_date: date | None = None,
+) -> str | None:
     """Intent-vs-reality divergence note from gp-meta, or None. (gp-meta sparse today.)"""
     if not gpmeta:
         return None
     if gpmeta["intent"] == "in_use" and status in ("retired", "deprecating"):
         return "declared in-use but code removed + quiet"
     if gpmeta["intent"] == "not_in_use" and firing_recent:
-        return "declared not-in-use but still firing"
+        # "Still firing" must mean fired AFTER the not-in-use declaration, not merely a nonzero
+        # 30-day count straddling that date (the same trap as orphaned_firing, DATA-2140). A missing
+        # declaration date, or a missing last_seen (Databricks data gap), is ambiguous — fall back to
+        # the firing_recent signal rather than hiding a genuine divergence behind a null date.
+        intent_date = to_date(gpmeta.get("intent_date"))
+        if intent_date is None or last_seen_date is None or (
+            last_seen_date > intent_date + timedelta(days=ORPHAN_GRACE_DAYS)
+        ):
+            return "declared not-in-use but still firing"
     return None
 
 
 def rank_record(record: Mapping[str, Any]) -> int:
-    """Digest severity rank (1 = highest). 99 = not flagged."""
+    """Digest severity rank (0 = highest). 99 = not flagged."""
     status, elevated, anomaly = record["status"], record["elevated"], record["anomaly"]
     div = record["divergence"] or ""
+    # DATA-2106 canary: a client event firing normally (active, no anomaly) with zero counted
+    # call sites is a contradiction -- the data axis says alive, the code axis says gone. The
+    # counter is blind (an aliased or Prettier-wrapped reference it cannot see), not the
+    # event dead: a tooling alert, never the rank-2 retirement path. An anomaly drop
+    # alongside the zero is instead the signature of a genuine recent removal (counts
+    # draining after the call site went away) and falls through to rank 2 below.
+    if record.get("call_site_count") == 0 and status == "active" and not anomaly:
+        return 0
     if status == "orphaned_firing" or div.endswith("still firing"):
         return 1
     # DATA-2046: the name literal is still declared (status active/dormant) but the call site
@@ -366,6 +415,7 @@ def reconcile(
         description = row["govern_description"]
         cnt30 = int(row["event_count_30d"] or 0)
         firing_recent = cnt30 > 0
+        last_seen = to_date(row["last_seen_date"])
         crow = code.get(event_type)
         gpmeta = parse_gpmeta(description)
         anomaly = detect_anomaly(series.get(event_type, []))
@@ -379,7 +429,8 @@ def reconcile(
             in_code = None if crow is None else True
             retired = to_date(crow.get(RETIRED_COL)) if crow else None
             status = classify_status(
-                in_code=in_code, firing_recent=firing_recent, retired_date=retired, today=today
+                in_code=in_code, firing_recent=firing_recent, retired_date=retired,
+                last_seen_date=last_seen, today=today,
             )
 
         records.append(
@@ -390,12 +441,12 @@ def reconcile(
                 "elevated": is_elevated(family, event_type, description, on_watchlist=on_watchlist),
                 "on_watchlist": on_watchlist,
                 "event_count_30d": cnt30,
-                "last_seen_date": to_date(row["last_seen_date"]),
+                "last_seen_date": last_seen,
                 "anomaly": anomaly,
                 "instrumented_pr": (crow or {}).get(INSTRUMENTED_PR_COL),
                 "call_site_count": call_site_count,
                 "call_site_retired_date": (crow or {}).get(CALL_SITE_RETIRED_COL) or None,
-                "divergence": divergence(gpmeta, status, firing_recent),
+                "divergence": divergence(gpmeta, status, firing_recent, last_seen),
                 "gpmeta": gpmeta,
                 "has_description": has_description(description),
             }
@@ -485,6 +536,7 @@ def diff_flagged(
 # --- rendering ----------------------------------------------------------------
 
 _RANK_LABEL = {
+    0: "counter blind spot: 0 call sites but firing normally (fix the counter, not the event)",
     1: "orphaned-firing / not-in-use still firing",
     2: "call site removed, name constant remains",
     3: "anomaly drop, active (elevated)",
@@ -707,11 +759,15 @@ def _json_default(obj: Any) -> str:
     raise TypeError(f"not serializable: {type(obj)}")
 
 
-def append_log(log_path: Path, section: str) -> None:
-    """Append one dated digest section to the growing longitudinal log."""
+def prepend_log(log_path: Path, section: str) -> None:
+    """Insert the dated digest section above prior runs (newest first), below the header."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(log_path, "a") as fh:
-        fh.write("\n" + section if log_path.exists() and log_path.stat().st_size else section)
+    existing = log_path.read_text() if log_path.exists() else ""
+    match = re.search(r"^## \d{4}-\d{2}-\d{2}$", existing, re.MULTILINE)
+    if match:
+        log_path.write_text(existing[: match.start()] + section + "\n" + existing[match.start() :])
+    else:
+        log_path.write_text(existing + ("\n" if existing else "") + section)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -719,8 +775,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--csv", type=Path, default=CODE_CSV, help="provenance CSV (code axis)")
     parser.add_argument("--watchlist", type=Path, default=WATCHLIST, help="curated watchlist YAML")
     parser.add_argument("--json", type=Path, help="also write the full result JSON here")
-    parser.add_argument("--log", type=Path, default=DEFAULT_LOG, help="longitudinal log to append to")
-    parser.add_argument("--no-log", action="store_true", help="do not append to the log")
+    parser.add_argument("--log", type=Path, default=DEFAULT_LOG, help="longitudinal log to write to")
+    parser.add_argument("--no-log", action="store_true", help="do not write to the log")
     parser.add_argument(
         "--state",
         type=Path,
@@ -733,6 +789,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="post the delta-led health digest to Slack (Source B, DATA-2057). Reads "
         "SLACK_APP_BOT_TOKEN + SLACK_EVENT_LIFECYCLE_CHANNEL_ID; quiet when nothing changed. "
         "A Slack failure warns but never changes the exit code.",
+    )
+    parser.add_argument(
+        "--gap-slack",
+        type=Path,
+        default=None,
+        help="gap run-data JSON (from instrumentation_gaps.py --slack-out) to fold into the "
+        "digest post as a two-part parent + threaded detail",
     )
     parser.add_argument(
         "--today",
@@ -758,7 +821,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     sys.stdout.write(section)
 
     if not args.no_log:
-        append_log(args.log, section)
+        prepend_log(args.log, section)
     if args.json:
         args.json.write_text(json.dumps(result, indent=2, default=_json_default) + "\n")
 
@@ -777,11 +840,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 file=sys.stderr,
             )
         else:
+            gap = None
+            if args.gap_slack:
+                try:
+                    loaded = json.loads(args.gap_slack.read_text())
+                    gap = loaded if isinstance(loaded, dict) else None
+                except (OSError, json.JSONDecodeError) as exc:
+                    print(
+                        f"--gap-slack {args.gap_slack} unreadable ({exc}); posting health only.",
+                        file=sys.stderr,
+                    )
             try:
                 prior_state = load_prior_state(args.state)
                 prior_anomalous = load_prior_anomalous(args.state)
                 ts = slk.post_digest(result, changes, prior_state, token=token, channel=channel,
-                                     prior_anomalous=prior_anomalous)
+                                     prior_anomalous=prior_anomalous, gap=gap)
                 print(f"slack: posted digest (ts {ts})" if ts else "slack: quiet (no change)", file=sys.stderr)
             except Exception as exc:  # noqa: BLE001 — never let Slack fail the monitor
                 print(f"slack: post failed ({exc}); monitor run unaffected.", file=sys.stderr)

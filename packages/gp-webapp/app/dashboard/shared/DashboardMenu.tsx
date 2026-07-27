@@ -6,14 +6,13 @@ import {
   MdFactCheck,
   MdFileOpen,
   MdFolderShared,
+  MdMenuBook,
   MdMessage,
   MdPeople,
   MdPoll,
   MdSensorDoor,
 } from 'react-icons/md'
 import {
-  BookOpen,
-  Bot,
   Circle,
   CircleUserRound,
   ClipboardList,
@@ -40,7 +39,6 @@ import { useCampaign } from '@shared/hooks/useCampaign'
 import { useCampaignStrategyExists } from './useCampaignStrategyExists'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
-import { Campaign } from 'helpers/types'
 import { CIRCLE_COMMUNITY_BASE } from 'appEnv'
 import {
   Avatar,
@@ -61,13 +59,16 @@ import {
   SidebarSeparator,
   useSidebar,
 } from '@styleguide'
-import { FlagIcon, ScrollTextIcon } from '@styleguide/components/ui/icons'
+import {
+  BookOpenIcon,
+  FlagIcon,
+  ScrollTextIcon,
+} from '@styleguide/components/ui/icons'
 import {
   OrganizationPicker,
   useOrganization,
 } from '@shared/organization-picker'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
-import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 
 interface MenuItem {
@@ -126,15 +127,6 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickMyProfile),
   },
   {
-    label: 'AI Assistant',
-    icon: <MdAutoAwesome />,
-    v2Icon: Bot,
-    v2Category: 'campaign',
-    link: '/dashboard/campaign-assistant',
-    id: 'campaign-assistant-dashboard',
-    onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickAIAssistant),
-  },
-  {
     label: 'Content Builder',
     icon: <MdFileOpen />,
     v2Icon: FileText,
@@ -163,16 +155,6 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCommunity),
   },
 ]
-
-const VOTER_RECORDS_MENU_ITEM: MenuItem = {
-  id: 'voter-records-dashboard',
-  label: 'Voter Data',
-  link: '/dashboard/voter-records',
-  icon: <MdFolderShared />,
-  v2Icon: UsersRound,
-  v2Category: 'campaign',
-  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickVoterData),
-}
 
 const ECANVASSER_MENU_ITEM: MenuItem = {
   id: 'door-knocking-dashboard',
@@ -258,6 +240,15 @@ const PUBLIC_PROFILE_MENU_ITEM: MenuItem = {
   v2Category: 'elected-office',
 }
 
+const ORDINANCES_MENU_ITEM: MenuItem = {
+  id: 'ordinances-dashboard',
+  label: 'Ordinances',
+  link: '/dashboard/ordinances',
+  icon: <MdFileOpen />,
+  v2Icon: ScrollTextIcon,
+  v2Category: 'elected-office',
+}
+
 const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   id: 'campaign-plan-dashboard',
   label: 'Campaign Plan',
@@ -266,6 +257,15 @@ const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   v2Icon: ScrollTextIcon,
   v2Category: 'campaign',
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignPlan),
+}
+
+const CAMPAIGN_STORY_MENU_ITEM: MenuItem = {
+  id: 'campaign-story-dashboard',
+  label: 'Your story',
+  link: '/dashboard/campaign-story',
+  icon: <MdMenuBook />,
+  v2Icon: BookOpenIcon,
+  v2Category: 'campaign',
 }
 
 const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
@@ -277,59 +277,44 @@ const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
   v2Category: 'campaign',
 }
 
-const CAMPAIGN_STORY_MENU_ITEM: MenuItem = {
-  id: 'campaign-story-dashboard',
-  label: 'Campaign Story',
-  link: '/dashboard/campaign-story',
-  icon: <MdFileOpen />,
-  v2Icon: BookOpen,
-  v2Category: 'campaign',
-}
-
 export const getDashboardMenuItems = (
-  campaign: Campaign | null,
   serveAccessEnabled: boolean,
   isElectedOffice: boolean,
   isElectedOfficeLoading: boolean,
   campaignStrategyExists: boolean,
-  winVoterDataReady: boolean,
-  winVoterDataEnabled: boolean,
   campaignStoryEnabled: boolean,
   communityIssuesEnabled: boolean,
+  ordinancesEnabled: boolean,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
   // Community Issues nav is gated behind serve-community-issues-v1 so it can be
   // dark-launched independently; the page route itself is serve-access gated.
   const communityIssuesShown = isElectedOffice && communityIssuesEnabled
+  const ordinancesShown = isElectedOffice && ordinancesEnabled
 
   const voterDataIndex = menuItems.indexOf(VOTER_DATA_UPGRADE_ITEM)
   if (serveAccessEnabled && isElectedOffice) {
     menuItems[voterDataIndex] = CONTACTS_MENU_ITEM
-  } else if (!isElectedOfficeLoading && winVoterDataReady) {
-    // Hold off until BOTH the elected-office query and the win-voter-data flag
-    // settle — the same combined guard useWinVoterContext applies elsewhere in
-    // this PR. Until then a Serve elected-official reads as not-elected-office,
-    // and the flag reads off, so committing here would swap the slot
-    // (placeholder → legacy Voter Data → Contacts) as each input resolves.
-    // While not ready, the generic upgrade placeholder holds the slot.
+  } else if (!isElectedOfficeLoading) {
+    // Hold off until the elected-office query settles — until then a Serve
+    // elected-official reads as not-elected-office, so committing here would
+    // swap the slot (placeholder → Contacts) as the query resolves. While not
+    // ready, the generic upgrade placeholder holds the slot.
     //
-    // With the flag on, pro AND non-pro Win campaigns get the unified Contacts
-    // page — a non-pro candidate sees the district aggregates and a blurred
-    // preview and is upsold there (ENG-10495). The legacy Voter Data page stays
-    // pro-only for the flag-off cohort; non-pro flag-off users keep the upgrade
-    // placeholder.
-    if (winVoterDataEnabled) {
-      menuItems[voterDataIndex] = WIN_CONTACTS_MENU_ITEM
-    } else if (campaign?.isPro) {
-      menuItems[voterDataIndex] = VOTER_RECORDS_MENU_ITEM
-    }
+    // Pro AND non-pro Win campaigns get the unified Contacts page — a non-pro
+    // candidate sees the district aggregates and a blurred preview and is
+    // upsold there (ENG-10495).
+    menuItems[voterDataIndex] = WIN_CONTACTS_MENU_ITEM
   }
   if (isElectedOffice) {
     menuItems.splice(voterDataIndex, 0, POLLS_MENU_ITEM)
     menuItems.unshift(BRIEFINGS_MENU_ITEM)
     if (communityIssuesShown) {
       menuItems.splice(1, 0, COMMUNITY_ISSUES_MENU_ITEM)
+    }
+    if (ordinancesShown) {
+      menuItems.splice(communityIssuesShown ? 2 : 1, 0, ORDINANCES_MENU_ITEM)
     }
     // The office holder's editable public /people profile (Serve side of §4).
     menuItems.push(PUBLIC_PROFILE_MENU_ITEM)
@@ -344,19 +329,15 @@ export const getDashboardMenuItems = (
 
   // Campaign Manager (dashboard home) is index 0, pushed down by each item
   // unshifted above it: BRIEFINGS for an elected office, COMMUNITY_ISSUES when
-  // its flag is on, then Chief of Staff when shown. Insert campaign items right
-  // after Campaign Manager (and Story before Plan, so the Plan splice lands
-  // first) to render the campaign-category nav as [Campaign Manager, Campaign
-  // Plan, Campaign Story, …].
+  // its flag is on, then Chief of Staff when shown. Insert the Plan/Tracker
+  // item right after Campaign Manager to render the campaign-category nav as
+  // [Campaign Manager, Campaign Plan, …].
   const afterCampaignManager =
     1 +
     (isElectedOffice ? 1 : 0) +
     (communityIssuesShown ? 1 : 0) +
+    (ordinancesShown ? 1 : 0) +
     (chiefOfStaffShown ? 1 : 0)
-
-  if (campaignStoryEnabled) {
-    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
-  }
 
   // Gated on the dedicated existence endpoint, NOT campaign.hasCampaignStrategy
   // — the cached campaign object gets overwritten by responses that lack that
@@ -372,6 +353,12 @@ export const getDashboardMenuItems = (
         ? 'Campaign Tracker'
         : CAMPAIGN_PLAN_MENU_ITEM.label,
     })
+  }
+
+  // Story-cohort users get a "Your story" tab just above the tracker (the story
+  // is what the tracker + plan are generated from).
+  if (campaignStoryEnabled) {
+    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
   }
 
   // Visible to non-Pro users too: the page renders a locked upgrade view
@@ -399,31 +386,25 @@ export default function DashboardMenu({
     useElectedOffice()
   const { ready: _flagsReady, on: serveAccessEnabled } =
     useFlagOn('serve-access')
-  // Master gate for the Win voter-data rollout. When on, a pro Win campaign
-  // sees the Contacts item (reusing the Serve route) in place of the legacy
-  // Voter Data item. Read with trackExposure=false — the page is the treatment
-  // surface, not the menu — so the nav read doesn't inflate the exposed
-  // population.
-  const { ready: winVoterDataReady, enabled: winVoterDataEnabled } =
-    useWinVoterDataFlag(false)
-  // Menu isn't the treatment surface (the page's FeatureFlagGuard is), so don't
-  // track exposure here — mirrors the win-voter-data gate above.
+  // Menu isn't the treatment surface (the page's FeatureFlagGuard is), so
+  // don't track exposure here.
   const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
   // Nav-only gate for the Community Issues tab; mirrors the serve-access read.
   const { on: communityIssuesEnabled } = useFlagOn('serve-community-issues-v1')
+  // Nav-only gate for the Ordinances tab; the page's FeatureFlagGuard is the
+  // treatment surface.
+  const { on: ordinancesEnabled } = useFlagOn('serve-ordinances')
   const campaignStrategyExists = useCampaignStrategyExists()
 
   const menuItems = useMemo(() => {
     const items = getDashboardMenuItems(
-      campaign,
       serveAccessEnabled,
       !!electedOffice,
       isElectedOfficeLoading,
       campaignStrategyExists,
-      winVoterDataReady,
-      winVoterDataEnabled,
       campaignStoryEnabled,
       communityIssuesEnabled,
+      ordinancesEnabled,
     )
 
     if (ecanvasser) {
@@ -432,16 +413,14 @@ export default function DashboardMenu({
 
     return items
   }, [
-    campaign,
     serveAccessEnabled,
     ecanvasser,
     electedOffice,
     isElectedOfficeLoading,
     campaignStrategyExists,
-    winVoterDataReady,
-    winVoterDataEnabled,
     campaignStoryEnabled,
     communityIssuesEnabled,
+    ordinancesEnabled,
   ])
 
   useEffect(() => {

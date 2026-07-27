@@ -43,6 +43,7 @@ import {
   PeerlyIdentityProfileResponseBody,
   PeerlyIdentityUseCaseResponseBody,
   PeerlyRetrieveCampaignVerifyStatusResponseBody,
+  PeerlyResendPinResponseBody,
   PeerlyRetrieveCvResponseBody,
   PeerlySubmitCVResponseBody,
   PeerlyVerifyCVPinResponse,
@@ -69,6 +70,7 @@ import {
 import {
   getPeerlyCvRejectionDetail,
   isPeerlyCvRejection,
+  PeerlyCvRejectionException,
 } from '../utils/peerlyCvRejection.util'
 import { PinoLogger } from 'nestjs-pino'
 
@@ -235,9 +237,13 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
   ) {
     const { details: campaignDetails, placeId } = campaign
     const { phone, websiteDomain, ein } = tcrCompliancePayload
+    if (!placeId) {
+      throw new BadRequestException(
+        'Campaign placeId is required to submit 10DLC brand',
+      )
+    }
     const { street, city, state, postalCode } = extractAddressComponents(
-      // TODO(ENG-6400): using `placeId!` is dangerous here.
-      await this.placesService.getAddressByPlaceId(placeId!),
+      await this.placesService.getAddressByPlaceId(placeId),
     )
     const { campaignCommittee } = campaignDetails
     if (!campaignCommittee) {
@@ -515,6 +521,12 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       )
     }
 
+    if (!placeId) {
+      throw new BadRequestException(
+        'Campaign placeId is required to submit CV request',
+      )
+    }
+
     const {
       street: filingAddressLine1,
       city,
@@ -522,8 +534,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       county,
       postalCode,
     } = extractAddressComponents(
-      // TODO(ENG-6400): using `placeId!` is dangerous here.
-      await this.placesService.getAddressByPlaceId(placeId!),
+      await this.placesService.getAddressByPlaceId(placeId),
     )
 
     // Map officeLevel to Peerly locality
@@ -651,7 +662,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
         return await this.handleApiError(error, {
           campaign,
           ...(peerlyIdentityId ? { peerlyIdentityId } : {}),
-          httpExceptionClass: BadRequestException,
+          httpExceptionClass: PeerlyCvRejectionException,
           customMessage:
             'Campaign Verify rejected the submission' +
             (detail ? `: ${detail}` : '') +
@@ -706,6 +717,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
   async retrieveCampaignVerifyStatus(
     peerlyIdentityId: string,
     campaign: Campaign,
+    options?: { suppressSlackAlert?: boolean },
   ) {
     try {
       this.logger.debug(
@@ -737,7 +749,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           return null
         }
       }
-      return await this.handleApiError(e, { campaign, peerlyIdentityId })
+      return await this.handleApiError(e, {
+        campaign,
+        peerlyIdentityId,
+        suppressSlackAlert: options?.suppressSlackAlert,
+      })
     }
   }
 
@@ -804,6 +820,22 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       } else {
         return await this.handleApiError(e, { campaign, peerlyIdentityId })
       }
+    }
+  }
+
+  // Peerly re-sends the PIN through the same verification method and contact
+  // info Campaign Verify originally approved; CV requires the request to be
+  // APPROVED first — callers gate on that.
+  async resendCampaignVerifyPin(
+    peerlyIdentityId: string,
+    campaign: Campaign,
+  ): Promise<void> {
+    try {
+      await this.peerlyHttpService.post<PeerlyResendPinResponseBody>(
+        `/v2/tdlc/${peerlyIdentityId}/resend_pin`,
+      )
+    } catch (e) {
+      await this.handleApiError(e, { campaign, peerlyIdentityId })
     }
   }
 

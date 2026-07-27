@@ -1,6 +1,8 @@
 import { Logger } from '@nestjs/common'
 import { PassThrough } from 'stream'
+import { Pool } from 'pg'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DOWNLOAD_COLUMNS } from '../people.select'
 import { PeopleDownloadService } from './peopleDownload.service'
 
 const mockRelease = vi.fn()
@@ -9,13 +11,15 @@ const mockClientQuery = vi.fn()
 const mockPoolConnect = vi.fn()
 
 vi.mock('pg', () => {
-  const PoolClass = function () {
+  const Pool = vi.fn<
+    (config: { connectionString: string; max: number }) => void
+  >(function () {
     // @ts-expect-error -- mock constructor
     this.connect = mockPoolConnect
     // @ts-expect-error -- mock constructor
     this.end = mockPoolEnd
-  }
-  return { Pool: PoolClass }
+  })
+  return { Pool }
 })
 
 vi.mock('pg-copy-streams', () => ({
@@ -24,6 +28,15 @@ vi.mock('pg-copy-streams', () => ({
 
 const districtServiceMock = {
   findDistrictById: vi.fn(),
+}
+
+const databaseUrlProviderMock = {
+  ensureLoaded: vi.fn<() => Promise<string>>(() =>
+    Promise.resolve('postgres://example/test'),
+  ),
+  onChange: vi.fn<(listener: (url: string) => void) => () => void>(() =>
+    vi.fn(),
+  ),
 }
 
 const DISTRICT_UUID = '0e5bafca-93a9-86a5-2522-f373979720df'
@@ -81,8 +94,7 @@ describe('PeopleDownloadService', () => {
   let service: PeopleDownloadService
   let copyStream: PassThrough
 
-  beforeEach(() => {
-    process.env.DATABASE_URL = 'postgres://example/test'
+  beforeEach(async () => {
     vi.clearAllMocks()
     districtServiceMock.findDistrictById.mockReset()
     districtServiceMock.findDistrictById.mockResolvedValue(cityWardDistrict)
@@ -99,7 +111,11 @@ describe('PeopleDownloadService', () => {
     })
     setupClient()
 
-    service = new PeopleDownloadService(districtServiceMock as never)
+    service = new PeopleDownloadService(
+      districtServiceMock as never,
+      databaseUrlProviderMock as never,
+    )
+    await service.onModuleInit()
   })
 
   afterEach(() => {
@@ -107,7 +123,7 @@ describe('PeopleDownloadService', () => {
   })
 
   describe('streamPeopleCsv', () => {
-    it('builds COPY SQL with the voter join, where clause, and election constants', async () => {
+    it('builds COPY SQL with the voter join and where clause', async () => {
       const { to: copyTo } = await import('pg-copy-streams')
 
       const { res, raw } = makeRawResponse()
@@ -129,13 +145,92 @@ describe('PeopleDownloadService', () => {
       expect(sql).toContain('FROM "green"."Voter" v')
       expect(sql).toContain('JOIN "green"."DistrictVoter" dv')
       expect(sql).toContain(`dv."district_id" = '${DISTRICT_UUID}'::uuid`)
-      expect(sql).toContain(
-        `v."State" = CAST('WY'::text AS "public"."USState")`,
+      expect(sql).toContain(`v."State" = 'WY'::"public"."USState"`)
+      expect(sql).toContain('v."LALVOTERID" AS "Voter ID"')
+      expect(sql).toContain('v."Primary_2026" AS "Voted in 2026 Primary"')
+      // The party column is exported by default — this is the fact that
+      // makes the exclusion mechanism below necessary (ENG-10696).
+      expect(sql).toContain('v."Parties_Description" AS "Registered Party"')
+      // ENG-10766: curated legacy subset only — no raw L2 turnout dump.
+      expect(sql).not.toContain('"AnyElection_')
+      expect(sql).not.toContain('"OtherElection_')
+      expect(sql).not.toContain('"PresidentialPrimary_')
+      expect(sql).not.toContain('"electionLocation"')
+      expect(sql).not.toContain('"electionType"')
+    })
+
+    it('selects exactly DOWNLOAD_COLUMNS, in order, with their friendly-header aliases', async () => {
+      const { to: copyTo } = await import('pg-copy-streams')
+
+      const { res, raw } = makeRawResponse()
+      const completion = service.streamPeopleCsv(
+        {
+          districtId: DISTRICT_UUID,
+          filters: { filters: [], filterOperators: {} },
+        } as never,
+        res,
       )
-      expect(sql).toContain(`'CHEYENNE CITY WARD 1' AS "electionLocation"`)
-      expect(sql).toContain(`'City_Ward' AS "electionType"`)
-      expect(sql).toContain('v."LALVOTERID" AS "LALVOTERID"')
-      expect(sql).toContain('v."Primary_2026" AS "Primary_2026"')
+
+      copyStream.end()
+      raw.destroy()
+
+      await completion
+
+      const sql = vi.mocked(copyTo).mock.calls[0]?.[0] as string
+      const expectedSelectList = DOWNLOAD_COLUMNS.map(
+        ({ column, header }) =>
+          `v."${column}" AS "${header.replace(/"/g, '""')}"`,
+      ).join(', ')
+      expect(sql).toContain(`SELECT ${expectedSelectList}`)
+    })
+
+    // ENG-10696: the CSV is a Postgres COPY stream gp-api can't post-process,
+    // so a caller that wants a column omitted (the Serve party-visibility
+    // rule) must ask the projection itself to drop it.
+    it('omits the party column from the COPY projection when excludeColumns names it', async () => {
+      const { to: copyTo } = await import('pg-copy-streams')
+
+      const { res, raw } = makeRawResponse()
+      const completion = service.streamPeopleCsv(
+        {
+          districtId: DISTRICT_UUID,
+          filters: { filters: [], filterOperators: {} },
+          excludeColumns: ['Parties_Description'],
+        } as never,
+        res,
+      )
+
+      copyStream.end()
+      raw.destroy()
+
+      await completion
+
+      const sql = vi.mocked(copyTo).mock.calls[0]?.[0] as string
+      expect(sql).not.toContain('"Parties_Description"')
+      expect(sql).not.toContain('"Registered Party"')
+      // Every other base column stays untouched.
+      expect(sql).toContain('v."LALVOTERID" AS "Voter ID"')
+    })
+
+    it('keeps the party column when excludeColumns is not provided', async () => {
+      const { to: copyTo } = await import('pg-copy-streams')
+
+      const { res, raw } = makeRawResponse()
+      const completion = service.streamPeopleCsv(
+        {
+          districtId: DISTRICT_UUID,
+          filters: { filters: [], filterOperators: {} },
+        } as never,
+        res,
+      )
+
+      copyStream.end()
+      raw.destroy()
+
+      await completion
+
+      const sql = vi.mocked(copyTo).mock.calls[0]?.[0] as string
+      expect(sql).toContain('v."Parties_Description" AS "Registered Party"')
     })
 
     it('omits the DistrictVoter join for state-only districts', async () => {
@@ -159,9 +254,7 @@ describe('PeopleDownloadService', () => {
       const sql = vi.mocked(copyTo).mock.calls[0]?.[0] as string
       expect(sql).not.toContain('JOIN "green"."DistrictVoter"')
       expect(sql).not.toContain('dv."district_id"')
-      expect(sql).toContain(
-        `v."State" = CAST('WY'::text AS "public"."USState")`,
-      )
+      expect(sql).toContain(`v."State" = 'WY'::"public"."USState"`)
     })
 
     it('inlines filter predicates into the COPY SQL', async () => {
@@ -566,6 +659,27 @@ describe('PeopleDownloadService', () => {
       mockPoolEnd.mockResolvedValue(undefined)
       await service.onModuleDestroy()
       expect(mockPoolEnd).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('database URL swap', () => {
+    it('ends the previous pool and builds a new one with the new URL', () => {
+      mockPoolEnd.mockResolvedValue(undefined)
+      const PoolCtor = vi.mocked(Pool)
+      const callsBefore = PoolCtor.mock.calls.length
+
+      const onChangeCallback =
+        databaseUrlProviderMock.onChange.mock.calls[0]?.[0]
+      if (!onChangeCallback) {
+        throw new Error('onChange listener was not registered')
+      }
+      onChangeCallback('postgres://new/db')
+
+      expect(mockPoolEnd).toHaveBeenCalledTimes(1)
+      expect(PoolCtor).toHaveBeenCalledTimes(callsBefore + 1)
+      expect(PoolCtor.mock.calls.at(-1)?.[0]).toEqual(
+        expect.objectContaining({ connectionString: 'postgres://new/db' }),
+      )
     })
   })
 })

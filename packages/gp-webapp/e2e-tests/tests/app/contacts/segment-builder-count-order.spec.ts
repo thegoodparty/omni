@@ -7,12 +7,8 @@ import {
   filtersSheet,
   waitForContactsTableReady,
 } from 'src/helpers/contacts-e2e'
-import {
-  setupElectedOfficeUser,
-  switchOrganization,
-  getSelectedOrgName,
-  getOrgPickerOptions,
-} from 'src/helpers/organizations'
+import { setupProCampaignUser } from 'src/helpers/organizations'
+import { disableCrmFlags } from 'src/helpers/crm-contacts-e2e'
 
 // Select a checkbox inside a filters/segment sheet by its section heading (an
 // <h4>, e.g. "Gender") and the option label (e.g. "Male"). Mirrors the helper
@@ -49,8 +45,8 @@ const readVotersMatchCount = async (sheet: Locator): Promise<number | null> => {
   return Number(digits.replace(/,/g, ''))
 }
 
-// The canonical Voter Likely option order (least → most likely), read from
-// filters.config.ts ("Voter Likely" field): Unknown, First Time, Unlikely,
+// The canonical Voter Likelihood option order (least → most likely), read from
+// filters.config.ts ("Voter Likelihood" field): Unknown, First Time, Unlikely,
 // Likely, Super. This is the ENG-10516 ordering the builder must render.
 const VOTER_LIKELY_ORDER = [
   'Unknown',
@@ -60,35 +56,24 @@ const VOTER_LIKELY_ORDER = [
   'Super',
 ]
 
-// @dev-only: this spec exercises the Win Contacts segment builder for a pro
-// campaign org, reachable only when win-voter-data is on for the user AND the
-// campaign is pro — and the live count endpoint (POST /v1/contacts/count) is
-// itself pro-gated. The warm dev stack enables win-voter-data for internal/
-// @test.goodparty.org users and provisions pro; an ephemeral per-PR preview
-// can't guarantee that flag state or the pro provisioning, so this runs on the
-// post-merge develop e2e (and on demand), not on PRs. Same pattern as
-// win-contacts. See e2e-tests/CLAUDE.md ("@dev-only").
-test.describe('Segment builder count + order @dev-only', () => {
+// Exercises the Win Contacts segment builder for a pro campaign org — the live
+// count endpoint (POST /v1/contacts/count) is pro-gated. setupProCampaignUser
+// provisions Pro without the Stripe webhook, so this runs on PR previews now.
+// See e2e-tests/CLAUDE.md ("@dev-only") for what still earns the tag.
+test.describe('Segment builder count + order', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
+    // Legacy flag-off spec: pin the CRM flags OFF so a live ramp can't flip
+    // this onto the new CRM surface mid-test (e2e-tests/CLAUDE.md).
+    await disableCrmFlags(page)
   })
 
-  test('live voter count updates with a filter and Voter Likely renders in order', async ({
+  test('live voter count updates with a filter and Voter Likelihood renders in order', async ({
     page,
   }) => {
     test.setTimeout(3 * 60 * 1000)
 
-    // setupElectedOfficeUser leaves the elected-office org selected; the Win
-    // context (with the segment builder + party/audience filters and the pro-
-    // gated count) is the campaign org, so switch to it. The EO org resolves as
-    // Serve and would change the available filter surface.
-    await setupElectedOfficeUser(page)
-
-    const eoOrgName = await getSelectedOrgName(page)
-    const allOrgs = await getOrgPickerOptions(page)
-    const campaignOrgName = allOrgs.find((name) => name !== eoOrgName)
-    expect(campaignOrgName).toBeTruthy()
-    await switchOrganization(page, campaignOrgName!)
+    await setupProCampaignUser(page)
 
     await page.goto('/dashboard/contacts', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
@@ -122,10 +107,12 @@ test.describe('Segment builder count + order @dev-only', () => {
     const sheet = filtersSheet(page, /create segment/i)
     await expect(sheet).toBeVisible({ timeout: 30000 })
 
-    // --- Voter Likely option order (ENG-10516) ---
-    // The Voter Likely section renders one option label per row; assert they
+    // --- Voter Likelihood option order (ENG-10516) ---
+    // The Voter Likelihood section renders one option label per row; assert they
     // appear in the exact least-→-most-likely order from filters.config.ts.
-    const voterLikelyHeading = sheet.locator('h4', { hasText: 'Voter Likely' })
+    const voterLikelyHeading = sheet.locator('h4', {
+      hasText: 'Voter Likelihood',
+    })
     await expect(voterLikelyHeading).toBeVisible({ timeout: 10000 })
     const voterLikelyContainer = voterLikelyHeading.locator('xpath=../..')
     // Each option label is a Body2, which renders a `<div>` (not a `<p>`)

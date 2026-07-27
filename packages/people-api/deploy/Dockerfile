@@ -58,8 +58,11 @@ COPY packages/people-api ./packages/people-api
 
 # Set the docker build args into environment variables on runner.
 ARG STAGE
-ARG DATABASE_URL
-ENV DATABASE_URL=$DATABASE_URL
+# `prisma generate` reads the datasource url env var but never connects, so a
+# placeholder is sufficient at build time. The running service does not use this
+# — it resolves the real URL from SSM at runtime (see DatabaseUrlProvider).
+ARG LOCAL_DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder"
+ENV LOCAL_DATABASE_URL=$LOCAL_DATABASE_URL
 
 WORKDIR /app/packages/people-api
 
@@ -74,7 +77,8 @@ FROM public.ecr.aws/docker/library/node:22.23.0-alpine
 
 RUN apk add --no-cache \
     libc6-compat \
-    openssl
+    openssl \
+    libcap
 
 WORKDIR /app
 
@@ -110,5 +114,13 @@ RUN chmod +x ./entrypoint.sh
 
 # Set the NODE_ENV to production
 ENV NODE_ENV=production
+
+# Run as a non-root user (defense-in-depth hardening). The stock node image
+# ships an unprivileged `node` user (uid 1000). The app binds container port 80,
+# which is privileged, so grant the node binary CAP_NET_BIND_SERVICE (a targeted
+# capability, not root) so it can still bind < 1024 after dropping privileges.
+RUN setcap 'cap_net_bind_service=+ep' "$(command -v node)"
+USER node
+
 # Use the entrypoint script as the container's entrypoint
 ENTRYPOINT [ "./entrypoint.sh" ]

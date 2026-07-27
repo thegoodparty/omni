@@ -1,11 +1,14 @@
 import type { Person } from '@goodparty_org/contracts'
 import { BaseDbPerson } from '../people.select'
+import { classifyPoliticalParty } from './politicalParty.rules'
 
 // people-api is the producer of this shape; the canonical definition lives in
 // @goodparty_org/contracts as Person (consumed by gp-api and gp-webapp).
 export type PersonOutputFormat = Person
 
-const mapAge = (person: BaseDbPerson): PersonOutputFormat['age'] => {
+export const mapAge = (
+  person: Pick<BaseDbPerson, 'Age' | 'Age_Int'>,
+): PersonOutputFormat['age'] => {
   if (typeof person.Age_Int === 'number' && Number.isFinite(person.Age_Int))
     return person.Age_Int
   if (person.Age && Number.isFinite(parseInt(String(person.Age), 10)))
@@ -99,21 +102,13 @@ const mapVeteranStatus = (
   return null
 }
 
-const mapPoliticalParty = (
+// Case-insensitive substring classification with fixed precedence. The rules
+// live in ./politicalParty.rules so the SQL filter (filters.sql.utils.ts) can
+// select exactly the rows that classify here — see that file for the reconciled
+// filter. Behavior is byte-for-byte identical to the previous inline if-chain.
+export const mapPoliticalParty = (
   value: string | null | undefined,
-): PersonOutputFormat['politicalParty'] => {
-  if (!value) return 'Other'
-  const v = value.toLowerCase()
-  if (v.includes('democratic') || v.includes('democrat')) return 'Democratic'
-  if (v.includes('republican')) return 'Republican'
-  if (
-    v.includes('independent') ||
-    v.includes('declined to state') ||
-    v.includes('non-partisan')
-  )
-    return 'Independent'
-  return 'Other'
-}
+): PersonOutputFormat['politicalParty'] => classifyPoliticalParty(value)
 
 const mapLanguage = (
   value: string | null | undefined,
@@ -125,10 +120,25 @@ const mapLanguage = (
   return 'Other'
 }
 
-const mapVoterStatus = (
+// Known voterStatus vocabulary from the contract's `voterStatus` enum. Any DB
+// value outside this set (including the sentinel 'Unknown') maps to null rather
+// than being cast through unchecked — the output type stays honest.
+const VOTER_STATUS_VALUES = [
+  'Super',
+  'Likely',
+  'Unreliable',
+  'Unlikely',
+  'First Time',
+] as const satisfies ReadonlyArray<
+  NonNullable<PersonOutputFormat['voterStatus']>
+>
+
+const VOTER_STATUS_SET: ReadonlySet<string> = new Set(VOTER_STATUS_VALUES)
+
+export const mapVoterStatus = (
   value: string | null | undefined,
 ): PersonOutputFormat['voterStatus'] => {
-  if (value === 'Unknown') return null
+  if (!value || !VOTER_STATUS_SET.has(value)) return null
   return value as PersonOutputFormat['voterStatus']
 }
 

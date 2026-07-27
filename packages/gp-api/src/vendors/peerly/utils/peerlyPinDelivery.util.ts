@@ -4,10 +4,12 @@ import {
 } from '@goodparty_org/contracts'
 import { PeerlyCvVerificationData } from '../peerly.types'
 
-// The channel Peerly used plus the raw destination it sent the PIN to. Internal
-// to gp-api: the raw destination is persisted on the TcrCompliance record (like
-// the existing email/phone columns) but never leaves the API — callers that
-// return it to the browser mask it via maskPinDeliveryDestination first.
+// The channel Peerly used plus the raw destination it sent the PIN to. The
+// raw destination is persisted on the TcrCompliance record and synced to
+// HubSpot via the PIN Sent event so Campaign Success can name the exact
+// inbox/number in the nudge (CV may deliver to a treasurer's contact from the
+// state filing, not the candidate's own). Callers that return it to the
+// browser still mask it via maskPinDeliveryDestination first.
 export interface DerivedPinDelivery {
   method: PinDeliveryMethod
   destination: string
@@ -53,8 +55,12 @@ const destinationForMethod = (
 export const derivePinDelivery = (
   data: PeerlyCvVerificationData | null | undefined,
 ): DerivedPinDelivery | null => {
+  const rawMethod = data?.verification_method?.trim().toLowerCase()
+  // Peerly reports address delivery as 'postal' (live CV payloads, e.g.
+  // identity 11539946), not the 'mail' our contract enum anticipated —
+  // without this mapping, postal PINs never stamp and the nudge never fires.
   const method = PinDeliveryMethodSchema.safeParse(
-    data?.verification_method?.trim().toLowerCase(),
+    rawMethod === 'postal' ? PinDeliveryMethod.mail : rawMethod,
   )
   if (!method.success) {
     return null

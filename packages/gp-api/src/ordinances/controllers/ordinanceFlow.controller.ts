@@ -8,12 +8,16 @@ import {
   Param,
   Patch,
   Post,
+  Query,
+  StreamableFile,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
 import {
   OrdinanceListResponseSchema,
+  OrdinanceQualityIterationsResponseSchema,
+  OrdinanceQualityRunSchema,
   OrdinanceSchema,
 } from '@goodparty_org/contracts'
 import { ReqElectedOffice } from 'src/electedOffice/decorators/ReqElectedOffice.decorator'
@@ -25,7 +29,9 @@ import { ElectedOffice } from '../../generated/prisma'
 import { OrdinancesService } from '../services/ordinances.service'
 import {
   CreateOrdinanceDto,
+  OrdinanceExportQueryDto,
   OrdinanceSlugParamDto,
+  SaveClarifyAnswerDto,
   UpdateOrdinanceDto,
 } from '../schemas/ordinances.schema'
 
@@ -68,6 +74,89 @@ export class OrdinanceFlowController {
     @Param() { slug }: OrdinanceSlugParamDto,
   ) {
     return this.ordinances.getBySlug(electedOffice, slug)
+  }
+
+  @Post(':slug/clarify-answers')
+  @UseElectedOffice()
+  @HttpCode(HttpStatus.CREATED)
+  @ResponseSchema(OrdinanceSchema)
+  async saveClarifyAnswer(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { slug }: OrdinanceSlugParamDto,
+    @Body() body: SaveClarifyAnswerDto,
+  ) {
+    return this.ordinances.appendClarifyAnswer(electedOffice, slug, body)
+  }
+
+  @Post(':slug/quality-report')
+  @UseElectedOffice()
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ResponseSchema(OrdinanceQualityRunSchema)
+  async startQualityReport(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { slug }: OrdinanceSlugParamDto,
+  ) {
+    return this.ordinances.startQualityReport(electedOffice, slug)
+  }
+
+  @Get(':slug/quality-report')
+  @UseElectedOffice()
+  @ResponseSchema(OrdinanceQualityRunSchema)
+  async getQualityRun(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { slug }: OrdinanceSlugParamDto,
+  ) {
+    return this.ordinances.getQualityRun(electedOffice, slug)
+  }
+
+  @Post(':slug/quality-loop')
+  @UseElectedOffice()
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ResponseSchema(OrdinanceSchema)
+  async startQualityLoop(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { slug }: OrdinanceSlugParamDto,
+  ) {
+    return this.ordinances.startQualityLoop(electedOffice, slug)
+  }
+
+  @Delete(':slug/quality-loop')
+  @UseElectedOffice()
+  @ResponseSchema(OrdinanceSchema)
+  async cancelQualityLoop(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { slug }: OrdinanceSlugParamDto,
+  ) {
+    return this.ordinances.cancelQualityLoop(electedOffice, slug)
+  }
+
+  @Get(':slug/quality-iterations')
+  @UseElectedOffice()
+  @ResponseSchema(OrdinanceQualityIterationsResponseSchema)
+  async listQualityIterations(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { slug }: OrdinanceSlugParamDto,
+  ) {
+    return this.ordinances.listQualityIterations(electedOffice, slug)
+  }
+
+  @Get(':slug/export')
+  @UseElectedOffice()
+  async exportDraft(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { slug }: OrdinanceSlugParamDto,
+    @Query() { format }: OrdinanceExportQueryDto,
+  ): Promise<StreamableFile> {
+    const { buffer, filename, contentType } = await this.ordinances.exportDraft(
+      electedOffice,
+      slug,
+      format,
+    )
+    return new StreamableFile(buffer, {
+      type: contentType,
+      disposition: `attachment; filename="${filename}"`,
+      length: buffer.length,
+    })
   }
 
   @Patch(':slug')

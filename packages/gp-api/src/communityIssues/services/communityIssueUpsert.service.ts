@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import {
+  CommunityIssue,
   CommunityIssueList,
-  CommunityIssuePriority,
   ExperimentRun,
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -15,16 +15,9 @@ export type CommunityIssueUpsertSummary = {
   // True when the org had no rows for this list before this run and this run
   // created its first ones — i.e. the list's first-ever generation.
   wasFirstGenerationForList: boolean
-  // Rows newly created (not refreshed) on the trending list with high priority.
-  newHighPriorityTrending: { id: string; title: string; summary: string }[]
-  // Existing top_community (main list) issues whose priority changed this run.
-  topPriorityChanges: {
-    id: string
-    title: string
-    summary: string
-    previousPriority: CommunityIssuePriority
-    priority: CommunityIssuePriority
-  }[]
+  // The rows this run newly created (the id-less artifact issues). Refreshed
+  // rows (those carrying an existing_issue_id) are not included.
+  createdIssues: CommunityIssue[]
 }
 
 @Injectable()
@@ -66,12 +59,7 @@ export class CommunityIssueUpsertService extends createPrismaBase(
             where: {
               id: { in: idCarrying.map((i) => i.existing_issue_id) },
             },
-            select: {
-              id: true,
-              organizationSlug: true,
-              list: true,
-              priority: true,
-            },
+            select: { id: true, organizationSlug: true, list: true },
           })
         : []
     const existingById = new Map(existingRows.map((r) => [r.id, r]))
@@ -103,10 +91,7 @@ export class CommunityIssueUpsertService extends createPrismaBase(
       }
     }
 
-    const newHighPriorityTrending: CommunityIssueUpsertSummary['newHighPriorityTrending'] =
-      []
-    const topPriorityChanges: CommunityIssueUpsertSummary['topPriorityChanges'] =
-      []
+    const createdIssues: CommunityIssue[] = []
 
     // Assumes at most one in-flight run per (org, list). Concurrent runs for the
     // same org+list could interleave archive-by-omission with the other's creates
@@ -126,20 +111,6 @@ export class CommunityIssueUpsertService extends createPrismaBase(
             lastRefreshedRunId: run.runId,
           },
         })
-        const previous = existingById.get(issue.existing_issue_id)
-        if (
-          list === CommunityIssueList.top_community &&
-          previous &&
-          previous.priority !== issue.priority
-        ) {
-          topPriorityChanges.push({
-            id: issue.existing_issue_id,
-            title: issue.title,
-            summary: issue.summary,
-            previousPriority: previous.priority,
-            priority: issue.priority,
-          })
-        }
       }
 
       const updatedIds = new Set(idCarrying.map((i) => i.existing_issue_id))
@@ -158,16 +129,7 @@ export class CommunityIssueUpsertService extends createPrismaBase(
           },
         })
         updatedIds.add(created.id)
-        if (
-          list === CommunityIssueList.trending &&
-          issue.priority === CommunityIssuePriority.high
-        ) {
-          newHighPriorityTrending.push({
-            id: created.id,
-            title: issue.title,
-            summary: issue.summary,
-          })
-        }
+        createdIssues.push(created)
       }
 
       await tx.communityIssue.updateMany({
@@ -184,8 +146,7 @@ export class CommunityIssueUpsertService extends createPrismaBase(
     return {
       list,
       wasFirstGenerationForList: existingCount === 0 && idLess.length > 0,
-      newHighPriorityTrending,
-      topPriorityChanges,
+      createdIssues,
     }
   }
 }

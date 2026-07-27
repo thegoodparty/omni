@@ -143,7 +143,7 @@ test.describe('pro-upgrade front-end validation gates', () => {
     // bio step (advances to payment) in this same file.
   })
 
-  test('bio gate blocks a <500-char bio and a >=500-char bio advances', async ({
+  test('bio gate blocks a <200-char bio and a >=200-char bio advances', async ({
     page,
   }) => {
     const { user, client } = await authenticateTestUser(page, {
@@ -170,20 +170,20 @@ test.describe('pro-upgrade front-end validation gates', () => {
     const bioEditor = page.locator('.ql-editor').first()
     await expect(bioEditor).toBeVisible()
 
-    // A short bio (< 500 plain chars) must block submit with the bio copy and
+    // A short bio (< 200 plain chars) must block submit with the bio copy and
     // keep the URL on candidate-profile.
     await bioEditor.click()
     await bioEditor.fill('Too short a bio.')
     await page.getByRole('button', { name: 'Continue' }).click()
 
     await expect(
-      page.getByText('Your bio requires 500 characters'),
+      page.getByText('Your bio requires 200 characters'),
     ).toBeVisible()
     expect(new URL(page.url()).pathname).toBe(
       `${PRO_UPGRADE_PATH}/candidate-profile`,
     )
 
-    // Extend the bio past the 500-char minimum; submit now persists the profile
+    // Extend the bio past the 200-char minimum; submit now persists the profile
     // and advances to payment.
     await bioEditor.click()
     await bioEditor.fill('a'.repeat(600))

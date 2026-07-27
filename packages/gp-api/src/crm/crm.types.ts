@@ -170,6 +170,15 @@ export namespace HubSpot {
     pro_upgrade_date = 'pro_upgrade_date',
     running = 'running',
 
+    // 10DLC compliance filing details
+    n10_dlc_filing_email = 'n10_dlc_filing_email',
+    n10_dlc_filing_phone = 'n10_dlc_filing_phone',
+    n10_dlc_filing_url = 'n10_dlc_filing_url',
+    n10_dlc_pin_delivery_method = 'n10_dlc_pin_delivery_method',
+    n10_dlc_pin_sent_at = 'n10_dlc_pin_sent_at',
+    n10_dlc_pin_delivery_destination = 'n10_dlc_pin_delivery_destination',
+    peerly_identity_id = 'peerly_identity_id',
+
     // election details
     br_position_id = 'br_position_id',
     br_race_id = 'br_race_id',

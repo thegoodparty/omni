@@ -148,33 +148,137 @@ def test_parse_events_map_absent_returns_empty():
 
 
 # --------------------------------------------------------------------------- #
-# count_call_sites -- occurrences of each key-path in a grep dump
+# count_call_sites -- occurrences of each key-path across per-file texts
 # --------------------------------------------------------------------------- #
 
 
 def test_count_call_sites_counts_each_reference():
-    dump = (
+    text = (
         "  trackEvent(EVENTS.Dashboard.Viewed)\n"
         "  trackEvent(EVENTS.Dashboard.Viewed, { a: 1 })\n"
         "  trackEvent(EVENTS.polls.resultsViewed)\n"
     )
-    counts = count_call_sites(dump, ["EVENTS.Dashboard.Viewed", "EVENTS.polls.resultsViewed"])
+    counts = count_call_sites([text], ["EVENTS.Dashboard.Viewed", "EVENTS.polls.resultsViewed"])
     assert counts == {"EVENTS.Dashboard.Viewed": 2, "EVENTS.polls.resultsViewed": 1}
 
 
+def test_count_call_sites_sums_across_files():
+    counts = count_call_sites(
+        ["trackEvent(EVENTS.Dashboard.Viewed)\n", "fireOnce(EVENTS.Dashboard.Viewed)\n"],
+        ["EVENTS.Dashboard.Viewed"],
+    )
+    assert counts == {"EVENTS.Dashboard.Viewed": 2}
+
+
 def test_count_call_sites_zero_when_absent():
-    counts = count_call_sites("nothing here", ["EVENTS.Dashboard.Viewed"])
+    counts = count_call_sites(["nothing here"], ["EVENTS.Dashboard.Viewed"])
     assert counts == {"EVENTS.Dashboard.Viewed": 0}
 
 
 def test_count_call_sites_no_prefix_overcount():
     # A longer key-path that merely starts with the target must not be counted.
-    assert count_call_sites("trackEvent(EVENTS.Dashboard.ViewedTwice)\n", ["EVENTS.Dashboard.Viewed"]) == {"EVENTS.Dashboard.Viewed": 0}
+    assert count_call_sites(["trackEvent(EVENTS.Dashboard.ViewedTwice)\n"], ["EVENTS.Dashboard.Viewed"]) == {"EVENTS.Dashboard.Viewed": 0}
 
 
 def test_count_call_sites_no_deeper_access_match():
     # A deeper property access off the key-path is not a leaf call site.
-    assert count_call_sites("x = EVENTS.Dashboard.Viewed.foo\n", ["EVENTS.Dashboard.Viewed"]) == {"EVENTS.Dashboard.Viewed": 0}
+    assert count_call_sites(["x = EVENTS.Dashboard.Viewed.foo\n"], ["EVENTS.Dashboard.Viewed"]) == {"EVENTS.Dashboard.Viewed": 0}
+
+
+def test_count_call_sites_wrapped_key_path():
+    # DATA-2106: Prettier wraps long key-paths across lines; whitespace/newlines around the
+    # dots must still match (the real TRACKING_EVENT_MAP shape in CustomVoterAudienceFilters).
+    text = (
+        "    inputRequest:\n"
+        "      EVENTS.Dashboard.VoterContact.Texting.ScheduleCampaign.Audience\n"
+        "        .EnterRequest,\n"
+    )
+    path = "EVENTS.Dashboard.VoterContact.Texting.ScheduleCampaign.Audience.EnterRequest"
+    assert count_call_sites([text], [path]) == {path: 1}
+
+
+def test_count_call_sites_wrapped_deeper_access_not_leaf():
+    # A deeper access is still not a leaf call site when the dot lands on the next line.
+    text = "x =\n  EVENTS.Dashboard.Viewed\n    .foo\n"
+    assert count_call_sites([text], ["EVENTS.Dashboard.Viewed"]) == {"EVENTS.Dashboard.Viewed": 0}
+
+
+def test_count_call_sites_alias_references():
+    # DATA-2106: a namespace alias means the full key-path never appears; references through
+    # the alias must count (the real CampaignPlanView shape).
+    text = (
+        "const planEvents = EVENTS.Dashboard.CampaignPlan\n"
+        "fireOnce(planEvents.MediaRequested, { campaignId })\n"
+        "trackEvent(planEvents.PlanDownloaded)\n"
+        "trackEvent(planEvents.PlanDownloaded)\n"
+    )
+    paths = [
+        "EVENTS.Dashboard.CampaignPlan.MediaRequested",
+        "EVENTS.Dashboard.CampaignPlan.PlanDownloaded",
+        "EVENTS.Dashboard.CampaignPlan.PlanShared",
+    ]
+    assert count_call_sites([text], paths) == {paths[0]: 1, paths[1]: 2, paths[2]: 0}
+
+
+def test_count_call_sites_alias_assignment_alone_counts_nothing():
+    # The alias assignment names a prefix, not a leaf; it is not itself a call site.
+    text = "const planEvents = EVENTS.Dashboard.CampaignPlan\n"
+    assert count_call_sites([text], ["EVENTS.Dashboard.CampaignPlan.MediaRequested"]) == {
+        "EVENTS.Dashboard.CampaignPlan.MediaRequested": 0
+    }
+
+
+def test_count_call_sites_alias_no_prefix_overcount():
+    # The leaf boundary guard applies through an alias too.
+    text = (
+        "const planEvents = EVENTS.Dashboard.CampaignPlan\n"
+        "trackEvent(planEvents.MediaRequestedTwice)\n"
+        "x = planEvents.MediaRequested.foo\n"
+    )
+    assert count_call_sites([text], ["EVENTS.Dashboard.CampaignPlan.MediaRequested"]) == {
+        "EVENTS.Dashboard.CampaignPlan.MediaRequested": 0
+    }
+
+
+def test_count_call_sites_alias_scoped_to_its_file():
+    # An alias declared in one file must not resolve references in another file: aliases are
+    # module-local consts, and cross-file name collisions would fabricate call sites.
+    defining = "const planEvents = EVENTS.Dashboard.CampaignPlan\n"
+    other = "trackEvent(planEvents.MediaRequested)\n"
+    assert count_call_sites([defining, other], ["EVENTS.Dashboard.CampaignPlan.MediaRequested"]) == {
+        "EVENTS.Dashboard.CampaignPlan.MediaRequested": 0
+    }
+
+
+def test_count_call_sites_leaf_alias_assignment_still_counts():
+    # Aliasing a leaf key-path spells out the full path in the assignment, which counted
+    # before this change and must keep counting.
+    text = "const viewed = EVENTS.Dashboard.Viewed\n"
+    assert count_call_sites([text], ["EVENTS.Dashboard.Viewed"]) == {"EVENTS.Dashboard.Viewed": 1}
+
+
+def test_count_call_sites_wrapped_alias_reference():
+    # Alias resolution and whitespace tolerance compose: a wrapped reference through an alias.
+    text = (
+        "const audienceEvents = EVENTS.Dashboard.VoterContact.Texting.ScheduleCampaign.Audience\n"
+        "trackEvent(\n"
+        "  audienceEvents\n"
+        "    .CheckPoliticalParty,\n"
+        ")\n"
+    )
+    path = "EVENTS.Dashboard.VoterContact.Texting.ScheduleCampaign.Audience.CheckPoliticalParty"
+    assert count_call_sites([text], [path]) == {path: 1}
+
+
+def test_count_call_sites_wrapped_alias_assignment_resolves():
+    # The alias ASSIGNMENT itself can be Prettier-wrapped; the prefix must still resolve.
+    text = (
+        "const audienceEvents =\n"
+        "  EVENTS.Dashboard.VoterContact.Texting.ScheduleCampaign.Audience\n"
+        "trackEvent(audienceEvents.CheckAudience)\n"
+    )
+    path = "EVENTS.Dashboard.VoterContact.Texting.ScheduleCampaign.Audience.CheckAudience"
+    assert count_call_sites([text], [path]) == {path: 1}
 
 
 # --------------------------------------------------------------------------- #
@@ -184,16 +288,16 @@ def test_count_call_sites_no_deeper_access_match():
 
 def test_compute_call_site_fields_live_event_has_no_retired_date():
     events_map = {"Dash Viewed": "EVENTS.Dashboard.Viewed"}
-    grep = "trackEvent(EVENTS.Dashboard.Viewed)\n"
+    file_texts = ["trackEvent(EVENTS.Dashboard.Viewed)\n"]
     calls = []
-    fields = compute_call_site_fields(events_map, grep, lambda p: calls.append(p) or "2099-01-01")
+    fields = compute_call_site_fields(events_map, file_texts, lambda p: calls.append(p) or "2099-01-01")
     assert fields["Dash Viewed"] == {"call_site_count": 1, "call_site_retired_date": None}
     assert calls == []  # lookup not called for a live (count>0) event
 
 
 def test_compute_call_site_fields_zero_count_resolves_retired_date():
     events_map = {"Dash Viewed": "EVENTS.Dashboard.Viewed"}
-    fields = compute_call_site_fields(events_map, "", lambda p: "2026-06-13")
+    fields = compute_call_site_fields(events_map, [], lambda p: "2026-06-13")
     assert fields["Dash Viewed"] == {"call_site_count": 0, "call_site_retired_date": "2026-06-13"}
 
 
@@ -235,10 +339,10 @@ def test_make_call_site_retired_lookup_ignores_comment_removal(monkeypatch):
 
 def test_augment_call_site_columns_populates_rows(monkeypatch):
     # Exercise the full augment chain (git_show_file -> parse_events_map ->
-    # git_grep_call_sites_text -> compute_call_site_fields -> row mutation) with the git IO stubbed.
+    # git_call_site_file_texts -> compute_call_site_fields -> row mutation) with the git IO stubbed.
     ts_src = "\nexport const EVENTS = {\n  Dashboard: { Viewed: 'Dash Viewed' },\n} as const\n"
     monkeypatch.setattr(bf, "git_show_file", lambda *a, **k: ts_src)
-    monkeypatch.setattr(bf, "git_grep_call_sites_text", lambda *a, **k: "trackEvent(EVENTS.Dashboard.Viewed)\n")
+    monkeypatch.setattr(bf, "git_call_site_file_texts", lambda *a, **k: ["trackEvent(EVENTS.Dashboard.Viewed)\n"])
     monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter([]))
     rows = [{c: None for c in bf.PROVENANCE_COLUMNS} | {"event_type": "Dash Viewed", "event_type_slug": "dash_viewed"}]
     bf.augment_call_site_columns(rows, "/root", "origin/develop")
@@ -697,15 +801,15 @@ class FakeCursor:
         return self._fetch
 
 
-def test_fetch_event_universe_anchors_on_airbyte_taxonomy_source():
-    # The event universe is anchored on the Airbyte-synced Amplitude Govern taxonomy,
-    # not the dbt int__ model (repointed 2026-06-22).
+def test_fetch_event_universe_reads_mart_taxonomy():
+    # The event universe is read from the mart_analytics taxonomy exposure, never the dbt
+    # staging model or the raw airbyte_source table (grants live at the mart schema).
     cur = FakeCursor(["Event A", "Event B"])
     events = bf.fetch_event_universe(cur)
     assert events == ["Event A", "Event B"]
     sql = cur.executed[-1][0]
-    assert "airbyte_source.amplitude_taxonomy_event_type" in sql
-    assert "int__amplitude_event_taxonomy" not in sql
+    assert "mart_analytics.amplitude_taxonomy_event_type" in sql
+    assert "airbyte_source.amplitude_taxonomy_event_type" not in sql
 
 
 def test_run_backfill_writes_csv_and_state(monkeypatch, tmp_path):
@@ -848,6 +952,33 @@ def test_run_git_log_streams_lines_on_success(tmp_path):
     repo = _init_repo_one_commit(tmp_path)
     lines = list(bf.run_git_log(repo, None, ["f.txt"]))
     assert any("base" in line for line in lines)
+
+
+def test_git_call_site_file_texts_returns_full_contents_of_matching_files(tmp_path):
+    # Only files mentioning EVENTS are fetched, and each comes back as its FULL contents at
+    # the ref -- multi-line context intact (the property a line-based grep dump cannot give).
+    repo = _init_repo_one_commit(tmp_path)
+    (tmp_path / "a.tsx").write_text("const planEvents = EVENTS.Dashboard.CampaignPlan\nfireOnce(planEvents.MediaRequested)\n")
+    (tmp_path / "b.tsx").write_text("no analytics here\n")
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"}
+    subprocess.run(["git", "-C", repo, "add", "."], check=True, capture_output=True, env=env)
+    subprocess.run(["git", "-C", repo, "commit", "-q", "-m", "add files"], check=True, capture_output=True, env=env)
+
+    texts = bf.git_call_site_file_texts(repo, ["."], ref="HEAD")
+    assert texts == ["const planEvents = EVENTS.Dashboard.CampaignPlan\nfireOnce(planEvents.MediaRequested)\n"]
+
+
+def test_git_call_site_file_texts_empty_when_no_matches(tmp_path):
+    # git grep exits 1 on no matches; that is an empty result, not an error.
+    repo = _init_repo_one_commit(tmp_path)
+    assert bf.git_call_site_file_texts(repo, ["."], ref="HEAD") == []
+
+
+def test_git_call_site_file_texts_raises_on_bad_ref(tmp_path):
+    # Exit 2+ (bad ref) must raise: an empty dump would silently zero every call-site count.
+    repo = _init_repo_one_commit(tmp_path)
+    with pytest.raises(subprocess.CalledProcessError):
+        bf.git_call_site_file_texts(repo, ["."], ref="no-such-ref-abc123")
 
 
 def test_git_grep_present_text_raises_on_fatal_error(tmp_path):

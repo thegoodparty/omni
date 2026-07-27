@@ -73,11 +73,24 @@ const completePathToVictoryStep = async (page: Page): Promise<void> => {
   await clickOnboardingContinue(page)
 }
 
-const completeVoterDemographicsStep = async (page: Page): Promise<void> => {
-  await expect(
-    page.getByRole('heading', { level: 1, name: /voter insights/i }),
-  ).toBeVisible({ timeout: 15000 })
-  await clickOnboardingContinue(page)
+// The campaign story is three individually-skippable steps (why → background →
+// issues). Skip advances one step at a time, so skipping the whole story means
+// clicking Skip on each step until the pledge appears. This helper's only caller
+// runs with the campaign-story flag on and asserts routing/pledge behavior, not
+// story authoring. Wait on each step's page heading (always rendered) rather
+// than the card, whose render waits on the story fetch.
+const skipCampaignStoryStep = async (page: Page): Promise<void> => {
+  const stepHeadings = [
+    /why are you running/i,
+    /what's your background/i,
+    /what issues do you most want to solve/i,
+  ]
+  for (const heading of stepHeadings) {
+    await expect(
+      page.getByRole('heading', { level: 1, name: heading }),
+    ).toBeVisible({ timeout: 30000 })
+    await page.getByRole('button', { name: /^skip$/i }).click()
+  }
 }
 
 export const completeOnboardingUpToPledge = async (
@@ -88,7 +101,7 @@ export const completeOnboardingUpToPledge = async (
   await completePartyAffiliationStep(page)
   await completeOfficeSelectionStep(page)
   await completePathToVictoryStep(page)
-  await completeVoterDemographicsStep(page)
+  await skipCampaignStoryStep(page)
   await expect(
     page.getByRole('heading', { level: 1, name: /take our pledge/i }),
   ).toBeVisible()

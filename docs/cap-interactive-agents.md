@@ -66,6 +66,7 @@ then retry; 4xx errors `bail()` immediately.
 | **Campaign content generation**             | `src/campaigns/ai/content/aiContent.controller.ts` — `POST /campaigns/ai`, rename, delete                                      | `chatCompletion` (runs async in the SQS consumer, `QueueType.GENERATE_AI_CONTENT`) | `claude-sonnet-4-6` default chain                                 | none                                                                                                                                              |
 | **Briefing chat** (elected officials)       | `src/chats/briefing-chats/controllers/briefing-chats.controller.ts` — `POST /briefing-chats`, `…/:annotationId/messages` (SSE) | `streamChatCompletion` via `ChatStreamService`                                     | `BRIEFING_CHAT_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']`  | `get_artifacts`, `web_search`, `district_insights`, `list_district_topics`, `get_my_notes`                                                        |
 | **Chief of Staff chat** (elected officials) | `src/chats/general/controllers/general-chats.controller.ts` — `POST /v1/chats`, `…/:conversationId/messages` (SSE)             | `streamChatCompletion` via `ChatStreamService`                                     | `CHIEF_OF_STAFF_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']` | `crud_priorities`, `list_briefings`, `get_briefing`, `web_search`, `query_constituent_data`, `describe_constituent_data`, `read_community_issues` |
+| **Ordinance flow chat** (elected officials) | same general-chats controller, `scope=ordinance_flow` — one conversation per (ordinance, step)                                 | `streamChatCompletion` via `ChatStreamService` (`maxSteps` 8)                      | `ORDINANCE_FLOW_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']` | per step — see the ordinance flow paragraph below (research tools + `present_*` display tools, clarify widgets, `web_search`)                     |
 
 Other non-chat **generation** surfaces (not interactive chat) live elsewhere and
 split across two providers. Some go through `LlmService` (Anthropic) non-streaming
@@ -80,10 +81,17 @@ methods — `src/polls/` (poll bias analysis), `src/topIssues/`, and the
 `src/chats/services/chatStream.service.ts` adapts `LlmService` streaming to HTTP SSE:
 it appends the user message, loads up to `MAX_CHAT_HISTORY_MESSAGES = 40` prior
 messages, calls `streamChatCompletion`, and pumps deltas/tool events through a
-backpressure-bounded `ChunkQueue` (max 256). Controllers write `data: <JSON>\n\n`
-frames with a 300s timeout and an `AbortController` on client disconnect. Error codes:
+backpressure-bounded `ChunkQueue` (max 256). While a turn is open the service also
+emits a `{ type: 'ping' }` keep-alive every 15s (`CHAT_STREAM_HEARTBEAT_MS`) —
+tool-arg generation (e.g. an ordinance draft body) streams nothing else for
+minutes, and without wire traffic client idle watchdogs and LB idle timeouts kill
+the healthy stream. Controllers write `data: <JSON>\n\n` frames with a 300s
+timeout and an `AbortController` on client disconnect. Error codes:
 `conversation_not_found`, `rate_limited`, `upstream_unavailable`, `aborted`,
-`internal`.
+`internal`. On the webapp side, `useStreamingTurn` treats any event as watchdog
+activity (60s idle = stalled), and when a stream ends without `done` it polls the
+transcript for up to 3 minutes for the still-generating turn before falling back
+to rendering the partial locally.
 
 ### The chat-scope abstraction
 
@@ -93,14 +101,17 @@ frames with a 300s timeout and an `AbortController` on client disconnect. Error 
 register through the `CHAT_SCOPE_HANDLERS` DI token — adding a scope needs no
 controller/service change. `ChatScopeRegistry` **fails closed**: any `isSensitive`
 scope must use only `claude`-routed models, so tool outputs never leave Anthropic.
-Today **only `chief_of_staff` is registered**; `briefing_annotation` and
-`campaign_assistant` exist as `ChatScope` enum values but briefing chat still runs
-through its own dedicated controller/service.
+Today **`chief_of_staff` and `ordinance_flow` are registered**;
+`briefing_annotation` and `campaign_assistant` exist as `ChatScope` enum values
+but briefing chat still runs through its own dedicated controller/service.
+Handlers may also declare an optional `maxSteps` to raise the tool-loop step
+budget (ordinance flow uses 8).
 
 ## Tools / function calling
 
-The briefing and Chief of Staff surfaces register tools; campaign chat registers
-none. All tools are the `LlmStreamTool` shape defined in `src/llm/tools/`:
+The briefing, Chief of Staff, and ordinance flow surfaces register tools; campaign
+chat registers none. All tools are the `LlmStreamTool` shape defined in
+`src/llm/tools/`:
 
 - **`query_constituent_data` / `describe_constituent_data`** — aggregate,
   district-scoped constituent opinion + demographics from the `serve_agent_voters`
@@ -118,7 +129,57 @@ none. All tools are the `LlmStreamTool` shape defined in `src/llm/tools/`:
   user's own annotations.
 - **`crud_priorities`** — the only **write** tool; CRUD on durable COS `Priority`
   records.
+- **`describe_filter_dimensions` / `count_contacts`** — aggregate-only CRM reads
+  shared by Campaign Manager (Win) and Chief of Staff (Serve), built in
+  `src/chats/general/crm-tools/`. `describe` returns the mode-filtered
+  filter-dimension catalog (`ContactsService.getFilterDimensions` — party stripped
+  for `eo-` orgs); `count` takes the same `voterFilterBaseSchema` shape as
+  `POST /v1/contacts/count` and calls the same `ContactsService.countContacts`,
+  inheriting the Win pro gate and the Serve party-filter rejection (surfaced as
+  structured tool errors). Registration is gated per handler on the org's CRM
+  flag (`win-crm` / `serve-crm`) via `FeaturesService`, and the prompt advertises
+  them only when registered.
+- **`crud_saved_filters`** — saved-filter (contact list) **write** tool shared by
+  the same two handlers under the same CRM flag gates, mirroring
+  `crud_priorities`' single-tool-with-`action` shape (`list`/`create`/`update`/
+  `delete`). It calls the same `VoterFileFilterService` paths as the
+  `voters/voter-file` filter routes, so the Win Pro gate, completed-outreach
+  validation, org scoping, and the locked-filter conflict are inherited; the
+  locked-filter 409 surfaces as a structured "duplicate it to edit" tool error.
+  Aggregate-only returns: ids, names, and counts (create counts via
+  `ContactsService.countContacts` before persisting), never person rows.
 - **`web_search`** — Anthropic native `webSearch_20250305`, `maxUses: 5`.
+
+The **ordinance flow** scope (`src/chats/general/ordinance-flow/`) registers
+per-step tool sets: `read_ordinance`, `get_code_source` (verified code-source
+lookup), `save_note`, and native `web_search` on every step; `offer_next_step`
+on all steps except `draft`; `ask_clarify_question` / `save_answer` /
+`save_synthesis` on the clarify step; `fetch_url` (SSRF-guarded page fetch →
+markdown) / `save_existing_law` / `brave_search` on the current_law step.
+`brave_search` (Brave Web Search, gated on `BRAVE_API_KEY`) returns fetchable
+result URLs so the model can find a server-rendered copy of a chapter when
+`fetch_url` comes back blank — Municode and other browser-rendered code sites
+do this. Its handler raises `maxSteps` to 8 — a current_law turn chains
+`get_code_source` + several `fetch_url` calls + `save_existing_law`, and the
+default 5 cuts research off mid-chain.
+
+Each step also gets the `present_*` display tools its page renders: the model
+passes the finding as the tool's args (which persist as the tool segment the
+webapp widget replays from), and `execute` persists the artifact subset where a
+column exists. `present_authority_finding` (authority step, persists
+`authority`); `present_current_law_summary` + `present_legislative_history`
+(current_law step, display-only); `present_comparables` (comparables step,
+persists `comparables`); `present_draft` (draft step, persists
+`draftTitle`/`draftBody`/`draftSources` and advances the ordinance to
+`draft`). Payload shapes are the `Ordinance*Schema` /
+`OrdinancePresentComparablesSchema` contracts consumed by `stepWidgets.tsx` in
+gp-webapp.
+
+`present_draft`'s persist also auto-starts the **ordinance quality loop** — a
+background SQS job in gp-api (not the CAP background system) that QCs and
+revises the draft outside chat, so the draft can change between a chat turn's
+reads (the review scope's rules tell the model to re-read before quoting).
+Detail: `packages/gp-api/src/ordinances/CLAUDE.md`.
 
 COS-specific tool ports live in `src/chats/general/chief-of-staff/services/`
 (`list_briefings`/`get_briefing`, `read_community_issues`). Tool-calling chat is

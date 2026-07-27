@@ -1,5 +1,5 @@
 import type { OnboardingStepConfig, NonEmptyArray } from './onboardingTypes'
-import { ONBOARDING_STEPS } from './onboardingConfig'
+import { ONBOARDING_STEPS, isStoryStepId } from './onboardingConfig'
 
 // The follow-on flow (org-switcher "run for re-election" / "run for a new
 // office") reuses the standard onboarding steps. Which switcher action the user
@@ -19,6 +19,13 @@ const sameOffice = ({
 // a plain array and loses that guarantee).
 const [welcomeStep, ...laterSteps] = ONBOARDING_STEPS
 
+// The follow-on flow doesn't get the campaign-story steps yet - it's onboarding
+// scope only for this phase. Filter them out of the inherited later steps so
+// this flow's only change from the step-config update is losing demographics.
+const laterStepsWithoutStory = laterSteps.filter(
+  (step) => !isStoryStepId(step.id),
+)
+
 export const FOLLOW_ON_STEPS: NonEmptyArray<OnboardingStepConfig> = [
   {
     ...welcomeStep,
@@ -28,7 +35,7 @@ export const FOLLOW_ON_STEPS: NonEmptyArray<OnboardingStepConfig> = [
     description:
       "We'll reuse what we can from your record and build a fresh plan for this race.",
   },
-  ...laterSteps.map((step) => {
+  ...laterStepsWithoutStory.map((step) => {
     if (step.id === 'office-selection') {
       return { ...step, shouldSkip: sameOffice }
     }

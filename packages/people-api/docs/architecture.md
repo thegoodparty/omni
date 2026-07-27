@@ -39,6 +39,10 @@ AppModule
 │   ├── SampleService     (deterministic hash-bucket sampling)
 │   ├── StatsService      (pre-computed district demographics)
 │   └── DistrictModule → DistrictService
+├── DoorKnockingModule
+│   ├── DoorKnockingController (/v1/door-knocking)
+│   └── DoorKnockingService   (turf evaluation + live residents; contracts
+│                              schemas, interim bbox geo — TODO(geom-index))
 └── AuthModule → S2SAuthGuard registered as APP_GUARD
 ```
 
@@ -54,6 +58,8 @@ All routes are mounted under the global prefix `/v1` (set in `src/main.ts`).
 | GET / POST | `/v1/people/sample` | `src/people/` | Deterministic voter sampling for a district |
 | GET | `/v1/people/stats` | `src/people/` | Pre-computed district demographic stats |
 | GET | `/v1/people/:id` | `src/people/` | Single voter by ID |
+| POST | `/v1/door-knocking/evaluate` | `src/doorKnocking/` | Turf roster: filters + bbox, rooftop-geocoded only, maxPeople rejects |
+| POST | `/v1/door-knocking/residents` | `src/doorKnocking/` | Live residents for frozen-route addressKeys |
 
 Swagger is mounted at `/api` (no prefix) for ad-hoc exploration in non-prod.
 

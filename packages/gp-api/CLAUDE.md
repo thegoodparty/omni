@@ -122,11 +122,14 @@ Per-area `CLAUDE.md` files cover purpose, key files, patterns, and gotchas for t
 | Working in                               | Read                                        |
 | ---------------------------------------- | ------------------------------------------- |
 | Campaigns / plans / tasks                | `src/campaigns/CLAUDE.md`                   |
+| The CRM (contacts, saved filters, write-back, assistant) | `src/contacts/CLAUDE.md` (system-level doc) |
+| Contact interactions (per-channel models) | `src/contactInteraction/contactInteraction.types.ts` |
 | Campaign plan PDF sharing                | `src/campaignPlanShares/CLAUDE.md`          |
 | Voter file / L2 lookups                  | `src/voters/CLAUDE.md`                      |
 | Stripe payments / pro upgrades           | `src/payments/CLAUDE.md`                    |
 | Campaign websites / domains              | `src/websites/CLAUDE.md`                    |
 | Opposition research (Know Your Opponent) | `src/raceOpponent/CLAUDE.md`                |
+| Ordinances / drafting / quality loop     | `src/ordinances/CLAUDE.md`                  |
 | SQS producer/consumer / async            | `src/queue/CLAUDE.md`                       |
 | Auth, JWT, Clerk M2M, roles              | `src/authentication/CLAUDE.md`              |
 | Agent experiments                        | `src/agentExperiments/CLAUDE.md`            |
@@ -135,6 +138,16 @@ Per-area `CLAUDE.md` files cover purpose, key files, patterns, and gotchas for t
 | Pulumi / Docker / Grafana                | `deploy/CLAUDE.md`                          |
 | One-off / build scripts                  | `scripts/CLAUDE.md`                         |
 | Seed data / factories / scenarios        | `seed/CLAUDE.md`                            |
+
+`VoterOutreachActivity` is deprecated: new per-person interaction write paths
+target the `ContactInteraction*` models via `ContactInteractionModule` (see
+`src/contactInteraction/contactInteraction.types.ts` for the add-a-channel
+convention). Segment-derived send-attribution writes were retired in feature 5
+of the CRM epic (ENG-10731) — the model is read-only now except for the
+deprecated eCanvasser door-knock writer (`EcanvasserAttributionService.recordActivityIdempotent`),
+which is its own removal workstream. Reads (the person activity feed's
+legacy-row branch) keep working until the sunset ends and the table/model are
+dropped.
 
 ## Module shape (enforced by `.cursor/rules/rules.mdc` Rule 7)
 

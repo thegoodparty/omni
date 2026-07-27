@@ -37,4 +37,8 @@ export const SLACK_CHANNEL_IDS = {
     channelId: process.env.SLACK_CAS_CLICKUP_TASKS_CHANNEL_ID,
     channelToken: process.env.SLACK_CAS_CLICKUP_TASKS_CHANNEL_TOKEN,
   },
+  [SlackChannel.sharedGoodpartyPeerly10Dlc]: {
+    channelId: process.env.SLACK_SHARED_PEERLY_10DLC_CHANNEL_ID,
+    channelToken: process.env.SLACK_SHARED_PEERLY_10DLC_CHANNEL_TOKEN,
+  },
 }

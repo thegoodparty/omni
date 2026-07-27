@@ -2,6 +2,7 @@ import { cn } from '@styleguide'
 import {
   ClipboardListIcon,
   FlagIcon,
+  ScrollTextIcon,
   SendIcon,
   SparklesIcon,
   SwordsIcon,
@@ -16,6 +17,7 @@ const NAV_HEADER_ICONS = {
   sparkles: SparklesIcon,
   clipboard: ClipboardListIcon,
   flag: FlagIcon,
+  scroll: ScrollTextIcon,
   send: SendIcon,
   users: UsersRoundIcon,
   swords: SwordsIcon,

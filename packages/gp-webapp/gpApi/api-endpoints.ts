@@ -2,6 +2,11 @@ import type {
   CreateOrdinanceRequest,
   ExperimentVariantsResponse,
   Ordinance,
+  OrdinanceListResponse,
+  OrdinanceQualityIterationsResponse,
+  OrdinanceQualityRun,
+  SaveOrdinanceClarifyAnswerRequest,
+  UpdateOrdinanceRequest,
   Priority,
   ChatAnchor,
   RaceOpponentSourceType,
@@ -41,9 +46,17 @@ import type {
   SegmentResponse,
   Person,
   ListContactsResponse,
+  ListDetailContactsResponse,
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
-} from 'app/dashboard/contacts/[[...attr]]/components/shared/contacts-types'
+  ContactNote,
+  ContactNoteInput,
+  ContactNoteListResponse,
+  LogContactInteractionInput,
+  LogContactInteractionResponse,
+  SupportStatusRollup,
+} from 'app/dashboard/contacts/crm/shared/contacts-types'
+import type { ActivityConditionInput } from 'app/dashboard/contacts/crm/shared/activityConditionOptions'
 import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
 import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import type {
@@ -462,14 +475,64 @@ export type APIEndpoints = {
     Response: void
   }
 
+  'GET /v1/ordinances': {
+    Request: {}
+    Response: OrdinanceListResponse
+  }
+
   'POST /v1/ordinances': {
     Request: CreateOrdinanceRequest
     Response: Ordinance
   }
 
+  'GET /v1/priorities': {
+    Request: {}
+    Response: Priority[]
+  }
+
   'GET /v1/ordinances/:slug': {
     Request: {}
     Response: Ordinance
+  }
+
+  'PATCH /v1/ordinances/:slug': {
+    Request: UpdateOrdinanceRequest
+    Response: Ordinance
+  }
+
+  'DELETE /v1/ordinances/:slug': {
+    Request: {}
+    Response: void
+  }
+
+  'POST /v1/ordinances/:slug/clarify-answers': {
+    Request: SaveOrdinanceClarifyAnswerRequest
+    Response: Ordinance
+  }
+
+  'POST /v1/ordinances/:slug/quality-report': {
+    Request: {}
+    Response: OrdinanceQualityRun
+  }
+
+  'GET /v1/ordinances/:slug/quality-report': {
+    Request: {}
+    Response: OrdinanceQualityRun
+  }
+
+  'POST /v1/ordinances/:slug/quality-loop': {
+    Request: {}
+    Response: Ordinance
+  }
+
+  'DELETE /v1/ordinances/:slug/quality-loop': {
+    Request: {}
+    Response: Ordinance
+  }
+
+  'GET /v1/ordinances/:slug/quality-iterations': {
+    Request: {}
+    Response: OrdinanceQualityIterationsResponse
   }
 
   'GET /v1/contacts/stats': {
@@ -561,11 +624,19 @@ export type APIEndpoints = {
   }
 
   'POST /v1/voters/voter-file/filter': {
-    Request: { name?: string } & Record<string, unknown>
+    Request: {
+      name?: string
+      activityConditions?: ActivityConditionInput[]
+      supportStatus?: SupportStatusRollup[]
+    } & Record<string, unknown>
     Response: SegmentResponse
   }
   'PUT /v1/voters/voter-file/filter/:id': {
-    Request: { name?: string } & Record<string, unknown>
+    Request: {
+      name?: string
+      activityConditions?: ActivityConditionInput[]
+      supportStatus?: SupportStatusRollup[]
+    } & Record<string, unknown>
     Response: SegmentResponse
   }
   'GET /v1/voters/voter-file/filters': {
@@ -591,12 +662,43 @@ export type APIEndpoints = {
     Response: Person
   }
   'POST /v1/contacts/count': {
-    Request: Record<string, unknown>
+    Request: {
+      activityConditions?: ActivityConditionInput[]
+      supportStatus?: SupportStatusRollup[]
+    } & Record<string, unknown>
     Response: { count: number }
   }
   'GET /v1/contacts/download': {
     Request: { segment?: string }
     Response: Blob
+  }
+  'GET /v1/contacts/list-detail': {
+    // Omitted segment = the universe row's detail (ENG-10778): the whole
+    // unfiltered district.
+    Request: { segment?: number }
+    Response: ListDetailContactsResponse
+  }
+
+  'GET /v1/contacts/:personId/notes': {
+    Request: {}
+    Response: ContactNoteListResponse
+  }
+  'POST /v1/contacts/:personId/notes': {
+    Request: ContactNoteInput
+    Response: ContactNote
+  }
+  'PATCH /v1/contacts/notes/:noteId': {
+    Request: ContactNoteInput
+    Response: ContactNote
+  }
+  'DELETE /v1/contacts/notes/:noteId': {
+    Request: {}
+    Response: {}
+  }
+
+  'POST /v1/contacts/:personId/interactions': {
+    Request: LogContactInteractionInput
+    Response: LogContactInteractionResponse
   }
 
   'GET /v1/contact-engagement/:id/issues': {
@@ -604,13 +706,28 @@ export type APIEndpoints = {
     Response: GetConstituentIssuesResponse
   }
   'GET /v1/contact-engagement/:id/activities': {
-    Request: { take?: number; after?: string }
+    Request: { take?: number; after?: string; lalVoterId?: string }
     Response: GetIndividualActivitiesResponse
   }
 
   'GET /v1/meetings': {
     Request: {}
     Response: MeetingsListResponseDto
+  }
+
+  // Self-serve landing catch-up: called client-side after landing on the
+  // dashboard. Resolves the office from the authenticated user and dispatches
+  // a briefing if the cron's gates would allow it, skipping only the 90-day
+  // activity gate (landing already proves activity). `inFlight` covers both
+  // a fresh dispatch from this call and a run already in progress from an
+  // earlier one — either way the caller should show the loading banner.
+  'POST /v1/meetings/dispatch-if-needed': {
+    Request: {}
+    Response: {
+      dispatched: boolean
+      inFlight: boolean
+      meetingDate: string | null
+    }
   }
 
   'GET /v1/meetings/:date/briefing': {
@@ -864,6 +981,16 @@ export type APIEndpoints = {
         title: string
       }>
     }
+  }
+
+  // Self-serve landing catch-up: called client-side after landing on the
+  // community issues dashboard. Dispatches both experiment types if eligible
+  // and not already in flight, skipping only the 90-day activity gate.
+  // Distinct from self-dispatch above (staff-only, single-type, manual
+  // refresh button).
+  'POST /v1/community-issues/dispatch-if-needed': {
+    Request: {}
+    Response: { dispatched: number; skipped: number }
   }
 
   'GET /v1/campaigns/mine/race-opponent': {

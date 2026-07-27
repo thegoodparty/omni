@@ -1,55 +1,39 @@
 import {
-  OutreachType,
-  VoterOutreachAttributionSource,
-} from '../generated/prisma'
+  ConstituentActivityEventTypeSchema,
+  ConstituentActivityTypeSchema,
+} from '@goodparty_org/contracts'
+import type {
+  ConstituentActivity,
+  ConstituentActivityEvent,
+  DoorKnockConstituentActivity,
+  GetIndividualActivitiesResponse,
+  OutreachConstituentActivity,
+  PollConstituentActivity,
+  RobocallConstituentActivity,
+  TextConstituentActivity,
+} from '@goodparty_org/contracts'
 
-export enum ConstituentActivityType {
-  POLL_INTERACTIONS = 'POLL_INTERACTIONS',
-  OUTREACH = 'OUTREACH',
-}
+// The unified activity-feed shape (all variants, the discriminant enums, and
+// the response envelope) is the cross-service contract for
+// GET /v1/contact-engagement/:id/activities — defined once in
+// @goodparty_org/contracts/people/ContactActivity.schema and re-exported here
+// so this feature's existing imports don't all need to change. `.enum` gives
+// the same dot-access ergonomics a local TS enum would, but as plain string
+// literals — structurally compatible with the contracts-derived union (a
+// real TS `enum` member is a distinct nominal type, not assignable to it).
+export const ConstituentActivityType = ConstituentActivityTypeSchema.enum
+export const ConstituentActivityEventType =
+  ConstituentActivityEventTypeSchema.enum
 
-export enum ConstituentActivityEventType {
-  SENT = 'SENT',
-  RESPONDED = 'RESPONDED',
-  OPTED_OUT = 'OPTED_OUT',
-}
-
-export type ConstituentActivityEvent = {
-  type: ConstituentActivityEventType
-  date: string
-}
-
-export type ConstituentActivity = {
-  type: ConstituentActivityType
-  date: string
-  data: {
-    pollId: string
-    pollTitle: string
-    events: ConstituentActivityEvent[]
-  }
-}
-
-export type GetIndividualActivitiesResponse = {
-  nextCursor: string | null
-  results: ConstituentActivity[]
-}
-
-// Win campaign outreach, read from VoterOutreachActivity (keyed on the durable
-// lalVoterId). attributionSource lets the timeline label send-time vs
-// per-recipient attribution honestly.
-export type OutreachConstituentActivity = {
-  type: ConstituentActivityType.OUTREACH
-  date: string
-  data: {
-    activityId: number
-    outreachType: OutreachType
-    attributionSource: VoterOutreachAttributionSource
-  }
-}
-
-export type GetCampaignActivitiesResponse = {
-  nextCursor: string | null
-  results: OutreachConstituentActivity[]
+export type {
+  ConstituentActivity,
+  ConstituentActivityEvent,
+  DoorKnockConstituentActivity,
+  GetIndividualActivitiesResponse,
+  OutreachConstituentActivity,
+  PollConstituentActivity,
+  RobocallConstituentActivity,
+  TextConstituentActivity,
 }
 
 export type ConstituentIssue = {

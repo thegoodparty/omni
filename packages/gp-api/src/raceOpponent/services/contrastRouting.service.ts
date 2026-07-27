@@ -53,7 +53,7 @@ export class ContrastRoutingService extends createPrismaBase(
     const result =
       target === 'story'
         ? await this.routeToStory(campaign, contrastId)
-        : await this.routeToTexting(campaign.id, contrastId)
+        : await this.routeToTexting(campaign, contrastId)
 
     void this.analytics
       .track(campaign.userId, EVENTS.RaceOpponent.ContrastUsed, {
@@ -154,16 +154,17 @@ export class ContrastRoutingService extends createPrismaBase(
   }
 
   private async routeToTexting(
-    campaignId: number,
+    campaign: CampaignWith<'user'>,
     contrastId: number,
   ): Promise<RouteContrastToTextingResponse> {
     return this.client.$transaction(
       async (tx) => {
-        const contrast = await this.assertRoutable(tx, campaignId, contrastId)
+        const contrast = await this.assertRoutable(tx, campaign.id, contrastId)
 
         const outreach = await tx.outreach.create({
           data: {
-            campaignId,
+            campaignId: campaign.id,
+            organizationSlug: campaign.organizationSlug,
             outreachType: OutreachType.text,
             status: OutreachStatus.pending,
             name: `Contrast: ${contrast.issueTag}`,

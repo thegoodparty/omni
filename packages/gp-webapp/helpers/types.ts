@@ -247,6 +247,11 @@ export interface VoterFileFilters {
   age25_35?: boolean
   age35_50?: boolean
   age50Plus?: boolean
+  age18_24?: boolean
+  age25_34?: boolean
+  age35_49?: boolean
+  age50_64?: boolean
+  age65Plus?: boolean
   ageUnknown?: boolean
   genderMale?: boolean
   genderFemale?: boolean

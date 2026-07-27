@@ -1,9 +1,23 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import type { Ref, ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { SearchIcon, SparklesIcon } from '@styleguide/components/ui/icons'
+import { cn, IconButton, Input } from '@styleguide'
+import {
+  SearchIcon,
+  SendIcon,
+  SparklesIcon,
+} from '@styleguide/components/ui/icons'
+import type { LiveSegment } from './streaming'
+import ChatPill from '../ai-chat/ChatPill'
+import { DictationMicButton } from '../../briefings/shared/DictationMicButton'
+import type { UseDictationAppendResult } from '../../briefings/shared/useDictationAppend'
+
+// Module-level so react-markdown gets a stable plugins identity across the
+// per-tick re-renders of a streaming turn (a fresh [remarkGfm] each render
+// would defeat its internal memoization).
+const REMARK_PLUGINS = [remarkGfm]
 
 // Shared presentation for the agent chat surfaces (Chief of Staff, ordinance
 // flow, ...). One source of truth for the assistant bubble, markdown rendering,
@@ -63,7 +77,34 @@ export function AssistantMarkdown({
 }): React.JSX.Element {
   return (
     <div className={ASSISTANT_BUBBLE}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{children}</ReactMarkdown>
+    </div>
+  )
+}
+
+// Markdown for card body text (an authority explanation, a comparable's outcome,
+// ...). Renders inline emphasis, links, lists, and code with the card's own text
+// styling — no chat-bubble background. `className` carries the field's size and
+// color so the markdown inherits them.
+export function CardMarkdown({
+  children,
+  className,
+}: {
+  children: string
+  className?: string
+}): React.JSX.Element {
+  return (
+    <div
+      className={cn(
+        'space-y-2 [&_p]:m-0 [&_strong]:font-semibold [&_em]:italic ' +
+          '[&_a]:underline [&_ul]:my-0 [&_ul]:list-disc [&_ul]:pl-5 ' +
+          '[&_ol]:my-0 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0 ' +
+          '[&_code]:rounded [&_code]:bg-foreground/10 [&_code]:px-1 ' +
+          '[&_code]:py-0.5 [&_code]:text-xs',
+        className,
+      )}
+    >
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{children}</ReactMarkdown>
     </div>
   )
 }
@@ -95,9 +136,171 @@ export function ToolPillRow({
 }): React.JSX.Element {
   return (
     <div className="flex flex-wrap gap-1.5">
-      {labels.map((label) => (
-        <ToolPill key={label} label={label} running={running} />
+      {labels.map((label, i) => (
+        // Index in the key: the same tool can run twice in a turn (e.g. two
+        // web searches), so labels are not unique on their own.
+        <ToolPill key={`${label}-${i}`} label={label} running={running} />
       ))}
     </div>
+  )
+}
+
+// Render a turn's segments in stream order: text as markdown bubbles, tool
+// calls as inline pills, so a search/read pill sits between the sentences it
+// interrupted instead of stacked in a row above the whole reply. `toolLabel`
+// maps a tool name to its pill label (return null to hide a tool, e.g. a
+// bookkeeping tool or one rendered as its own widget). Consecutive tool
+// segments coalesce into one pill row, which shimmers while any tool in it is
+// still `running`. Shared by the live turn (running set/cleared as tools fly)
+// and reloaded history (persisted segments, never running).
+export function InlineSegments({
+  segments,
+  toolLabel,
+}: {
+  segments: LiveSegment[]
+  toolLabel: (toolName: string) => string | null
+}): React.JSX.Element {
+  const blocks: ReactNode[] = []
+  let pendingPills: string[] = []
+  let pendingRunning = false
+  const flushPills = (key: string): void => {
+    if (pendingPills.length > 0) {
+      blocks.push(
+        <ToolPillRow
+          key={`pills-${key}`}
+          labels={pendingPills}
+          running={pendingRunning}
+        />,
+      )
+      pendingPills = []
+      pendingRunning = false
+    }
+  }
+  segments.forEach((seg, i) => {
+    if (seg.kind === 'tool') {
+      const label = toolLabel(seg.toolName)
+      if (label) {
+        pendingPills.push(label)
+        if (seg.running) pendingRunning = true
+      }
+      return
+    }
+    flushPills(String(i))
+    if (seg.text) {
+      blocks.push(
+        <AssistantMarkdown key={`text-${i}`}>{seg.text}</AssistantMarkdown>,
+      )
+    }
+  })
+  flushPills('end')
+  return <>{blocks}</>
+}
+
+// A user's message bubble, right-aligned. `whitespace-pre-wrap` preserves the
+// line breaks a user typed (and the seeded passage quotes the draft chat sends).
+export function UserBubble({
+  children,
+}: {
+  children: ReactNode
+}): React.JSX.Element {
+  return (
+    <div className="self-end rounded-2xl bg-primary px-3 py-2 text-sm whitespace-pre-wrap text-primary-foreground">
+      {children}
+    </div>
+  )
+}
+
+// The "working" shimmer shown while the assistant is thinking but nothing is on
+// screen yet. `label` names what it is doing when known (e.g. a tool generating).
+export function ThinkingRow({
+  label = 'Thinking...',
+}: {
+  label?: string
+}): React.JSX.Element {
+  return (
+    <div className="w-fit self-start rounded-2xl bg-muted px-3 py-2 text-sm">
+      <span className="text-shimmer-muted">{label}</span>
+    </div>
+  )
+}
+
+// The message composer: a pill-shaped input with a send button. The consumer
+// owns the value and clears it on submit; `onSubmit` fires on Enter or the
+// button, and the button is disabled while empty. Pass `dictation` (from
+// useDictationAppend, wired to the same value/onChange) for the agent variant:
+// it adds a voice-input mic, the branded AI send icon, and the animated
+// gradient border shared with Chief of Staff and the draft launcher. Omit it
+// and the composer is plain — no mic, send arrow, simple border.
+export function ChatComposer({
+  value,
+  onChange,
+  onSubmit,
+  disabled,
+  placeholder = 'Ask me any questions about this...',
+  inputRef,
+  dictation,
+}: {
+  value: string
+  onChange: (value: string) => void
+  onSubmit: () => void
+  disabled?: boolean
+  placeholder?: string
+  inputRef?: Ref<HTMLInputElement>
+  dictation?: UseDictationAppendResult
+}): React.JSX.Element {
+  const controls = (
+    <>
+      <Input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+        className="min-w-0 flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
+      />
+      {dictation ? (
+        <DictationMicButton
+          dictation={dictation}
+          idleLabel="Dictate a message"
+          recordingLabel="Stop dictation"
+          disabled={disabled}
+          size="medium"
+          className="static shrink-0 rounded-full"
+        />
+      ) : null}
+      <IconButton
+        type="submit"
+        className="shrink-0 rounded-full"
+        disabled={disabled || !!dictation?.active || value.trim().length === 0}
+        aria-label="Send"
+      >
+        {dictation ? (
+          <SparklesIcon className="size-5" aria-hidden />
+        ) : (
+          <SendIcon className="size-5" aria-hidden />
+        )}
+      </IconButton>
+    </>
+  )
+  const handleSubmit = (e: React.FormEvent): void => {
+    e.preventDefault()
+    // Match the send button's guard so Enter can't submit mid-dictation, which
+    // would drop the not-yet-finalized words still being spoken.
+    if (dictation?.active) return
+    onSubmit()
+  }
+  return dictation ? (
+    <form onSubmit={handleSubmit}>
+      <ChatPill innerClassName="items-center gap-1 py-1 pr-1 pl-4">
+        {controls}
+      </ChatPill>
+    </form>
+  ) : (
+    <form
+      className="flex items-center gap-1 rounded-full border border-border bg-card py-1 pr-1 pl-4"
+      onSubmit={handleSubmit}
+    >
+      {controls}
+    </form>
   )
 }

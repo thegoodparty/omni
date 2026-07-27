@@ -6,6 +6,7 @@ import {
 } from 'src/helpers/navigation.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import { eventually } from 'tests/utils/eventually'
+import { waitForDashboardReady } from 'src/helpers/dashboard'
 
 // Pro-upgrade happy path: an already-filed candidate drives the full wizard
 // funnel through an embedded Stripe subscription to Pro, then lands on the
@@ -54,14 +55,29 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   await page.goto('/dashboard')
   await page.waitForURL(/\/dashboard/)
   await NavigationHelper.dismissOverlays(page)
+  // Closes any stray task-detail dialog (which aria-hides the whole page) and
+  // waits for the campaign-gated chrome, like the sibling pro-upgrade specs.
+  await waitForDashboardReady(page)
 
   await expect(
     page.getByText('76% of candidates who use Pro win'),
   ).toBeVisible()
-  await page.getByRole('button', { name: 'Get Pro' }).click()
+
+  // A click that lands before hydration attaches the banner's handler is
+  // swallowed (observed in CI: click fired on the half-hydrated dashboard,
+  // then no navigation for 45s), so retry the click until the URL moves.
+  await expect(async () => {
+    if (!/\/dashboard\/pro-upgrade\/value-prop/.test(page.url())) {
+      await page
+        .getByRole('button', { name: 'Get Pro' })
+        .click({ timeout: 5_000 })
+    }
+    await page.waitForURL(/\/dashboard\/pro-upgrade\/value-prop/, {
+      timeout: 10_000,
+    })
+  }).toPass({ timeout: 60_000 })
 
   // 2. Value prop.
-  await page.waitForURL(/\/dashboard\/pro-upgrade\/value-prop/)
   await page.getByRole('button', { name: 'Get Pro for $10/mo' }).click()
 
   // 3. Filing status — "Yes, I'm already filed".
@@ -104,14 +120,27 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   await expect(suggestion).toBeVisible({ timeout: 15_000 })
   await addressInput.press('ArrowDown')
   await addressInput.press('Enter')
-  // onPlaceSelected writes the formatted address back into the input.
-  await expect(addressInput).not.toHaveValue('')
 
-  await page.getByRole('button', { name: 'Continue' }).click()
+  // onPlaceSelected resolves the place details asynchronously and only then
+  // writes the place (with its place_id) into form state; until that lands,
+  // Continue fails validation and silently no-ops (its error banner clears
+  // itself once the write arrives). There is no stable DOM signal for the
+  // write — arrowing through suggestions already rewrites the input text — so
+  // retry Continue until the wizard actually advances. Re-clicks during a real
+  // submit are no-ops (the form's submittingRef/loading guard).
+  await expect(async () => {
+    if (!/\/dashboard\/pro-upgrade\/candidate-profile/.test(page.url())) {
+      await page
+        .getByRole('button', { name: 'Continue' })
+        .click({ timeout: 5_000 })
+    }
+    await page.waitForURL(/\/dashboard\/pro-upgrade\/candidate-profile/, {
+      timeout: 15_000,
+    })
+  }).toPass({ timeout: 90_000 })
 
-  // 7. Candidate profile — ≥500-char bio (Quill editor) + one policy priority
+  // 7. Candidate profile — ≥200-char bio (Quill editor) + one policy priority
   // with a ≥100-char focus.
-  await page.waitForURL(/\/dashboard\/pro-upgrade\/candidate-profile/)
   const bioEditor = page.locator('.ql-editor').first()
   await expect(bioEditor).toBeVisible({ timeout: 15_000 })
   await bioEditor.click()
@@ -213,24 +242,30 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   )
 
   // The filing-details submit created a TCR-compliance record; it defaults to
-  // `submitted` (awaiting PIN), which drives the post-payment PIN card.
+  // `submitted` (awaiting PIN), which drives the post-payment compliance card.
   const tcr = await client.get<TcrComplianceMine>(
     '/v1/campaigns/tcr-compliance/mine',
   )
   expect(tcr.status).toBe(200)
   expect(tcr.data.status).toBe('submitted')
 
-  // 10. Dashboard post-payment state: PRO badge in the sidebar org switcher,
-  // the "Enter your PIN" card, and the Get Pro banner gone — with no manual
-  // reload (SuccessStep refreshed the shared campaign cache on the way out).
+  // 10. Dashboard post-payment state. The success-step exit refreshes the
+  // shared campaign cache, but the webhook usually lands after that refresh,
+  // so the already-rendered dashboard can still show the non-Pro state —
+  // reload now that `isPro` is proven server-side. Expect: PRO badge, the
+  // compliance card in the Get Pro banner's slot, and the banner gone. For a
+  // fresh submission the card shows the awaiting-PIN in-review state — the
+  // "Enter your PIN" box appears only once Peerly CampaignVerify approves,
+  // days later (the CV gate, ENG-10785) — never within this test's window.
+  await page.goto('/dashboard')
   await page.waitForURL('**/dashboard', { timeout: 30_000 })
 
   await expect(page.getByRole('img', { name: 'PRO' }).first()).toBeVisible({
     timeout: 30_000,
   })
-  await expect(page.getByText('Enter your PIN')).toBeVisible({
-    timeout: 30_000,
-  })
+  await expect(
+    page.getByText('Your registration is being verified'),
+  ).toBeVisible({ timeout: 30_000 })
   await expect(page.getByText('76% of candidates who use Pro win')).toHaveCount(
     0,
   )

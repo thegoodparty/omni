@@ -1,6 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -64,6 +71,52 @@ interface Props {
   historyKey?: readonly unknown[]
   /** Default intro played on the first chat when no `opener` is given. */
   defaultIntro?: string[]
+  /**
+   * Starter chips. Each carries its own behavior via `onSelect`. Omit to get
+   * the Chief of Staff defaults (send the chip's label as a message).
+   */
+  suggestions?: ChatSuggestion[]
+  /**
+   * Render the starter chips alongside a seeded/played greeting, not only on
+   * an empty transcript. Defaults to false, so CoS/Community Issues still show
+   * chips only before the first turn.
+   */
+  showSuggestionsWithGreeting?: boolean
+  /**
+   * Short quick-prompt pills shown below the suggestions (above the composer),
+   * each sending its own text as a visible message. Distinct from `suggestions`
+   * (the larger action cards). Omit for CoS / Community Issues.
+   */
+  quickPrompts?: string[]
+  /** Composer placeholder. Defaults to the generic "How can I help?". */
+  composerPlaceholder?: string
+  /**
+   * One-shot kickoff: send this message once on open through the normal stream
+   * path but WITHOUT an optimistic user bubble (the server hides it / returns
+   * a canned reply). Consumed once per mount.
+   */
+  pendingKickoff?: string
+  /** Ref to the composer input, so a caller's suggestion can focus it. */
+  composerRef?: RefObject<HTMLInputElement | null>
+  /**
+   * Message contents to drop from a reloaded transcript before it renders.
+   * Hides persisted sentinel turns (e.g. the story-kickoff sentinel) that
+   * exist only to keep the server-side history alternating. Default empty: no
+   * filtering, so Chief of Staff / Community Issues / Ordinance are unchanged.
+   */
+  hiddenMessageContents?: string[]
+}
+
+/**
+ * A starter chip. `kickoff` fires an on-demand hidden send of that string
+ * (through the body's own `send`, no user bubble); otherwise `onSelect` runs.
+ * `description` renders a secondary line beneath the label.
+ */
+export type ChatSuggestion = {
+  label: string
+  description?: string
+  onSelect?: () => void
+  kickoff?: string
 }
 
 type ChatItem =
@@ -171,6 +224,10 @@ function messageToItem(msg: ChatMessageDto): ChatItem | null {
 
 const INTRO_SEEN_KEY = 'cos-intro-streamed'
 
+// Stable default so callers that omit the prop keep the same array identity
+// across renders (no needless re-run of the load effect).
+const NO_HIDDEN_CONTENTS: string[] = []
+
 // Starter prompts shown on a fresh chat; tapping one sends it.
 const CHAT_SUGGESTIONS = [
   "What's most urgent this week?",
@@ -196,6 +253,13 @@ export default function ChiefOfStaffChatBody({
   analyticsLabel = 'chief-of-staff-chat',
   historyKey = HISTORY_KEY,
   defaultIntro = COS_INTRO_MESSAGES,
+  suggestions,
+  showSuggestionsWithGreeting = false,
+  quickPrompts,
+  composerPlaceholder = 'How can I help?',
+  pendingKickoff,
+  composerRef,
+  hiddenMessageContents = NO_HIDDEN_CONTENTS,
 }: Props): React.JSX.Element {
   const queryClient = useQueryClient()
   const [conversationId, setConversationId] = useState<string | null>(null)
@@ -211,6 +275,10 @@ export default function ChiefOfStaffChatBody({
     analyticsLabel,
   })
   const [error, setError] = useState<ErrorState | null>(null)
+  // True once anything has been sent this session (visible OR hidden). Gates the
+  // with-greeting starter chips off after a hidden kickoff (which adds no user
+  // turn). State, so it re-renders; resets naturally on remount / new chat.
+  const [hasSent, setHasSent] = useState(false)
   const [creating, setCreating] = useState(false)
   const [sending, setSending] = useState(false)
   const [introProgress, setIntroProgress] = useState(0)
@@ -225,6 +293,11 @@ export default function ChiefOfStaffChatBody({
   } | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
+  // Tracks the pendingKickoff value that has already fired, not just a boolean:
+  // the parent clears pendingKickoff on close and re-sets the same sentinel on
+  // reopen, and the body stays mounted, so a value-based guard (reset when the
+  // kickoff clears) lets that second open fire again instead of dropping it.
+  const kickedOffRef = useRef<string | undefined>(undefined)
   const loadRequestedRef = useRef(false)
   const creatingRef = useRef(false)
   const sendingRef = useRef(false)
@@ -405,8 +478,26 @@ export default function ChiefOfStaffChatBody({
     try {
       setConversationId(conversationIdOverride)
       const msgs = await chatApi.listMessages(conversationIdOverride)
+      // Drop persisted sentinel turns (e.g. the story-kickoff sentinel) so
+      // they never enter history/playback or render as a raw bubble. A hidden
+      // sentinel is a USER turn whose canned assistant reply immediately
+      // follows it, so also skip that reply. Otherwise it reloads as an
+      // orphaned assistant bubble with no preceding user message. (The one-off
+      // story/product greeting therefore does not render on reload, an
+      // accepted cosmetic.)
+      const hidden = new Set(hiddenMessageContents)
       const items: ChatItem[] = []
+      let skipNextAssistant = false
       for (const m of msgs) {
+        if (hidden.has(m.content)) {
+          skipNextAssistant = m.role === 'user'
+          continue
+        }
+        if (skipNextAssistant && m.role === 'assistant') {
+          skipNextAssistant = false
+          continue
+        }
+        skipNextAssistant = false
         const it = messageToItem(m)
         if (it) items.push(it)
       }
@@ -441,7 +532,7 @@ export default function ChiefOfStaffChatBody({
     } finally {
       setCreating(false)
     }
-  }, [conversationIdOverride])
+  }, [conversationIdOverride, hiddenMessageContents])
 
   useEffect(() => {
     if (!active) return
@@ -726,12 +817,17 @@ export default function ChiefOfStaffChatBody({
     [conversationId, ensureConversationId, runStream],
   )
 
-  const sendContent = useCallback(
-    async (content: string) => {
+  // The shared send path. `hidden` skips the optimistic user bubble so a
+  // kickoff message streams a reply without showing the prompt that triggered
+  // it (the server hides it / returns a canned reply); everything else (the
+  // reveal-drain commit, the mid-playback flush, the stream) is identical.
+  const send = useCallback(
+    async (content: string, options?: { hidden?: boolean }) => {
       const trimmed = content.trim()
       if (!trimmed) return false
       if (sendingRef.current || creatingRef.current) return false
       sendingRef.current = true
+      setHasSent(true)
       const clientMessageId = newClientMessageId()
       // A send during a reveal drain commits the previous assistant message
       // first so the transcript stays ordered.
@@ -747,14 +843,87 @@ export default function ChiefOfStaffChatBody({
           prev.length === 0 ? [...pending.items, ...prev] : prev,
         )
       }
-      setHistory((prev) => [
-        ...prev,
-        { kind: 'user', id: `local_${clientMessageId}`, content: trimmed },
-      ])
+      if (!options?.hidden) {
+        setHistory((prev) => [
+          ...prev,
+          { kind: 'user', id: `local_${clientMessageId}`, content: trimmed },
+        ])
+      }
       await executeUserTurn(trimmed, clientMessageId)
       return true
     },
     [executeUserTurn],
+  )
+
+  const sendContent = useCallback(
+    (content: string) => send(content, { hidden: false }),
+    [send],
+  )
+
+  // Starter chips: the caller's list, or the CoS defaults that send the chip's
+  // own label as a message (byte-for-byte the prior hardwired behavior).
+  const effectiveSuggestions = useMemo<ChatSuggestion[]>(
+    () =>
+      suggestions ??
+      CHAT_SUGGESTIONS.map((label) => ({
+        label,
+        onSelect: () => void sendContent(label),
+      })),
+    [suggestions, sendContent],
+  )
+
+  // The with-greeting chips show only while the conversation is pristine:
+  // nothing sent this session and the transcript is at most the single seeded
+  // greeting (still playing back, or just committed). A hidden kickoff sets
+  // hasSent with no user turn, and a resumed conversation with a prior reply
+  // has more than one message, so both correctly hide the chips.
+  const isPristineGreeting =
+    !hasSent && history.length + (playback?.items.length ?? 0) <= 1
+
+  // Fire the one-shot kickoff once the surface is open and any load/create has
+  // settled, so it appends to the resolved conversation rather than racing a
+  // fresh create. `creating`/`creatingRef` gate on an in-flight load or create.
+  // With an override, also hold until that conversation's id has actually been
+  // applied: `loadExisting` sets `conversationId` and `creating` in the same
+  // synchronous pass this effect runs in, so reading `creating` alone is stale
+  // on that first pass, but `conversationId` is still null then too, so the
+  // override guard keeps the kickoff from firing (and minting a fresh
+  // conversation) until the resumed id is settled. The ref guards a re-render
+  // from re-firing it.
+  useEffect(() => {
+    // Reset on clear so a later re-set to the same sentinel (close then reopen)
+    // counts as a fresh kickoff.
+    if (!pendingKickoff) {
+      kickedOffRef.current = undefined
+      return
+    }
+    if (!active || kickedOffRef.current === pendingKickoff) return
+    if (creating || creatingRef.current) return
+    if (conversationIdOverride && conversationId !== conversationIdOverride) {
+      return
+    }
+    kickedOffRef.current = pendingKickoff
+    void send(pendingKickoff, { hidden: true })
+  }, [
+    active,
+    pendingKickoff,
+    creating,
+    conversationId,
+    conversationIdOverride,
+    send,
+  ])
+
+  // A chip with `kickoff` fires an on-demand hidden send of that string;
+  // otherwise it defers to the chip's own `onSelect`.
+  const onSuggestionClick = useCallback(
+    (s: ChatSuggestion) => {
+      if (s.kickoff) {
+        void send(s.kickoff, { hidden: true })
+        return
+      }
+      s.onSelect?.()
+    },
+    [send],
   )
 
   const onSend = useCallback(async () => {
@@ -781,6 +950,20 @@ export default function ChiefOfStaffChatBody({
     !streaming &&
     !playback &&
     !error
+
+  // The starter suggestions + quick prompts show on an empty transcript, or
+  // alongside a seeded greeting when the caller opts in.
+  const showStarters =
+    ((history.length === 0 && !playback) ||
+      (showSuggestionsWithGreeting && isPristineGreeting)) &&
+    streaming === null &&
+    !error
+  // Suggestions carrying a description render as full-width cards (Campaign
+  // Manager); description-less ones stay pills (Chief of Staff / Community
+  // Issues).
+  const suggestionsAsCards = effectiveSuggestions.some((s) =>
+    Boolean(s.description),
+  )
 
   return (
     // vaul disables text selection on the drawer (user-select:none on fine
@@ -920,29 +1103,75 @@ export default function ChiefOfStaffChatBody({
         )}
       </div>
 
-      {history.length === 0 && streaming === null && !error && !playback && (
-        <div className="mx-auto flex w-full max-w-3xl flex-wrap gap-2 px-3 pb-1 pt-2">
-          {CHAT_SUGGESTIONS.map((s) => (
-            <Badge
-              key={s}
-              asChild
-              variant="soft"
-              shape="pill"
-              className="h-auto border-border bg-grayscale-50 px-3 py-1.5 disabled:pointer-events-none disabled:opacity-50"
-            >
+      {showStarters && (
+        <div
+          className={
+            suggestionsAsCards
+              ? 'mx-auto flex w-full max-w-[608px] flex-col gap-2 px-3 pb-1 pt-2'
+              : 'mx-auto flex w-full max-w-[608px] flex-wrap gap-2 px-3 pb-1 pt-2'
+          }
+        >
+          {effectiveSuggestions.map((s) =>
+            suggestionsAsCards ? (
               <button
+                key={s.label}
                 type="button"
                 disabled={busy}
-                onClick={() => void sendContent(s)}
+                onClick={() => onSuggestionClick(s)}
+                className="w-full rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-grayscale-50 disabled:pointer-events-none disabled:opacity-50"
               >
-                {s}
+                <span className="block text-sm font-semibold text-foreground">
+                  {s.label}
+                </span>
+                {s.description && (
+                  <span className="mt-0.5 block text-sm text-muted-foreground">
+                    {s.description}
+                  </span>
+                )}
               </button>
-            </Badge>
-          ))}
+            ) : (
+              <Badge
+                key={s.label}
+                asChild
+                variant="soft"
+                shape="pill"
+                className="h-auto border-border bg-grayscale-50 px-3 py-1.5 disabled:pointer-events-none disabled:opacity-50"
+              >
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onSuggestionClick(s)}
+                >
+                  {s.label}
+                </button>
+              </Badge>
+            ),
+          )}
         </div>
       )}
 
       <div className="border-t border-border px-3 py-3">
+        {quickPrompts && quickPrompts.length > 0 && showStarters && (
+          <div className="mx-auto mb-3 flex w-full max-w-[608px] flex-wrap gap-2">
+            {quickPrompts.map((prompt) => (
+              <Badge
+                key={prompt}
+                asChild
+                variant="soft"
+                shape="pill"
+                className="h-auto border-border bg-grayscale-50 px-3 py-1.5 disabled:pointer-events-none disabled:opacity-50"
+              >
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void sendContent(prompt)}
+                >
+                  {prompt}
+                </button>
+              </Badge>
+            ))}
+          </div>
+        )}
         <div className="relative mx-auto w-full max-w-[608px] rounded-full bg-gradient-to-r from-red-500 to-blue-500 p-px">
           <div className="flex h-12 w-full items-center gap-1 rounded-full bg-card pl-1.5 pr-1.5">
             {onSelectConversation && (
@@ -953,6 +1182,7 @@ export default function ChiefOfStaffChatBody({
               />
             )}
             <Input
+              ref={composerRef}
               value={composer}
               onChange={(e) => setComposer(e.target.value)}
               onKeyDown={(e) => {
@@ -961,7 +1191,7 @@ export default function ChiefOfStaffChatBody({
                   void onSend()
                 }
               }}
-              placeholder="How can I help?"
+              placeholder={composerPlaceholder}
               disabled={busy}
               aria-label="Ask a question"
               className="h-9 flex-1 border-0 bg-transparent px-2 text-[15px] shadow-none focus-visible:border-0 focus-visible:ring-0"

@@ -29,7 +29,7 @@ import {
 } from 'src/shared/types/utility.types'
 import Stripe from 'stripe'
 import { AnalyticsService } from '../../analytics/analytics.service'
-import { trimMany } from '../../shared/util/strings.util'
+import { toLowerAndTrim, trimMany } from '../../shared/util/strings.util'
 import { StripeService } from '../../vendors/stripe/services/stripe.service'
 import {
   CreateUserInputDto,
@@ -153,10 +153,10 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       name,
       email: unNormalizedEmail,
     } = restUserData
-    const email = unNormalizedEmail
+    const email = toLowerAndTrim(unNormalizedEmail)
 
     const hashedPassword = password ? await hashPassword(password) : null
-    const existingUser = await this.findUser({ email })
+    const existingUser = await this.findUserByEmail(email)
     if (existingUser) {
       throw new ConflictException('User with this email already exists')
     }
@@ -179,6 +179,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     const userDataToPersist = {
       ...restUserData,
       ...trimmed,
+      email,
       ...(hashedPassword ? { password: hashedPassword } : {}),
       hasPassword: !!hashedPassword,
       name: name?.trim() || `${firstNameTrimmed} ${lastNameTrimmed}`,
@@ -281,7 +282,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       const user = await this.model.create({
         data: {
           clerkId: data.clerkId,
-          email: data.email,
+          email: toLowerAndTrim(data.email),
           firstName: data.firstName,
           lastName: data.lastName,
           name: `${data.firstName} ${data.lastName}`.trim(),
@@ -376,6 +377,30 @@ export class UsersService extends createPrismaBase(MODELS.User) {
         },
       }
     })
+  }
+
+  // Atomic compare-and-swap on the single tracked checkout session id: the
+  // write only lands when the stored id still matches what the caller read,
+  // so concurrent checkout creations and expiry webhooks can't clobber each
+  // other's session tracking. Raw SQL because a conditional single-key JSON
+  // update can't be expressed as a Prisma merge.
+  async compareAndSwapCheckoutSessionId(
+    userId: number,
+    expectedSessionId: string | null,
+    nextSessionId: string | null,
+  ): Promise<boolean> {
+    const updatedCount = await this.client.$executeRaw`
+      UPDATE "user"
+      SET meta_data = jsonb_set(
+        COALESCE(meta_data, '{}'::jsonb),
+        '{checkoutSessionId}',
+        COALESCE(to_jsonb(${nextSessionId}::text), 'null'::jsonb)
+      )
+      WHERE id = ${userId}
+        AND meta_data->>'checkoutSessionId'
+          IS NOT DISTINCT FROM ${expectedSessionId}::text
+    `
+    return updatedCount === 1
   }
 
   async patchUserMetaData(
@@ -584,7 +609,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     lastName: string
     expiresInSeconds?: number
   }): Promise<{ user: User; token: string; clerkId: string }> {
-    const email = data.email.trim()
+    const email = toLowerAndTrim(data.email)
 
     // Reject the magic link for any account the person actually controls. A
     // password, an OAuth/SSO identity (e.g. Google), a TOTP/2FA authenticator,

@@ -9,9 +9,11 @@ import {
 import { LlmService } from '@/llm/services/llm.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { parseIsoDateAsUTC } from '@/shared/util/date.util'
+import { isInactiveUser } from '@/shared/util/userActivity.util'
 import { getUserFullName } from '@/users/util/users.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { BraintrustService } from '@/vendors/braintrust/braintrust.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import {
   BadGatewayException,
   ForbiddenException,
@@ -28,8 +30,7 @@ import {
 } from '../../generated/prisma'
 import { addDays, differenceInCalendarDays } from 'date-fns'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
-import { chunk } from 'es-toolkit'
-import ms from 'ms'
+import pMap from 'p-map'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { rrulestr } from 'rrule'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -130,11 +131,16 @@ type DispatchContext = {
   l2DistrictType?: string
   l2DistrictName?: string
   isServeIcp?: boolean | null
+  lastVisitedMs?: number
 }
 
 const CRON_CONFIG = {
-  batchSize: 100,
-  every: '20m' as const,
+  // Max offices dispatched in parallel. Bounds the fan-out to the DB /
+  // election-api / S3 / dispatch queue and keeps the cron from bursting the
+  // whole population's per-office work through gp-api at once. The agent job
+  // system does its own internal queueing, so there is no inter-batch sleep —
+  // we enqueue as fast as this concurrency bound allows.
+  concurrency: 10,
 }
 
 // Briefings are dispatched only when the official's next scheduled meeting
@@ -151,6 +157,17 @@ type TargetMeeting = {
   meetingDate: string // YYYY-MM-DD
   meetingTime?: string // HH:MM (optional — user-supplied agenda path leaves it to the agent)
   meetingTimezone?: string // IANA (optional — same reason)
+  meetingName?: string // official meeting-body name from the schedule (same reason)
+}
+
+export type BriefingDispatchOutcome = {
+  dispatched: boolean
+  // A meeting_briefing run for this office is QUEUED/RUNNING/AWAITING_RESUME
+  // — either just dispatched by this call or already in flight from an
+  // earlier one. The caller (on-demand endpoint) uses this to decide whether
+  // to show a "generating your briefing" banner.
+  inFlight: boolean
+  meetingDate: string | null
 }
 
 @Injectable()
@@ -444,6 +461,7 @@ export class MeetingBriefingsService extends createPrismaBase(
       meetingDate,
       meetingTime: schedule.time,
       meetingTimezone: schedule.timezone,
+      meetingName: schedule.meeting_name,
     }
   }
 
@@ -771,14 +789,14 @@ export class MeetingBriefingsService extends createPrismaBase(
     })
     if (!eo) return
 
-    await this.dispatchBriefingIfNeeded(eo, new Date()).catch(
-      (err: unknown) => {
-        this.logger.error(
-          { err, electedOfficeId, scheduleRunId: run.runId },
-          'dispatchBriefingIfNeeded failed after schedule completion',
-        )
-      },
-    )
+    await this.dispatchBriefingIfNeeded(eo, new Date(), {
+      skipActivityGate: true,
+    }).catch((err: unknown) => {
+      this.logger.error(
+        { err, electedOfficeId, scheduleRunId: run.runId },
+        'dispatchBriefingIfNeeded failed after schedule completion',
+      )
+    })
   }
 
   @Cron('0 7 * * *')
@@ -804,43 +822,121 @@ export class MeetingBriefingsService extends createPrismaBase(
     )
     if (!claimed) return
 
+    // DB-side pre-filter: skip offices that provably can never dispatch, so
+    // the loop below only touches candidates instead of every elected office.
+    // Both predicates are strictly necessary conditions for dispatch, so this
+    // never drops an office that dispatchBriefingIfNeeded would have briefed:
+    //   1. The imminence gate calls resolveTargetMeeting -> loadLatestScheduleForOrg,
+    //      which requires a COMPLETED meeting_schedule run with artifact
+    //      pointers. No such run => resolveTargetMeeting returns null => skip.
+    //   2. Coverage dedupe skips any office already covered by a future
+    //      briefing (meetingDate >= now).
+    // The remaining gates (serve-ICP, activity, imminence window, in-flight
+    // dedupe) depend on the election-api / the S3 schedule artifact / user
+    // metadata and can't be expressed here, so they stay in the per-office
+    // guard below.
     const offices = await this.client.electedOffice.findMany({
+      where: {
+        organization: {
+          experimentRuns: {
+            some: {
+              experimentType: SCHEDULE_EXPERIMENT_TYPE,
+              status: ExperimentRunStatus.COMPLETED,
+              artifactBucket: { not: null },
+              artifactKey: { not: null },
+            },
+          },
+        },
+        meetingBriefings: { none: { meetingDate: { gte: now } } },
+      },
       select: { id: true, organizationSlug: true, userId: true },
     })
 
-    const chunks = chunk(offices, CRON_CONFIG.batchSize)
-
-    for (const [i, batch] of chunks.entries()) {
-      for (const eo of batch) {
-        await this.dispatchBriefingIfNeeded(eo, now).catch((err: unknown) =>
+    // Bounded concurrency over the whole candidate set: each office's dispatch
+    // work is independent (distinct org), so we fan out up to `concurrency` at
+    // a time instead of awaiting them one by one. There is no inter-batch
+    // throttle — the agent job system queues internally, so we enqueue as fast
+    // as the concurrency bound allows.
+    await pMap(
+      offices,
+      (eo) =>
+        this.dispatchBriefingIfNeeded(eo, now).catch((err: unknown) =>
           this.logger.error(
             { err, electedOfficeId: eo.id },
             'dispatchBriefingIfNeeded failed, continuing',
           ),
-        )
-      }
-      if (i < chunks.length - 1) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, ms(CRON_CONFIG.every)),
-        )
-      }
-    }
+        ),
+      { concurrency: CRON_CONFIG.concurrency },
+    )
 
     // Mark the claim complete so a crashed-run takeover (see CronLockService)
     // is only triggered when the loop did not finish.
     await this.cronLock.markCompleted(DAILY_BRIEFINGS_CRON_JOB, now)
   }
 
+  /**
+   * On-demand landing catch-up: dispatch the caller's own briefing if the
+   * cron's gates would allow it, skipping only the activity gate — landing
+   * on the dashboard already proves the user is active. Reuses the exact
+   * same eligibility function as the cron (`dispatchBriefingIfNeeded`).
+   */
+  async dispatchBriefingIfDue(
+    electedOffice: ElectedOffice,
+  ): Promise<BriefingDispatchOutcome> {
+    return this.dispatchBriefingIfNeeded(
+      {
+        id: electedOffice.id,
+        organizationSlug: electedOffice.organizationSlug,
+        userId: electedOffice.userId,
+      },
+      new Date(),
+      { skipActivityGate: true },
+    )
+  }
+
   private async dispatchBriefingIfNeeded(
     eo: { id: string; organizationSlug: string; userId: number },
     now: Date,
-  ): Promise<void> {
+    options: { skipActivityGate?: boolean } = {},
+  ): Promise<BriefingDispatchOutcome> {
+    const notDispatched: BriefingDispatchOutcome = {
+      dispatched: false,
+      inFlight: false,
+      meetingDate: null,
+    }
+
     // Coverage dedupe: skip if a briefing already covers an upcoming meeting.
     const futureBriefing = await this.model.findFirst({
       where: { electedOfficeId: eo.id, meetingDate: { gte: now } },
       select: { id: true },
     })
-    if (futureBriefing) return
+    if (futureBriefing) return notDispatched
+
+    // In-flight dedupe: a briefing run for this office was already dispatched
+    // and hasn't completed yet (no MeetingBriefing row exists yet to catch
+    // above). Without this, calling the on-demand path repeatedly while a
+    // cron-dispatched run is still processing would double-dispatch.
+    const inFlightRun = await this.client.experimentRun.findFirst({
+      where: {
+        organizationSlug: eo.organizationSlug,
+        experimentType: BRIEFING_EXPERIMENT_TYPE,
+        status: {
+          in: [
+            ExperimentRunStatus.QUEUED,
+            ExperimentRunStatus.RUNNING,
+            ExperimentRunStatus.AWAITING_RESUME,
+          ],
+        },
+      },
+      select: { params: true },
+    })
+    if (inFlightRun) {
+      return {
+        dispatched: false,
+        inFlight: true,
+        meetingDate: readStringField(inFlightRun.params, 'meetingDate'),
+      }
+    }
 
     // Imminence gate: only dispatch when the schedule shows a meeting
     // within IMMINENCE_WINDOW_DAYS. No schedule → no briefing.
@@ -850,15 +946,13 @@ export class MeetingBriefingsService extends createPrismaBase(
       now,
       IMMINENCE_WINDOW_DAYS,
     )
-    if (!target) return
+    if (!target) return notDispatched
 
-    const electedOffice = await this.client.electedOffice.findUnique({
-      where: { id: eo.id },
-    })
-    if (!electedOffice) return
-
-    const ctx = await this.resolveDispatchContext(electedOffice)
-    if (!ctx) return
+    // `eo` already carries the id / organizationSlug / userId that
+    // resolveDispatchContext needs, so we skip the redundant full-row
+    // findUnique the loop used to do per office (fetch once, up top).
+    const ctx = await this.resolveDispatchContext(eo)
+    if (!ctx) return notDispatched
 
     // Fail closed: automated dispatches require an affirmative serve-ICP
     // flag, so offices stay un-briefed until the Databricks backfill
@@ -870,14 +964,31 @@ export class MeetingBriefingsService extends createPrismaBase(
         { electedOfficeId: eo.id, isServeIcp: ctx.isServeIcp },
         'skipping dispatch: position is not serve-ICP',
       )
-      return
+      return notDispatched
+    }
+
+    // Activity gate: skip on the cron path when the user hasn't opened the
+    // product within INACTIVITY_THRESHOLD_DAYS, firing a re-engagement
+    // signal instead. The on-demand path sets skipActivityGate so a user
+    // who just landed on the dashboard isn't blocked by their own stale
+    // lastVisited from before this request.
+    if (!options.skipActivityGate && isInactiveUser(ctx.lastVisitedMs, now)) {
+      await this.trackBriefingDispatchSkippedInactive({
+        userId: eo.userId,
+        electedOfficeId: eo.id,
+        target,
+        lastVisitedMs: ctx.lastVisitedMs,
+        now,
+      })
+      return notDispatched
     }
 
     await this.dispatchBriefing(ctx, target)
+    return { dispatched: true, inFlight: true, meetingDate: target.meetingDate }
   }
 
   private async resolveDispatchContext(
-    electedOffice: ElectedOffice,
+    electedOffice: Pick<ElectedOffice, 'id' | 'organizationSlug' | 'userId'>,
   ): Promise<DispatchContext | null> {
     const [user, organization] = await Promise.all([
       this.client.user.findUnique({
@@ -926,6 +1037,41 @@ export class MeetingBriefingsService extends createPrismaBase(
       l2DistrictType: serveCtx.l2DistrictType,
       l2DistrictName: serveCtx.l2DistrictName,
       isServeIcp: serveCtx.isServeIcp,
+      lastVisitedMs: user.metaData?.lastVisited,
+    }
+  }
+
+  private async trackBriefingDispatchSkippedInactive(args: {
+    userId: number
+    electedOfficeId: string
+    target: TargetMeeting
+    lastVisitedMs: number | undefined
+    now: Date
+  }): Promise<void> {
+    const { userId, electedOfficeId, target, lastVisitedMs, now } = args
+    try {
+      await this.analytics.track(
+        userId,
+        EVENTS.BriefingAssistant.DispatchSkipped,
+        {
+          electedOfficeId,
+          meetingDate: parseIsoDateAsUTC(target.meetingDate).getTime(),
+          meetingName: target.meetingName ?? null,
+          daysUntilMeeting: differenceInCalendarDays(
+            parseIsoDateAsUTC(target.meetingDate),
+            parseIsoDateAsUTC(formatInTimeZone(now, 'UTC', 'yyyy-MM-dd')),
+          ),
+          lastVisitedAt: lastVisitedMs ?? null,
+          daysSinceLastVisit: lastVisitedMs
+            ? differenceInCalendarDays(now, new Date(lastVisitedMs))
+            : null,
+        },
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, userId },
+        '[SEGMENT] Failed to track Briefing Assistant - Dispatch Skipped',
+      )
     }
   }
 

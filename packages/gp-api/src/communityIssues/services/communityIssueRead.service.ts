@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
+import { isBefore, subHours } from 'date-fns'
 import {
   CommunityIssueList,
   ExperimentRunStatus,
@@ -6,6 +7,13 @@ import {
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { toDateOnlyString } from 'src/shared/util/date.util'
+
+// A run whose worker died mid-flight is left in a non-terminal status
+// (QUEUED/RUNNING/AWAITING_RESUME/SUPERSEDED) forever. Left unguarded it reads
+// as `running` indefinitely, which drives the client to poll without end. Any
+// run still non-terminal this long after it started is treated as failed — well
+// above real runtime (~10-20 min) but below any legitimate resume window.
+const STALE_RUN_THRESHOLD_HOURS = 2
 
 const EXPERIMENT_TYPE_FOR_LIST: Record<'top_community' | 'trending', string> = {
   top_community: 'top_community_issues',
@@ -97,7 +105,21 @@ export class CommunityIssueReadService extends createPrismaBase(
       priorities.map((p) => p.sourceCommunityIssueId),
     )
 
-    const runStatus = latestRun ? RUN_STATUS_MAP[latestRun.status] : 'running'
+    const runIsTerminal =
+      latestRun?.status === ExperimentRunStatus.COMPLETED ||
+      latestRun?.status === ExperimentRunStatus.FAILED
+    const runIsStale =
+      !!latestRun &&
+      !runIsTerminal &&
+      isBefore(
+        latestRun.createdAt,
+        subHours(new Date(), STALE_RUN_THRESHOLD_HOURS),
+      )
+    const runStatus = !latestRun
+      ? 'running'
+      : runIsStale
+        ? 'failed'
+        : RUN_STATUS_MAP[latestRun.status]
     const lastCompletedAt = latestCompletedRun
       ? latestCompletedRun.updatedAt.toISOString()
       : null

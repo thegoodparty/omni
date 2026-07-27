@@ -1,6 +1,7 @@
 import { HttpModule } from '@nestjs/axios'
 import { forwardRef, Module } from '@nestjs/common'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
+import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { AiModule } from 'src/ai/ai.module'
 import { EmailModule } from 'src/email/email.module'
 import { PurchaseType } from 'src/payments/purchase.types'
@@ -12,11 +13,12 @@ import { ContactsModule } from '../contacts/contacts.module'
 import { OrganizationsModule } from '../organizations/organizations.module'
 import { PaymentsModule } from '../payments/payments.module'
 import { PeerlyModule } from '../vendors/peerly/peerly.module'
-import { VoterOutreachActivityModule } from '../voterOutreachActivity/voterOutreachActivity.module'
 import { VotersModule } from '../voters/voters.module'
 import { OutreachController } from './outreach.controller'
 import { OutreachNotificationInterceptor } from './interceptors/outreachNotification.interceptor'
-import { OutreachAttributionService } from './services/outreachAttribution.service'
+import { OutreachCompletionService } from './services/outreachCompletion.service'
+import { OutreachInboundSweepService } from './services/outreachInboundSweep.service'
+import { OutreachMaterializationService } from './services/outreachMaterialization.service'
 import { OutreachService } from './services/outreach.service'
 import { OutreachNotificationService } from './services/outreachNotification.service'
 import { OutreachPurchaseHandlerService } from './services/outreachPurchase.service'
@@ -40,15 +42,17 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     // loops back to Outreach — defer this edge so the module graph resolves.
     forwardRef(() => ContactsModule),
     OrganizationsModule,
-    VoterOutreachActivityModule,
+    ContactInteractionModule,
   ],
   controllers: [OutreachController],
   providers: [
     OutreachService,
+    OutreachCompletionService,
+    OutreachInboundSweepService,
     OutreachNotificationService,
     OutreachNotificationInterceptor,
     OutreachPurchaseHandlerService,
-    OutreachAttributionService,
+    OutreachMaterializationService,
   ],
   exports: [OutreachService, OutreachPurchaseHandlerService],
 })

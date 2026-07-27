@@ -2,10 +2,10 @@ import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import ContactsPage from './ContactsPage'
-import { useContactsTable } from '../hooks/ContactsTableProvider'
+import { useContactsTable } from '../../crm/ContactsTableProvider'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
-vi.mock('../hooks/ContactsTableProvider', () => ({
+vi.mock('../../crm/ContactsTableProvider', () => ({
   useContactsTable: vi.fn(),
 }))
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -28,7 +28,7 @@ vi.mock('../../../shared/DashboardLayout', () => ({
     </>
   ),
 }))
-vi.mock('../hooks/ContactProModal', () => ({
+vi.mock('../../crm/ContactProModal', () => ({
   ContactProModalProvider: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
@@ -37,7 +37,7 @@ vi.mock('app/dashboard/shared/ProUpgradeModal', () => ({
   ProUpgradeModal: () => null,
   VARIANTS: { Second_NonViable: 'second-nonviable' },
 }))
-vi.mock('./person/PersonOverlay', () => ({ default: () => null }))
+vi.mock('../../crm/person/PersonOverlay', () => ({ default: () => null }))
 vi.mock('./ContactsTable', () => ({
   default: () => <div data-testid="contacts-table" />,
 }))
@@ -105,9 +105,8 @@ describe('ContactsPage — Contacts Viewed analytics', () => {
 
   it('fires once with win context after readiness settles, with no spurious serve event', () => {
     // Reproduces the production sequence for a Win user: isWinContext reads
-    // false while isWinContextReady is false (elected-office query or
-    // win-voter-data flag still resolving), then both flip once everything
-    // settles. The event must fire exactly once, with win — never a serve event
+    // false while isWinContextReady is false (elected-office query still
+    // resolving), then both flip once everything settles. The event must fire exactly once, with win — never a serve event
     // on the not-ready render.
     setContext({ isWinContext: false, isWinContextReady: false })
 
@@ -191,6 +190,19 @@ describe('ContactsPage — Win vs Serve naming (ENG-10448)', () => {
 
     expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
     expect(screen.queryByText(/constituent/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('ContactsPage — table search', () => {
+  it('always renders ContactSearch at both render sites (desktop + mobile)', () => {
+    // The CRM flag no longer touches this page: flag-on users get the whole
+    // CrmContactsPage via ContactsPageGate, and this page stays byte-equivalent
+    // to its pre-typeahead behavior for everyone else.
+    setContext({})
+
+    render(<ContactsPage />)
+
+    expect(screen.getAllByTestId('search')).toHaveLength(2)
   })
 })
 

@@ -1,0 +1,19 @@
+model PeerlyPhoneList {
+  id                String                     @id @default(uuid(7))
+  createdAt         DateTime                   @default(now()) @map("created_at")
+  organizationSlug  String                     @map("organization_slug")
+  organization      Organization               @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  campaign          Campaign                   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId        Int                        @map("campaign_id")
+  // The Peerly upload token returned by /phonelists on create — the only
+  // handle available until the status endpoint resolves a numeric list id.
+  token             String                     @unique
+  // Stamped by the status endpoint the first time Peerly reports the list
+  // ready (task 03 looks this row up by peerlyListId, which equals
+  // Outreach.phoneListId).
+  peerlyListId      Int?                       @unique @map("peerly_list_id")
+  voterFileFilterId Int?                       @map("voter_file_filter_id")
+  recipients        PeerlyPhoneListRecipient[]
+
+  @@map("peerly_phone_list")
+}

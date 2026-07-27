@@ -7,6 +7,11 @@ heal the watchlist, and hand metadata fixes to the event-metadata skill.
 Source of truth for the lifecycle model: the Analytics event change SOP (ClickUp doc
 `2ky4jq2q-110533` / page `2ky4jq2q-91453`).
 
+**Scheduled run**: the host repo's `analytics-governance` GitHub Actions workflow runs the
+monitor (with `--slack`) Mondays and Thursdays on the shared service identities, and commits
+the log/state back via an auto-merge PR. The manual procedure below remains valid for ad-hoc
+runs and for the stage-2 code investigation, which is agent work the schedule cannot do.
+
 ## Prerequisites
 
 - **Auth**: Databricks OAuth via the SDK profile in `~/.databrickscfg` (`databricks auth login`).
@@ -28,8 +33,8 @@ The three axes:
 1. **Declared intent** — the `gp-meta` block parsed from the Govern description
    (`in use` / `not in use`, `supersession`). Sparse today; where absent, fall back to code x firing.
 2. **Code** — the provenance CSV: `retired_date` empty means the instrumentation is still in code.
-3. **Firing** — the catalog (`int__amplitude_event_catalog`) plus a trailing weekly aggregate
-   of the raw stream (`stg_airbyte_source__amplitude_api_events`).
+3. **Firing** — the catalog (`mart_analytics.amplitude_event_catalog`) plus a trailing weekly
+   aggregate of the event stream (`mart_analytics.amplitude_events`).
 
 Scope is hybrid: every catalog event gets a status; the curated watchlist
 (`monitored_events.yaml`) drives severity elevation and the self-healing proposal queue.
@@ -40,14 +45,15 @@ Scope is hybrid: every catalog event gets a status; the curated watchlist
 | --- | --- | --- | --- |
 | active | `retired_date` empty | fired in 30d | none |
 | dormant | empty | quiet 30d | "still intended?" (elevated for onboarding/activation) |
-| deprecating | set | quiet, within 30d holding window | informational |
-| orphaned_firing | set | still firing | highest severity, escalate |
+| deprecating | set | last fire on/before `retired_date`, within 30d holding window | informational (fresh retirees land here even while pre-retirement traffic still sits in the 30d count) |
+| orphaned_firing | set | last fire *after* `retired_date` (+ small grace for deploy/pipeline lag) | highest severity, escalate |
 | retired | set | quiet 30d+ | none |
 | code_unknown | no provenance row | any | auto-tracked or brand-new; anomaly-watched only |
 | instrumented_never_observed | present, not retired | never in catalog | possible broken instrumentation; flag |
 | system | n/a | n/a | auto-tracked (`page`, `[Amplitude] …`); anomaly-watched, never a status flag |
 
-Severity ranks (1 = loudest): 1 orphaned-firing / declared-not-in-use-still-firing · 2 call-site
+Severity ranks (0 = loudest): 0 counter blind spot — zero call sites but firing normally, a
+tooling alert, see DATA-2106 · 1 orphaned-firing / declared-not-in-use-still-firing · 2 call-site
 removed, name constant survives (DATA-2046) · 3 anomaly drop on an active elevated event · 4
 anomaly drop on any active/system event · 5 intent divergence · 6 dormant elevated · 7
 instrumented-never-observed · 8 dormant (collapsed to a single tail line in the digest).
@@ -59,16 +65,17 @@ cd scripts/python
 uv run analytics_event_health.py
 ```
 
-Prints the dated digest section, appends it to `instrumentation_data/analytics-event-health-log.md`
-(the growing longitudinal history), and writes `analytics_event_health_state.json` (the
-flagged set, for next run's changes-since-last-run diff). Useful flags:
+Prints the dated digest section, inserts it newest-first at the top of
+`instrumentation_data/analytics-event-health-log.md` (the growing longitudinal history,
+below the header), and writes `analytics_event_health_state.json` (the flagged set, for
+next run's changes-since-last-run diff). Useful flags:
 
 - `--today YYYY-MM-DD` — run "as of" a past date (replay / backfill).
 - `--json PATH` — also write the full per-event result JSON (gitignored; use it to dig into a flag).
-- `--no-log` — print only, do not append to the log.
+- `--no-log` — print only, do not write to the log.
 - `--csv PATH` / `--watchlist PATH` / `--state PATH` — override the default locations.
 
-Read the digest top-down: priority flags table first (ranks 1-7), then the dormant tail,
+Read the digest top-down: priority flags table first (ranks 0-7), then the dormant tail,
 then changes-since-last-run, then metadata completeness, then watchlist proposals. The loud
 ones (rank 1-2) are what you route to Eng/PM; everything else is awareness.
 
@@ -110,9 +117,24 @@ This flag's propose-and-confirm flow (never auto-decide):
    Govern (dev + prod), embedding the PR/commit as code-removal proof. The monitor itself
    never writes a status.
 
-Note: a rank-2 flag with `call_site_count = 0` but the event **still firing** does not occur
-under the current rule (the flag requires a firing flatline); a genuinely still-firing event
-with no callers would surface as an anomaly/orphaned-firing flag instead.
+Note: `call_site_count = 0` with the event **still firing normally** (active, no anomaly)
+never reaches rank 2 — it surfaces as rank 0 instead (below). Rank 2 requires a firing
+flatline (dormant, or an anomaly drop on still-active code).
+
+### Rank 0 — counter blind spot (DATA-2106)
+
+A rank-0 flag is a contradiction: the provenance CSV says zero call sites, but the event is
+firing normally. A client event cannot fire without a call site, so the call-site counter is
+blind to how the reference is written — not the event dead. Fix the counter, not the event:
+
+1. Find the real reference: `rg -F "<leaf key>" packages/gp-webapp` (search the leaf key,
+   e.g. `MediaRequested`, not the full key-path — the full path is exactly what the counter
+   failed to see).
+2. Identify the shape. Aliased (`const x = EVENTS.<prefix>`) and Prettier-wrapped key-paths
+   are handled since DATA-2106; a rank-0 flag today means a NEW shape.
+3. Extend `count_call_sites` in `scripts/python/amplitude_event_provenance_backfill.py`
+   (tests first), re-run the walk, and confirm the count is non-zero.
+4. Never route a rank-0 event into the rank-2 retirement propose-and-confirm flow.
 
 ## Stage 3 — heal the watchlist (review + agree on additions)
 
@@ -142,6 +164,13 @@ entries to the event-metadata skill:
 2. Get dev/PM answers. For each `yes`/`edit`, feed the entry to the **event-metadata** skill
    (`.claude/skills/event-metadata`), which writes the `gp-meta` block into the Amplitude event
    description (read-modify-write, dev + prod). Client (Amplitude) events only.
+3. **Stamp the payload once written (double-write guard).** Immediately after the batch
+   lands, add a `# WRITTEN: YYYY-MM-DD` line to the payload's top comment header. Payloads
+   are gitignored and long-lived on disk, so a reviewed-but-unstamped payload is
+   indistinguishable from an unwritten one. Conversely, before executing ANY payload: if the
+   header carries a `WRITTEN` stamp, stop — and even without one, spot-check a few entries
+   against live declared intent (the `gpmeta` field in the monitor's `--json` report). If the
+   blocks already match the payload, the batch was already written; never re-run it.
 
 ## Stage 5 — refresh the consumer surface (independent, non-fatal)
 

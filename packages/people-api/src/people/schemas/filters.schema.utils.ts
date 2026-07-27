@@ -1,52 +1,3 @@
-import { z } from 'zod'
-
-export const createEnumFilterSchema = <T extends readonly string[]>(
-  allowedValues: T,
-) => {
-  return z
-    .object({
-      in: z
-        .array(z.enum(allowedValues as unknown as [string, ...string[]]))
-        .min(1)
-        .optional(),
-      eq: z.enum(allowedValues as unknown as [string, ...string[]]).optional(),
-      is: z.enum(['not_null', 'null']).optional(),
-    })
-    .refine((data) => {
-      const operatorCount = [data.in, data.eq, data.is].filter(Boolean).length
-      return operatorCount === 1
-    }, 'Exactly one operator (in, eq, or is) must be specified')
-}
-
-const rangeConditionSchema = z.object({
-  gte: z.coerce.number().optional(),
-  lte: z.coerce.number().optional(),
-})
-
-export const createNumericFilterSchema = () => {
-  return z
-    .object({
-      in: z.array(z.coerce.number()).min(1).optional(),
-      eq: z.coerce.number().optional(),
-      gte: z.coerce.number().optional(),
-      lte: z.coerce.number().optional(),
-      is: z.enum(['not_null', 'null']).optional(),
-      _or: z.array(rangeConditionSchema).optional(),
-      _includeNull: z.boolean().optional(),
-    })
-    .refine((data) => {
-      const operatorCount = [
-        data.in,
-        data.eq,
-        data.gte,
-        data.lte,
-        data.is,
-        data._or,
-      ].filter((value) => value !== undefined).length
-      return operatorCount >= 1
-    }, 'At least one operator must be specified')
-}
-
 export type RangeCondition = {
   gte?: number
   lte?: number
@@ -99,6 +50,18 @@ export const transformFilters = <T extends string>(
       filterList.push(key as T)
       filterValues[key] = value.in.map(String)
       filterOperators[key] = { operator: 'in', values: value.in, includeNull }
+    } else if (
+      value &&
+      typeof value === 'object' &&
+      'notIn' in value &&
+      Array.isArray(value.notIn) &&
+      value.notIn.length > 0
+    ) {
+      filterList.push(key as T)
+      // id is not an enum field — filterValues drives text-based enum
+      // mapping elsewhere in the pipeline, which notIn's uuid set has no use
+      // for, so it is intentionally left unpopulated.
+      filterOperators[key] = { operator: 'notIn', values: value.notIn }
     } else if (
       value &&
       typeof value === 'object' &&

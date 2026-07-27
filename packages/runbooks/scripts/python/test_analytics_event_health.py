@@ -6,7 +6,8 @@ Pure functions only — no Databricks, no filesystem. Run from scripts/python wi
 
 from __future__ import annotations
 
-from datetime import date, datetime
+import json
+from datetime import date, datetime, timedelta
 
 import analytics_event_health as eh
 
@@ -15,6 +16,15 @@ MONDAY = date(2026, 6, 22)
 
 
 # --- to_date -----------------------------------------------------------------
+
+
+def test_health_sql_reads_mart_analytics_tables():
+    # The reconcile tests inject pre-built data and never touch the SQL constants,
+    # so without this a revert to the dbt relations would pass silently.
+    assert "mart_analytics.amplitude_event_catalog" in eh.CATALOG_SQL
+    assert "mart_analytics.amplitude_events" in eh.WEEKLY_SQL
+    assert "dbt." not in eh.CATALOG_SQL
+    assert "dbt." not in eh.WEEKLY_SQL
 
 
 def test_to_date_handles_datetime_before_date():
@@ -53,6 +63,17 @@ def test_parse_gpmeta_extracts_intent_and_supersession():
 def test_parse_gpmeta_in_use():
     desc = "<!-- gp-meta -->\npurpose line\nin use: 2026-06-18 (#1)\n<!-- /gp-meta -->"
     assert eh.parse_gpmeta(desc)["intent"] == "in_use"
+
+
+def test_parse_gpmeta_extracts_intent_date():
+    not_in_use = "<!-- gp-meta -->\npurpose\nnot in use: 2026-05-05 (retired, #1790)\n<!-- /gp-meta -->"
+    assert eh.parse_gpmeta(not_in_use)["intent_date"] == "2026-05-05"
+    in_use = "<!-- gp-meta -->\npurpose\nin use: 2026-06-18 (#1)\n<!-- /gp-meta -->"
+    assert eh.parse_gpmeta(in_use)["intent_date"] == "2026-06-18"
+    dateless = "<!-- gp-meta -->\npurpose\nin use\n<!-- /gp-meta -->"
+    meta = eh.parse_gpmeta(dateless)
+    assert meta["intent"] == "in_use"
+    assert meta["intent_date"] is None
 
 
 def test_parse_gpmeta_extracts_purpose():
@@ -147,23 +168,58 @@ def test_detect_anomaly_zero_baseline_returns_none():
 # --- classify_status ---------------------------------------------------------
 
 
+def _classify(**kw):
+    base = {"in_code": True, "firing_recent": True, "retired_date": None, "last_seen_date": None, "today": TODAY}
+    base.update(kw)
+    return eh.classify_status(**base)
+
+
 def test_classify_status_branches():
+    assert _classify(in_code=None) == "code_unknown"
+    assert _classify(retired_date=None, firing_recent=True) == "active"
+    assert _classify(retired_date=None, firing_recent=False) == "dormant"
+    # code removed + firing after retirement -> orphaned
+    assert _classify(retired_date=date(2026, 6, 1), firing_recent=True, last_seen_date=date(2026, 6, 24)) == "orphaned_firing"
+    # code removed + firing but last_seen missing (data gap) -> ambiguous, fall back to firing -> orphaned
+    assert _classify(retired_date=date(2026, 6, 1), firing_recent=True, last_seen_date=None) == "orphaned_firing"
+    # code removed + last_seen missing but NOT firing -> still quiet, deprecating/retired
+    assert _classify(retired_date=date(2026, 6, 20), firing_recent=False, last_seen_date=None) == "deprecating"
+    # code removed, within 30d holding window, quiet -> deprecating
+    assert _classify(retired_date=date(2026, 6, 20), firing_recent=False, last_seen_date=date(2026, 6, 19)) == "deprecating"
+    # code removed, past the window, quiet -> retired
+    assert _classify(retired_date=date(2026, 1, 1), firing_recent=False, last_seen_date=date(2025, 12, 30)) == "retired"
+
+
+def test_classify_status_recent_retiree_quiet_before_retirement_not_orphaned():
+    # DATA-2140: a nonzero 30-day count whose last fire predates retirement is NOT orphaned —
+    # the window merely straddles the retirement date. Within 30d of retirement -> deprecating.
     assert (
-        eh.classify_status(in_code=None, firing_recent=True, retired_date=None, today=TODAY) == "code_unknown"
+        _classify(
+            firing_recent=True, retired_date=date(2026, 6, 20), last_seen_date=date(2026, 6, 10)
+        )
+        == "deprecating"
     )
-    assert eh.classify_status(in_code=True, firing_recent=True, retired_date=None, today=TODAY) == "active"
-    assert eh.classify_status(in_code=True, firing_recent=False, retired_date=None, today=TODAY) == "dormant"
+
+
+def test_classify_status_grace_window_absorbs_deploy_lag():
+    # Firing exactly at / within the grace window after retirement is the expected deploy /
+    # client-drain tail, not an orphan.
     assert (
-        eh.classify_status(in_code=True, firing_recent=True, retired_date=date(2026, 6, 1), today=TODAY)
+        _classify(
+            firing_recent=True,
+            retired_date=date(2026, 6, 20),
+            last_seen_date=date(2026, 6, 20) + timedelta(days=eh.ORPHAN_GRACE_DAYS),
+        )
+        == "deprecating"
+    )
+    # One day past the grace window -> genuine orphan.
+    assert (
+        _classify(
+            firing_recent=True,
+            retired_date=date(2026, 6, 20),
+            last_seen_date=date(2026, 6, 20) + timedelta(days=eh.ORPHAN_GRACE_DAYS + 1),
+        )
         == "orphaned_firing"
-    )
-    assert (
-        eh.classify_status(in_code=True, firing_recent=False, retired_date=date(2026, 6, 20), today=TODAY)
-        == "deprecating"  # within 30d holding window
-    )
-    assert (
-        eh.classify_status(in_code=True, firing_recent=False, retired_date=date(2026, 1, 1), today=TODAY)
-        == "retired"  # past the window
     )
 
 
@@ -178,6 +234,25 @@ def test_divergence_flags():
     assert eh.divergence(None, "active", True) is None
 
 
+def test_divergence_not_in_use_requires_firing_after_declaration():
+    # DATA-2140 twin: "still firing" must mean fired AFTER the not-in-use declaration, not merely a
+    # nonzero 30d count straddling that date.
+    dated = {"intent": "not_in_use", "intent_date": "2026-06-20", "supersession": None}
+    # last fire predates the declaration -> not still firing
+    assert eh.divergence(dated, "active", True, last_seen_date=date(2026, 6, 10)) is None
+    # fired after the declaration (past the grace) -> genuine divergence
+    assert eh.divergence(dated, "active", True, last_seen_date=date(2026, 6, 25)).endswith("still firing")
+    # within the grace window after declaration -> pipeline-lag tail, not a divergence
+    assert eh.divergence(
+        dated, "active", True, last_seen_date=date(2026, 6, 20) + timedelta(days=eh.ORPHAN_GRACE_DAYS)
+    ) is None
+    # last_seen missing (data gap) with a declaration date -> ambiguous, fall back to firing_recent
+    assert eh.divergence(dated, "active", True, last_seen_date=None).endswith("still firing")
+    # no declaration date -> cannot verify temporally, fall back to firing_recent
+    undated = {"intent": "not_in_use", "intent_date": None, "supersession": None}
+    assert eh.divergence(undated, "active", True, last_seen_date=date(2026, 6, 10)).endswith("still firing")
+
+
 def test_rank_record_priority():
     def rec(**kw):
         base = {
@@ -187,6 +262,7 @@ def test_rank_record_priority():
         base.update(kw)
         return base
 
+    assert eh.rank_record(rec(status="active", call_site_count=0)) == 0
     assert eh.rank_record(rec(status="orphaned_firing")) == 1
     # NEW: declared in code, zero call sites, not firing -> high-severity flag
     assert eh.rank_record(rec(status="dormant", call_site_count=0)) == 2
@@ -211,11 +287,33 @@ def test_rank_record_null_call_sites_does_not_flag():
     assert eh.rank_record(rec) == 8
 
 
-def test_rank_record_zero_calls_still_firing_no_anomaly_not_flagged():
-    # Zero callers but data still arriving and no drop yet is out of scope for this flag.
+def test_rank_record_zero_calls_firing_normally_is_counter_blind_spot():
+    # DATA-2106 canary: a client event cannot fire normally with zero call sites -- the data
+    # axis contradicts the code axis, so the counter is blind (aliased/wrapped reference),
+    # not the event dead. Rank 0 tooling alert, NOT the rank-2 retirement path. (Before
+    # DATA-2106 this exact record fell through to 99 and the false zero sat silent in the CSV.)
     rec = {"status": "active", "elevated": False, "anomaly": None,
            "divergence": None, "call_site_count": 0, "event_count_30d": 50}
+    assert eh.rank_record(rec) == 0
+
+
+def test_rank_record_zero_calls_active_with_anomaly_stays_rank_2():
+    # An anomaly drop alongside the zero is the signature of a GENUINE recent removal (count
+    # falling as old clients drain) -- that stays on the rank-2 retirement path, not the canary.
+    rec = {"status": "active", "elevated": False, "anomaly": {"current": 1, "baseline": 9},
+           "divergence": None, "call_site_count": 0, "event_count_30d": 50}
+    assert eh.rank_record(rec) == 2
+
+
+def test_rank_record_null_call_sites_never_canary():
+    # Backend / dynamic events (no resolvable key-path) have None, not zero: no canary.
+    rec = {"status": "active", "elevated": False, "anomaly": None,
+           "divergence": None, "call_site_count": None, "event_count_30d": 50}
     assert eh.rank_record(rec) == 99
+
+
+def test_rank_label_covers_counter_blind_spot():
+    assert eh._RANK_LABEL[0]
 
 
 # --- weekly_series -----------------------------------------------------------
@@ -417,6 +515,75 @@ def test_reconcile_watchlist_elevates_and_proposes():
     assert result["proposals"] == []  # already on the watchlist
 
 
+def test_reconcile_recent_retiree_quiet_before_retirement_is_not_orphaned():
+    # DATA-2140 regression: an event whose LAST fire predates its retirement is retired-and-quiet,
+    # not orphaned. The 30-day count straddles the retirement date (126 fires, all pre-retirement),
+    # which must NOT read as post-retirement firing. Expected: deprecating (within the 30d holding
+    # window), and NOT flagged. This is the PR #732 bulk-retirement false-positive.
+    today = date(2026, 7, 16)
+    catalog = [
+        {
+            "event_type": "Dashboard - Campaign Plan: Community Events Displayed",
+            "family": "win_dashboard", "is_win": True,
+            "first_seen_date": date(2026, 1, 1), "last_seen_date": date(2026, 6, 27),
+            "event_count": 5000, "event_count_30d": 126,
+            "govern_description": None, "in_govern_taxonomy": True,
+        },
+    ]
+    code = {
+        "Dashboard - Campaign Plan: Community Events Displayed": {
+            "retired_date": "2026-07-13", "instrumented_pr": "#700", "retired_pr": "#732",
+        },
+    }
+    result = eh.reconcile(catalog, [], code, today)
+    rec = result["records"][0]
+    assert rec["status"] == "deprecating"
+    assert [r["event_type"] for r in result["flagged"]] == []
+
+
+def test_reconcile_genuine_orphan_fires_after_retirement():
+    # Control: an event STILL firing after its code was removed (stale clients emitting the old
+    # half of a rename) is a real orphan. last_seen is well past retirement -> orphaned_firing,
+    # flagged rank 1.
+    today = date(2026, 7, 16)
+    catalog = [
+        {
+            "event_type": "Old Rename Half",
+            "family": "win_voter_data", "is_win": True,
+            "first_seen_date": date(2026, 1, 1), "last_seen_date": date(2026, 7, 15),
+            "event_count": 5000, "event_count_30d": 300,
+            "govern_description": None, "in_govern_taxonomy": True,
+        },
+    ]
+    code = {"Old Rename Half": {"retired_date": "2026-06-01", "instrumented_pr": "#1"}}
+    result = eh.reconcile(catalog, [], code, today)
+    rec = result["records"][0]
+    assert rec["status"] == "orphaned_firing"
+    assert rec["rank"] == 1
+
+
+def test_reconcile_not_in_use_quiet_before_declaration_no_divergence():
+    # DATA-2140 twin on the gp-meta intent axis: an event declared not-in-use on 2026-07-01 whose
+    # last fire (2026-06-25) predates that declaration is NOT "still firing" — the 30d count merely
+    # straddles the declaration date. Must yield no divergence and not flag at rank 1.
+    today = date(2026, 7, 16)
+    desc = "<!-- gp-meta -->\npurpose line\nnot in use: 2026-07-01 (#123)\n<!-- /gp-meta -->"
+    catalog = [
+        {
+            "event_type": "Legacy Step Completed",
+            "family": "win_dashboard", "is_win": True,
+            "first_seen_date": date(2026, 1, 1), "last_seen_date": date(2026, 6, 25),
+            "event_count": 5000, "event_count_30d": 50,
+            "govern_description": desc, "in_govern_taxonomy": True,
+        },
+    ]
+    code = {"Legacy Step Completed": {"retired_date": "", "instrumented_pr": "#1"}}
+    result = eh.reconcile(catalog, [], code, today)
+    rec = result["records"][0]
+    assert rec["divergence"] is None
+    assert [r["event_type"] for r in result["flagged"]] == []
+
+
 # --- diff_flagged ------------------------------------------------------------
 
 
@@ -486,6 +653,35 @@ def test_load_prior_anomalous_reads_valid_list(tmp_path):
     p = tmp_path / "state.json"
     p.write_text('{"run_date": "2026-06-29", "anomalous": ["B", "C"]}')
     assert eh.load_prior_anomalous(p) == {"B", "C"}
+
+
+# --- prepend_log -------------------------------------------------------------
+
+HEADER = "# Analytics event-health log\n\nPreamble.\n\n## Status legend\n\n| a | b |\n"
+
+
+def test_prepend_log_inserts_below_header_above_prior_runs(tmp_path):
+    p = tmp_path / "log.md"
+    p.write_text(HEADER + "\n## 2026-06-26\n\nolder digest\n")
+    eh.prepend_log(p, "## 2026-07-13\n\nnewer digest\n")
+    text = p.read_text()
+    assert text.startswith(HEADER)
+    assert text.index("## 2026-07-13") < text.index("## 2026-06-26")
+    # one blank line between the new section and the prior newest
+    assert "newer digest\n\n## 2026-06-26" in text
+
+
+def test_prepend_log_appends_when_no_dated_section(tmp_path):
+    p = tmp_path / "log.md"
+    p.write_text(HEADER)
+    eh.prepend_log(p, "## 2026-07-13\n\nfirst digest\n")
+    assert p.read_text() == HEADER + "\n## 2026-07-13\n\nfirst digest\n"
+
+
+def test_prepend_log_creates_missing_file(tmp_path):
+    p = tmp_path / "log.md"
+    eh.prepend_log(p, "## 2026-07-13\n\nfirst digest\n")
+    assert p.read_text() == "## 2026-07-13\n\nfirst digest\n"
 
 
 # --- metadata coverage -------------------------------------------------------
@@ -609,3 +805,81 @@ def test_render_shows_call_site_removed_evidence():
     assert "| 2 call site removed, name constant remains |" in out
     assert "Dashboard - Candidate Dashboard Viewed" in out
     assert "call_sites=0 (removed 2026-06-13)" in out
+
+
+# --- main --gap-slack (DATA-2151 Task 6) -------------------------------------
+
+
+def _stub_run_monitor(*_args, **_kwargs):
+    result = {
+        "run_date": "2026-07-21",
+        "current_week_basis": "complete weeks before 2026-07-21",
+        "flagged": [],
+        "status_counts": {},
+        "total_events": 0,
+    }
+    changes = {"new": [], "escalated": [], "resolved": [], "still_open": []}
+    return result, changes
+
+
+def test_main_passes_gap_slack_to_post_digest(monkeypatch, tmp_path):
+    monkeypatch.setattr(eh, "run_monitor", _stub_run_monitor)
+    import event_state_slack as slk
+
+    captured = {}
+    monkeypatch.setattr(slk, "post_digest", lambda *a, **k: captured.update(k) or "1.1")
+    monkeypatch.setenv(slk.TOKEN_ENV, "t")
+    monkeypatch.setenv(slk.CHANNEL_ENV, "c")
+
+    gap_file = tmp_path / "gap.json"
+    gap_file.write_text(
+        json.dumps(
+            {
+                "new_count": 2,
+                "status": "ok",
+                "pending_count": 0,
+                "new_gaps": [],
+                "browse_url": None,
+                "feedback_url": None,
+            }
+        )
+    )
+    rc = eh.main(
+        [
+            "--no-log",
+            "--slack",
+            "--gap-slack",
+            str(gap_file),
+            "--today",
+            "2026-07-21",
+            "--state",
+            str(tmp_path / "s.json"),
+        ]
+    )
+    assert rc == 0
+    assert captured.get("gap", {}).get("new_count") == 2
+
+
+def test_main_gap_slack_missing_file_is_graceful(monkeypatch, tmp_path):
+    monkeypatch.setattr(eh, "run_monitor", _stub_run_monitor)
+    import event_state_slack as slk
+
+    captured = {}
+    monkeypatch.setattr(slk, "post_digest", lambda *a, **k: captured.update(k) or None)
+    monkeypatch.setenv(slk.TOKEN_ENV, "t")
+    monkeypatch.setenv(slk.CHANNEL_ENV, "c")
+
+    rc = eh.main(
+        [
+            "--no-log",
+            "--slack",
+            "--gap-slack",
+            str(tmp_path / "nope.json"),
+            "--today",
+            "2026-07-21",
+            "--state",
+            str(tmp_path / "s.json"),
+        ]
+    )
+    assert rc == 0
+    assert captured.get("gap") is None

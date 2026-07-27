@@ -11,10 +11,13 @@ import {
   InternalServerErrorException,
   NotFoundException,
   Param,
+  ParseIntPipe,
   Post,
+  UseGuards,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
+import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { CampaignTcrComplianceService } from './services/campaignTcrCompliance.service'
 import { ComplianceStateService } from './services/complianceState.service'
@@ -76,6 +79,62 @@ export class CampaignTcrComplianceController {
   })
   async getMyComplianceState(@ReqCampaign() campaign: Campaign) {
     return this.complianceStateService.findStateForCampaign(campaign.id)
+  }
+
+  // Admin (gp-admin via M2M) view of any campaign's compliance state — same
+  // payload as `mine/compliance-state`, without the session-campaign scoping.
+  @Get('admin/:campaignId/compliance-state')
+  @UseGuards(AdminOrM2MGuard)
+  @UseInterceptors(ZodResponseInterceptor)
+  @ResponseSchema(ComplianceStateOutputSchema)
+  async getComplianceStateForCampaign(
+    @Param('campaignId', ParseIntPipe) campaignId: number,
+  ) {
+    return this.complianceStateService.findStateForCampaign(campaignId)
+  }
+
+  @Post('admin/:campaignId/resend-cv-pin')
+  @UseGuards(AdminOrM2MGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async resendCampaignVerifyPinForCampaign(
+    @Param('campaignId', ParseIntPipe) campaignId: number,
+  ) {
+    const campaign = await this.campaignsService.findUniqueOrThrow({
+      where: { id: campaignId },
+    })
+    await this.tcrComplianceService.resendCampaignVerifyPin(campaign)
+  }
+
+  // Admin "treat as 10DLC approved (internal testing)" checkbox. Creates an
+  // approved TcrCompliance row with no Peerly identity for an internal
+  // (@goodparty.org / @test.goodparty.org) account, so UI gates pass while
+  // real P2P sends stay blocked. Refuses (409) when real compliance exists.
+  @Post('admin/:campaignId/internal-testing-approval')
+  @UseGuards(AdminOrM2MGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async grantInternalTestingApproval(
+    @Param('campaignId', ParseIntPipe) campaignId: number,
+  ) {
+    const campaign = await this.campaignsService.findUniqueOrThrow({
+      where: { id: campaignId },
+    })
+    const user = await this.userService.findByCampaign(campaign)
+    if (!user) {
+      throw new NotFoundException('User not found for this campaign')
+    }
+    await this.tcrComplianceService.grantInternalTestingApproval(user, campaign)
+  }
+
+  @Delete('admin/:campaignId/internal-testing-approval')
+  @UseGuards(AdminOrM2MGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async revokeInternalTestingApproval(
+    @Param('campaignId', ParseIntPipe) campaignId: number,
+  ) {
+    await this.campaignsService.findUniqueOrThrow({
+      where: { id: campaignId },
+    })
+    await this.tcrComplianceService.revokeInternalTestingApproval(campaignId)
   }
 
   @Post('submit-to-peerly')

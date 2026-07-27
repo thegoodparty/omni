@@ -20,6 +20,16 @@ import {
 } from '@/shared/test-utils/mockData.util'
 import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
 import { createMockClerkEnricher } from '@/shared/test-utils/mockClerkEnricher.util'
+import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
+
+function getGuards(methodName: keyof CampaignTcrComplianceController) {
+  return (
+    Reflect.getMetadata(
+      '__guards__',
+      CampaignTcrComplianceController.prototype[methodName],
+    ) ?? []
+  )
+}
 
 const mockUser = createMockUser()
 const mockCampaign = createMockCampaign({ userId: mockUser.id })
@@ -41,10 +51,16 @@ describe('CampaignTcrComplianceController', () => {
     submitToPeerlyForAgent: ReturnType<typeof vi.fn>
     retrieveCampaignVerifyToken: ReturnType<typeof vi.fn>
     submitCampaignVerifyToken: ReturnType<typeof vi.fn>
+    resendCampaignVerifyPin: ReturnType<typeof vi.fn>
+    grantInternalTestingApproval: ReturnType<typeof vi.fn>
+    revokeInternalTestingApproval: ReturnType<typeof vi.fn>
     model: { update: ReturnType<typeof vi.fn> }
   }
   let mockUserService: { findByCampaign: ReturnType<typeof vi.fn> }
-  let mockCampaignsService: { updateJsonFields: ReturnType<typeof vi.fn> }
+  let mockCampaignsService: {
+    updateJsonFields: ReturnType<typeof vi.fn>
+    findUniqueOrThrow: ReturnType<typeof vi.fn>
+  }
   let mockComplianceStateService: {
     findStateForCampaign: ReturnType<typeof vi.fn>
   }
@@ -63,6 +79,11 @@ describe('CampaignTcrComplianceController', () => {
       submitToPeerlyForAgent: vi.fn(),
       retrieveCampaignVerifyToken: vi.fn().mockResolvedValue('cv-token-123'),
       submitCampaignVerifyToken: vi.fn().mockResolvedValue({ brand: 'ok' }),
+      resendCampaignVerifyPin: vi.fn().mockResolvedValue(undefined),
+      grantInternalTestingApproval: vi
+        .fn()
+        .mockResolvedValue(mockTcrCompliance),
+      revokeInternalTestingApproval: vi.fn().mockResolvedValue(undefined),
       model: { update: vi.fn().mockResolvedValue(mockTcrCompliance) },
     }
 
@@ -72,6 +93,7 @@ describe('CampaignTcrComplianceController', () => {
 
     mockCampaignsService = {
       updateJsonFields: vi.fn().mockResolvedValue(mockCampaign),
+      findUniqueOrThrow: vi.fn().mockResolvedValue(mockCampaign),
     }
 
     mockComplianceStateService = {
@@ -413,6 +435,161 @@ describe('CampaignTcrComplianceController', () => {
         mockComplianceStateService.findStateForCampaign,
       ).toHaveBeenCalledWith(mockCampaign.id)
       expect(result).toEqual(expectedState)
+    })
+  })
+
+  describe('getComplianceStateForCampaign (admin)', () => {
+    it('is gated by AdminOrM2MGuard', () => {
+      expect(
+        getGuards('getComplianceStateForCampaign').map(
+          (g: { name: string }) => g.name,
+        ),
+      ).toContain(AdminOrM2MGuard.name)
+    })
+
+    it('delegates to ComplianceStateService with the campaignId param', async () => {
+      const expectedState = {
+        stage: ComplianceStage.awaiting_pin,
+        domain: null,
+        websiteId: null,
+        peerlyVerificationId: null,
+      }
+      mockComplianceStateService.findStateForCampaign.mockResolvedValue(
+        expectedState,
+      )
+
+      const result = await controller.getComplianceStateForCampaign(99)
+
+      expect(
+        mockComplianceStateService.findStateForCampaign,
+      ).toHaveBeenCalledWith(99)
+      expect(result).toEqual(expectedState)
+    })
+  })
+
+  describe('resendCampaignVerifyPinForCampaign (admin)', () => {
+    it('is gated by AdminOrM2MGuard', () => {
+      expect(
+        getGuards('resendCampaignVerifyPinForCampaign').map(
+          (g: { name: string }) => g.name,
+        ),
+      ).toContain(AdminOrM2MGuard.name)
+    })
+
+    it('responds with HTTP 204 No Content', () => {
+      const statusCode = Reflect.getMetadata(
+        HTTP_CODE_METADATA,
+        CampaignTcrComplianceController.prototype
+          .resendCampaignVerifyPinForCampaign,
+      )
+      expect(statusCode).toBe(HttpStatus.NO_CONTENT)
+    })
+
+    it('loads the campaign and delegates the resend to the service', async () => {
+      mockCampaignsService.findUniqueOrThrow.mockResolvedValue(mockCampaign)
+
+      await controller.resendCampaignVerifyPinForCampaign(mockCampaign.id)
+
+      expect(mockCampaignsService.findUniqueOrThrow).toHaveBeenCalledWith({
+        where: { id: mockCampaign.id },
+      })
+      expect(mockTcrService.resendCampaignVerifyPin).toHaveBeenCalledWith(
+        mockCampaign,
+      )
+    })
+
+    it('does not resend when the campaign does not exist', async () => {
+      mockCampaignsService.findUniqueOrThrow.mockRejectedValue(
+        new NotFoundException(),
+      )
+
+      await expect(
+        controller.resendCampaignVerifyPinForCampaign(12345),
+      ).rejects.toThrow(NotFoundException)
+      expect(mockTcrService.resendCampaignVerifyPin).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('grantInternalTestingApproval (admin)', () => {
+    it('is gated by AdminOrM2MGuard', () => {
+      expect(
+        getGuards('grantInternalTestingApproval').map(
+          (g: { name: string }) => g.name,
+        ),
+      ).toContain(AdminOrM2MGuard.name)
+    })
+
+    it('responds with HTTP 204 No Content', () => {
+      const statusCode = Reflect.getMetadata(
+        HTTP_CODE_METADATA,
+        CampaignTcrComplianceController.prototype.grantInternalTestingApproval,
+      )
+      expect(statusCode).toBe(HttpStatus.NO_CONTENT)
+    })
+
+    it('loads the campaign owner and delegates the grant to the service', async () => {
+      mockCampaignsService.findUniqueOrThrow.mockResolvedValue(mockCampaign)
+
+      await controller.grantInternalTestingApproval(mockCampaign.id)
+
+      expect(mockUserService.findByCampaign).toHaveBeenCalledWith(mockCampaign)
+      expect(mockTcrService.grantInternalTestingApproval).toHaveBeenCalledWith(
+        mockUser,
+        mockCampaign,
+      )
+    })
+
+    it('throws NotFoundException when the campaign has no user', async () => {
+      mockUserService.findByCampaign.mockResolvedValue(null)
+
+      await expect(
+        controller.grantInternalTestingApproval(mockCampaign.id),
+      ).rejects.toThrow(NotFoundException)
+      expect(mockTcrService.grantInternalTestingApproval).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('revokeInternalTestingApproval (admin)', () => {
+    it('is gated by AdminOrM2MGuard', () => {
+      expect(
+        getGuards('revokeInternalTestingApproval').map(
+          (g: { name: string }) => g.name,
+        ),
+      ).toContain(AdminOrM2MGuard.name)
+    })
+
+    it('responds with HTTP 204 No Content', () => {
+      const statusCode = Reflect.getMetadata(
+        HTTP_CODE_METADATA,
+        CampaignTcrComplianceController.prototype.revokeInternalTestingApproval,
+      )
+      expect(statusCode).toBe(HttpStatus.NO_CONTENT)
+    })
+
+    it('verifies the campaign exists and delegates the revoke', async () => {
+      mockCampaignsService.findUniqueOrThrow.mockResolvedValue(mockCampaign)
+
+      await controller.revokeInternalTestingApproval(mockCampaign.id)
+
+      expect(mockCampaignsService.findUniqueOrThrow).toHaveBeenCalledWith({
+        where: { id: mockCampaign.id },
+      })
+      expect(mockTcrService.revokeInternalTestingApproval).toHaveBeenCalledWith(
+        mockCampaign.id,
+      )
+    })
+
+    it('does not revoke when the campaign does not exist', async () => {
+      mockCampaignsService.findUniqueOrThrow.mockRejectedValue(
+        new NotFoundException(),
+      )
+
+      await expect(
+        controller.revokeInternalTestingApproval(12345),
+      ).rejects.toThrow(NotFoundException)
+      expect(
+        mockTcrService.revokeInternalTestingApproval,
+      ).not.toHaveBeenCalled()
     })
   })
 })

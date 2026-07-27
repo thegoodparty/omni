@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
+import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import {
   Campaign,
   OutreachStatus,
@@ -26,7 +27,7 @@ import {
 } from '../util/campaignGeography.util'
 import { resolveScriptContent } from '../util/resolveScriptContent.util'
 import { OutreachStepError } from '../types/outreachStepError'
-import { OutreachAttributionService } from './outreachAttribution.service'
+import { OutreachMaterializationService } from './outreachMaterialization.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 
 export type { P2pJobGeographyResult } from '../util/campaignGeography.util'
@@ -47,7 +48,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     private readonly peerlyP2pJobService: PeerlyP2pJobService,
     private readonly notificationService: OutreachNotificationService,
     private readonly voterFileFilterService: VoterFileFilterService,
-    private readonly attributionService: OutreachAttributionService,
+    private readonly materializationService: OutreachMaterializationService,
     private readonly s3: S3Service,
   ) {
     super()
@@ -55,19 +56,22 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
 
   private async requirePeerlyIdentityId(campaign: Campaign): Promise<string> {
     let peerlyIdentityId: string | null
+    let internalTestingApprovedAt: Date | null
     try {
-      ;({ peerlyIdentityId } = await this.tcrComplianceService.findFirstOrThrow(
-        {
+      ;({ peerlyIdentityId, internalTestingApprovedAt } =
+        await this.tcrComplianceService.findFirstOrThrow({
           where: { campaignId: campaign.id },
-        },
-      ))
+        }))
     } catch (err) {
       throw new OutreachStepError('tcrLookup', err)
     }
 
     if (!peerlyIdentityId) {
       throw new BadRequestException(
-        'TCR Compliance Peerly identity ID is required for P2P outreach',
+        internalTestingApprovedAt
+          ? 'Campaign is 10DLC-approved for internal testing only; ' +
+              'real P2P sends are disabled'
+          : 'TCR Compliance Peerly identity ID is required for P2P outreach',
       )
     }
 
@@ -89,6 +93,16 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
 
     const { aiContent = {} } = campaign
     const resolvedScriptText = resolveScriptContent(script, aiContent)
+
+    // The schema only sees the raw script field, which may be an aiContent
+    // key; the resolved text is what Peerly enforces its limit on, and it
+    // must be rejected here, before payment (ENG-10665).
+    if (resolvedScriptText.length > P2P_SCRIPT_MAX_LENGTH) {
+      throw new BadRequestException(
+        `Script cannot exceed ${P2P_SCRIPT_MAX_LENGTH} characters for ` +
+          `P2P outreach (got ${resolvedScriptText.length})`,
+      )
+    }
 
     let resolvedGeography: P2pJobGeographyResult
     try {
@@ -127,6 +141,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     } = await this.resolveP2pCreateInputs(campaign, createOutreachDto, script)
 
     return await this.createRecord(
+      campaign,
       {
         ...createOutreachDto,
         script: resolvedScriptText,
@@ -179,6 +194,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     }
 
     return await this.createRecord(
+      campaign,
       {
         ...createOutreachDto,
         script: resolvedScriptText,
@@ -255,13 +271,17 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         createOutreachDto.phoneListId,
       )
       await this.tryNotifySuccess(user, campaign, outreach, createOutreachDto)
-      await this.tryRecordSegmentAttribution(user, campaign, outreach)
+      await this.tryMaterializeOutreach(campaign, outreach)
       return outreach
     }
 
-    const outreach = await this.createRecord(createOutreachDto, imageUrl)
+    const outreach = await this.createRecord(
+      campaign,
+      createOutreachDto,
+      imageUrl,
+    )
     await this.tryNotifySuccess(user, campaign, outreach, createOutreachDto)
-    await this.tryRecordSegmentAttribution(user, campaign, outreach)
+    await this.tryMaterializeOutreach(campaign, outreach)
     return outreach
   }
 
@@ -347,6 +367,11 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       data: { projectId: jobId },
     })
 
+    const finalized = { ...outreach, projectId: jobId }
+    // Materialization needs no user — a missing user record must not skip
+    // the filter lock and interaction rows for a paid launch.
+    await this.tryMaterializeOutreach(campaign, finalized)
+
     if (!user) {
       this.logger.error(
         { outreachId, campaignId: campaign.id },
@@ -355,14 +380,12 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       return
     }
 
-    const finalized = { ...outreach, projectId: jobId }
     await this.tryNotifySuccess(user, campaign, finalized, {
       audienceRequest: outreach.audienceRequest ?? undefined,
       campaignPlanDueDate: outreach.campaignPlanDueDate ?? undefined,
       textCount: outreach.textCount ?? undefined,
       billableTextCount: outreach.billableTextCount ?? undefined,
     })
-    await this.tryRecordSegmentAttribution(user, campaign, finalized)
   }
 
   /**
@@ -459,26 +482,24 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     }
   }
 
-  // Per-voter attribution for the channels that resolve a segment (p2p, text,
-  // phoneBanking, robocall, socialMedia; see OutreachAttributionService).
-  // Best-effort like tryNotifySuccess: a people-api hiccup or attribution
-  // failure is logged but must not fail the outreach that was already
-  // persisted. Idempotent, so a later retry is safe.
-  private async tryRecordSegmentAttribution(
-    user: User,
+  // Materializes the outreach's resolved saved filter into per-recipient
+  // ContactInteraction<channel> rows and locks the filter. Best-effort like
+  // tryNotifySuccess: the rows are the audit trail, but a materialization
+  // failure must not fail the outreach that was already persisted.
+  private async tryMaterializeOutreach(
     campaign: Campaign,
     outreach: Awaited<ReturnType<OutreachService['createRecord']>>,
   ) {
     try {
-      await this.attributionService.recordSegmentAttribution(
-        user,
-        campaign,
-        outreach,
-      )
+      await this.materializationService.materializeOutreach(campaign, outreach)
     } catch (err) {
       this.logger.error(
-        { err, outreachId: outreach.id, campaignId: campaign.id },
-        'Segment-derived outreach attribution failed',
+        {
+          err,
+          outreachId: outreach.id,
+          filterId: outreach.voterFileFilterId,
+        },
+        'Outreach list materialization failed',
       )
     }
   }
@@ -515,6 +536,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
 
   /** Persists a single outreach record. Used by both non-P2P and P2P flows. */
   private async createRecord(
+    campaign: Campaign,
     createOutreachDto: CreateOutreachSchema,
     imageUrl?: string,
     identityId?: string,
@@ -525,6 +547,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     return await this.model.create({
       data: {
         ...outreachData,
+        organizationSlug: campaign.organizationSlug,
         ...(imageUrl ? { imageUrl } : {}),
         ...(identityId ? { identityId } : {}),
       },

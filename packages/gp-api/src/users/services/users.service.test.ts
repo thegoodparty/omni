@@ -13,6 +13,7 @@ import {
   type ResolvedActorIdentity,
 } from './users.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { CrmUsersService } from './crmUsers.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { UserRole } from '../../generated/prisma'
 import { subDays } from 'date-fns'
@@ -48,6 +49,185 @@ describe('UsersService', () => {
     it('should return null for non-existent email', async () => {
       const user = await usersService.findUserByEmail('nonexistent@example.com')
       expect(user).toBeNull()
+    })
+  })
+
+  describe('compareAndSwapCheckoutSessionId', () => {
+    const createUserWithMeta = (
+      email: string,
+      metaData: PrismaJson.UserMetaData | undefined,
+    ) =>
+      service.prisma.user.create({
+        data: {
+          email,
+          firstName: 'Cas',
+          lastName: 'Swap',
+          ...(metaData ? { metaData } : {}),
+        },
+      })
+
+    it('swaps when the stored id matches the expected value', async () => {
+      const user = await createUserWithMeta('cas.match@example.com', {
+        checkoutSessionId: 'cs_old',
+        customerId: 'cus_keep',
+      })
+
+      const swapped = await usersService.compareAndSwapCheckoutSessionId(
+        user.id,
+        'cs_old',
+        'cs_new',
+      )
+
+      expect(swapped).toBe(true)
+      const updated = await service.prisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(updated?.metaData?.checkoutSessionId).toBe('cs_new')
+      expect(updated?.metaData?.customerId).toBe('cus_keep')
+    })
+
+    it('swaps from a missing id when null is expected', async () => {
+      const user = await createUserWithMeta('cas.null@example.com', undefined)
+
+      const swapped = await usersService.compareAndSwapCheckoutSessionId(
+        user.id,
+        null,
+        'cs_first',
+      )
+
+      expect(swapped).toBe(true)
+      const updated = await service.prisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(updated?.metaData?.checkoutSessionId).toBe('cs_first')
+    })
+
+    it('refuses the swap when another id is stored', async () => {
+      const user = await createUserWithMeta('cas.mismatch@example.com', {
+        checkoutSessionId: 'cs_current',
+      })
+
+      const swapped = await usersService.compareAndSwapCheckoutSessionId(
+        user.id,
+        'cs_stale',
+        'cs_new',
+      )
+
+      expect(swapped).toBe(false)
+      const unchanged = await service.prisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(unchanged?.metaData?.checkoutSessionId).toBe('cs_current')
+    })
+
+    it('clears to null and treats the cleared value as null on the next swap', async () => {
+      const user = await createUserWithMeta('cas.clear@example.com', {
+        checkoutSessionId: 'cs_done',
+      })
+
+      const cleared = await usersService.compareAndSwapCheckoutSessionId(
+        user.id,
+        'cs_done',
+        null,
+      )
+      expect(cleared).toBe(true)
+
+      const swappedAfterClear =
+        await usersService.compareAndSwapCheckoutSessionId(
+          user.id,
+          null,
+          'cs_next',
+        )
+      expect(swappedAfterClear).toBe(true)
+    })
+
+    it('returns false for a non-existent user', async () => {
+      const swapped = await usersService.compareAndSwapCheckoutSessionId(
+        999999999,
+        null,
+        'cs_new',
+      )
+      expect(swapped).toBe(false)
+    })
+  })
+
+  describe('user email case-insensitive unique index', () => {
+    it('rejects a case-variant duplicate at the DB level', async () => {
+      await service.prisma.user.create({
+        data: {
+          email: 'indexed.unique@example.com',
+          firstName: 'Index',
+          lastName: 'Guard',
+        },
+      })
+
+      await expect(
+        service.prisma.user.create({
+          data: {
+            email: 'Indexed.Unique@Example.com',
+            firstName: 'Index',
+            lastName: 'Bypass',
+          },
+        }),
+      ).rejects.toThrow(/unique/i)
+    })
+  })
+
+  describe('createUser', () => {
+    const stubCrm = () => {
+      const crm = service.app.get(CrmUsersService)
+      vi.spyOn(crm, 'submitCrmForm').mockResolvedValue(undefined)
+      vi.spyOn(crm, 'trackUserUpdate').mockResolvedValue(undefined)
+    }
+
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('rejects a lowercase email when a MixedCase row exists', async () => {
+      stubCrm()
+      await service.prisma.user.create({
+        data: {
+          email: 'MixedCase.Dup@Example.com',
+          firstName: 'Mixed',
+          lastName: 'Case',
+          name: 'Mixed Case',
+        },
+      })
+
+      await expect(
+        usersService.createUser({
+          email: 'mixedcase.dup@example.com',
+          firstName: 'New',
+          lastName: 'User',
+        }),
+      ).rejects.toThrow(ConflictException)
+    })
+
+    it('rejects a MixedCase email when a lowercase row exists', async () => {
+      stubCrm()
+      await expect(
+        usersService.createUser({
+          email: 'Tests@GoodParty.Org',
+          firstName: 'New',
+          lastName: 'User',
+        }),
+      ).rejects.toThrow(ConflictException)
+    })
+
+    it('persists the email lowercased and trimmed', async () => {
+      stubCrm()
+      const user = await usersService.createUser({
+        email: ' Fresh.Signup@Example.com ',
+        firstName: 'Fresh',
+        lastName: 'Signup',
+      })
+
+      expect(user.email).toBe('fresh.signup@example.com')
+      const persisted = await service.prisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(persisted?.email).toBe('fresh.signup@example.com')
     })
   })
 
@@ -385,6 +565,29 @@ describe('UsersService', () => {
       expect(result.token).toBe('signin_token_abc')
       expect(result.clerkId).toBe('clerk_brand_new')
       expect(result.user.email).toBe(email)
+    })
+
+    it('normalizes a MixedCase email before provisioning', async () => {
+      const suffix = uniqueSuffix()
+      const email = `EO-Mixed-${suffix}@Example.com`
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [],
+        totalCount: 0,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      const createUser = vi
+        .spyOn(clerkClient.users, 'createUser')
+        .mockResolvedValue({ id: `clerk_mixed_${suffix}` } as never)
+
+      const result = await usersService.provisionMagicLinkUser({
+        email,
+        firstName: 'Mixed',
+        lastName: 'Case',
+      })
+
+      expect(createUser).toHaveBeenCalledWith(
+        expect.objectContaining({ emailAddress: [email.toLowerCase()] }),
+      )
+      expect(result.user.email).toBe(email.toLowerCase())
     })
 
     it('recovers from a concurrent create that lost the duplicate-email race', async () => {
@@ -902,6 +1105,14 @@ describe('UsersService', () => {
       service.prisma.user.create({
         data: { email, clerkId },
       })
+
+    it('persists a MixedCase email lowercased on create', async () => {
+      const result = await provision(
+        'user_mixed_case',
+        'MixedCase.Clerk@Test.GoodParty.Org',
+      )
+      expect(result?.email).toBe('mixedcase.clerk@test.goodparty.org')
+    })
 
     it('returns existing user when found by clerkId', async () => {
       const existing = await createUser(

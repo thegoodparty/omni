@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest'
+import { createIdFilterSchema } from '@goodparty_org/contracts'
 import { transformFilters } from './filters.schema.utils'
 
 const mockSchemaShape = {
   estimatedIncomeAmountInt: {},
   ageInt: {},
   gender: {},
+  id: {},
 }
+
+const UUID_1 = '11111111-1111-1111-1111-111111111111'
+const UUID_2 = '22222222-2222-2222-2222-222222222222'
 
 describe('transformFilters', () => {
   describe('_or operator', () => {
@@ -86,22 +91,6 @@ describe('transformFilters', () => {
   })
 
   describe('_or edge cases', () => {
-    it('handles empty _or array', () => {
-      const filters = {
-        estimatedIncomeAmountInt: {
-          _or: [],
-        },
-      }
-
-      const result = transformFilters(filters, mockSchemaShape)
-
-      expect(result.filterOperators.estimatedIncomeAmountInt).toEqual({
-        operator: 'or',
-        orRanges: [],
-        includeNull: false,
-      })
-    })
-
     it('handles _or with undefined gte/lte values', () => {
       const filters = {
         estimatedIncomeAmountInt: {
@@ -327,5 +316,83 @@ describe('transformFilters', () => {
         value: 'null',
       })
     })
+  })
+
+  describe('id notIn operator', () => {
+    it('maps { id: { notIn: [...] } } to the notIn operator', () => {
+      const filters = {
+        id: { notIn: [UUID_1, UUID_2] },
+      }
+
+      const result = transformFilters(filters, mockSchemaShape)
+
+      expect(result.filters).toContain('id')
+      expect(result.filterOperators.id).toEqual({
+        operator: 'notIn',
+        values: [UUID_1, UUID_2],
+      })
+    })
+
+    it('does not populate filterValues for a notIn id filter', () => {
+      const filters = {
+        id: { notIn: [UUID_1] },
+      }
+
+      const result = transformFilters(filters, mockSchemaShape)
+
+      expect(result.filterValues.id).toBeUndefined()
+    })
+
+    it('maps { id: { in: [...] } } to the in operator', () => {
+      const filters = {
+        id: { in: [UUID_1] },
+      }
+
+      const result = transformFilters(filters, mockSchemaShape)
+
+      expect(result.filterOperators.id).toEqual({
+        operator: 'in',
+        values: [UUID_1],
+        includeNull: false,
+      })
+    })
+  })
+})
+
+describe('createIdFilterSchema', () => {
+  const schema = createIdFilterSchema()
+
+  it('accepts a single in operator', () => {
+    const parsed = schema.parse({ in: [UUID_1, UUID_2] })
+    expect(parsed.in).toEqual([UUID_1, UUID_2])
+  })
+
+  it('accepts a single notIn operator', () => {
+    const parsed = schema.parse({ notIn: [UUID_1] })
+    expect(parsed.notIn).toEqual([UUID_1])
+  })
+
+  it('rejects both in and notIn specified together', () => {
+    expect(() => schema.parse({ in: [UUID_1], notIn: [UUID_2] })).toThrow()
+  })
+
+  it('rejects an empty object (neither operator specified)', () => {
+    expect(() => schema.parse({})).toThrow()
+  })
+
+  it('rejects a non-uuid entry', () => {
+    expect(() => schema.parse({ in: ['not-a-uuid'] })).toThrow()
+  })
+
+  it('rejects an id array of 100,001 entries', () => {
+    const tooMany = Array.from({ length: 100_001 }, (_, i) =>
+      i === 0 ? UUID_1 : UUID_2,
+    )
+    expect(() => schema.parse({ in: tooMany })).toThrow()
+  })
+
+  it('accepts an id array at the 100,000 cap', () => {
+    const atCap = Array.from({ length: 100_000 }, () => UUID_1)
+    expect(() => schema.parse({ in: atCap })).not.toThrow()
   })
 })

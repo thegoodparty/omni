@@ -8,7 +8,7 @@ import { IssueEditorButtons } from 'app/dashboard/questions/components/issues/Is
 import { CandidatePositionStatement } from 'app/dashboard/questions/components/issues/CandidatePositionStatement'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import type { ComponentProps } from 'react'
-import type { EditIssuePosition, IssueOption } from './IssuesList'
+import type { EditIssuePosition, IssueOption } from './issueTypes'
 import type { CandidatePosition } from 'helpers/types'
 
 type IssuePositionData = ComponentProps<

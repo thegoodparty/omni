@@ -1,9 +1,9 @@
-Regenerate the committed Amplitude event git-provenance dataset (the curated summary of instrumentation-related git events in this repo) and open a PR with the refreshed file. This is the fallback/audit path; the instrument-analytics-event skill keeps rows fresh per-PR. The engine is `scripts/python/amplitude_event_provenance_backfill.py`; this runbook is the orchestration around it.
+Regenerate the committed Amplitude event git-provenance dataset (the curated summary of instrumentation-related git events in this repo) and open a PR with the refreshed file. This is the fallback/audit path; the instrument-analytics-event skill keeps rows fresh per-PR, and the host repo's `analytics-governance` GitHub Actions workflow runs this walk on a weekly schedule (the scheduled walk is the authoritative writer of the CSV; see that workflow's header for the state story). The engine is `scripts/python/amplitude_event_provenance_backfill.py`; this runbook is the orchestration around it.
 
 ## Prerequisites
 
 **Tools**: `uv` (runs the engine from `scripts/python/`), `gh` (authenticated, push access), `git`.
-**Databricks**: one read per run (the event universe from `goodparty_data_catalog.airbyte_source.amplitude_taxonomy_event_type`). Auth is OAuth via the SDK profile in `~/.databrickscfg` (`databricks auth login`) — the analytics standard, no PAT. Set `DATABRICKS_HTTP_PATH` in `scripts/.env` and pick the profile with `DATABRICKS_CONFIG_PROFILE` if it is not the default. If a run errors with an empty-host / auth error, run `databricks auth login` and retry.
+**Databricks**: one read per run (the event universe from `goodparty_data_catalog.mart_analytics.amplitude_taxonomy_event_type`). Auth is OAuth via the SDK profile in `~/.databrickscfg` (`databricks auth login`) — the analytics standard, no PAT. Set `DATABRICKS_HTTP_PATH` in `scripts/.env` and pick the profile with `DATABRICKS_CONFIG_PROFILE` if it is not the default. If a run errors with an empty-host / auth error, run `databricks auth login` and retry.
 
 ## Steps
 

@@ -31,6 +31,7 @@ npm exec -w packages/gp-webapp -- next typegen                                  
 npm exec -w packages/gp-webapp -- tsc --noEmit                                  # typecheck app
 npm exec -w packages/gp-webapp -- tsc --noEmit --project e2e-tests/tsconfig.json  # typecheck e2e
 npm run lint -w packages/gp-webapp                                              # eslint --quiet + prettier --check
+npm run check:use-client -w packages/gp-webapp                                  # 'use client' file-count ratchet — see scripts/check-use-client-count.mjs
 npm run test -w packages/gp-webapp                                              # vitest run
 ```
 

@@ -3,11 +3,12 @@ import { OUTREACH_TYPE_MAPPING } from 'app/dashboard/outreach/constants'
 import { dateUsHelper } from 'helpers/dateHelper'
 import SimpleTable from '@shared/utils/SimpleTable'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import H4 from '@shared/typography/H4'
 import { GradientOverlay } from '@shared/GradientOverlay'
 import { StackedChips } from '@shared/utils/StackedChips'
 import { formatAudienceLabels } from 'app/dashboard/outreach/util/formatAudienceLabels.util'
-import { ActualViewAudienceFiltersModal } from 'app/dashboard/voter-records/components/ViewAudienceFiltersModal'
+import { ActualViewAudienceFiltersModal } from 'app/dashboard/outreach/components/ViewAudienceFiltersModal'
 import { convertAudienceFiltersForModal } from 'app/dashboard/outreach/util/convertAudienceFiltersForModal.util'
 import { OutreachActions } from 'app/dashboard/outreach/components/OutreachActions'
 import {
@@ -25,7 +26,13 @@ interface OutreachRow extends Outreach {
 
 interface OutreachTableProps {
   mockOutreaches?: OutreachRow[]
+  // ENG-10769: the activity feed's "View outreach" link carries
+  // ?outreachId=<id>; the server page parses it and threads it here so the
+  // table can scroll to and highlight that campaign's row.
+  highlightOutreachId?: number
 }
+
+const HIGHLIGHT_MS = 4000
 
 interface PopoverPosition {
   top: number
@@ -41,14 +48,16 @@ type StatusKey =
   | 'paid'
   | 'in_progress'
   | 'completed'
+  | 'pending_payment'
 
 const statusLabels: { [K in StatusKey]: string } = {
   pending: 'Draft',
   approved: 'In review',
-  denied: 'In review',
+  denied: 'Denied',
   paid: 'Scheduled',
   in_progress: 'Scheduled',
   completed: 'Sent',
+  pending_payment: 'Pending payment',
 }
 
 const isStatusKey = (key: string | null | undefined): key is StatusKey => {
@@ -75,10 +84,36 @@ const getP2pStatusLabel = (row: OutreachRow): string | null => {
   return statusLabels[displayStatus]
 }
 
+// ENG-10769: rows without a phone list (robocall, legacy text) have no Peerly
+// job, but their Outreach record still carries a real status — a scheduled
+// robocall rendered "n/a" forever. `pending` here means "request submitted,
+// fulfilled by the Political Assistant", not an unfinished draft, so it maps
+// to "In review" rather than the p2p map's "Draft".
+const nonP2pStatusLabels: { [K in StatusKey]: string } = {
+  pending: 'In review',
+  approved: 'In review',
+  denied: 'Denied',
+  paid: 'Scheduled',
+  in_progress: 'Scheduled',
+  completed: 'Sent',
+  pending_payment: 'Pending payment',
+}
+
+const getStatusLabel = (row: OutreachRow): string | null => {
+  if (row.phoneListId != null) {
+    return getP2pStatusLabel(row)
+  }
+  const { status } = row
+  if (!status || !isStatusKey(status)) {
+    return null
+  }
+  return nonP2pStatusLabels[status]
+}
+
 const STATUS_COLUMN = {
   header: 'Status',
   cell: ({ row }: { row: OutreachRow }) => {
-    const statusLabel = getP2pStatusLabel(row)
+    const statusLabel = getStatusLabel(row)
     // Return null to indicate no status available, which will render as "n/a"
     if (!statusLabel) {
       return <NotApplicableLabel />
@@ -87,7 +122,10 @@ const STATUS_COLUMN = {
   },
 }
 
-export const OutreachTable = ({ mockOutreaches = [] }: OutreachTableProps) => {
+export const OutreachTable = ({
+  mockOutreaches = [],
+  highlightOutreachId,
+}: OutreachTableProps) => {
   const { p2pUxEnabled } = useP2pUxEnabled()
   const [outreaches] = useOutreach()
   const useMockData = !outreaches?.length
@@ -100,6 +138,37 @@ export const OutreachTable = ({ mockOutreaches = [] }: OutreachTableProps) => {
   })
   const popoverRef = useRef<HTMLDivElement>(null)
   const title = useMockData ? 'How your outreach could look' : 'Your campaigns'
+  const router = useRouter()
+
+  // Consume-once (ENG-10762 conventions): the id is captured into state
+  // because the strip's router.replace re-runs the force-dynamic page's
+  // server render without the param, reverting the prop to undefined. The
+  // ref keeps an already-consumed id from re-highlighting on later renders
+  // while still accepting a new deep link that arrives while mounted.
+  const [highlightedId, setHighlightedId] = useState<number | null>(null)
+  const consumedHighlightRef = useRef<number | undefined>(undefined)
+
+  useEffect(() => {
+    if (
+      highlightOutreachId === undefined ||
+      highlightOutreachId === consumedHighlightRef.current
+    ) {
+      return
+    }
+    consumedHighlightRef.current = highlightOutreachId
+    router.replace('/dashboard/outreach', { scroll: false })
+    // An id that no longer resolves (deleted or hidden outreach) falls back
+    // to the plain list — param stripped, nothing highlighted, no error.
+    if (!outreaches?.some((o) => o.id === highlightOutreachId)) {
+      return
+    }
+    setHighlightedId(highlightOutreachId)
+    document
+      .getElementById(`outreach-row-${highlightOutreachId}`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const timer = setTimeout(() => setHighlightedId(null), HIGHLIGHT_MS)
+    return () => clearTimeout(timer)
+  }, [highlightOutreachId, outreaches, router])
 
   const getChannelLabel = (outreachType?: string): string => {
     if (!outreachType) return ''
@@ -257,6 +326,12 @@ export const OutreachTable = ({ mockOutreaches = [] }: OutreachTableProps) => {
       columns={columns}
       data={sortedTableData}
       onRowClick={handleRowClick}
+      rowId={(row) => `outreach-row-${row.id}`}
+      rowClassName={(row) =>
+        row.id === highlightedId
+          ? 'bg-primary/5 transition-colors duration-1000'
+          : 'transition-colors duration-1000'
+      }
     />
   )
 
