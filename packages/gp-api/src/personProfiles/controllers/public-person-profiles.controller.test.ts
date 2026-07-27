@@ -167,6 +167,8 @@ describe('public profile render-gate scenarios (local DB)', () => {
         displayName: 'Jane Rivera',
         publicEmail: 'press@janerivera.gov',
         publicPhone: '555-0100',
+        officePhone: '555-0199',
+        governmentWebsiteUrl: 'https://springfield.gov/council/rivera',
         accomplishments: [{ title: 'Passed the budget', date: '2024' }],
         recentExperience: [
           {
@@ -182,9 +184,15 @@ describe('public profile render-gate scenarios (local DB)', () => {
 
     const res = await get()
     expect(res.status).toBe(200)
-    // Public-by-design contact overrides are surfaced.
+    // Public-by-design contact overrides are surfaced — including the office
+    // contact fields, which the owner can set but the interceptor would strip
+    // unless they're on the public whitelist.
     expect(res.data.publicEmail).toBe('press@janerivera.gov')
     expect(res.data.publicPhone).toBe('555-0100')
+    expect(res.data.officePhone).toBe('555-0199')
+    expect(res.data.governmentWebsiteUrl).toBe(
+      'https://springfield.gov/council/rivera',
+    )
     // Accomplishments JSON round-trips as a typed array.
     expect(res.data.accomplishments).toEqual([
       { title: 'Passed the budget', date: '2024' },

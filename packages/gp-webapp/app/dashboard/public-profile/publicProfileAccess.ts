@@ -14,10 +14,12 @@ const hasCurrentElectedOffice = async (): Promise<boolean> => {
     const resp = await serverFetch(apiRoutes.electedOffice.current)
     return Boolean(resp?.ok && resp?.data)
   } catch (e) {
-    // serverFetch can throw a Next redirect (e.g. auth). Let it propagate rather
-    // than swallowing it and mis-routing an official to the win product.
-    if (isRedirectError(e)) throw e
-    return false
+    // Fail closed. Swallowing a transient error here (timeout, 500) and
+    // returning false would fall through to hasCampaign and silently route an
+    // elected official — who also has a campaign — into the Win product, i.e.
+    // the wrong editor surface. Re-throwing (redirect or otherwise) surfaces an
+    // error the official can retry instead of quietly editing the wrong profile.
+    throw e
   }
 }
 

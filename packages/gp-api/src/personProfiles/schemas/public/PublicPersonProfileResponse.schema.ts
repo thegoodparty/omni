@@ -52,7 +52,12 @@ export const PublicPersonProfileResponseSchema = z.object({
   recentExperience: z.array(RecentExperienceSchema).nullable(),
   publicEmail: z.string().nullable(),
   publicPhone: z.string().nullable(),
+  // Office contact overrides an owner can set (write schema accepts both). They
+  // must be whitelisted here or the ZodResponseInterceptor strips them and the
+  // owner's value can never reach the public page.
+  officePhone: z.string().nullable(),
   websiteUrl: z.string().nullable(),
+  governmentWebsiteUrl: z.string().nullable(),
   instagramUrl: z.string().nullable(),
   tiktokUrl: z.string().nullable(),
   facebookUrl: z.string().nullable(),
