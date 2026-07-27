@@ -389,6 +389,9 @@ export class Nightly10DlcReportService extends createPrismaBase(
             in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
           },
           peerlyCvStatus: PeerlyCvVerificationStatus.IN_REVIEW,
+          // Stamped by the same poll write that sets the status; the guard
+          // keeps never-escalatable rows out of the fetch.
+          peerlyCvStatusChangedAt: { not: null },
         },
         include: { campaign: true },
       }),
@@ -409,6 +412,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
           },
           peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
           peerlyProfileStatus: PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE,
+          peerlyProfileStatusChangedAt: { not: null },
         },
         include: { campaign: true },
       }),
