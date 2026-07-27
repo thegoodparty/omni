@@ -13,7 +13,10 @@ const hasCurrentElectedOffice = async (): Promise<boolean> => {
   try {
     const resp = await serverFetch(apiRoutes.electedOffice.current)
     return Boolean(resp?.ok && resp?.data)
-  } catch {
+  } catch (e) {
+    // serverFetch can throw a Next redirect (e.g. auth). Let it propagate rather
+    // than swallowing it and mis-routing an official to the win product.
+    if (isRedirectError(e)) throw e
     return false
   }
 }

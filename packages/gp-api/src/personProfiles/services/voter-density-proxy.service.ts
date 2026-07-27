@@ -101,7 +101,11 @@ export class VoterDensityProxyService {
           },
         ),
       )
-      return response.data
+      // Defend against a 2xx body that omits cells/coverage (malformed or 204
+      // upstream): the caller counts result.cells.length, so an undefined cells
+      // would throw a 500 outside the controller's degrade-to-no-map contract.
+      const data: PeopleApiVoterDensity | null = response.data
+      return { coverage: data?.coverage ?? null, cells: data?.cells ?? [] }
     } catch (error) {
       this.logger.error(
         { error, districtId },

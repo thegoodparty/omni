@@ -38,6 +38,10 @@ import { PersonProfilesService } from '../services/person-profiles.service'
 import { MarketingRevalidationService } from '../services/marketing-revalidation.service'
 import { recordProfileMutation } from '../observability/person-profiles.metrics'
 
+// Upper bound for an avatar/cover upload. The interceptor buffers the file in
+// memory, so this cap protects the pod from an oversized (or malicious) body.
+const MAX_PROFILE_IMAGE_BYTES = 8_000_000
+
 // Authenticated, owner-scoped management of the caller's own public profile.
 // Every route is keyed on req.user (never a path param), so there is no way to
 // address another user's profile. A user can only own a profile once the data
@@ -172,6 +176,10 @@ export class PersonProfilesController {
   @UseInterceptors(
     FilesInterceptor('file', {
       mode: 'buffer',
+      // Single avatar/cover per request. Bound the in-memory buffer so an
+      // authenticated caller can't exhaust pod memory with an oversized upload.
+      numFiles: 1,
+      sizeLimit: MAX_PROFILE_IMAGE_BYTES,
       mimeTypes: [
         MimeTypes.IMAGE_JPEG,
         MimeTypes.IMAGE_GIF,
