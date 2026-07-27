@@ -33,16 +33,22 @@ const VALID_LISTS: RecommendedLists = {
     subGeoLabel: 'municipalities',
     doorRatio: 0.62,
   },
-  anchor: {
-    votescoreThreshold: 3,
-    voterCount: 18500,
-    doorCount: 11470,
-    estimatedHours: 764.7,
-    turfs: [{ area: 'SHAKOPEE', voterCount: 7200 }],
-  },
-  issueCards: [],
-  partisan: null,
-  gotv: { applies: false, dropoffX: 0, exponentA: null },
+  lists: [
+    {
+      kind: 'voterSupportId',
+      name: 'Candidate Intro & Voter Support ID',
+      priority: 1,
+      allowedOutreachTypes: ['doorKnocking'],
+      allowedPhases: ['earlyCampaign', 'midCampaign'],
+      details: {
+        votescoreThreshold: 3,
+        voterCount: 18500,
+        doorCount: 11470,
+        estimatedHours: 764.7,
+        turfs: [{ area: 'SHAKOPEE', voterCount: 7200 }],
+      },
+    },
+  ],
 }
 
 const makeCampaign = (

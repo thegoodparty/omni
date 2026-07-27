@@ -20,56 +20,83 @@ const lists: RecommendedLists = {
     subGeoLabel: 'municipalities',
     doorRatio: 0.62,
   },
-  anchor: {
-    votescoreThreshold: 3,
-    voterCount: 18500,
-    doorCount: 11470,
-    estimatedHours: 764.7,
-    turfs: [
-      { area: 'SHAKOPEE', voterCount: 7200 },
-      { area: 'PRIOR LAKE', voterCount: 5100 },
-    ],
-  },
-  issueCards: [
+  lists: [
     {
-      phrase: 'Protecting local water quality',
-      opponentName: 'Jane Doe',
-      threatTier: 'high',
-      activeVoters: 30500,
-      supporters: 12000,
-      opponents: 4000,
-      persuadable: 14500,
-      supportersPlausible: 8000,
+      kind: 'voterSupportId',
+      name: 'Candidate Intro & Voter Support ID',
+      priority: 1,
+      allowedOutreachTypes: ['doorKnocking'],
+      allowedPhases: ['earlyCampaign', 'midCampaign'],
+      details: {
+        votescoreThreshold: 3,
+        voterCount: 18500,
+        doorCount: 11470,
+        estimatedHours: 764.7,
+        turfs: [
+          { area: 'SHAKOPEE', voterCount: 7200 },
+          { area: 'PRIOR LAKE', voterCount: 5100 },
+        ],
+      },
+    },
+    {
+      kind: 'issueAligned',
+      name: 'Voters who lean toward Protecting local water quality',
+      priority: 2,
+      allowedOutreachTypes: ['doorKnocking', 'phone', 'email', 'directMail'],
+      allowedPhases: ['midCampaign'],
+      details: {
+        phrase: 'Protecting local water quality',
+        opponentName: 'Jane Doe',
+        threatTier: 'high',
+        activeVoters: 30500,
+        supporters: 12000,
+        opponents: 4000,
+        persuadable: 14500,
+        supportersPlausible: 8000,
+      },
+    },
+    {
+      kind: 'partisanAligned',
+      name: 'Partisanship-Aligned Voters',
+      priority: 3,
+      allowedOutreachTypes: ['doorKnocking', 'phone', 'email', 'directMail'],
+      allowedPhases: ['midCampaign'],
+      details: {
+        shape: 'P4',
+        isPartisanRace: true,
+        hasDemOpponent: true,
+        hasGopOpponent: false,
+        targetParties: 'Republicans and Independents',
+        cardSubtitle:
+          'Moderate-to-high propensity voters who are registered Independents ' +
+          'or Republicans, and voters showing signs of independence.',
+        signals: {
+          partySwitchers: 900,
+          ticketSplitters: 1200,
+          crossoverPrimary: 700,
+          doubleDislike: 1500,
+          modeledIndependents: 3400,
+          registrationAddOn: 2100,
+        },
+        districtTotal: 41230,
+        unionCount: 8200,
+        plausibleElectorateCount: 18500,
+        listCount: 5600,
+        turfs: [{ area: 'SAVAGE', voterCount: 2100 }],
+      },
+    },
+    {
+      kind: 'gotv',
+      name: 'Get Out The Vote',
+      priority: 4,
+      allowedOutreachTypes: ['doorKnocking', 'phone', 'robocall', 'email'],
+      allowedPhases: ['gotvPhase'],
+      details: {
+        dropoffX: 4200,
+        exponentA: 0.79,
+      },
     },
   ],
-  partisan: {
-    shape: 'P4',
-    isPartisanRace: true,
-    hasDemOpponent: true,
-    hasGopOpponent: false,
-    targetParties: 'Republicans and Independents',
-    cardSubtitle:
-      'Moderate-to-high propensity voters who are registered Independents ' +
-      'or Republicans, and voters showing signs of independence.',
-    signals: {
-      partySwitchers: 900,
-      ticketSplitters: 1200,
-      crossoverPrimary: 700,
-      doubleDislike: 1500,
-      modeledIndependents: 3400,
-      registrationAddOn: 2100,
-    },
-    districtTotal: 41230,
-    unionCount: 8200,
-    plausibleElectorateCount: 18500,
-    listCount: 5600,
-    turfs: [{ area: 'SAVAGE', voterCount: 2100 }],
-  },
-  gotv: {
-    applies: true,
-    dropoffX: 4200,
-    exponentA: 0.79,
-  },
 }
 
 const readyPayload = {
@@ -79,17 +106,59 @@ const readyPayload = {
 }
 
 describe('RecommendedListsSchema', () => {
-  it('parses a full ready lists payload', () => {
+  it('parses a full ready lists payload of ordered envelopes', () => {
     const parsed = RecommendedListsSchema.parse(lists)
     expect(parsed.meta.electionCode).toBe('General')
-    expect(parsed.anchor.turfs).toHaveLength(2)
-    expect(parsed.partisan?.shape).toBe('P4')
-    expect(parsed.gotv.exponentA).toBe(0.79)
+    expect(parsed.lists.map((l) => l.kind)).toEqual([
+      'voterSupportId',
+      'issueAligned',
+      'partisanAligned',
+      'gotv',
+    ])
+    const anchor = parsed.lists.find((l) => l.kind === 'voterSupportId')
+    if (anchor?.kind === 'voterSupportId') {
+      expect(anchor.details.turfs).toHaveLength(2)
+    }
+    const gotv = parsed.lists.find((l) => l.kind === 'gotv')
+    if (gotv?.kind === 'gotv') {
+      expect(gotv.details.exponentA).toBe(0.79)
+    }
   })
 
-  it('accepts a null partisan card (no persuasion universe)', () => {
-    const parsed = RecommendedListsSchema.parse({ ...lists, partisan: null })
-    expect(parsed.partisan).toBeNull()
+  it('accepts a payload without a partisan-aligned envelope', () => {
+    const withoutPartisan = {
+      ...lists,
+      lists: lists.lists.filter((l) => l.kind !== 'partisanAligned'),
+    }
+    const parsed = RecommendedListsSchema.parse(withoutPartisan)
+    expect(parsed.lists.some((l) => l.kind === 'partisanAligned')).toBe(false)
+  })
+
+  it('rejects an envelope with an unknown kind', () => {
+    const bad = {
+      ...lists,
+      lists: [...lists.lists, { ...lists.lists[0], kind: 'mysteryList' }],
+    }
+    expect(RecommendedListsSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects an envelope with no allowed outreach types', () => {
+    const [anchor, ...rest] = lists.lists
+    const bad = {
+      ...lists,
+      lists: [{ ...anchor, allowedOutreachTypes: [] }, ...rest],
+    }
+    expect(RecommendedListsSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects a gotv envelope whose details omit exponentA', () => {
+    const bad = {
+      ...lists,
+      lists: lists.lists.map((l) =>
+        l.kind === 'gotv' ? { ...l, details: { dropoffX: 4200 } } : l,
+      ),
+    }
+    expect(RecommendedListsSchema.safeParse(bad).success).toBe(false)
   })
 
   it('rejects an invalid electionCode', () => {
@@ -98,12 +167,13 @@ describe('RecommendedListsSchema', () => {
   })
 
   it('rejects a negative turf voterCount', () => {
+    const [anchor, ...rest] = lists.lists
     const bad = {
       ...lists,
-      anchor: {
-        ...lists.anchor,
-        turfs: [{ area: 'SHAKOPEE', voterCount: -1 }],
-      },
+      lists: [
+        { ...anchor, details: { turfs: [{ area: 'X', voterCount: -1 }] } },
+        ...rest,
+      ],
     }
     expect(RecommendedListsSchema.safeParse(bad).success).toBe(false)
   })

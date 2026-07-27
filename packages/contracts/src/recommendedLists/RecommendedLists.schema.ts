@@ -113,19 +113,75 @@ export type RecommendedListPartisan = z.infer<
   typeof RecommendedListPartisanSchema
 >
 
+// A gotv envelope is emitted only when turnout drop-off applies to the office,
+// so exponentA is always present here (absence of the envelope, not a null,
+// means "not applicable").
 export const RecommendedListGotvSchema = z.object({
-  applies: z.boolean(),
   dropoffX: z.number().int(),
-  exponentA: z.number().nullable(),
+  exponentA: z.number(),
 })
 export type RecommendedListGotv = z.infer<typeof RecommendedListGotvSchema>
 
+export const RECOMMENDED_LIST_OUTREACH_TYPE_VALUES = [
+  'doorKnocking',
+  'phone',
+  'sms',
+  'email',
+  'directMail',
+  'robocall',
+] as const
+export const RecommendedListOutreachTypeSchema = z.enum(
+  RECOMMENDED_LIST_OUTREACH_TYPE_VALUES,
+)
+export type RecommendedListOutreachType = z.infer<
+  typeof RecommendedListOutreachTypeSchema
+>
+
+export const RECOMMENDED_LIST_PHASE_VALUES = [
+  'earlyCampaign',
+  'midCampaign',
+  'gotvPhase',
+] as const
+export const RecommendedListPhaseSchema = z.enum(RECOMMENDED_LIST_PHASE_VALUES)
+export type RecommendedListPhase = z.infer<typeof RecommendedListPhaseSchema>
+
+// Every recommended list is wrapped in a metadata envelope: display order
+// (priority), which outreach channels and campaign phases it applies to, and a
+// discriminated `kind` that types its `details`. This is the contract seed of a
+// config-driven model — a new list kind adds a member here plus its details
+// schema, without changing the top-level response shape.
+const RecommendedListEnvelopeBaseSchema = z.object({
+  name: z.string(),
+  priority: z.number().int(),
+  allowedOutreachTypes: z.array(RecommendedListOutreachTypeSchema).min(1),
+  allowedPhases: z.array(RecommendedListPhaseSchema).min(1),
+})
+
+export const RecommendedListEnvelopeSchema = z.discriminatedUnion('kind', [
+  RecommendedListEnvelopeBaseSchema.extend({
+    kind: z.literal('voterSupportId'),
+    details: RecommendedListAnchorSchema,
+  }),
+  RecommendedListEnvelopeBaseSchema.extend({
+    kind: z.literal('issueAligned'),
+    details: RecommendedListIssueCardSchema,
+  }),
+  RecommendedListEnvelopeBaseSchema.extend({
+    kind: z.literal('partisanAligned'),
+    details: RecommendedListPartisanSchema,
+  }),
+  RecommendedListEnvelopeBaseSchema.extend({
+    kind: z.literal('gotv'),
+    details: RecommendedListGotvSchema,
+  }),
+])
+export type RecommendedListEnvelope = z.infer<
+  typeof RecommendedListEnvelopeSchema
+>
+
 export const RecommendedListsSchema = z.object({
   meta: RecommendedListMetaSchema,
-  anchor: RecommendedListAnchorSchema,
-  issueCards: z.array(RecommendedListIssueCardSchema),
-  partisan: RecommendedListPartisanSchema.nullable(),
-  gotv: RecommendedListGotvSchema,
+  lists: z.array(RecommendedListEnvelopeSchema),
 })
 export type RecommendedLists = z.infer<typeof RecommendedListsSchema>
 

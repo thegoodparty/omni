@@ -14,7 +14,34 @@ read model over that snapshot.
 | `services/recommendedLists.service.ts` | Read model + scheduler. Pro/flag gate, snapshot lifecycle (pending/ready/failed), TTL re-enqueue, race-change reset. The GET path *is* the scheduler — a lost enqueue self-heals off the 15-min TTL, so enqueue failures are swallowed. |
 | `services/recommendedListsCompute.service.ts` | The queue handler. Idempotent, stale-guarded, **never throws** (a throw = infinite SQS redelivery). Gathers context, runs the pure SQL builders against the Win warehouse, assembles + persists the payload. |
 | `services/recommendedListsRules.util.ts` · `recommendedListsQueries.ts` | Pure engine: thresholds/predicates and exact Databricks SQL. Ported verbatim from the deterministic Python engine so parity checks stay byte-identical. Don't reimplement — call these. |
+| `services/recommendedListsRegistry.ts` | `RECOMMENDED_LISTS_REGISTRY` — the per-kind static metadata (priority, allowed outreach types, allowed phases, fixed name). The seed of the config-driven model; the extension point for adding a list. |
 | `recommendedLists.constants.ts` | `RECOMMENDED_LISTS_DATABRICKS` DI token. |
+
+## Envelope model (config-driven direction)
+
+The `ready` payload is `{ meta, lists }`, where `lists` is an **ordered array of
+envelopes** rather than bespoke `anchor` / `issueCards` / `partisan` / `gotv`
+keys. Each envelope wraps a list in metadata:
+
+```
+{ kind, name, priority, allowedOutreachTypes[], allowedPhases[], details }
+```
+
+`kind` discriminates the typed `details` (`voterSupportId` → anchor,
+`issueAligned` → issue card, `partisanAligned` → partisan, `gotv` → gotv). The
+static metadata (`priority`, `allowedOutreachTypes`, `allowedPhases`, and the
+fixed `name` for all kinds but `issueAligned`) lives in
+`RECOMMENDED_LISTS_REGISTRY`; the compute service reads it when assembling
+envelopes, sorts by `priority`, and computes the `issueAligned` name per card
+(direction-aware: `high` → "Voters who lean toward …", `low` → "… away from …").
+A `partisanAligned` envelope is omitted when there's no persuasion universe, and
+a `gotv` envelope is omitted when turnout drop-off doesn't apply (its absence,
+not a null field, signals "not applicable").
+
+**Add a list** = a registry entry in `recommendedListsRegistry.ts` + a details
+schema and a new `RecommendedListEnvelopeSchema` member in
+`@goodparty_org/contracts` + assembly of the envelope in the compute service.
+The top-level response shape doesn't change.
 
 ## Aggregate-only posture (the load-bearing invariant)
 

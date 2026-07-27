@@ -309,54 +309,93 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
         subGeoLabel: 'counties',
         doorRatio: 0.62,
       },
-      anchor: {
-        votescoreThreshold: 1,
-        voterCount: 100,
-        doorCount: 62,
-        estimatedHours: 62 / 15,
-        turfs: [
-          { area: 'SHAKOPEE', voterCount: 60 },
-          { area: 'PRIOR LAKE', voterCount: 40 },
-        ],
-      },
-      issueCards: [
+      lists: [
         {
-          phrase: 'Protecting local water quality',
-          opponentName: 'Jane Doe',
-          threatTier: 'primary_threat',
-          activeVoters: 200,
-          supporters: 80,
-          opponents: 30,
-          persuadable: 90,
-          supportersPlausible: 50,
+          kind: 'voterSupportId',
+          name: 'Candidate Intro & Voter Support ID',
+          priority: 1,
+          allowedOutreachTypes: ['doorKnocking'],
+          allowedPhases: ['earlyCampaign', 'midCampaign'],
+          details: {
+            votescoreThreshold: 1,
+            voterCount: 100,
+            doorCount: 62,
+            estimatedHours: 62 / 15,
+            turfs: [
+              { area: 'SHAKOPEE', voterCount: 60 },
+              { area: 'PRIOR LAKE', voterCount: 40 },
+            ],
+          },
+        },
+        {
+          kind: 'issueAligned',
+          name: 'Voters who lean toward Protecting local water quality',
+          priority: 2,
+          allowedOutreachTypes: [
+            'doorKnocking',
+            'phone',
+            'email',
+            'directMail',
+          ],
+          allowedPhases: ['midCampaign'],
+          details: {
+            phrase: 'Protecting local water quality',
+            opponentName: 'Jane Doe',
+            threatTier: 'primary_threat',
+            activeVoters: 200,
+            supporters: 80,
+            opponents: 30,
+            persuadable: 90,
+            supportersPlausible: 50,
+          },
+        },
+        {
+          kind: 'partisanAligned',
+          name: 'Partisanship-Aligned Voters',
+          priority: 3,
+          allowedOutreachTypes: [
+            'doorKnocking',
+            'phone',
+            'email',
+            'directMail',
+          ],
+          allowedPhases: ['midCampaign'],
+          details: {
+            shape: 'P4',
+            isPartisanRace: true,
+            hasDemOpponent: true,
+            hasGopOpponent: false,
+            targetParties: 'Republicans and Independents',
+            cardSubtitle: expect.stringContaining(
+              'Independents or Republicans',
+            ),
+            signals: {
+              partySwitchers: 900,
+              ticketSplitters: 1200,
+              crossoverPrimary: 700,
+              doubleDislike: 1500,
+              modeledIndependents: 3400,
+              registrationAddOn: 2100,
+            },
+            districtTotal: 41230,
+            unionCount: 8200,
+            plausibleElectorateCount: 18500,
+            listCount: 5600,
+            turfs: [{ area: 'SAVAGE', voterCount: 2100 }],
+          },
+        },
+        {
+          kind: 'gotv',
+          name: 'Get Out The Vote',
+          priority: 4,
+          allowedOutreachTypes: ['doorKnocking', 'phone', 'robocall', 'email'],
+          allowedPhases: ['gotvPhase'],
+          details: {
+            dropoffX: 4200,
+            exponentA: Math.round((a ?? 0) * 100) / 100,
+          },
         },
       ],
-      partisan: {
-        shape: 'P4',
-        isPartisanRace: true,
-        hasDemOpponent: true,
-        hasGopOpponent: false,
-        targetParties: 'Republicans and Independents',
-        cardSubtitle: expect.stringContaining('Independents or Republicans'),
-        signals: {
-          partySwitchers: 900,
-          ticketSplitters: 1200,
-          crossoverPrimary: 700,
-          doubleDislike: 1500,
-          modeledIndependents: 3400,
-          registrationAddOn: 2100,
-        },
-        districtTotal: 41230,
-        unionCount: 8200,
-        plausibleElectorateCount: 18500,
-        listCount: 5600,
-        turfs: [{ area: 'SAVAGE', voterCount: 2100 }],
-      },
-      gotv: {
-        applies: true,
-        dropoffX: 4200,
-        exponentA: Math.round((a ?? 0) * 100) / 100,
-      },
     })
   })
 
@@ -383,7 +422,10 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
       attempt: 1,
     })
 
-    expect(payloadOf(update).payload.issueCards).toEqual([])
+    const kinds = payloadOf(update).payload.lists.map(
+      (envelope: { kind: string }) => envelope.kind,
+    )
+    expect(kinds).not.toContain('issueAligned')
   })
 
   it('produces an NP1 card with null add-ons when no major-party opponent runs', async () => {
@@ -415,7 +457,10 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
       attempt: 1,
     })
 
-    const partisan = payloadOf(update).payload.partisan
+    const envelope = payloadOf(update).payload.lists.find(
+      (list: { kind: string }) => list.kind === 'partisanAligned',
+    )
+    const partisan = envelope.details
     expect(partisan.shape).toBe('NP1')
     expect(partisan.isPartisanRace).toBe(false)
     expect(partisan.targetParties).toBeNull()
@@ -446,7 +491,10 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
     expect(result).toBe(true)
     const data = payloadOf(update)
     expect(data.status).toBe('ready')
-    expect(data.payload.anchor).toEqual({
+    const anchor = data.payload.lists.find(
+      (list: { kind: string }) => list.kind === 'voterSupportId',
+    )
+    expect(anchor.details).toEqual({
       votescoreThreshold: null,
       voterCount: null,
       doorCount: null,

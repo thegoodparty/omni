@@ -4,6 +4,7 @@ import {
   RaceOpponentSummarySchema,
   RecommendedLists,
   RecommendedListsSchema,
+  RecommendedListEnvelope,
   RecommendedListIssueCard,
   RecommendedListPartisan,
   RecommendedListTurf,
@@ -41,6 +42,7 @@ import {
   subGeoStats,
   votescoreHistogram,
 } from './recommendedListsQueries'
+import { RECOMMENDED_LISTS_REGISTRY } from './recommendedListsRegistry'
 import { RECOMMENDED_LISTS_DATABRICKS } from '../recommendedLists.constants'
 
 const SNAPSHOT_STATUS = { pending: 'pending', ready: 'ready', failed: 'failed' }
@@ -224,7 +226,7 @@ export class RecommendedListsComputeService extends createPrismaBase(
       hasGopOpponent,
     )
 
-    const [anchorTurfRows, issueCards, aggregate, partisanTurfRows, dropoff] =
+    const [anchorTurfRows, issueEntries, aggregate, partisanTurfRows, dropoff] =
       await Promise.all([
         sstar === null
           ? Promise.resolve([])
@@ -266,6 +268,63 @@ export class RecommendedListsComputeService extends createPrismaBase(
       turfs: this.toTurfs(partisanTurfRows),
     }
 
+    const registry = RECOMMENDED_LISTS_REGISTRY
+    const lists: RecommendedListEnvelope[] = [
+      {
+        kind: 'voterSupportId',
+        name: registry.voterSupportId.name,
+        priority: registry.voterSupportId.priority,
+        allowedOutreachTypes: [...registry.voterSupportId.allowedOutreachTypes],
+        allowedPhases: [...registry.voterSupportId.allowedPhases],
+        details: {
+          votescoreThreshold: sstar,
+          voterCount: anchorBand,
+          doorCount,
+          estimatedHours:
+            doorCount === null ? null : doorCount / DOORS_PER_HOUR,
+          turfs: this.toTurfs(anchorTurfRows),
+        },
+      },
+      ...issueEntries.map(
+        (entry): RecommendedListEnvelope => ({
+          kind: 'issueAligned',
+          name: entry.name,
+          priority: registry.issueAligned.priority,
+          allowedOutreachTypes: [...registry.issueAligned.allowedOutreachTypes],
+          allowedPhases: [...registry.issueAligned.allowedPhases],
+          details: entry.details,
+        }),
+      ),
+      {
+        kind: 'partisanAligned',
+        name: registry.partisanAligned.name,
+        priority: registry.partisanAligned.priority,
+        allowedOutreachTypes: [
+          ...registry.partisanAligned.allowedOutreachTypes,
+        ],
+        allowedPhases: [...registry.partisanAligned.allowedPhases],
+        details: partisan,
+      },
+    ]
+
+    // A gotv envelope only exists when turnout drop-off applies to this office;
+    // its absence (not a null field) is how the reader learns it doesn't.
+    if (a !== null) {
+      lists.push({
+        kind: 'gotv',
+        name: registry.gotv.name,
+        priority: registry.gotv.priority,
+        allowedOutreachTypes: [...registry.gotv.allowedOutreachTypes],
+        allowedPhases: [...registry.gotv.allowedPhases],
+        details: {
+          dropoffX: dropoff === null ? 0 : toInt(dropoff.X),
+          exponentA: round2(a),
+        },
+      })
+    }
+
+    lists.sort((first, second) => first.priority - second.priority)
+
     return {
       meta: {
         officeName,
@@ -286,20 +345,7 @@ export class RecommendedListsComputeService extends createPrismaBase(
         subGeoLabel: subGeoLabel(sub),
         doorRatio: DOOR_RATIO_FALLBACK,
       },
-      anchor: {
-        votescoreThreshold: sstar,
-        voterCount: anchorBand,
-        doorCount,
-        estimatedHours: doorCount === null ? null : doorCount / DOORS_PER_HOUR,
-        turfs: this.toTurfs(anchorTurfRows),
-      },
-      issueCards,
-      partisan,
-      gotv: {
-        applies: a !== null,
-        dropoffX: dropoff === null ? 0 : toInt(dropoff.X),
-        exponentA: a === null ? null : round2(a),
-      },
+      lists,
     }
   }
 
@@ -330,7 +376,7 @@ export class RecommendedListsComputeService extends createPrismaBase(
     df: string,
     sstar: number | null,
     allowedHsColumns: ReadonlySet<string>,
-  ): Promise<RecommendedListIssueCard[]> {
+  ): Promise<Array<{ name: string; details: RecommendedListIssueCard }>> {
     const [rows, threatByOpponent] = await Promise.all([
       this.client.raceOpponentStandoutAction.findMany({
         where: { campaignId, hsColumn: { not: null } },
@@ -340,7 +386,7 @@ export class RecommendedListsComputeService extends createPrismaBase(
       this.threatTiersByOpponent(campaignId),
     ])
 
-    const cards: RecommendedListIssueCard[] = []
+    const cards: Array<{ name: string; details: RecommendedListIssueCard }> = []
     for (const row of rows) {
       const hsColumn = row.hsColumn
       if (
@@ -356,18 +402,22 @@ export class RecommendedListsComputeService extends createPrismaBase(
       )
       const activeVoters = toInt(result.active)
       if (activeVoters < CELL_SIZE_FLOOR) continue
+      const phrase = row.positionPhrase ?? row.issue
       cards.push({
-        phrase: row.positionPhrase ?? row.issue,
-        opponentName: row.opponentName,
-        threatTier: row.opponentName
-          ? (threatByOpponent.get(row.opponentName.trim().toLowerCase()) ??
-            null)
-          : null,
-        activeVoters,
-        supporters: toInt(result.supporters),
-        opponents: toInt(result.opponents),
-        persuadable: toInt(result.persuadable),
-        supportersPlausible: toInt(result.supportersPlausible),
+        name: issueAlignedName(dir, phrase),
+        details: {
+          phrase,
+          opponentName: row.opponentName,
+          threatTier: row.opponentName
+            ? (threatByOpponent.get(row.opponentName.trim().toLowerCase()) ??
+              null)
+            : null,
+          activeVoters,
+          supporters: toInt(result.supporters),
+          opponents: toInt(result.opponents),
+          persuadable: toInt(result.persuadable),
+          supportersPlausible: toInt(result.supportersPlausible),
+        },
       })
     }
     return cards
@@ -414,6 +464,13 @@ export class RecommendedListsComputeService extends createPrismaBase(
     return rows[0] ?? {}
   }
 }
+
+// Direction-aware issue-list title, per the recommended-lists copy rule: a
+// "high" standout means the district leans toward the phrase, "low" leans away.
+const issueAlignedName = (dir: 'high' | 'low', phrase: string): string =>
+  dir === 'low'
+    ? `Voters who lean away from ${phrase}`
+    : `Voters who lean toward ${phrase}`
 
 const isDemocratParty = (party: string | null): boolean =>
   party !== null && /democrat/i.test(party)
