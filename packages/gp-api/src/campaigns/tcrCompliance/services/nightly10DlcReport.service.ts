@@ -695,6 +695,17 @@ export class Nightly10DlcReportService extends createPrismaBase(
         if (record.peerlyCvStatus === PeerlyCvVerificationStatus.IN_REVIEW) {
           data.cvInReviewEscalatedAt = null
         }
+        // Leaving VERIFIED while waiting_to_finalize is also progress — the
+        // profile block below is skipped when cvStatus !== VERIFIED, so the
+        // claim must be cleared here or a future re-entry into
+        // VERIFIED+waiting_to_finalize could never re-escalate.
+        if (
+          record.peerlyCvStatus === PeerlyCvVerificationStatus.VERIFIED &&
+          record.peerlyProfileStatus ===
+            PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE
+        ) {
+          data.finalizeStalledEscalatedAt = null
+        }
       }
     }
 

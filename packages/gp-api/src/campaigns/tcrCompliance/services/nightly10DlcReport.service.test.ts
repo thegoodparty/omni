@@ -1185,6 +1185,28 @@ describe('Nightly10DlcReportService', () => {
       })
     })
 
+    it('clears finalizeStalledEscalatedAt when CV leaves VERIFIED mid-wait', async () => {
+      mockModel.findMany.mockResolvedValueOnce([
+        waitingToFinalizeRecord({
+          finalizeStalledEscalatedAt: subDays(new Date(), 1),
+        }),
+      ])
+      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
+        PeerlyCvVerificationStatus.REJECTED,
+      )
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      expect(mockModel.update).toHaveBeenCalledExactlyOnceWith({
+        where: { id: 'tcr-w2f' },
+        data: {
+          peerlyCvStatus: PeerlyCvVerificationStatus.REJECTED,
+          peerlyCvStatusChangedAt: expect.any(Date),
+          finalizeStalledEscalatedAt: null,
+        },
+      })
+    })
+
     it('does not re-post across two consecutive handler runs (once-only)', async () => {
       const record = waitingToFinalizeRecord({
         peerlyProfileStatusChangedAt: subDays(new Date(), 10),
