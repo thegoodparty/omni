@@ -591,6 +591,9 @@ describe('door-knocking routes', () => {
     const PERSON_2 = '00000002-1111-1111-1111-111111111111'
     const PERSON_3 = '00000003-1111-1111-1111-111111111111'
     const PERSON_4 = '00000004-1111-1111-1111-111111111111'
+    // A non-target household member: the residents contract never returns a
+    // requested targetPersonId in otherResidents.
+    const PERSON_5 = '00000005-1111-1111-1111-111111111111'
 
     const liveResidents = {
       addresses: [
@@ -613,7 +616,7 @@ describe('door-knocking routes', () => {
             },
           ],
           otherResidents: [
-            { personId: PERSON_4, firstName: 'Teo', lastName: 'Vega' },
+            { personId: PERSON_5, firstName: 'Teo', lastName: 'Vega' },
           ],
         },
         {
@@ -685,12 +688,15 @@ describe('door-knocking routes', () => {
         res.data.stops as Array<{
           addresses: Array<{
             addressKey: string
+            address: string
             targets: Array<Record<string, unknown>>
           }>
         }>
       )
         .flatMap((s) => s.addresses)
         .find((a) => a.addressKey === 'KEY-4')
+      // Legacy sub-7-segment keys render as their first segment.
+      expect(movedAddress?.address).toBe('KEY-4')
       expect(movedAddress?.targets[0]).toMatchObject({
         personId: PERSON_4,
         name: 'Voter Number4',
