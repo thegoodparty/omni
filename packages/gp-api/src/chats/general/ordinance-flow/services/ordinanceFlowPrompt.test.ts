@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildOrdinanceFlowSystemPrompt,
   ORDINANCE_FLOW_GUARDRAIL_DECLINE,
+  ORDINANCE_FLOW_GUARDRAIL_DECLINE_BILL,
 } from './ordinanceFlowPrompt'
 import { OrdinanceFlowContext } from './ordinanceFlowContext.service'
 
@@ -14,6 +15,7 @@ const baseCtx = (
   step: 'clarify',
   organizationSlug: 'org-1',
   officeTitle: 'City Council Member',
+  officeLevel: null,
   jurisdiction: 'Hendersonville, NC',
   seedType: 'new',
   issueSlug: null,
@@ -541,5 +543,148 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(prompt).toContain('Actively research')
     expect(prompt).toContain('never invent quotes')
     expect(prompt).toContain('adoption/amendment record')
+  })
+
+  // A state legislator drafts a BILL under state authority, not a municipal
+  // ordinance under home rule. The prompt must swap the document vocabulary,
+  // the legal-authority test, the research target, and the peer set — a state
+  // house member getting "your city council" framing is a trust breaker.
+  describe('state-level office (officeLevel: STATE)', () => {
+    const stateCtx = (
+      overrides: Partial<OrdinanceFlowContext> = {},
+    ): OrdinanceFlowContext =>
+      baseCtx({
+        officeLevel: 'STATE',
+        officeTitle: 'State House Member',
+        jurisdiction: 'State House District 12, NC',
+        goalText: 'Modernize right-of-way rules for mass transit',
+        ...overrides,
+      })
+
+    it('frames the work as a state bill, never a municipal ordinance', () => {
+      const prompt = buildOrdinanceFlowSystemPrompt({
+        ctx: stateCtx(),
+        toolNames: [],
+      })
+      expect(prompt).toContain('state bill')
+      expect(prompt).not.toContain('municipal ordinance')
+      expect(prompt).toContain("your state's published statutes")
+      expect(prompt).not.toContain("your city's published code")
+    })
+
+    it('labels the jurisdiction as a district, not a city', () => {
+      const prompt = buildOrdinanceFlowSystemPrompt({
+        ctx: stateCtx(),
+        toolNames: [],
+      })
+      expect(prompt).toContain('District: State House District 12, NC')
+      expect(prompt).not.toContain('City/District:')
+    })
+
+    it('uses the bill-flavored guardrail decline line', () => {
+      const prompt = buildOrdinanceFlowSystemPrompt({
+        ctx: stateCtx(),
+        toolNames: [],
+      })
+      expect(prompt).toContain(ORDINANCE_FLOW_GUARDRAIL_DECLINE_BILL)
+      expect(prompt).not.toContain(ORDINANCE_FLOW_GUARDRAIL_DECLINE)
+    })
+
+    it('aims step goals at the legislature and state law, not the council', () => {
+      const prompt = buildOrdinanceFlowSystemPrompt({
+        ctx: stateCtx({ step: 'authority' }),
+        toolNames: [],
+      })
+      expect(prompt).toContain('the legislature')
+      expect(prompt).not.toContain('the council has the legal authority')
+    })
+
+    it('tests state authority via constitutional and federal limits, not municipal preemption', () => {
+      const prompt = buildOrdinanceFlowSystemPrompt({
+        ctx: stateCtx({ step: 'authority' }),
+        toolNames: [
+          'present_authority_finding',
+          'web_search',
+          'offer_next_step',
+        ],
+      })
+      expect(prompt).toContain('AUTHORITY RULES')
+      // Wrong test for a state legislature: whether the state preempts
+      // municipal action. Right test: constitutional limits and federal
+      // preemption, searched affirmatively.
+      expect(prompt).toContain('constitution')
+      expect(prompt).toContain('federal preemption')
+      expect(prompt).not.toContain('preempts, prohibits, or limits municipal')
+      expect(prompt).not.toContain('home-rule')
+      // The affirmative-search discipline survives the reframe.
+      expect(prompt).toContain('AFFIRMATIVELY')
+      expect(prompt).toContain('ABSENCE of a bar')
+    })
+
+    it('points current-law research at state statutes, not the municipal code record', () => {
+      const prompt = buildOrdinanceFlowSystemPrompt({
+        ctx: stateCtx({ step: 'current_law' }),
+        toolNames: [
+          'read_ordinance',
+          'get_code_source',
+          'fetch_url',
+          'save_existing_law',
+          'web_search',
+          'brave_search',
+          'offer_next_step',
+        ],
+      })
+      expect(prompt).toContain('CURRENT LAW RULES')
+      expect(prompt).toContain("state's current statutes")
+      // get_code_source tracks municipal code publishers; a state bill must
+      // not be grounded in whatever city record happens to exist.
+      expect(prompt).toContain('does not apply to state law')
+      expect(prompt).not.toContain("where the municipality's code lives")
+      expect(prompt).toContain('cite section numbers')
+    })
+
+    it('draws comparables from other states, not same-state cities', () => {
+      const prompt = buildOrdinanceFlowSystemPrompt({
+        ctx: stateCtx({ step: 'comparables' }),
+        toolNames: ['present_comparables', 'web_search', 'offer_next_step'],
+      })
+      expect(prompt).toContain('COMPARABLES RULES')
+      expect(prompt).toContain('other states')
+      expect(prompt).not.toContain('cities in the same state')
+      // The card contract still requires a `city` field; the peer state's
+      // name rides in it until the contract carries a jurisdiction shape.
+      expect(prompt).toContain('city field')
+      expect(prompt).toContain('repealed')
+    })
+
+    it('drafts in statutory style with legislature placeholders', () => {
+      const prompt = buildOrdinanceFlowSystemPrompt({
+        ctx: stateCtx({ step: 'draft' }),
+        toolNames: [
+          'read_ordinance',
+          'present_draft',
+          'web_search',
+          'save_note',
+        ],
+      })
+      expect(prompt).toContain('DRAFT RULES')
+      expect(prompt).toContain('statutory style')
+      expect(prompt).not.toContain('municipal-code style')
+      expect(prompt).toContain('[to be set by the legislature]')
+      expect(prompt).not.toContain('[retention period to be set by council]')
+    })
+
+    it('keeps the municipal framing byte-identical for city-level offices', () => {
+      for (const officeLevel of ['CITY', null] as const) {
+        const prompt = buildOrdinanceFlowSystemPrompt({
+          ctx: baseCtx({ officeLevel }),
+          toolNames: [],
+        })
+        expect(prompt).toContain('municipal ordinance')
+        expect(prompt).toContain("your city's published code")
+        expect(prompt).toContain('City/District: Hendersonville, NC')
+        expect(prompt).toContain(ORDINANCE_FLOW_GUARDRAIL_DECLINE)
+      }
+    })
   })
 })
