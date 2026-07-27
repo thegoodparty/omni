@@ -176,7 +176,13 @@ export function CampaignManagerChatProvider({
   // Resolve before opening so the drawer opens straight into the conversation
   // rather than flashing an empty state. Does NOT touch the meet card — the
   // callers below decide whether opening counts as "meeting the manager".
+  // Guarded against concurrent opens (a double-click, or a general open racing
+  // the story flow): createConversation always creates a NEW conversation, so
+  // two in-flight calls would orphan one. Matches OnboardingFlow's isAdvancingRef.
+  const resumingRef = useRef(false)
   const resumeAndOpen = useCallback(async () => {
+    if (resumingRef.current) return
+    resumingRef.current = true
     try {
       const { conversationId: id } =
         await campaignManagerChatApi.createConversation()
@@ -193,6 +199,8 @@ export function CampaignManagerChatProvider({
       })
       // Fall back to a fresh chat (deferred create on first send).
       setConversationId(null)
+    } finally {
+      resumingRef.current = false
     }
     setChatOpen(true)
   }, [queryClient])
