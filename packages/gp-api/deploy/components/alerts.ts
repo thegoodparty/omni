@@ -166,6 +166,11 @@ export const GLOBAL_ALERTS: Alert[] = [
     expr: [
       'count(sum by (campaignId) (count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      // Pin the cheap |= line filter before | json (as the sibling alerts do):
+      // it narrows 6h of all gp-api logs down to the handful of DistrictMatch
+      // events before the JSON parse, so the every-minute eval stays light and
+      // can't time out into a false page (execErrState is Alerting).
+      '|= "DistrictMatch"',
       '| json',
       '| event = "DistrictMatch"',
       '| failureKind = "no_match"',
