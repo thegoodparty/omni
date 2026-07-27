@@ -13,7 +13,6 @@ import {
   MdSensorDoor,
 } from 'react-icons/md'
 import {
-  Bot,
   Circle,
   CircleUserRound,
   ClipboardList,
@@ -126,15 +125,6 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     link: '/dashboard/profile',
     id: 'campaign-details-dashboard',
     onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickMyProfile),
-  },
-  {
-    label: 'AI Assistant',
-    icon: <MdAutoAwesome />,
-    v2Icon: Bot,
-    v2Category: 'campaign',
-    link: '/dashboard/campaign-assistant',
-    id: 'campaign-assistant-dashboard',
-    onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickAIAssistant),
   },
   {
     label: 'Content Builder',
