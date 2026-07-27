@@ -72,6 +72,25 @@ it would move PII out of the warehouse and needs a separate, governed export pat
   at-large / multi-seat body the real threshold is lower, so the anchor band is
   conservative (too large) there. Don't present it as exact for multi-seat offices.
 
+## Partisan card semantics (scope mixing — read before trusting the counts)
+
+The partisan card carries two different scopes, and they don't add up the way
+they look like they should:
+
+- **`signals.*` and `listCount` are banded** — intersected with the
+  plausible-turnout electorate (∩ the plausible-turnout electorate,
+  `VOTESCORE >= s*`). `listCount` is the banded union: `signals` union ∩ that
+  electorate, and it's the recommended door list size.
+- **`districtWideUnionCount` is raw** — the union of the independence signals
+  across the *whole district*, NOT intersected with the plausible-turnout
+  electorate.
+
+Subadditivity therefore holds only **within one scope**:
+`listCount <= sum(signals)`, but `districtWideUnionCount` may **exceed**
+`sum(signals)` because it's district-wide, not banded. `districtWideUnionCount >
+sum(signals)` is correct engine behavior, not a bug — the field is named for its
+scope precisely so the two aren't misread as one.
+
 ## Lifecycle notes
 
 - One snapshot per campaign (`@@unique(campaignId)`), typed payload

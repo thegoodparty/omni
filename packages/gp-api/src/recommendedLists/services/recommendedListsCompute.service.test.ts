@@ -378,7 +378,7 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
               registrationAddOn: 2100,
             },
             districtTotal: 41230,
-            unionCount: 8200,
+            districtWideUnionCount: 8200,
             plausibleElectorateCount: 18500,
             listCount: 5600,
             turfs: [{ area: 'SAVAGE', voterCount: 2100 }],

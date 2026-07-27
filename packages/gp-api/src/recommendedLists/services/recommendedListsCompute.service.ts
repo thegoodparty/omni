@@ -262,7 +262,7 @@ export class RecommendedListsComputeService extends createPrismaBase(
         registrationAddOn: aggregate.reg == null ? null : toInt(aggregate.reg),
       },
       districtTotal: toInt(aggregate.tot),
-      unionCount: toInt(aggregate.uni),
+      districtWideUnionCount: toInt(aggregate.uni),
       plausibleElectorateCount: toInt(aggregate.list1),
       listCount: toInt(aggregate.listn),
       turfs: this.toTurfs(partisanTurfRows),

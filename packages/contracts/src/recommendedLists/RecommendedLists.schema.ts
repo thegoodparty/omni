@@ -102,11 +102,28 @@ export const RecommendedListPartisanSchema = z.object({
   hasGopOpponent: z.boolean(),
   targetParties: z.string().nullable(),
   cardSubtitle: z.string(),
-  signals: RecommendedListPartisanSignalsSchema,
+  signals: RecommendedListPartisanSignalsSchema.describe(
+    'Every signal count here is within the plausible-turnout ' +
+      'electorate: each is band-intersected (∩ the plausible-turnout ' +
+      'electorate, VOTESCORE >= s*).',
+  ),
   districtTotal: z.number().int(),
-  unionCount: z.number().int(),
+  districtWideUnionCount: z
+    .number()
+    .int()
+    .describe(
+      'Union of the independence signals across the whole district, ' +
+        'NOT intersected with the plausible-turnout electorate — may ' +
+        'exceed the sum of the banded signals below',
+    ),
   plausibleElectorateCount: z.number().int(),
-  listCount: z.number().int(),
+  listCount: z
+    .number()
+    .int()
+    .describe(
+      'the banded union: signals union ∩ plausible-turnout ' +
+        'electorate — the recommended door list size',
+    ),
   turfs: z.array(RecommendedListTurfSchema),
 })
 export type RecommendedListPartisan = z.infer<
