@@ -147,6 +147,17 @@ export = async () => {
     environment === 'preview' ? 'dev' : environment
   }`
 
+  // Agent experiment RESULT artifacts. Written by the external agent runner
+  // (gp-ai-projects); gp-api reads them back in
+  // CampaignStrategyService.onExperimentRunCompleted (e.g. the campaign
+  // tracker's dynamic tasks) via s3.getFile. gp-api references by name only;
+  // preview shares the dev bucket. Without the read grant below the SQS
+  // completion handler 403s and requeues forever, so dynamic tracker tasks
+  // never persist.
+  const agentArtifactsBucketName = `gp-agent-artifacts-${
+    environment === 'preview' ? 'dev' : environment
+  }`
+
   // Shared bucket between the external meeting_pipeline (writes briefings)
   // and gp-api TextToSpeechService (caches Polly audio under speech/synth/,
   // then hands the browser presigned GETs). Dev bucket exists out-of-band
@@ -437,6 +448,7 @@ export = async () => {
     annotationAttachmentsBucketName,
     campaignPlanSharesBucketName,
     agentRunInputsBucketName,
+    agentArtifactsBucketName,
     meetingPipelineBucketName,
     serveAnalysisBucketName,
     assetsBucketName,
