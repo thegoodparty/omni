@@ -11,10 +11,12 @@ import {
   NotFoundException,
   Post,
   Query,
+  UseGuards,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
+import { ProfileClaimRequestRateLimitGuard } from '../guards/profileClaimRequestRateLimit.guard'
 import { GetPublicPersonProfileDto } from '../schemas/public/GetPublicPersonProfile.schema'
 import {
   PublicPersonProfileResponse,
@@ -191,10 +193,13 @@ export class PublicPersonProfilesController {
   // Inbound lead capture from the unclaimed-profile modal. Public + unauth by
   // design: a visitor volunteers an email (and optional name) so we can nudge
   // the person to claim their profile. We just store it — no dedupe, no PII
-  // gymnastics beyond validation.
+  // gymnastics beyond validation. Because it's an unauthenticated write, a
+  // per-IP rate-limit guard (mirroring the briefings-share stopgap) keeps a
+  // scripted caller from flooding the leads table until edge/WAF limits land.
   @Post('claim-request')
   @HttpCode(HttpStatus.CREATED)
   @ResponseSchema(ProfileClaimRequestResponseSchema)
+  @UseGuards(ProfileClaimRequestRateLimitGuard)
   async createClaimRequest(
     @Body() dto: CreateProfileClaimRequestDto,
   ): Promise<ProfileClaimRequestResponse> {
