@@ -223,3 +223,41 @@ describe('GET /v1/persons/:personId (public profile)', () => {
     expect(res.status).toBe(400)
   })
 })
+
+describe('GET /v1/persons/by-slug/:slug (canonical URL resolution)', () => {
+  it('resolves a person by their unique slug with relations and no PII', async () => {
+    const res = await service.client.get(`/v1/persons/by-slug/${PERSON_SLUG}`)
+
+    expect(res.status).toBe(200)
+    expect(res.data.id).toBe(PERSON_ID)
+    expect(res.data.slug).toBe(PERSON_SLUG)
+
+    // Same spine shape as by-id: relations present, PII stripped.
+    expect(res.data.Candidacies).toHaveLength(1)
+    expect(res.data.Candidacies[0].email).toBeUndefined()
+    expect(res.data.OfficeHolders).toHaveLength(1)
+    expect(res.data.OfficeHolders[0].officeEmail).toBe(OFFICE_EMAIL)
+    expect(res.data.email).toBeUndefined()
+    expect(res.data.phone).toBeUndefined()
+    expectNoPersonPii(res.data)
+  })
+
+  it('does not capture the by-slug segment as an id', async () => {
+    // Regression guard for route ordering: `by-slug` must not hit :personId.
+    const res = await service.client.get(
+      `/v1/persons/by-slug/${OTHER_PERSON_SLUG}`,
+    )
+    expect(res.status).toBe(200)
+    expect(res.data.id).toBe(OTHER_PERSON_ID)
+  })
+
+  it('404s for an unknown slug', async () => {
+    const res = await service.client.get('/v1/persons/by-slug/nobody-here')
+    expect(res.status).toBe(404)
+  })
+
+  it('400s for a slug with invalid characters', async () => {
+    const res = await service.client.get('/v1/persons/by-slug/Jane_Doe')
+    expect(res.status).toBe(400)
+  })
+})

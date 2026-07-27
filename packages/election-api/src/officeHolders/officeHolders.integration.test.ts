@@ -8,6 +8,8 @@ const OTHER_PERSON_ID = '22222222-2222-2222-2222-222222222222'
 const POSITION_ID = '55555555-5555-5555-5555-555555555555'
 const OFFICE_HOLDER_ID = '44444444-4444-4444-4444-444444444444'
 const OTHER_OFFICE_HOLDER_ID = '66666666-6666-6666-6666-666666666666'
+const GEO_ID = 'geo-example-city'
+const OTHER_GEO_ID = 'geo-other-town'
 
 // The Person carries PII; the officeholders endpoint never joins Person, so
 // these values must never surface here either.
@@ -58,6 +60,7 @@ const seed = async () => {
       officeTitle: 'Mayor',
       state: 'CA',
       isCurrent: true,
+      geoId: GEO_ID,
       officeEmail: OFFICE_EMAIL,
       officePhone: OFFICE_PHONE,
     },
@@ -70,6 +73,7 @@ const seed = async () => {
       officeTitle: 'Council Member',
       state: 'NY',
       isCurrent: false,
+      geoId: OTHER_GEO_ID,
     },
   })
 }
@@ -138,5 +142,21 @@ describe('GET /v1/officeholders (public list)', () => {
       params: { personId: 'not-a-uuid' },
     })
     expect(res.status).toBe(400)
+  })
+
+  it('filters by geoId (nearby officials)', async () => {
+    const res = await service.client.get('/v1/officeholders', {
+      params: { geoId: GEO_ID },
+    })
+
+    expect(res.status).toBe(200)
+    expect(res.data).toHaveLength(1)
+    expect(res.data[0].id).toBe(OFFICE_HOLDER_ID)
+    expect(res.data[0].geoId).toBe(GEO_ID)
+
+    // No person PII even when filtering by geo.
+    const json = JSON.stringify(res.data)
+    expect(json).not.toContain(PERSON_EMAIL)
+    expect(json).not.toContain(PERSON_PHONE)
   })
 })

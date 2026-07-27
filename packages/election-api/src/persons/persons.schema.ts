@@ -76,7 +76,20 @@ export const getPersonByIdParamsSchema = z.object({
   personId: z.guid('personId must be a valid UUID'),
 })
 
+export const getPersonBySlugParamsSchema = z.object({
+  slug: z
+    .string()
+    .min(1)
+    .max(255)
+    // Slugs are lowercase alphanumerics + hyphens (see the person mart); reject
+    // anything else so this can't be used to probe with arbitrary input.
+    .regex(/^[a-z0-9-]+$/, 'slug must be lowercase alphanumeric or hyphen'),
+})
+
 export class PersonFilterDto extends createZodDto(personFilterSchema) {}
 export class GetPersonByIdParamsDTO extends createZodDto(
   getPersonByIdParamsSchema,
+) {}
+export class GetPersonBySlugParamsDTO extends createZodDto(
+  getPersonBySlugParamsSchema,
 ) {}

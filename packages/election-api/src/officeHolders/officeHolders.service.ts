@@ -12,12 +12,20 @@ export class OfficeHoldersService extends createPrismaBase(
   MODELS.OfficeHolder,
 ) {
   async getOfficeHolders(filterDto: OfficeHolderFilterDto) {
-    const { personId, positionId, state, isCurrent, includePosition, columns } =
-      filterDto
+    const {
+      personId,
+      positionId,
+      geoId,
+      state,
+      isCurrent,
+      includePosition,
+      columns,
+    } = filterDto
 
     const where: Prisma.OfficeHolderWhereInput = {
       ...(personId && { personId }),
       ...(positionId && { positionId }),
+      ...(geoId && { geoId }),
       ...(state && { state }),
       ...(isCurrent !== undefined && { isCurrent }),
     }

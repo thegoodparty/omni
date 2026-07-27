@@ -12,6 +12,9 @@ export const officeHolderFilterSchema = z
   .object({
     personId: z.guid('personId must be a valid UUID').optional(),
     positionId: z.guid('positionId must be a valid UUID').optional(),
+    // BallotReady geo id (OfficeHolder.geoId). Powers "Nearby Officials": other
+    // office holders whose constituency shares the same approximate geography.
+    geoId: z.string().optional(),
     state: z
       .preprocess(toUpper, z.string())
       .optional()

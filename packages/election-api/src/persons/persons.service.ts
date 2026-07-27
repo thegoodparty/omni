@@ -69,4 +69,21 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
     }
     return person
   }
+
+  // Resolves the canonical /people/<slug> URL to a person. `slug` is unique, so
+  // this returns the same full spine shape as getPersonById (PII omitted).
+  async getPersonBySlug(slug: string) {
+    const person = await this.model.findUnique({
+      where: { slug },
+      omit: { email: true, phone: true },
+      include: {
+        OfficeHolders: true,
+        Candidacies: CANDIDACY_INCLUDE,
+      },
+    })
+    if (!person) {
+      throw new NotFoundException(`Person not found for slug=${slug}`)
+    }
+    return person
+  }
 }

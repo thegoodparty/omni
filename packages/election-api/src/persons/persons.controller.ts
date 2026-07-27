@@ -1,6 +1,10 @@
 import { Controller, Get, Param, Query } from '@nestjs/common'
 import { PersonsService } from './persons.service'
-import { GetPersonByIdParamsDTO, PersonFilterDto } from './persons.schema'
+import {
+  GetPersonByIdParamsDTO,
+  GetPersonBySlugParamsDTO,
+  PersonFilterDto,
+} from './persons.schema'
 
 @Controller('persons')
 export class PersonsController {
@@ -9,6 +13,12 @@ export class PersonsController {
   @Get()
   async getPersons(@Query() filterDto: PersonFilterDto) {
     return this.personsService.getPersons(filterDto)
+  }
+
+  // Declared before :personId so the literal segment isn't captured as an id.
+  @Get('by-slug/:slug')
+  async getPersonBySlug(@Param() params: GetPersonBySlugParamsDTO) {
+    return this.personsService.getPersonBySlug(params.slug)
   }
 
   @Get(':personId')
