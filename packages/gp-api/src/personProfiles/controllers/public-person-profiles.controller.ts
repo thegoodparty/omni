@@ -55,6 +55,7 @@ function buildRemovedResponse(personId: string): PublicPersonProfileResponse {
     avatarUrl: null,
     whyRunning: null,
     accomplishments: null,
+    recentExperience: null,
     publicEmail: null,
     publicPhone: null,
     websiteUrl: null,

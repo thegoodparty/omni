@@ -9,6 +9,16 @@ const AccomplishmentSchema = z.object({
   date: z.string().nullable().optional(),
 })
 
+// Owner-authored "Recent Experience" rows. Mirrors the write-side
+// RecentExperienceSchema (personProfile.schema.ts) but re-declared here so the
+// public whitelist stays the single source of truth for what leaves the server.
+const RecentExperienceSchema = z.object({
+  title: z.string(),
+  organization: z.string().nullable().optional(),
+  term: z.string().nullable().optional(),
+  source: z.enum(['ballotready', 'user']).nullable().optional(),
+})
+
 const PublicProfileIssueSchema = z.object({
   issueId: z.string(),
   title: z.string().nullable(),
@@ -39,6 +49,7 @@ export const PublicPersonProfileResponseSchema = z.object({
   avatarUrl: z.string().nullable(),
   whyRunning: z.string().nullable(),
   accomplishments: z.array(AccomplishmentSchema).nullable(),
+  recentExperience: z.array(RecentExperienceSchema).nullable(),
   publicEmail: z.string().nullable(),
   publicPhone: z.string().nullable(),
   websiteUrl: z.string().nullable(),

@@ -8,8 +8,13 @@ import { PersonFilterDto } from './persons.schema'
 import { Prisma } from '../generated/prisma'
 
 // Candidacy carries PII (`email`); never expose it when nesting candidacies
-// under a Person on this public endpoint.
-const CANDIDACY_INCLUDE = { omit: { email: true } } as const
+// under a Person on this public endpoint. The Race's `electionDate` is pulled
+// (narrow select, no PII) so consumers can date a candidacy — e.g. the public
+// profile's "Recent Experience" ("Candidate for Mayor · 2024").
+const CANDIDACY_INCLUDE = {
+  omit: { email: true },
+  include: { Race: { select: { electionDate: true } } },
+} as const
 
 @Injectable()
 export class PersonsService extends createPrismaBase(MODELS.Person) {

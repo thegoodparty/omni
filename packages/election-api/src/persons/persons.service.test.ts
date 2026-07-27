@@ -39,7 +39,10 @@ describe('PersonsService', () => {
     const args = findMany.mock.calls[0]?.[0]
     expect(args.omit).toEqual({ email: true, phone: true })
     expect(args.include.OfficeHolders).toBe(true)
-    expect(args.include.Candidacies).toEqual({ omit: { email: true } })
+    expect(args.include.Candidacies).toEqual({
+      omit: { email: true },
+      include: { Race: { select: { electionDate: true } } },
+    })
     expect(args.select).toBeUndefined()
   })
 
@@ -82,7 +85,13 @@ describe('PersonsService', () => {
     expect(findUnique).toHaveBeenCalledWith({
       where: { id: 'p1' },
       omit: { email: true, phone: true },
-      include: { OfficeHolders: true, Candidacies: { omit: { email: true } } },
+      include: {
+        OfficeHolders: true,
+        Candidacies: {
+          omit: { email: true },
+          include: { Race: { select: { electionDate: true } } },
+        },
+      },
     })
     expect(result).toEqual({ id: 'p1' })
   })

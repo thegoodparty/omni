@@ -168,6 +168,14 @@ describe('public profile render-gate scenarios (local DB)', () => {
         publicEmail: 'press@janerivera.gov',
         publicPhone: '555-0100',
         accomplishments: [{ title: 'Passed the budget', date: '2024' }],
+        recentExperience: [
+          {
+            title: 'City Council Member, Ward 3',
+            organization: 'City of Springfield',
+            term: '2021-2025',
+            source: 'user',
+          },
+        ],
         publishedAt: new Date(),
       },
     })
@@ -180,6 +188,16 @@ describe('public profile render-gate scenarios (local DB)', () => {
     // Accomplishments JSON round-trips as a typed array.
     expect(res.data.accomplishments).toEqual([
       { title: 'Passed the budget', date: '2024' },
+    ])
+    // Owner-authored Recent Experience is part of the public whitelist so the
+    // marketing profile can render it.
+    expect(res.data.recentExperience).toEqual([
+      {
+        title: 'City Council Member, Ward 3',
+        organization: 'City of Springfield',
+        term: '2021-2025',
+        source: 'user',
+      },
     ])
     // Owner-only / gate internals must never leak.
     expect(res.data.userId).toBeUndefined()

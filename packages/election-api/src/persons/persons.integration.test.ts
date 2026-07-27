@@ -22,6 +22,9 @@ const OFFICE_PHONE = '555-0100'
 
 const CANDIDACY_ID = '33333333-3333-3333-3333-333333333333'
 const OFFICE_HOLDER_ID = '44444444-4444-4444-4444-444444444444'
+const RACE_ID = '55555555-5555-5555-5555-555555555555'
+// The candidacy's race date — surfaced (non-PII) so consumers can date a run.
+const RACE_ELECTION_DATE = '2024-11-05'
 
 /**
  * Fails if any Person/Candidacy PII (the actual secret values, or the `email`/
@@ -63,6 +66,16 @@ const seedPerson = async () => {
     },
   })
 
+  await service.prisma.race.create({
+    data: {
+      id: RACE_ID,
+      electionDate: new Date(RACE_ELECTION_DATE),
+      slug: 'ca/mayor',
+      state: 'CA',
+      positionLevel: 'CITY',
+    },
+  })
+
   await service.prisma.candidacy.create({
     data: {
       id: CANDIDACY_ID,
@@ -74,6 +87,8 @@ const seedPerson = async () => {
       // Candidacy PII that must be omitted when nested under a Person.
       email: CANDIDACY_EMAIL,
       personId: PERSON_ID,
+      // Linked race so the nested candidacy can surface its election date.
+      raceId: RACE_ID,
     },
   })
 
@@ -128,6 +143,8 @@ describe('GET /v1/persons (public list)', () => {
     expect(jane.Candidacies).toHaveLength(1)
     expect(jane.Candidacies[0].id).toBe(CANDIDACY_ID)
     expect(jane.Candidacies[0].email).toBeUndefined()
+    // The race's election date is surfaced (non-PII) so consumers can date the run.
+    expect(jane.Candidacies[0].Race.electionDate).toContain(RACE_ELECTION_DATE)
 
     // Nested office holder IS present with its public office contact.
     expect(jane.OfficeHolders).toHaveLength(1)
