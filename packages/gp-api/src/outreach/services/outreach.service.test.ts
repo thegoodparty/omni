@@ -476,6 +476,47 @@ describe('OutreachService', () => {
       expect(result).toEqual(created)
     })
 
+    it('blocks a P2P send with a testing-specific message for an internal-testing approval', async () => {
+      mockTcrFindFirstOrThrow.mockResolvedValue({
+        peerlyIdentityId: null,
+        internalTestingApprovedAt: new Date(),
+      })
+
+      await expect(
+        service.create(
+          mockUser,
+          mockCampaign,
+          p2pCreateDto,
+          'https://cdn.example.com/p2p.png',
+          p2pImage,
+        ),
+      ).rejects.toThrow(
+        'Campaign is 10DLC-approved for internal testing only; ' +
+          'real P2P sends are disabled',
+      )
+      expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
+    })
+
+    it('blocks a P2P send with the generic message when no Peerly identity exists', async () => {
+      mockTcrFindFirstOrThrow.mockResolvedValue({
+        peerlyIdentityId: null,
+        internalTestingApprovedAt: null,
+      })
+
+      await expect(
+        service.create(
+          mockUser,
+          mockCampaign,
+          p2pCreateDto,
+          'https://cdn.example.com/p2p.png',
+          p2pImage,
+        ),
+      ).rejects.toThrow(
+        'TCR Compliance Peerly identity ID is required for P2P outreach',
+      )
+      expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
+    })
+
     it('throws BadRequest when the resolved P2P script exceeds the MMS limit', async () => {
       mockTcrFindFirstOrThrow.mockResolvedValue({
         peerlyIdentityId: 'identity-123',

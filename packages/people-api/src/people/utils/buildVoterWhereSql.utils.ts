@@ -1,12 +1,36 @@
-import { Prisma } from '../../generated/prisma'
+import { Prisma, USState } from '../../generated/prisma'
 import { FilterData } from '../schemas/filters.schema'
 import { buildVoterFiltersSql } from './filters.sql.utils'
+
+const US_STATE_CODES = new Set<string>(Object.values(USState))
 
 // pg_trgm needs at least one full trigram to extract from the pattern;
 // `%ab%` on a 1-2 char token degrades to a near-full GIN scan, so short
 // tokens (middle initials, "Li") stay prefix-matched on the b-tree
 // functional indexes.
 const MIN_SUBSTRING_TOKEN_LENGTH = 3
+
+// v."State" is the USState enum on prisma-managed (green) clusters and plain text on
+// loader-built clusters. PEOPLE_STATE_ENUM=false switches the comparison to plain text so
+// people-api can query a loader cluster; the default keeps the enum cast (unchanged behavior).
+const stateIsEnum = (): boolean =>
+  (process.env.PEOPLE_STATE_ENUM ?? 'true').toLowerCase() !== 'false'
+
+// State is inlined as a literal, NOT bound as a parameter. A parameterized State
+// (bind or CAST of a bind) breaks equivalence-class constant propagation across the
+// v."State" = dv."State" join, so the planner seq-scans the entire state Voter
+// partition and hash-joins instead of a nested-loop index probe (~7.5s vs ~1.3s on a
+// large district). State comes from the fixed USState allowlist, so inlining is safe;
+// the membership check keeps Prisma.raw injection-proof.
+export const stateEquals = (alias: 'v' | 'dv', state: string): Prisma.Sql => {
+  if (!US_STATE_CODES.has(state)) {
+    throw new Error(`stateEquals received a non-USState value: ${state}`)
+  }
+  const literal = Prisma.raw(`'${state}'`)
+  return stateIsEnum()
+    ? Prisma.sql`${Prisma.raw(alias)}."State" = ${literal}::"public"."USState"`
+    : Prisma.sql`${Prisma.raw(alias)}."State" = ${literal}`
+}
 
 export const getNormalizedPhoneNumber = (phone: string): string | null => {
   if (!/^\d+$/.test(phone)) {
@@ -57,11 +81,9 @@ export const buildVoterWhereSql = (args: {
   const { state, districtId } = args
 
   const parts: Prisma.Sql[] = []
-  parts.push(Prisma.sql`v."State" = CAST(${state}::text AS "public"."USState")`)
+  parts.push(stateEquals('v', state))
   if (districtId) {
-    parts.push(
-      Prisma.sql`dv."State" = CAST(${state}::text AS "public"."USState")`,
-    )
+    parts.push(stateEquals('dv', state))
     parts.push(Prisma.sql`dv."district_id" = ${districtId}::uuid`)
     parts.push(Prisma.sql`dv."voter_id" IS NOT NULL`)
   }

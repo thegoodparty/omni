@@ -717,6 +717,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
   async retrieveCampaignVerifyStatus(
     peerlyIdentityId: string,
     campaign: Campaign,
+    options?: { suppressSlackAlert?: boolean },
   ) {
     try {
       this.logger.debug(
@@ -748,7 +749,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           return null
         }
       }
-      return await this.handleApiError(e, { campaign, peerlyIdentityId })
+      return await this.handleApiError(e, {
+        campaign,
+        peerlyIdentityId,
+        suppressSlackAlert: options?.suppressSlackAlert,
+      })
     }
   }
 

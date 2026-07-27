@@ -57,6 +57,12 @@ const updatedCampaign = await client.campaigns.update(1, {
   details: { office: 'Mayor' },
 })
 
+// Admin 10DLC internal-testing approval (M2M): marks an internal
+// (@goodparty.org) campaign as 10DLC-approved for testing; real sends
+// stay blocked because no Peerly identity exists.
+await client.campaigns.grantInternalTestingApproval(1)
+await client.campaigns.revokeInternalTestingApproval(1)
+
 const offices = await client.electedOffices.list({
   userId: 42,
   offset: 0,

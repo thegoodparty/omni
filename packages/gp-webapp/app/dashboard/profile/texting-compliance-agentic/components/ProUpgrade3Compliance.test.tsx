@@ -38,6 +38,8 @@ const stateWith = (
   peerlyVerificationId: 'cv-1',
   peerlyCvStatus,
   pinDelivery,
+  internalTestingApprovedAt: null,
+  hasComplianceRecord: true,
 })
 
 const mockSuccessSnackbar = vi.fn()

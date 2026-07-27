@@ -38,7 +38,13 @@ export default function StoryFieldBar({
   improveDisabled,
   save,
 }: StoryFieldBarProps): React.JSX.Element {
-  const isRecording = dictation.status === 'recording'
+  // 'stopping' = the server is flushing whatever was still being transcribed
+  // after the user hit stop, so show "Transcribing…" until it lands. Every
+  // other active state (requesting_mic → connecting → recording) reads as
+  // "Listening…" so the recording UI appears the instant the mic is tapped,
+  // with no wait for the socket to come up.
+  const isStopping = dictation.status === 'stopping'
+  const isCapturing = dictation.active && !isStopping
 
   return (
     // Break out of the card's p-6 so the top separator spans the full card
@@ -84,7 +90,12 @@ export default function StoryFieldBar({
               {save.hasSavedContent && !save.isDirty ? 'Saved' : 'Save'}
             </Button>
           )}
-          {isRecording ? (
+          {isStopping ? (
+            <span className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <LoaderCircleIcon className="size-4 animate-spin" aria-hidden />
+              Transcribing…
+            </span>
+          ) : isCapturing ? (
             <span className="flex items-center gap-2 text-sm font-medium text-info">
               <span className="relative flex size-2.5" aria-hidden>
                 <span className="absolute inline-flex size-full animate-ping rounded-full bg-info opacity-75" />
@@ -126,29 +137,34 @@ export default function StoryFieldBar({
             </button>
           )}
 
-          {isRecording ? (
+          {dictation.active ? (
             <button
               type="button"
               aria-label="Stop recording"
               onClick={() => void dictation.toggle()}
-              disabled={dictation.busy}
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-red-500 text-grayscale-950 disabled:opacity-50"
+              // Live through requesting_mic/connecting/recording so the stop
+              // control responds immediately; only the flush window
+              // ('stopping') disables it.
+              disabled={isStopping}
+              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-red-500 text-grayscale-950 disabled:opacity-70"
             >
-              <SquareIcon className="size-4 fill-current" aria-hidden />
+              {isStopping ? (
+                <LoaderCircleIcon
+                  className="size-4 animate-spin text-white"
+                  aria-hidden
+                />
+              ) : (
+                <SquareIcon className="size-4 fill-current" aria-hidden />
+              )}
             </button>
           ) : (
             <button
               type="button"
               aria-label="Record voice"
-              disabled={dictation.busy}
               onClick={() => void dictation.toggle()}
               className="flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition-colors hover:bg-grayscale-100 disabled:pointer-events-none disabled:opacity-50"
             >
-              {dictation.busy ? (
-                <LoaderCircleIcon className="size-5 animate-spin" aria-hidden />
-              ) : (
-                <MicIcon className="size-5" aria-hidden />
-              )}
+              <MicIcon className="size-5" aria-hidden />
             </button>
           )}
         </div>
