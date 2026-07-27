@@ -11,22 +11,39 @@ import type { ChatStreamEvent } from '../chief-of-staff/data/contracts'
 import type ChiefOfStaffChatSurfaceComponent from '../chief-of-staff/components/chat/ChiefOfStaffChatSurface'
 import { buildCampaignManagerIntro } from './campaignManagerChat'
 import CampaignManagerHome from './CampaignManagerHome'
+import { CampaignManagerChatProvider } from './CampaignManagerChatProvider'
 
 type SurfaceProps = React.ComponentProps<
   typeof ChiefOfStaffChatSurfaceComponent
 >
 
-// The `personalize=1` deep link (from the plan-tab story gate) drives this
-// home's own useSearchParams/useRouter effect, so this file supplies its own
-// mock (overriding vitest.setup.ts's bare useRouter/usePathname one), same
-// pattern as OutreachComposeDeepLink.test.tsx.
-let mockSearchParams = new URLSearchParams()
+// The chat dock (footer + surface + open/story controls) lives in the
+// always-present CampaignManagerChatProvider (mounted in DashboardLayout in
+// production); the home reads it from context. Render the same composition here
+// so the meet card (home) and the footer/surface (provider) wire up as they do
+// in the app.
+const renderHome = () =>
+  render(
+    <CampaignManagerChatProvider>
+      <CampaignManagerHome />
+    </CampaignManagerChatProvider>,
+  )
+
+// firstName now comes from useUser (read by the provider), not a prop.
+vi.mock('@shared/hooks/useUser', () => ({
+  useUser: () => [{ firstName: 'Renee' }],
+}))
+
+// The `personalize=1` deep link (from the plan-tab story gate) drives the
+// provider's URL-reading effect. It reads window.location directly (not
+// useSearchParams), so tests set the URL via history; useRouter().replace is
+// mocked to observe the param being cleared.
 const mockRouterReplace = vi.fn()
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: mockRouterReplace }),
   usePathname: () => '/dashboard',
-  useSearchParams: () => mockSearchParams,
+  useSearchParams: () => new URLSearchParams(),
 }))
 
 const surfacePropsMock = vi.fn<(props: SurfaceProps) => void>()
@@ -128,10 +145,10 @@ function makeStream(events: ChatStreamEvent[]): AsyncIterable<ChatStreamEvent> {
 
 beforeEach(() => {
   window.localStorage.clear()
+  window.history.replaceState({}, '', '/dashboard')
   createMock.mockReset()
   listMessagesMock.mockReset()
   streamMessageMock.mockReset()
-  mockSearchParams = new URLSearchParams()
   mockRouterReplace.mockReset()
   surfacePropsMock.mockClear()
 })
@@ -153,7 +170,7 @@ async function openOnSeededGreeting(): Promise<void> {
   ])
 
   const user = userEvent.setup()
-  render(<CampaignManagerHome firstName="Renee" />)
+  renderHome()
   await user.click(
     screen.getByRole('button', { name: /meet your campaign manager/i }),
   )
@@ -162,7 +179,7 @@ async function openOnSeededGreeting(): Promise<void> {
 
 describe('CampaignManagerHome', () => {
   it('renders the tasks surface and campaign-manager chat entries', () => {
-    render(<CampaignManagerHome firstName="Renee" />)
+    renderHome()
 
     expect(
       screen.getByRole('button', { name: /meet your campaign manager/i }),
@@ -296,7 +313,7 @@ describe('CampaignManagerHome story auto-launch', () => {
       ]),
     )
     const user = userEvent.setup()
-    render(<CampaignManagerHome firstName="Renee" />)
+    renderHome()
 
     await user.click(
       screen.getByRole('button', { name: 'Personalize your campaign' }),
@@ -340,7 +357,7 @@ describe('CampaignManagerHome story auto-launch', () => {
       ]),
     )
     const user = userEvent.setup()
-    render(<CampaignManagerHome firstName="Renee" />)
+    renderHome()
 
     await user.click(
       screen.getByRole('button', { name: 'Personalize your campaign' }),
@@ -374,7 +391,7 @@ describe('CampaignManagerHome story auto-launch', () => {
       ]),
     )
     const user = userEvent.setup()
-    render(<CampaignManagerHome firstName="Renee" />)
+    renderHome()
 
     await user.click(
       screen.getByRole('button', { name: 'Personalize your campaign' }),
@@ -394,7 +411,7 @@ describe('CampaignManagerHome story auto-launch', () => {
   })
 
   it('fires the story kickoff once from the personalize=1 deep link, then clears the param', async () => {
-    mockSearchParams = new URLSearchParams('personalize=1')
+    window.history.replaceState({}, '', '/dashboard?personalize=1')
     createMock.mockResolvedValue({ conversationId: 'conv_1' })
     listMessagesMock.mockResolvedValue([])
     streamMessageMock.mockReturnValue(
@@ -404,7 +421,7 @@ describe('CampaignManagerHome story auto-launch', () => {
       ]),
     )
 
-    const { rerender } = render(<CampaignManagerHome firstName="Renee" />)
+    const { rerender } = renderHome()
 
     await waitFor(() =>
       expect(streamMessageMock).toHaveBeenCalledWith(
@@ -417,13 +434,17 @@ describe('CampaignManagerHome story auto-launch', () => {
     expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard')
 
     // A later re-render (e.g. a sibling state update) must not refire it.
-    rerender(<CampaignManagerHome firstName="Renee" />)
+    rerender(
+      <CampaignManagerChatProvider>
+        <CampaignManagerHome />
+      </CampaignManagerChatProvider>,
+    )
     expect(createMock).toHaveBeenCalledTimes(1)
     expect(streamMessageMock).toHaveBeenCalledTimes(1)
   })
 
   it('does not auto-launch the story flow without the personalize deep link', () => {
-    render(<CampaignManagerHome firstName="Renee" />)
+    renderHome()
 
     expect(createMock).not.toHaveBeenCalled()
     expect(mockRouterReplace).not.toHaveBeenCalled()
@@ -443,7 +464,7 @@ describe('CampaignManagerHome meet-card dismissal', () => {
     })
 
   it('shows the meet card for a fresh candidate', () => {
-    render(<CampaignManagerHome firstName="Renee" />)
+    renderHome()
     expect(meetHeading()).toBeInTheDocument()
   })
 
@@ -457,7 +478,7 @@ describe('CampaignManagerHome meet-card dismissal', () => {
       ]),
     )
     const user = userEvent.setup()
-    render(<CampaignManagerHome firstName="Renee" />)
+    renderHome()
     expect(meetHeading()).toBeInTheDocument()
 
     await user.click(
@@ -477,7 +498,7 @@ describe('CampaignManagerHome meet-card dismissal', () => {
     createMock.mockResolvedValue({ conversationId: 'conv_1' })
     listMessagesMock.mockResolvedValue([])
     const user = userEvent.setup()
-    render(<CampaignManagerHome firstName="Renee" />)
+    renderHome()
     expect(meetHeading()).toBeInTheDocument()
 
     await user.click(
@@ -491,7 +512,7 @@ describe('CampaignManagerHome meet-card dismissal', () => {
     createMock.mockResolvedValue({ conversationId: 'conv_1' })
     listMessagesMock.mockResolvedValue([])
     const user = userEvent.setup()
-    const { unmount } = render(<CampaignManagerHome firstName="Renee" />)
+    const { unmount } = renderHome()
 
     await user.click(
       screen.getByRole('button', { name: /meet your campaign manager/i }),
@@ -500,7 +521,7 @@ describe('CampaignManagerHome meet-card dismissal', () => {
 
     // Persisted: a fresh mount does not bring it back.
     unmount()
-    render(<CampaignManagerHome firstName="Renee" />)
+    renderHome()
     expect(meetHeading()).not.toBeInTheDocument()
   })
 })

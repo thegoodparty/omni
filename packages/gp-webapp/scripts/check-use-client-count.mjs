@@ -115,7 +115,16 @@ import { dirname, join, relative } from 'node:path'
 // assistantChat) hold composer/drawer state, stream SSE turns through the
 // shared agent-chat client, and invalidate react-query caches — none can be
 // server components.
-const BASELINE = 558
+// 2026-07-27: 557 -> 558 for StoryReadyCard — the campaign-manager completion
+// card (localStorage-dismissed, reads useCampaignStoryComplete, routes on CTA),
+// so it must run on the client.
+// 2026-07-27: 558 -> 559 for CampaignManagerChatProvider — the always-present
+// campaign-manager chat dock lifted out of CampaignManagerHome so it mounts once
+// in DashboardLayout (footer chat on every page). It owns the drawer/kickoff
+// state, streams SSE, and reads localStorage/useUser, so it can't be a server
+// component. Net +1: it renders the footer + surface the home used to render
+// inline (no new files there), and CampaignManagerHome stays a client component.
+const BASELINE = 559
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
