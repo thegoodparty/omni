@@ -447,6 +447,7 @@ export class ContactsService {
     filterInput: ContactsFilterResolutionInput,
     pagination: { resultsPerPage: number; page: number },
     organization: Organization,
+    excludePersonIds?: Set<string>,
   ): Promise<PeopleListResponse> {
     if (!(await this.isProAccess(organization))) {
       throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
@@ -455,12 +456,15 @@ export class ContactsService {
     const baseFilters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
 
-    const idResolution = await this.activityConditionResolution.resolveIdFilter(
-      organization.slug,
-      {
-        activityConditions: filterInput.activityConditions,
-        supportStatus: filterInput.supportStatus,
-      },
+    const idResolution = this.excludePersonIdsFromResolution(
+      await this.activityConditionResolution.resolveIdFilter(
+        organization.slug,
+        {
+          activityConditions: filterInput.activityConditions,
+          supportStatus: filterInput.supportStatus,
+        },
+      ),
+      excludePersonIds,
     )
     if (idResolution.kind === 'empty') {
       return this.emptyPeopleListResponse(
@@ -1123,6 +1127,42 @@ export class ContactsService {
     return resolution.kind === 'filter'
       ? { ...filters, id: resolution.idFilter }
       : filters
+  }
+
+  // Composes a person-id exclusion set (the opt-out scrub, ENG-10800) with
+  // whatever activity-condition/support-status resolution already produced.
+  // people-api's `id` filter accepts exactly one operator, so the exclusion
+  // can't just be bolted on as a sibling `notIn` — it has to fold into
+  // whichever operator is already there. A `notIn` resolution already means
+  // "everyone except these", so the exclusion set unions in. An `in`
+  // resolution is a specific membership list, so exclusion removes ids
+  // directly from it; if that empties the list, this collapses to `empty`
+  // rather than sending people-api an illegal zero-length `in`.
+  private excludePersonIdsFromResolution(
+    resolution: IdFilterResolution,
+    excludePersonIds: Set<string> | undefined,
+  ): IdFilterResolution {
+    if (!excludePersonIds || excludePersonIds.size === 0) return resolution
+    if (resolution.kind === 'empty') return resolution
+    if (resolution.kind === 'none') {
+      return { kind: 'filter', idFilter: { notIn: [...excludePersonIds] } }
+    }
+    if ('notIn' in resolution.idFilter) {
+      return {
+        kind: 'filter',
+        idFilter: {
+          notIn: [
+            ...new Set([...resolution.idFilter.notIn, ...excludePersonIds]),
+          ],
+        },
+      }
+    }
+    const remaining = resolution.idFilter.in.filter(
+      (id) => !excludePersonIds.has(id),
+    )
+    return remaining.length === 0
+      ? { kind: 'empty' }
+      : { kind: 'filter', idFilter: { in: remaining } }
   }
 
   // A saved list created from a search result set stores its search term.

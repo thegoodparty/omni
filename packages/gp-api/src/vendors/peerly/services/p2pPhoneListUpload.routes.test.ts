@@ -310,6 +310,182 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
   })
 })
 
+describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
+  beforeEach(() => {
+    stubDistrict()
+  })
+
+  it('excludes an org-opted-out contact from the CSV and capture rows', async () => {
+    const campaign = await seedWinCampaign()
+    const outreach = await seedCompletedOutreach(campaign.id, OutreachType.text)
+    const texts = service.app.get(ContactInteractionTextService)
+    await texts.create({
+      organizationSlug: WIN_SLUG,
+      personId: 'p-opted-out',
+      occurredAt: new Date(),
+      outreachId: outreach.id,
+      optedOutAt: new Date(),
+    })
+
+    const post = stubPeopleApi([
+      personPayload({ id: 'p-match-1' }),
+      personPayload({ id: 'p-match-2', cellPhone: '5559990000' }),
+    ])
+    stubPeerlyUpload()
+
+    const result = await service.client.post(
+      '/v1/p2p/phone-list',
+      { name: 'Scrubbed list' },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+
+    // The scrub reached people-api as a notIn on the opted-out id — proof
+    // the exclusion is enforced server-side, not just an artifact of what
+    // this stub happens to return.
+    const peopleCall = post.mock.calls.find((call) =>
+      String(call[0]).includes('/v1/people'),
+    )
+    expect(peopleCall?.[1]).toMatchObject({
+      filters: { id: { notIn: ['p-opted-out'] }, hasCellPhone: true },
+    })
+
+    const capturedList = await service.prisma.peerlyPhoneList.findUnique({
+      where: { token: 'peerly-upload-token' },
+    })
+    expect(capturedList?.excludedOptedOutCount).toBe(1)
+    const recipients = await service.prisma.peerlyPhoneListRecipient.findMany({
+      where: { peerlyPhoneListId: capturedList?.id },
+    })
+    expect(recipients).toHaveLength(2)
+    expect(recipients.map((r) => r.personId)).not.toContain('p-opted-out')
+  })
+
+  it('does not exclude an opt-out recorded in a different organization', async () => {
+    await seedWinCampaign()
+    await service.prisma.organization.create({
+      data: { slug: 'other-org-optout-p2p', ownerId: service.user.id },
+    })
+    const otherCampaign = await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'other-org-optout-p2p-campaign',
+        organizationSlug: 'other-org-optout-p2p',
+      },
+    })
+    const otherOutreach = await service.prisma.outreach.create({
+      data: {
+        campaignId: otherCampaign.id,
+        organizationSlug: 'other-org-optout-p2p',
+        outreachType: OutreachType.text,
+        status: OutreachStatus.completed,
+      },
+    })
+    const texts = service.app.get(ContactInteractionTextService)
+    await texts.create({
+      organizationSlug: 'other-org-optout-p2p',
+      personId: 'p-shared-across-orgs',
+      occurredAt: new Date(),
+      outreachId: otherOutreach.id,
+      optedOutAt: new Date(),
+    })
+
+    const post = stubPeopleApi([personPayload({ id: 'p-shared-across-orgs' })])
+    stubPeerlyUpload()
+
+    const result = await service.client.post(
+      '/v1/p2p/phone-list',
+      { name: 'Cross-org opt-out' },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+    const peopleCall = post.mock.calls.find((call) =>
+      String(call[0]).includes('/v1/people'),
+    )
+    const sentFilters = (
+      peopleCall?.[1] as { filters: Record<string, unknown> }
+    ).filters
+    expect(sentFilters).not.toHaveProperty('id')
+
+    const capturedList = await service.prisma.peerlyPhoneList.findUnique({
+      where: { token: 'peerly-upload-token' },
+    })
+    expect(capturedList?.excludedOptedOutCount).toBe(0)
+    expect(
+      await service.prisma.peerlyPhoneListRecipient.count({
+        where: { peerlyPhoneListId: capturedList?.id },
+      }),
+    ).toBe(1)
+  })
+
+  it('is a no-op when the org has no opt-out history', async () => {
+    await seedWinCampaign()
+    const post = stubPeopleApi([personPayload()])
+    stubPeerlyUpload()
+
+    const result = await service.client.post(
+      '/v1/p2p/phone-list',
+      { name: 'No opt-outs' },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+    const peopleCall = post.mock.calls.find((call) =>
+      String(call[0]).includes('/v1/people'),
+    )
+    const sentFilters = (
+      peopleCall?.[1] as { filters: Record<string, unknown> }
+    ).filters
+    expect(sentFilters).not.toHaveProperty('id')
+
+    const capturedList = await service.prisma.peerlyPhoneList.findUnique({
+      where: { token: 'peerly-upload-token' },
+    })
+    expect(capturedList?.excludedOptedOutCount).toBe(0)
+  })
+
+  it(
+    'skips the scrub and still sends when the opt-out set exceeds the ' +
+      'people-api id-filter cap',
+    { timeout: 30_000 },
+    async () => {
+      await seedWinCampaign()
+      // A single INSERT ... SELECT is far cheaper than materializing 100k+
+      // rows client-side; only person_id needs to vary per row.
+      await service.prisma.$executeRaw`
+        INSERT INTO contact_interaction_text (id, organization_slug, person_id, occurred_at, opted_out_at)
+        SELECT gen_random_uuid()::text, ${WIN_SLUG}, 'cap-person-' || gen_series, now(), now()
+        FROM generate_series(1, 100001) AS gen_series
+      `
+
+      const post = stubPeopleApi([personPayload()])
+      stubPeerlyUpload()
+
+      const result = await service.client.post(
+        '/v1/p2p/phone-list',
+        { name: 'Over the cap' },
+        { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+      )
+
+      expect(result.status).toBe(201)
+      const peopleCall = post.mock.calls.find((call) =>
+        String(call[0]).includes('/v1/people'),
+      )
+      const sentFilters = (
+        peopleCall?.[1] as { filters: Record<string, unknown> }
+      ).filters
+      expect(sentFilters).not.toHaveProperty('id')
+
+      const capturedList = await service.prisma.peerlyPhoneList.findUnique({
+        where: { token: 'peerly-upload-token' },
+      })
+      expect(capturedList?.excludedOptedOutCount).toBe(0)
+    },
+  )
+})
+
 describe('GET /v1/p2p/phone-list/:token/status (ENG-10728 peerlyListId stamping)', () => {
   it('stamps peerlyListId once and does not clobber it on a repeat poll', async () => {
     const campaign = await seedWinCampaign()

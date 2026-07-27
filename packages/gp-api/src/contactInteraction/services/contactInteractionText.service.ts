@@ -43,6 +43,20 @@ export class ContactInteractionTextService extends createPrismaBase(
     return result._max.optedOutAt
   }
 
+  // Org-wide opt-out scrub set (ENG-10800): every person who has ever opted
+  // out of a text/p2p send in this org, regardless of which outreach or
+  // channel recorded it — a scrub that only looked at one outreach would let
+  // the same person land on the very next send.
+  async findOptedOutPersonIds(organizationSlug: string): Promise<string[]> {
+    const rows = await this.client.$queryRaw<{ personId: string }[]>(Prisma.sql`
+      SELECT DISTINCT person_id AS "personId"
+      FROM contact_interaction_text
+      WHERE organization_slug = ${organizationSlug}
+      AND opted_out_at IS NOT NULL
+    `)
+    return rows.map((row) => row.personId)
+  }
+
   // Scoped to the outreach, not the org: two outreaches sharing a Peerly
   // job produce identical synthetic event ids, and an org-wide screen
   // would let the first outreach swept suppress the second's write-back.
