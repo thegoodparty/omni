@@ -33,9 +33,40 @@ import {
   recordPublicProfileRequest,
 } from '../observability/person-profiles.metrics'
 
+// A 200 "removal requested" payload: identity-free, no authored content, just
+// the `removed` flag so the marketing site knows to render the minimal K/L
+// states (which still show the crawlable civics spine from election-api). All
+// overlay fields are null; issues is empty.
+function buildRemovedResponse(personId: string): PublicPersonProfileResponse {
+  return {
+    personId,
+    removed: true,
+    displayName: null,
+    roleTitleOverride: null,
+    bioOverride: null,
+    coverImageUrl: null,
+    avatarUrl: null,
+    whyRunning: null,
+    accomplishments: null,
+    publicEmail: null,
+    publicPhone: null,
+    websiteUrl: null,
+    instagramUrl: null,
+    tiktokUrl: null,
+    facebookUrl: null,
+    twitterUrl: null,
+    linkedinUrl: null,
+    defaultTransparency: null,
+    publishedAt: null,
+    updatedAt: new Date(),
+    issues: [],
+  }
+}
+
 // The marketing site's render gate. A profile is only "live" when it is
 // published and not deleted; this endpoint enforces that so unpublished/draft
 // content never leaves the server:
+//   - removal requested           -> 200 { removed: true } (page renders K/L)
 //   - never existed / unpublished -> 404 (page renders "not found")
 //   - deleted                     -> 410 Gone (page renders "removed")
 //   - live                        -> 200 with the whitelisted overlay
@@ -64,6 +95,14 @@ export class PublicPersonProfilesController {
     // metric captures 404/410 gate hits as well as live serves.
     const gate = (result: PublicProfileResult): void =>
       recordPublicProfileRequest(result, Date.now() - startedAt)
+
+    // Privacy takedown wins over everything else (including a claimed, published
+    // overlay): if the person has requested removal, serve the minimal "removed"
+    // marker and no authored content. The marketing site renders K/L from this.
+    if (await this.personProfilesService.isRemoved(dto.personId)) {
+      gate('removed')
+      return buildRemovedResponse(dto.personId)
+    }
 
     const profile = await this.personProfilesService.findByPersonId(
       dto.personId,

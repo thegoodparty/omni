@@ -13,6 +13,19 @@ declare global {
           date?: string | null
         }[]
       | null
+
+    // Recent Experience rows (§4). Seeded from the election-api spine
+    // (Candidacy/OfficeHolder) and then owner-editable — `source` records
+    // whether a row originated from BallotReady or was added/edited in-product
+    // so the UI can label auto-populated vs. user-authored rows.
+    export type PersonProfileRecentExperience =
+      | {
+          title: string
+          organization?: string | null
+          term?: string | null
+          source?: 'ballotready' | 'user' | null
+        }[]
+      | null
   }
 }
 

@@ -314,3 +314,33 @@ describe('POST /v1/public-person-profiles/claim-request', () => {
     expect(res.status).toBe(400)
   })
 })
+
+describe('GET /v1/public-person-profiles removal gate', () => {
+  it('returns 200 { removed: true } and no content when a removal exists', async () => {
+    await service.prisma.personProfileRemoval.create({
+      data: { personId: PERSON_ID },
+    })
+
+    const res = await get()
+    expect(res.status).toBe(200)
+    expect(res.data.removed).toBe(true)
+    expect(res.data.personId).toBe(PERSON_ID)
+    // No authored/overlay content on the removed payload.
+    expect(res.data.displayName).toBeNull()
+    expect(res.data.bioOverride).toBeNull()
+    expect(res.data.issues).toEqual([])
+  })
+
+  it('removal wins over a live, published profile (privacy takedown)', async () => {
+    await seedProfile()
+    await service.prisma.personProfileRemoval.create({
+      data: { personId: PERSON_ID, note: 'CA privacy request' },
+    })
+
+    const res = await get()
+    expect(res.status).toBe(200)
+    expect(res.data.removed).toBe(true)
+    // The published overlay content must not leak through the removal gate.
+    expect(res.data.displayName).toBeNull()
+  })
+})

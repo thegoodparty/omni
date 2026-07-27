@@ -8,6 +8,13 @@ const AccomplishmentSchema = z.object({
   date: z.string().nullable().optional(),
 })
 
+const RecentExperienceSchema = z.object({
+  title: z.string().min(1),
+  organization: z.string().nullable().optional(),
+  term: z.string().nullable().optional(),
+  source: z.enum(['ballotready', 'user']).nullable().optional(),
+})
+
 // Editable surface for the profile owner. Publication state (publishedAt,
 // deletedAt) is deliberately NOT writable here — it moves through the dedicated
 // publish/unpublish/delete endpoints so each transition can fire a cache-bust.
@@ -20,9 +27,12 @@ const UpsertPersonProfileSchema = z
     avatarUrl: z.string().url().nullable().optional(),
     whyRunning: z.string().max(5000).nullable().optional(),
     accomplishments: z.array(AccomplishmentSchema).nullable().optional(),
+    recentExperience: z.array(RecentExperienceSchema).nullable().optional(),
     publicEmail: z.string().email().nullable().optional(),
     publicPhone: z.string().max(40).nullable().optional(),
+    officePhone: z.string().max(40).nullable().optional(),
     websiteUrl: z.string().url().nullable().optional(),
+    governmentWebsiteUrl: z.string().url().nullable().optional(),
     instagramUrl: z.string().url().nullable().optional(),
     tiktokUrl: z.string().url().nullable().optional(),
     facebookUrl: z.string().url().nullable().optional(),

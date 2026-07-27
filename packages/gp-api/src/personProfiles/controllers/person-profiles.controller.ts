@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   ConflictException,
   Controller,
@@ -9,16 +10,30 @@ import {
   NotFoundException,
   Post,
   Put,
+  Query,
   UnauthorizedException,
+  UseGuards,
+  UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
+import { CacheControls, MimeTypes } from 'http-constants-ts'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
+import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
+import { S3Service } from '@/vendors/aws/services/s3.service'
+import { ASSET_DOMAIN } from '@/shared/util/appEnvironment.util'
+import { FileUpload } from 'src/files/files.types'
+import { ReqFile } from 'src/files/decorators/ReqFiles.decorator'
+import { FilesInterceptor } from 'src/files/interceptors/files.interceptor'
 import { User } from '../../generated/prisma'
 import {
   SetProfileIssuesDto,
   UpsertPersonProfileDto,
 } from '../schemas/personProfile.schema'
+import {
+  ClearPersonProfileRemovalDto,
+  SetPersonProfileRemovalDto,
+} from '../schemas/PersonProfileRemoval.schema'
 import { PersonProfilesService } from '../services/person-profiles.service'
 import { MarketingRevalidationService } from '../services/marketing-revalidation.service'
 import { recordProfileMutation } from '../observability/person-profiles.metrics'
@@ -34,6 +49,7 @@ export class PersonProfilesController {
   constructor(
     private readonly personProfilesService: PersonProfilesService,
     private readonly revalidation: MarketingRevalidationService,
+    private readonly s3: S3Service,
   ) {}
 
   private requireUser(user: User | undefined): User {
@@ -147,6 +163,78 @@ export class PersonProfilesController {
       void this.revalidation.revalidatePerson(existing.personId)
     }
     return updated
+  }
+
+  // Profile photo / cover upload (§4 "Profile Photo"). Multipart image → S3 →
+  // stores the CDN URL on the overlay (avatar or cover). Owner-scoped via
+  // req.user; a profile must exist first (create returns the row to edit).
+  @Post('mine/upload-image')
+  @UseInterceptors(
+    FilesInterceptor('file', {
+      mode: 'buffer',
+      mimeTypes: [
+        MimeTypes.IMAGE_JPEG,
+        MimeTypes.IMAGE_GIF,
+        MimeTypes.IMAGE_PNG,
+      ],
+    }),
+  )
+  async uploadImage(
+    @ReqUser() user: User,
+    @Query('target') target?: string,
+    @ReqFile() file?: FileUpload,
+  ) {
+    const owner = this.requireUser(user)
+    const existing = await this.requireOwnProfile(owner)
+    if (!file) {
+      throw new BadRequestException('No file found')
+    }
+    const which = target === 'cover' ? 'cover' : 'avatar'
+
+    const key = this.s3.buildKey(
+      `person-profiles/${owner.id}/${which}`,
+      file.filename,
+    )
+    const url = await this.s3.uploadFile(ASSET_DOMAIN, file.data, key, {
+      contentType: file.mimetype,
+      cacheControl: `${CacheControls.MAX_AGE}=${31_536_000}`,
+      baseUrl: `https://${ASSET_DOMAIN}`,
+    })
+
+    const updated = await this.personProfilesService.updateForUser(owner.id, {
+      ...(which === 'cover' ? { coverImageUrl: url } : { avatarUrl: url }),
+    })
+    recordProfileMutation('update')
+    if (existing.publishedAt && !existing.deletedAt) {
+      void this.revalidation.revalidatePerson(existing.personId)
+    }
+    return updated
+  }
+
+  // --- Admin/ops privacy removal (minimal setter; no admin UI yet) ----------
+  // Not owner-scoped: removal typically targets an *unclaimed* person (no User,
+  // no PersonProfile), so it is keyed by personId and gated to admin/M2M
+  // callers rather than req.user. Setting/clearing busts the marketing cache so
+  // the page flips to/from the K/L "removal requested" states immediately.
+  @Post('removals')
+  @UseGuards(AdminOrM2MGuard)
+  @HttpCode(HttpStatus.OK)
+  async setRemoval(@Body() body: SetPersonProfileRemovalDto) {
+    const removal = await this.personProfilesService.setRemoval(
+      body.personId,
+      body.note,
+    )
+    void this.revalidation.revalidatePerson(body.personId)
+    return { personId: removal.personId, removed: true as const }
+  }
+
+  @Delete('removals')
+  @UseGuards(AdminOrM2MGuard)
+  @HttpCode(HttpStatus.OK)
+  async clearRemoval(@Body() body: ClearPersonProfileRemovalDto) {
+    await this.personProfilesService.clearRemoval(body.personId)
+    void this.revalidation.revalidatePerson(body.personId)
+    return { personId: body.personId, removed: false as const }
   }
 
   private async requireOwnProfile(user: User) {

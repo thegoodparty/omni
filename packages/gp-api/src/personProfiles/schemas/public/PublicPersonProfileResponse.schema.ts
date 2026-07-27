@@ -27,6 +27,11 @@ const PublicProfileIssueSchema = z.object({
 // the marketing site and composed at render time.
 export const PublicPersonProfileResponseSchema = z.object({
   personId: z.string(),
+  // Privacy takedown flag. When true the person has requested removal and the
+  // marketing site renders the minimal "removal requested" states (K/L); all
+  // authored/overlay content below is null in that case. Absent/false on a
+  // normal live profile.
+  removed: z.boolean().optional(),
   displayName: z.string().nullable(),
   roleTitleOverride: z.string().nullable(),
   bioOverride: z.string().nullable(),

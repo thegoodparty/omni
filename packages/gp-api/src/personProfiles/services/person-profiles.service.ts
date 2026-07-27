@@ -48,21 +48,22 @@ export class PersonProfilesService extends createPrismaBase(
     personId: string,
     data: UpsertPersonProfileInput,
   ) {
-    const { accomplishments, ...rest } = data
+    const { accomplishments, recentExperience, ...rest } = data
     return this.model.create({
       data: {
         userId,
         personId,
         ...rest,
-        // A fresh profile with no accomplishments simply leaves the column null.
+        // A fresh profile with no list simply leaves the JSON column null.
         ...(accomplishments != null ? { accomplishments } : {}),
+        ...(recentExperience != null ? { recentExperience } : {}),
       },
       include: withIssues,
     })
   }
 
   updateForUser(userId: number, data: UpsertPersonProfileInput) {
-    const { accomplishments, ...rest } = data
+    const { accomplishments, recentExperience, ...rest } = data
     return this.model.update({
       where: { userId },
       data: {
@@ -70,6 +71,9 @@ export class PersonProfilesService extends createPrismaBase(
         // Explicit null clears the JSON column; undefined leaves it untouched.
         ...(accomplishments !== undefined
           ? { accomplishments: accomplishments ?? Prisma.DbNull }
+          : {}),
+        ...(recentExperience !== undefined
+          ? { recentExperience: recentExperience ?? Prisma.DbNull }
           : {}),
       },
       include: withIssues,
@@ -113,6 +117,32 @@ export class PersonProfilesService extends createPrismaBase(
       where: { id: personProfileId },
       include: withIssues,
     })
+  }
+
+  // --- Privacy removal flag (personId-keyed, not on the overlay) ------------
+  // Unclaimed persons have no PersonProfile row, so the removal flag lives in
+  // its own table keyed by the civics personId.
+
+  async isRemoved(personId: string): Promise<boolean> {
+    const removal = await this.client.personProfileRemoval.findUnique({
+      where: { personId },
+      select: { personId: true },
+    })
+    return Boolean(removal)
+  }
+
+  // Idempotent set (upsert) — flagging an already-removed person just refreshes
+  // the note/timestamp.
+  setRemoval(personId: string, note?: string | null) {
+    return this.client.personProfileRemoval.upsert({
+      where: { personId },
+      create: { personId, note: note ?? null },
+      update: { note: note ?? null, requestedAt: new Date() },
+    })
+  }
+
+  async clearRemoval(personId: string): Promise<void> {
+    await this.client.personProfileRemoval.deleteMany({ where: { personId } })
   }
 
   // Persists an inbound "claim this profile" lead from the public modal. There

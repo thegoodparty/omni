@@ -43,7 +43,7 @@ const revalidationCounter = meter.createCounter(
 )
 
 /** Render-gate outcome for a public profile fetch. */
-export type PublicProfileResult = 'live' | 'not_found' | 'gone'
+export type PublicProfileResult = 'live' | 'not_found' | 'gone' | 'removed'
 
 /** Owner-initiated change to a profile. */
 export type ProfileMutation =

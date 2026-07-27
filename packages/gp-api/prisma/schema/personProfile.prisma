@@ -29,15 +29,24 @@ model PersonProfile {
   /// [PersonProfileAccomplishments]
   accomplishments Json? @db.JsonB
 
+  // Recent Experience (§4). Seeded in-product from the election-api spine
+  // (Candidacy/OfficeHolder, which only reach back ~2018) and then editable —
+  // the owner can edit those rows or add ones BallotReady never had. Stored as
+  // an ordered overlay list; when present it wins over the spine at render.
+  /// [PersonProfileRecentExperience]
+  recentExperience Json? @map("recent_experience") @db.JsonB
+
   // Public contact overrides. Instagram/TikTok are overlay-only (no BR source).
-  publicEmail  String? @map("public_email")
-  publicPhone  String? @map("public_phone")
-  websiteUrl   String? @map("website_url")
-  instagramUrl String? @map("instagram_url")
-  tiktokUrl    String? @map("tiktok_url")
-  facebookUrl  String? @map("facebook_url")
-  twitterUrl   String? @map("twitter_url")
-  linkedinUrl  String? @map("linkedin_url")
+  publicEmail          String? @map("public_email")
+  publicPhone          String? @map("public_phone")
+  officePhone          String? @map("office_phone")
+  websiteUrl           String? @map("website_url")
+  governmentWebsiteUrl String? @map("government_website_url")
+  instagramUrl         String? @map("instagram_url")
+  tiktokUrl            String? @map("tiktok_url")
+  facebookUrl          String? @map("facebook_url")
+  twitterUrl           String? @map("twitter_url")
+  linkedinUrl          String? @map("linkedin_url")
 
   // Publication settings (Serve transparency defaults, per-issue overridable).
   defaultTransparency String? @map("default_transparency")
