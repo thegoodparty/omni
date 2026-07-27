@@ -694,6 +694,22 @@ export const EVENTS = {
     AskAIStarted: 'Community Issues - Ask AI Started',
     RunPollClicked: 'Community Issues - Run Poll Clicked',
   },
+  Ordinances: {
+    ClarifyViewed: 'Ordinances - Clarify Viewed',
+    ClarifyCompleted: 'Ordinances - Clarify Completed',
+    AuthorityViewed: 'Ordinances - Authority Viewed',
+    AuthorityCompleted: 'Ordinances - Authority Completed',
+    CurrentLawViewed: 'Ordinances - Current Law Viewed',
+    CurrentLawCompleted: 'Ordinances - Current Law Completed',
+    HowOthersSolvedItViewed: 'Ordinances - How Others Solved It Viewed',
+    HowOthersSolvedItCompleted: 'Ordinances - How Others Solved It Completed',
+    DraftCreationViewed: 'Ordinances - Draft Creation Viewed',
+    DraftCreationCompleted: 'Ordinances - Draft Creation Completed',
+    DraftDetailsViewed: 'Ordinances - Draft Details Viewed',
+    DraftDetailsDownloaded: 'Ordinances - Draft Details Downloaded',
+    DraftDetailsStatusUpdated: 'Ordinances - Draft Details Status Updated',
+    DraftDetailsDeleted: 'Ordinances - Draft Details Deleted',
+  },
 } as const
 
 export const getStoredSessionId = (): number => {
