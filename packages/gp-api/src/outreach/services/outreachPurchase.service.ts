@@ -3,6 +3,8 @@ import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { PurchaseHandler } from 'src/payments/purchase.types'
 import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
 import { calcTextAmountInCents } from 'src/shared/util/textPricing.util'
+import { PeerlyPhoneListCaptureService } from 'src/vendors/peerly/services/peerlyPhoneListCapture.service'
+import { PeerlyPhoneListService } from 'src/vendors/peerly/services/peerlyPhoneList.service'
 import { OutreachPurchaseMetadata } from '../types/outreach.types'
 import { OutreachService } from './outreach.service'
 import { PinoLogger } from 'nestjs-pino'
@@ -12,6 +14,8 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
   constructor(
     private readonly campaignsService: CampaignsService,
     private readonly outreachService: OutreachService,
+    private readonly peerlyPhoneListService: PeerlyPhoneListService,
+    private readonly peerlyPhoneListCapture: PeerlyPhoneListCaptureService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachPurchaseHandlerService.name)
@@ -29,9 +33,20 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     contactCount,
     campaignId,
     outreachType,
+    phoneListToken,
   }: OutreachPurchaseMetadata): Promise<number> {
-    if (!campaignId || outreachType !== 'p2p') {
+    if (outreachType !== 'p2p') {
       return calcTextAmountInCents(contactCount)
+    }
+
+    const billedContactCount = await this.resolveBilledContactCount(
+      phoneListToken,
+      campaignId,
+      contactCount,
+    )
+
+    if (!campaignId) {
+      return calcTextAmountInCents(billedContactCount)
     }
 
     const hasOffer =
@@ -40,18 +55,88 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     if (hasOffer) {
       const discountedContactCount = Math.max(
         0,
-        contactCount - FREE_TEXTS_OFFER.COUNT,
+        billedContactCount - FREE_TEXTS_OFFER.COUNT,
       )
       const finalAmount = calcTextAmountInCents(discountedContactCount)
 
       this.logger.info(
-        `Campaign ${campaignId}: applying free texts discount (${contactCount} contacts, ${discountedContactCount} billable, amount: ${finalAmount})`,
+        `Campaign ${campaignId}: applying free texts discount (${billedContactCount} contacts, ${discountedContactCount} billable, amount: ${finalAmount})`,
       )
 
       return finalAmount
     }
 
-    return calcTextAmountInCents(contactCount)
+    return calcTextAmountInCents(billedContactCount)
+  }
+
+  // p2p purchases must never bill off the client-supplied contactCount — it
+  // rides in checkout metadata the client controls. Preference order: Peerly's
+  // own leads_loaded for the list (the vendor's count of what actually got
+  // uploaded), falling back to the captured recipient rows if Peerly can't be
+  // reached. Either source missing entirely means there's nothing to bill
+  // against, so this throws before the caller ever calls Stripe.
+  private async resolveBilledContactCount(
+    phoneListToken: string | undefined,
+    campaignId: number | undefined,
+    clientContactCount: number,
+  ): Promise<number> {
+    if (!phoneListToken) {
+      throw new BadRequestException(
+        'A phone list is required to bill a p2p purchase',
+      )
+    }
+
+    const capturedList = await this.peerlyPhoneListCapture.findFirst({
+      where: { token: phoneListToken, campaignId },
+    })
+    if (!capturedList) {
+      throw new BadRequestException('No phone list found for this purchase')
+    }
+
+    const peerlyLeadsLoaded =
+      await this.fetchLeadsLoadedFromPeerly(phoneListToken)
+    const serverContactCount =
+      peerlyLeadsLoaded ??
+      (await this.peerlyPhoneListCapture.countRecipients(capturedList.id))
+
+    if (!serverContactCount) {
+      throw new BadRequestException(
+        'No billable contacts found for this purchase',
+      )
+    }
+
+    if (serverContactCount !== clientContactCount) {
+      this.logger.warn(
+        { campaignId, phoneListToken, clientContactCount, serverContactCount },
+        'p2p contactCount mismatch between client and server; billing the server-derived count',
+      )
+    }
+
+    return serverContactCount
+  }
+
+  // Returns null (rather than throwing) on any failure so the caller can fall
+  // back to the captured recipient count instead of failing the purchase.
+  private async fetchLeadsLoadedFromPeerly(
+    phoneListToken: string,
+  ): Promise<number | null> {
+    try {
+      const status =
+        await this.peerlyPhoneListService.checkPhoneListStatus(phoneListToken)
+      const listId = status?.Data.list_id
+      if (!listId) {
+        return null
+      }
+      const details =
+        await this.peerlyPhoneListService.getPhoneListDetails(listId)
+      return details.leads_loaded
+    } catch (error) {
+      this.logger.warn(
+        { error, phoneListToken },
+        'Failed to fetch leads_loaded from Peerly; falling back to captured recipient count',
+      )
+      return null
+    }
   }
 
   async calculateDiscount(

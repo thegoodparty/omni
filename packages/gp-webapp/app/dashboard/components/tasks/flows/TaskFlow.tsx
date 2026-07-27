@@ -140,6 +140,9 @@ const TaskFlow = ({
     outreachType: effectiveOutreachType,
     campaignId,
     outreachId: draftOutreachId ?? undefined,
+    // Server re-derives the billed count from this token rather than
+    // trusting contactCount (ENG-10802).
+    phoneListToken: phoneListToken || undefined,
   }
 
   const trackingAttrs = useMemo(
