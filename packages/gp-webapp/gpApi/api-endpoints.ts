@@ -941,14 +941,6 @@ export type APIEndpoints = {
     Response: PersonProfile
   }
 
-  // Office-holder priorities (Serve). Listed so the profile editor can pick /
-  // order / status which appear publicly; visibility+status persist via
-  // PUT /v1/person-profiles/mine/issues.
-  'GET /v1/priorities': {
-    Request: {}
-    Response: Priority[]
-  }
-
   'POST /v1/community-issues/self-dispatch': {
     Request: { type: 'top_community_issues' | 'trending_issues' }
     Response: { dispatched: number; skipped: number }
