@@ -148,6 +148,27 @@ const ballotStatusToCandidateStage: Record<
 
 const PLEDGE_VERSION = 1
 
+// Per-story-step funnel analytics: the `Completed` event fired when the
+// candidate Continues that step, and the label used for the single
+// `Onboarding Skipped` event's `step` property when they Skip it.
+const STORY_STEP_ANALYTICS: Record<
+  string,
+  { completed: string; skipStep: string }
+> = {
+  'campaign-story-why': {
+    completed: EVENTS.OnboardingV2.WhyAreYouRunningCompleted,
+    skipStep: 'Why Are You Running',
+  },
+  'campaign-story-background': {
+    completed: EVENTS.OnboardingV2.BackgroundCompleted,
+    skipStep: "What's Your Background",
+  },
+  'campaign-story-issues': {
+    completed: EVENTS.OnboardingV2.IssuesCompleted,
+    skipStep: 'What Issues Do You Want To Solve',
+  },
+}
+
 interface PartyAffiliationStepProps {
   value: PartyAffiliation | undefined
   onChange: (value: PartyAffiliation) => void
@@ -436,14 +457,9 @@ export default function OnboardingFlow({
   const isAdvancingRef = useRef(false)
   const partyDesignationBlockedFiredRef = useRef(false)
   // Guards against a double-fire of the strategic-landscape pre-warm (e.g. a
-  // rapid double-click of Continue). Generation - and the Completed event
-  // that rides with it - fires at most once ever, on first completion.
+  // rapid double-click of Continue). Generation fires at most once ever, on
+  // first completion.
   const storyGenFiredRef = useRef(false)
-  // Guards CampaignStorySkipped so a user who skips, goes Back, and skips
-  // again only counts once. Independent of storyGenFiredRef: a Skipped fire
-  // must not block a later Completed fire (skip-then-complete still upgrades
-  // to Completed + generation).
-  const storySkippedFiredRef = useRef(false)
   // Which story questions the candidate answered (Continued with content) this
   // session — a ref so it updates synchronously within a single Continue/Skip,
   // avoiding the stale state a derived value would read mid-handler. Drives the
@@ -569,8 +585,11 @@ export default function OnboardingFlow({
       'party-affiliation': EVENTS.OnboardingV2.PartyDesignationViewed,
       'office-selection': EVENTS.OnboardingV2.OfficeViewed,
       'path-to-victory': EVENTS.OnboardingV2.VotesNeededViewed,
-      // Fire the story-viewed funnel event once, on the first story step.
-      'campaign-story-why': EVENTS.OnboardingV2.CampaignStoryViewed,
+      // Per-step story funnel `Viewed` events (one per story screen), fired
+      // once each on first entry like every other step here.
+      'campaign-story-why': EVENTS.OnboardingV2.WhyAreYouRunningViewed,
+      'campaign-story-background': EVENTS.OnboardingV2.BackgroundViewed,
+      'campaign-story-issues': EVENTS.OnboardingV2.IssuesViewed,
       pledge: EVENTS.OnboardingV2.PledgeViewed,
     }
     const viewedEvent = viewedEventByStep[activeStepId]
@@ -1116,17 +1135,6 @@ export default function OnboardingFlow({
     setActiveStepId('pledge')
   }
 
-  const fireStorySkipped = (): void => {
-    // Skipped fires at most once; independent of storyGenFiredRef so a
-    // skip-then-complete on a later visit can still upgrade to Completed.
-    if (!storyGenFiredRef.current && !storySkippedFiredRef.current) {
-      storySkippedFiredRef.current = true
-      trackEvent(EVENTS.OnboardingV2.CampaignStorySkipped, {
-        campaignId: liveCampaign?.id ?? campaign?.id,
-      })
-    }
-  }
-
   // Advance to the next story step, recording it as the resumable currentStep.
   const advanceToNextStoryStep = async (): Promise<void> => {
     if (!nextStep) return
@@ -1141,25 +1149,18 @@ export default function OnboardingFlow({
   }
 
   // Leaving the story for the pledge (from the final issues step). Persistence
-  // already happened per-field on each Continue, so here we only fire the funnel
-  // event + generation: Completed (once) when every question was answered this
-  // session, otherwise Skipped.
+  // and the per-step funnel events already happened in advanceStory; here we
+  // only kick off plan generation, once, when every question was answered this
+  // session.
   const leaveStoryForPledge = async (): Promise<void> => {
     const answered = storyAnsweredRef.current
     const complete = answered.why && answered.background && answered.issues
-    if (complete) {
-      if (!storyGenFiredRef.current) {
-        storyGenFiredRef.current = true
-        // Fire-and-forget: the endpoint 400s for manual-office campaigns (no
-        // raceId) and prewarmStrategicLandscape swallows that, so a candidate
-        // is never blocked from reaching the pledge.
-        void prewarmStrategicLandscape()
-        trackEvent(EVENTS.OnboardingV2.CampaignStoryCompleted, {
-          campaignId: liveCampaign?.id ?? campaign?.id,
-        })
-      }
-    } else {
-      fireStorySkipped()
+    if (complete && !storyGenFiredRef.current) {
+      storyGenFiredRef.current = true
+      // Fire-and-forget: the endpoint 400s for manual-office campaigns (no
+      // raceId) and prewarmStrategicLandscape swallows that, so a candidate
+      // is never blocked from reaching the pledge.
+      void prewarmStrategicLandscape()
     }
     await advanceToPledge()
   }
@@ -1199,6 +1200,22 @@ export default function OnboardingFlow({
           return
         } else {
           answered.issues = storyDraft.issues.length > 0
+        }
+      }
+
+      // Per-step story funnel events. Reached only after a successful persist
+      // (a failed save returns above), so Completed marks a genuine advance;
+      // Skip fires the single Onboarding Skipped with the step it left.
+      const stepAnalytics = STORY_STEP_ANALYTICS[activeStep.id]
+      if (stepAnalytics) {
+        const campaignId = liveCampaign?.id ?? campaign?.id
+        if (skip) {
+          trackEvent(EVENTS.OnboardingV2.OnboardingSkipped, {
+            step: stepAnalytics.skipStep,
+            campaignId,
+          })
+        } else {
+          trackEvent(stepAnalytics.completed, { campaignId })
         }
       }
 

@@ -694,9 +694,14 @@ export const EVENTS = {
     VotesNeededFailed: 'Onboarding V2 - Votes Needed Failed',
     OfficeNextClicked: 'Onboarding V2 - Office Next Clicked',
     PledgeSubmitClicked: 'Onboarding V2 - Pledge Submit Clicked',
-    CampaignStoryViewed: 'Onboarding V2 - Campaign Story Viewed',
-    CampaignStoryCompleted: 'Onboarding V2 - Campaign Story Completed',
-    CampaignStorySkipped: 'Onboarding V2 - Campaign Story Skipped',
+    WhyAreYouRunningViewed: 'Onboarding V2 - Why Are You Running Viewed',
+    WhyAreYouRunningCompleted: 'Onboarding V2 - Why Are You Running Completed',
+    BackgroundViewed: "Onboarding V2 - What's Your Background Viewed",
+    BackgroundCompleted: "Onboarding V2 - What's Your Background Completed",
+    IssuesViewed: 'Onboarding V2 - What Issues Do You Want To Solve Viewed',
+    IssuesCompleted:
+      'Onboarding V2 - What Issues Do You Want To Solve Completed',
+    OnboardingSkipped: 'Onboarding V2 - Onboarding Skipped',
   },
   CommunityIssues: {
     ListViewed: 'Community Issues - List Viewed',
