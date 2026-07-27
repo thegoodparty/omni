@@ -55,8 +55,12 @@ const destinationForMethod = (
 export const derivePinDelivery = (
   data: PeerlyCvVerificationData | null | undefined,
 ): DerivedPinDelivery | null => {
+  const rawMethod = data?.verification_method?.trim().toLowerCase()
+  // Peerly reports address delivery as 'postal' (live CV payloads, e.g.
+  // identity 11539946), not the 'mail' our contract enum anticipated —
+  // without this mapping, postal PINs never stamp and the nudge never fires.
   const method = PinDeliveryMethodSchema.safeParse(
-    data?.verification_method?.trim().toLowerCase(),
+    rawMethod === 'postal' ? PinDeliveryMethod.mail : rawMethod,
   )
   if (!method.success) {
     return null

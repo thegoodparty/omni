@@ -42,6 +42,21 @@ describe('derivePinDelivery', () => {
     })
   })
 
+  it('maps postal (what Peerly actually sends) to mail', () => {
+    expect(
+      derivePinDelivery({
+        verification_method: 'postal',
+        filing_address_line1: '1234 State Street',
+        filing_city: 'Madison',
+        filing_state: 'AL',
+        filing_zip: '35802',
+      }),
+    ).toEqual({
+      method: 'mail',
+      destination: '1234 State Street, Madison, AL, 35802',
+    })
+  })
+
   it('is case-insensitive on the method', () => {
     expect(
       derivePinDelivery({
