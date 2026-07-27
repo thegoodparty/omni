@@ -470,13 +470,19 @@ describe('Nightly10DlcReportService', () => {
       })
 
     it('stamps status + changedAt on first observation (null → REQUESTED)', async () => {
-      mockModel.findMany.mockResolvedValueOnce([pollRecord()])
+      const record = pollRecord()
+      mockModel.findMany.mockResolvedValueOnce([record])
       mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
         PeerlyCvVerificationStatus.REQUESTED,
       )
 
       await service.handleNightlyReport({ reportDate: '2026-07-10' })
 
+      expect(
+        mockPeerlyIdentity.retrieveCampaignVerifyStatus,
+      ).toHaveBeenCalledExactlyOnceWith('ident-900', record.campaign, {
+        suppressSlackAlert: true,
+      })
       expect(mockModel.update).toHaveBeenCalledExactlyOnceWith({
         where: { id: 'tcr-poll' },
         data: {
