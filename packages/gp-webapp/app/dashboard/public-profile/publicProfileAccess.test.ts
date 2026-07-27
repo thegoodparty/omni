@@ -19,11 +19,6 @@ vi.mock('next/navigation', () => ({
   redirect: (url: string) => mockRedirect(url) as never,
 }))
 
-// Pure helper; stub so the module import resolves cleanly under vitest.
-vi.mock('next/dist/client/components/redirect-error', () => ({
-  isRedirectError: () => false,
-}))
-
 beforeEach(() => {
   vi.clearAllMocks()
   mockAuth.mockResolvedValue({ userId: 'user_123' })
@@ -70,5 +65,27 @@ describe('publicProfileAccess', () => {
     await publicProfileAccess()
 
     expect(mockRedirect).toHaveBeenCalledWith('/dashboard')
+  })
+
+  // Fail closed: a genuine thrown error (timeout/DNS — serverFetch returns
+  // { ok: false } for HTTP errors, so a throw is always transient) must
+  // propagate. Swallowing it would mis-route an official into Win or bounce a
+  // valid candidate to /dashboard on a blip they could otherwise retry.
+  it('propagates a transient error from the elected-office check (no silent win/dashboard)', async () => {
+    mockServerFetch.mockRejectedValueOnce(new Error('ECONNRESET'))
+
+    await expect(publicProfileAccess()).rejects.toThrow('ECONNRESET')
+    expect(mockRedirect).not.toHaveBeenCalled()
+    // Never falls through to the campaign lookup on a transient failure.
+    expect(mockServerFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('propagates a transient error from the campaign check', async () => {
+    mockServerFetch
+      .mockResolvedValueOnce({ ok: false, data: null }) // no elected office
+      .mockRejectedValueOnce(new Error('ETIMEDOUT')) // campaign lookup blips
+
+    await expect(publicProfileAccess()).rejects.toThrow('ETIMEDOUT')
+    expect(mockRedirect).not.toHaveBeenCalled()
   })
 })
