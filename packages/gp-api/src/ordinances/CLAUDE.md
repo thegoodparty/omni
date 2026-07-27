@@ -22,6 +22,19 @@ module owns the records and everything that grades or revises them.
 | `services/ordinanceCodePersist.service.ts` / `ordinanceCodeRead.service.ts` | Persist/read municipal-code records from experiment artifacts |
 | `services/ordinanceExport.service.ts` | PDF/DOCX draft export |
 
+Cost tracking: the Ordinance record carries three per-draft token counters,
+each split input/output — the interactive guided flow
+(`flow_input_tokens`/`flow_output_tokens`, from `ordinanceFlow.handler`'s
+`onTurnUsage` hook via the shared chat-stream `onUsage` callback), the manual
+quality-report run (`qc_*`, from `runQualityReport`), and the improvement loop
+(`loop_*`, from the loop's fenced QC + reviser writes). `draftTokenTotals` in
+`services/ordinanceCost.util.ts` sums all three; that is the single per-draft
+rollup — never add `OrdinanceQualityIteration.tokens` on top, since those rows
+hold the same loop spend as per-pass detail (feeding the iterations endpoint's
+`totalTokens`) and would double-count. Tokens are stored, not dollars; cost is
+derived via the pricing map (`estimateCostUsd`) in the same util at read/log
+time.
+
 Prisma: `prisma/schema/ordinance.prisma` (both machines' columns) +
 `prisma/schema/ordinanceQualityIteration.prisma` (per-pass history — the
 handler's position-resolution substrate, the terminal best-restore source,

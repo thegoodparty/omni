@@ -163,8 +163,9 @@ export class RacesService extends createPrismaBase(MODELS.Race) {
 
   /**
    * Resolve a filing fee for a Race by its BallotReady hash (`br_hash_id`).
-   * Bypasses the Position-based `lookupFilingFee`, which depends on
-   * `Position.placeId` not being populated in our data today.
+   * Used when the caller holds a specific race hash (the id gp-webapp persists
+   * on an onboarded candidate) rather than a position id — a direct Race lookup
+   * with no Position hop.
    *
    * `brHashId` isn't unique in the schema, so order by isPrimary/isRunoff
    * (general → primary → runoff) and take one for a deterministic pick.

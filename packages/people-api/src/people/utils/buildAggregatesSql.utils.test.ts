@@ -22,7 +22,7 @@ describe('buildAggregatesSql', () => {
     )
     expect(sql).toContain('FROM "green"."Voter" v')
     expect(sql).not.toContain('DistrictVoter')
-    expect(values).toEqual(['CA'])
+    expect(values).toEqual([])
   })
 
   it('joins DistrictVoter and scopes to the district when districtId is set', () => {
@@ -35,7 +35,7 @@ describe('buildAggregatesSql', () => {
     expect(sql).toContain('FROM "green"."DistrictVoter" dv')
     expect(sql).toContain('JOIN "green"."Voter" v')
     expect(sql).toContain('dv."district_id" = ?::uuid')
-    expect(values).toEqual(['CA', 'CA', 'district-1'])
+    expect(values).toEqual(['district-1'])
   })
 
   it('applies the id filter under the same WHERE the list/count queries use', () => {
@@ -51,7 +51,7 @@ describe('buildAggregatesSql', () => {
     const { sql, values } = buildAggregatesSql({ state: 'CA', filters })
 
     expect(sql).toContain('v."id" = ANY(?::uuid[])')
-    expect(values).toEqual(['CA', [personId]])
+    expect(values).toEqual([[personId]])
   })
 
   it('AND-joins a demographic filter alongside the id filter', () => {
@@ -70,6 +70,6 @@ describe('buildAggregatesSql', () => {
     expect(sql).toContain(
       'v."id" = ANY(?::uuid[]) AND (v."Residence_Addresses_AddressLine" IS NOT NULL AND v."Residence_Addresses_AddressLine" != \'\')',
     )
-    expect(values).toEqual(['CA', [personId]])
+    expect(values).toEqual([[personId]])
   })
 })

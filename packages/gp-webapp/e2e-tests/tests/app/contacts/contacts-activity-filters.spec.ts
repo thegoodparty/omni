@@ -142,7 +142,9 @@ test.describe('Contacts activity filters', () => {
 
       const continueButton = wizard.getByRole('button', { name: 'Continue' })
       await expect(continueButton).toBeDisabled()
-      await wizard.getByText('Build my list using outreach activity.').click()
+      await wizard
+        .getByText('Build a list from previous campaign activity')
+        .click()
       await expect(continueButton).toBeEnabled()
       await continueButton.click()
     })
@@ -304,11 +306,31 @@ test.describe('Contacts activity filters', () => {
         },
       ])
       await expect(build).toContainText('(0)', { timeout: 30_000 })
+      // ENG-10781: a settled zero-match count disables Build end-to-end.
+      await expect(build).toBeDisabled()
     })
 
     const listName = `E2E activity ${Date.now()}`
 
     await test.step('save: create payload asserted field-by-field', async () => {
+      // This org resolves the not_home refinement to zero people and the
+      // ENG-10781 gate blocks saving a zero-match list outright. Stub a
+      // nonzero count for the save leg — the payload contract, not the
+      // number, is what the rest of this spec pins. The added outcome must
+      // be one this spec has never counted before: the app's React Query
+      // staleTime is 5 minutes, so a payload that was already counted
+      // (e.g. toggling the same pill off and on) serves the cached zero
+      // and the stub never fires.
+      const outcomeGroups = activityPillGroup(wizard, 'Activity')
+      await page.route(/\/api\/v1\/contacts\/count(\?|$)/, (route) =>
+        route.request().method() === 'POST'
+          ? route.fulfill({ json: { count: 3 } })
+          : route.fallback(),
+      )
+      await selectActivityPill(outcomeGroups.nth(1), 'Answered')
+      await expect(build).toContainText('(3)', { timeout: 30_000 })
+      await expect(build).toBeEnabled()
+
       await build.click()
       await expect(wizard.getByText('Name your list')).toBeVisible({
         timeout: 10_000,
@@ -334,13 +356,14 @@ test.describe('Contacts activity filters', () => {
           {
             outreachType: 'doorKnocking',
             outreachId: null,
-            actions: ['not_home'],
+            actions: ['not_home', 'answered'],
           },
         ],
-        // ENG-10769: the wizard persists its resolved live count (0 here —
-        // this org has no matching interactions) so the outreach page's
-        // Voters column stops defaulting to 0 for real lists.
-        voterCount: 0,
+        // ENG-10769: the wizard persists its resolved live count (the
+        // stubbed 3 above — the real org would resolve 0, which ENG-10781
+        // now blocks from saving) so the outreach page's Voters column
+        // stops defaulting to 0 for real lists.
+        voterCount: 3,
       })
     })
 
@@ -355,7 +378,7 @@ test.describe('Contacts activity filters', () => {
         detailSheet.getByText(
           'Text activity from any text campaign with outcome No Response ' +
             'and Door Knocking activity from any door knocking campaign ' +
-            'with outcome Not Home.',
+            'with outcome Not Home or Answered.',
         ),
       ).toBeVisible({ timeout: 30_000 })
       await expect(statTileValue(detailSheet, 'People')).toHaveText('0', {

@@ -306,16 +306,37 @@ export class VoterFileFilterService extends createPrismaBase(
   // above) rather than pulling in OutreachModule, which already imports
   // ContactsModule (forwardRef) — a back-edge here would create a genuine
   // module cycle.
+  //
+  // ENG-10776: legacy `doorKnocking` rows are excluded — the door-knock tool
+  // never materializes into this CRM surface (see src/contacts/CLAUDE.md),
+  // so a leftover legacy row here is always a stray hand-logged draft, never
+  // a real send. `nativeDoorKnocking` stays: those rows are deliberately
+  // surfaced in the unified outreach list. Postgres `ORDER BY date DESC`
+  // defaults to NULLS FIRST, which would put a null-date legacy row above
+  // every real send — `NullsOrder.last` plus a `createdAt` tiebreaker makes
+  // the order deterministic for the remaining legacy rows.
   findOutreachesByVoterFileFilterId(voterFileFilterId: number) {
     return this._prisma.outreach.findMany({
-      where: { voterFileFilterId },
-      orderBy: { date: 'desc' },
+      where: {
+        voterFileFilterId,
+        outreachType: { not: OutreachType.doorKnocking },
+      },
+      orderBy: [
+        {
+          date: {
+            sort: Prisma.SortOrder.desc,
+            nulls: Prisma.NullsOrder.last,
+          },
+        },
+        { createdAt: Prisma.SortOrder.desc },
+      ],
       select: {
         id: true,
         name: true,
         outreachType: true,
         status: true,
         date: true,
+        createdAt: true,
       },
     })
   }

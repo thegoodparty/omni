@@ -24,9 +24,9 @@ interface DownloadStepProps {
   scriptText: string
   onCreateOutreach?: () => Promise<void>
   voterCount?: number
-  // ENG-10765: set only when the audience step's selection was a saved list
-  // (phone banking). Door knocking never passes this — the segment-export
-  // branch stays inert for it.
+  // ENG-10765/10784: set only when the audience step's selection was a saved
+  // list (phone banking, door knocking). A checkbox-built audience never
+  // passes this — the segment-export branch stays inert for it.
   savedListId?: number
 }
 

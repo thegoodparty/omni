@@ -162,8 +162,12 @@ describe('<NotesSection>', () => {
     await user.click(screen.getByRole('button', { name: 'Edit note' }))
     expect(screen.getAllByRole('textbox')).toHaveLength(1)
     expect(screen.getByLabelText('Edit note body')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Add a note' }),
+    ).not.toBeInTheDocument()
 
     // Edit open, then starting compose closes it.
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
     await user.click(screen.getByRole('button', { name: 'Add a note' }))
     expect(screen.getAllByRole('textbox')).toHaveLength(1)
     expect(screen.getByLabelText('Add a note')).toBeInTheDocument()
@@ -197,6 +201,50 @@ describe('<NotesSection>', () => {
     expect(
       screen.queryByText('Called about the lawn ordinance'),
     ).not.toBeInTheDocument()
+  })
+
+  it('hides the Add a note CTA while a note is being edited, and restores it after save or cancel', async () => {
+    const user = userEvent.setup()
+    let notes: ContactNote[] = [makeNote()]
+    api.mock('GET /v1/contacts/:personId/notes', () => ({
+      status: 200,
+      data: { results: notes },
+    }))
+    api.mock('PATCH /v1/contacts/notes/:noteId', ({ params, body }) => {
+      notes = notes.map((n) =>
+        n.id === params.noteId ? { ...n, body: body.body } : n,
+      )
+      return { status: 200, data: notes[0]! }
+    })
+
+    render(<NotesSection personId={PERSON_ID} />)
+
+    await screen.findByText('Called about the lawn ordinance')
+    expect(
+      screen.getByRole('button', { name: 'Add a note' }),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Edit note' }))
+    expect(
+      screen.queryByRole('button', { name: 'Add a note' }),
+    ).not.toBeInTheDocument()
+
+    // Cancelling an edit restores the CTA.
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(
+      screen.getByRole('button', { name: 'Add a note' }),
+    ).toBeInTheDocument()
+
+    // Saving an edit also restores the CTA.
+    await user.click(screen.getByRole('button', { name: 'Edit note' }))
+    expect(
+      screen.queryByRole('button', { name: 'Add a note' }),
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    await screen.findByText('Called about the lawn ordinance')
+    expect(
+      screen.getByRole('button', { name: 'Add a note' }),
+    ).toBeInTheDocument()
   })
 
   it('shows an error and keeps the note listed when a delete fails', async () => {

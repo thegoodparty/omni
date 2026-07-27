@@ -8,7 +8,7 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useContactsDownload } from '../shared/useContactsDownload'
-import { LOCKED_LIST_MESSAGE } from '../shared/constants'
+import { ALL_SEGMENTS, LOCKED_LIST_MESSAGE } from '../shared/constants'
 import ListDetailSheet from './ListDetailSheet'
 
 vi.mock('@shared/organization-picker', () => ({
@@ -107,8 +107,7 @@ const emptyDetailResponse = {
     robocall: 100,
     phoneBanking: 100,
     doorKnocking: 100,
-    email: null,
-    metaAds: null,
+    polls: 100,
   },
   outreachHistory: [],
 }
@@ -153,6 +152,32 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     expect(screen.getByText('$65,000')).toBeInTheDocument()
   })
 
+  // ENG-10775: people-api floors a slow aggregates query at FENCE_LIMIT
+  // (10,000) instead of finishing the exact count — the People tile must
+  // never present that floor as if it were exact.
+  it('renders a trailing + on the People tile when the count is a fenced lower bound', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'GOTV text list' }],
+    })
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        ...emptyDetailResponse,
+        demographics: {
+          people: 10000,
+          avgAge: 42,
+          avgIncome: 65000,
+          fenced: true,
+        },
+      },
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    expect(await screen.findByText('10,000+')).toBeInTheDocument()
+  })
+
   it('renders the outreach-history table columns and the empty state', async () => {
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
@@ -169,6 +194,7 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
             outreachType: 'text',
             status: 'completed',
             date: new Date('2026-06-22T00:00:00.000Z'),
+            createdAt: new Date('2026-06-22T00:00:00.000Z'),
           },
         ],
       },
@@ -205,6 +231,7 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
             outreachType: 'robocall',
             status: 'pending',
             date: new Date('2026-07-27T00:00:00.000Z'),
+            createdAt: new Date('2026-07-27T00:00:00.000Z'),
           },
         ],
       },
@@ -219,6 +246,40 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     expect(screen.queryByText('Called')).not.toBeInTheDocument()
     // Channel chip + Last-method tile + reachability tile all say "Robocall".
     expect(screen.getAllByText('Robocall').length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('falls back to createdAt for a null-date, null-name legacy row and keeps both tiles consistent (ENG-10776)', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'Legacy list' }],
+    })
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        ...emptyDetailResponse,
+        outreachHistory: [
+          {
+            id: 27523,
+            name: null,
+            outreachType: 'p2p',
+            status: 'pending',
+            date: null,
+            createdAt: new Date('2025-09-19T00:00:00.000Z'),
+          },
+        ],
+      },
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    // The row never renders the bare "— / — / <channel>" phantom state —
+    // date and name both fall back to createdAt.
+    expect(await screen.findByText('Text — Sep 19, 2025')).toBeInTheDocument()
+    // Last outreach and Last method must describe the same row: the date
+    // tile (formatted createdAt) and the method tile (channel noun) both
+    // render, so the tiles can never disagree.
+    expect(screen.getAllByText('Sep 19, 2025').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText('Text').length).toBeGreaterThanOrEqual(2)
   })
 
   it('shows the empty outreach sentence when there are no rows', async () => {
@@ -248,7 +309,7 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Phone banking')).toBeInTheDocument()
     expect(screen.getByText('Door knocking')).toBeInTheDocument()
-    expect(screen.getByText('Meta ads')).toBeInTheDocument()
+    expect(screen.getByText('Polls')).toBeInTheDocument()
   })
 
   it('reads "Constituent list details" in Serve mode', async () => {
@@ -290,6 +351,84 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     expect(
       await screen.findByRole('heading', { name: 'Voter list details' }),
     ).toBeInTheDocument()
+  })
+})
+
+// ENG-10778: the universe row ("All voters"/"All constituents") opens this
+// same sheet with no segment behind it — demographics + reachability only,
+// none of the list-only affordances.
+describe('ListDetailSheet — universe mode (ENG-10778)', () => {
+  beforeEach(() => {
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+  })
+
+  it('requests list-detail with no segment and renders demographics + reachability', async () => {
+    let capturedQuery: Record<string, unknown> | undefined
+    api.mock('GET /v1/contacts/list-detail', ({ query }) => {
+      capturedQuery = query
+      return {
+        status: 200,
+        data: {
+          ...emptyDetailResponse,
+          demographics: { people: 85696, avgAge: 47, avgIncome: 61000 },
+        },
+      }
+    })
+
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    expect(await screen.findByText('85,696')).toBeInTheDocument()
+    expect(screen.getByText('47')).toBeInTheDocument()
+    expect(screen.getByText('$61,000')).toBeInTheDocument()
+    expect(screen.getByText('Phone banking')).toBeInTheDocument()
+    // No segment id on the wire for the universe request.
+    expect(capturedQuery).not.toHaveProperty('segment')
+  })
+
+  it('reads the mode-aware universe title in the sheet header', async () => {
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'All voters' }),
+    ).toBeInTheDocument()
+  })
+
+  it('reads "All constituents" in Serve mode', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'All constituents' }),
+    ).toBeInTheDocument()
+  })
+
+  it('renders without any list-only affordance: no kebab, no outreach history, no footer', async () => {
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    await screen.findByText('District demographics')
+    expect(
+      screen.queryByRole('button', { name: 'More actions' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Rename list' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Outreach history' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Download list' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Send outreach' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('does not fire Segment Viewed for the universe (there is no segment)', async () => {
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    await screen.findByText('District demographics')
+    expect(eventCalls(EVENTS.Contacts.SegmentViewed)).toHaveLength(0)
   })
 })
 

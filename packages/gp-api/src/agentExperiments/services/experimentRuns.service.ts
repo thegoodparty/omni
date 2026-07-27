@@ -14,7 +14,7 @@ import { isJsonObject } from '@/shared/util/objects.util'
 import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTypes'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { SlackChannel } from '@/vendors/slack/slackService.types'
-import { isTestCampaign } from '@/users/util/users.util'
+import { isTestUser } from '@/users/util/users.util'
 
 const sqs = new SQS({})
 
@@ -124,17 +124,17 @@ export class ExperimentRunsService extends createPrismaBase(
       )
       return
     }
-    const campaign = await this.client.campaign.findUnique({
-      where: { organizationSlug: input.organizationSlug },
-      select: { user: { select: { email: true } } },
+    const organization = await this.client.organization.findUnique({
+      where: { slug: input.organizationSlug },
+      select: { owner: { select: { email: true } } },
     })
-    if (isTestCampaign(campaign)) {
+    if (isTestUser({ email: organization?.owner.email ?? '' })) {
       this.logger.info(
         {
           organizationSlug: input.organizationSlug,
           experimentType: input.experimentType,
         },
-        'Skipping agent dispatch for test-user campaign',
+        'Skipping agent dispatch for test-user org',
       )
       return
     }

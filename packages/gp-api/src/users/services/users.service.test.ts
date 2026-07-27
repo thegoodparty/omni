@@ -52,6 +52,105 @@ describe('UsersService', () => {
     })
   })
 
+  describe('compareAndSwapCheckoutSessionId', () => {
+    const createUserWithMeta = (
+      email: string,
+      metaData: PrismaJson.UserMetaData | undefined,
+    ) =>
+      service.prisma.user.create({
+        data: {
+          email,
+          firstName: 'Cas',
+          lastName: 'Swap',
+          ...(metaData ? { metaData } : {}),
+        },
+      })
+
+    it('swaps when the stored id matches the expected value', async () => {
+      const user = await createUserWithMeta('cas.match@example.com', {
+        checkoutSessionId: 'cs_old',
+        customerId: 'cus_keep',
+      })
+
+      const swapped = await usersService.compareAndSwapCheckoutSessionId(
+        user.id,
+        'cs_old',
+        'cs_new',
+      )
+
+      expect(swapped).toBe(true)
+      const updated = await service.prisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(updated?.metaData?.checkoutSessionId).toBe('cs_new')
+      expect(updated?.metaData?.customerId).toBe('cus_keep')
+    })
+
+    it('swaps from a missing id when null is expected', async () => {
+      const user = await createUserWithMeta('cas.null@example.com', undefined)
+
+      const swapped = await usersService.compareAndSwapCheckoutSessionId(
+        user.id,
+        null,
+        'cs_first',
+      )
+
+      expect(swapped).toBe(true)
+      const updated = await service.prisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(updated?.metaData?.checkoutSessionId).toBe('cs_first')
+    })
+
+    it('refuses the swap when another id is stored', async () => {
+      const user = await createUserWithMeta('cas.mismatch@example.com', {
+        checkoutSessionId: 'cs_current',
+      })
+
+      const swapped = await usersService.compareAndSwapCheckoutSessionId(
+        user.id,
+        'cs_stale',
+        'cs_new',
+      )
+
+      expect(swapped).toBe(false)
+      const unchanged = await service.prisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(unchanged?.metaData?.checkoutSessionId).toBe('cs_current')
+    })
+
+    it('clears to null and treats the cleared value as null on the next swap', async () => {
+      const user = await createUserWithMeta('cas.clear@example.com', {
+        checkoutSessionId: 'cs_done',
+      })
+
+      const cleared = await usersService.compareAndSwapCheckoutSessionId(
+        user.id,
+        'cs_done',
+        null,
+      )
+      expect(cleared).toBe(true)
+
+      const swappedAfterClear =
+        await usersService.compareAndSwapCheckoutSessionId(
+          user.id,
+          null,
+          'cs_next',
+        )
+      expect(swappedAfterClear).toBe(true)
+    })
+
+    it('returns false for a non-existent user', async () => {
+      const swapped = await usersService.compareAndSwapCheckoutSessionId(
+        999999999,
+        null,
+        'cs_new',
+      )
+      expect(swapped).toBe(false)
+    })
+  })
+
   describe('user email case-insensitive unique index', () => {
     it('rejects a case-variant duplicate at the DB level', async () => {
       await service.prisma.user.create({

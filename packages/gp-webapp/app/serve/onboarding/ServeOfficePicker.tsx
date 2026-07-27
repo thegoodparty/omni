@@ -8,15 +8,21 @@ import { useMemo, useState, useEffect } from 'react'
 import { cn } from '@styleguide/lib/utils'
 import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
+import { dateUsHelper } from 'helpers/dateHelper'
 import { reportErrorToSentry } from '@shared/sentry'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
 
 // An elected official already holds the office — this is a *position* picker,
-// not a race picker. The underlying election data only carries each position's
-// *upcoming* election, which we deliberately never surface (an EO isn't running
-// in it). So rows show the office identity (name + level) only, no election or
-// term-ending date.
+// not a race picker. Conceptually we want the elections an incumbent already
+// won, but the Race table isn't yet backfilled with past elections for every
+// position, so filtering to 'past' returns nothing for many zips. Until the
+// data team finishes that ingest we query upcoming elections ('future', which
+// every covered position has) so the picker is never empty; flip back to 'past'
+// (or 'all') once past races are loaded. We still surface the most recent
+// *already-held* election as a "last election" date — the signal that tells
+// apart cohort twins sharing an identical name — which stays blank until a past
+// election is on file.
 const isZipValid = (value: string): boolean => /^\d{5}$/.test(value.trim())
 
 interface PositionRow {
@@ -25,6 +31,7 @@ interface PositionRow {
   level?: string
   city?: string
   state?: string
+  electionDate?: string
 }
 
 const FUSE_OPTIONS: IFuseOptions<PositionRow> = {
@@ -53,7 +60,7 @@ const OTHER_PILL = 'Other'
 const fetchPositions = async (zip: string): Promise<Race[]> => {
   const resp = await clientFetch<Race[]>(
     apiRoutes.elections.racesByYear,
-    { zipcode: zip },
+    { zipcode: zip, timeframe: 'future' },
     { revalidate: 3600 },
   )
   if (!resp.ok) {
@@ -65,22 +72,41 @@ const fetchPositions = async (zip: string): Promise<Race[]> => {
 }
 
 // Collapse the race rows (one per position+election) into one row per position.
-// Default to showing every position — a position is never dropped, and the
-// per-row upcoming election date is intentionally discarded.
+// A position is never dropped. Each row carries the position's most recent
+// *already-held* general/primary election (future dates and runoffs excluded)
+// as its "last election" date — the signal that tells apart cohort twins
+// sharing an identical name. While the picker queries upcoming elections (see
+// fetchPositions), no past date is on file, so this stays blank.
 const dedupeToPositions = (races: Race[]): PositionRow[] => {
   const byId = new Map<string, PositionRow>()
+  const todayIso = new Date().toISOString().slice(0, 10)
 
   for (const race of races) {
     const positionId = race.brPositionId ?? race.position?.id
-    if (!positionId || byId.has(positionId)) continue
+    if (!positionId) continue
 
-    byId.set(positionId, {
-      positionId,
-      positionName: race.position?.name ?? 'Office',
-      level: race.position?.level,
-      city: race.city ?? undefined,
-      state: race.position?.state ?? race.election?.state,
-    })
+    let row = byId.get(positionId)
+    if (!row) {
+      row = {
+        positionId,
+        positionName: race.position?.name ?? 'Office',
+        level: race.position?.level,
+        city: race.city ?? undefined,
+        state: race.position?.state ?? race.election?.state,
+      }
+      byId.set(positionId, row)
+    }
+
+    if (!race.isRunoff) {
+      const day = race.election?.electionDay
+      if (
+        day &&
+        day <= todayIso &&
+        (!row.electionDate || day > row.electionDate)
+      ) {
+        row.electionDate = day
+      }
+    }
   }
 
   return [...byId.values()].sort((a, b) =>
@@ -333,6 +359,11 @@ export default function ServeOfficePicker({
                       {row.level ? (
                         <span className="block break-words text-xs text-muted-foreground">
                           {row.level}
+                        </span>
+                      ) : null}
+                      {row.electionDate ? (
+                        <span className="block break-words text-xs text-muted-foreground">
+                          Last election: {dateUsHelper(row.electionDate)}
                         </span>
                       ) : null}
                     </span>

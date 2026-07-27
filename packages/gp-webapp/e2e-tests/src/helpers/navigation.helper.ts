@@ -18,34 +18,20 @@ export class NavigationHelper {
     await WaitHelper.waitForPageReady(page)
   }
 
+  // Target ONLY the app's cookie banner (CookiesSnackbar) via its testid. The
+  // previous generic patterns (getByRole 'Close', /ok/i, ...) substring-match
+  // accessible names, so `Close` matched any task-row button whose description
+  // contained the word "close" (e.g. the recurring "Fundraising ask ... close
+  // out the month strong" task), clicked it, and popped its detail modal over
+  // the page — deterministically breaking every dashboard spec while that task
+  // was in "This week".
   static async dismissCookieBanner(page: Page): Promise<void> {
-    try {
-      // Try multiple common cookie banner patterns
-      const cookieSelectors = [
-        page.getByRole('button', { name: 'Close' }),
-        page.getByRole('button', { name: /accept/i }),
-        page.getByRole('button', { name: /agree/i }),
-        page.getByRole('button', { name: /ok/i }),
-        page.getByRole('button', { name: /dismiss/i }),
-        page.locator(
-          '[data-testid*="cookie"] button, [class*="cookie"] button, [id*="cookie"] button',
-        ),
-        page.locator('button:has-text("×"), button:has-text("✕")'),
-      ]
-
-      for (const selector of cookieSelectors) {
-        try {
-          if (await selector.first().isVisible({ timeout: 2000 })) {
-            await selector.first().click()
-            await selector.first().waitFor({ state: 'hidden', timeout: 5000 })
-            return
-          }
-        } catch {
-          // Try next selector
-        }
-      }
-    } catch {
-      // Cookie banner not present - continue silently
+    const accept = page.getByTestId('cookie-accept-btn')
+    if (await accept.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await accept.click()
+      await accept
+        .waitFor({ state: 'hidden', timeout: 5000 })
+        .catch(() => undefined)
     }
   }
 

@@ -286,10 +286,12 @@ describe('ElectionsService', () => {
   describe('searchPositions', () => {
     it('searchPositions calls /v1/positions/search with the right params and parses the response', async () => {
       const sampleRow = {
-        id: 'ztp-1',
+        id: 'race-1',
         brPositionId: 'br-pos-1',
         position: { name: 'Mayor', level: 'City', state: 'CA' },
         election: { electionDay: '2026-11-03' },
+        isPrimary: false,
+        isRunoff: false,
         city: 'Beverly Hills',
         district: null,
       }
@@ -298,8 +300,7 @@ describe('ElectionsService', () => {
       const result = await service.searchPositions({
         zip: '90210',
         displayOfficeLevels: ['City'],
-        electionDateFrom: '2026-01-01',
-        electionDateTo: '2027-12-31',
+        timeframe: 'future',
       })
 
       expect(result).toEqual([sampleRow])
@@ -309,8 +310,7 @@ describe('ElectionsService', () => {
           params: {
             zip: '90210',
             displayOfficeLevels: ['City'],
-            electionDateFrom: '2026-01-01',
-            electionDateTo: '2027-12-31',
+            timeframe: 'future',
           },
         }),
       )

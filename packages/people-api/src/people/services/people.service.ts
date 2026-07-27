@@ -1,5 +1,9 @@
 import { Prisma } from '../../generated/prisma'
 import {
+  PeopleAggregatesResponse,
+  PeopleAggregatesResponseSchema,
+} from '@goodparty_org/contracts'
+import {
   AggregatesDTO,
   GetPersonQueryDTO,
   ListPeopleDTO,
@@ -22,15 +26,10 @@ import { resolveDistrict } from '../utils/resolveDistrict.utils'
 import {
   buildVoterWhereSql,
   isNameSearch,
+  stateEquals,
 } from '../utils/buildVoterWhereSql.utils'
 import { buildAggregatesSql } from '../utils/buildAggregatesSql.utils'
 import { buildHouseholdKeySql } from '../utils/buildHouseholdKeySql.utils'
-
-export type PeopleAggregates = {
-  count: number
-  avgAge: number | null
-  avgIncome: number | null
-}
 
 export const DATABASE_SCHEMA = 'green'
 
@@ -98,7 +97,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       : Prisma.empty
 
     const result = await this.client.$queryRaw<BaseDbPerson[]>(
-      Prisma.sql`${select} FROM "green"."Voter" v WHERE v."id" = ${id}::uuid AND v."State" = CAST(${state}::text AS "public"."USState") ${districtExistsClause}`,
+      Prisma.sql`${select} FROM "green"."Voter" v WHERE v."id" = ${id}::uuid AND ${stateEquals('v', state)} ${districtExistsClause}`,
     )
     const [person] = result
     if (!person) {
@@ -200,7 +199,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
   // Filtered aggregates (COUNT/AVG age/AVG income) for a list-detail page's
   // membership (ENG-10706) — distinct from StatsService.getStats, which only
   // serves the precomputed, unfiltered DistrictStats row.
-  async getAggregates(dto: AggregatesDTO): Promise<PeopleAggregates> {
+  async getAggregates(dto: AggregatesDTO): Promise<PeopleAggregatesResponse> {
     const resolved = await resolveDistrict(this.districtService, dto)
     const { state, useVoterOnlyPath, districtId } = resolved
     const effectiveDistrictId = useVoterOnlyPath ? null : districtId
@@ -219,7 +218,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       filters: dto.filters,
       fenceLimit: FENCE_LIMIT,
     })
-    const rows = await this.queryWithTimeoutFence<{
+    const { rows, fenced } = await this.queryWithTimeoutFence<{
       count: bigint
       avgAge: number | null
       avgIncome: number | null
@@ -230,11 +229,14 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       await this.warnIfStatsButNoVoterRows(effectiveDistrictId, state)
     }
 
-    return {
+    // ENG-10775: gp-api/gp-webapp both validate this shape against the same
+    // contracts schema — parsing it here keeps the producer honest.
+    return PeopleAggregatesResponseSchema.parse({
       count,
       avgAge: row?.avgAge ?? null,
       avgIncome: row?.avgIncome ?? null,
-    }
+      fenced,
+    })
   }
 
   async samplePeople(dto: SamplePeopleDTO) {
@@ -301,10 +303,12 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       FROM (SELECT DISTINCT ${buildHouseholdKeySql('v')} ${fromSql} ${whereClause} LIMIT ${FENCE_LIMIT}) distinct_hh`
       : Prisma.sql`SELECT ${countExpr} AS voter_count
       FROM (SELECT v.* ${fromSql} ${whereClause} LIMIT ${FENCE_LIMIT}) v`
-    const rows = await this.queryWithTimeoutFence<{ voter_count: bigint }>(
-      countSql,
-      fencedCountSql,
-    )
+    // findPeople's pagination.totalResults doesn't carry a fenced flag yet
+    // (out of scope for ENG-10775, which only threads it through the
+    // aggregates/list-detail path) — the flag is discarded here.
+    const { rows } = await this.queryWithTimeoutFence<{
+      voter_count: bigint
+    }>(countSql, fencedCountSql)
 
     const count = Number(rows[0]?.voter_count ?? 0n)
     if (count === 0 && districtId) {
@@ -350,7 +354,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
   private async queryWithTimeoutFence<T>(
     primarySql: Prisma.Sql,
     fencedSql: Prisma.Sql,
-  ): Promise<T[]> {
+  ): Promise<{ rows: T[]; fenced: boolean }> {
     const startedAt = Date.now()
     try {
       const [, rows] = await this.client.$transaction([
@@ -361,7 +365,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
         ),
         this.client.$queryRaw<T[]>(primarySql),
       ])
-      return rows
+      return { rows, fenced: false }
     } catch (error) {
       if (!isStatementTimeoutError(error)) {
         throw error
@@ -370,7 +374,8 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
         { elapsedMs: Date.now() - startedAt },
         'Query hit the statement timeout; retrying with fenced subquery',
       )
-      return this.client.$queryRaw<T[]>(fencedSql)
+      const rows = await this.client.$queryRaw<T[]>(fencedSql)
+      return { rows, fenced: true }
     }
   }
 
