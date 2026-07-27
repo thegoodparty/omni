@@ -159,6 +159,7 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
     return {
       ...ctx,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
+      officeLevel: resolved.level,
     }
   }
 
