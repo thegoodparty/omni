@@ -83,5 +83,13 @@ model TcrCompliance {
   peerlyProfileStatus          String?   @map("peerly_profile_status")
   peerlyProfileStatusChangedAt DateTime? @map("peerly_profile_status_changed_at")
 
+  // Once-only claims for escalating a Peerly-side stall into the shared
+  // vendor Slack Connect channel (ENG-10796): CV stuck IN_REVIEW >3 business
+  // days (case 2) and profile stuck waiting_to_finalize >3 business days
+  // (case 3b). Cleared when the nightly poll observes the record leaving
+  // that state, so a later re-stall escalates again as a new incident.
+  cvInReviewEscalatedAt      DateTime? @map("cv_in_review_escalated_at")
+  finalizeStalledEscalatedAt DateTime? @map("finalize_stalled_escalated_at")
+
   @@map("tcr_compliance")
 }
