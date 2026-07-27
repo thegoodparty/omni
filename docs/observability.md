@@ -41,8 +41,11 @@ A workable default playbook:
 1. **Read the deployed code, not your local copy.** Deployed behavior is whatever
    is on the remote branch, not what your working tree happens to be — and this
    checkout is shared, so `HEAD` may be stale or moved under you by another session.
-   Env → branch: `develop`→dev, `qa`→qa, `master`→prod (people-api is dev/prod
-   only). Before forming a hypothesis: `git fetch origin <branch>`, check how far
+   Env → branch: `develop`→dev, `qa`→qa, `master`→prod. The deployed people-api
+   service (dev/prod only, no qa) no longer has a repo package or branch-driven
+   deploy in omni — it's frozen at whatever was last deployed before the
+   people-db cutover; use its own logs to diagnose it, not this repo's HEAD.
+   Before forming a hypothesis: `git fetch origin <branch>`, check how far
    behind you are (`git rev-list --count HEAD..origin/<branch>`), and read the
    deployed source with `git show origin/<branch>:path/to/file`. A stale checkout
    makes you reason about code that isn't deployed and misread every symptom.

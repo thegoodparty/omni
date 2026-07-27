@@ -7,8 +7,8 @@ that builds filters from plain language. Shared by Win (candidates,
 "voters") and Serve (elected officials, "constituents").
 
 This file is the system-level doc for the whole feature — the flows span
-gp-webapp, gp-api, and people-api, but every flow passes through this
-module, so the map lives here. Webapp UI detail stays in
+gp-webapp and gp-api, but every flow passes through this module, so the map
+lives here. Webapp UI detail stays in
 `packages/gp-webapp/app/dashboard/contacts/CLAUDE.md`; don't duplicate it.
 
 Design source of truth: the CRM tech design
@@ -22,11 +22,13 @@ fixes track under ENG-10744.
 
 ## The mental model — read this before touching anything
 
-- **There is no Contact table.** A "contact" is a people-api `Voter` row
+- **There is no Contact table.** A "contact" is a people-db `Voter` row
   (200M+ L2 records, partitioned Postgres, read-mostly), served live
-  through this module over S2S. `personId` everywhere is people-api
-  `Voter.id` — a stable hash of `LALVOTERID` (~97% month-over-month
-  stability; orphaned enhancement rows from L2 churn are accepted).
+  through `PeopleQueryModule` (`src/peopleDb/`, direct in-process access) or,
+  until the `USE_LOCAL_PEOPLE_DB` cutover finishes, the legacy people-api HTTP
+  client. `personId` everywhere is that Voter row's `id` — a stable hash of
+  `LALVOTERID` (~97% month-over-month stability; orphaned enhancement rows
+  from L2 churn are accepted).
 - **Enhancements live in gp-api Postgres**, keyed
   `(organizationSlug, personId)`: `ContactNote` plus the per-channel
   `ContactInteraction*` models. Orgs are legally isolated — outreach data
@@ -62,18 +64,18 @@ fixes track under ENG-10744.
 
 ## Module map
 
-| Code                                         | Owns                                                                                                                                                                                                 |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/contacts/` (here)                       | Contacts surface: list/search/typeahead, person detail, stats, live count, list-detail, CSV download, notes + manual-interaction routes, people-api proxy, Pro/mode gates, filter-dimensions catalog |
-| `src/contactInteraction/`                    | Per-channel interaction services, activity-condition → person-id-set resolution, derived support status                                                                                              |
-| `src/contactNote/`                           | `ContactNoteService` (CRUD; routes live here in contacts)                                                                                                                                            |
-| `src/contactEngagement/`                     | Per-person unified activity feed (`GET /v1/contact-engagement/:id/activities`)                                                                                                                       |
-| `src/voters/voterFile/`                      | Saved-filter CRUD (`/v1/voters/voter-file/filter*`), lock-on-outreach. See `src/voters/CLAUDE.md`                                                                                                    |
-| `src/outreach/`                              | Outreach CRUD + the CRM write paths: materialization, Peerly completion sweep, Peerly inbound sweep                                                                                                  |
-| `src/vendors/peerly/`                        | Peerly client, phone-list upload + capture (`PeerlyPhoneList[Recipient]`)                                                                                                                            |
-| `src/chats/general/crm-tools/`               | The AI assistant's in-code tools (`count_contacts`, `describe_filter_dimensions`, `crud_saved_filters`)                                                                                              |
-| `packages/people-api`                        | The voter engine: filter pipeline, `id in/notIn`, trigram search, stats/aggregates                                                                                                                   |
-| `packages/gp-webapp/app/dashboard/contacts/` | All UI (own CLAUDE.md)                                                                                                                                                                               |
+| Code                                         | Owns                                                                                                                                                                                                                                            |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/contacts/` (here)                       | Contacts surface: list/search/typeahead, person detail, stats, live count, list-detail, CSV download, notes + manual-interaction routes, direct people-db access (flag-gated) / legacy HTTP fallback, Pro/mode gates, filter-dimensions catalog |
+| `src/contactInteraction/`                    | Per-channel interaction services, activity-condition → person-id-set resolution, derived support status                                                                                                                                         |
+| `src/contactNote/`                           | `ContactNoteService` (CRUD; routes live here in contacts)                                                                                                                                                                                       |
+| `src/contactEngagement/`                     | Per-person unified activity feed (`GET /v1/contact-engagement/:id/activities`)                                                                                                                                                                  |
+| `src/voters/voterFile/`                      | Saved-filter CRUD (`/v1/voters/voter-file/filter*`), lock-on-outreach. See `src/voters/CLAUDE.md`                                                                                                                                               |
+| `src/outreach/`                              | Outreach CRUD + the CRM write paths: materialization, Peerly completion sweep, Peerly inbound sweep                                                                                                                                             |
+| `src/vendors/peerly/`                        | Peerly client, phone-list upload + capture (`PeerlyPhoneList[Recipient]`)                                                                                                                                                                       |
+| `src/chats/general/crm-tools/`               | The AI assistant's in-code tools (`count_contacts`, `describe_filter_dimensions`, `crud_saved_filters`)                                                                                                                                         |
+| `src/peopleDb/`                              | The voter engine, ported in-process: filter pipeline, `id in/notIn`, trigram search, stats/aggregates. See `src/peopleDb/CLAUDE.md`                                                                                                             |
+| `packages/gp-webapp/app/dashboard/contacts/` | All UI (own CLAUDE.md)                                                                                                                                                                                                                          |
 
 Not this feature: `src/crm/` is the HubSpot **company** sync. `WebsiteContact`
 and `EcanvasserContact` are unrelated models.
@@ -84,25 +86,31 @@ All person-facing routes resolve the org via `@UseOrganization()` +
 `X-Organization-Slug`; ownership and org-scoping come from that, Pro
 gating is per-action inside the services (see Access control).
 
-| Route                                                                              | What                                                                                                                                                       |
-| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /v1/contacts`                                                                 | List/search. Small page doubles as the typeahead backend (trigram-backed in people-api)                                                                    |
-| `GET /v1/contacts/:id`                                                             | Person detail (+ derived `supportStatus`, `optedOutAt`)                                                                                                    |
-| `GET /v1/contacts/stats`                                                           | District aggregates (stat cards; open to non-Pro)                                                                                                          |
-| `POST /v1/contacts/count`                                                          | Live count for an unsaved filter (wizard running total; assistant `count_contacts` parity)                                                                 |
+| Route                                                                              | What                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/contacts`                                                                 | List/search. Small page doubles as the typeahead backend (trigram-backed)                                                                                                                                                                                                                                                                                                                                                                                  |
+| `GET /v1/contacts/:id`                                                             | Person detail (+ derived `supportStatus`, `optedOutAt`)                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `GET /v1/contacts/stats`                                                           | District aggregates (stat cards; open to non-Pro)                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `POST /v1/contacts/count`                                                          | Live count for an unsaved filter (wizard running total; assistant `count_contacts` parity)                                                                                                                                                                                                                                                                                                                                                                 |
 | `GET /v1/contacts/list-detail`                                                     | Saved-segment detail (`segment` param): demographics, reachable-by-channel (sms/robocall/phoneBanking/doorKnocking/polls), outreach history. Omitting `segment` returns the universe row's detail instead — the whole unfiltered district, `outreachHistory` always `[]` (ENG-10778). History excludes `doorKnocking` rows (the door-knock tool writes its own interaction rows) and orders null `date`s last with `createdAt` fallback fields (ENG-10776) |
-| `GET /v1/contacts/download`                                                        | CSV COPY stream from people-api: a curated ~54-column subset with friendly headers (`DOWNLOAD_COLUMNS`, ENG-10766), not the raw L2 columns. Serve downloads drop the party **column** via projection (`PARTY_DOWNLOAD_COLUMN`) since a stream can't be post-processed |
-| `GET/POST /v1/contacts/:personId/notes`, `PATCH/DELETE /v1/contacts/notes/:noteId` | Notes CRUD, org-scoped (cross-org id = 404)                                                                                                                |
-| `POST /v1/contacts/:personId/interactions`                                         | Manual interaction log. **No webapp caller** (UI removed in ENG-10711); the API stays                                                                      |
-| `GET /v1/contact-engagement/:id/activities`                                        | Unified feed: interactions + polls + legacy outreach rows. Notes are deliberately excluded (ENG-10780) — they live only in the dedicated Notes section, never the feed |
-| `POST /v1/voters/voter-file/filter`, `GET /filters`, `GET/PUT/DELETE /filter/:id`  | Saved-filter CRUD; PUT/DELETE 409 once locked                                                                                                              |
-| `POST /v1/outreach`                                                                | Outreach create (draft-first); launch triggers materialization                                                                                             |
+| `GET /v1/contacts/download`                                                        | CSV COPY stream: a curated ~54-column subset with friendly headers (`DOWNLOAD_COLUMNS`, ENG-10766), not the raw L2 columns. Serve downloads drop the party **column** via projection (`PARTY_DOWNLOAD_COLUMN`) since a stream can't be post-processed                                                                                                                                                                                                      |
+| `GET/POST /v1/contacts/:personId/notes`, `PATCH/DELETE /v1/contacts/notes/:noteId` | Notes CRUD, org-scoped (cross-org id = 404)                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `POST /v1/contacts/:personId/interactions`                                         | Manual interaction log. **No webapp caller** (UI removed in ENG-10711); the API stays                                                                                                                                                                                                                                                                                                                                                                      |
+| `GET /v1/contact-engagement/:id/activities`                                        | Unified feed: interactions + polls + legacy outreach rows. Notes are deliberately excluded (ENG-10780) — they live only in the dedicated Notes section, never the feed                                                                                                                                                                                                                                                                                     |
+| `POST /v1/voters/voter-file/filter`, `GET /filters`, `GET/PUT/DELETE /filter/:id`  | Saved-filter CRUD; PUT/DELETE 409 once locked                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `POST /v1/outreach`                                                                | Outreach create (draft-first); launch triggers materialization                                                                                                                                                                                                                                                                                                                                                                                             |
 
-people-api (S2S only, JWT `iss: gp-api` / `aud: people-api`, minted in
-`contacts.service.ts`): `POST /v1/people` (list/count), `GET /v1/people/:id`,
-`POST /v1/people/download`, `GET /v1/people/stats`, `POST /v1/people/aggregates`,
-sample routes. people-api has no user-facing routes and enforces district
-scoping via its district join — the id-list filter can't enumerate outside
+Underlying people data access is flag-gated in `ContactsService`
+(`USE_LOCAL_PEOPLE_DB`, read per-call so it can be toggled without a
+redeploy): `true` routes list/count, person detail, download, stats,
+aggregates, and sample lookups to `PeopleQueryModule` services in-process
+(`src/peopleDb/`); the default (unset/`false`) still calls the legacy
+people-api HTTP client (S2S JWT `iss: gp-api` / `aud: people-api`, minted in
+`contacts.service.ts`: `POST /v1/people`, `GET /v1/people/:id`,
+`POST /v1/people/download`, `GET /v1/people/stats`,
+`POST /v1/people/aggregates`, sample routes) until a follow-up removes the
+fallback. Either path has no user-facing routes and enforces district
+scoping via a district join — the id-list filter can't enumerate outside
 the org's district.
 
 ## Data model
@@ -131,6 +139,7 @@ not null; robocall `answered`/`voicemail_left` from their timestamps,
 webapp → `GET /v1/contacts` → `ContactsService.findContacts` → resolve
 filters (`convertVoterFileFilterToFilters` in
 `utils/voterFileFilter.utils.ts` + activity/support resolution below) →
+`VoterQueryService.findPeople` (`USE_LOCAL_PEOPLE_DB`) or the legacy
 people-api `POST /v1/people` → join/strip (party choke point
 `stripPartyIfElectedOffice`) → respond. Typeahead is the same endpoint
 with a small page; person detail adds derived `supportStatus` and
@@ -145,8 +154,8 @@ condition to a `personId` set with plain SQL over the channel's
 `contact_interaction_*` table (scoped to `outreachId` when named,
 restricted to selected outcomes when `actions` is non-empty); sets
 AND-compose. `SupportStatusService` resolves the support buckets the same
-way. Both travel to people-api as `id: { in | notIn }` on the Voter PK —
-a `::uuid[]` SQL builder in people-api's filter pipeline
+way. Both travel to the voter engine as `id: { in | notIn }` on the Voter
+PK — a `::uuid[]` SQL builder in `src/peopleDb`'s filter pipeline
 (`filters.schema.ts` → `transformFilters` → `buildVoterFiltersSql`),
 **capped at 100k ids** (400 beyond; the trigger to revisit the projection
 fallback). A condition naming a specific `outreachId` only accepts
@@ -245,9 +254,9 @@ under its own `service_name`). Frontend errors: Sentry org `goodparty`.
 | 409 on filter edit/delete                                    | `firstUsedForOutreachAt` is stamped — by design (duplicate to edit). A filter `updatedAt` newer than its stamp would be a real bug                                                                                                                                     |
 | Party visible to a Serve org                                 | The choke points are `stripPartyIfElectedOffice` + the download projection. Treat as a sev bug (license)                                                                                                                                                               |
 | Non-Pro sees real voter rows                                 | Must be impossible — `previewContacts.utils.ts` fabricates rows. Check nothing bypasses `findContacts`'s pro branch                                                                                                                                                    |
-| Empty contacts page on dev                                   | Dev people-api genuinely lacks person rows for many districts (district-specific, not dev-wide). Stats can exist while rows don't — people-api warns on this since ENG-10745. Cheyenne WY 82001 has dev rows                                                           |
-| Typeahead empty / slow                                       | pg_trgm GIN indexes on `lower(FirstName)`/`lower(LastName)` per state partition. They are rebuilt by the data platform's cluster-rebuild loader — a manual index not registered with the loader vanishes at the next ETL rebuild (see people-api docs)                 |
-| Filter 400 "too many ids"                                    | The 100k id-set cap in people-api — an activity/support condition resolved to more people than the transport allows. Logged; the projection fallback is the designed escape                                                                                            |
+| Empty contacts page on dev                                   | Dev people-db genuinely lacks person rows for many districts (district-specific, not dev-wide). Stats can exist while rows don't — warned on since ENG-10745. Cheyenne WY 82001 has dev rows                                                                           |
+| Typeahead empty / slow                                       | pg_trgm GIN indexes on `lower(FirstName)`/`lower(LastName)` per state partition. They are rebuilt by the data platform's cluster-rebuild loader — a manual index not registered with the loader vanishes at the next ETL rebuild (see `src/peopleDb/CLAUDE.md`)        |
+| Filter 400 "too many ids"                                    | The 100k id-set cap in `src/peopleDb`'s filter pipeline — an activity/support condition resolved to more people than the transport allows. Logged; the projection fallback is the designed escape                                                                      |
 | Assistant refuses / weird tool behavior                      | Flags `win-crm`/`serve-crm` for the user (server-evaluated); locked-filter 409 surfaces as an explanation. Note gp-api-dev evaluates flags against the PROD Amplitude project                                                                                          |
 | Feed missing legacy Win outreach rows                        | Legacy `VoterOutreachActivity` rows render only during the sunset and only for Win; new channels need a feed-mapping branch in `ContactEngagementService` + a `ConstituentActivity` variant                                                                            |
 
@@ -272,8 +281,9 @@ over interaction rows with a non-null `support_answer`; a "list" =
   existed for them); `polls` mirrors the sms (has-cell-phone) count 1:1.
 - Age filter ranges are mutually exclusive since ENG-10752/10753; the
   catalog + `voterFilterBase.schema.ts` own the vocabulary.
-- Download does not re-apply a stored `search` (people-api `/download`
-  has no search param) — long-standing quirk, don't "fix" casually.
+- Download does not re-apply a stored `search` (the download path has no
+  search param, on either the local or people-api HTTP path) —
+  long-standing quirk, don't "fix" casually.
 - The wizard blocks zero-filter lists and Serve drops outreach
   affordances (ENG-10749–10751).
 - New interaction writes must be DB-level idempotent (upsert on the
@@ -289,8 +299,8 @@ over interaction rows with a non-null `support_answer`; a "list" =
   `tests/contactsAgeFilters.routes.test.ts`, `contacts.e2e.ts`.
   Assistant/UI parity: `chats/general/crm-tools/countContactsParity.routes.test.ts`.
 - Resolution + derivation: `src/contactInteraction/tests/`.
-- people-api SQL builders: `filters.sql.utils.test.ts` pattern (assert
-  SQL string + params).
+- `src/peopleDb` SQL builders: `filters.sql.util.test.ts` pattern (assert
+  SQL string + params; mock-based, no live DB — see `src/peopleDb/CLAUDE.md`).
 - Webapp e2e (hard merge gate): `e2e-tests/tests/app/contacts/*.spec.ts`
   — flags forced via the override cookie; the assistant spec stubs the
   whole chat round trip (and blocks service workers so stubs intercept).

@@ -50,7 +50,7 @@ The consumer file is large (~1100 lines). A future refactor will split per-`Queu
 ## Cross-service edges
 
 - `gp-webapp` -> `gp-api`: JWT cookie
-- `gp-api` -> `people-api`: S2S JWT signed with `PEOPLE_API_S2S_SECRET`
+- `gp-api` -> `people-db`: direct Prisma access (`src/peopleDb/`, `USE_LOCAL_PEOPLE_DB`); falls back to the legacy `people-api` service over S2S JWT (`PEOPLE_API_S2S_SECRET`) until that path is removed
 - `gp-api` -> `election-api`: HTTP, internal
 - `gp-api` -> `gp-ai-projects`: HTTP
 
