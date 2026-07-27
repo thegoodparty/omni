@@ -146,6 +146,14 @@ export class P2pPhoneListUploadService {
     // Capture rows are only written once Peerly confirms it has the list —
     // both throws above happen before this line, so a list Peerly never
     // received can never gain capture rows.
+    //
+    // The reported count is the candidate opt-out set size, not a
+    // post-composition truth: if this org's support-status "unknown"
+    // notIn resolution is itself large, ContactsService may drop the
+    // opt-out merge to stay under people-api's id-filter cap
+    // (excludePersonIdsFromResolution) — logged loudly there, but this
+    // count won't reflect it. Rare (both sets have to be near-cap at
+    // once) and acceptable for the observability this column exists for.
     await this.peerlyPhoneListCapture.recordUpload({
       organizationSlug: campaign.organizationSlug,
       campaignId: campaign.id,

@@ -20,6 +20,7 @@ import { SUPPORT_STATUS_UNKNOWN } from 'src/contactInteraction/contactInteractio
 import {
   ActivityConditionResolutionService,
   type IdFilterResolution,
+  MAX_RESOLVED_ID_SET_SIZE,
 } from 'src/contactInteraction/services/activityConditionResolution.service'
 import { ContactInteractionTextService } from 'src/contactInteraction/services/contactInteractionText.service'
 import { SupportStatusService } from 'src/contactInteraction/services/supportStatus.service'
@@ -1148,13 +1149,29 @@ export class ContactsService {
       return { kind: 'filter', idFilter: { notIn: [...excludePersonIds] } }
     }
     if ('notIn' in resolution.idFilter) {
+      const merged = new Set([
+        ...resolution.idFilter.notIn,
+        ...excludePersonIds,
+      ])
+      // Both inputs are independently capped at MAX_RESOLVED_ID_SET_SIZE
+      // (activityConditionResolution's own notIn, and resolveOptOutScrub's
+      // opt-out set) — their union isn't. An org with a large
+      // support-status-unknown complement AND a large opt-out history can
+      // combine past the people-api transport cap, which would 400 the
+      // send. Drop the opt-out exclusion rather than fail the request; the
+      // scrub is best-effort, not a hard requirement.
+      if (merged.size > MAX_RESOLVED_ID_SET_SIZE) {
+        this.logger.warn(
+          { size: merged.size, cap: MAX_RESOLVED_ID_SET_SIZE },
+          'Opt-out scrub combined with an existing notIn resolution ' +
+            'exceeds the people-api id-filter cap — dropping the opt-out ' +
+            'exclusion for this request rather than failing it',
+        )
+        return resolution
+      }
       return {
         kind: 'filter',
-        idFilter: {
-          notIn: [
-            ...new Set([...resolution.idFilter.notIn, ...excludePersonIds]),
-          ],
-        },
+        idFilter: { notIn: [...merged] },
       }
     }
     const remaining = resolution.idFilter.in.filter(

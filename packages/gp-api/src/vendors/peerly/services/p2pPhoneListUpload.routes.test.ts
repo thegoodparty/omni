@@ -484,6 +484,54 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
       expect(capturedList?.excludedOptedOutCount).toBe(0)
     },
   )
+
+  it(
+    'drops the opt-out merge (not the send) when it would combine with an ' +
+      'existing notIn resolution past the people-api id-filter cap',
+    { timeout: 45_000 },
+    async () => {
+      await seedWinCampaign()
+      // supportStatus: ['unknown'] resolves to a notIn of every known
+      // (non-unknown) support answer — seed enough door-knock rows that this
+      // notIn alone is large, then seed an opt-out set that only pushes the
+      // *combination* over the cap (each set stays under the cap on its
+      // own, matching the two independent caps this scenario exercises).
+      await service.prisma.$executeRaw`
+        INSERT INTO contact_interaction_door_knock (id, organization_slug, person_id, occurred_at, outcome, support_answer)
+        SELECT gen_random_uuid()::text, ${WIN_SLUG}, 'known-cap-' || gen_series, now(), 'answered', 'supporter'
+        FROM generate_series(1, 60000) AS gen_series
+      `
+      await service.prisma.$executeRaw`
+        INSERT INTO contact_interaction_text (id, organization_slug, person_id, occurred_at, opted_out_at)
+        SELECT gen_random_uuid()::text, ${WIN_SLUG}, 'optout-cap-' || gen_series, now(), now()
+        FROM generate_series(1, 50000) AS gen_series
+      `
+
+      const post = stubPeopleApi([personPayload()])
+      stubPeerlyUpload()
+
+      const result = await service.client.post(
+        '/v1/p2p/phone-list',
+        { name: 'Combined cap', supportStatus: ['unknown'] },
+        { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+      )
+
+      expect(result.status).toBe(201)
+      const peopleCall = post.mock.calls.find((call) =>
+        String(call[0]).includes('/v1/people'),
+      )
+      const sentNotIn = (
+        peopleCall?.[1] as {
+          filters: { id: { notIn: string[] } }
+        }
+      ).filters.id.notIn
+      // The support-status notIn resolution rode through unchanged (60k);
+      // the opt-out ids did NOT get unioned in — proof the merge was
+      // dropped rather than sent past the cap or blocking the send.
+      expect(sentNotIn).toHaveLength(60_000)
+      expect(sentNotIn.some((id) => id.startsWith('optout-cap-'))).toBe(false)
+    },
+  )
 })
 
 describe('GET /v1/p2p/phone-list/:token/status (ENG-10728 peerlyListId stamping)', () => {
