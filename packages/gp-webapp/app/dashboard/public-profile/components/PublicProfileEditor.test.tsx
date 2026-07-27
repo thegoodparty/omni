@@ -187,6 +187,82 @@ describe('PublicProfileEditor — mutations', () => {
       ),
     )
   })
+
+  it('unpublishes a published profile via the header toggle', async () => {
+    render(
+      <PublicProfileEditor
+        product="win"
+        initialProfile={profile({ publishedAt: '2026-01-01T00:00:00.000Z' })}
+        canCreate
+        priorities={[]}
+      />,
+    )
+    await userEvent.click(screen.getByRole('switch'))
+    await waitFor(() =>
+      expect(mockedRequest).toHaveBeenCalledWith(
+        'POST /v1/person-profiles/mine/unpublish',
+        {},
+      ),
+    )
+  })
+
+  it('saves authored Recent Experience and Accomplishments in the PUT payload', async () => {
+    render(
+      <PublicProfileEditor
+        product="serve"
+        initialProfile={profile()}
+        canCreate
+        priorities={[]}
+      />,
+    )
+
+    // Recent Experience: add a row and fill it. Labels are unique to this editor
+    // until an accomplishment row (which also has a "Title") is added below.
+    await userEvent.click(
+      screen.getByRole('button', { name: /add experience/i }),
+    )
+    await userEvent.type(screen.getByLabelText('Title'), 'Mayor')
+    await userEvent.type(
+      screen.getByLabelText('Organization'),
+      'City of Springfield',
+    )
+    await userEvent.type(screen.getByLabelText('Term / dates'), '2020 - 2024')
+
+    // Accomplishments: target the (unique) placeholder to avoid the shared "Title".
+    await userEvent.click(
+      screen.getByRole('button', { name: /add accomplishment/i }),
+    )
+    await userEvent.type(
+      screen.getByPlaceholderText('Passed the tree-canopy ordinance'),
+      'Balanced the budget',
+    )
+
+    await userEvent.click(
+      screen.getAllByRole('button', { name: /save changes/i })[0]!,
+    )
+
+    const put = mockedRequest.mock.calls.find(
+      ([endpoint]) => endpoint === 'PUT /v1/person-profiles/mine',
+    )
+    expect(put).toBeDefined()
+    const body = put![1] as {
+      recentExperience: unknown[]
+      accomplishments: unknown[]
+    }
+    // Owner-authored experience is tagged source:'user' so the public page can
+    // distinguish it from the BallotReady-seeded spine rows.
+    expect(body.recentExperience).toEqual([
+      {
+        title: 'Mayor',
+        organization: 'City of Springfield',
+        term: '2020 - 2024',
+        source: 'user',
+      },
+    ])
+    expect(body.accomplishments).toEqual([
+      { title: 'Balanced the budget', description: '', date: '' },
+    ])
+  })
 })
 
 describe('PublicProfileEditor — priorities publication (serve)', () => {
