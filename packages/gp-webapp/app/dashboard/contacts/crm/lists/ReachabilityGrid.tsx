@@ -1,4 +1,5 @@
 import type { ListDetailReachability } from '../shared/contacts-types'
+import { formatFencedCount } from '../shared/formatFencedCount.util'
 import { REACHABILITY_CHANNELS } from '../shared/reachabilityChannels'
 import { SectionLabel, StatTile } from './ListDetailSection'
 
@@ -28,7 +29,7 @@ export default function ReachabilityGrid({
               label={label}
               value={
                 typeof value === 'number'
-                  ? value.toLocaleString()
+                  ? formatFencedCount(value, reachability?.fenced?.[key])
                   : 'Unavailable'
               }
             />
