@@ -28,7 +28,7 @@
     "sync:repo": "bash scripts/sync-repo.sh",
     "migrate:pr": "bash scripts/migrate-pr.sh",
     "generate:prisma": "npm run generate:prisma:gp-api && npm run generate:prisma:election-api",
-    "generate:prisma:gp-api": "npx prisma generate --schema=packages/gp-api/prisma/schema",
+    "generate:prisma:gp-api": "npx prisma generate --schema=packages/gp-api/prisma/schema && npx prisma generate --schema=packages/gp-api/prisma-people/schema",
     "generate:prisma:election-api": "npx prisma generate --schema=packages/election-api/prisma/schema",
     "dev": "bash scripts/dev.sh",
     "ai-rules:update": "git submodule update --remote ai-rules",
