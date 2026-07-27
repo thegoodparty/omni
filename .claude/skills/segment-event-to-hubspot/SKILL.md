@@ -41,6 +41,22 @@ is automated.
 - Never delete or rename existing HubSpot properties, event definitions, or
   Segment subscriptions. This skill only adds.
 
+## Phase 0 — event discovery (when the user doesn't name an exact event)
+
+Users usually arrive with a product description ("the briefing skip thing",
+"when someone upgrades to pro"), not a registry string. Resolve it:
+
+1. Read the `EVENTS` registry in
+   `packages/gp-api/src/vendors/segment/segment.types.ts` (grouped by
+   domain) and match candidates against the user's description. Remember
+   the two Briefing Assistant string-literal events that bypass it.
+2. If several candidates fit, show a short table: event name, what fires it
+   (one line from its call site), and whether it is already mapped (compare
+   against `segment_destination_mapping.py list-subscriptions` for the
+   `HubSpot Backend` destination). Let the user pick.
+3. If nothing fits, the event may not exist yet — that's an
+   instrument-analytics-event job in gp-api first, not a mapping job.
+
 ## Phase 1 — resolve the event's schema from code
 
 gp-api code is the source of truth (not the Segment debugger, not the
