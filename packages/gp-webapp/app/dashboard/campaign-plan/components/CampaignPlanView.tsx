@@ -15,7 +15,6 @@ import { useCampaignPlanData } from 'app/onboarding/success/hooks/useCampaignPla
 import { useGenerationTiming } from 'app/onboarding/success/hooks/useGenerationTiming'
 import CampaignStrategySection from './campaignStrategy/CampaignStrategySection'
 import CampaignTrackerHero from './CampaignTrackerHero'
-import { useCampaignManagerChat } from '../../campaign-manager/CampaignManagerChatProvider'
 
 const planEvents = EVENTS.Dashboard.CampaignPlan
 
@@ -37,11 +36,6 @@ const CampaignPlanView = ({
 }: CampaignPlanViewProps): React.JSX.Element => {
   const router = useRouter()
   const [campaign] = useCampaign()
-  // The tracker lives inside the always-present campaign-manager dock (the
-  // story cohort), so the "Campaign Manager" button opens the chat in place
-  // instead of navigating home. The legacy (story-off) cohort has no dock
-  // mounted, so the hook returns null and we fall back to navigation.
-  const chat = useCampaignManagerChat()
   // The campaign tracker is the story cohort's experience; the story-off
   // (legacy) cohort sees the old plan content + community events and no
   // tracker. trackExposure=false: the campaign-story page is the treatment
@@ -136,13 +130,13 @@ const CampaignPlanView = ({
     trackEvent(planEvents.PlanShared, { campaignId, method })
   }
 
+  // Story-off (legacy) only: the plan's bottom "Campaign Manager" button
+  // navigates home. On the story cohort the bottom bar is hidden (the
+  // always-present footer chat dock is the manager entry point), so this
+  // doesn't fire there.
   const handleContinue = (source: PlanContinueSource) => {
     trackEvent(planEvents.CampaignManagerClicked, { campaignId, source })
-    if (chat) {
-      chat.openManager()
-    } else {
-      router.push('/dashboard')
-    }
+    router.push('/dashboard')
   }
 
   // Wait for the flag so we don't flash the wrong cohort's layout (story-off
@@ -222,6 +216,7 @@ const CampaignPlanView = ({
       <PlanView
         showHero={false}
         showBottomDownload={false}
+        showBottomBar={false}
         plan={data.plan}
         planReady={data.planReady}
         state={data.state}
