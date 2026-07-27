@@ -83,6 +83,39 @@ describe('owner profile lifecycle', () => {
     expect(res.data.whyRunning).toBe('For the parks')
   })
 
+  it('round-trips the §4 contact + recent-experience fields', async () => {
+    // The three fields added for the profile-editor overlay (office phone,
+    // government website, structured recent experience) must survive a full
+    // write→read cycle, not just be accepted by the DTO.
+    const recentExperience = [
+      {
+        title: 'City Council Member, Ward 3',
+        organization: 'City of Springfield',
+        term: '2021–2025',
+        source: 'user' as const,
+      },
+    ]
+    const put = await service.client.put(MINE, {
+      officePhone: '(555) 987-6543',
+      governmentWebsiteUrl: 'https://springfield.gov/council/jane',
+      recentExperience,
+    })
+    expect(put.status).toBe(200)
+    expect(put.data.officePhone).toBe('(555) 987-6543')
+    expect(put.data.governmentWebsiteUrl).toBe(
+      'https://springfield.gov/council/jane',
+    )
+    expect(put.data.recentExperience).toEqual(recentExperience)
+
+    // Persisted, not just echoed back from the request body.
+    const mine = await service.client.get(MINE)
+    expect(mine.data.profile.officePhone).toBe('(555) 987-6543')
+    expect(mine.data.profile.governmentWebsiteUrl).toBe(
+      'https://springfield.gov/council/jane',
+    )
+    expect(mine.data.profile.recentExperience).toEqual(recentExperience)
+  })
+
   it('publishes and unpublishes', async () => {
     const published = await service.client.post(
       '/v1/person-profiles/mine/publish',
