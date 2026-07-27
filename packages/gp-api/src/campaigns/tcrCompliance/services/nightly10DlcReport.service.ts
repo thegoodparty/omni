@@ -532,10 +532,14 @@ export class Nightly10DlcReportService extends createPrismaBase(
       return
     }
 
+    // Suppress per-identity Slack alerts on both reads — a Peerly outage
+    // during the poll would otherwise page once per record; the report and
+    // logs are the surface here.
     const cvStatus =
       await this.peerlyIdentityService.retrieveCampaignVerifyStatus(
         peerlyIdentityId,
         record.campaign,
+        { suppressSlackAlert: true },
       )
 
     const data: Prisma.TcrComplianceUpdateInput = {}
