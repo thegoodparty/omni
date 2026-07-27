@@ -48,8 +48,14 @@ pulumi config set --path aws:defaultTags.tags.Project people-api
 # Migration guard: the rdsAdminRole is being handed off to Terraform
 # (gp-terraform-dataplatform). This program no longer declares it, so if it is
 # still present in Pulumi state, `pulumi up` would delete the live IAM role that
-# Terraform now owns. Fail fast until the state hand-off is done.
-if pulumi stack export 2>/dev/null | grep -q 'rdsAdminRole'; then
+# Terraform now owns. Fail fast until the state hand-off is done. Capture the
+# export first so a failed read aborts the deploy rather than silently skipping
+# the check (an empty pipe would make grep report "no match").
+if ! STACK_EXPORT=$(pulumi stack export); then
+  echo "Error: could not read Pulumi state for $env to run the rdsAdminRole migration guard."
+  exit 1
+fi
+if echo "$STACK_EXPORT" | grep -q 'rdsAdminRole'; then
   echo "Error: rdsAdminRole is still in Pulumi state for $env. Run 'pulumi state delete <rdsAdminRole urn>' on this stack before deploying (see gp-terraform-dataplatform loader_iam.tf)."
   exit 1
 fi
