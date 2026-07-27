@@ -63,8 +63,11 @@ interface ListDetailSheetProps {
 // outreach-history table, with Download + Send outreach pinned to the sheet
 // footer. ENG-10778 adds a universe mode (listId === ALL_SEGMENTS, the "All
 // voters"/"All constituents" row): demographics + reachability only — no
-// segment to key a kebab, filter summary, lock state, outreach history, or
-// footer on.
+// segment to key a kebab, filter summary, lock state, or outreach history
+// on. ENG-10809 restores the footer's Download button for universe mode too
+// (GET /v1/contacts/download resolves an omitted/'all' segment to the whole
+// district server-side) — Send outreach stays list-only since the universe
+// row's own card already carries that button.
 export default function ListDetailSheet({
   listId,
   onClose,
@@ -273,7 +276,7 @@ export default function ListDetailSheet({
         )
       }
       footer={
-        isUniverse ? undefined : segment ? (
+        isUniverse || segment ? (
           <div className="flex items-center gap-3">
             <Button
               variant="outline"
@@ -291,8 +294,9 @@ export default function ListDetailSheet({
             {/* ENG-10749: Win-only — Serve outreach is deferred and the
                 link dead-ends for an eo- org; the readiness gate avoids
                 flashing the button at a Serve user while the mode
-                resolves. */}
-            {isWinContextReady && isWinContext && (
+                resolves. `segment` also excludes universe mode — that
+                row's own card carries its own Send outreach button. */}
+            {segment && isWinContextReady && isWinContext && (
               <Button className="h-11 flex-1 text-sm" asChild>
                 <Link
                   href={`/dashboard/outreach?listId=${segment.id}`}
