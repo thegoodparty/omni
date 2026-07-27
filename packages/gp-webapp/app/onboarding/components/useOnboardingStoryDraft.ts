@@ -90,13 +90,15 @@ export const useOnboardingStoryDraft = (
 
   const persistWhy = async (): Promise<boolean> => {
     const ok = await saveAboutFields({ bio: why })
-    invalidateWebsite()
+    // Only refresh the cache on a confirmed write; invalidating after a failed
+    // save would refetch and overwrite the cache with the pre-write value.
+    if (ok) invalidateWebsite()
     return ok
   }
 
   const persistIssues = async (): Promise<boolean> => {
     const ok = await saveAboutFields({ issues })
-    invalidateWebsite()
+    if (ok) invalidateWebsite()
     return ok
   }
 
