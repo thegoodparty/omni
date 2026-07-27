@@ -516,6 +516,33 @@ describe('VoterDownloadService', () => {
       )
     })
 
+    it('applies a caller-provided filename and extraHeaders instead of the default', async () => {
+      const { res, raw } = makeRawResponse()
+      const completion = service.streamPeopleCsv(
+        {
+          districtId: DISTRICT_UUID,
+          filters: { filters: [], filterOperators: {} },
+        } as never,
+        res,
+        {
+          filename: 'contacts.csv',
+          extraHeaders: { 'Set-Cookie': 'gp_download=abc123' },
+        },
+      )
+
+      copyStream.end()
+      await completion
+
+      expect(raw.setHeader).toHaveBeenCalledWith(
+        'Content-Disposition',
+        'attachment; filename="contacts.csv"',
+      )
+      expect(raw.setHeader).toHaveBeenCalledWith(
+        'Set-Cookie',
+        'gp_download=abc123',
+      )
+    })
+
     it('does not flush response headers when pool.connect fails', async () => {
       mockPoolConnect.mockRejectedValueOnce(new Error('pool exhausted'))
 

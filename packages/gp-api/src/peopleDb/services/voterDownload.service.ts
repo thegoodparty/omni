@@ -86,6 +86,10 @@ export class VoterDownloadService
   async streamPeopleCsv(
     dto: DownloadPeopleDTO,
     res: FastifyReply,
+    responseOptions?: {
+      filename?: string
+      extraHeaders?: Record<string, string>
+    },
   ): Promise<void> {
     const { state, useVoterOnlyPath, districtId } = await resolveDistrict(
       this.districtService,
@@ -148,8 +152,13 @@ export class VoterDownloadService
     res.raw.setHeader('Content-Type', 'text/csv')
     res.raw.setHeader(
       'Content-Disposition',
-      'attachment; filename="people.csv"',
+      `attachment; filename="${responseOptions?.filename ?? 'people.csv'}"`,
     )
+    for (const [key, value] of Object.entries(
+      responseOptions?.extraHeaders ?? {},
+    )) {
+      res.raw.setHeader(key, value)
+    }
     if (!res.raw.headersSent) {
       res.raw.flushHeaders()
     }

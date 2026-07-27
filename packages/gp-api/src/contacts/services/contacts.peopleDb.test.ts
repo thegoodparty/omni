@@ -443,6 +443,12 @@ describe('ContactsService — USE_LOCAL_PEOPLE_DB parity', () => {
           excludeColumns: ['Parties_Description'],
         }),
         res,
+        expect.objectContaining({
+          filename: 'contacts.csv',
+          extraHeaders: expect.objectContaining({
+            'Set-Cookie': expect.stringMatching(/^gp_download=/),
+          }),
+        }),
       )
       expect(mockHttpService.post).not.toHaveBeenCalled()
     })

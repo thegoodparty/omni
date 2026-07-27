@@ -865,6 +865,9 @@ export class ContactsService {
     res: FastifyReply,
   ): Promise<void> {
     if (this.useLocalPeopleDb()) {
+      const gpDownloadCookie =
+        `gp_download=${randomUUID()}; Path=/; Max-Age=30; ` +
+        `SameSite=Lax; Secure`
       return this.voterDownloadService.streamPeopleCsv(
         DownloadPeopleDTO.create({
           ...districtParams,
@@ -873,6 +876,10 @@ export class ContactsService {
           excludeColumns,
         }),
         res,
+        {
+          filename: 'contacts.csv',
+          extraHeaders: { 'Set-Cookie': gpDownloadCookie },
+        },
       )
     }
 
