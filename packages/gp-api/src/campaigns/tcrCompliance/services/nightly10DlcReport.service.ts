@@ -696,17 +696,24 @@ export class Nightly10DlcReportService extends createPrismaBase(
             }
             throw err
           })
-        const profileStatus = profileResponse?.profile?.status ?? null
-        if (profileStatus !== record.peerlyProfileStatus) {
-          data.peerlyProfileStatus = profileStatus
-          data.peerlyProfileStatusChangedAt = new Date()
-          // Same reset for case 3b — leaving waiting_to_finalize re-arms
-          // the escalation for a future stall.
-          if (
-            record.peerlyProfileStatus ===
-            PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE
-          ) {
-            data.finalizeStalledEscalatedAt = null
+        // A `null` response is an empty-body success or a swallowed API
+        // error upstream (`data || null`) — a transient non-answer, so keep
+        // the stored value (mirrors the null-CV guard above). The 404 path
+        // resolves to `undefined` and IS definitive: the identity is gone,
+        // so fall through and clear the stale status.
+        if (profileResponse !== null) {
+          const profileStatus = profileResponse?.profile?.status ?? null
+          if (profileStatus !== record.peerlyProfileStatus) {
+            data.peerlyProfileStatus = profileStatus
+            data.peerlyProfileStatusChangedAt = new Date()
+            // Same reset for case 3b — leaving waiting_to_finalize re-arms
+            // the escalation for a future stall.
+            if (
+              record.peerlyProfileStatus ===
+              PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE
+            ) {
+              data.finalizeStalledEscalatedAt = null
+            }
           }
         }
       } catch (err) {

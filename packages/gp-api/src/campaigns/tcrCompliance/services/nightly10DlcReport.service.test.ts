@@ -594,6 +594,23 @@ describe('Nightly10DlcReportService', () => {
       ).toHaveBeenCalledTimes(120)
     })
 
+    it('keeps a stored profile status when getProfile succeeds with an empty body', async () => {
+      mockModel.findMany.mockResolvedValueOnce([
+        pollRecord({
+          peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+          peerlyProfileStatus: PEERLY_PROFILE_STATUS_PENDING,
+        }),
+      ])
+      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
+        PeerlyCvVerificationStatus.VERIFIED,
+      )
+      mockPeerlyIdentity.getIdentityProfile.mockResolvedValueOnce(null)
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      expect(mockModel.update).not.toHaveBeenCalled()
+    })
+
     it('clears a stale profile status when getProfile 404s (identity gone)', async () => {
       mockModel.findMany.mockResolvedValueOnce([
         pollRecord({
