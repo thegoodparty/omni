@@ -572,10 +572,17 @@ export class Nightly10DlcReportService extends createPrismaBase(
             }
             throw err
           })
-        const profileStatus = profileResponse?.profile?.status ?? null
-        if (profileStatus !== record.peerlyProfileStatus) {
-          data.peerlyProfileStatus = profileStatus
-          data.peerlyProfileStatusChangedAt = new Date()
+        // A `null` response is an empty-body success or a swallowed API
+        // error upstream (`data || null`) — a transient non-answer, so keep
+        // the stored value (mirrors the null-CV guard above). The 404 path
+        // resolves to `undefined` and IS definitive: the identity is gone,
+        // so fall through and clear the stale status.
+        if (profileResponse !== null) {
+          const profileStatus = profileResponse?.profile?.status ?? null
+          if (profileStatus !== record.peerlyProfileStatus) {
+            data.peerlyProfileStatus = profileStatus
+            data.peerlyProfileStatusChangedAt = new Date()
+          }
         }
       } catch (err) {
         // A failed profile read must not discard the CV observation already
