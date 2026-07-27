@@ -181,7 +181,10 @@ const PlanView = ({
   return (
     <div
       className={cn(
-        'text-foreground relative min-h-screen w-full pb-28',
+        'text-foreground relative min-h-screen w-full',
+        // Only reserve space for the fixed bottom bar when it's actually
+        // rendered; without the bar (story tracker) pb-28 is dead space.
+        showBottomBar && 'pb-28',
         rootClassName ?? 'bg-base-surface',
       )}
     >
