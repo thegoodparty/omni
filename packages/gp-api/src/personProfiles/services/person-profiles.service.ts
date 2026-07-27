@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { BadRequestException, Injectable } from '@nestjs/common'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { Prisma } from '../../generated/prisma'
 import {
@@ -97,7 +97,41 @@ export class PersonProfilesService extends createPrismaBase(
   }
 
   // Replaces the owner's per-issue publication settings atomically.
-  async replaceIssues(personProfileId: string, issues: ProfileIssueInput[]) {
+  async replaceIssues(
+    personProfileId: string,
+    issues: ProfileIssueInput[],
+    ownerUserId: number,
+  ) {
+    // Ownership guard (IDOR): a Priority is owned through its
+    // ElectedOffice.userId, and PersonProfileIssue only FKs Priority.id with no
+    // user-scoping constraint. Without this check a caller could publish an
+    // arbitrary issueId — `withIssues` would then surface another user's
+    // Priority title/description on this profile. Only accept issueIds whose
+    // Priority belongs to one of the caller's own elected offices. (An empty
+    // list is always allowed: it just clears the caller's publications.)
+    if (issues.length > 0) {
+      const offices = await this.client.electedOffice.findMany({
+        where: { userId: ownerUserId },
+        select: { id: true },
+      })
+      const officeIds = offices.map((o) => o.id)
+      const owned = officeIds.length
+        ? await this.client.priority.findMany({
+            where: {
+              id: { in: issues.map((i) => i.issueId) },
+              electedOfficeId: { in: officeIds },
+            },
+            select: { id: true },
+          })
+        : []
+      const ownedIds = new Set(owned.map((p) => p.id))
+      const bad = issues.find((issue) => !ownedIds.has(issue.issueId))
+      if (bad) {
+        throw new BadRequestException(
+          `issueId ${bad.issueId} does not belong to your elected office`,
+        )
+      }
+    }
     await this.client.$transaction([
       this.client.personProfileIssue.deleteMany({
         where: { personProfileId },

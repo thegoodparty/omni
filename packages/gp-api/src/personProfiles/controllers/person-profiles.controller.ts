@@ -161,6 +161,7 @@ export class PersonProfilesController {
     const updated = await this.personProfilesService.replaceIssues(
       existing.id,
       body.issues,
+      owner.id,
     )
     recordProfileMutation('set_issues')
     if (existing.publishedAt && !existing.deletedAt) {
