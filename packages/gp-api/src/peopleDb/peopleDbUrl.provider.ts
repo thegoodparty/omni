@@ -85,15 +85,16 @@ export class PeopleDbUrlProvider implements OnModuleDestroy {
       return local
     }
 
+    const override = process.env.PEOPLE_DB_SSM_PARAM
     const environment = process.env.OTEL_SERVICE_ENVIRONMENT
-    if (!environment) {
+    if (!override && !environment) {
       throw new Error(
         'Cannot resolve database URL: set PEOPLE_DATABASE_URL for local ' +
           'development, or OTEL_SERVICE_ENVIRONMENT when running deployed',
       )
     }
 
-    const name = `people-db-connection-string-${environment}`
+    const name = override || `people-db-connection-string-${environment}`
     if (!this.ssm) {
       this.ssm = new SSMClient({ region: process.env.AWS_REGION })
     }

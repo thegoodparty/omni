@@ -24,6 +24,7 @@ describe('PeopleDbUrlProvider', () => {
     vi.clearAllMocks()
     delete process.env.PEOPLE_DATABASE_URL
     delete process.env.OTEL_SERVICE_ENVIRONMENT
+    delete process.env.PEOPLE_DB_SSM_PARAM
     provider = new PeopleDbUrlProvider()
   })
 
@@ -40,6 +41,17 @@ describe('PeopleDbUrlProvider', () => {
 
   it('reads the env-specific SSM parameter with decryption', async () => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+    mockSend.mockResolvedValue({ Parameter: { Value: 'postgres://ssm/dev' } })
+    expect(await provider.ensureLoaded()).toBe('postgres://ssm/dev')
+    const firstCall = mockSend.mock.calls[0]
+    expect(firstCall?.[0].input).toEqual({
+      Name: 'people-db-connection-string-dev',
+      WithDecryption: true,
+    })
+  })
+
+  it('uses PEOPLE_DB_SSM_PARAM as the exact parameter name when set', async () => {
+    process.env.PEOPLE_DB_SSM_PARAM = 'people-db-connection-string-dev'
     mockSend.mockResolvedValue({ Parameter: { Value: 'postgres://ssm/dev' } })
     expect(await provider.ensureLoaded()).toBe('postgres://ssm/dev')
     const firstCall = mockSend.mock.calls[0]
