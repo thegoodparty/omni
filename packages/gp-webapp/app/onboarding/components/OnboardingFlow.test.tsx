@@ -168,15 +168,24 @@ const advancePastManualOfficeEntry = async (): Promise<void> => {
 // From the first story step (why), click Continue through background and issues
 // to the pledge. The final Continue persists the draft; whether it fires
 // generation depends on the draft's completeness (seeded from the mocks).
+// Continue now requires the current story field to have content, and the draft
+// seeds async — so wait for Continue to enable before each click (a click while
+// disabled is a no-op and would strand the flow on the current step).
+const clickEnabledContinue = async (): Promise<void> => {
+  const btn = await screen.findByRole('button', { name: 'Continue' })
+  await waitFor(() => expect(btn).toBeEnabled())
+  fireEvent.click(btn)
+}
+
 const continueThroughStorySteps = async (): Promise<void> => {
   // why -> background
-  fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+  await clickEnabledContinue()
   await screen.findByRole('heading', { level: 2, name: /your background/i })
   // background -> issues
-  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  await clickEnabledContinue()
   await screen.findByRole('button', { name: /add a policy priority/i })
   // issues -> pledge (persists the draft)
-  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  await clickEnabledContinue()
 }
 
 // Skip is now per-question: it advances one story step at a time (why ->
@@ -531,12 +540,12 @@ describe('new onboarding flow shell', () => {
       level: 1,
       name: /why are you running/i,
     })
-    // why -> background -> issues. Await the background step between clicks:
-    // handleStoryContinue is async (awaits the campaign PUT) and guarded by
-    // isAdvancingRef, so a second click before the first settles is a no-op.
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+    // why -> background -> issues. clickEnabledContinue waits for the seeded
+    // field to enable Continue before clicking (why/background are seeded
+    // non-empty here; issues starts empty).
+    await clickEnabledContinue()
     await screen.findByRole('heading', { level: 2, name: /your background/i })
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await clickEnabledContinue()
     await screen.findByRole('button', { name: /add a policy priority/i })
 
     // No policy added yet → Continue is blocked (Skip is still the way out).
@@ -593,9 +602,9 @@ describe('new onboarding flow shell', () => {
     })
     // Await the background step between clicks (see the note above — the
     // async, isAdvancingRef-guarded Continue makes back-to-back clicks flaky).
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+    await clickEnabledContinue()
     await screen.findByRole('heading', { level: 2, name: /your background/i })
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await clickEnabledContinue()
     await screen.findByRole('button', { name: /add a policy priority/i })
 
     // Issue present (length gate passes) but a row is recording → both Continue
@@ -635,7 +644,7 @@ describe('new onboarding flow shell', () => {
 
     // Continue on the why step persists that field; the failed save surfaces an
     // error and holds the candidate on the why step (no advance to background).
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+    await clickEnabledContinue()
 
     await waitFor(() => expect(mockErrorSnackbar).toHaveBeenCalled())
     expect(
@@ -905,9 +914,9 @@ describe('new onboarding flow shell', () => {
     })
 
     // Continue keeps why + background; Skip the (empty) issues step.
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+    await clickEnabledContinue()
     await screen.findByRole('heading', { level: 2, name: /your background/i })
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await clickEnabledContinue()
     fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
 
     expect(
@@ -925,7 +934,7 @@ describe('new onboarding flow shell', () => {
     fireEvent.click(
       await screen.findByRole('button', { name: /add a policy priority/i }),
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await clickEnabledContinue()
 
     expect(
       await screen.findByText('Take our pledge to get your campaign plan'),

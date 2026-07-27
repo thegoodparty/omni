@@ -199,6 +199,10 @@ export function CampaignManagerChatProvider({
       })
       // Fall back to a fresh chat (deferred create on first send).
       setConversationId(null)
+      // Clear any pending story kickoff: firing the sentinel into the
+      // deferred-create fallback would trigger a second createConversation
+      // (which may also fail) and could leave the sentinel armed.
+      setPendingKickoff(undefined)
     } finally {
       resumingRef.current = false
     }

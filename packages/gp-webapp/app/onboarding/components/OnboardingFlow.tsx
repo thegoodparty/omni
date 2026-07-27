@@ -506,6 +506,16 @@ export default function OnboardingFlow({
   const isOfficeHydrationBlocking =
     activeStep.id === 'office-selection' && isHydratingOffice
   const isStoryStep = isStoryStepId(activeStep.id)
+  // Continue requires content on every story step: an empty field can only be
+  // passed with Skip, which preserves any existing saved value (Continue would
+  // otherwise persist the empty field and clear a returning candidate's data).
+  const storyStepEmpty =
+    (activeStep.id === 'campaign-story-why' &&
+      storyDraft.why.trim().length === 0) ||
+    (activeStep.id === 'campaign-story-background' &&
+      storyDraft.background.trim().length === 0) ||
+    (activeStep.id === 'campaign-story-issues' &&
+      storyDraft.issues.length === 0)
   const p2vOfficeName =
     answers.structuredOffice?.positionName ||
     liveCampaign?.positionName ||
@@ -1394,8 +1404,7 @@ export default function OnboardingFlow({
                   storyDraft.isError ||
                   isPersistingStory ||
                   storyDictationActive ||
-                  (activeStep.id === 'campaign-story-issues' &&
-                    storyDraft.issues.length === 0)
+                  storyStepEmpty
                 }
               >
                 Continue
