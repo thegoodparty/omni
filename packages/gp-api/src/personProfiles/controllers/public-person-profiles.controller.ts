@@ -28,9 +28,16 @@ import {
   ProfileClaimRequestResponseSchema,
 } from '../schemas/public/ProfileClaimRequest.schema'
 import { PersonProfilesService } from '../services/person-profiles.service'
+import { VoterDensityProxyService } from '../services/voter-density-proxy.service'
+import {
+  GetVoterDensityDto,
+  VoterDensityResponse,
+  VoterDensityResponseSchema,
+} from '../schemas/public/VoterDensity.schema'
 import {
   PublicProfileResult,
   recordPublicProfileRequest,
+  recordVoterDensityRequest,
 } from '../observability/person-profiles.metrics'
 
 // A 200 "removal requested" payload: identity-free, no authored content, just
@@ -75,7 +82,42 @@ function buildRemovedResponse(personId: string): PublicPersonProfileResponse {
 @UsePipes(ZodValidationPipe)
 @UseInterceptors(ZodResponseInterceptor)
 export class PublicPersonProfilesController {
-  constructor(private readonly personProfilesService: PersonProfilesService) {}
+  constructor(
+    private readonly personProfilesService: PersonProfilesService,
+    private readonly voterDensityProxy: VoterDensityProxyService,
+  ) {}
+
+  // Voter-density heat-map cells for the person's office/district. Public +
+  // progressive enhancement: resolve the person's L2 district (election-api),
+  // then proxy the precomputed, k-anonymized cells (people-api, S2S). 404 when
+  // the person maps to no district so the page renders no map.
+  @Get('voter-density')
+  @ResponseSchema(VoterDensityResponseSchema)
+  async getVoterDensity(
+    @Query() dto: GetVoterDensityDto,
+  ): Promise<VoterDensityResponse> {
+    const startedAt = Date.now()
+    const elapsed = (): number => Date.now() - startedAt
+
+    let result: VoterDensityResponse | null
+    try {
+      result = await this.voterDensityProxy.getVoterDensity(dto.personId)
+    } catch (error) {
+      recordVoterDensityRequest('error', elapsed())
+      throw error
+    }
+
+    if (!result) {
+      recordVoterDensityRequest('no_district', elapsed())
+      throw new NotFoundException('No voter density available for this person')
+    }
+
+    recordVoterDensityRequest(
+      result.cells.length > 0 ? 'live' : 'empty',
+      elapsed(),
+    )
+    return result
+  }
 
   // Set of live profiles for the /people sitemap. Identity + freshness only;
   // the marketing site joins names from election-api to build canonical slugs.

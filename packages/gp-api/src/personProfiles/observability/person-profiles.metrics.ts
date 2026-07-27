@@ -42,6 +42,21 @@ const revalidationCounter = meter.createCounter(
   { description: 'Marketing cache revalidation attempts by result' },
 )
 
+// person_profile_voter_density_request_count_total{result=...}
+// person_profile_voter_density_request_duration_milliseconds_{bucket,sum,count}
+const voterDensityCounter = meter.createCounter(
+  'person_profile.voter_density_request.count',
+  { description: 'Public voter-density heat-map proxy requests by result' },
+)
+
+const voterDensityDuration = meter.createHistogram(
+  'person_profile.voter_density_request.duration',
+  {
+    description: 'Latency of public voter-density heat-map proxy requests',
+    unit: 'ms',
+  },
+)
+
 /** Render-gate outcome for a public profile fetch. */
 export type PublicProfileResult = 'live' | 'not_found' | 'gone' | 'removed'
 
@@ -56,6 +71,15 @@ export type ProfileMutation =
 
 /** Outcome of an outbound marketing cache-bust. */
 export type RevalidationResult = 'success' | 'skipped' | 'failed'
+
+/**
+ * Outcome of a public voter-density proxy request:
+ *  - live:        district resolved and cells returned
+ *  - empty:       district resolved but upstream had no cells (low/no coverage)
+ *  - no_district: person mapped to no L2 district (no map rendered)
+ *  - error:       upstream (election-api / people-api) failure
+ */
+export type VoterDensityResult = 'live' | 'empty' | 'no_district' | 'error'
 
 export function recordPublicProfileRequest(
   result: PublicProfileResult,
@@ -86,5 +110,19 @@ export function recordRevalidation(result: RevalidationResult): void {
     revalidationCounter.add(1, { result, environment: environment() })
   } catch (error) {
     logger.error('Failed to record revalidation metric', error)
+  }
+}
+
+export function recordVoterDensityRequest(
+  result: VoterDensityResult,
+  durationMs: number,
+): void {
+  if (!isOtelEnabled()) return
+  try {
+    const attrs = { result, environment: environment() }
+    voterDensityCounter.add(1, attrs)
+    voterDensityDuration.record(durationMs, attrs)
+  } catch (error) {
+    logger.error('Failed to record voter density request metric', error)
   }
 }
