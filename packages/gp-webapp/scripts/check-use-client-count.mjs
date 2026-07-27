@@ -124,7 +124,11 @@ import { dirname, join, relative } from 'node:path'
 // state, streams SSE, and reads localStorage/useUser, so it can't be a server
 // component. Net +1: it renders the footer + surface the home used to render
 // inline (no new files there), and CampaignManagerHome stays a client component.
-const BASELINE = 559
+// 2026-07-27: 559 -> 546 for removing the legacy AI Assistant (campaign-assistant)
+// dashboard feature — its route + ~15 client components (Chat, ChatProvider,
+// ChatInput, history, feedback, etc.) were deleted. Campaign Manager supersedes
+// it; the gp-api endpoints are left orphaned (removed from the frontend only).
+const BASELINE = 546
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
