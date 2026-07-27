@@ -14,7 +14,12 @@ import {
 export const WIN_AGENT_VOTERS =
   'goodparty_data_catalog.mart_win_agents.win_agent_voters'
 
-const escapeSql = (value: string): string => value.replace(/'/g, "''")
+// Spark SQL does NOT treat doubled single quotes as an escape — it
+// concatenates adjacent string literals, so 'O''BRIEN' parses as 'OBRIEN'.
+// Backslash-escape instead, backslashes first so a trailing backslash cannot
+// un-escape the closing quote. (80 live districts contain apostrophes.)
+const escapeSql = (value: string): string =>
+  value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
 
 // List type 1 predicate: the plausible-turnout electorate (VOTESCORE >= s*,
 // tie-inclusive). 1=1 when no threshold was computed.

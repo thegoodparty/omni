@@ -49,12 +49,18 @@ describe('districtFilter', () => {
     )
   })
 
-  it('single-quote-escapes the district name and state', () => {
+  it('backslash-escapes quotes in the district name (Spark SQL concatenates adjacent literals, so doubled quotes silently corrupt the value)', () => {
     expect(
       districtFilter('MN', 'County_Commissioner_District', "O'BRIEN", allowed),
     ).toBe(
-      "state_postal_code='MN' AND `County_Commissioner_District`='O''BRIEN'",
+      "state_postal_code='MN' AND `County_Commissioner_District`='O\\'BRIEN'",
     )
+  })
+
+  it('escapes backslashes before quotes so a trailing backslash cannot un-escape the closing quote', () => {
+    expect(
+      districtFilter('MN', 'County_Commissioner_District', 'X\\', allowed),
+    ).toBe("state_postal_code='MN' AND `County_Commissioner_District`='X\\\\'")
   })
 
   it('throws on a district column not in the allowlist', () => {
