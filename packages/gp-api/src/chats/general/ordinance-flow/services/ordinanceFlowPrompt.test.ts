@@ -699,6 +699,8 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
       expect(prompt).toContain('state bill')
       expect(prompt).not.toContain('municipal ordinance')
       expect(prompt).toContain(ORDINANCE_FLOW_GUARDRAIL_DECLINE_BILL)
+      expect(prompt).toContain('District: State House District 12, NC')
+      expect(prompt).not.toContain('City/District:')
     })
   })
 })
