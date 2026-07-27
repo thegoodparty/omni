@@ -616,19 +616,28 @@ export class ContactsService {
         people: base.count,
         avgAge: base.avgAge,
         avgIncome: base.avgIncome,
-        // ENG-10775: only the base (unfiltered-by-channel) aggregates call
-        // backs the People/avg-age/avg-income tiles the webapp renders as
-        // "10,000+" — the cellphone/landline/address calls below feed
-        // reachability counts, whose own fenced-ness isn't surfaced yet.
+        // ENG-10775: the base (unfiltered-by-channel) aggregates call backs
+        // the People/avg-age/avg-income tiles the webapp renders as
+        // "10,000+".
         fenced: base.fenced ?? false,
       },
       reachability: {
         sms: cellphone.count,
-        robocall: cellphone.count,
+        // Robocall/telemarketing reach landlines, not cell phones (mirrors
+        // TYPE_OVERRIDES in voterFilePeopleFilter.util.ts).
+        robocall: landline.count,
         phoneBanking: landline.count,
         doorKnocking: address.count,
         // Polls are delivered by text, so reachability mirrors sms 1:1.
         polls: cellphone.count,
+        fenced: {
+          sms: cellphone.fenced,
+          robocall: landline.fenced,
+          phoneBanking: landline.fenced,
+          doorKnocking: address.fenced,
+          // Polls mirrors sms 1:1, so its fenced-ness does too.
+          polls: cellphone.fenced,
+        },
       },
     }
   }
