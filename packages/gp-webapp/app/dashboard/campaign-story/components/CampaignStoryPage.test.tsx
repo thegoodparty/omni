@@ -118,6 +118,28 @@ describe('StoryEditorForm (the "Your story" dashboard editor)', () => {
     )
   })
 
+  it('stops at the first failed field instead of writing the rest (no partial save)', async () => {
+    const user = userEvent.setup()
+    // The why save fails; background is also dirty.
+    mockSaveAboutFields.mockResolvedValue(false)
+    let putBody: { background?: string } | null = null
+    api.mock('PUT /v1/campaigns/mine/story', async ({ body }) => {
+      putBody = body as { background?: string }
+      return { status: 200, data: { background: 'saved' } }
+    })
+    renderForm()
+
+    await user.type(whyField(), 'My why')
+    await user.type(backgroundField(), 'My background')
+    await user.click(enabledSaveButtons()[0]!)
+
+    await waitFor(() => expect(mockErrorSnackbar).toHaveBeenCalled())
+    // why failed → saveAll short-circuits, so background is never written.
+    expect(putBody).toBeNull()
+    // Nothing committed → Save stays enabled for a full retry.
+    expect(enabledSaveButtons()).toHaveLength(1)
+  })
+
   it('persists the background via the story endpoint and invalidates the story cache', async () => {
     const user = userEvent.setup()
     let putBody: { background?: string } | null = null

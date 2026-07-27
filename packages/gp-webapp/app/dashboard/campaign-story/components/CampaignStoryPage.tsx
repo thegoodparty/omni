@@ -156,8 +156,10 @@ export function StoryEditorForm({
   )
   const [savedWhy, setSavedWhy] = useState(why)
   const [savingWhy, setSavingWhy] = useState(false)
-  const saveWhy = async (): Promise<void> => {
-    if (savingWhy || why === savedWhy) return
+  // Each save returns whether it succeeded (a clean no-op counts as success) so
+  // saveAll can stop on the first failure instead of writing later fields.
+  const saveWhy = async (): Promise<boolean> => {
+    if (savingWhy || why === savedWhy) return true
     setSavingWhy(true)
     const ok = await saveAboutFields({ bio: why })
     if (ok) {
@@ -167,33 +169,37 @@ export function StoryEditorForm({
       errorSnackbar('Could not save your answer. Please try again.')
     }
     setSavingWhy(false)
+    return ok
   }
 
   const [background, setBackground] = useState(initialBackground)
   const [savedBackground, setSavedBackground] = useState(initialBackground)
   const [savingBackground, setSavingBackground] = useState(false)
-  const saveBackground = async (): Promise<void> => {
-    if (savingBackground || background === savedBackground) return
+  const saveBackground = async (): Promise<boolean> => {
+    if (savingBackground || background === savedBackground) return true
     setSavingBackground(true)
+    let ok = true
     try {
       await clientRequest('PUT /v1/campaigns/mine/story', { background })
       setSavedBackground(background)
       void queryClient.invalidateQueries({ queryKey: CAMPAIGN_STORY_QUERY_KEY })
     } catch (error) {
+      ok = false
       reportErrorToSentry(error, {
         context: 'CampaignStoryPage.saveBackground',
       })
       errorSnackbar('Could not save your answer. Please try again.')
     }
     setSavingBackground(false)
+    return ok
   }
 
   const [issues, setIssues] = useState<WebsiteIssue[]>(initialIssues)
   const [savedIssues, setSavedIssues] = useState<WebsiteIssue[]>(initialIssues)
   const [savingIssues, setSavingIssues] = useState(false)
   const issuesDirty = JSON.stringify(issues) !== JSON.stringify(savedIssues)
-  const saveIssues = async (): Promise<void> => {
-    if (savingIssues || !issuesDirty) return
+  const saveIssues = async (): Promise<boolean> => {
+    if (savingIssues || !issuesDirty) return true
     setSavingIssues(true)
     const ok = await saveAboutFields({ issues })
     if (ok) {
@@ -203,6 +209,7 @@ export function StoryEditorForm({
       errorSnackbar('Could not save your issues. Please try again.')
     }
     setSavingIssues(false)
+    return ok
   }
 
   const anySaving = savingWhy || savingBackground || savingIssues
@@ -215,10 +222,12 @@ export function StoryEditorForm({
 
   // The header Save commits every dirty field in one click. Each save* is a
   // no-op when its field is unchanged, so this only writes what actually moved.
+  // Stop on the first failure so a failed field doesn't leave a partial save
+  // (the still-dirty fields stay dirty for the user to retry).
   const saveAll = async (): Promise<void> => {
     if (anySaving || !anyDirty) return
-    await saveWhy()
-    await saveBackground()
+    if (!(await saveWhy())) return
+    if (!(await saveBackground())) return
     await saveIssues()
   }
 
