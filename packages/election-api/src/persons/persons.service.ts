@@ -70,6 +70,99 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
     return person
   }
 
+  // Resolves the L2 voter-join district for a person, for the voter-density
+  // heat map. The voter join key is `Position.districtId` (== the shared
+  // District.id) — NOT `OfficeHolder.geoId` (a Census Place code that does not
+  // join to voters). Two chains reach it:
+  //   Officeholder: Person -> OfficeHolder.positionId -> Position.districtId
+  //   Candidate:    Person -> Candidacy.raceId -> Race.positionId -> Position.districtId
+  // A sitting office wins over a candidacy; within office holders the current
+  // term wins, then the most recently started; candidacies fall back to the
+  // most recent election. Returns { districtId: null } when the person exists
+  // but no office/candidacy resolves to a district (the app then renders no
+  // map), and 404 only when the person itself is unknown.
+  async getVoterDistrict(personId: string): Promise<{
+    personId: string
+    districtId: string | null
+    state: string | null
+  }> {
+    const person = await this.model.findUnique({
+      where: { id: personId },
+      select: {
+        state: true,
+        OfficeHolders: {
+          select: {
+            isCurrent: true,
+            startAt: true,
+            Position: { select: { districtId: true } },
+          },
+        },
+        Candidacies: {
+          select: {
+            Race: {
+              select: {
+                electionDate: true,
+                Position: { select: { districtId: true } },
+              },
+            },
+          },
+        },
+      },
+    })
+
+    if (!person) {
+      throw new NotFoundException(`Person not found for id=${personId}`)
+    }
+
+    const officeDistrict = this.pickOfficeHolderDistrict(person.OfficeHolders)
+    const districtId =
+      officeDistrict ?? this.pickCandidacyDistrict(person.Candidacies)
+
+    return { personId, districtId, state: person.state ?? null }
+  }
+
+  private pickOfficeHolderDistrict(
+    officeHolders: {
+      isCurrent: boolean | null
+      startAt: Date | null
+      Position: { districtId: string | null } | null
+    }[],
+  ): string | null {
+    const withDistrict = officeHolders.filter(
+      (oh) => oh.Position?.districtId != null,
+    )
+    if (withDistrict.length === 0) return null
+
+    const ranked = [...withDistrict].sort((a, b) => {
+      // Current term first.
+      if (!!a.isCurrent !== !!b.isCurrent) return a.isCurrent ? -1 : 1
+      // Then most recently started.
+      return (b.startAt?.getTime() ?? 0) - (a.startAt?.getTime() ?? 0)
+    })
+    return ranked[0]?.Position?.districtId ?? null
+  }
+
+  private pickCandidacyDistrict(
+    candidacies: {
+      Race: {
+        electionDate: Date | null
+        Position: { districtId: string | null } | null
+      } | null
+    }[],
+  ): string | null {
+    const withDistrict = candidacies.filter(
+      (c) => c.Race?.Position?.districtId != null,
+    )
+    if (withDistrict.length === 0) return null
+
+    const ranked = [...withDistrict].sort(
+      (a, b) =>
+        (b.Race?.electionDate?.getTime() ?? 0) -
+        (a.Race?.electionDate?.getTime() ?? 0),
+    )
+    return ranked[0]?.Race?.Position?.districtId ?? null
+  }
+
   // Resolves the canonical /people/<slug> URL to a person. `slug` is unique, so
   // this returns the same full spine shape as getPersonById (PII omitted).
   async getPersonBySlug(slug: string) {

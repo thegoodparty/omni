@@ -86,4 +86,92 @@ describe('PersonsService', () => {
     })
     expect(result).toEqual({ id: 'p1' })
   })
+
+  describe('getVoterDistrict', () => {
+    it('throws NotFound when the person is unknown', async () => {
+      findUnique.mockResolvedValueOnce(null)
+      await expect(service.getVoterDistrict('missing')).rejects.toBeInstanceOf(
+        NotFoundException,
+      )
+    })
+
+    it('prefers the current office term district over other terms', async () => {
+      findUnique.mockResolvedValueOnce({
+        state: 'WY',
+        OfficeHolders: [
+          {
+            isCurrent: false,
+            startAt: new Date('2010-01-01'),
+            Position: { districtId: 'old-district' },
+          },
+          {
+            isCurrent: true,
+            startAt: new Date('2020-01-01'),
+            Position: { districtId: 'current-district' },
+          },
+        ],
+        Candidacies: [],
+      })
+
+      const result = await service.getVoterDistrict('p1')
+      expect(result).toEqual({
+        personId: 'p1',
+        districtId: 'current-district',
+        state: 'WY',
+      })
+    })
+
+    it('ignores office terms whose position has no district', async () => {
+      findUnique.mockResolvedValueOnce({
+        state: 'CA',
+        OfficeHolders: [
+          { isCurrent: true, startAt: null, Position: { districtId: null } },
+          {
+            isCurrent: false,
+            startAt: new Date('2019-01-01'),
+            Position: { districtId: 'real-district' },
+          },
+        ],
+        Candidacies: [],
+      })
+
+      const result = await service.getVoterDistrict('p1')
+      expect(result.districtId).toBe('real-district')
+    })
+
+    it('falls back to the most recent candidacy race district', async () => {
+      findUnique.mockResolvedValueOnce({
+        state: 'TX',
+        OfficeHolders: [],
+        Candidacies: [
+          {
+            Race: {
+              electionDate: new Date('2018-11-06'),
+              Position: { districtId: 'old-race-district' },
+            },
+          },
+          {
+            Race: {
+              electionDate: new Date('2024-11-05'),
+              Position: { districtId: 'recent-race-district' },
+            },
+          },
+        ],
+      })
+
+      const result = await service.getVoterDistrict('p1')
+      expect(result.districtId).toBe('recent-race-district')
+    })
+
+    it('returns null districtId when nothing resolves', async () => {
+      findUnique.mockResolvedValueOnce({
+        state: 'WY',
+        OfficeHolders: [],
+        Candidacies: [{ Race: null }],
+      })
+
+      const result = await service.getVoterDistrict('p1')
+      expect(result).toEqual({ personId: 'p1', districtId: null, state: 'WY' })
+    })
+  })
 })
