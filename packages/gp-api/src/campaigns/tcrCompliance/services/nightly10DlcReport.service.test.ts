@@ -1184,6 +1184,81 @@ describe('Nightly10DlcReportService', () => {
         },
       })
     })
+
+    it('does not re-post across two consecutive handler runs (once-only)', async () => {
+      const record = waitingToFinalizeRecord({
+        peerlyProfileStatusChangedAt: subDays(new Date(), 10),
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [record],
+      ])
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [record],
+      ])
+      // First run's claim succeeds; the second run's claim finds the row
+      // already claimed (updateMany's WHERE no longer matches).
+      mockModel.updateMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValueOnce({ count: 0 })
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+      await service.handleNightlyReport({ reportDate: '2026-07-11' })
+
+      expect(vendorCalls(mockSlack.message)).toHaveLength(1)
+    })
+
+    it('rolls back the claim when the Slack post fails, so the next run retries', async () => {
+      const record = waitingToFinalizeRecord({
+        peerlyProfileStatusChangedAt: subDays(new Date(), 10),
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [record],
+      ])
+      mockSlack.message
+        .mockResolvedValueOnce('ok') // internal report post succeeds
+        .mockResolvedValueOnce(undefined) // vendor post fails
+
+      const result = await service.handleNightlyReport({
+        reportDate: '2026-07-10',
+      })
+
+      expect(result).toBe(true)
+      expect(mockModel.updateMany).toHaveBeenNthCalledWith(1, {
+        where: { id: record.id, finalizeStalledEscalatedAt: null },
+        data: { finalizeStalledEscalatedAt: expect.any(Date) },
+      })
+      expect(mockModel.updateMany).toHaveBeenNthCalledWith(2, {
+        where: { id: record.id, finalizeStalledEscalatedAt: expect.any(Date) },
+        data: { finalizeStalledEscalatedAt: null },
+      })
+    })
   })
 
   describe('handleNightlyReport — vendor escalation internal mirror sections (ENG-10796)', () => {
