@@ -158,7 +158,7 @@ Playwright, ClickUp). They need a few environment variables set in your shell â€
 - Drop to Haiku for trivial edits, renames, and boilerplate.
 - Escalate to Fable 5 for hard architecture, tricky debugging, and initial planning
   of epics, technical documents, and ticket creation/edits.
-- Use Opus 4.8 as the fallback for those hard tasks when Fable is unavailable.
+- Use Opus 5.0 as the fallback for those hard tasks when Fable is unavailable.
 - If you think a task needs a more capable model than the current one, say so before
   proceeding.
 
