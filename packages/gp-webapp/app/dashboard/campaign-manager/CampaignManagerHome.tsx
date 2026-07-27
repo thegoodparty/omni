@@ -22,26 +22,24 @@ export default function CampaignManagerHome(): React.JSX.Element {
   const chat = useCampaignManagerChat()
 
   return (
-    <div className="flex min-h-screen flex-col bg-muted pb-20 lg:pb-12">
-      <div className="pb-40">
-        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-6">
-          <ProUpgradeBanner />
-          <VoterContactsProvider>
-            <CampaignUpdateHistoryProvider>
-              <ProgressSection />
-            </CampaignUpdateHistoryProvider>
-          </VoterContactsProvider>
-        </div>
-        {/* onMeetManager is a general open, so it dismisses the meet card.
-            onPersonalize launches the story-intake chat flow without dismissing
-            the meet card, same as the deep link the plan-tab gate links use. */}
-        <CampaignManagerTasks
-          showMeetCard={!chat?.meetDismissed}
-          onMeetManager={() => chat?.openManager()}
-          onSkipMeet={() => chat?.dismissMeetCard()}
-          onPersonalize={() => chat?.startStory()}
-        />
+    <div className="flex min-h-screen flex-col bg-muted">
+      <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-6">
+        <ProUpgradeBanner />
+        <VoterContactsProvider>
+          <CampaignUpdateHistoryProvider>
+            <ProgressSection />
+          </CampaignUpdateHistoryProvider>
+        </VoterContactsProvider>
       </div>
+      {/* onMeetManager is a general open, so it dismisses the meet card.
+          onPersonalize launches the story-intake chat flow without dismissing
+          the meet card, same as the deep link the plan-tab gate links use. */}
+      <CampaignManagerTasks
+        showMeetCard={!chat?.meetDismissed}
+        onMeetManager={() => chat?.openManager()}
+        onSkipMeet={() => chat?.dismissMeetCard()}
+        onPersonalize={() => chat?.startStory()}
+      />
     </div>
   )
 }

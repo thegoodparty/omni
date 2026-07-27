@@ -258,6 +258,11 @@ export function CampaignManagerChatProvider({
   return (
     <CampaignManagerChatContext.Provider value={contextValue}>
       {children}
+      {/* Reserve space at the end of the scroll flow so the fixed footer bar
+          (~80px tall) never overlaps the bottom of page content — e.g. Your
+          Story's "Start over" / "Add a policy priority". shrink-0 keeps it from
+          collapsing when the content region is a flex child. */}
+      <div aria-hidden className="h-24 shrink-0" />
       <FooterChatBar
         firstName={firstName}
         onOpen={openManager}
