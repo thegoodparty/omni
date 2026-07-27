@@ -211,6 +211,7 @@ interface StepBodyProps {
   p2vOfficeName: string | null
   skipP2vReveal: boolean
   storyDraft: OnboardingStoryDraft
+  onStoryDictationActiveChange: (active: boolean) => void
 }
 
 const StepBody = ({
@@ -225,6 +226,7 @@ const StepBody = ({
   p2vOfficeName,
   skipP2vReveal,
   storyDraft,
+  onStoryDictationActiveChange,
 }: StepBodyProps): React.JSX.Element | null => {
   if (activeStep.id === 'welcome') {
     return (
@@ -342,6 +344,7 @@ const StepBody = ({
           onChange={storyDraft.setWhy}
           rewriteField="why"
           analyticsLabel="onboarding_story_why"
+          onDictationActiveChange={onStoryDictationActiveChange}
         />
       )
     }
@@ -354,6 +357,7 @@ const StepBody = ({
           onChange={storyDraft.setBackground}
           rewriteField="background"
           analyticsLabel="onboarding_story_background"
+          onDictationActiveChange={onStoryDictationActiveChange}
         />
       )
     }
@@ -361,6 +365,7 @@ const StepBody = ({
       <StoryIssuesCard
         issues={storyDraft.issues}
         onChange={storyDraft.setIssues}
+        onDictationActiveChange={onStoryDictationActiveChange}
       />
     )
   }
@@ -425,6 +430,9 @@ export default function OnboardingFlow({
     campaignStoryEnabled && isStoryStepId(activeStepId),
   )
   const [isPersistingStory, setIsPersistingStory] = useState(false)
+  // True while a story card is mid-dictation; blocks Continue so advancing
+  // can't persist before an in-flight transcript lands.
+  const [storyDictationActive, setStoryDictationActive] = useState(false)
   const isAdvancingRef = useRef(false)
   const partyDesignationBlockedFiredRef = useRef(false)
   // Guards against a double-fire of the strategic-landscape pre-warm (e.g. a
@@ -1252,6 +1260,7 @@ export default function OnboardingFlow({
                 p2vOfficeName={p2vOfficeName}
                 skipP2vReveal={hasResolvedPathToVictory}
                 storyDraft={storyDraft}
+                onStoryDictationActiveChange={setStoryDictationActive}
               />
             </section>
 
@@ -1298,9 +1307,10 @@ export default function OnboardingFlow({
             Back
           </Button>
           {isStoryStep ? (
-            // Each story step is skippable. Continue always advances (Why /
-            // Background just move on; the final issues step persists all three
-            // and fires generation). Skip abandons the whole story and jumps to
+            // Each story step is skippable. Continue always advances on Why /
+            // Background (they just move on); the final issues step persists all
+            // three + fires generation, and requires at least one policy (Skip
+            // is still the way out). Skip abandons the whole story and jumps to
             // the pledge. Continue waits for the draft to seed.
             <div className="flex items-center gap-3">
               <Button
@@ -1318,7 +1328,12 @@ export default function OnboardingFlow({
                 size="large"
                 onClick={() => void handleStoryContinue()}
                 disabled={
-                  !storyDraft.isReady || storyDraft.isError || isPersistingStory
+                  !storyDraft.isReady ||
+                  storyDraft.isError ||
+                  isPersistingStory ||
+                  storyDictationActive ||
+                  (activeStep.id === 'campaign-story-issues' &&
+                    storyDraft.issues.length === 0)
                 }
               >
                 Continue

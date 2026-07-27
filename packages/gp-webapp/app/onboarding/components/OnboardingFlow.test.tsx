@@ -21,11 +21,31 @@ const {
   mockSaveAboutFields,
   mockTrackEvent,
   mockErrorSnackbar,
+  mockUseDictationAppend,
 } = vi.hoisted(() => ({
   mockGetUserWebsite: vi.fn(),
   mockSaveAboutFields: vi.fn(),
   mockTrackEvent: vi.fn(),
   mockErrorSnackbar: vi.fn(),
+  mockUseDictationAppend: vi.fn(),
+}))
+
+// Mock dictation so a test can flip a story card into an active recording state
+// without the getUserMedia/WebSocket pipeline. Default (set in beforeEach) is
+// idle, matching real on-mount behavior so the other tests are unaffected.
+const IDLE_DICTATION = {
+  status: 'idle' as const,
+  error: null,
+  partialTranscript: '',
+  active: false,
+  busy: false,
+  start: vi.fn(),
+  stop: vi.fn(),
+  toggle: vi.fn(),
+}
+vi.mock('app/dashboard/briefings/shared/useDictationAppend', () => ({
+  useDictationAppend: (input: { analyticsLabel: string }) =>
+    mockUseDictationAppend(input),
 }))
 
 // Bio + issues come from (and are saved to) the website via legacy functions
@@ -172,6 +192,7 @@ beforeEach(() => {
   mockGetUserWebsite.mockReset().mockResolvedValue({ content: { about: {} } })
   mockSaveAboutFields.mockReset().mockResolvedValue(true)
   mockErrorSnackbar.mockClear()
+  mockUseDictationAppend.mockReset().mockReturnValue(IDLE_DICTATION)
 })
 
 // vi.spyOn on an already-spied export returns the SAME mock instance rather
@@ -455,6 +476,98 @@ describe('new onboarding flow shell', () => {
       }),
     )
     expect(prewarm).toHaveBeenCalledTimes(1)
+  })
+
+  it('blocks Continue on the issues step until at least one policy exists', async () => {
+    setCampaignStoryFlag(true, true)
+    mswServer.use(
+      http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
+      http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
+    )
+    // Why + background answered, but no issues yet.
+    mockGetUserWebsite.mockResolvedValue({
+      content: { about: { bio: '<p>My why</p>', issues: [] } },
+    })
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: 'My background' },
+    })
+    renderFlow({ campaign: { id: 1 } as Campaign })
+
+    await advancePastManualOfficeEntry()
+    await screen.findByRole('heading', {
+      level: 1,
+      name: /why are you running/i,
+    })
+    // why -> background -> issues. Await the background step between clicks:
+    // handleStoryContinue is async (awaits the campaign PUT) and guarded by
+    // isAdvancingRef, so a second click before the first settles is a no-op.
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+    await screen.findByRole('heading', { level: 2, name: /your background/i })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByRole('button', { name: /add a policy priority/i })
+
+    // No policy added yet → Continue is blocked (Skip is still the way out).
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeEnabled()
+
+    // Add a policy → Continue unlocks.
+    fireEvent.click(
+      screen.getByRole('button', { name: /add a policy priority/i }),
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+  })
+
+  it('blocks Continue on the issues step while a policy row is mid-dictation', async () => {
+    setCampaignStoryFlag(true, true)
+    mswServer.use(
+      http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
+      http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
+    )
+    // Complete story so the length gate is satisfied; only dictation should
+    // hold Continue.
+    mockGetUserWebsite.mockResolvedValue({
+      content: {
+        about: {
+          bio: '<p>My why</p>',
+          issues: [{ title: 'Roads', description: 'Fix them' }],
+        },
+      },
+    })
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: 'My background' },
+    })
+    // Only the issue row is actively recording; why/background stay idle so the
+    // earlier steps' Continue still advances.
+    mockUseDictationAppend.mockImplementation(
+      (input: { analyticsLabel: string }) =>
+        input.analyticsLabel.startsWith('onboarding_story_issue')
+          ? { ...IDLE_DICTATION, status: 'recording' as const, active: true }
+          : IDLE_DICTATION,
+    )
+    renderFlow({ campaign: { id: 1 } as Campaign })
+
+    await advancePastManualOfficeEntry()
+    await screen.findByRole('heading', {
+      level: 1,
+      name: /why are you running/i,
+    })
+    // Await the background step between clicks (see the note above — the
+    // async, isAdvancingRef-guarded Continue makes back-to-back clicks flaky).
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+    await screen.findByRole('heading', { level: 2, name: /your background/i })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByRole('button', { name: /add a policy priority/i })
+
+    // Issue present (length gate passes) but a row is recording → Continue held.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled(),
+    )
+    // Skip is still available to bail out.
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeEnabled()
   })
 
   it('keeps the candidate on the issues step and shows an error when the final save fails', async () => {
