@@ -226,6 +226,10 @@ export function CampaignManagerChatProvider({
   // personalize deep link, and both plan-tab gate links. Does NOT dismiss the
   // meet card (the story flow is not "meeting the manager").
   const startStory = useCallback(() => {
+    // Bail if an open is already in flight (matching resumeAndOpen's guard):
+    // otherwise we'd set the story kickoff but resumeAndOpen would no-op, and
+    // the sentinel would later fire into the racing general-mode open.
+    if (resumingRef.current) return
     setPendingKickoff(CAMPAIGN_MANAGER_START_STORY_SENTINEL)
     void resumeAndOpen()
   }, [resumeAndOpen])
