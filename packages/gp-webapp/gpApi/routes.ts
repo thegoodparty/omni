@@ -173,36 +173,6 @@ export const apiRoutes = {
         method: 'DELETE',
       },
     },
-    chat: {
-      get: {
-        path: '/campaigns/ai/chat/:threadId',
-        method: 'GET',
-      },
-      update: {
-        path: '/campaigns/ai/chat/:threadId',
-        method: 'PUT',
-      },
-      create: {
-        path: '/campaigns/ai/chat',
-        method: 'POST',
-      },
-      stream: {
-        path: '/campaigns/ai/chat/stream',
-        method: 'POST',
-      },
-      list: {
-        path: '/campaigns/ai/chat',
-        method: 'GET',
-      },
-      delete: {
-        path: '/campaigns/ai/chat/:threadId',
-        method: 'DELETE',
-      },
-      feedback: {
-        path: '/campaigns/ai/chat/:threadId/feedback',
-        method: 'POST',
-      },
-    },
     updateHistory: {
       create: {
         path: '/campaigns/mine/update-history',
