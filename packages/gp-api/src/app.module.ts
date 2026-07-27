@@ -49,6 +49,7 @@ import { ContentfulModule } from '@/vendors/contentful/contentful.module'
 import { GeminiModule } from '@/vendors/google/gemini.module'
 import { CampaignStrategyModule } from '@/campaignStrategy/campaignStrategy.module'
 import { RaceOpponentModule } from '@/raceOpponent/raceOpponent.module'
+import { RecommendedListsModule } from '@/recommendedLists/recommendedLists.module'
 import { OrdinancesModule } from '@/ordinances/ordinances.module'
 import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
 import { EcanvasserIntegrationModule } from '@/vendors/ecanvasserIntegration/ecanvasserIntegration.module'
@@ -75,6 +76,7 @@ import { GeneralChatsModule } from '@/chats/general/general-chats.module'
     GeminiModule,
     CampaignStrategyModule,
     RaceOpponentModule,
+    RecommendedListsModule,
     CampaignStoryModule,
     AnalyticsModule,
     UsersModule,
