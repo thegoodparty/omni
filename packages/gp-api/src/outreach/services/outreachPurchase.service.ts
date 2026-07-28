@@ -162,9 +162,15 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       )
     }
 
+    // `list_id` is Zod-optional, so a successfully-parsed status response can
+    // still omit it (not yet assigned, or a Peerly inconsistency). Either way
+    // it's not a fetch failure — falling back here would hit the same
+    // pre-scrub overbill the null-status check above exists to prevent.
     const listId = status.Data.list_id
     if (!listId) {
-      return null
+      throw new BadRequestException(
+        'Phone list has no list_id yet; try again shortly',
+      )
     }
 
     try {
