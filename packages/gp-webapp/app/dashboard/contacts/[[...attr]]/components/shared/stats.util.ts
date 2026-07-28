@@ -73,9 +73,13 @@ export const getContactStatsRendered = (
   const medianIncomeRange = getMedianIncomeRange(
     stats.buckets.estimatedIncomeRange,
   )
-  const visibleContactsPercent = totalConstituents
-    ? (totalVisibleContacts / totalConstituents) * 100
-    : 0
+  // A fenced totalVisibleContacts is a FENCE_LIMIT floor, not the real
+  // count — a precise percent computed from it would contradict the "+"
+  // shown on the total card right next to it.
+  const visibleContactsPercent =
+    totalVisibleContactsFenced || !totalConstituents
+      ? 0
+      : (totalVisibleContacts / totalConstituents) * 100
   return {
     totalConstituents: totalVisibleContacts
       ? formatFencedCount(totalVisibleContacts, totalVisibleContactsFenced)

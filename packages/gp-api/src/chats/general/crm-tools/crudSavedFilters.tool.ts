@@ -33,7 +33,7 @@ type SavedFilterRef = { id: number; name: string | null }
 
 export type CrudSavedFiltersOutput =
   | { filters: SavedFilterRef[] }
-  | (SavedFilterRef & { count?: number })
+  | (SavedFilterRef & { count?: number; fenced?: boolean })
   | { deleted: true }
   | { error: string }
 
@@ -79,13 +79,14 @@ export const buildCrudSavedFiltersTool = (deps: {
     "action='list' returns { id, name } for every saved list; 'create' " +
     'saves a new list from the same filter shape count_contacts uses ' +
     '(requires name, max 40 characters; compose filter fields from ' +
-    "describe_filter_dimensions) and returns { id, name, count }; 'update' " +
-    "edits a list by id; 'delete' removes a list by id. A list already " +
-    'used for outreach is locked: update and delete return an error ' +
-    'explaining it must be duplicated to change it. Returns ids, names, ' +
-    'and counts only, never individual records, and returns a structured ' +
-    'error when the organization cannot manage lists (e.g. a Win campaign ' +
-    'without Pro).',
+    'describe_filter_dimensions) and returns { id, name, count, fenced } ' +
+    '— when fenced is true, count is a floor, not an exact figure, so ' +
+    'report it as "at least {count}"; \'update\' edits a list by id; ' +
+    "'delete' removes a list by id. A list already used for outreach is " +
+    'locked: update and delete return an error explaining it must be ' +
+    'duplicated to change it. Returns ids, names, and counts only, never ' +
+    'individual records, and returns a structured error when the ' +
+    'organization cannot manage lists (e.g. a Win campaign without Pro).',
   inputSchema: crudSavedFiltersInputSchema,
   execute: async (input): Promise<CrudSavedFiltersOutput> => {
     const { voterFileFilters, contacts, organization } = deps
@@ -105,13 +106,16 @@ export const buildCrudSavedFiltersTool = (deps: {
         // list behind; the count is the same live number the route path
         // computes, and voterCount: 0 matches what the wizard persists (the
         // lists index reads live counts, not this column).
-        const { count } = await contacts.countContacts(filter, organization)
+        const { count, fenced } = await contacts.countContacts(
+          filter,
+          organization,
+        )
         const created = await voterFileFilters.create(organization.slug, {
           ...filter,
           name,
           voterCount: 0,
         })
-        return { id: created.id, name: created.name, count }
+        return { id: created.id, name: created.name, count, fenced }
       }
       if (id === undefined) return { error: `${action} requires id` }
       const existing = await voterFileFilters.findByIdAndOrganizationSlug(

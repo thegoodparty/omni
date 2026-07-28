@@ -135,7 +135,7 @@ describe('crud_saved_filters execute', () => {
     ).not.toHaveBeenCalled()
   })
 
-  it('create counts first, then persists, and returns { id, name, count }', async () => {
+  it('create counts first, then persists, and returns { id, name, count, fenced }', async () => {
     const countContacts = vi.fn(() =>
       Promise.resolve({ count: 321, fenced: false }),
     )
@@ -154,7 +154,12 @@ describe('crud_saved_filters execute', () => {
     })
     const result = await tool.execute(input)
     // The response reads from the persisted record, not the request input.
-    expect(result).toEqual({ id: 9, name: 'Persisted name', count: 321 })
+    expect(result).toEqual({
+      id: 9,
+      name: 'Persisted name',
+      count: 321,
+      fenced: false,
+    })
     expect(countContacts).toHaveBeenCalledWith(
       { age18_25: true, supportStatus: ['supporter'] },
       ORGANIZATION,
@@ -168,6 +173,28 @@ describe('crud_saved_filters execute', () => {
     expect(countContacts.mock.invocationCallOrder[0]).toBeLessThan(
       create.mock.invocationCallOrder[0] ?? 0,
     )
+  })
+
+  // The description promises the model "at least {count}" whenever fenced
+  // is true — that promise breaks if create silently drops the flag.
+  it('create surfaces fenced:true so the model never reports a floor as exact', async () => {
+    const countContacts = vi.fn(() =>
+      Promise.resolve({ count: 10000, fenced: true }),
+    )
+    const create = vi.fn(() => Promise.resolve({ id: 11, name: 'Huge list' }))
+    const { tool } = buildTool({
+      countContacts,
+      voterFileFilters: { create: create as never },
+    })
+    const result = await tool.execute(
+      tool.inputSchema.parse({ action: 'create', name: 'Huge list' }),
+    )
+    expect(result).toEqual({
+      id: 11,
+      name: 'Huge list',
+      count: 10000,
+      fenced: true,
+    })
   })
 
   it("surfaces the route's non-Pro create rejection without persisting", async () => {
