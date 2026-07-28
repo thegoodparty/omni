@@ -18,8 +18,10 @@ import { Campaign } from 'helpers/types'
 import { voterPackQueryOptions } from './useVoterPack'
 import { DimSelections, polygonStats, runFilter } from './filterEngine'
 import { turfsQueryOptions } from './turfQueries'
+import KnockTurfDialog from './KnockTurfDialog'
 import SaveTurfDialog from './SaveTurfDialog'
 import TurfList from './TurfList'
+import WalkView from './WalkView'
 import type { PolygonRing } from './VoterMapCanvas'
 
 const VoterMapCanvas = dynamic(() => import('./VoterMapCanvas'), {
@@ -75,7 +77,13 @@ export default function NativeDoorKnockingPage({
   const [ring, setRing] = useState<PolygonRing | null>(null)
   const [saveOpen, setSaveOpen] = useState(false)
   const [focusTurf, setFocusTurf] = useState<DoorKnockingTurf | null>(null)
+  const [startDrawToken, setStartDrawToken] = useState(0)
   const [clearDrawToken, setClearDrawToken] = useState(0)
+  const [knockTurf, setKnockTurf] = useState<DoorKnockingTurf | null>(null)
+  const [walkTurf, setWalkTurf] = useState<{
+    id: number
+    name: string
+  } | null>(null)
 
   const filterResult = useMemo(
     () => (packQuery.data ? runFilter(packQuery.data, selections) : null),
@@ -144,6 +152,21 @@ export default function NativeDoorKnockingPage({
                   doors
                 </div>
               </div>
+              <Button
+                size="small"
+                variant={ring ? 'outline' : 'default'}
+                onClick={() => {
+                  setWalkTurf(null)
+                  setStartDrawToken((token) => token + 1)
+                }}
+              >
+                {ring ? 'Redraw turf' : 'Draw a turf'}
+              </Button>
+              {!ring && (
+                <p className="text-xs text-muted-foreground">
+                  Click the map to outline an area; double-click to finish.
+                </p>
+              )}
               {turfStats && (
                 <div className="rounded-md border border-info bg-info-light p-3 text-sm">
                   <div className="font-semibold">Drawn area</div>
@@ -172,7 +195,17 @@ export default function NativeDoorKnockingPage({
                   </Button>
                 </div>
               )}
-              <TurfList onFocusTurf={setFocusTurf} />
+              <TurfList
+                walkingTurfId={walkTurf?.id}
+                onFocusTurf={(turf) => {
+                  setWalkTurf(null)
+                  setFocusTurf(turf)
+                }}
+                onKnockTurf={setKnockTurf}
+                onOpenRoute={(turf) =>
+                  setWalkTurf({ id: turf.id, name: turf.name })
+                }
+              />
               <Accordion type="multiple" className="w-full">
                 {PANEL_DIMS.map(([key, label]) => {
                   const dim = packQuery.data.manifest.dims.find(
@@ -210,15 +243,25 @@ export default function NativeDoorKnockingPage({
           )}
         </aside>
         <div className="min-w-0 flex-1">
-          {packQuery.data && filterResult && (
-            <VoterMapCanvas
-              pack={packQuery.data}
-              filterResult={filterResult}
-              turfs={turfsQuery.data ?? []}
-              focusTurf={focusTurf}
-              clearDrawToken={clearDrawToken}
-              onPolygonChange={setRing}
+          {walkTurf ? (
+            <WalkView
+              turfId={walkTurf.id}
+              turfName={walkTurf.name}
+              onBack={() => setWalkTurf(null)}
             />
+          ) : (
+            packQuery.data &&
+            filterResult && (
+              <VoterMapCanvas
+                pack={packQuery.data}
+                filterResult={filterResult}
+                turfs={turfsQuery.data ?? []}
+                focusTurf={focusTurf}
+                startDrawToken={startDrawToken}
+                clearDrawToken={clearDrawToken}
+                onPolygonChange={setRing}
+              />
+            )
           )}
         </div>
       </div>
@@ -228,6 +271,20 @@ export default function NativeDoorKnockingPage({
           open={saveOpen}
           onOpenChange={setSaveOpen}
           onSaved={() => setClearDrawToken((token) => token + 1)}
+        />
+      )}
+      {knockTurf && (
+        <KnockTurfDialog
+          key={knockTurf.id}
+          turf={knockTurf}
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) setKnockTurf(null)
+          }}
+          onRouteReady={(turfId) => {
+            setKnockTurf(null)
+            setWalkTurf({ id: turfId, name: knockTurf.name })
+          }}
         />
       )}
     </DashboardLayout>

@@ -23,6 +23,9 @@ export {
   type DoorKnockOutcome,
   DOOR_KNOCK_OUTCOME_VALUES,
   DoorKnockOutcomeSchema,
+  type WillVoteAnswer,
+  WILL_VOTE_ANSWER_VALUES,
+  WillVoteAnswerSchema,
   type VoterOutreachAttributionSource,
   VOTER_OUTREACH_ATTRIBUTION_SOURCE_VALUES,
   VoterOutreachAttributionSourceSchema,
@@ -723,6 +726,8 @@ export {
   type DoorKnockingRouteHeader,
   DoorKnockingKnockResponseSchema,
   type DoorKnockingKnockResponse,
+  DoorKnockingModeSchema,
+  type DoorKnockingMode,
 } from './doorKnocking/DoorKnockingTurf.schema'
 
 export {

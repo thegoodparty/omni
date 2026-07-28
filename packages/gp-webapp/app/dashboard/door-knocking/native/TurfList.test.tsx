@@ -41,8 +41,16 @@ describe('TurfList', () => {
       ],
     })
     const onFocusTurf = vi.fn()
+    const onKnockTurf = vi.fn()
+    const onOpenRoute = vi.fn()
 
-    render(<TurfList onFocusTurf={onFocusTurf} />)
+    render(
+      <TurfList
+        onFocusTurf={onFocusTurf}
+        onKnockTurf={onKnockTurf}
+        onOpenRoute={onOpenRoute}
+      />,
+    )
 
     await waitFor(() =>
       expect(screen.getByText('Elm St & 5th')).toBeInTheDocument(),
@@ -52,10 +60,38 @@ describe('TurfList', () => {
       expect.objectContaining({ id: 1, name: 'Elm St & 5th' }),
     )
 
-    expect(screen.getByText('Knocked')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Knock' }))
+    expect(onKnockTurf).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Route' }))
+    expect(onOpenRoute).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 2, name: 'Riverside loop' }),
+    )
     expect(
       screen.queryByRole('button', { name: 'Delete turf Riverside loop' }),
     ).toBeNull()
+  })
+
+  it('treats the turf being walked as locked before the refetch settles', async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [turf({ id: 1, name: 'Elm St & 5th', locked: false })],
+    })
+
+    render(
+      <TurfList
+        walkingTurfId={1}
+        onFocusTurf={vi.fn()}
+        onKnockTurf={vi.fn()}
+        onOpenRoute={vi.fn()}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByText('Elm St & 5th')).toBeInTheDocument(),
+    )
+    expect(screen.queryByRole('button', { name: 'Knock' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Route' })).toBeInTheDocument()
   })
 
   it('deletes an unlocked turf and refetches the list', async () => {
@@ -70,7 +106,13 @@ describe('TurfList', () => {
       return { status: 200, data: undefined }
     })
 
-    render(<TurfList onFocusTurf={vi.fn()} />)
+    render(
+      <TurfList
+        onFocusTurf={vi.fn()}
+        onKnockTurf={vi.fn()}
+        onOpenRoute={vi.fn()}
+      />,
+    )
 
     await waitFor(() =>
       expect(screen.getByText('Elm St & 5th')).toBeInTheDocument(),
