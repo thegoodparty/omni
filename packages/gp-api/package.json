@@ -70,6 +70,7 @@
     "@fastify/otel": "^0.16.0",
     "@fastify/static": "^9.1.3",
     "@fastify/websocket": "^11.2.0",
+    "@geoapify/route-planner-sdk": "^2.0.0",
     "@goodparty_org/contracts": "*",
     "@goodparty_org/nest-common": "*",
     "@google/genai": "^2.3.0",

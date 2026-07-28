@@ -43,7 +43,7 @@ describe('POST /v1/contacts/count age filter bounds', () => {
     )
 
     expect(response.status).toBe(201)
-    expect(response.data).toEqual({ count: 3 })
+    expect(response.data).toEqual({ count: 3, fenced: false })
     expect(postSpy).toHaveBeenCalledTimes(1)
     expect(postSpy.mock.calls[0]?.[1]).toEqual(
       expect.objectContaining({ filters: { ageInt: { gte: 25, lte: 34 } } }),
@@ -61,7 +61,7 @@ describe('POST /v1/contacts/count age filter bounds', () => {
     )
 
     expect(response.status).toBe(201)
-    expect(response.data).toEqual({ count: 3 })
+    expect(response.data).toEqual({ count: 3, fenced: false })
     expect(postSpy).toHaveBeenCalledTimes(1)
     expect(postSpy.mock.calls[0]?.[1]).toEqual(
       expect.objectContaining({ filters: { ageInt: { gte: 18, lte: 25 } } }),

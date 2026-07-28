@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import type { BallotReadyPositionLevel } from '@goodparty_org/contracts'
 import { ElectionsService } from '@/elections/services/elections.service'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
@@ -8,6 +9,7 @@ export interface DistrictResolution {
   state: string
   l2DistrictType: string
   l2DistrictName: string
+  level: BallotReadyPositionLevel | null
 }
 
 const STATE_COLUMN = 'state_postal_code'
@@ -53,6 +55,7 @@ export class DistrictResolverService extends createPrismaBase(
       state: position.state,
       l2DistrictType: district.l2Type,
       l2DistrictName: district.l2Name,
+      level: position.level ?? null,
     }
   }
 

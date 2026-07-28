@@ -13,6 +13,7 @@ import { CampaignsModule } from '@/campaigns/campaigns.module'
 import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { ContactEngagementModule } from '@/contactEngagement/contactEngagement.module'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
+import { DoorKnockingModule } from './doorKnocking/doorKnocking.module'
 import { ContactNoteModule } from '@/contactNote/contactNote.module'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { ContentModule } from '@/content/content.module'
@@ -49,6 +50,7 @@ import { ContentfulModule } from '@/vendors/contentful/contentful.module'
 import { GeminiModule } from '@/vendors/google/gemini.module'
 import { CampaignStrategyModule } from '@/campaignStrategy/campaignStrategy.module'
 import { RaceOpponentModule } from '@/raceOpponent/raceOpponent.module'
+import { RecommendedListsModule } from '@/recommendedLists/recommendedLists.module'
 import { OrdinancesModule } from '@/ordinances/ordinances.module'
 import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
 import { EcanvasserIntegrationModule } from '@/vendors/ecanvasserIntegration/ecanvasserIntegration.module'
@@ -75,6 +77,7 @@ import { GeneralChatsModule } from '@/chats/general/general-chats.module'
     GeminiModule,
     CampaignStrategyModule,
     RaceOpponentModule,
+    RecommendedListsModule,
     CampaignStoryModule,
     AnalyticsModule,
     UsersModule,
@@ -109,6 +112,7 @@ import { GeneralChatsModule } from '@/chats/general/general-chats.module'
     ContactEngagementModule,
     ContactInteractionModule,
     ContactNoteModule,
+    DoorKnockingModule,
     PollsModule,
     PrioritiesModule,
     CampaignPlanSharesModule,

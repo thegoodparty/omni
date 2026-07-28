@@ -32,6 +32,21 @@ export const HOUSEHOLD_KEY_RESIDENCE_COLUMNS = [
   'Residence_Addresses_Zip',
 ] as const
 
+// Door knocking keys at UNIT granularity, not household: an apartment
+// building shares one AddressLine, so the household key above would sweep
+// every resident of the building into one door (and blow the serve-time
+// residents cap). These components resolve to the single knockable unit —
+// the July 14 audit's list, in display order. Same normalization recipe.
+export const DOOR_KNOCKING_UNIT_KEY_COLUMNS = [
+  'Residence_Addresses_HouseNumber',
+  'Residence_Addresses_PrefixDirection',
+  'Residence_Addresses_StreetName',
+  'Residence_Addresses_Designator',
+  'Residence_Addresses_SuffixDirection',
+  'Residence_Addresses_ApartmentNum',
+  'Residence_Addresses_Zip',
+] as const
+
 // Shared person/voter shape sourced from people-api, surfaced through gp-api's
 // /v1/contacts and consumed by gp-webapp. Field names and nullability mirror
 // people-api's PersonOutput exactly — keep them in lockstep to avoid drift.
@@ -118,6 +133,11 @@ export type Person = z.infer<typeof PersonSchema>
 // Response-side pagination metadata returned alongside a people list. Distinct
 // from the request-side PaginationSchema in shared/Pagination.schema.ts (which
 // carries offset/limit/sortOrder), so it lives here rather than reusing that.
+// `fenced` (ENG-10804) mirrors PeopleAggregatesResponseSchema's field: true
+// when people-api's statement-timeout guard fired and totalResults is a
+// FENCE_LIMIT floor, not an exact count. Optional so a producer/consumer on
+// either side of a deploy window (people-api and gp-api deploy
+// independently) still validates without the field.
 export const PeopleListPaginationSchema = z.object({
   totalResults: z.number(),
   currentPage: z.number(),
@@ -125,6 +145,7 @@ export const PeopleListPaginationSchema = z.object({
   totalPages: z.number(),
   hasNextPage: z.boolean(),
   hasPreviousPage: z.boolean(),
+  fenced: z.boolean().optional(),
 })
 
 export type PeopleListPagination = z.infer<typeof PeopleListPaginationSchema>

@@ -2002,6 +2002,7 @@ describe('race_opponent_summary dispatch / persist / read', () => {
       state: 'NC',
       l2DistrictType: 'City',
       l2DistrictName: 'HENDERSONVILLE CITY',
+      level: null,
     })
     const dispatchRun = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')

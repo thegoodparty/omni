@@ -20,6 +20,7 @@ import { SUPPORT_STATUS_UNKNOWN } from 'src/contactInteraction/contactInteractio
 import {
   ActivityConditionResolutionService,
   type IdFilterResolution,
+  MAX_RESOLVED_ID_SET_SIZE,
 } from 'src/contactInteraction/services/activityConditionResolution.service'
 import { ContactInteractionTextService } from 'src/contactInteraction/services/contactInteractionText.service'
 import { SupportStatusService } from 'src/contactInteraction/services/supportStatus.service'
@@ -216,6 +217,16 @@ export class ContactsService {
     return { districtId: null }
   }
 
+  // Door knocking resolves the same district (and passes the same
+  // eligibility gate) as every other voter-data read — public so
+  // DoorKnockingModule reuses this instead of duplicating the gate.
+  async resolveEligibleDistrictId(org: Organization): Promise<string> {
+    return this.withOrgDistrictResolution(
+      org,
+      async ({ districtId }) => districtId,
+    )
+  }
+
   private async withOrgDistrictResolution<Result>(
     org: Organization,
     fn: (params: { districtId: string }) => Promise<Result>,
@@ -381,7 +392,7 @@ export class ContactsService {
   async countContacts(
     filterInput: CountContactsDTO,
     organization: Organization,
-  ): Promise<number> {
+  ): Promise<{ count: number; fenced: boolean }> {
     if (!(await this.isProAccess(organization))) {
       throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
@@ -397,7 +408,10 @@ export class ContactsService {
       },
     )
     if (idResolution.kind === 'empty') {
-      return this.withOrgDistrictResolution(organization, async () => 0)
+      return this.withOrgDistrictResolution(organization, async () => ({
+        count: 0,
+        fenced: false,
+      }))
     }
     const filters = this.mergeIdFilter(baseFilters, idResolution)
     // The builder counts the filter set plus any active free-text search so the
@@ -424,7 +438,11 @@ export class ContactsService {
         )
         // People API response is untyped — external API returns unknown shape
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-        return (response.data as PeopleListResponse).pagination.totalResults
+        const { pagination } = response.data as PeopleListResponse
+        return {
+          count: pagination.totalResults,
+          fenced: pagination.fenced ?? false,
+        }
       } catch (error) {
         this.logger.error({ error }, 'Failed to count from people API')
         throw new BadGatewayException('Failed to count from people API')
@@ -447,6 +465,7 @@ export class ContactsService {
     filterInput: ContactsFilterResolutionInput,
     pagination: { resultsPerPage: number; page: number },
     organization: Organization,
+    excludePersonIds?: Set<string>,
   ): Promise<PeopleListResponse> {
     if (!(await this.isProAccess(organization))) {
       throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
@@ -455,12 +474,15 @@ export class ContactsService {
     const baseFilters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
 
-    const idResolution = await this.activityConditionResolution.resolveIdFilter(
-      organization.slug,
-      {
-        activityConditions: filterInput.activityConditions,
-        supportStatus: filterInput.supportStatus,
-      },
+    const idResolution = this.excludePersonIdsFromResolution(
+      await this.activityConditionResolution.resolveIdFilter(
+        organization.slug,
+        {
+          activityConditions: filterInput.activityConditions,
+          supportStatus: filterInput.supportStatus,
+        },
+      ),
+      excludePersonIds,
     )
     if (idResolution.kind === 'empty') {
       return this.emptyPeopleListResponse(
@@ -616,19 +638,28 @@ export class ContactsService {
         people: base.count,
         avgAge: base.avgAge,
         avgIncome: base.avgIncome,
-        // ENG-10775: only the base (unfiltered-by-channel) aggregates call
-        // backs the People/avg-age/avg-income tiles the webapp renders as
-        // "10,000+" — the cellphone/landline/address calls below feed
-        // reachability counts, whose own fenced-ness isn't surfaced yet.
+        // ENG-10775: the base (unfiltered-by-channel) aggregates call backs
+        // the People/avg-age/avg-income tiles the webapp renders as
+        // "10,000+".
         fenced: base.fenced ?? false,
       },
       reachability: {
         sms: cellphone.count,
-        robocall: cellphone.count,
+        // Robocall/telemarketing reach landlines, not cell phones (mirrors
+        // TYPE_OVERRIDES in voterFilePeopleFilter.util.ts).
+        robocall: landline.count,
         phoneBanking: landline.count,
         doorKnocking: address.count,
         // Polls are delivered by text, so reachability mirrors sms 1:1.
         polls: cellphone.count,
+        fenced: {
+          sms: cellphone.fenced,
+          robocall: landline.fenced,
+          phoneBanking: landline.fenced,
+          doorKnocking: address.fenced,
+          // Polls mirrors sms 1:1, so its fenced-ness does too.
+          polls: cellphone.fenced,
+        },
       },
     }
   }
@@ -1123,6 +1154,58 @@ export class ContactsService {
     return resolution.kind === 'filter'
       ? { ...filters, id: resolution.idFilter }
       : filters
+  }
+
+  // Composes a person-id exclusion set (the opt-out scrub, ENG-10800) with
+  // whatever activity-condition/support-status resolution already produced.
+  // people-api's `id` filter accepts exactly one operator, so the exclusion
+  // can't just be bolted on as a sibling `notIn` — it has to fold into
+  // whichever operator is already there. A `notIn` resolution already means
+  // "everyone except these", so the exclusion set unions in. An `in`
+  // resolution is a specific membership list, so exclusion removes ids
+  // directly from it; if that empties the list, this collapses to `empty`
+  // rather than sending people-api an illegal zero-length `in`.
+  private excludePersonIdsFromResolution(
+    resolution: IdFilterResolution,
+    excludePersonIds: Set<string> | undefined,
+  ): IdFilterResolution {
+    if (!excludePersonIds || excludePersonIds.size === 0) return resolution
+    if (resolution.kind === 'empty') return resolution
+    if (resolution.kind === 'none') {
+      return { kind: 'filter', idFilter: { notIn: [...excludePersonIds] } }
+    }
+    if ('notIn' in resolution.idFilter) {
+      const merged = new Set([
+        ...resolution.idFilter.notIn,
+        ...excludePersonIds,
+      ])
+      // Both inputs are independently capped at MAX_RESOLVED_ID_SET_SIZE
+      // (activityConditionResolution's own notIn, and resolveOptOutScrub's
+      // opt-out set) — their union isn't. An org with a large
+      // support-status-unknown complement AND a large opt-out history can
+      // combine past the people-api transport cap, which would 400 the
+      // send. Drop the opt-out exclusion rather than fail the request; the
+      // scrub is best-effort, not a hard requirement.
+      if (merged.size > MAX_RESOLVED_ID_SET_SIZE) {
+        this.logger.warn(
+          { size: merged.size, cap: MAX_RESOLVED_ID_SET_SIZE },
+          'Opt-out scrub combined with an existing notIn resolution ' +
+            'exceeds the people-api id-filter cap — dropping the opt-out ' +
+            'exclusion for this request rather than failing it',
+        )
+        return resolution
+      }
+      return {
+        kind: 'filter',
+        idFilter: { notIn: [...merged] },
+      }
+    }
+    const remaining = resolution.idFilter.in.filter(
+      (id) => !excludePersonIds.has(id),
+    )
+    return remaining.length === 0
+      ? { kind: 'empty' }
+      : { kind: 'filter', idFilter: { in: remaining } }
   }
 
   // A saved list created from a search result set stores its search term.

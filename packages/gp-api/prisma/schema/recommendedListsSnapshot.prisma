@@ -1,0 +1,23 @@
+model RecommendedListsSnapshot {
+  id Int @id @default(autoincrement())
+
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId Int      @unique @map("campaign_id")
+
+  status   String
+  raceId   String? @map("race_id")
+  attempts Int     @default(0)
+
+  startedAt  DateTime? @map("started_at")
+  computedAt DateTime? @map("computed_at")
+
+  /// [RecommendedListsPayload]
+  payload Json? @db.JsonB
+
+  error String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("recommended_lists_snapshot")
+}

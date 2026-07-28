@@ -95,6 +95,7 @@ const countResult = (
   overrides: Partial<ListWizardCountResult>,
 ): ListWizardCountResult => ({
   count: undefined,
+  fenced: undefined,
   isLoading: false,
   isStale: false,
   isError: false,

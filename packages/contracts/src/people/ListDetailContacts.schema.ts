@@ -30,6 +30,20 @@ export const ListDetailReachabilitySchema = z.object({
   doorKnocking: z.number().int().min(0),
   // Polls are delivered by text, so reachability mirrors sms 1:1.
   polls: z.number().int().min(0),
+  // Per-channel mirror of demographics.fenced (ENG-10805): each channel's
+  // count comes from its own people-api aggregates call, so it can be
+  // fenced independently of the base count and of the other channels.
+  // Optional (and every leaf optional) so an old webapp bundle or a
+  // deploy-skew gp-api still validates a response with or without it.
+  fenced: z
+    .object({
+      sms: z.boolean().optional(),
+      robocall: z.boolean().optional(),
+      phoneBanking: z.boolean().optional(),
+      doorKnocking: z.boolean().optional(),
+      polls: z.boolean().optional(),
+    })
+    .optional(),
 })
 export type ListDetailReachability = z.infer<
   typeof ListDetailReachabilitySchema
