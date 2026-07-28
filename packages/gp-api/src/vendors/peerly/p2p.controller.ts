@@ -107,6 +107,11 @@ export class P2pController {
       return {
         phoneListId: listId,
         leadsLoaded: detailsResponse.leads_loaded,
+        // Already fetched via the ownership check above — the capture row
+        // is stamped with these at upload time (ENG-10800/ENG-10801), so no
+        // extra query is needed to surface them (ENG-10808).
+        excludedOptedOutCount: capturedList.excludedOptedOutCount,
+        excludedDuplicatePhoneCount: capturedList.excludedDuplicatePhoneCount,
       }
     } catch (error) {
       if (error instanceof BadGatewayException) {
