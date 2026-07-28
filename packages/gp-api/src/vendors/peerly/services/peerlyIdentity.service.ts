@@ -70,6 +70,7 @@ import {
 import {
   getPeerlyCvRejectionDetail,
   isPeerlyCvRejection,
+  PeerlyCvRejectionException,
 } from '../utils/peerlyCvRejection.util'
 import { PinoLogger } from 'nestjs-pino'
 
@@ -661,7 +662,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
         return await this.handleApiError(error, {
           campaign,
           ...(peerlyIdentityId ? { peerlyIdentityId } : {}),
-          httpExceptionClass: BadRequestException,
+          httpExceptionClass: PeerlyCvRejectionException,
           customMessage:
             'Campaign Verify rejected the submission' +
             (detail ? `: ${detail}` : '') +
@@ -716,6 +717,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
   async retrieveCampaignVerifyStatus(
     peerlyIdentityId: string,
     campaign: Campaign,
+    options?: { suppressSlackAlert?: boolean },
   ) {
     try {
       this.logger.debug(
@@ -747,7 +749,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           return null
         }
       }
-      return await this.handleApiError(e, { campaign, peerlyIdentityId })
+      return await this.handleApiError(e, {
+        campaign,
+        peerlyIdentityId,
+        suppressSlackAlert: options?.suppressSlackAlert,
+      })
     }
   }
 

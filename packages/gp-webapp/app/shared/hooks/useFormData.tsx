@@ -1,5 +1,11 @@
 'use client'
-import { createContext, useContext, useState } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+} from 'react'
 
 interface ValidationResult {
   validations: Partial<Record<string, string | boolean | null>>
@@ -34,15 +40,25 @@ export const FormDataProvider = ({
   const [formData, setFormData] = useState<FormDataState>(initialState)
   const [isValid, setIsValid] = useState(validator(initialState))
 
-  const handleChange = (change: FormDataState) => {
-    const newFormData = { ...formData, ...change }
-    const newIsValid = validator(newFormData)
-    setFormData(newFormData)
-    setIsValid(newIsValid)
-  }
+  const handleChange = useCallback(
+    (change: FormDataState) => {
+      const newFormData = { ...formData, ...change }
+      const newIsValid = validator(newFormData)
+      setFormData(newFormData)
+      setIsValid(newIsValid)
+    },
+    [formData, validator],
+  )
+
+  // Memoize so consumers don't re-render when the provider re-renders without a
+  // change to the form state, validity, or the (stable) change handler.
+  const value = useMemo<FormDataContextValue>(
+    () => ({ formData, handleChange, isValid }),
+    [formData, handleChange, isValid],
+  )
 
   return (
-    <FormDataContext.Provider value={{ formData, handleChange, isValid }}>
+    <FormDataContext.Provider value={value}>
       {children}
     </FormDataContext.Provider>
   )

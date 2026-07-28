@@ -72,6 +72,8 @@ const modelOutput = (overrides: object = {}) => ({
     ...overrides,
   },
   tokens: 20,
+  inputTokens: 16,
+  outputTokens: 4,
   model: 'claude-sonnet-4-6',
 })
 
@@ -88,6 +90,9 @@ describe('OrdinanceDraftRevisionService', () => {
     ])
     expect(revision.sourcesToAdd).toEqual([])
     expect(revision.tokens).toBe(20)
+    expect(revision.inputTokens).toBe(16)
+    expect(revision.outputTokens).toBe(4)
+    expect(revision.model).toBe('claude-sonnet-4-6')
   })
 
   it('threads the pinned loop models, retries, budget, and abort signal', async () => {
@@ -162,5 +167,18 @@ describe('OrdinanceDraftRevisionService', () => {
     const revision = await build(jsonCompletion).revise(previous, flaggedChecks)
 
     expect(revision.body).toBe('x'.repeat(halfLength))
+  })
+
+  // The reviser edits state bills too: told to preserve "municipal-code
+  // voice", it would rewrite a state bill's statutory voice toward ordinance
+  // style instead of preserving the draft's own register.
+  it('preserves the legislative voice without assuming a municipal draft', async () => {
+    const jsonCompletion = vi.fn().mockResolvedValue(modelOutput())
+    await build(jsonCompletion).revise(record(), flaggedChecks)
+
+    const system = jsonCompletion.mock.calls[0]?.[0]?.messages?.[0]?.content
+    expect(system).toContain('legislative voice')
+    expect(system).not.toContain('municipal ordinance')
+    expect(system).not.toContain('municipal-code voice')
   })
 })

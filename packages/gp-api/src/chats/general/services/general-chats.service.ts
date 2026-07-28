@@ -238,9 +238,13 @@ export class GeneralChatsService {
         tools,
         userMessage: args.userMessage,
         models: handler.models,
+        traceName: `${handler.scope}-chat-stream`,
         ...(handler.maxSteps && { maxSteps: handler.maxSteps }),
         ...(args.signal && { signal: args.signal }),
         ...(args.clientMessageId && { clientMessageId: args.clientMessageId }),
+        ...(handler.onTurnUsage && {
+          onUsage: (usage, model) => handler.onTurnUsage!(ctx, usage, model),
+        }),
       })
 
       for await (const chunk of inner) yield chunk

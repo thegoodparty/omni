@@ -3,7 +3,7 @@
 import type { Ref, ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { IconButton, Input } from '@styleguide'
+import { cn, IconButton, Input } from '@styleguide'
 import {
   SearchIcon,
   SendIcon,
@@ -13,6 +13,11 @@ import type { LiveSegment } from './streaming'
 import ChatPill from '../ai-chat/ChatPill'
 import { DictationMicButton } from '../../briefings/shared/DictationMicButton'
 import type { UseDictationAppendResult } from '../../briefings/shared/useDictationAppend'
+
+// Module-level so react-markdown gets a stable plugins identity across the
+// per-tick re-renders of a streaming turn (a fresh [remarkGfm] each render
+// would defeat its internal memoization).
+const REMARK_PLUGINS = [remarkGfm]
 
 // Shared presentation for the agent chat surfaces (Chief of Staff, ordinance
 // flow, ...). One source of truth for the assistant bubble, markdown rendering,
@@ -72,7 +77,34 @@ export function AssistantMarkdown({
 }): React.JSX.Element {
   return (
     <div className={ASSISTANT_BUBBLE}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{children}</ReactMarkdown>
+    </div>
+  )
+}
+
+// Markdown for card body text (an authority explanation, a comparable's outcome,
+// ...). Renders inline emphasis, links, lists, and code with the card's own text
+// styling — no chat-bubble background. `className` carries the field's size and
+// color so the markdown inherits them.
+export function CardMarkdown({
+  children,
+  className,
+}: {
+  children: string
+  className?: string
+}): React.JSX.Element {
+  return (
+    <div
+      className={cn(
+        'space-y-2 [&_p]:m-0 [&_strong]:font-semibold [&_em]:italic ' +
+          '[&_a]:underline [&_ul]:my-0 [&_ul]:list-disc [&_ul]:pl-5 ' +
+          '[&_ol]:my-0 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0 ' +
+          '[&_code]:rounded [&_code]:bg-foreground/10 [&_code]:px-1 ' +
+          '[&_code]:py-0.5 [&_code]:text-xs',
+        className,
+      )}
+    >
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{children}</ReactMarkdown>
     </div>
   )
 }

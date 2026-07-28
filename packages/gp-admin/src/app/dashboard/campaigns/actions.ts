@@ -76,3 +76,18 @@ export const resendCvPin = async (campaignId: number): Promise<void> => {
     return client.campaigns.resendCvPin(campaignId)
   })
 }
+
+export const setInternalTestingApproval = async (
+  campaignId: number,
+  enabled: boolean
+): Promise<void> => {
+  const { has } = await auth()
+  if (!has?.({ permission: PERMISSIONS.WRITE_CAMPAIGNS })) {
+    throw new Error('Missing write_campaigns permission')
+  }
+  return gpAction(async (client) => {
+    return enabled
+      ? client.campaigns.grantInternalTestingApproval(campaignId)
+      : client.campaigns.revokeInternalTestingApproval(campaignId)
+  })
+}

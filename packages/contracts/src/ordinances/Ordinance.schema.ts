@@ -5,6 +5,18 @@ import {
   OrdinanceQualityLoopStatusSchema,
 } from '../generated/enums'
 
+// Shown before the user relies on a draft: a persistent banner on the draft
+// page and at the top of the export appendix. One source of truth here (this is
+// legal-sensitive wording) so the on-screen and exported text can't drift.
+export const ORDINANCE_DRAFT_DISCLAIMER = {
+  lead: 'Review before you rely on this.',
+  body:
+    'This is an AI-generated first draft, not legal advice. Before you ' +
+    'introduce or act on it, have a licensed attorney review it and ' +
+    'independently verify every statute, citation, and factual claim ' +
+    'against its primary source.',
+} as const
+
 // A cited source. Shared across the step artifacts and the draft. Candidate for
 // a normalized Source registry later (TDD Q12); JSON for now.
 export const OrdinanceSourceSchema = z.object({

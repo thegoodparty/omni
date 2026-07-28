@@ -11,22 +11,39 @@ import type { ChatStreamEvent } from '../chief-of-staff/data/contracts'
 import type ChiefOfStaffChatSurfaceComponent from '../chief-of-staff/components/chat/ChiefOfStaffChatSurface'
 import { buildCampaignManagerIntro } from './campaignManagerChat'
 import CampaignManagerHome from './CampaignManagerHome'
+import { CampaignManagerChatProvider } from './CampaignManagerChatProvider'
 
 type SurfaceProps = React.ComponentProps<
   typeof ChiefOfStaffChatSurfaceComponent
 >
 
-// The `personalize=1` deep link (from the plan-tab story gate) drives this
-// home's own useSearchParams/useRouter effect, so this file supplies its own
-// mock (overriding vitest.setup.ts's bare useRouter/usePathname one), same
-// pattern as OutreachComposeDeepLink.test.tsx.
-let mockSearchParams = new URLSearchParams()
+// The chat dock (footer + surface + open/story controls) lives in the
+// always-present CampaignManagerChatProvider (mounted in DashboardLayout in
+// production); the home reads it from context. Render the same composition here
+// so the meet card (home) and the footer/surface (provider) wire up as they do
+// in the app.
+const renderHome = () =>
+  render(
+    <CampaignManagerChatProvider>
+      <CampaignManagerHome />
+    </CampaignManagerChatProvider>,
+  )
+
+// firstName now comes from useUser (read by the provider), not a prop.
+vi.mock('@shared/hooks/useUser', () => ({
+  useUser: () => [{ firstName: 'Renee' }],
+}))
+
+// The `personalize=1` deep link (from the plan-tab story gate) drives the
+// provider's URL-reading effect. It reads window.location directly (not
+// useSearchParams), so tests set the URL via history; useRouter().replace is
+// mocked to observe the param being cleared.
 const mockRouterReplace = vi.fn()
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: mockRouterReplace }),
   usePathname: () => '/dashboard',
-  useSearchParams: () => mockSearchParams,
+  useSearchParams: () => new URLSearchParams(),
 }))
 
 const surfacePropsMock = vi.fn<(props: SurfaceProps) => void>()
@@ -127,10 +144,11 @@ function makeStream(events: ChatStreamEvent[]): AsyncIterable<ChatStreamEvent> {
 }
 
 beforeEach(() => {
+  window.localStorage.clear()
+  window.history.replaceState({}, '', '/dashboard')
   createMock.mockReset()
   listMessagesMock.mockReset()
   streamMessageMock.mockReset()
-  mockSearchParams = new URLSearchParams()
   mockRouterReplace.mockReset()
   surfacePropsMock.mockClear()
 })
@@ -152,7 +170,7 @@ async function openOnSeededGreeting(): Promise<void> {
   ])
 
   const user = userEvent.setup()
-  render(<CampaignManagerHome firstName="Renee" />)
+  renderHome()
   await user.click(
     screen.getByRole('button', { name: /meet your campaign manager/i }),
   )
@@ -161,7 +179,7 @@ async function openOnSeededGreeting(): Promise<void> {
 
 describe('CampaignManagerHome', () => {
   it('renders the tasks surface and campaign-manager chat entries', () => {
-    render(<CampaignManagerHome firstName="Renee" />)
+    renderHome()
 
     expect(
       screen.getByRole('button', { name: /meet your campaign manager/i }),
@@ -199,6 +217,22 @@ describe('CampaignManagerHome', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText('Type any question in the box below.'),
+    ).toBeInTheDocument()
+  })
+
+  it('renders the quick-prompt pills and personalized composer placeholder', async () => {
+    await openOnSeededGreeting()
+
+    expect(
+      screen.getByRole('button', { name: 'What should I focus on to win?' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', {
+        name: 'Which voters should I reach this week?',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByPlaceholderText('Hi Renee, how can I help?'),
     ).toBeInTheDocument()
   })
 
@@ -279,7 +313,7 @@ describe('CampaignManagerHome story auto-launch', () => {
       ]),
     )
     const user = userEvent.setup()
-    render(<CampaignManagerHome firstName="Renee" />)
+    renderHome()
 
     await user.click(
       screen.getByRole('button', { name: 'Personalize your campaign' }),
@@ -323,7 +357,7 @@ describe('CampaignManagerHome story auto-launch', () => {
       ]),
     )
     const user = userEvent.setup()
-    render(<CampaignManagerHome firstName="Renee" />)
+    renderHome()
 
     await user.click(
       screen.getByRole('button', { name: 'Personalize your campaign' }),
@@ -357,7 +391,7 @@ describe('CampaignManagerHome story auto-launch', () => {
       ]),
     )
     const user = userEvent.setup()
-    render(<CampaignManagerHome firstName="Renee" />)
+    renderHome()
 
     await user.click(
       screen.getByRole('button', { name: 'Personalize your campaign' }),
@@ -377,7 +411,7 @@ describe('CampaignManagerHome story auto-launch', () => {
   })
 
   it('fires the story kickoff once from the personalize=1 deep link, then clears the param', async () => {
-    mockSearchParams = new URLSearchParams('personalize=1')
+    window.history.replaceState({}, '', '/dashboard?personalize=1')
     createMock.mockResolvedValue({ conversationId: 'conv_1' })
     listMessagesMock.mockResolvedValue([])
     streamMessageMock.mockReturnValue(
@@ -387,7 +421,7 @@ describe('CampaignManagerHome story auto-launch', () => {
       ]),
     )
 
-    const { rerender } = render(<CampaignManagerHome firstName="Renee" />)
+    const { rerender } = renderHome()
 
     await waitFor(() =>
       expect(streamMessageMock).toHaveBeenCalledWith(
@@ -400,15 +434,94 @@ describe('CampaignManagerHome story auto-launch', () => {
     expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard')
 
     // A later re-render (e.g. a sibling state update) must not refire it.
-    rerender(<CampaignManagerHome firstName="Renee" />)
+    rerender(
+      <CampaignManagerChatProvider>
+        <CampaignManagerHome />
+      </CampaignManagerChatProvider>,
+    )
     expect(createMock).toHaveBeenCalledTimes(1)
     expect(streamMessageMock).toHaveBeenCalledTimes(1)
   })
 
   it('does not auto-launch the story flow without the personalize deep link', () => {
-    render(<CampaignManagerHome firstName="Renee" />)
+    renderHome()
 
     expect(createMock).not.toHaveBeenCalled()
     expect(mockRouterReplace).not.toHaveBeenCalled()
+  })
+})
+
+describe('CampaignManagerHome meet-card dismissal', () => {
+  // Query including aria-hidden: an open chat drawer aria-hides the dashboard
+  // behind it, so a still-mounted (undismissed) meet card would otherwise read
+  // as absent. This distinguishes "removed from the DOM" (dismissed) from
+  // "present but behind the open chat" (not dismissed).
+  const meetHeading = () =>
+    screen.queryByRole('heading', {
+      name: 'Meet your virtual Campaign Manager',
+      level: 2,
+      hidden: true,
+    })
+
+  it('shows the meet card for a fresh candidate', () => {
+    renderHome()
+    expect(meetHeading()).toBeInTheDocument()
+  })
+
+  it('keeps the meet card when only the story flow is started', async () => {
+    createMock.mockResolvedValue({ conversationId: 'conv_1' })
+    listMessagesMock.mockResolvedValue([])
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Tell me your why.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    const user = userEvent.setup()
+    renderHome()
+    expect(meetHeading()).toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Personalize your campaign' }),
+    )
+    await waitFor(() =>
+      expect(latestSurfaceProps().pendingKickoff).toBe(
+        CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+      ),
+    )
+
+    // Starting the story is not "meeting the manager", so the card stays.
+    expect(meetHeading()).toBeInTheDocument()
+  })
+
+  it('dismisses the meet card when the manager is opened via the footer chat box', async () => {
+    createMock.mockResolvedValue({ conversationId: 'conv_1' })
+    listMessagesMock.mockResolvedValue([])
+    const user = userEvent.setup()
+    renderHome()
+    expect(meetHeading()).toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: /open campaign manager chat/i }),
+    )
+
+    await waitFor(() => expect(meetHeading()).not.toBeInTheDocument())
+  })
+
+  it('dismisses the meet card on its own click and keeps it dismissed on remount', async () => {
+    createMock.mockResolvedValue({ conversationId: 'conv_1' })
+    listMessagesMock.mockResolvedValue([])
+    const user = userEvent.setup()
+    const { unmount } = renderHome()
+
+    await user.click(
+      screen.getByRole('button', { name: /meet your campaign manager/i }),
+    )
+    await waitFor(() => expect(meetHeading()).not.toBeInTheDocument())
+
+    // Persisted: a fresh mount does not bring it back.
+    unmount()
+    renderHome()
+    expect(meetHeading()).not.toBeInTheDocument()
   })
 })

@@ -1,0 +1,16 @@
+// Inbound lead capture from the public "claim this profile" modal. A visitor
+// looking at an unclaimed public /people profile can leave their email (and
+// optionally a name) to be nudged to claim it. Nothing here joins to a User or
+// PersonProfile yet — the person may not have an account — so `personId` is a
+// plain indexed reference into the election-api civics spine (gp_candidate_id),
+// not a foreign key (Person lives in a different service/schema).
+model ProfileClaimRequest {
+  id             String   @id @default(uuid(7))
+  personId       String   @map("person_id") // subject Person being asked to claim (gp_candidate_id)
+  requesterName  String?  @map("requester_name")
+  requesterEmail String   @map("requester_email")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([personId])
+  @@map("person_profile_claim_request")
+}

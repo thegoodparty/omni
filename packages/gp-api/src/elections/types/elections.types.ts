@@ -219,6 +219,11 @@ export type CampaignStrategyContextResponse = {
   office_level: string | null
   office_type: string | null
   official_office_name: string | null
+  // BallotReady position partisanship ('partisan' | 'nonpartisan'). Present on
+  // the election-api response but historically untyped here; the recommended-
+  // lists engine reads it to fork the partisan universe. Optional so existing
+  // fixtures that predate it still satisfy the type.
+  partisan_type?: string | null
   primary_election_date: string | null
   projected_turnout: number | null
   projected_voter_turnout: number | null

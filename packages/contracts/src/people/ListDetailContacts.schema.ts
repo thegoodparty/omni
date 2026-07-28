@@ -11,20 +11,42 @@ export const ListDetailDemographicsSchema = z.object({
   people: z.number().int().min(0),
   avgAge: z.number().nullable(),
   avgIncome: z.number().nullable(),
+  // True when people-api's aggregates fence fired (ENG-10775): `people` is a
+  // FENCE_LIMIT-capped lower bound, not the list's true membership, and
+  // avgAge/avgIncome are a sample over that capped set rather than exact.
+  // Optional so an old webapp bundle (pre-ENG-10775) still validates a
+  // response that carries it, and a deploy-skew gp-api still validates
+  // without it.
+  fenced: z.boolean().optional(),
 })
 export type ListDetailDemographics = z.infer<
   typeof ListDetailDemographicsSchema
 >
 
 export const ListDetailReachabilitySchema = z.object({
-  sms: z.number().int().min(0),
-  robocall: z.number().int().min(0),
-  phoneBanking: z.number().int().min(0),
-  doorKnocking: z.number().int().min(0),
-  // No eligibility data source exists for either channel (TDD open
-  // question) — always null so the UI renders "unavailable", never 0.
-  email: z.null(),
-  metaAds: z.null(),
+  // ENG-10806: each channel comes from its own people-api aggregates call —
+  // null means that specific call failed, degrading only that tile instead
+  // of the whole route (see contacts.service.ts's fetchListDetailAggregates).
+  sms: z.number().int().min(0).nullable(),
+  robocall: z.number().int().min(0).nullable(),
+  phoneBanking: z.number().int().min(0).nullable(),
+  doorKnocking: z.number().int().min(0).nullable(),
+  // Polls are delivered by text, so reachability mirrors sms 1:1.
+  polls: z.number().int().min(0).nullable(),
+  // Per-channel mirror of demographics.fenced (ENG-10805): each channel's
+  // count comes from its own people-api aggregates call, so it can be
+  // fenced independently of the base count and of the other channels.
+  // Optional (and every leaf optional) so an old webapp bundle or a
+  // deploy-skew gp-api still validates a response with or without it.
+  fenced: z
+    .object({
+      sms: z.boolean().optional(),
+      robocall: z.boolean().optional(),
+      phoneBanking: z.boolean().optional(),
+      doorKnocking: z.boolean().optional(),
+      polls: z.boolean().optional(),
+    })
+    .optional(),
 })
 export type ListDetailReachability = z.infer<
   typeof ListDetailReachabilitySchema
@@ -36,6 +58,9 @@ export const ListDetailOutreachHistoryEntrySchema = z.object({
   outreachType: OutreachTypeSchema,
   status: OutreachStatusSchema.nullable(),
   date: zDate().nullable(),
+  // ENG-10776: a legacy row can have a null `date` — the webapp falls back
+  // to this to render a real timestamp instead of "—".
+  createdAt: zDate(),
 })
 export type ListDetailOutreachHistoryEntry = z.infer<
   typeof ListDetailOutreachHistoryEntrySchema

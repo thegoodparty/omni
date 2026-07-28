@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { useTestService } from '@/test-service'
-import { VoterFileFilter } from '../../generated/prisma'
+import { OutreachType, VoterFileFilter } from '../../generated/prisma'
 import { VoterFileFilterService } from './voterFileFilter.service'
 
 const filter = (overrides: Partial<VoterFileFilter>): VoterFileFilter =>
@@ -102,5 +102,100 @@ describe('stampFirstUsedForOutreach', () => {
     ])
 
     expect(countA + countB).toBe(1)
+  })
+})
+
+describe('findOutreachesByVoterFileFilterId', () => {
+  const service = useTestService()
+
+  const seedCampaignAndFilter = async () => {
+    const orgSlug = `org-outreach-${Math.random().toString(36).slice(2)}`
+    await service.prisma.organization.create({
+      data: { slug: orgSlug, ownerId: service.user.id },
+    })
+    const campaign = await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: `${orgSlug}-campaign`,
+        organizationSlug: orgSlug,
+      },
+    })
+    const filter = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: orgSlug, name: 'outreach history list' },
+    })
+    return { campaign, filter }
+  }
+
+  // ENG-10776: this reproduces the reported bug — a null-date row sorted
+  // ahead of a real send. Postgres `ORDER BY date DESC` defaults to
+  // NULLS FIRST, so this fails on develop's plain `{ date: 'desc' }` and
+  // only passes with the `nulls: 'last'` fix.
+  it('sorts null-date rows after every dated row, most recent first', async () => {
+    const { campaign, filter } = await seedCampaignAndFilter()
+    const svc = service.app.get(VoterFileFilterService)
+
+    const nullDateRow = await service.prisma.outreach.create({
+      data: {
+        campaignId: campaign.id,
+        voterFileFilterId: filter.id,
+        outreachType: OutreachType.robocall,
+        date: null,
+      },
+    })
+    const olderTextRow = await service.prisma.outreach.create({
+      data: {
+        campaignId: campaign.id,
+        voterFileFilterId: filter.id,
+        outreachType: OutreachType.text,
+        date: new Date('2026-06-01T00:00:00.000Z'),
+      },
+    })
+    const newerTextRow = await service.prisma.outreach.create({
+      data: {
+        campaignId: campaign.id,
+        voterFileFilterId: filter.id,
+        outreachType: OutreachType.text,
+        date: new Date('2026-07-01T00:00:00.000Z'),
+      },
+    })
+
+    const result = await svc.findOutreachesByVoterFileFilterId(filter.id)
+
+    expect(result.map((row) => row.id)).toEqual([
+      newerTextRow.id,
+      olderTextRow.id,
+      nullDateRow.id,
+    ])
+  })
+
+  // ENG-10776: legacy doorKnocking rows are never a real send on this
+  // surface (the door-knock tool has its own model) — a null-date, null-name
+  // one produced the "— / — / Door knocking" phantom row. nativeDoorKnocking
+  // is a distinct, still-supported channel and must stay.
+  it('excludes legacy doorKnocking rows but keeps nativeDoorKnocking rows', async () => {
+    const { campaign, filter } = await seedCampaignAndFilter()
+    const svc = service.app.get(VoterFileFilterService)
+
+    await service.prisma.outreach.create({
+      data: {
+        campaignId: campaign.id,
+        voterFileFilterId: filter.id,
+        outreachType: OutreachType.doorKnocking,
+        name: null,
+        date: null,
+      },
+    })
+    const nativeDoorKnockRow = await service.prisma.outreach.create({
+      data: {
+        campaignId: campaign.id,
+        voterFileFilterId: filter.id,
+        outreachType: OutreachType.nativeDoorKnocking,
+        date: new Date('2026-06-01T00:00:00.000Z'),
+      },
+    })
+
+    const result = await svc.findOutreachesByVoterFileFilterId(filter.id)
+
+    expect(result.map((row) => row.id)).toEqual([nativeDoorKnockRow.id])
   })
 })

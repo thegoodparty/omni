@@ -45,6 +45,7 @@ export interface Race {
   filingPeriods?: FilingPeriod[]
   city?: string | null
   isPrimary?: boolean | null
+  isRunoff?: boolean | null
 }
 
 export interface RaceWithHighlight extends Omit<Race, 'position'> {

@@ -10,6 +10,11 @@ import {
 } from './segment.types'
 import { PinoLogger } from 'nestjs-pino'
 
+// HubSpot rejects any custom-behavioral-event property value over 256 chars
+// (`property_value_too_long`), failing the whole event. Cap string values so a
+// long property (e.g. a community-issue summary) can't drop the event.
+const MAX_EVENT_PROPERTY_LENGTH = 256
+
 @Injectable()
 export class SegmentService {
   private analytics: Analytics
@@ -34,10 +39,19 @@ export class SegmentService {
     try {
       const stringId = String(userId)
 
+      const truncatedProperties = Object.fromEntries(
+        Object.entries(properties).map(([key, value]) => [
+          key,
+          typeof value === 'string' && value.length > MAX_EVENT_PROPERTY_LENGTH
+            ? `${value.slice(0, MAX_EVENT_PROPERTY_LENGTH - 3)}...`
+            : value,
+        ]),
+      )
+
       const eventConfig: TrackParams = {
         event,
         userId: stringId,
-        properties,
+        properties: truncatedProperties,
       }
 
       if (userContext) {

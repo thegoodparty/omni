@@ -233,12 +233,6 @@ export default function NotesSection({
     queryClient.invalidateQueries({
       queryKey: ['contact-notes', orgSlug, personId],
     })
-    // Notes also appear in the person activity feed. Partial key match (no
-    // exact:true) invalidates the feed regardless of which engagement id the
-    // provider keyed it on for this person.
-    queryClient.invalidateQueries({
-      queryKey: ['contact-engagement', 'activities'],
-    })
   }
 
   const createMutation = useMutation({
@@ -388,7 +382,7 @@ export default function NotesSection({
               isSaveError={createMutation.isError}
               textareaLabel="Add a note"
             />
-          ) : (
+          ) : editingNoteId === null ? (
             <Button
               type="button"
               className="w-full"
@@ -397,7 +391,7 @@ export default function NotesSection({
               <NotebookPenIcon size={16} />
               Add a note
             </Button>
-          )}
+          ) : null}
         </>
       )}
     </InfoSection>

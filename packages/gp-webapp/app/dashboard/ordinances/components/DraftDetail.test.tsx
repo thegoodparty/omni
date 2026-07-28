@@ -3,10 +3,12 @@ import { render } from 'helpers/test-utils/render'
 import { screen, fireEvent, act, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { router } from 'helpers/test-utils/router-mocking'
+import { EVENTS } from 'helpers/analyticsHelper'
 import type { Ordinance } from '@goodparty_org/contracts'
 import DraftDetail from './DraftDetail'
 
 const mocks = vi.hoisted(() => ({
+  trackEvent: vi.fn(),
   updateOrdinance: vi.fn(),
   startQualityReport: vi.fn(),
   fetchQualityRun: vi.fn(),
@@ -23,6 +25,18 @@ const mocks = vi.hoisted(() => ({
     } | null,
   },
 }))
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('helpers/analyticsHelper')>()
+  return {
+    ...actual,
+    trackEvent: (...args: unknown[]) => {
+      mocks.trackEvent(...args)
+      return Promise.resolve()
+    },
+  }
+})
 
 vi.mock('../data/ordinances-api', () => ({
   updateOrdinance: mocks.updateOrdinance,
@@ -611,5 +625,136 @@ describe('DraftDetail header actions', () => {
 
     expect(await screen.findByText(/could not delete the draft/i)).toBeVisible()
     expect(router.push).not.toHaveBeenCalled()
+  })
+})
+
+describe('DraftDetail analytics', () => {
+  beforeEach(() => {
+    mocks.trackEvent.mockReset()
+    mocks.updateOrdinance.mockReset()
+    mocks.updateOrdinance.mockResolvedValue(makeOrdinance())
+    mocks.deleteOrdinance.mockReset()
+    mocks.deleteOrdinance.mockResolvedValue(undefined)
+    mocks.downloadOrdinanceExport.mockReset()
+    mocks.downloadOrdinanceExport.mockResolvedValue(undefined)
+    router.push?.mockReset?.()
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('fires Draft Details Viewed with the draft id on mount', async () => {
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    await waitFor(() =>
+      expect(mocks.trackEvent).toHaveBeenCalledWith(
+        EVENTS.Ordinances.DraftDetailsViewed,
+        { draftId: 'ord-1' },
+      ),
+    )
+  })
+
+  it.each([
+    [/download as pdf/i, 'pdf'],
+    [/download as word/i, 'word'],
+  ])(
+    'fires Draft Details Downloaded with type %s after a successful export',
+    async (menuItem, type) => {
+      const user = userEvent.setup()
+      render(<DraftDetail ordinance={makeOrdinance()} />)
+
+      await user.click(screen.getByRole('button', { name: /download draft/i }))
+      await user.click(screen.getByRole('menuitem', { name: menuItem }))
+
+      await waitFor(() =>
+        expect(mocks.trackEvent).toHaveBeenCalledWith(
+          EVENTS.Ordinances.DraftDetailsDownloaded,
+          { draftId: 'ord-1', type },
+        ),
+      )
+    },
+  )
+
+  it('does not fire Downloaded when the export fails', async () => {
+    const user = userEvent.setup()
+    mocks.downloadOrdinanceExport.mockRejectedValue(new Error('nope'))
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    await user.click(screen.getByRole('button', { name: /download draft/i }))
+    await user.click(screen.getByRole('menuitem', { name: /download as pdf/i }))
+
+    expect(await screen.findByText(/could not export the draft/i)).toBeVisible()
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Ordinances.DraftDetailsDownloaded,
+      expect.anything(),
+    )
+  })
+
+  it('fires Draft Details Status Updated after a successful change', async () => {
+    const user = userEvent.setup()
+    render(<DraftDetail ordinance={makeOrdinance({ status: 'draft' })} />)
+
+    await user.click(
+      screen.getByRole('button', { name: /change draft status/i }),
+    )
+    await user.click(screen.getByRole('menuitem', { name: /in review/i }))
+
+    await waitFor(() =>
+      expect(mocks.trackEvent).toHaveBeenCalledWith(
+        EVENTS.Ordinances.DraftDetailsStatusUpdated,
+        { draftId: 'ord-1', status: 'in_review' },
+      ),
+    )
+  })
+
+  it('does not fire Status Updated when the change fails', async () => {
+    const user = userEvent.setup()
+    mocks.updateOrdinance.mockRejectedValue(new Error('nope'))
+    render(<DraftDetail ordinance={makeOrdinance({ status: 'proposed' })} />)
+
+    const trigger = screen.getByRole('button', { name: /change draft status/i })
+    await user.click(trigger)
+    await user.click(screen.getByRole('menuitem', { name: /in review/i }))
+
+    await waitFor(() => expect(trigger).toHaveTextContent(/proposed/i))
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Ordinances.DraftDetailsStatusUpdated,
+      expect.anything(),
+    )
+  })
+
+  it('fires Draft Details Deleted after a confirmed delete', async () => {
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /delete draft/i }))
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: /delete draft/i }),
+    )
+
+    await waitFor(() =>
+      expect(mocks.trackEvent).toHaveBeenCalledWith(
+        EVENTS.Ordinances.DraftDetailsDeleted,
+        { draftId: 'ord-1' },
+      ),
+    )
+    expect(router.push).toHaveBeenCalledWith('/dashboard/ordinances')
+  })
+
+  it('does not fire Deleted when the delete fails', async () => {
+    mocks.deleteOrdinance.mockRejectedValue(new Error('nope'))
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /delete draft/i }))
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: /delete draft/i }),
+    )
+
+    expect(await screen.findByText(/could not delete the draft/i)).toBeVisible()
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Ordinances.DraftDetailsDeleted,
+      expect.anything(),
+    )
   })
 })

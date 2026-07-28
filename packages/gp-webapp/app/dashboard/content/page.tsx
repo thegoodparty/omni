@@ -24,18 +24,23 @@ export default async function Page(): Promise<React.JSX.Element> {
   await candidateAccess()
   const campaign = await fetchUserCampaign()
 
-  const promptsRaw = await fetchContentByType<object>('candidateContentPrompts')
+  // These fetches are independent of one another (serverLoadCandidatePosition
+  // only depends on the already-resolved campaign), so run them concurrently to
+  // avoid a request waterfall.
+  const [promptsRaw, requiresQuestions, categories, candidatePositions, user] =
+    await Promise.all([
+      fetchContentByType<object>('candidateContentPrompts'),
+      fetchContentByType<Partial<Record<string, boolean>>>(
+        'contentPromptsQuestions',
+      ),
+      fetchContentByType<Category[]>('aiContentCategories'),
+      campaign
+        ? serverLoadCandidatePosition(campaign.id)
+        : Promise.resolve(false as const),
+      getServerUser(), // can be removed when door knocking app is not for admins only
+    ])
+
   const prompts = parsePrompts(promptsRaw)
-
-  const requiresQuestions = await fetchContentByType<
-    Partial<Record<string, boolean>>
-  >('contentPromptsQuestions')
-
-  const categories = await fetchContentByType<Category[]>('aiContentCategories')
-  const candidatePositions = campaign
-    ? await serverLoadCandidatePosition(campaign.id)
-    : false
-  const user = await getServerUser() // can be removed when door knocking app is not for admins only
 
   const childProps = {
     pathname: '/dashboard/content',

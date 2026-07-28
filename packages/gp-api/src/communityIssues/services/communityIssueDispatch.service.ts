@@ -7,6 +7,7 @@ import { EVENTS } from '@/vendors/segment/segment.types'
 import { forwardRef, Inject, Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { differenceInCalendarDays } from 'date-fns'
+import pMap from 'p-map'
 import {
   ElectedOffice,
   ExperimentRunStatus,
@@ -29,6 +30,13 @@ type CommunityIssueExperimentType = (typeof EXPERIMENT_TYPES)[number]
 // Per-cron-tick cap: limits how many dispatches can fire in a single run of
 // the daily cron (both trending and top share this constant).
 const DISPATCH_CAP_PER_TICK = 200
+
+// Max orgs dispatched in parallel within a cron slice. Bounds the fan-out to
+// the DB / election-api / dispatch queue while collapsing the previously
+// fully-serial per-org latency. The agent job system queues internally, so no
+// inter-tick sleep is needed — the daily bucketing + per-tick cap already
+// bound how much fires per run.
+const DISPATCH_CONCURRENCY = 10
 
 const isAutomationEnabled = () =>
   process.env.MEETINGS_AUTOMATION_ENABLED === 'true'
@@ -452,19 +460,29 @@ export class CommunityIssueDispatchService extends createPrismaBase(
 
     const capped = slice.slice(0, DISPATCH_CAP_PER_TICK)
 
-    for (const { organizationSlug } of capped) {
-      const ctx = await this.resolveContext(organizationSlug)
-      if (!ctx || ctx.isServeIcp !== true) continue
+    // Bounded concurrency over the slice: each org's dispatch work is
+    // independent, so we fan out up to DISPATCH_CONCURRENCY at a time instead
+    // of awaiting them one by one. No inter-tick throttle — the agent job
+    // system queues internally.
+    await pMap(
+      capped,
+      async ({ organizationSlug }) => {
+        try {
+          const ctx = await this.resolveContext(organizationSlug)
+          if (!ctx || ctx.isServeIcp !== true) return
 
-      await this.dispatchTypeForOrg(organizationSlug, experimentType, ctx, {
-        skipActivityGate: false,
-      }).catch((err: unknown) =>
-        this.logger.error(
-          { err, organizationSlug, experimentType },
-          'community-issue cron dispatch failed for org; continuing',
-        ),
-      )
-    }
+          await this.dispatchTypeForOrg(organizationSlug, experimentType, ctx, {
+            skipActivityGate: false,
+          })
+        } catch (err: unknown) {
+          this.logger.error(
+            { err, organizationSlug, experimentType },
+            'community-issue cron dispatch failed for org; continuing',
+          )
+        }
+      },
+      { concurrency: DISPATCH_CONCURRENCY },
+    )
   }
 
   private async resolveContext(
