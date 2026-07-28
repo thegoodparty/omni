@@ -103,6 +103,7 @@ describe('CrmCampaignsService 10DLC filing properties', () => {
       pinDeliveryMethod: 'email',
       pinDeliveryDestination: 'treasurer@example.com',
       pinSentDetectedAt: new Date('2026-07-21T04:08:04Z'),
+      peerlyIdentityId: '11540255',
     })
 
     await buildService().trackCampaign(5)
@@ -116,6 +117,7 @@ describe('CrmCampaignsService 10DLC filing properties', () => {
         pinDeliveryMethod: true,
         pinDeliveryDestination: true,
         pinSentDetectedAt: true,
+        peerlyIdentityId: true,
       },
     })
     expect(companyUpdate).toHaveBeenCalledWith('hs-1', {
@@ -126,6 +128,7 @@ describe('CrmCampaignsService 10DLC filing properties', () => {
         n10_dlc_pin_delivery_method: 'email',
         n10_dlc_pin_delivery_destination: 'treasurer@example.com',
         n10_dlc_pin_sent_at: String(Date.UTC(2026, 6, 21)),
+        peerly_identity_id: '11540255',
       }),
     })
   })
@@ -138,6 +141,7 @@ describe('CrmCampaignsService 10DLC filing properties', () => {
       pinDeliveryMethod: null,
       pinDeliveryDestination: null,
       pinSentDetectedAt: null,
+      peerlyIdentityId: null,
     })
 
     await buildService().trackCampaign(5)
@@ -147,6 +151,7 @@ describe('CrmCampaignsService 10DLC filing properties', () => {
     expect(properties).not.toHaveProperty('n10_dlc_pin_delivery_method')
     expect(properties).not.toHaveProperty('n10_dlc_pin_sent_at')
     expect(properties).not.toHaveProperty('n10_dlc_pin_delivery_destination')
+    expect(properties).not.toHaveProperty('peerly_identity_id')
   })
 
   it('omits the filing properties when no TCR record exists', async () => {

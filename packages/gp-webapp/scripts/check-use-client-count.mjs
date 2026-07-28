@@ -115,19 +115,38 @@ import { dirname, join, relative } from 'node:path'
 // assistantChat) hold composer/drawer state, stream SSE turns through the
 // shared agent-chat client, and invalidate react-query caches — none can be
 // server components.
-// 2026-07-21: 560 -> 556 locking in a 7-file drop elsewhere while ADDING the
-// three native door-knocking client files (page gate, map page, map canvas —
-// the canvas is behind next/dynamic ssr:false so the heavy libs stay out of
-// shared bundles).
-// 2026-07-21: 556 -> 558 for the door-knocking turf save flow:
+// 2026-07-27: 557 -> 558 for StoryReadyCard — the campaign-manager completion
+// card (localStorage-dismissed, reads useCampaignStoryComplete, routes on CTA),
+// so it must run on the client.
+// 2026-07-27: 558 -> 559 for CampaignManagerChatProvider — the always-present
+// campaign-manager chat dock lifted out of CampaignManagerHome so it mounts once
+// in DashboardLayout (footer chat on every page). It owns the drawer/kickoff
+// state, streams SSE, and reads localStorage/useUser, so it can't be a server
+// component. Net +1: it renders the footer + surface the home used to render
+// inline (no new files there), and CampaignManagerHome stays a client component.
+// 2026-07-27: 559 -> 546 for removing the legacy AI Assistant (campaign-assistant)
+// dashboard feature — its route + ~15 client components (Chat, ChatProvider,
+// ChatInput, history, feedback, etc.) were deleted. Campaign Manager supersedes
+// it; the gp-api endpoints are left orphaned (removed from the frontend only).
+// 2026-07-27: 546 -> 549 for the Serve/Win public-profile editor
+// (app/dashboard/public-profile/): PublicProfileEditor (form + publish toggle +
+// image-upload + save mutation), ListEditors (add/remove/controlled Recent
+// Experience & Accomplishments rows), and PrioritiesPublicationEditor
+// (per-priority visibility/status toggles + mutation) are all genuinely
+// interactive and can't be server components. The page.tsx shell stays a server
+// component (it fetches data and gates access). Net +3 over develop's 546.
+// 2026-07-28: 549 -> 552 for the three native door-knocking client files
+// (page gate, map page, map canvas — the canvas is behind next/dynamic
+// ssr:false so the heavy libs stay out of shared bundles).
+// 2026-07-28: 552 -> 554 for the door-knocking turf save flow:
 // SaveTurfDialog (dialog form state + create mutation) and TurfList
 // (react-query turfs read + delete mutation) are both interactive and live
 // inside the client-only map page.
-// 2026-07-21: 558 -> 561 for the door-knocking walk flow: KnockTurfDialog
+// 2026-07-28: 554 -> 557 for the door-knocking walk flow: KnockTurfDialog
 // (mode/loop form + knock mutation), WalkView (route query + per-stop
 // expand/record state), RecordKnockForm (answer state + interaction
 // mutation) — all interactive, all inside the client-only map page.
-const BASELINE = 561
+const BASELINE = 557
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

@@ -5,7 +5,9 @@ export type OnboardingStepId =
   | 'office-selection'
   | 'manual-office-entry'
   | 'path-to-victory'
-  | 'campaign-story'
+  | 'campaign-story-why'
+  | 'campaign-story-background'
+  | 'campaign-story-issues'
   | 'pledge'
 
 // Set only by the follow-on flow (running for re-election / a new office from

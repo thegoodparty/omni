@@ -129,6 +129,47 @@ describe('OrdinanceFlowToolsService', () => {
     })
   })
 
+  it('accumulates flow token usage across turns on the ordinance record', async () => {
+    await tools.recordFlowUsage({
+      ordinanceId,
+      electedOfficeId,
+      step: 'clarify',
+      model: 'claude-sonnet-4-6',
+      inputTokens: 1200,
+      outputTokens: 300,
+    })
+    await tools.recordFlowUsage({
+      ordinanceId,
+      electedOfficeId,
+      step: 'authority',
+      model: 'claude-sonnet-4-6',
+      inputTokens: 800,
+      outputTokens: 150,
+    })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.flowInputTokens).toBe(2000)
+    expect(row.flowOutputTokens).toBe(450)
+  })
+
+  it('does not record usage against an ordinance the office does not own', async () => {
+    const other = await seedOrdinance(service.user.id)
+    await tools.recordFlowUsage({
+      ordinanceId,
+      electedOfficeId: other.electedOfficeId,
+      step: 'clarify',
+      model: 'claude-sonnet-4-6',
+      inputTokens: 500,
+      outputTokens: 100,
+    })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.flowInputTokens).toBe(0)
+    expect(row.flowOutputTokens).toBe(0)
+  })
+
   it('reports the code source as unavailable when no record exists', async () => {
     const result = await tools.getCodeSource(
       ordinanceId,

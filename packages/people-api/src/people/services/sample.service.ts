@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { StatsService } from './stats.service'
 import { hash32 } from 'src/shared/util/hash.util'
 import { resolveDistrict } from '../utils/resolveDistrict.utils'
+import { stateEquals } from '../utils/buildVoterWhereSql.utils'
 
 type SampleQueryMode =
   | {
@@ -314,9 +315,7 @@ export class SampleService extends createPrismaBase(MODELS.Voter) {
     state: string,
     hasCellPhone?: boolean,
   ): Prisma.Sql {
-    const whereParts: Prisma.Sql[] = [
-      Prisma.sql`v."State" = CAST(${state}::text AS public."USState")`,
-    ]
+    const whereParts: Prisma.Sql[] = [stateEquals('v', state)]
     if (hasCellPhone === true) {
       whereParts.push(
         Prisma.sql`v."VoterTelephones_CellPhoneFormatted" IS NOT NULL`,
@@ -335,9 +334,7 @@ export class SampleService extends createPrismaBase(MODELS.Voter) {
     const whereParts: Prisma.Sql[] = []
     if (kind === 'stateOnly') {
       const { hasCellPhone } = mode
-      whereParts.push(
-        Prisma.sql`v."State" = CAST(${state}::text AS public."USState")`,
-      )
+      whereParts.push(stateEquals('v', state))
       if (hasCellPhone === true) {
         whereParts.push(
           Prisma.sql`v."VoterTelephones_CellPhoneFormatted" IS NOT NULL`,
@@ -350,13 +347,9 @@ export class SampleService extends createPrismaBase(MODELS.Voter) {
     } else if (mode.districtId && state) {
       const { districtId } = mode
       whereParts.push(Prisma.sql`dv.district_id = ${districtId}::uuid`)
-      whereParts.push(
-        Prisma.sql`dv."State" = CAST(${state}::text AS public."USState")`,
-      )
+      whereParts.push(stateEquals('dv', state))
     } else if (state) {
-      whereParts.push(
-        Prisma.sql`dv."State" = CAST(${state}::text AS public."USState")`,
-      )
+      whereParts.push(stateEquals('dv', state))
     }
     return whereParts.length > 0
       ? Prisma.sql`WHERE ${Prisma.join(whereParts, ' AND ')}`

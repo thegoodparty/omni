@@ -1,12 +1,6 @@
 import { expect, test, type Page, type Request } from '@playwright/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
-import { authenticateTestUser } from 'tests/utils/api-registration'
-import {
-  seedCandidateProfileComplete,
-  seedEinAndFiled,
-  seedFilingComplete,
-  upgradeCampaignToProViaStripe,
-} from 'src/helpers/pro-upgrade.helper'
+import { setupProCampaignUser } from 'src/helpers/organizations'
 import {
   activityPill,
   activityPillGroup,
@@ -45,10 +39,8 @@ import {
 //     stamped) needs a real outreach launch and is out of e2e reach; it is
 //     covered by packages/gp-api/src/voters/services/voterFileFilter.service.test.ts.
 //
-// @dev-only: reaching the wizard at all requires a Pro Win campaign, and the
-// only path that can set isPro is the embedded Stripe payment plus its
-// checkout.session.completed webhook (see pro-upgrade-step-resume.spec.ts's
-// deferred-AC note) — which an ephemeral per-PR preview can't deliver.
+// Reaching the wizard requires a Pro Win campaign; setupProCampaignUser flips
+// isPro via the test-only endpoint (no Stripe webhook), so this runs on PRs.
 
 const TEST_TIMEOUT = 15 * 60 * 1000
 
@@ -110,7 +102,7 @@ const armCountRequestWait = (
         (request.postDataJSON() as CountRequestPayload).activityConditions!,
     )
 
-test.describe('Contacts activity filters @dev-only', () => {
+test.describe('Contacts activity filters', () => {
   // The production build's service worker fetches same-origin GETs from inside
   // the worker, where page.route never sees them — the GET /v1/outreach stub
   // would silently leak to the real API (see crm-assistant-bar.spec.ts).
@@ -119,21 +111,11 @@ test.describe('Contacts activity filters @dev-only', () => {
   test('activity branch: conditions, payload contract, save, detail round-trip', async ({
     page,
   }) => {
-    // The Stripe webhook poll inside the Pro provisioning can run ~240s.
     test.setTimeout(TEST_TIMEOUT)
     await blockSlowScripts(page)
     await enableCrmFlags(page)
 
-    const { user, client } = await authenticateTestUser(page, {
-      isolated: true,
-    })
-
-    await test.step('provision a Pro Win campaign (seeded wizard + Stripe test checkout)', async () => {
-      await seedEinAndFiled(client)
-      await seedFilingComplete(client, user.email)
-      await seedCandidateProfileComplete(client)
-      await upgradeCampaignToProViaStripe(page, client)
-    })
+    await setupProCampaignUser(page)
 
     await page.route(/\/api\/v1\/outreach(\?|$)/, (route) =>
       route.request().method() === 'GET'
@@ -160,7 +142,9 @@ test.describe('Contacts activity filters @dev-only', () => {
 
       const continueButton = wizard.getByRole('button', { name: 'Continue' })
       await expect(continueButton).toBeDisabled()
-      await wizard.getByText('Build my list using outreach activity.').click()
+      await wizard
+        .getByText('Build a list from previous campaign activity')
+        .click()
       await expect(continueButton).toBeEnabled()
       await continueButton.click()
     })
@@ -322,11 +306,31 @@ test.describe('Contacts activity filters @dev-only', () => {
         },
       ])
       await expect(build).toContainText('(0)', { timeout: 30_000 })
+      // ENG-10781: a settled zero-match count disables Build end-to-end.
+      await expect(build).toBeDisabled()
     })
 
     const listName = `E2E activity ${Date.now()}`
 
     await test.step('save: create payload asserted field-by-field', async () => {
+      // This org resolves the not_home refinement to zero people and the
+      // ENG-10781 gate blocks saving a zero-match list outright. Stub a
+      // nonzero count for the save leg — the payload contract, not the
+      // number, is what the rest of this spec pins. The added outcome must
+      // be one this spec has never counted before: the app's React Query
+      // staleTime is 5 minutes, so a payload that was already counted
+      // (e.g. toggling the same pill off and on) serves the cached zero
+      // and the stub never fires.
+      const outcomeGroups = activityPillGroup(wizard, 'Activity')
+      await page.route(/\/api\/v1\/contacts\/count(\?|$)/, (route) =>
+        route.request().method() === 'POST'
+          ? route.fulfill({ json: { count: 3 } })
+          : route.fallback(),
+      )
+      await selectActivityPill(outcomeGroups.nth(1), 'Answered')
+      await expect(build).toContainText('(3)', { timeout: 30_000 })
+      await expect(build).toBeEnabled()
+
       await build.click()
       await expect(wizard.getByText('Name your list')).toBeVisible({
         timeout: 10_000,
@@ -352,9 +356,14 @@ test.describe('Contacts activity filters @dev-only', () => {
           {
             outreachType: 'doorKnocking',
             outreachId: null,
-            actions: ['not_home'],
+            actions: ['not_home', 'answered'],
           },
         ],
+        // ENG-10769: the wizard persists its resolved live count (the
+        // stubbed 3 above — the real org would resolve 0, which ENG-10781
+        // now blocks from saving) so the outreach page's Voters column
+        // stops defaulting to 0 for real lists.
+        voterCount: 3,
       })
     })
 
@@ -369,7 +378,7 @@ test.describe('Contacts activity filters @dev-only', () => {
         detailSheet.getByText(
           'Text activity from any text campaign with outcome No Response ' +
             'and Door Knocking activity from any door knocking campaign ' +
-            'with outcome Not Home.',
+            'with outcome Not Home or Answered.',
         ),
       ).toBeVisible({ timeout: 30_000 })
       await expect(statTileValue(detailSheet, 'People')).toHaveText('0', {

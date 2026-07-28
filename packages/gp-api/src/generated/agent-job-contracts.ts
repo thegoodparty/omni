@@ -6419,51 +6419,42 @@ export interface OpponentActionsArtifact {
            */
           body: string
           /**
-           * The issue this card contrasts on. At most one card per opponent+issue pair.
+           * District sentiment stats for this card's issue axis, carried verbatim from the surviving Step-4 Haystaq query. Null for a numberless card (no coverage / no district) so the persisted column identity is never fabricated.
            */
-          issue: string
-          /**
-           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
-           */
-          opponent_name: string | null
-          /**
-           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
-           */
-          sms_message: string
-          /**
-           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
-           */
-          title: string
-        },
-      ]
-    | [
-        {
-          /**
-           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
-           */
-          body: string
-          /**
-           * The issue this card contrasts on. At most one card per opponent+issue pair.
-           */
-          issue: string
-          /**
-           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
-           */
-          opponent_name: string | null
-          /**
-           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
-           */
-          sms_message: string
-          /**
-           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
-           */
-          title: string
-        },
-        {
-          /**
-           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
-           */
-          body: string
+          haystaq: {
+            /**
+             * The Haystaq hs_* column this card's numbers came from (e.g. hs_infrastructure_support).
+             */
+            hs_column: string
+            /**
+             * 'high' when the candidate's stance aligns with high scorers on hs_column, else 'low'.
+             */
+            position_dir: 'high' | 'low'
+            /**
+             * Short human phrase for the CANDIDATE'S pole of this issue axis (e.g. 'funding infrastructure more').
+             */
+            position_phrase: string
+            /**
+             * Active voters in the district scored on hs_column.
+             */
+            total_active: number
+            /**
+             * Active voters scoring >= 50 on hs_column.
+             */
+            voter_count_ge50: number
+            /**
+             * Active voters scoring >= 70 on hs_column.
+             */
+            voter_count_ge70: number
+            /**
+             * voter_count_ge50 as a percentage of total_active.
+             */
+            voter_percentage_ge50: number
+            /**
+             * voter_count_ge70 as a percentage of total_active.
+             */
+            voter_percentage_ge70: number
+          } | null
           /**
            * The issue this card contrasts on. At most one card per opponent+issue pair.
            */
@@ -6489,73 +6480,42 @@ export interface OpponentActionsArtifact {
            */
           body: string
           /**
-           * The issue this card contrasts on. At most one card per opponent+issue pair.
+           * District sentiment stats for this card's issue axis, carried verbatim from the surviving Step-4 Haystaq query. Null for a numberless card (no coverage / no district) so the persisted column identity is never fabricated.
            */
-          issue: string
-          /**
-           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
-           */
-          opponent_name: string | null
-          /**
-           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
-           */
-          sms_message: string
-          /**
-           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
-           */
-          title: string
-        },
-        {
-          /**
-           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
-           */
-          body: string
-          /**
-           * The issue this card contrasts on. At most one card per opponent+issue pair.
-           */
-          issue: string
-          /**
-           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
-           */
-          opponent_name: string | null
-          /**
-           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
-           */
-          sms_message: string
-          /**
-           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
-           */
-          title: string
-        },
-        {
-          /**
-           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
-           */
-          body: string
-          /**
-           * The issue this card contrasts on. At most one card per opponent+issue pair.
-           */
-          issue: string
-          /**
-           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
-           */
-          opponent_name: string | null
-          /**
-           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
-           */
-          sms_message: string
-          /**
-           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
-           */
-          title: string
-        },
-      ]
-    | [
-        {
-          /**
-           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
-           */
-          body: string
+          haystaq: {
+            /**
+             * The Haystaq hs_* column this card's numbers came from (e.g. hs_infrastructure_support).
+             */
+            hs_column: string
+            /**
+             * 'high' when the candidate's stance aligns with high scorers on hs_column, else 'low'.
+             */
+            position_dir: 'high' | 'low'
+            /**
+             * Short human phrase for the CANDIDATE'S pole of this issue axis (e.g. 'funding infrastructure more').
+             */
+            position_phrase: string
+            /**
+             * Active voters in the district scored on hs_column.
+             */
+            total_active: number
+            /**
+             * Active voters scoring >= 50 on hs_column.
+             */
+            voter_count_ge50: number
+            /**
+             * Active voters scoring >= 70 on hs_column.
+             */
+            voter_count_ge70: number
+            /**
+             * voter_count_ge50 as a percentage of total_active.
+             */
+            voter_percentage_ge50: number
+            /**
+             * voter_count_ge70 as a percentage of total_active.
+             */
+            voter_percentage_ge70: number
+          } | null
           /**
            * The issue this card contrasts on. At most one card per opponent+issue pair.
            */
@@ -6579,49 +6539,42 @@ export interface OpponentActionsArtifact {
            */
           body: string
           /**
-           * The issue this card contrasts on. At most one card per opponent+issue pair.
+           * District sentiment stats for this card's issue axis, carried verbatim from the surviving Step-4 Haystaq query. Null for a numberless card (no coverage / no district) so the persisted column identity is never fabricated.
            */
-          issue: string
-          /**
-           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
-           */
-          opponent_name: string | null
-          /**
-           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
-           */
-          sms_message: string
-          /**
-           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
-           */
-          title: string
-        },
-        {
-          /**
-           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
-           */
-          body: string
-          /**
-           * The issue this card contrasts on. At most one card per opponent+issue pair.
-           */
-          issue: string
-          /**
-           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
-           */
-          opponent_name: string | null
-          /**
-           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
-           */
-          sms_message: string
-          /**
-           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
-           */
-          title: string
-        },
-        {
-          /**
-           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
-           */
-          body: string
+          haystaq: {
+            /**
+             * The Haystaq hs_* column this card's numbers came from (e.g. hs_infrastructure_support).
+             */
+            hs_column: string
+            /**
+             * 'high' when the candidate's stance aligns with high scorers on hs_column, else 'low'.
+             */
+            position_dir: 'high' | 'low'
+            /**
+             * Short human phrase for the CANDIDATE'S pole of this issue axis (e.g. 'funding infrastructure more').
+             */
+            position_phrase: string
+            /**
+             * Active voters in the district scored on hs_column.
+             */
+            total_active: number
+            /**
+             * Active voters scoring >= 50 on hs_column.
+             */
+            voter_count_ge50: number
+            /**
+             * Active voters scoring >= 70 on hs_column.
+             */
+            voter_count_ge70: number
+            /**
+             * voter_count_ge50 as a percentage of total_active.
+             */
+            voter_percentage_ge50: number
+            /**
+             * voter_count_ge70 as a percentage of total_active.
+             */
+            voter_percentage_ge70: number
+          } | null
           /**
            * The issue this card contrasts on. At most one card per opponent+issue pair.
            */
@@ -6647,49 +6600,42 @@ export interface OpponentActionsArtifact {
            */
           body: string
           /**
-           * The issue this card contrasts on. At most one card per opponent+issue pair.
+           * District sentiment stats for this card's issue axis, carried verbatim from the surviving Step-4 Haystaq query. Null for a numberless card (no coverage / no district) so the persisted column identity is never fabricated.
            */
-          issue: string
-          /**
-           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
-           */
-          opponent_name: string | null
-          /**
-           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
-           */
-          sms_message: string
-          /**
-           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
-           */
-          title: string
-        },
-        {
-          /**
-           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
-           */
-          body: string
-          /**
-           * The issue this card contrasts on. At most one card per opponent+issue pair.
-           */
-          issue: string
-          /**
-           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
-           */
-          opponent_name: string | null
-          /**
-           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
-           */
-          sms_message: string
-          /**
-           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
-           */
-          title: string
-        },
-        {
-          /**
-           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
-           */
-          body: string
+          haystaq: {
+            /**
+             * The Haystaq hs_* column this card's numbers came from (e.g. hs_infrastructure_support).
+             */
+            hs_column: string
+            /**
+             * 'high' when the candidate's stance aligns with high scorers on hs_column, else 'low'.
+             */
+            position_dir: 'high' | 'low'
+            /**
+             * Short human phrase for the CANDIDATE'S pole of this issue axis (e.g. 'funding infrastructure more').
+             */
+            position_phrase: string
+            /**
+             * Active voters in the district scored on hs_column.
+             */
+            total_active: number
+            /**
+             * Active voters scoring >= 50 on hs_column.
+             */
+            voter_count_ge50: number
+            /**
+             * Active voters scoring >= 70 on hs_column.
+             */
+            voter_count_ge70: number
+            /**
+             * voter_count_ge50 as a percentage of total_active.
+             */
+            voter_percentage_ge50: number
+            /**
+             * voter_count_ge70 as a percentage of total_active.
+             */
+            voter_percentage_ge70: number
+          } | null
           /**
            * The issue this card contrasts on. At most one card per opponent+issue pair.
            */
@@ -6713,6 +6659,43 @@ export interface OpponentActionsArtifact {
            */
           body: string
           /**
+           * District sentiment stats for this card's issue axis, carried verbatim from the surviving Step-4 Haystaq query. Null for a numberless card (no coverage / no district) so the persisted column identity is never fabricated.
+           */
+          haystaq: {
+            /**
+             * The Haystaq hs_* column this card's numbers came from (e.g. hs_infrastructure_support).
+             */
+            hs_column: string
+            /**
+             * 'high' when the candidate's stance aligns with high scorers on hs_column, else 'low'.
+             */
+            position_dir: 'high' | 'low'
+            /**
+             * Short human phrase for the CANDIDATE'S pole of this issue axis (e.g. 'funding infrastructure more').
+             */
+            position_phrase: string
+            /**
+             * Active voters in the district scored on hs_column.
+             */
+            total_active: number
+            /**
+             * Active voters scoring >= 50 on hs_column.
+             */
+            voter_count_ge50: number
+            /**
+             * Active voters scoring >= 70 on hs_column.
+             */
+            voter_count_ge70: number
+            /**
+             * voter_count_ge50 as a percentage of total_active.
+             */
+            voter_percentage_ge50: number
+            /**
+             * voter_count_ge70 as a percentage of total_active.
+             */
+            voter_percentage_ge70: number
+          } | null
+          /**
            * The issue this card contrasts on. At most one card per opponent+issue pair.
            */
           issue: string
@@ -6734,6 +6717,578 @@ export interface OpponentActionsArtifact {
            * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
            */
           body: string
+          /**
+           * District sentiment stats for this card's issue axis, carried verbatim from the surviving Step-4 Haystaq query. Null for a numberless card (no coverage / no district) so the persisted column identity is never fabricated.
+           */
+          haystaq: {
+            /**
+             * The Haystaq hs_* column this card's numbers came from (e.g. hs_infrastructure_support).
+             */
+            hs_column: string
+            /**
+             * 'high' when the candidate's stance aligns with high scorers on hs_column, else 'low'.
+             */
+            position_dir: 'high' | 'low'
+            /**
+             * Short human phrase for the CANDIDATE'S pole of this issue axis (e.g. 'funding infrastructure more').
+             */
+            position_phrase: string
+            /**
+             * Active voters in the district scored on hs_column.
+             */
+            total_active: number
+            /**
+             * Active voters scoring >= 50 on hs_column.
+             */
+            voter_count_ge50: number
+            /**
+             * Active voters scoring >= 70 on hs_column.
+             */
+            voter_count_ge70: number
+            /**
+             * voter_count_ge50 as a percentage of total_active.
+             */
+            voter_percentage_ge50: number
+            /**
+             * voter_count_ge70 as a percentage of total_active.
+             */
+            voter_percentage_ge70: number
+          } | null
+          /**
+           * The issue this card contrasts on. At most one card per opponent+issue pair.
+           */
+          issue: string
+          /**
+           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
+           */
+          opponent_name: string | null
+          /**
+           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
+           */
+          sms_message: string
+          /**
+           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
+           */
+          title: string
+        },
+      ]
+    | [
+        {
+          /**
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
+           */
+          body: string
+          /**
+           * District sentiment stats for this card's issue axis, carried verbatim from the surviving Step-4 Haystaq query. Null for a numberless card (no coverage / no district) so the persisted column identity is never fabricated.
+           */
+          haystaq: {
+            /**
+             * The Haystaq hs_* column this card's numbers came from (e.g. hs_infrastructure_support).
+             */
+            hs_column: string
+            /**
+             * 'high' when the candidate's stance aligns with high scorers on hs_column, else 'low'.
+             */
+            position_dir: 'high' | 'low'
+            /**
+             * Short human phrase for the CANDIDATE'S pole of this issue axis (e.g. 'funding infrastructure more').
+             */
+            position_phrase: string
+            /**
+             * Active voters in the district scored on hs_column.
+             */
+            total_active: number
+            /**
+             * Active voters scoring >= 50 on hs_column.
+             */
+            voter_count_ge50: number
+            /**
+             * Active voters scoring >= 70 on hs_column.
+             */
+            voter_count_ge70: number
+            /**
+             * voter_count_ge50 as a percentage of total_active.
+             */
+            voter_percentage_ge50: number
+            /**
+             * voter_count_ge70 as a percentage of total_active.
+             */
+            voter_percentage_ge70: number
+          } | null
+          /**
+           * The issue this card contrasts on. At most one card per opponent+issue pair.
+           */
+          issue: string
+          /**
+           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
+           */
+          opponent_name: string | null
+          /**
+           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
+           */
+          sms_message: string
+          /**
+           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
+           */
+          title: string
+        },
+        {
+          /**
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
+           */
+          body: string
+          /**
+           * District sentiment stats for this card's issue axis, carried verbatim from the surviving Step-4 Haystaq query. Null for a numberless card (no coverage / no district) so the persisted column identity is never fabricated.
+           */
+          haystaq: {
+            /**
+             * The Haystaq hs_* column this card's numbers came from (e.g. hs_infrastructure_support).
+             */
+            hs_column: string
+            /**
+             * 'high' when the candidate's stance aligns with high scorers on hs_column, else 'low'.
+             */
+            position_dir: 'high' | 'low'
+            /**
+             * Short human phrase for the CANDIDATE'S pole of this issue axis (e.g. 'funding infrastructure more').
+             */
+            position_phrase: string
+            /**
+             * Active voters in the district scored on hs_column.
+             */
+            total_active: number
+            /**
+             * Active voters scoring >= 50 on hs_column.
+             */
+            voter_count_ge50: number
+            /**
+             * Active voters scoring >= 70 on hs_column.
+             */
+            voter_count_ge70: number
+            /**
+             * voter_count_ge50 as a percentage of total_active.
+             */
+            voter_percentage_ge50: number
+            /**
+             * voter_count_ge70 as a percentage of total_active.
+             */
+            voter_percentage_ge70: number
+          } | null
+          /**
+           * The issue this card contrasts on. At most one card per opponent+issue pair.
+           */
+          issue: string
+          /**
+           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
+           */
+          opponent_name: string | null
+          /**
+           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
+           */
+          sms_message: string
+          /**
+           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
+           */
+          title: string
+        },
+        {
+          /**
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
+           */
+          body: string
+          /**
+           * District sentiment stats for this card's issue axis, carried verbatim from the surviving Step-4 Haystaq query. Null for a numberless card (no coverage / no district) so the persisted column identity is never fabricated.
+           */
+          haystaq: {
+            /**
+             * The Haystaq hs_* column this card's numbers came from (e.g. hs_infrastructure_support).
+             */
+            hs_column: string
+            /**
+             * 'high' when the candidate's stance aligns with high scorers on hs_column, else 'low'.
+             */
+            position_dir: 'high' | 'low'
+            /**
+             * Short human phrase for the CANDIDATE'S pole of this issue axis (e.g. 'funding infrastructure more').
+             */
+            position_phrase: string
+            /**
+             * Active voters in the district scored on hs_column.
+             */
+            total_active: number
+            /**
+             * Active voters scoring >= 50 on hs_column.
+             */
+            voter_count_ge50: number
+            /**
+             * Active voters scoring >= 70 on hs_column.
+             */
+            voter_count_ge70: number
+            /**
+             * voter_count_ge50 as a percentage of total_active.
+             */
+            voter_percentage_ge50: number
+            /**
+             * voter_count_ge70 as a percentage of total_active.
+             */
+            voter_percentage_ge70: number
+          } | null
+          /**
+           * The issue this card contrasts on. At most one card per opponent+issue pair.
+           */
+          issue: string
+          /**
+           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
+           */
+          opponent_name: string | null
+          /**
+           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
+           */
+          sms_message: string
+          /**
+           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
+           */
+          title: string
+        },
+        {
+          /**
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
+           */
+          body: string
+          /**
+           * District sentiment stats for this card's issue axis, carried verbatim from the surviving Step-4 Haystaq query. Null for a numberless card (no coverage / no district) so the persisted column identity is never fabricated.
+           */
+          haystaq: {
+            /**
+             * The Haystaq hs_* column this card's numbers came from (e.g. hs_infrastructure_support).
+             */
+            hs_column: string
+            /**
+             * 'high' when the candidate's stance aligns with high scorers on hs_column, else 'low'.
+             */
+            position_dir: 'high' | 'low'
+            /**
+             * Short human phrase for the CANDIDATE'S pole of this issue axis (e.g. 'funding infrastructure more').
+             */
+            position_phrase: string
+            /**
+             * Active voters in the district scored on hs_column.
+             */
+            total_active: number
+            /**
+             * Active voters scoring >= 50 on hs_column.
+             */
+            voter_count_ge50: number
+            /**
+             * Active voters scoring >= 70 on hs_column.
+             */
+            voter_count_ge70: number
+            /**
+             * voter_count_ge50 as a percentage of total_active.
+             */
+            voter_percentage_ge50: number
+            /**
+             * voter_count_ge70 as a percentage of total_active.
+             */
+            voter_percentage_ge70: number
+          } | null
+          /**
+           * The issue this card contrasts on. At most one card per opponent+issue pair.
+           */
+          issue: string
+          /**
+           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
+           */
+          opponent_name: string | null
+          /**
+           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
+           */
+          sms_message: string
+          /**
+           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
+           */
+          title: string
+        },
+      ]
+    | [
+        {
+          /**
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
+           */
+          body: string
+          /**
+           * District sentiment stats for this card's issue axis, carried verbatim from the surviving Step-4 Haystaq query. Null for a numberless card (no coverage / no district) so the persisted column identity is never fabricated.
+           */
+          haystaq: {
+            /**
+             * The Haystaq hs_* column this card's numbers came from (e.g. hs_infrastructure_support).
+             */
+            hs_column: string
+            /**
+             * 'high' when the candidate's stance aligns with high scorers on hs_column, else 'low'.
+             */
+            position_dir: 'high' | 'low'
+            /**
+             * Short human phrase for the CANDIDATE'S pole of this issue axis (e.g. 'funding infrastructure more').
+             */
+            position_phrase: string
+            /**
+             * Active voters in the district scored on hs_column.
+             */
+            total_active: number
+            /**
+             * Active voters scoring >= 50 on hs_column.
+             */
+            voter_count_ge50: number
+            /**
+             * Active voters scoring >= 70 on hs_column.
+             */
+            voter_count_ge70: number
+            /**
+             * voter_count_ge50 as a percentage of total_active.
+             */
+            voter_percentage_ge50: number
+            /**
+             * voter_count_ge70 as a percentage of total_active.
+             */
+            voter_percentage_ge70: number
+          } | null
+          /**
+           * The issue this card contrasts on. At most one card per opponent+issue pair.
+           */
+          issue: string
+          /**
+           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
+           */
+          opponent_name: string | null
+          /**
+           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
+           */
+          sms_message: string
+          /**
+           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
+           */
+          title: string
+        },
+        {
+          /**
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
+           */
+          body: string
+          /**
+           * District sentiment stats for this card's issue axis, carried verbatim from the surviving Step-4 Haystaq query. Null for a numberless card (no coverage / no district) so the persisted column identity is never fabricated.
+           */
+          haystaq: {
+            /**
+             * The Haystaq hs_* column this card's numbers came from (e.g. hs_infrastructure_support).
+             */
+            hs_column: string
+            /**
+             * 'high' when the candidate's stance aligns with high scorers on hs_column, else 'low'.
+             */
+            position_dir: 'high' | 'low'
+            /**
+             * Short human phrase for the CANDIDATE'S pole of this issue axis (e.g. 'funding infrastructure more').
+             */
+            position_phrase: string
+            /**
+             * Active voters in the district scored on hs_column.
+             */
+            total_active: number
+            /**
+             * Active voters scoring >= 50 on hs_column.
+             */
+            voter_count_ge50: number
+            /**
+             * Active voters scoring >= 70 on hs_column.
+             */
+            voter_count_ge70: number
+            /**
+             * voter_count_ge50 as a percentage of total_active.
+             */
+            voter_percentage_ge50: number
+            /**
+             * voter_count_ge70 as a percentage of total_active.
+             */
+            voter_percentage_ge70: number
+          } | null
+          /**
+           * The issue this card contrasts on. At most one card per opponent+issue pair.
+           */
+          issue: string
+          /**
+           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
+           */
+          opponent_name: string | null
+          /**
+           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
+           */
+          sms_message: string
+          /**
+           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
+           */
+          title: string
+        },
+        {
+          /**
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
+           */
+          body: string
+          /**
+           * District sentiment stats for this card's issue axis, carried verbatim from the surviving Step-4 Haystaq query. Null for a numberless card (no coverage / no district) so the persisted column identity is never fabricated.
+           */
+          haystaq: {
+            /**
+             * The Haystaq hs_* column this card's numbers came from (e.g. hs_infrastructure_support).
+             */
+            hs_column: string
+            /**
+             * 'high' when the candidate's stance aligns with high scorers on hs_column, else 'low'.
+             */
+            position_dir: 'high' | 'low'
+            /**
+             * Short human phrase for the CANDIDATE'S pole of this issue axis (e.g. 'funding infrastructure more').
+             */
+            position_phrase: string
+            /**
+             * Active voters in the district scored on hs_column.
+             */
+            total_active: number
+            /**
+             * Active voters scoring >= 50 on hs_column.
+             */
+            voter_count_ge50: number
+            /**
+             * Active voters scoring >= 70 on hs_column.
+             */
+            voter_count_ge70: number
+            /**
+             * voter_count_ge50 as a percentage of total_active.
+             */
+            voter_percentage_ge50: number
+            /**
+             * voter_count_ge70 as a percentage of total_active.
+             */
+            voter_percentage_ge70: number
+          } | null
+          /**
+           * The issue this card contrasts on. At most one card per opponent+issue pair.
+           */
+          issue: string
+          /**
+           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
+           */
+          opponent_name: string | null
+          /**
+           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
+           */
+          sms_message: string
+          /**
+           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
+           */
+          title: string
+        },
+        {
+          /**
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
+           */
+          body: string
+          /**
+           * District sentiment stats for this card's issue axis, carried verbatim from the surviving Step-4 Haystaq query. Null for a numberless card (no coverage / no district) so the persisted column identity is never fabricated.
+           */
+          haystaq: {
+            /**
+             * The Haystaq hs_* column this card's numbers came from (e.g. hs_infrastructure_support).
+             */
+            hs_column: string
+            /**
+             * 'high' when the candidate's stance aligns with high scorers on hs_column, else 'low'.
+             */
+            position_dir: 'high' | 'low'
+            /**
+             * Short human phrase for the CANDIDATE'S pole of this issue axis (e.g. 'funding infrastructure more').
+             */
+            position_phrase: string
+            /**
+             * Active voters in the district scored on hs_column.
+             */
+            total_active: number
+            /**
+             * Active voters scoring >= 50 on hs_column.
+             */
+            voter_count_ge50: number
+            /**
+             * Active voters scoring >= 70 on hs_column.
+             */
+            voter_count_ge70: number
+            /**
+             * voter_count_ge50 as a percentage of total_active.
+             */
+            voter_percentage_ge50: number
+            /**
+             * voter_count_ge70 as a percentage of total_active.
+             */
+            voter_percentage_ge70: number
+          } | null
+          /**
+           * The issue this card contrasts on. At most one card per opponent+issue pair.
+           */
+          issue: string
+          /**
+           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
+           */
+          opponent_name: string | null
+          /**
+           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
+           */
+          sms_message: string
+          /**
+           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
+           */
+          title: string
+        },
+        {
+          /**
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
+           */
+          body: string
+          /**
+           * District sentiment stats for this card's issue axis, carried verbatim from the surviving Step-4 Haystaq query. Null for a numberless card (no coverage / no district) so the persisted column identity is never fabricated.
+           */
+          haystaq: {
+            /**
+             * The Haystaq hs_* column this card's numbers came from (e.g. hs_infrastructure_support).
+             */
+            hs_column: string
+            /**
+             * 'high' when the candidate's stance aligns with high scorers on hs_column, else 'low'.
+             */
+            position_dir: 'high' | 'low'
+            /**
+             * Short human phrase for the CANDIDATE'S pole of this issue axis (e.g. 'funding infrastructure more').
+             */
+            position_phrase: string
+            /**
+             * Active voters in the district scored on hs_column.
+             */
+            total_active: number
+            /**
+             * Active voters scoring >= 50 on hs_column.
+             */
+            voter_count_ge50: number
+            /**
+             * Active voters scoring >= 70 on hs_column.
+             */
+            voter_count_ge70: number
+            /**
+             * voter_count_ge50 as a percentage of total_active.
+             */
+            voter_percentage_ge50: number
+            /**
+             * voter_count_ge70 as a percentage of total_active.
+             */
+            voter_percentage_ge70: number
+          } | null
           /**
            * The issue this card contrasts on. At most one card per opponent+issue pair.
            */

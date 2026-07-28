@@ -60,6 +60,13 @@ export const EVENTS = {
     // compliance candidate profile from incomplete to complete.
     ComplianceCandidateProfileSubmitted:
       'Voter Outreach - 10DLC Compliance Candidate Profile Submitted',
+    // Fired once when Campaign Verify rejects the candidate's identity
+    // verification — either synchronously at submit (bad filing data,
+    // rejection_source 'cv_submit', carries rejection_reason) or when the
+    // PIN-delivery sweep finds the CV flipped to REJECTED after submission
+    // (rejection_source 'cv_status_check'). Drives Campaign Success
+    // fix-your-filing outreach from HubSpot.
+    ComplianceRejected: 'Voter Outreach - 10DLC Compliance Rejected',
     FreeTextsOfferRedeemed: 'Voter Outreach - Free Texts Offer Redeemed',
     CampaignVerifyTokenStatusUpdate: 'Campaign Verify Token Status Update',
     // Carries peerlyIdentityId so Segment can stamp it onto the campaign's

@@ -51,18 +51,28 @@ model RaceOpponentFieldAnalysis {
 }
 
 model RaceOpponentStandoutAction {
-  id           Int      @id @default(autoincrement())
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-  campaign     Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  campaignId   Int      @map("campaign_id")
-  order        Int
-  title        String
-  body         String
-  smsMessage   String   @map("sms_message")
-  opponentName String?  @map("opponent_name")
-  issue        String
-  runId        String?  @map("run_id")
+  id                 Int      @id @default(autoincrement())
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  campaign           Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId         Int      @map("campaign_id")
+  order              Int
+  title              String
+  body               String
+  smsMessage         String   @map("sms_message")
+  opponentName       String?  @map("opponent_name")
+  issue              String
+  runId              String?  @map("run_id")
+  // Haystaq district-sentiment stats for the card's issue axis. Nullable: cards
+  // without usable district data carry no column, and legacy rows predate this.
+  hsColumn           String?  @map("hs_column")
+  positionPhrase     String?  @map("position_phrase")
+  positionDir        String?  @map("position_dir")
+  haystaqTotalActive Int?     @map("haystaq_total_active")
+  haystaqCountGe50   Int?     @map("haystaq_count_ge50")
+  haystaqPctGe50     Float?   @map("haystaq_pct_ge50")
+  haystaqCountGe70   Int?     @map("haystaq_count_ge70")
+  haystaqPctGe70     Float?   @map("haystaq_pct_ge70")
 
   @@unique([campaignId, order])
   @@map("race_opponent_standout_action")

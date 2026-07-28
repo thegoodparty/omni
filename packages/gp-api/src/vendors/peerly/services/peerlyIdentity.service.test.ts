@@ -24,6 +24,7 @@ import {
   PeerlyBillingException,
   PEERLY_NO_PAYMENT_METHOD_MESSAGE,
 } from '../utils/peerlyBillingError.util'
+import { PeerlyCvRejectionException } from '../utils/peerlyCvRejection.util'
 import { SlackService } from '../../slack/services/slack.service'
 import { SlackChannel } from '../../slack/slackService.types'
 import { UsersService } from '../../../users/services/users.service'
@@ -663,7 +664,7 @@ describe('PeerlyIdentityService', () => {
       expect(errorHandling.handleApiError).toHaveBeenCalledWith(
         expect.objectContaining({
           context: expect.objectContaining({
-            httpExceptionClass: BadRequestException,
+            httpExceptionClass: PeerlyCvRejectionException,
           }),
         }),
       )

@@ -36,6 +36,7 @@ import { ArtifactFeedbackModule } from '@/artifactFeedback/artifactFeedback.modu
 import { ArtifactReviewModule } from '@/artifactReview/artifactReview.module'
 import { PollsModule } from '@/polls/polls.module'
 import { PrioritiesModule } from '@/priorities/priorities.module'
+import { PersonProfilesModule } from '@/personProfiles/personProfiles.module'
 import { PrismaModule } from '@/prisma/prisma.module'
 import { QueueConsumerModule } from '@/queue/consumer/queueConsumer.module'
 import { ScheduledMessagingModule } from '@/scheduled-messaging/scheduled-messaging.module'
@@ -50,6 +51,7 @@ import { ContentfulModule } from '@/vendors/contentful/contentful.module'
 import { GeminiModule } from '@/vendors/google/gemini.module'
 import { CampaignStrategyModule } from '@/campaignStrategy/campaignStrategy.module'
 import { RaceOpponentModule } from '@/raceOpponent/raceOpponent.module'
+import { RecommendedListsModule } from '@/recommendedLists/recommendedLists.module'
 import { OrdinancesModule } from '@/ordinances/ordinances.module'
 import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
 import { EcanvasserIntegrationModule } from '@/vendors/ecanvasserIntegration/ecanvasserIntegration.module'
@@ -76,6 +78,7 @@ import { GeneralChatsModule } from '@/chats/general/general-chats.module'
     GeminiModule,
     CampaignStrategyModule,
     RaceOpponentModule,
+    RecommendedListsModule,
     CampaignStoryModule,
     AnalyticsModule,
     UsersModule,
@@ -113,6 +116,7 @@ import { GeneralChatsModule } from '@/chats/general/general-chats.module'
     DoorKnockingModule,
     PollsModule,
     PrioritiesModule,
+    PersonProfilesModule,
     CampaignPlanSharesModule,
     MeetingsModule,
     DashboardCardsModule,

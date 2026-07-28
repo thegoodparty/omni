@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button, PlusIcon } from '@styleguide'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import DashboardLayout from '../../shared/DashboardLayout'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -31,6 +32,21 @@ export const CrmContactsPage = () => {
     selectList,
   } = useContactsTable()
   const labels = getContactsLabels(isWinContext)
+
+  // ENG-10767: same event the pre-CRM ContactsPage fires (parity — flag-on
+  // users vanished from the Contacts Viewed chart), distinguished by
+  // surface: 'crm' (absent = legacy page). Same ready-gate + ref latch as
+  // that page: isWinContext reads false until the elected-office query
+  // settles, and a later toggle must not re-fire.
+  const hasFiredViewedRef = useRef(false)
+  useEffect(() => {
+    if (!isWinContextReady || hasFiredViewedRef.current) return
+    hasFiredViewedRef.current = true
+    trackEvent(EVENTS.Contacts.Viewed, {
+      context: isWinContext ? 'win' : 'serve',
+      surface: 'crm',
+    })
+  }, [isWinContextReady, isWinContext])
 
   const handleCreateList = () => {
     if (!canUseProFeatures) {

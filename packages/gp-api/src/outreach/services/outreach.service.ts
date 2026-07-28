@@ -56,19 +56,22 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
 
   private async requirePeerlyIdentityId(campaign: Campaign): Promise<string> {
     let peerlyIdentityId: string | null
+    let internalTestingApprovedAt: Date | null
     try {
-      ;({ peerlyIdentityId } = await this.tcrComplianceService.findFirstOrThrow(
-        {
+      ;({ peerlyIdentityId, internalTestingApprovedAt } =
+        await this.tcrComplianceService.findFirstOrThrow({
           where: { campaignId: campaign.id },
-        },
-      ))
+        }))
     } catch (err) {
       throw new OutreachStepError('tcrLookup', err)
     }
 
     if (!peerlyIdentityId) {
       throw new BadRequestException(
-        'TCR Compliance Peerly identity ID is required for P2P outreach',
+        internalTestingApprovedAt
+          ? 'Campaign is 10DLC-approved for internal testing only; ' +
+              'real P2P sends are disabled'
+          : 'TCR Compliance Peerly identity ID is required for P2P outreach',
       )
     }
 

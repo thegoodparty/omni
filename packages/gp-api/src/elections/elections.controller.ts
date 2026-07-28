@@ -36,14 +36,14 @@ export class ElectionsController {
   @ResponseSchema(RaceListItemArraySchema)
   async getRacesByZipcode(
     @Query()
-    { zipcode, level, name, officeType, electionDate }: RacesByZipSchema,
+    { zipcode, level, name, officeType, timeframe }: RacesByZipSchema,
   ) {
     return await this.racesService.getRacesByZip({
       zipcode,
       level,
       name,
       officeType,
-      electionDate,
+      timeframe,
     })
   }
 

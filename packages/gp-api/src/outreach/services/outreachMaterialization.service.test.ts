@@ -186,7 +186,8 @@ describe('OutreachMaterializationService', () => {
       slug: 'mat-robocall',
       outreachType: OutreachType.robocall,
     })
-    vi.spyOn(contacts, 'findContacts').mockResolvedValue(
+    const findContacts = vi.spyOn(contacts, 'findContacts')
+    vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
       peoplePage(['pid-1', 'pid-2']),
     )
 
@@ -195,6 +196,35 @@ describe('OutreachMaterializationService', () => {
     const rows = await robocallRowsFor(outreach.id)
     expect(rows.map((r) => r.personId)).toEqual(['pid-1', 'pid-2'])
     expect(await textRowsFor(outreach.id)).toHaveLength(0)
+    expect(findContacts).not.toHaveBeenCalled()
+  })
+
+  it('forces hasLandline on the resolved filter for a robocall launch', async () => {
+    const { campaign, outreach, filterId } = await seedOutreach({
+      slug: 'mat-robocall-landline',
+      outreachType: OutreachType.robocall,
+    })
+    // The 3-person filter resolves to only the 2 with landlines once
+    // findContactsForFilter applies the forced hasLandline: true — the same
+    // narrowing the CAS fulfillment download already applies for robocall.
+    const findContactsForFilter = vi
+      .spyOn(contacts, 'findContactsForFilter')
+      .mockResolvedValue(peoplePage(['rc-landline-1', 'rc-landline-2']))
+    const findContacts = vi.spyOn(contacts, 'findContacts')
+
+    await materialization.materializeOutreach(campaign, outreach)
+
+    const rows = await robocallRowsFor(outreach.id)
+    expect(rows.map((r) => r.personId)).toEqual([
+      'rc-landline-1',
+      'rc-landline-2',
+    ])
+    expect(findContacts).not.toHaveBeenCalled()
+    expect(findContactsForFilter).toHaveBeenCalledWith(
+      expect.objectContaining({ id: filterId, hasLandline: true }),
+      { resultsPerPage: 1000, page: 1 },
+      expect.objectContaining({ slug: campaign.organizationSlug }),
+    )
   })
 
   it('locks the filter but writes no rows for doorKnocking outreach', async () => {
@@ -368,9 +398,9 @@ describe('OutreachMaterializationService', () => {
         voterFileFilterId: null,
         personIds: ['cap-rc-1'],
       })
-      vi.spyOn(contacts, 'findContacts').mockResolvedValue(
-        peoplePage(['filter-rc-1', 'filter-rc-2']),
-      )
+      const findContactsForFilter = vi
+        .spyOn(contacts, 'findContactsForFilter')
+        .mockResolvedValue(peoplePage(['filter-rc-1', 'filter-rc-2']))
 
       await materialization.materializeOutreach(campaign, outreach)
 
@@ -382,6 +412,11 @@ describe('OutreachMaterializationService', () => {
         'filter-rc-1',
         'filter-rc-2',
       ])
+      expect(findContactsForFilter).toHaveBeenCalledWith(
+        expect.objectContaining({ hasLandline: true }),
+        { resultsPerPage: 1000, page: 1 },
+        expect.objectContaining({ slug: campaign.organizationSlug }),
+      )
     })
 
     it('throws when the phone list has no capture rows and no filter exists to fall back to', async () => {

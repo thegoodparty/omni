@@ -15,6 +15,7 @@ import {
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { LOCKED_LIST_MESSAGE } from '../shared/constants'
 import type { SegmentResponse } from '../shared/contacts-types'
@@ -37,7 +38,7 @@ export default function DeleteListDialog({
   open,
   onOpenChange,
 }: DeleteListDialogProps) {
-  const { selectList } = useContactsTable()
+  const { selectList, isWinContext, isWinContextReady } = useContactsTable()
   const orgSlug = useOrganization()?.slug
   const queryClient = useQueryClient()
   const { successSnackbar, errorSnackbar } = useSnackbar()
@@ -61,6 +62,14 @@ export default function DeleteListDialog({
       await queryClient.invalidateQueries({
         queryKey: ['custom-segments', orgSlug],
       })
+      // ENG-10767: same event the legacy DeleteSegment fired — parity for
+      // the "lists deleted" chart. Ready-gated like the surface's other
+      // events so an unsettled mode can't emit the wrong context.
+      if (isWinContextReady) {
+        trackEvent(EVENTS.Contacts.SegmentDeleted, {
+          context: isWinContext ? 'win' : 'serve',
+        })
+      }
       successSnackbar('List deleted')
       onOpenChange(false)
       // Shallow (ENG-10725): the detail surface is a sheet over the index

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useUser } from '@shared/hooks/useUser'
+import { useOrganization } from '@shared/organization-picker'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
 import type { ElectedOffice } from 'gpApi/api-endpoints'
@@ -22,14 +23,16 @@ const isMissingTermDates = (office: ElectedOffice): boolean =>
   (!office.termStartDate || !office.termEndDate)
 
 /**
- * Globally prompts a signed-in elected official to supply term dates whenever a
- * settled office they own (onboarding complete OR win-origin) is missing a start
- * or end date — regardless of which dashboard page they're on. Non-EO users (no
- * offices), genuine serve leads still mid-onboarding, and EOs with complete dates
- * see nothing. Mounted in the shared dashboard shell.
+ * Prompts a signed-in elected official to supply term dates when the office
+ * backing their currently selected organization (onboarding complete OR
+ * win-origin) is missing a start or end date — regardless of which dashboard
+ * page they're on. Scoped to the selected org: a campaign org selected (no
+ * `electedOfficeId`), non-EO users, genuine serve leads still mid-onboarding,
+ * and EOs with complete dates see nothing. Mounted in the shared dashboard shell.
  */
 export function ElectedOfficeTermDatesModalController(): React.JSX.Element | null {
   const [user, , isUserLoading] = useUser()
+  const selectedOrg = useOrganization()
   const [offices, setOffices] = useState<ElectedOffice[] | null>(null)
   // Lets the user defer the prompt for the current mount; it returns on the
   // next dashboard load (fresh fetch) until the dates are saved.
@@ -56,7 +59,13 @@ export function ElectedOfficeTermDatesModalController(): React.JSX.Element | nul
 
   if (!offices || dismissed) return null
 
-  const target = offices.find(isMissingTermDates)
+  // Only prompt for the office backing the selected org. A campaign org (no
+  // electedOfficeId) never prompts, even if the user owns an EO missing dates.
+  if (!selectedOrg?.electedOfficeId) return null
+
+  const target = offices.find(
+    (o) => o.id === selectedOrg.electedOfficeId && isMissingTermDates(o),
+  )
   if (!target) return null
 
   const otherRanges = buildDisabledRanges(offices, target.id)

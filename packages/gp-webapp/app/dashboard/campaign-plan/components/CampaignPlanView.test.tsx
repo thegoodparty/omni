@@ -27,19 +27,23 @@ vi.mock('./CampaignTrackerHero', () => ({
   default: () => <div data-testid="tracker-hero" />,
 }))
 // PlanView surfaces whether it received eventsState (the story-off community
-// events section) and whether its own hero is shown.
+// events section), whether its own hero is shown, and whether the fixed bottom
+// bar (with the "Campaign Manager" button) is shown.
 vi.mock('app/onboarding/success/components/PlanView', () => ({
   default: ({
     eventsState,
     showHero,
+    showBottomBar,
   }: {
     eventsState?: unknown
     showHero?: boolean
+    showBottomBar?: boolean
   }) => (
     <div
       data-testid="plan-view"
       data-has-events={eventsState !== undefined}
       data-show-hero={showHero !== false}
+      data-show-bottom-bar={showBottomBar !== false}
     />
   ),
 }))
@@ -88,6 +92,9 @@ describe('CampaignPlanView cohort gating', () => {
     const planView = screen.getByTestId('plan-view')
     expect(planView).toHaveAttribute('data-has-events', 'false')
     expect(planView).toHaveAttribute('data-show-hero', 'false')
+    // The story tracker hides the plan's bottom bar so it doesn't overlap the
+    // always-present Campaign Manager footer chat dock.
+    expect(planView).toHaveAttribute('data-show-bottom-bar', 'false')
   })
 
   it('renders the legacy plan with community events and NO tracker for story-off', () => {
@@ -98,6 +105,9 @@ describe('CampaignPlanView cohort gating', () => {
     const planView = screen.getByTestId('plan-view')
     expect(planView).toHaveAttribute('data-has-events', 'true')
     expect(planView).toHaveAttribute('data-show-hero', 'true')
+    // Story-off keeps the plan's bottom bar (its "Campaign Manager" button
+    // navigates home; no footer dock is mounted for that cohort).
+    expect(planView).toHaveAttribute('data-show-bottom-bar', 'true')
   })
 
   it('disables the legacy community-events poll for the story cohort', () => {
