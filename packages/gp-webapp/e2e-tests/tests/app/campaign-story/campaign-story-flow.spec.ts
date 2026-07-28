@@ -52,12 +52,12 @@ test.describe('campaign-story flag flow', () => {
 
     await completeOnboardingUpToPledge(page)
 
-    // For campaign-story users the pledge CTA is "Agree & Continue"; submitting
-    // lands on the Campaign Manager home (/dashboard), which shows the "meet
-    // your campaign manager" card for a brand-new candidate (no ?personalize,
-    // so the chat does not auto-open here).
+    // For campaign-story users the pledge CTA is "Meet your campaign manager";
+    // submitting lands on the Campaign Manager home (/dashboard), which shows
+    // the "meet your campaign manager" card for a brand-new candidate (no
+    // ?personalize, so the chat does not auto-open here).
     const submit = page
-      .getByRole('button', { name: /agree & continue/i })
+      .getByRole('button', { name: /meet your campaign manager/i })
       .first()
     await expect(submit).toBeVisible({ timeout: 15000 })
     await expect(submit).toBeEnabled()
@@ -65,7 +65,10 @@ test.describe('campaign-story flag flow', () => {
 
     await page.waitForURL('**/dashboard', { timeout: 30000 })
     await expect(
-      page.getByRole('heading', { name: 'Your campaign manager', level: 1 }),
+      page.getByRole('heading', {
+        name: 'Meet your virtual Campaign Manager',
+        level: 2,
+      }),
     ).toBeVisible({ timeout: 30000 })
   })
 

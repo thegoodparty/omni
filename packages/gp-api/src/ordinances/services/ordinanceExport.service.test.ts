@@ -69,6 +69,11 @@ describe('OrdinanceExportService', () => {
     // Title + body land in the document.
     expect(xml).toContain('Draft amendment to Chapter 34')
     expect(xml).toContain('Canopy goal')
+    // The review disclaimer opens the appendix (not legal advice / attorney
+    // review / verify against source).
+    expect(xml).toContain('Review before you rely on this.')
+    expect(xml).toContain('not legal advice')
+    expect(xml).toContain('have a licensed attorney review it')
     // The attorney reference section: sources + quality checks.
     expect(xml).toContain('Sources')
     expect(xml).toContain('Or. Rev. Stat. § 227.215')

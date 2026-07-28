@@ -19,8 +19,7 @@ export class ZipToPositionController {
       name: query.name,
       officeType: query.officeType,
       displayOfficeLevels: query.displayOfficeLevels,
-      electionDateFrom: query.electionDateFrom,
-      electionDateTo: query.electionDateTo,
+      timeframe: query.timeframe,
     })
   }
 

@@ -10,7 +10,11 @@ export interface ServiceConfig {
 
   vpcId: string
   securityGroupIds: string[]
+  // Public subnets host the internet-facing ALB. Fargate tasks run in the
+  // private subnets and reach the internet via NAT, so they no longer need
+  // public IPs.
   publicSubnetIds: string[]
+  privateSubnetIds: string[]
 
   hostedZoneId: string
   domain: string
@@ -42,6 +46,7 @@ export function createService({
   vpcId,
   securityGroupIds,
   publicSubnetIds,
+  privateSubnetIds,
   hostedZoneId,
   domain,
   certificateArn,
@@ -292,9 +297,9 @@ export function createService({
       desiredCount: isProd ? 2 : 1,
       capacityProviderStrategies: [{ capacityProvider: 'FARGATE', weight: 1 }],
       networkConfiguration: {
-        subnets: publicSubnetIds,
+        subnets: privateSubnetIds,
         securityGroups: securityGroupIds,
-        assignPublicIp: true,
+        assignPublicIp: false,
       },
       loadBalancers: [
         {

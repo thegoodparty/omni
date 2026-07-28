@@ -1,7 +1,7 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "race_opponent_actions",
-  "version": 1,
+  "version": 2,
   "model": "claude-fable-5",
   "max_turns": 25,
   "timeout_seconds": 600,
@@ -227,7 +227,8 @@
             "body",
             "sms_message",
             "opponent_name",
-            "issue"
+            "issue",
+            "haystaq"
           ],
           "properties": {
             "title": {
@@ -259,6 +260,71 @@
               "type": "string",
               "minLength": 1,
               "description": "The issue this card contrasts on. At most one card per opponent+issue pair."
+            },
+            "haystaq": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "description": "District sentiment stats for this card's issue axis, carried verbatim from the surviving Step-4 Haystaq query. Null for a numberless card (no coverage / no district) so the persisted column identity is never fabricated.",
+              "required": [
+                "hs_column",
+                "position_phrase",
+                "position_dir",
+                "total_active",
+                "voter_count_ge50",
+                "voter_percentage_ge50",
+                "voter_count_ge70",
+                "voter_percentage_ge70"
+              ],
+              "properties": {
+                "hs_column": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The Haystaq hs_* column this card's numbers came from (e.g. hs_infrastructure_support)."
+                },
+                "position_phrase": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Short human phrase for the CANDIDATE'S pole of this issue axis (e.g. 'funding infrastructure more')."
+                },
+                "position_dir": {
+                  "type": "string",
+                  "enum": [
+                    "high",
+                    "low"
+                  ],
+                  "description": "'high' when the candidate's stance aligns with high scorers on hs_column, else 'low'."
+                },
+                "total_active": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Active voters in the district scored on hs_column."
+                },
+                "voter_count_ge50": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Active voters scoring >= 50 on hs_column."
+                },
+                "voter_percentage_ge50": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100,
+                  "description": "voter_count_ge50 as a percentage of total_active."
+                },
+                "voter_count_ge70": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Active voters scoring >= 70 on hs_column."
+                },
+                "voter_percentage_ge70": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100,
+                  "description": "voter_count_ge70 as a percentage of total_active."
+                }
+              }
             }
           }
         }

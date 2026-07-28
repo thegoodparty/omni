@@ -38,15 +38,23 @@ Use the Sentry MCP to look up issues, events, and stack traces for gp-webapp.
 
 A workable default playbook:
 
-1. **Scope it.** Which service and env? Pull recent error logs with the Grafana MCP,
+1. **Read the deployed code, not your local copy.** Deployed behavior is whatever
+   is on the remote branch, not what your working tree happens to be — and this
+   checkout is shared, so `HEAD` may be stale or moved under you by another session.
+   Env → branch: `develop`→dev, `qa`→qa, `master`→prod (people-api is dev/prod
+   only). Before forming a hypothesis: `git fetch origin <branch>`, check how far
+   behind you are (`git rev-list --count HEAD..origin/<branch>`), and read the
+   deployed source with `git show origin/<branch>:path/to/file`. A stale checkout
+   makes you reason about code that isn't deployed and misread every symptom.
+2. **Scope it.** Which service and env? Pull recent error logs with the Grafana MCP,
    filtered by `service_name` + `deployment_environment_name`.
-2. **Find the pattern.** Use Grafana's error-pattern / slow-request tooling to spot
+3. **Find the pattern.** Use Grafana's error-pattern / slow-request tooling to spot
    the spike, then narrow the time window.
-3. **Trace it.** Grab a representative trace from Tempo (`grafanacloud-traces`) to
+4. **Trace it.** Grab a representative trace from Tempo (`grafanacloud-traces`) to
    see where time or the failure went across services.
-4. **Frontend?** If it surfaced in the browser, pull the matching Sentry issue for
+5. **Frontend?** If it surfaced in the browser, pull the matching Sentry issue for
    the stack trace and breadcrumbs.
-5. **Confirm before stamping.** A 2xx or a webhook hit is evidence of a *request*,
-   not a *state*. Verify against the source of truth before concluding it's fixed.
+6. **Confirm before stamping.** A 2xx or a webhook hit is evidence of a _request_,
+   not a _state_. Verify against the source of truth before concluding it's fixed.
 
 Use the MCPs liberally here — that's what they're for.

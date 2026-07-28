@@ -90,11 +90,11 @@ gating is per-action inside the services (see Access control).
 | `GET /v1/contacts/:id`                                                             | Person detail (+ derived `supportStatus`, `optedOutAt`)                                                                                                    |
 | `GET /v1/contacts/stats`                                                           | District aggregates (stat cards; open to non-Pro)                                                                                                          |
 | `POST /v1/contacts/count`                                                          | Live count for an unsaved filter (wizard running total; assistant `count_contacts` parity)                                                                 |
-| `GET /v1/contacts/list-detail`                                                     | Saved-segment detail: demographics, reachable-by-channel, outreach history (`email`/`metaAds` are always `null` — no data source)                          |
-| `GET /v1/contacts/download`                                                        | CSV COPY stream from people-api. Serve downloads drop the party **column** via projection (`PARTY_DOWNLOAD_COLUMN`) since a stream can't be post-processed |
+| `GET /v1/contacts/list-detail`                                                     | Saved-segment detail (`segment` param): demographics, reachable-by-channel (sms/robocall/phoneBanking/doorKnocking/polls), outreach history. Omitting `segment` returns the universe row's detail instead — the whole unfiltered district, `outreachHistory` always `[]` (ENG-10778). History excludes `doorKnocking` rows (the door-knock tool writes its own interaction rows) and orders null `date`s last with `createdAt` fallback fields (ENG-10776) |
+| `GET /v1/contacts/download`                                                        | CSV COPY stream from people-api: a curated ~54-column subset with friendly headers (`DOWNLOAD_COLUMNS`, ENG-10766), not the raw L2 columns. Serve downloads drop the party **column** via projection (`PARTY_DOWNLOAD_COLUMN`) since a stream can't be post-processed |
 | `GET/POST /v1/contacts/:personId/notes`, `PATCH/DELETE /v1/contacts/notes/:noteId` | Notes CRUD, org-scoped (cross-org id = 404)                                                                                                                |
 | `POST /v1/contacts/:personId/interactions`                                         | Manual interaction log. **No webapp caller** (UI removed in ENG-10711); the API stays                                                                      |
-| `GET /v1/contact-engagement/:id/activities`                                        | Unified feed: interactions + polls + notes + legacy outreach rows                                                                                          |
+| `GET /v1/contact-engagement/:id/activities`                                        | Unified feed: interactions + polls + legacy outreach rows. Notes are deliberately excluded (ENG-10780) — they live only in the dedicated Notes section, never the feed |
 | `POST /v1/voters/voter-file/filter`, `GET /filters`, `GET/PUT/DELETE /filter/:id`  | Saved-filter CRUD; PUT/DELETE 409 once locked                                                                                                              |
 | `POST /v1/outreach`                                                                | Outreach create (draft-first); launch triggers materialization                                                                                             |
 
@@ -136,7 +136,14 @@ people-api `POST /v1/people` → join/strip (party choke point
 with a small page; person detail adds derived `supportStatus` and
 `optedOutAt` (`ContactInteractionTextService.latestOptOutAt`). The count
 endpoint runs the identical translation with `resultsPerPage: 1` and
-returns only `pagination.totalResults`.
+returns `{ count, fenced }` — `fenced` (ENG-10804) mirrors
+`pagination.fenced`: true when people-api's statement-timeout guard
+floored the total at `FENCE_LIMIT` (10k), a lower bound rather than an
+exact figure. `GET /v1/contacts`'s own `pagination.fenced` carries the
+same signal for the list total. The webapp renders a fenced count via
+`formatFencedCount` ("10,000+") and never persists it as an exact
+`voterCount`; the assistant's `count_contacts` tool reports it as "at
+least N".
 
 ### Activity-condition + support-status resolution
 
@@ -187,6 +194,29 @@ pipeline (`findContactsForFilter`), so activity/support conditions are
 honored — the list matches what the wizard's count promised
 (`src/vendors/peerly/services/p2pPhoneListUpload.service.ts` +
 `peerlyPhoneListCapture.service.ts`).
+
+**Opt-out scrub (ENG-10800).** `P2pPhoneListUploadService` excludes every
+org-wide opted-out person (`ContactInteractionTextService.findOptedOutPersonIds`
+— any past text/p2p send, not just the outreach that recorded it) from a new
+phone-list build via `findContactsForFilter`'s `excludePersonIds` param, which
+folds into whatever `id` resolution activity conditions/support status already
+produced (`ContactsService.excludePersonIdsFromResolution`). Over the
+people-api 100k id-filter cap (`MAX_RESOLVED_ID_SET_SIZE`), the scrub is
+skipped and logged loudly rather than blocking the send. The excluded count is
+persisted on `PeerlyPhoneList.excludedOptedOutCount` for a later UI ticket
+(ENG-10808) to surface. The materialization fallback above (re-resolving the
+filter when an outreach has a `phoneListId` but no capture rows) does **not**
+run this scrub — it already overstates by design, and ENG-10800 didn't touch
+it.
+
+**Phone dedup (ENG-10801).** `P2pPhoneListUploadService.buildPhoneList` keeps
+one CSV row per phone number: a `Set` of seen numbers spans the whole
+pagination loop, and a person whose number was already kept is skipped
+(first-seen wins — deterministic given people-api's stable ordering). This
+also fixes the inbound sweep's phone->person mapping (`PeerlyPhoneListRecipient`),
+which was ambiguous whenever two people shared a captured phone. The skipped
+count is persisted on `PeerlyPhoneList.excludedDuplicatePhoneCount`, alongside
+`excludedOptedOutCount`, for the same ENG-10808 UI to surface.
 
 ### Write-back (collect-forward)
 
@@ -267,8 +297,9 @@ over interaction rows with a non-null `support_answer`; a "list" =
 - No paginated member browsing anywhere, by locked design — the list
   detail never shows people; individuals are reached via typeahead only.
   Don't add a member table.
-- `email` / `metaAds` reachability are `null` (no data source), rendered
-  "Unavailable" — never coerce to 0.
+- Reachability has five channels: sms, robocall, phoneBanking, doorKnocking,
+  polls. `email`/`metaAds` were removed (ENG-10783, no data source ever
+  existed for them); `polls` mirrors the sms (has-cell-phone) count 1:1.
 - Age filter ranges are mutually exclusive since ENG-10752/10753; the
   catalog + `voterFilterBase.schema.ts` own the vocabulary.
 - Download does not re-apply a stored `search` (people-api `/download`

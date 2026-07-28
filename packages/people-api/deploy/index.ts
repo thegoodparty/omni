@@ -1,7 +1,6 @@
 import * as pulumi from '@pulumi/pulumi'
 import * as aws from '@pulumi/aws'
 import { createService } from './components/service'
-import { createRdsAdminRole } from './components/rds-admin-role'
 
 const extractDbCredentials = (dbUrl: string) => {
   const url = new URL(dbUrl)
@@ -16,11 +15,6 @@ export = async () => {
 
   const environment = config.require('environment') as 'dev' | 'prod'
   const imageUri = config.require('imageUri')
-
-  const externalId = process.env.ASTRO_ASSUME_ROLE_EXTERNAL_ID
-  if (!externalId) {
-    throw new Error('ASTRO_ASSUME_ROLE_EXTERNAL_ID env var must be set')
-  }
 
   const vpcId = 'vpc-0763fa52c32ebcf6a'
   const hostedZoneId = 'Z10392302OXMPNQLPO07K'
@@ -119,8 +113,6 @@ export = async () => {
     prod: ['tf-20250910223305753900000001', 'tf-20250910223305761900000002'],
   })
 
-  createRdsAdminRole({ environment, externalId })
-
   for (let i = 0; i < rdsInstanceIds.length; i++) {
     new aws.rds.ClusterInstance(`rdsInstance-${i}`, {
       identifier: rdsInstanceIds[i],
@@ -143,6 +135,7 @@ export = async () => {
     vpcId,
     securityGroupIds: vpcSecurityGroupIds,
     publicSubnetIds: vpcSubnetIds.public,
+    privateSubnetIds: vpcSubnetIds.private,
     hostedZoneId,
     domain: select({
       dev: 'people-api-dev.goodparty.org',

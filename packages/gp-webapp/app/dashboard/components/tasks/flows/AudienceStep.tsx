@@ -33,6 +33,7 @@ import { FREE_TEXTS_OFFER } from '../../../outreach/constants'
 import { useP2pUxEnabled } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
 import { PhoneListInput } from 'helpers/createP2pPhoneList'
 import { AUTO_VOTER_FILTER_NAME_PATTERN } from 'app/dashboard/components/tasks/flows/util/flowHandlers.util'
+import { fetchListDetail } from 'app/dashboard/contacts/crm/lists/useListRowDetail'
 
 const TEXT_PRICE = 0.035
 const CALL_PRICE = 0.04
@@ -61,6 +62,14 @@ const isAudienceFilterKey = (
 
 type VoterFileFilterResult = PhoneListInput & { id?: number }
 
+// ENG-10767: how the audience was chosen, carried as a property on the
+// audience-step Next and Voter Outreach - Campaign Completed events so the
+// CRM list → outreach funnel is attributable end to end. 'deepLink' means
+// the CRM "Send outreach" link's preselected list was still the selection at
+// advance time; a manual dropdown pick (even of the same list) is
+// 'savedList'; no saved list means the checkbox-built audience.
+export type AudienceSource = 'savedList' | 'deepLink' | 'customFilters'
+
 interface AudienceStepProps {
   onChangeCallback: (
     keyOrData:
@@ -68,6 +77,9 @@ interface AudienceStepProps {
       | {
           voterFileFilter?: VoterFileFilterResult
           phoneListToken: string | null | undefined
+          savedListId?: number
+          audienceSource: AudienceSource
+          audienceListId: number | null
         },
     value?: AudienceFiltersState | number,
   ) => void
@@ -82,6 +94,7 @@ interface AudienceStepProps {
     voterFileFilter: VoterFileFilterResult | undefined,
     voterFileFilterId?: number,
   ) => Promise<string | null | undefined>
+  preselectedListId?: number
 }
 
 export default function AudienceStep({
@@ -94,6 +107,7 @@ export default function AudienceStep({
   isCustom,
   onCreateVoterFileFilter = async () => ({}),
   onCreatePhoneList = async () => null,
+  preselectedListId,
 }: AudienceStepProps): React.JSX.Element {
   const [campaign] = useCampaign()
   const { p2pUxEnabled } = useP2pUxEnabled()
@@ -113,10 +127,32 @@ export default function AudienceStep({
   )
 
   const isTextType = type === LEGACY_TASK_TYPES.sms || type === TASK_TYPES.text
+  const isRobocallType =
+    type === LEGACY_TASK_TYPES.telemarketing || type === TASK_TYPES.robocall
+  const isPhoneBankingType = type === TASK_TYPES.phoneBanking
+  const isDoorKnockingType = type === TASK_TYPES.doorKnocking
+  // ENG-10764/10765/10784: robocall, phone banking, and door knocking all get
+  // the same saved-list selector as text.
+  const showsSavedListSelector =
+    isTextType || isRobocallType || isPhoneBankingType || isDoorKnockingType
+  // Robocall, phone banking, and door knocking all have no live
+  // checkbox-driven count for a saved list, so all three fetch the list's
+  // refreshed people count instead of leaving the estimate blank. Text
+  // deliberately leaves count at 0 (the phone-list build owns its real count
+  // later).
+  const fetchesSavedListCount =
+    isRobocallType || isPhoneBankingType || isDoorKnockingType
 
   const [savedLists, setSavedLists] = useState<SavedList[]>([])
   // Empty string = "build a new audience from the checkboxes" (the default).
   const [selectedListId, setSelectedListId] = useState('')
+  // ENG-10767: whether the current saved-list selection came from the CRM
+  // deep link's preselect or a manual dropdown pick — a user who manually
+  // re-picks (or switches away from) the deep-linked list is reporting their
+  // own choice, not the link's.
+  const [selectionSource, setSelectionSource] = useState<
+    'manual' | 'deepLink' | null
+  >(null)
 
   const selectedList = useMemo(
     () =>
@@ -126,19 +162,47 @@ export default function AudienceStep({
     [selectedListId, savedLists],
   )
 
+  const handleSelectList = useCallback(
+    (value: string, source: 'manual' | 'deepLink' = 'manual') => {
+      setSelectedListId(value === NEW_FROM_FILTERS ? '' : value)
+      setSelectionSource(value === NEW_FROM_FILTERS ? null : source)
+    },
+    [],
+  )
+
+  // ENG-10763: applies the CRM "Send outreach" list link's preselectedListId
+  // whenever a NEW id arrives that hasn't been applied yet (tracked by value,
+  // not a one-shot boolean — a caller like OutreachCreateCards can update the
+  // id it threads down, e.g. a later deep link while this step stays
+  // mounted, and that new id must still take). Never re-applies the SAME id
+  // again, so a user who deliberately switches lists (or back to "Build a
+  // new audience") doesn't get snapped back to it on a later re-render.
+  const lastAppliedPreselectListIdRef = useRef<number | undefined>(undefined)
+
   useEffect(() => {
-    if (!isTextType) return
+    if (!showsSavedListSelector) return
     let active = true
     clientRequest('GET /v1/voters/voter-file/filters', {})
       .then(({ data }) => {
         if (!active) return
-        setSavedLists(
-          (data || []).filter(
-            (list): list is SavedList =>
-              typeof list?.name === 'string' &&
-              !AUTO_VOTER_FILTER_NAME_PATTERN.test(list.name),
-          ),
+        const filtered = (data || []).filter(
+          (list): list is SavedList =>
+            typeof list?.name === 'string' &&
+            !AUTO_VOTER_FILTER_NAME_PATTERN.test(list.name),
         )
+        setSavedLists(filtered)
+        if (
+          preselectedListId !== undefined &&
+          preselectedListId !== lastAppliedPreselectListIdRef.current
+        ) {
+          const match = filtered.find((list) => list.id === preselectedListId)
+          if (match) {
+            lastAppliedPreselectListIdRef.current = preselectedListId
+            // Reuse the exact same code path a manual dropdown pick takes —
+            // no separate "preselected" state to keep in sync.
+            handleSelectList(match.id.toString(), 'deepLink')
+          }
+        }
       })
       .catch(() => {
         // A failed list fetch must not block the build-new-from-checkboxes
@@ -148,7 +212,7 @@ export default function AudienceStep({
     return () => {
       active = false
     }
-  }, [isTextType])
+  }, [showsSavedListSelector, preselectedListId, handleSelectList])
 
   const nextTrackingAttrs = useMemo(
     () => buildTrackingAttrs('Next Target Audience', { type }),
@@ -165,6 +229,9 @@ export default function AudienceStep({
       return
     }
 
+    // Invalidate any in-flight count fetch so its .finally() can't flip
+    // loading back off (re-enabling Next) mid-submission.
+    countRequestIdRef.current += 1
     setLoading(true)
 
     // A selected saved list is reused as-is: its id links the outreach and its
@@ -196,6 +263,24 @@ export default function AudienceStep({
     onChangeCallback({
       voterFileFilter,
       phoneListToken,
+      // ENG-10767: reported on every advance (not just when a list is
+      // selected) so a Back-then-switch to custom filters overwrites the
+      // earlier value instead of leaving a stale saved-list attribution.
+      audienceSource: selectedList
+        ? selectionSource === 'deepLink'
+          ? 'deepLink'
+          : 'savedList'
+        : 'customFilters',
+      audienceListId: selectedList?.id ?? null,
+      // ENG-10765/10784: DownloadStep needs to tell a saved list (segment
+      // export) apart from a throwaway checkbox-built filter (both carry an
+      // `id`), so phone banking and door knocking always report the current
+      // selection — present but undefined when the user switches back to
+      // "build a new audience" — so a stale selection from an earlier Next
+      // press can't linger.
+      ...(isPhoneBankingType || isDoorKnockingType
+        ? { savedListId: selectedList?.id }
+        : {}),
     })
     nextCallback()
   }
@@ -209,10 +294,42 @@ export default function AudienceStep({
     // A selected saved list drives the audience server-side from its persisted
     // fields; the checkbox-based live count doesn't apply to it.
     if (selectedList) {
+      if (!fetchesSavedListCount) {
+        setCountError(null)
+        setCount(0)
+        setLoading(false)
+        onChangeCallback('voterCount', 0)
+        return
+      }
+
+      // Robocall's cost preview (CALL_PRICE / CALL_W_VOICEMAIL_PRICE) needs a
+      // real count even for a saved list; phone banking and door knocking
+      // have no cost preview but still need the real voters-selected number
+      // and the zero-member Next guard on their download path. All three
+      // fetch the list's refreshed people count instead of leaving the
+      // estimate blank. Shares the fetch with the CRM lists index (see
+      // fetchListDetail) instead of a second hand-rolled call.
       setCountError(null)
-      setCount(0)
-      setLoading(false)
-      onChangeCallback('voterCount', 0)
+      setLoading(true)
+      fetchListDetail(selectedList.id)
+        .then((data) => {
+          if (requestId !== countRequestIdRef.current) return
+          setCount(data.demographics.people)
+          onChangeCallback('voterCount', data.demographics.people)
+        })
+        .catch(() => {
+          if (requestId !== countRequestIdRef.current) return
+          // Surface the failure the same way the checkbox path does — a
+          // silent $0.00 estimate here would let Next submit a robocall
+          // against an uncounted (possibly large) saved list.
+          setCountError({ ok: false, message: GENERIC_COUNT_ERROR_MESSAGE })
+          setCount(0)
+          onChangeCallback('voterCount', 0)
+        })
+        .finally(() => {
+          if (requestId !== countRequestIdRef.current) return
+          setLoading(false)
+        })
       return
     }
 
@@ -264,15 +381,19 @@ export default function AudienceStep({
         debounceTimerRef.current = null
       }
     }
-  }, [audience, isCustom, type, hasValues, selectedList, onChangeCallback])
+  }, [
+    audience,
+    isCustom,
+    type,
+    hasValues,
+    selectedList,
+    fetchesSavedListCount,
+    onChangeCallback,
+  ])
 
   const handleChangeAudience = (newState: AudienceFiltersState) => {
     onChangeCallback('audience', newState)
   }
-
-  const handleSelectList = useCallback((value: string) => {
-    setSelectedListId(value === NEW_FROM_FILTERS ? '' : value)
-  }, [])
 
   let price: number | undefined
   // TODO: confirm these prices are correct for new task types!!!
@@ -303,9 +424,48 @@ export default function AudienceStep({
       : countError.message || GENERIC_COUNT_ERROR_MESSAGE
     : null
   const hasCountError = !!countError
+  // The zero-count guard only applies where a real count exists: robocall,
+  // phone banking, and door knocking fetch the saved list's count; the text
+  // saved-list branch deliberately leaves count at 0 (the phone-list build
+  // owns its real count later).
   const isNextDisabled = selectedList
-    ? loading
+    ? loading || hasCountError || (fetchesSavedListCount && count === 0)
     : !hasValues || loading || hasCountError || (hasValues && count === 0)
+
+  // Shared by the checkbox-built audience and (robocall/phone banking only)
+  // the saved-list branch, which fetches a real count instead of leaving this
+  // blank — see the count useEffect above.
+  const votersAndCostSummary = (
+    <div className="p-4 text-sm">
+      Voters selected:
+      <span className="font-bold text-black ml-1">
+        {loading ? (
+          <LoaderCircleIcon
+            size={14}
+            className="inline-block align-middle animate-spin"
+          />
+        ) : (
+          numberFormatter(count)
+        )}
+      </span>
+      {price && (
+        <>
+          <span className="mx-3">|</span>
+          Estimated cost:
+          <span className="font-bold text-black ml-1">
+            {loading ? (
+              <LoaderCircleIcon
+                size={14}
+                className="inline-block align-middle animate-spin"
+              />
+            ) : (
+              `$${numberFormatter(calculateCost(count), 2)}`
+            )}
+          </span>
+        </>
+      )}
+    </div>
+  )
 
   return (
     <div className="p-4 w-[80vw] max-w-4xl">
@@ -318,7 +478,7 @@ export default function AudienceStep({
             </span>
           </div>
         )}
-        {isTextType && savedLists.length > 0 && (
+        {showsSavedListSelector && savedLists.length > 0 && (
           <div className="text-left mt-4">
             <Select value={selectedListId} onValueChange={handleSelectList}>
               <SelectTrigger className="w-full justify-start">
@@ -346,41 +506,29 @@ export default function AudienceStep({
           </div>
         )}
         {selectedList ? (
-          <div className="p-4 text-sm text-muted-foreground">
-            Using your saved list:{' '}
-            <span className="font-bold text-black">{selectedList.name}</span>
-          </div>
+          <>
+            <div className="p-4 text-sm text-muted-foreground">
+              Using your saved list:{' '}
+              <span className="font-bold text-black">{selectedList.name}</span>
+            </div>
+            {fetchesSavedListCount && (
+              <>
+                {votersAndCostSummary}
+                {inlineCountErrorMessage ? (
+                  <Alert variant="destructive" className="mb-4 text-left">
+                    <MdError />
+                    <AlertTitle>Voter data unavailable</AlertTitle>
+                    <AlertDescription>
+                      {inlineCountErrorMessage}
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+              </>
+            )}
+          </>
         ) : (
           <>
-            <div className="p-4 text-sm">
-              Voters selected:
-              <span className="font-bold text-black ml-1">
-                {loading ? (
-                  <LoaderCircleIcon
-                    size={14}
-                    className="inline-block align-middle animate-spin"
-                  />
-                ) : (
-                  numberFormatter(count)
-                )}
-              </span>
-              {price && (
-                <>
-                  <span className="mx-3">|</span>
-                  Estimated cost:
-                  <span className="font-bold text-black ml-1">
-                    {loading ? (
-                      <LoaderCircleIcon
-                        size={14}
-                        className="inline-block align-middle animate-spin"
-                      />
-                    ) : (
-                      `$${numberFormatter(calculateCost(count), 2)}`
-                    )}
-                  </span>
-                </>
-              )}
-            </div>
+            {votersAndCostSummary}
             {inlineCountErrorMessage ? (
               <Alert variant="destructive" className="mb-4 text-left">
                 <MdError />

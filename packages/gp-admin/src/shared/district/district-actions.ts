@@ -78,23 +78,10 @@ export async function updateElectedOfficeDistrict(
     throw new Error('Missing write_campaigns permission')
   }
   await gpAction(async (client) => {
-    // The SDK does not yet expose an electedOffices.updateDistrict method.
-    // Call the M2M-capable PUT /elected-office/:id/district directly via the
-    // SDK's underlying httpClient. Once the SDK is bumped to a release that
-    // adds `client.electedOffices.updateDistrict`, swap this call.
-    const httpClient = (
-      client.electedOffices as unknown as {
-        httpClient: {
-          request: <T>(
-            path: string,
-            init: { method: string; body: unknown }
-          ) => Promise<T>
-        }
-      }
-    ).httpClient
-    await httpClient.request(`/elected-office/${electedOfficeId}/district`, {
-      method: 'PUT',
-      body: { state, L2DistrictType, L2DistrictName },
+    await client.electedOffices.updateDistrict(electedOfficeId, {
+      state,
+      L2DistrictType,
+      L2DistrictName,
     })
     revalidatePath(`/dashboard/users/${userId}`, 'layout')
   })

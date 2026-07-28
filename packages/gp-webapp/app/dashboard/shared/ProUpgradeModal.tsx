@@ -118,14 +118,14 @@ export function ProUpgradeModal({
       description = 'Winning candidates used Pro tools to:'
       items = [
         <>
-          <span className="font-bold">Target</span> the right voters
+          <span className="font-bold">Target</span>&nbsp;the right voters
         </>,
         <>
-          <span className="font-bold">Mobilize</span> their supporters
+          <span className="font-bold">Mobilize</span>&nbsp;their supporters
         </>,
         <>
-          <span className="font-bold">Get voters </span> to participate in early
-          voting
+          <span className="font-bold">Get voters</span>&nbsp;to participate in
+          early voting
         </>,
       ]
       highlight = 'Join them today for just $10/month.'

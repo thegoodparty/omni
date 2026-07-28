@@ -14,8 +14,7 @@ type SearchParams = {
   name?: string
   officeType?: string[]
   displayOfficeLevels?: string[]
-  electionDateFrom?: string
-  electionDateTo?: string
+  timeframe?: 'future' | 'past'
 }
 
 @Injectable()
@@ -26,6 +25,13 @@ export class ZipToPositionService extends createPrismaBase(
     super()
   }
 
+  // Resolve a zip (+ optional filters) to the actual races an onboarding user
+  // can pick from. ZipToPosition maps zips → positions (Race carries no zip); we
+  // use it only to gather the covered positionIds + their display metadata, then
+  // read the real races off the Race table by the Race.positionId FK. That FK is
+  // per election schedule, so multi-seat "cohort" positions each resolve to their
+  // own races — the disambiguation the mart's electionDate alone can't provide
+  // (it has no primary/general flag). Returns one item per race.
   async search(params: SearchParams): Promise<RaceListItem[]> {
     const where: Prisma.ZipToPositionWhereInput = {
       OR: [
@@ -43,35 +49,67 @@ export class ZipToPositionService extends createPrismaBase(
     if (params.displayOfficeLevels && params.displayOfficeLevels.length > 0) {
       where.displayOfficeLevel = { in: params.displayOfficeLevels }
     }
-    if (params.electionDateFrom || params.electionDateTo) {
-      where.electionDate = {
-        ...(params.electionDateFrom && {
-          gte: new Date(params.electionDateFrom),
-        }),
-        ...(params.electionDateTo && { lte: new Date(params.electionDateTo) }),
-      }
-    }
 
-    const rows = await this.model.findMany({
+    const positions = await this.model.findMany({
       where,
-      include: { position: { include: { place: true } } },
-      orderBy: [{ electionDate: 'asc' }, { name: 'asc' }],
+      select: {
+        positionId: true,
+        name: true,
+        displayOfficeLevel: true,
+        state: true,
+        district: true,
+        position: { select: { brPositionId: true } },
+      },
+      distinct: ['positionId'],
+    })
+    if (positions.length === 0) return []
+
+    const metaByPositionId = new Map(positions.map((p) => [p.positionId, p]))
+
+    const now = new Date()
+    const todayUtc = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    )
+    const electionDate =
+      params.timeframe === 'past' ? { lt: todayUtc } : { gte: todayUtc }
+
+    const races = await this.client.race.findMany({
+      where: { positionId: { in: [...metaByPositionId.keys()] }, electionDate },
+      select: {
+        id: true,
+        positionId: true,
+        electionDate: true,
+        isPrimary: true,
+        isRunoff: true,
+        Place: { select: { name: true } },
+      },
+      orderBy: [{ electionDate: 'asc' }],
     })
 
-    return rows.map((row) => ({
-      id: row.id,
-      brPositionId: row.position.brPositionId,
-      position: {
-        name: row.name,
-        level: row.displayOfficeLevel,
-        state: row.state,
-      },
-      election: {
-        electionDay: row.electionDate.toISOString().slice(0, 10),
-      },
-      city: row.position.place?.name ?? null,
-      district: row.district === '' ? null : row.district,
-    }))
+    return races.flatMap((race) => {
+      const meta = race.positionId
+        ? metaByPositionId.get(race.positionId)
+        : undefined
+      if (!meta) return []
+      return [
+        {
+          id: race.id,
+          brPositionId: meta.position.brPositionId,
+          position: {
+            name: meta.name,
+            level: meta.displayOfficeLevel,
+            state: meta.state,
+          },
+          election: {
+            electionDay: race.electionDate.toISOString().slice(0, 10),
+          },
+          isPrimary: race.isPrimary,
+          isRunoff: race.isRunoff,
+          city: race.Place?.name ?? null,
+          district: meta.district === '' ? null : meta.district,
+        },
+      ]
+    })
   }
 
   async getZipCodesByBrPositionId(brPositionId: string): Promise<string[]> {

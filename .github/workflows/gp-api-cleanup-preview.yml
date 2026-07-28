@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
   schedule:
     # Run every 3 hours
-    - cron: "0 */3 * * *"
+    - cron: '0 */3 * * *'
 
 env:
   WORKSPACE: packages/gp-api
@@ -37,7 +37,7 @@ jobs:
       - name: Install Pulumi CLI
         uses: pulumi/actions@v6
         with:
-          pulumi-version: "^3"
+          pulumi-version: '^3'
 
       - name: Find stale PR stacks
         id: find-stale
@@ -170,6 +170,8 @@ jobs:
     needs: [check-elb-quota]
     if: always()
     runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v5
@@ -189,12 +191,19 @@ jobs:
             exit 0
           fi
 
-          # Fetch ALL open PRs (paginated). A short or failed list would make
+          # Fetch ALL open PRs (paginated). A short or missing list would make
           # the sweep treat active previews' gpdb_pr_* as orphaned and DROP
-          # them — irreversible — so any page failure skips the whole run, and
-          # we page past 100 rather than capping (unlike find-stale-preview-
-          # stacks.ts, where a miss only re-creates infra).
-          ALL_PRS='[]'
+          # them — irreversible — so any page failure fails the whole run
+          # loudly (the sweep task never launches), and we page past 100 rather
+          # than capping (unlike find-stale-preview-stacks.ts, where a miss only
+          # re-creates infra). Failures exit non-zero so the failure() Slack
+          # step fires: an earlier version skipped with exit 0, so a broken
+          # fetch reported success and the sweep silently no-op'd for days.
+          #
+          # Accumulate PR numbers per page via python reading stdin. Do NOT
+          # merge raw JSON pages with `jq --argjson` — a full 100-PR page blows
+          # past ARG_MAX ("Argument list too long") and the merge never runs.
+          OPEN_PRS=""
           PAGE=1
           while true; do
             PAGE_JSON=$(curl --fail --silent --show-error \
@@ -202,23 +211,19 @@ jobs:
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
               "https://api.github.com/repos/${{ github.repository }}/pulls?state=open&per_page=100&page=${PAGE}") || {
-              echo "Failed to fetch open PRs (page ${PAGE}); skipping sweep to avoid dropping active databases."
-              exit 0
+              echo "Failed to fetch open PRs (page ${PAGE}); failing so the sweep does not run against a partial PR list."
+              exit 1
             }
-            COUNT=$(echo "$PAGE_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))") || {
-              echo "Failed to parse PR page (page ${PAGE}); skipping sweep to avoid dropping active databases."
-              exit 0
+            PAGE_PRS=$(echo "$PAGE_JSON" | python3 -c \
+              "import sys,json; print(' '.join(str(p['number']) for p in json.load(sys.stdin)))") || {
+              echo "Failed to parse PR page (page ${PAGE}); failing so the sweep does not run against a partial PR list."
+              exit 1
             }
-            ALL_PRS=$(jq -n --argjson a "$ALL_PRS" --argjson b "$PAGE_JSON" \
-              '$a + $b') || {
-              echo "Failed to merge PR pages; skipping sweep."
-              exit 0
-            }
-            [ "$COUNT" -lt 100 ] && break
+            OPEN_PRS="$OPEN_PRS $PAGE_PRS"
+            [ "$(echo "$PAGE_PRS" | wc -w)" -lt 100 ] && break
             PAGE=$((PAGE + 1))
           done
-          OPEN_PRS=$(echo "$ALL_PRS" | python3 -c \
-            "import sys,json; prs=json.load(sys.stdin); print(' '.join(str(p['number']) for p in prs))")
+          OPEN_PRS=$(echo "$OPEN_PRS" | xargs)
 
           # Defense-in-depth alongside the script's own guard: never launch the
           # sweep with an empty open-PR list (would drop every preview db).
@@ -277,3 +282,18 @@ jobs:
             echo "drop-orphaned-preview-dbs exited ${EXIT_CODE}; check ECS logs."
             exit 1
           fi
+
+      # The sweep step exits non-zero on any failure — including a fetch/parse
+      # error that skips the run rather than risk dropping active dbs. Without
+      # this, such a failure is only visible to whoever opens the run, which is
+      # exactly how a broken PR-page merge silently no-op'd the sweep for days.
+      - name: Notify Slack on sweep failure
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          fields: repo,workflow,job
+          text: >-
+            gp-api orphaned-preview-db sweep failed. Databases orphaned by a
+            failed PR-close teardown may be piling up on the shared Aurora
+            cluster — check the run.

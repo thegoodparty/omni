@@ -9,25 +9,19 @@ import {
   type ContactsApiPerson,
 } from 'src/helpers/crm-contacts-e2e'
 import { personContactPanel } from 'src/helpers/contacts-e2e'
-import {
-  setupElectedOfficeUser,
-  switchOrganization,
-  getSelectedOrgName,
-  getOrgPickerOptions,
-} from 'src/helpers/organizations'
+import { setupProCampaignUser } from 'src/helpers/organizations'
 
-// @dev-only: contact search is reachable only for a pro campaign org (gp-api
-// findContacts hard-rejects search requests for non-pro), and the search
-// needs the warm dev stack's real district voter data. Same gating as
-// win-contacts.spec.ts. The CI workflow greps @dev-only out on pull_request
-// runs and includes it post-merge on develop. See e2e-tests/CLAUDE.md.
+// Contact search is reachable only for a pro campaign org (gp-api findContacts
+// hard-rejects search for non-pro). setupProCampaignUser provisions Pro via the
+// test-only endpoint (no Stripe webhook), and a per-PR preview's gp-api serves
+// the same real district voter data as dev, so this runs on PRs.
 //
 // ENG-10756 port: the flag-on CRM page replaces the "Search contacts" box +
 // member table with the persistent typeahead (crm/ContactTypeahead.tsx), so
 // "the matching row appears in the table" becomes "the exact person appears
 // as a typeahead result" — matched by the result's person-id data-value, so
 // a same-named neighbor can't satisfy the assertion.
-test.describe('Voter Data contact search @dev-only', () => {
+test.describe('Voter Data contact search', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
     await enableCrmFlags(page)
@@ -38,26 +32,9 @@ test.describe('Voter Data contact search @dev-only', () => {
   }) => {
     test.setTimeout(3 * 60 * 1000)
 
-    // setupElectedOfficeUser leaves the EO org selected; the Win context is
-    // the campaign (non-eo) org, so switch to it. Mirrors win-contacts.spec.
-    const { client } = await setupElectedOfficeUser(page)
-
-    const eoOrgName = await getSelectedOrgName(page)
-    const allOrgs = await getOrgPickerOptions(page)
-    const campaignOrgName = allOrgs.find((name) => name !== eoOrgName)
-    expect(campaignOrgName).toBeTruthy()
-    await switchOrganization(page, campaignOrgName!)
-
-    // Repoint the API client at the campaign org too, so the name lookup
-    // below reads the same voter universe the page is searching.
-    const { data: orgsResponse } = await client.get<{
-      organizations: { slug: string }[]
-    }>('/v1/organizations')
-    const campaignSlug = orgsResponse.organizations.find(
-      (org) => !org.slug.startsWith('eo-'),
-    )?.slug
-    expect(campaignSlug).toBeTruthy()
-    client.defaults.headers['x-organization-slug'] = campaignSlug!
+    // A pro Win campaign org — the client is already scoped to it, so the name
+    // lookup below reads the same voter universe the page searches.
+    const { client } = await setupProCampaignUser(page)
 
     await gotoCrmContacts(page)
 

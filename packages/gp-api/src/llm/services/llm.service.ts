@@ -277,9 +277,13 @@ export class LlmService {
     return { ...result, model }
   }
 
-  async jsonCompletion<T>(
-    options: LlmJsonCompletionOptions<T>,
-  ): Promise<{ object: T; tokens: number; model: string }> {
+  async jsonCompletion<T>(options: LlmJsonCompletionOptions<T>): Promise<{
+    object: T
+    tokens: number
+    inputTokens: number
+    outputTokens: number
+    model: string
+  }> {
     const {
       messages,
       schema,
@@ -312,7 +316,13 @@ export class LlmService {
       abortSignal,
     )
 
-    return { object: result.object, tokens: result.tokens, model }
+    return {
+      object: result.object,
+      tokens: result.tokens,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      model,
+    }
   }
 
   async toolCompletion(
@@ -697,7 +707,12 @@ export class LlmService {
     maxTokens?: number
     userId?: string
     abortSignal?: AbortSignal
-  }): Promise<{ object: T; tokens: number }> {
+  }): Promise<{
+    object: T
+    tokens: number
+    inputTokens: number
+    outputTokens: number
+  }> {
     const result = await this.generateObjectFn({
       model: this.resolveChatModel(model),
       messages: toModelMessages(messages),
@@ -711,6 +726,8 @@ export class LlmService {
     return {
       object: result.object,
       tokens: result.usage.totalTokens ?? 0,
+      inputTokens: result.usage.inputTokens ?? 0,
+      outputTokens: result.usage.outputTokens ?? 0,
     }
   }
 

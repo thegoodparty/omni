@@ -38,6 +38,7 @@ const baseCtx = (): OrdinanceFlowContext => ({
   step: 'clarify',
   organizationSlug: ORG,
   officeTitle: 'City Council Member',
+  officeLevel: null,
   // The context service fills this from the verified code record (or leaves
   // it null); loadContext overrides it with the district resolver when that
   // resolves (see the jurisdiction tests below).
@@ -45,6 +46,7 @@ const baseCtx = (): OrdinanceFlowContext => ({
   seedType: 'new',
   issueSlug: null,
   goalText: 'Reduce late-night construction noise',
+  sourceLink: null,
   clarifyAnswers: [],
   authority: null,
   comparables: null,
@@ -420,5 +422,26 @@ describe('OrdinanceFlowHandler', () => {
     const resolveByOrgSlug = vi.fn(() => Promise.resolve(null))
     const ctx = await build({ resolveByOrgSlug }).loadContext('c1', USER_ID)
     expect(ctx.jurisdiction).toBe('Hendersonville, NC')
+  })
+
+  // The position's level is what tells the prompt a state house member is
+  // drafting a bill, not a municipal ordinance — it must survive loadContext.
+  it('fills officeLevel from the district resolver position level', async () => {
+    const resolveByOrgSlug = vi.fn(() =>
+      Promise.resolve({
+        l2DistrictName: 'State House District 12',
+        state: 'NC',
+        level: 'STATE',
+      }),
+    )
+    const ctx = await build({ resolveByOrgSlug }).loadContext('c1', USER_ID)
+    expect(ctx.officeLevel).toBe('STATE')
+    expect(ctx.jurisdiction).toBe('State House District 12, NC')
+  })
+
+  it('leaves officeLevel null when the resolver finds nothing', async () => {
+    const resolveByOrgSlug = vi.fn(() => Promise.resolve(null))
+    const ctx = await build({ resolveByOrgSlug }).loadContext('c1', USER_ID)
+    expect(ctx.officeLevel).toBeNull()
   })
 })

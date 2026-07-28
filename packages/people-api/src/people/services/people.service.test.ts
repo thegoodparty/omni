@@ -47,6 +47,14 @@ const makeDbPerson = (overrides: Record<string, unknown> = {}) =>
     ...overrides,
   }) as never
 
+// Mirrors the real Prisma raw-query error for SQLSTATE 57014 (statement
+// cancelled by statement_timeout).
+const statementTimeoutError = () =>
+  new Prisma.PrismaClientKnownRequestError(
+    'Raw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`',
+    { code: 'P2010', clientVersion: 'test', meta: { code: '57014' } },
+  )
+
 describe('PeopleService', () => {
   let service: PeopleService
   let mockSampleService: { samplePeople: ReturnType<typeof vi.fn> }
@@ -165,7 +173,7 @@ describe('PeopleService', () => {
       expect(result.pagination.totalResults).toBe(5)
     })
 
-    it('uses raw count path (not stats shortcut) when filters are provided', async () => {
+    it('uses raw count path (not stats shortcut) when filters are provided, guarded by the statement timeout', async () => {
       mockClient.$queryRaw
         .mockResolvedValueOnce([{ voter_count: 7n }])
         .mockResolvedValueOnce([makeDbPerson({ id: 'person-filtered' })])
@@ -185,6 +193,56 @@ describe('PeopleService', () => {
       expect(mockStatsService.getTotalCounts).not.toHaveBeenCalled()
       expect(mockClient.$queryRaw).toHaveBeenCalledTimes(2)
       expect(result.pagination.totalResults).toBe(7)
+      // The primary count query completed under the timeout, so the result is
+      // exact, not a FENCE_LIMIT floor.
+      expect(result.pagination.fenced).toBe(false)
+      // A broad/low-selectivity filter (not just name-search) can trip the same
+      // pathological plan, so this count runs through the same guard: exactly
+      // one transaction carrying the SET LOCAL statement_timeout + the count.
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
+      expect(mockClient.$executeRaw).toHaveBeenCalledTimes(1)
+      // The data query itself is not name-search, so it stays outside the
+      // transaction (list fencing remains name-search-only).
+      const dataSql = (
+        mockClient.$queryRaw.mock.calls[1]?.[0] as { sql?: string }
+      )?.sql
+      expect(dataSql).not.toContain('SELECT v.*')
+    })
+
+    it('caps distinct households (not raw voters) in the grouped fenced count on 57014', async () => {
+      mockClient.$queryRaw
+        .mockRejectedValueOnce(statementTimeoutError())
+        .mockResolvedValueOnce([{ voter_count: 4000n }])
+        .mockResolvedValueOnce([
+          makeDbPerson({ id: 'hh-person', householdId: 'hh-1' }),
+        ])
+
+      const result = await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: {
+          filters: ['hasCellPhone'],
+          filterOperators: {
+            hasCellPhone: { operator: 'is', value: 'not_null' },
+          },
+        },
+        groupByHousehold: true,
+        resultsPerPage: 10,
+        page: 1,
+      } as never)
+
+      // The fenced count (2nd $queryRaw, after the cancelled primary) must cap
+      // DISTINCT households, not raw voters: COUNT(DISTINCT hh) over a
+      // voter-capped set floors well below FENCE_LIMIT and under-reports totalPages.
+      const fenced = mockClient.$queryRaw.mock.calls[1]?.[0] as {
+        sql?: string
+        values?: unknown[]
+      }
+      const fencedSql = fenced?.sql ?? ''
+      expect(fencedSql).toContain('SELECT DISTINCT')
+      expect(fencedSql).not.toContain('SELECT v.*')
+      expect(fencedSql).toMatch(/LIMIT \?\) distinct_hh/)
+      expect(fenced?.values?.at(-1)).toBe(10000)
+      expect(result.pagination.totalResults).toBe(4000)
     })
 
     it('reports the requested out-of-bounds page (unclamped) so metadata matches the fetched rows', async () => {
@@ -259,14 +317,6 @@ describe('PeopleService', () => {
       (call as { sql?: string })?.sql ?? ''
     const valuesOf = (call: unknown): unknown[] =>
       (call as { values?: unknown[] })?.values ?? []
-
-    // Mirrors the real Prisma raw-query error for SQLSTATE 57014
-    // (statement cancelled by statement_timeout).
-    const statementTimeoutError = () =>
-      new Prisma.PrismaClientKnownRequestError(
-        'Raw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`',
-        { code: 'P2010', clientVersion: 'test', meta: { code: '57014' } },
-      )
 
     const searchDto = (overrides: Record<string, unknown> = {}) =>
       ({
@@ -414,6 +464,46 @@ describe('PeopleService', () => {
       expect(fencedWhere).toBe(primaryWhere)
     })
 
+    it('retries a filtered (non-name-search) count with the fenced subquery on statement cancellation (57014)', async () => {
+      // A broad/low-selectivity filter (e.g. hasCellPhone) can trip the same
+      // pathological DistrictVoter -> Voter nested loop as a rare name-search
+      // pattern, so every count — not just name-search — carries this guard.
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([]) // count primary (cancelled inside txn)
+        .mockResolvedValueOnce([makeDbPerson({ id: 'person-filtered' })]) // data query (unguarded, not name-search)
+        .mockResolvedValueOnce([{ voter_count: 10000n }]) // fenced count retry
+      mockClient.$transaction
+        .mockRejectedValueOnce(statementTimeoutError())
+        .mockImplementationOnce((ops: Promise<unknown>[]) => Promise.all(ops))
+
+      const result = await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: {
+          filters: ['hasCellPhone'],
+          filterOperators: {
+            hasCellPhone: { operator: 'is', value: 'not_null' },
+          },
+        },
+        resultsPerPage: 10,
+        page: 1,
+      } as never)
+
+      expect(result.pagination.totalResults).toBe(10000)
+      // The primary count was cancelled and the FENCE_LIMIT-capped retry won,
+      // so the reported total is a floor, not an exact count (ENG-10804).
+      expect(result.pagination.fenced).toBe(true)
+      expect(mockClient.$queryRaw).toHaveBeenCalledTimes(3)
+      // The data query is not name-search, so it never entered a transaction —
+      // only the count's cancelled attempt + its fenced retry did.
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
+      const fencedCountSql = sqlOf(mockClient.$queryRaw.mock.calls[2]?.[0])
+      expect(fencedCountSql).toContain('FROM (SELECT v.* FROM')
+      expect(fencedCountSql).toContain('LIMIT ?) v')
+      expect(
+        valuesOf(mockClient.$queryRaw.mock.calls[2]?.[0]).slice(-1),
+      ).toEqual([10000])
+    })
+
     it('propagates non-timeout errors without a fenced retry', async () => {
       mockClient.$queryRaw
         .mockResolvedValueOnce([{ voter_count: 1n }])
@@ -430,15 +520,17 @@ describe('PeopleService', () => {
       expect(mockClient.$queryRaw).toHaveBeenCalledTimes(2)
     })
 
-    it('does not apply the timeout/fallback to phone searches (SQL unchanged)', async () => {
+    it('guards the count but not the data query for phone searches (list SQL unchanged)', async () => {
       mockClient.$queryRaw
         .mockResolvedValueOnce([{ voter_count: 1n }])
         .mockResolvedValueOnce([makeDbPerson()])
 
       await service.findPeople(searchDto({ search: '4155551234' }))
 
-      expect(mockClient.$transaction).not.toHaveBeenCalled()
-      expect(mockClient.$executeRaw).not.toHaveBeenCalled()
+      // The count is guarded like every other count; the phone-search list
+      // itself is not a name-search, so its query stays unfenced/unguarded.
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
+      expect(mockClient.$executeRaw).toHaveBeenCalledTimes(1)
       const dataSql = sqlOf(mockClient.$queryRaw.mock.calls[1]?.[0])
       expect(dataSql).toContain('VoterTelephones_CellPhoneFormatted')
       expect(dataSql).not.toContain('SELECT v.*')
@@ -734,6 +826,61 @@ describe('PeopleService', () => {
       const arg = (call as { strings?: readonly string[] }) ?? {}
       return arg.strings ? arg.strings.join('?') : ''
     }
+    const sqlOf = (call: unknown): string =>
+      (call as { sql?: string })?.sql ?? ''
+    const valuesOf = (call: unknown): unknown[] =>
+      (call as { values?: unknown[] })?.values ?? []
+
+    it('runs the aggregates query through the same statement-timeout guard as the count', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([
+        { count: 1n, avgAge: 45, avgIncome: 50000 },
+      ])
+
+      await service.getAggregates({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+      } as never)
+
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
+      expect(mockClient.$executeRaw).toHaveBeenCalledTimes(1)
+      expect(sqlOf(mockClient.$executeRaw.mock.calls[0]?.[0])).toBe(
+        "SET LOCAL statement_timeout = '2500ms'",
+      )
+    })
+
+    it('retries with the fenced aggregate SQL on statement cancellation (57014), yielding a sampled AVG', async () => {
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([]) // primary aggregate (cancelled inside the txn)
+        .mockResolvedValueOnce([
+          { count: 10000n, avgAge: 41, avgIncome: 48000 },
+        ]) // fenced retry
+      mockClient.$transaction.mockRejectedValueOnce(statementTimeoutError())
+
+      const result = await service.getAggregates({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+      } as never)
+
+      expect(result).toEqual({
+        count: 10000,
+        avgAge: 41,
+        avgIncome: 48000,
+        fenced: true,
+      })
+      expect(mockClient.$queryRaw).toHaveBeenCalledTimes(2)
+
+      const primarySql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
+      expect(primarySql).not.toContain('SELECT v.*')
+
+      // The fenced retry wraps the same FROM+WHERE in an unordered, capped
+      // subquery: the aggregates then run over that sample, not the full
+      // filtered set.
+      const fenced = mockClient.$queryRaw.mock.calls[1]?.[0]
+      const fencedSql = sqlTextOf(fenced)
+      expect(fencedSql).toContain('FROM (SELECT v.* FROM')
+      expect(fencedSql).toContain('LIMIT')
+      expect(valuesOf(fenced).slice(-1)).toEqual([10000])
+    })
 
     it('resolves the district and returns count/avgAge/avgIncome', async () => {
       // A seeded set of 3 matching voters: ages [20, 30, 40] avg to 30;
@@ -752,7 +899,12 @@ describe('PeopleService', () => {
       expect(mockDistrictService.findDistrictById).toHaveBeenCalledWith(
         '0e5bafca-93a9-86a5-2522-f373979720df',
       )
-      expect(result).toEqual({ count: 3, avgAge: 30, avgIncome: 15000 })
+      expect(result).toEqual({
+        count: 3,
+        avgAge: 30,
+        avgIncome: 15000,
+        fenced: false,
+      })
       const sql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
       expect(sql).toContain('COUNT(*)::bigint AS count')
       expect(sql).toContain('AVG(v."Age_Int")::float8 AS "avgAge"')
@@ -770,7 +922,12 @@ describe('PeopleService', () => {
         filters: { filters: [], filterOperators: {} },
       } as never)
 
-      expect(result).toEqual({ count: 0, avgAge: null, avgIncome: null })
+      expect(result).toEqual({
+        count: 0,
+        avgAge: null,
+        avgIncome: null,
+        fenced: false,
+      })
     })
 
     it('scopes to the whole state (no DistrictVoter join) for the voter-only path', async () => {

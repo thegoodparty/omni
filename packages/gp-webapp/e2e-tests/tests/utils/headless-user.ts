@@ -35,13 +35,21 @@ export const apiURL = `${apiBaseURL}/api`
 // successful response through a healthy task — so re-issuing is safe even for
 // the write paths (the users are disposable @test.goodparty.org accounts the
 // sweep deletes).
-const RETRIABLE_GATEWAY_STATUSES = new Set([502, 503, 504])
+// 401 is retriable here too, and it's the dominant source of setup flakiness:
+// the token minted just above is a brand-new Clerk session, and gp-api can
+// reject it (401) for the first moment before the session/token propagates to
+// Clerk's verification — most visible under the 4 parallel shards hammering a
+// cold preview. It's transient, so retrying with backoff lets the session
+// settle; a genuinely invalid token just exhausts the attempts and throws the
+// same 401. Safe on the write paths for the same reason as the gateway codes —
+// the users are disposable @test.goodparty.org accounts the sweep deletes.
+const RETRIABLE_STATUSES = new Set([401, 502, 503, 504])
 
 const isRetriableGatewayError = (error: unknown): boolean => {
   if (!axios.isAxiosError(error)) return false
   const status = error.response?.status
   if (status === undefined) return true
-  return RETRIABLE_GATEWAY_STATUSES.has(status)
+  return RETRIABLE_STATUSES.has(status)
 }
 
 const GATEWAY_RETRY_ATTEMPTS = 5
