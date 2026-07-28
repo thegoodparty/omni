@@ -124,6 +124,27 @@ const stubPeerlyUpload = (token = 'peerly-upload-token') =>
     .spyOn(service.app.get(PeerlyPhoneListService), 'uploadPhoneList')
     .mockResolvedValue(token)
 
+// Splits candidates across successive pages by the request body's `page`
+// field, so a dedup Set that doesn't actually span the pagination loop
+// would see each duplicate phone only once and pass by accident.
+const stubPeopleApiPaginated = (pages: Record<string, unknown>[][]) =>
+  vi.spyOn(service.app.get(HttpService), 'post').mockImplementation(((
+    url: string,
+    body: { page: number },
+  ) => {
+    if (!url.includes('/v1/people')) return of({ data: {} })
+    const people = pages[body.page - 1] ?? []
+    return of({
+      data: {
+        people,
+        pagination: {
+          totalResults: pages.flat().length,
+          hasNextPage: body.page < pages.length,
+        },
+      },
+    })
+  }) as never)
+
 describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => {
   beforeEach(() => {
     stubDistrict()
@@ -683,6 +704,120 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
       expect(sentNotIn.some((id) => id.startsWith('optout-cap-'))).toBe(false)
     },
   )
+})
+
+describe('POST /v1/p2p/phone-list (ENG-10801 phone dedup)', () => {
+  beforeEach(() => {
+    stubDistrict()
+  })
+
+  it('dedupes two people sharing a phone number within one page', async () => {
+    await seedWinCampaign()
+    stubPeopleApi([
+      personPayload({ id: 'p-first', cellPhone: '5551112222' }),
+      personPayload({ id: 'p-second', cellPhone: '5551112222' }),
+    ])
+    const upload = stubPeerlyUpload()
+
+    const result = await service.client.post(
+      '/v1/p2p/phone-list',
+      { name: 'Shared phone' },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+
+    // Only the first-seen person per number reaches the CSV.
+    const uploadArgs = upload.mock.calls[0]?.[0] as { csvBuffer: Buffer }
+    const csvLines = uploadArgs.csvBuffer.toString('utf-8').trim().split('\n')
+    expect(csvLines).toEqual([
+      'first_name,last_name,lead_phone,state,city,zip',
+      'Jane,Doe,5551112222,CA,Springfield,90210',
+    ])
+
+    const capturedList = await service.prisma.peerlyPhoneList.findUnique({
+      where: { token: 'peerly-upload-token' },
+    })
+    expect(capturedList?.excludedDuplicatePhoneCount).toBe(1)
+    const recipients = await service.prisma.peerlyPhoneListRecipient.findMany({
+      where: { peerlyPhoneListId: capturedList?.id },
+    })
+    expect(recipients).toEqual([
+      expect.objectContaining({ personId: 'p-first', phone: '5551112222' }),
+    ])
+  })
+
+  it('dedupes a phone number shared by two people across pages', async () => {
+    await seedWinCampaign()
+    stubPeopleApiPaginated([
+      [personPayload({ id: 'p-page1', cellPhone: '5553334444' })],
+      [personPayload({ id: 'p-page2', cellPhone: '5553334444' })],
+    ])
+    stubPeerlyUpload()
+
+    const result = await service.client.post(
+      '/v1/p2p/phone-list',
+      { name: 'Cross-page duplicate' },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+
+    const capturedList = await service.prisma.peerlyPhoneList.findUnique({
+      where: { token: 'peerly-upload-token' },
+    })
+    expect(capturedList?.excludedDuplicatePhoneCount).toBe(1)
+    const recipients = await service.prisma.peerlyPhoneListRecipient.findMany({
+      where: { peerlyPhoneListId: capturedList?.id },
+    })
+    expect(recipients).toEqual([
+      expect.objectContaining({ personId: 'p-page1', phone: '5553334444' }),
+    ])
+  })
+
+  it('leaves distinct numbers unaffected and composes with the opt-out scrub', async () => {
+    const campaign = await seedWinCampaign()
+    const outreach = await seedCompletedOutreach(campaign.id, OutreachType.text)
+    const texts = service.app.get(ContactInteractionTextService)
+    await texts.create({
+      organizationSlug: WIN_SLUG,
+      personId: 'p-opted-out',
+      occurredAt: new Date(),
+      outreachId: outreach.id,
+      optedOutAt: new Date(),
+    })
+
+    stubPeopleApiHonoringIdFilter([
+      personPayload({ id: 'p-unique-1', cellPhone: '5551110000' }),
+      personPayload({ id: 'p-unique-2', cellPhone: '5552220000' }),
+      personPayload({ id: 'p-dup-a', cellPhone: '5553330000' }),
+      personPayload({ id: 'p-dup-b', cellPhone: '5553330000' }),
+      personPayload({ id: 'p-opted-out', cellPhone: '5554440000' }),
+    ])
+    stubPeerlyUpload()
+
+    const result = await service.client.post(
+      '/v1/p2p/phone-list',
+      { name: 'Mixed dedup + opt-out' },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+
+    const capturedList = await service.prisma.peerlyPhoneList.findUnique({
+      where: { token: 'peerly-upload-token' },
+    })
+    expect(capturedList?.excludedOptedOutCount).toBe(1)
+    expect(capturedList?.excludedDuplicatePhoneCount).toBe(1)
+    const recipients = await service.prisma.peerlyPhoneListRecipient.findMany({
+      where: { peerlyPhoneListId: capturedList?.id },
+    })
+    expect(recipients.map((r) => r.personId).sort()).toEqual([
+      'p-dup-a',
+      'p-unique-1',
+      'p-unique-2',
+    ])
+  })
 })
 
 describe('GET /v1/p2p/phone-list/:token/status (ENG-10728 peerlyListId stamping)', () => {

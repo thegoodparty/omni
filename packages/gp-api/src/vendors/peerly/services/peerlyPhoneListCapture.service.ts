@@ -15,6 +15,7 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
     voterFileFilterId: number | null
     recipients: { personId: string; phone: string }[]
     excludedOptedOutCount: number
+    excludedDuplicatePhoneCount: number
   }): Promise<void> {
     const {
       organizationSlug,
@@ -23,6 +24,7 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
       voterFileFilterId,
       recipients,
       excludedOptedOutCount,
+      excludedDuplicatePhoneCount,
     } = params
 
     await this.client.$transaction(async (tx) => {
@@ -33,6 +35,7 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
           token,
           voterFileFilterId,
           excludedOptedOutCount,
+          excludedDuplicatePhoneCount,
         },
       })
       await tx.peerlyPhoneListRecipient.createMany({
