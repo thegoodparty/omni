@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { Campaign, Outreach, OutreachType } from '@/generated/prisma'
-import { ContactsService } from '@/contacts/services/contacts.service'
+import {
+  ContactsFilterResolutionInput,
+  ContactsService,
+} from '@/contacts/services/contacts.service'
 import { ContactInteractionRobocallService } from '@/contactInteraction/services/contactInteractionRobocall.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
@@ -49,7 +52,8 @@ export class OutreachMaterializationService {
   // or one whose capture write failed) falls back to resolving the filter
   // fresh, which can still drift from the list Peerly actually sent to.
   // Robocall and any outreach without a phoneListId always resolve the
-  // filter, as before.
+  // filter, as before — robocall additionally forces hasLandline on the
+  // resolved filter (ENG-10803), since only landline numbers are callable.
   async materializeOutreach(
     campaign: Campaign,
     outreach: Outreach,
@@ -193,15 +197,44 @@ export class OutreachMaterializationService {
     })
     if (!organization) return
 
-    const segment = String(outreach.voterFileFilterId)
+    // Guaranteed non-null: materializeOutreach only reaches here once
+    // outreach.voterFileFilterId has already been checked truthy.
+    const { voterFileFilterId } = outreach
+    if (!voterFileFilterId) return
+
+    // Robocall/telemarketing reach landlines, not cell phones (mirrors the
+    // CAS fulfillment download's TYPE_OVERRIDES). Force it on the resolved
+    // filter regardless of what the saved filter itself carries, so the
+    // materialized rows match the callable population the audience step
+    // shows (ENG-10803) instead of the whole saved filter.
+    const isRobocall = outreach.outreachType === OutreachType.robocall
+    let robocallFilter: ContactsFilterResolutionInput | undefined
+    if (isRobocall) {
+      const filter =
+        await this.voterFileFilterService.findByIdAndOrganizationSlug(
+          voterFileFilterId,
+          campaign.organizationSlug,
+        )
+      robocallFilter = filter
+        ? { ...filter, hasLandline: true }
+        : { hasLandline: true }
+    }
+
+    const segment = String(voterFileFilterId)
 
     let page = 1
     let materialized = 0
     while (materialized < MAX_MATERIALIZED_VOTERS) {
-      const { people, pagination } = await this.contacts.findContacts(
-        { segment, resultsPerPage: SEGMENT_PAGE_SIZE, page },
-        organization,
-      )
+      const { people, pagination } = robocallFilter
+        ? await this.contacts.findContactsForFilter(
+            robocallFilter,
+            { resultsPerPage: SEGMENT_PAGE_SIZE, page },
+            organization,
+          )
+        : await this.contacts.findContacts(
+            { segment, resultsPerPage: SEGMENT_PAGE_SIZE, page },
+            organization,
+          )
       if (people.length === 0) break
 
       const remaining = MAX_MATERIALIZED_VOTERS - materialized
