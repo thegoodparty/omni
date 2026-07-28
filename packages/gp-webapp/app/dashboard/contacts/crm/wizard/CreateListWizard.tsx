@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Button, DrawerTitle, Stepper } from '@styleguide'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { numberFormatter } from 'helpers/numberHelper'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useContactsTable } from '../ContactsTableProvider'
@@ -28,6 +27,7 @@ import ActivityStep, {
 } from './ActivityStep'
 import NameStep from './NameStep'
 import { useListWizardCount } from './useListWizardCount'
+import { formatFencedCount } from '../shared/formatFencedCount.util'
 
 type WizardStepName = 'branch' | 'conditions' | 'name'
 
@@ -163,12 +163,19 @@ export default function CreateListWizard({
   // unfiltered and the cached total would render on the build button. The
   // voter-file count deliberately fires with zero selections (ENG-10751):
   // the disabled build button still shows the live unfiltered total.
-  const { count, isLoading, isStale, isError, isCapError, errorMessage } =
-    useListWizardCount(
-      backendPayload,
-      activeBranch === 'voterFile' ||
-        (activeBranch === 'activity' && isConditionsStepValid),
-    )
+  const {
+    count,
+    fenced,
+    isLoading,
+    isStale,
+    isError,
+    isCapError,
+    errorMessage,
+  } = useListWizardCount(
+    backendPayload,
+    activeBranch === 'voterFile' ||
+      (activeBranch === 'activity' && isConditionsStepValid),
+  )
 
   // ENG-10781: a selection that RESOLVES to zero matches must not advance —
   // it can't build anything. Gated on !isLoading && !isStale so a payload
@@ -308,10 +315,13 @@ export default function CreateListWizard({
     // 0, and the outreach page's Voters column reads the stored value, so a
     // list saved without it shows every campaign as reaching 0 voters. A
     // still-loading/error count is omitted rather than persisted wrong.
+    // ENG-10804: a fenced count is a FENCE_LIMIT floor, not the true
+    // membership size — persisting it as voterCount would display a
+    // permanently wrong exact number, so it's omitted like an unsettled one.
     createMutation.mutate({
       name: trimmedName,
       ...backendPayload,
-      ...(typeof count === 'number' ? { voterCount: count } : {}),
+      ...(typeof count === 'number' && !fenced ? { voterCount: count } : {}),
     })
   }
 
@@ -333,7 +343,7 @@ export default function CreateListWizard({
   const buildLabel =
     isLoading || isStale || count === undefined
       ? 'Build your list'
-      : `Build your list (${numberFormatter(count)})`
+      : `Build your list (${formatFencedCount(count, fenced)})`
 
   return (
     <CrmSheet
@@ -416,6 +426,7 @@ export default function CreateListWizard({
           name={name}
           onNameChange={setName}
           count={count}
+          fenced={fenced}
           // isStale too: while a filter change is still debouncing the count
           // is stale for the current selection and Save is gated off, so the
           // sentence must read "Counting…" rather than assert a stale total.

@@ -14,6 +14,7 @@ interface PurchaseStepProps {
   type: string
   pricePerContact?: number
   phoneListId?: number | null
+  phoneListToken?: string
   outreachId?: number
 }
 
@@ -23,6 +24,7 @@ export const PurchaseStep = ({
   type,
   pricePerContact = 0,
   phoneListId,
+  phoneListToken,
   outreachId,
 }: PurchaseStepProps) => {
   const { checkoutSession, error, fetchClientSecret } = useCheckoutSession()
@@ -70,6 +72,7 @@ export const PurchaseStep = ({
             pricePerContact,
             onComplete,
             outreachId,
+            phoneListToken,
           }}
         />
       )}
