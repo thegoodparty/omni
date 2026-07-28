@@ -1827,4 +1827,91 @@ describe('AudienceStep list-size vs eligible-count breakdown', () => {
     ).toBeInTheDocument()
     expect(screen.getByText(/3,200 reachable by text/)).toBeInTheDocument()
   })
+
+  // Delegate finding: robocall and text were the only two channels covered
+  // here, but phoneBanking and doorKnocking hit the same
+  // REACHABILITY_CHANNELS.find(...)?.label.toLowerCase() lookup — an
+  // undefined match (key typo/rename) would silently render "reachable by "
+  // with no label and no error. Pins the exact label text per channel.
+  it('shows the reachable-by-phone-banking breakdown for the phone banking flow', async () => {
+    const savedList = { id: 42, name: 'Big Phone Banking List' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({
+          data: {
+            demographics: { people: 4000, avgAge: null, avgIncome: null },
+            reachability: {
+              sms: 0,
+              robocall: 0,
+              phoneBanking: 2500,
+              doorKnocking: 0,
+              polls: 0,
+            },
+            outreachHistory: [],
+          },
+        })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    render(
+      <AudienceStep
+        type="phoneBanking"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+    expect(
+      await screen.findByText(/4,000 people in this list/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/2,500 reachable by phone banking/),
+    ).toBeInTheDocument()
+  })
+
+  it('shows the reachable-by-door-knocking breakdown for the door knocking flow', async () => {
+    const savedList = { id: 42, name: 'Big Door Knocking List' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({
+          data: {
+            demographics: { people: 3000, avgAge: null, avgIncome: null },
+            reachability: {
+              sms: 0,
+              robocall: 0,
+              phoneBanking: 0,
+              doorKnocking: 1800,
+              polls: 0,
+            },
+            outreachHistory: [],
+          },
+        })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    render(
+      <AudienceStep
+        type="doorKnocking"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+    expect(
+      await screen.findByText(/3,000 people in this list/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/1,800 reachable by door knocking/),
+    ).toBeInTheDocument()
+  })
 })
