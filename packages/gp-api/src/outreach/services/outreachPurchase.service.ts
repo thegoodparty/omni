@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
+import { isAxiosError } from 'axios'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { PurchaseHandler } from 'src/payments/purchase.types'
 import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
@@ -136,6 +137,20 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     return serverContactCount
   }
 
+  // checkPhoneListStatus/getPhoneListDetails re-throw a non-2xx Peerly
+  // response as BadGatewayException with the original axios error as
+  // `cause` (PeerlyErrorHandlingService.handleApiError). A 4xx means Peerly
+  // understood the request and refused it — there's no reason to expect a
+  // retry would fix it, and billing off the pre-scrub captured rows in that
+  // state risks the same overbill this file exists to prevent. A 5xx or
+  // network failure carries no such signal, so the reasonable-estimate
+  // fallback still applies there.
+  private isPeerlyClientError(error: unknown): boolean {
+    const cause = error instanceof Error ? error.cause : undefined
+    const status = isAxiosError(cause) ? cause.response?.status : undefined
+    return status !== undefined && status >= 400 && status < 500
+  }
+
   // Returns null (rather than throwing) on a genuine fetch failure so the
   // caller can fall back to the captured recipient count. A still-processing
   // list is different: `checkPhoneListStatus` resolves null (not a thrown
@@ -152,6 +167,11 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       status =
         await this.peerlyPhoneListService.checkPhoneListStatus(phoneListToken)
     } catch (error) {
+      if (this.isPeerlyClientError(error)) {
+        throw new BadRequestException(
+          'Peerly rejected the phone list request; the purchase cannot proceed',
+        )
+      }
       this.logger.warn(
         { error, phoneListToken },
         'Failed to fetch leads_loaded from Peerly; falling back to captured recipient count',
@@ -182,6 +202,11 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       return (await this.peerlyPhoneListService.getPhoneListDetails(listId))
         .leads_loaded
     } catch (error) {
+      if (this.isPeerlyClientError(error)) {
+        throw new BadRequestException(
+          'Peerly rejected the phone list details request; the purchase cannot proceed',
+        )
+      }
       this.logger.warn(
         { error, phoneListToken },
         'Failed to fetch leads_loaded from Peerly; falling back to captured recipient count',
