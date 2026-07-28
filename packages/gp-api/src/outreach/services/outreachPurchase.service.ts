@@ -134,21 +134,42 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     return serverContactCount
   }
 
-  // Returns null (rather than throwing) on any failure so the caller can fall
-  // back to the captured recipient count instead of failing the purchase.
+  // Returns null (rather than throwing) on a genuine fetch failure so the
+  // caller can fall back to the captured recipient count. A still-processing
+  // list is different: `checkPhoneListStatus` resolves null (not a thrown
+  // error) specifically for that case, and falling back there would bill the
+  // pre-scrub captured rows before Peerly's DNC scrub has run — an overbill,
+  // not a degraded-but-reasonable estimate. Reject instead so the client
+  // retries once the list goes active.
   private async fetchLeadsLoadedFromPeerly(
     phoneListToken: string,
   ): Promise<number | null> {
+    let status
     try {
-      const status =
+      status =
         await this.peerlyPhoneListService.checkPhoneListStatus(phoneListToken)
-      const listId = status?.Data.list_id
-      if (!listId) {
-        return null
-      }
-      const details =
-        await this.peerlyPhoneListService.getPhoneListDetails(listId)
-      return details.leads_loaded
+    } catch (error) {
+      this.logger.warn(
+        { error, phoneListToken },
+        'Failed to fetch leads_loaded from Peerly; falling back to captured recipient count',
+      )
+      return null
+    }
+
+    if (status === null) {
+      throw new BadRequestException(
+        'Phone list is still being processed by Peerly; try again shortly',
+      )
+    }
+
+    const listId = status.Data.list_id
+    if (!listId) {
+      return null
+    }
+
+    try {
+      return (await this.peerlyPhoneListService.getPhoneListDetails(listId))
+        .leads_loaded
     } catch (error) {
       this.logger.warn(
         { error, phoneListToken },

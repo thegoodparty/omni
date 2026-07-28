@@ -314,6 +314,30 @@ describe('OutreachPurchaseHandlerService', () => {
       )
     })
 
+    it('throws BadRequestException, without falling back, when Peerly reports the list is still processing', async () => {
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValueOnce(
+        CAPTURED_LIST_FIXTURE,
+      )
+      vi.mocked(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).mockResolvedValueOnce(null)
+
+      await expect(
+        service.calculateAmount({
+          ...baseMetadata,
+          campaignId: 1,
+        }),
+      ).rejects.toThrow(BadRequestException)
+
+      expect(
+        mockPeerlyPhoneListService.getPhoneListDetails,
+      ).not.toHaveBeenCalled()
+      expect(mockPeerlyPhoneListCapture.countRecipients).not.toHaveBeenCalled()
+      expect(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).not.toHaveBeenCalled()
+    })
+
     it('bills $0 without falling back when Peerly confirms a legitimate 0 leads_loaded', async () => {
       mockServerLeadsLoaded(0)
       vi.mocked(
