@@ -56,6 +56,63 @@ def build_values(rows: list[dict]) -> list[list[str]]:
     return matrix
 
 
+GAPS_COLUMNS = [
+    "rank", "surface", "surface_type", "disposition", "reason",
+    "judge_reason", "rubric_rule", "dashboard_question", "location",
+    "first_seen", "last_seen",
+]
+# The tab column name "surface" is the entry's user-facing id; every other column is a
+# direct state key.
+_GAP_COL_KEY = {"surface": "id"}
+
+
+def build_gap_values(state: dict) -> list[list[str]]:
+    """GAPS_COLUMNS header + one stringified row per gap, sorted by (rank, id). Mirrors
+    build_values: every cell a string, None/missing -> "" for a RAW Sheets write."""
+    rows = sorted(state.values(), key=lambda e: (e.get("rank", 5), e.get("id", "")))
+    matrix: list[list[str]] = [list(GAPS_COLUMNS)]
+    for e in rows:
+        line = []
+        for col in GAPS_COLUMNS:
+            val = e.get(_GAP_COL_KEY.get(col, col))
+            line.append("" if val is None else str(val))
+        matrix.append(line)
+    return matrix
+
+
+GAPS_TAB = "gaps"
+
+
+def load_gaps_state(path: Path) -> dict | None:
+    """Read the committed disposition state for the gaps tab. Missing -> {} (nothing to
+    show yet). Unreadable or non-dict -> None so the caller skips the gaps write with a
+    warning rather than crashing the sheet refresh — a bad hand-edit must never take the
+    whole refresh down."""
+    path = Path(path)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def write_gaps_sheet(state: dict, *, service: Any, spreadsheet_id: str, tab: str = GAPS_TAB) -> int:
+    """Full-overwrite `tab` with the gap rows; returns the data-row count (excl. header).
+    Same write-then-clear order as write_sheet: a failed update never leaves an empty tab."""
+    values = build_gap_values(state)
+    sheets = service.spreadsheets()
+    sheets.values().update(
+        spreadsheetId=spreadsheet_id,
+        range=f"{tab}!A1",
+        valueInputOption="RAW",
+        body={"values": values},
+    ).execute()
+    sheets.values().clear(spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ").execute()
+    return len(values) - 1
+
+
 def write_sheet(rows: list[dict], *, service: Any, spreadsheet_id: str, tab: str = SHEET_TAB) -> int:
     """Full-overwrite `tab` with the assembled rows. Returns the data row count (excl. header).
     `service` is a googleapiclient Sheets resource (injected in tests).
@@ -136,11 +193,16 @@ def get_sheets_service(token_path: Path = TOKEN_PATH, client_secrets_file: str |
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Write the event-state table to a Google Sheet.")
-    parser.add_argument("command", choices=["refresh"])
+    parser.add_argument("command", choices=["refresh", "refresh-gaps"])
     parser.add_argument(
         "--dry-run",
         action="store_true",
         help="print matrix dims; reads Databricks but skips Google auth and the sheet write",
+    )
+    parser.add_argument(
+        "--state",
+        default=str(DATA_DIR / "instrumentation_gaps.json"),
+        help="disposition state JSON for refresh-gaps (default: instrumentation_data/)",
     )
     parser.add_argument(
         "--spreadsheet-id",
@@ -160,6 +222,24 @@ def main(argv: list[str] | None = None) -> int:
         "key on the raw event_type (as fired in code), not the Govern display name",
     )
     args = parser.parse_args(argv)
+
+    if args.command == "refresh-gaps":
+        state = load_gaps_state(Path(args.state))
+        if state is None:
+            print(f"gaps state at {args.state} is unreadable; skipping the gaps tab refresh.",
+                  file=sys.stderr)
+            return 0
+        if args.dry_run:
+            values = build_gap_values(state)
+            print(f"{len(values)} rows x {len(values[0])} cols (incl. header); {len(state)} gaps")
+            return 0
+        if not args.spreadsheet_id:
+            print("--spreadsheet-id or GP_EVENT_STATE_SHEET_ID required for a live write", file=sys.stderr)
+            return 2
+        service = get_sheets_service(client_secrets_file=args.client_secrets)
+        count = write_gaps_sheet(state, service=service, spreadsheet_id=args.spreadsheet_id)
+        print(f"wrote {count} gaps to sheet {args.spreadsheet_id} (tab {GAPS_TAB})")
+        return 0
 
     # Dry-run previews the real output dimensions, so it still runs the (read-only)
     # Databricks query — it only skips the Google auth and the sheet write.

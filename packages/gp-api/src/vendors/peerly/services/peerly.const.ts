@@ -15,6 +15,11 @@ export const PEERLY_PROFILE_STATUS_PENDING = 'pending'
 // token attached after finalization has to go through /submit instead.
 export const PEERLY_PROFILE_STATUS_FINALIZED = 'finalized'
 
+// Profile status between /approve or /submit (CV token attached) and Peerly's
+// own /finalize confirmation reaching MNO review. A brand stuck here past a
+// business-day floor is a Peerly-side stall, not ours (ENG-10796 case 3b).
+export const PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE = 'waiting_to_finalize'
+
 export enum PeerlyLocalities {
   local = 'local',
   state = 'state',

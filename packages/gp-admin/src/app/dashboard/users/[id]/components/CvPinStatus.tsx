@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Badge, Button, Flex } from '@radix-ui/themes'
+import { Badge, Button, Checkbox, Flex, Text } from '@radix-ui/themes'
 import { HiOutlineMail } from 'react-icons/hi'
 import {
   ComplianceStage,
@@ -15,8 +15,17 @@ import {
   getCampaignComplianceState,
   listCampaigns,
   resendCvPin,
+  setInternalTestingApproval,
 } from '@/app/dashboard/campaigns/actions'
 import { useUser } from '../context/UserContext'
+
+// Mirrors gp-api's INTERNAL_EMAIL_SUFFIXES (users.util.ts) — the grant
+// endpoint enforces this server-side; the UI check only hides the checkbox
+// for accounts that would be rejected anyway.
+const INTERNAL_EMAIL_SUFFIXES = ['@goodparty.org', '@test.goodparty.org']
+
+const isInternalEmail = (email: string) =>
+  INTERNAL_EMAIL_SUFFIXES.some((suffix) => email.toLowerCase().endsWith(suffix))
 
 const STAGE_LABELS: Record<ComplianceStage, string> = {
   [ComplianceStage.needs_profile]: 'Profile incomplete',
@@ -60,11 +69,12 @@ export function CvPinStatus() {
 }
 
 function CvPinStatusContent() {
-  const { id: userId } = useUser()
+  const { id: userId, email } = useUser()
   const { showToast } = useToast()
   const [info, setInfo] = useState<ComplianceInfo | null>(null)
   const [resending, setResending] = useState(false)
   const [resent, setResent] = useState(false)
+  const [savingApproval, setSavingApproval] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -93,13 +103,10 @@ function CvPinStatusContent() {
     state.stage === ComplianceStage.awaiting_pin &&
     state.peerlyCvStatus === PeerlyCvVerificationStatus.APPROVED
 
-  if (!pinAwaitingEntry) {
-    return (
-      <Badge color={STAGE_BADGE_COLORS[state.stage]} size="2">
-        10DLC: {STAGE_LABELS[state.stage]}
-      </Badge>
-    )
-  }
+  const testingApproved = state.internalTestingApprovedAt !== null
+  // A record created by the real compliance flow must never be overwritten
+  // or deleted from here — the endpoints refuse it, so disable the toggle.
+  const hasRealComplianceRecord = state.hasComplianceRecord && !testingApproved
 
   async function handleResend() {
     setResending(true)
@@ -113,6 +120,65 @@ function CvPinStatusContent() {
       )
     }
     setResending(false)
+  }
+
+  async function handleApprovalToggle(checked: boolean) {
+    setSavingApproval(true)
+    try {
+      await setInternalTestingApproval(campaignId, checked)
+      const refreshed = await getCampaignComplianceState(campaignId)
+      setInfo({ campaignId, state: refreshed })
+      showToast(
+        checked
+          ? 'Marked as 10DLC approved for internal testing'
+          : 'Internal testing approval removed'
+      )
+    } catch (error) {
+      showToast(
+        error instanceof Error
+          ? error.message
+          : 'Failed to update internal testing approval'
+      )
+    }
+    setSavingApproval(false)
+  }
+
+  const internalTestingToggle = isInternalEmail(email) && (
+    <ProtectedContent
+      requiredPermission={PERMISSIONS.WRITE_CAMPAIGNS}
+      hideWhenUnauthorized
+    >
+      <Flex
+        align="center"
+        gap="2"
+        title={
+          hasRealComplianceRecord
+            ? 'Unavailable: this campaign has a real 10DLC compliance record'
+            : 'Internal accounts only. Unlocks texting UI for testing; ' +
+              'real sends stay blocked (no Peerly identity is created).'
+        }
+      >
+        <Checkbox
+          checked={testingApproved}
+          disabled={savingApproval || hasRealComplianceRecord}
+          onCheckedChange={(checked) => handleApprovalToggle(checked === true)}
+        />
+        <Text size="2" color="gray">
+          10DLC approved (internal testing)
+        </Text>
+      </Flex>
+    </ProtectedContent>
+  )
+
+  if (!pinAwaitingEntry) {
+    return (
+      <Flex gap="3" align="center">
+        <Badge color={STAGE_BADGE_COLORS[state.stage]} size="2">
+          10DLC: {STAGE_LABELS[state.stage]}
+        </Badge>
+        {internalTestingToggle}
+      </Flex>
+    )
   }
 
   return (

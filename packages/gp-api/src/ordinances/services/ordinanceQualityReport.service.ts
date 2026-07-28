@@ -112,15 +112,15 @@ export const qualityReportInputHash = (
     .digest('hex')
 
 const QC_SYSTEM_PROMPT = [
-  'You are a legislative drafting reviewer. Evaluate a municipal ordinance',
-  'draft against a fixed six-check quality rubric for the elected official who',
-  'wrote it. Be a rigorous but fair reviewer; ground every judgment in the',
-  'draft text and the prior-step material provided, and never invent facts,',
-  'statutes, or citations.',
+  'You are a legislative drafting reviewer. Evaluate a legislative draft — a',
+  'city or county ordinance, or a state bill — against a fixed six-check',
+  'quality rubric for the elected official who wrote it. Be a rigorous but',
+  'fair reviewer; ground every judgment in the draft text and the prior-step',
+  'material provided, and never invent facts, statutes, or citations.',
   '',
   'Return one result for each of these six checks, by id:',
-  '- authority: does the council have the legal power to enact this? Lean on the',
-  '  authority finding provided.',
+  '- authority: does the enacting body (the council or the legislature) have',
+  '  the legal power to enact this? Lean on the authority finding provided.',
   '- legal_conflict: does the draft conflict with higher law or the existing',
   '  code? Lean on the current-law material.',
   '- precedent_grounding: is the approach grounded in how comparable',
@@ -129,8 +129,9 @@ const QC_SYSTEM_PROMPT = [
   '  enforcement, effective date, scope) with no obvious gaps or unresolved',
   '  placeholders?',
   '- clarity: is the text clear, unambiguous, and well structured?',
-  '- voice: is it in plain, governance-focused municipal-code style, addressed',
-  '  to constituents (not campaign or political framing)?',
+  '- voice: is it in the plain, governance-focused drafting style of the',
+  "  enacting body's law, addressed to constituents (not campaign or",
+  '  political framing)?',
   '',
   'For each check set status to: pass (solid), flag (a real problem to fix), or',
   'attention (worth a look, not clearly wrong). Write the note as a short,',
@@ -172,18 +173,22 @@ export class OrdinanceQualityReportService {
     report: OrdinanceQualityReport
     degradedCheckIds: string[]
     tokens: number
+    inputTokens: number
+    outputTokens: number
+    model: string
   }> {
-    const { object, tokens } = await this.llm.jsonCompletion({
-      messages: [
-        { role: 'system', content: QC_SYSTEM_PROMPT },
-        { role: 'user', content: buildQcUserPrompt(record) },
-      ],
-      schema: QcGenerationSchema,
-      models: opts?.models ?? QC_MODELS,
-      retries: opts?.retries,
-      abortSignal: opts?.abortSignal,
-      userId: String(userId),
-    })
+    const { object, tokens, inputTokens, outputTokens, model } =
+      await this.llm.jsonCompletion({
+        messages: [
+          { role: 'system', content: QC_SYSTEM_PROMPT },
+          { role: 'user', content: buildQcUserPrompt(record) },
+        ],
+        schema: QcGenerationSchema,
+        models: opts?.models ?? QC_MODELS,
+        retries: opts?.retries,
+        abortSignal: opts?.abortSignal,
+        userId: String(userId),
+      })
 
     const byId = new Map(object.checks.map((c) => [c.id, c]))
     const degradedCheckIds: string[] = []
@@ -213,6 +218,13 @@ export class OrdinanceQualityReportService {
       stale: false,
       ranAgainstBodyHash: qualityReportInputHash(record),
     }
-    return { report, degradedCheckIds, tokens }
+    return {
+      report,
+      degradedCheckIds,
+      tokens,
+      inputTokens,
+      outputTokens,
+      model,
+    }
   }
 }

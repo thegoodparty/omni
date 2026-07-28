@@ -15,6 +15,7 @@ describe('PaymentEventsService', () => {
     findUser: vi.fn(),
     findByCustomerId: vi.fn(),
     patchUserMetaData: vi.fn(),
+    compareAndSwapCheckoutSessionId: vi.fn(),
   }
   const campaignsService = {
     findActiveByUserId: vi.fn(),
@@ -136,6 +137,19 @@ describe('PaymentEventsService', () => {
         { pro: true },
       )
       expect(usersService.patchUserMetaData).toHaveBeenCalled()
+    })
+
+    it('patches customerId unconditionally but clears the session id via compare-and-swap', async () => {
+      await service.handleEvent(subscriptionEvent)
+
+      expect(usersService.patchUserMetaData).toHaveBeenCalledWith(1, {
+        customerId: 'cus_test',
+      })
+      expect(usersService.compareAndSwapCheckoutSessionId).toHaveBeenCalledWith(
+        1,
+        'cs_test',
+        null,
+      )
     })
 
     it('resolves the authoritative ballot level and forwards it to the voter-file alert', async () => {
@@ -417,6 +431,51 @@ describe('PaymentEventsService', () => {
         expect.objectContaining({ userId: mockUser.id }),
         expect.stringContaining('active campaign'),
       )
+    })
+  })
+
+  describe('checkoutSessionExpiredHandler', () => {
+    const expiredEvent = (sessionId: string) =>
+      ({
+        type: WebhookEventType.CheckoutSessionExpired,
+        data: {
+          object: { id: sessionId, metadata: { userId: '1' } },
+        },
+      }) as unknown as Stripe.CheckoutSessionExpiredEvent
+
+    it('conditionally clears the stored session id via compare-and-swap', async () => {
+      usersService.compareAndSwapCheckoutSessionId.mockResolvedValue(true)
+
+      await service.checkoutSessionExpiredHandler(expiredEvent('cs_expired'))
+
+      expect(usersService.compareAndSwapCheckoutSessionId).toHaveBeenCalledWith(
+        1,
+        'cs_expired',
+        null,
+      )
+    })
+
+    it('tolerates a lost swap (newer session stored or user missing)', async () => {
+      usersService.compareAndSwapCheckoutSessionId.mockResolvedValue(false)
+
+      await expect(
+        service.checkoutSessionExpiredHandler(expiredEvent('cs_expired')),
+      ).resolves.toBeUndefined()
+      expect(usersService.patchUserMetaData).not.toHaveBeenCalled()
+    })
+
+    it('logs and returns when the expired session carries no userId metadata', async () => {
+      const event = {
+        type: WebhookEventType.CheckoutSessionExpired,
+        data: { object: { id: 'cs_expired', metadata: {} } },
+      } as unknown as Stripe.CheckoutSessionExpiredEvent
+
+      await expect(
+        service.checkoutSessionExpiredHandler(event),
+      ).resolves.toBeUndefined()
+      expect(
+        usersService.compareAndSwapCheckoutSessionId,
+      ).not.toHaveBeenCalled()
     })
   })
 

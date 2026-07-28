@@ -130,6 +130,10 @@ const CampaignPlanView = ({
     trackEvent(planEvents.PlanShared, { campaignId, method })
   }
 
+  // Story-off (legacy) only: the plan's bottom "Campaign Manager" button
+  // navigates home. On the story cohort the bottom bar is hidden (the
+  // always-present footer chat dock is the manager entry point), so this
+  // doesn't fire there.
   const handleContinue = (source: PlanContinueSource) => {
     trackEvent(planEvents.CampaignManagerClicked, { campaignId, source })
     router.push('/dashboard')
@@ -212,6 +216,7 @@ const CampaignPlanView = ({
       <PlanView
         showHero={false}
         showBottomDownload={false}
+        showBottomBar={false}
         plan={data.plan}
         planReady={data.planReady}
         state={data.state}

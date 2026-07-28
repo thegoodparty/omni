@@ -65,6 +65,7 @@ const fetchRaces = async (zipcode: string, level?: string): Promise<Race[]> => {
 
   const payload = {
     zipcode,
+    timeframe: 'future',
     ...(cleanLevel
       ? {
           level: cleanLevel,
@@ -80,7 +81,9 @@ const fetchRaces = async (zipcode: string, level?: string): Promise<Race[]> => {
     },
   )
 
-  return resp.data
+  // A candidate runs in the general, so collapse each position's races down to
+  // its general election — the payload now also carries primaries and runoffs.
+  return (resp.data ?? []).filter((race) => !race.isPrimary && !race.isRunoff)
 }
 
 const getHighlightedText = (text: string, searchTerm: string): ReactNode => {

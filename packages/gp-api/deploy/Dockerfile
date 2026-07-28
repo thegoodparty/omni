@@ -3,7 +3,8 @@ FROM node:22.23.0-alpine3.23
 RUN apk add --no-cache \
   libc6-compat \
   openssl \
-  curl
+  curl \
+  libcap
 
 WORKDIR /app
 
@@ -38,5 +39,12 @@ RUN chmod +x ./docker-entrypoint.sh
 # layer cache for earlier (content-addressed) layers.
 ARG GIT_SHA=""
 ENV GIT_SHA=$GIT_SHA
+
+# Run as a non-root user (defense-in-depth hardening). The stock node image
+# ships an unprivileged `node` user (uid 1000). The app binds container port 80,
+# which is privileged, so grant the node binary CAP_NET_BIND_SERVICE (a targeted
+# capability, not root) so it can still bind < 1024 after dropping privileges.
+RUN setcap 'cap_net_bind_service=+ep' "$(command -v node)"
+USER node
 
 ENTRYPOINT ["./docker-entrypoint.sh"]

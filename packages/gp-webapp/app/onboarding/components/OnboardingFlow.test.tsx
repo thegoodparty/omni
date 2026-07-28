@@ -6,7 +6,6 @@ import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import type { Campaign } from 'helpers/types'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import { EVENTS } from 'helpers/analyticsHelper'
-import { USER_WEBSITE_QUERY_KEY } from 'app/dashboard/website/util/website.util'
 import * as landscapeModule from '../success/hooks/useStrategicLandscape'
 import OnboardingFlow from './OnboardingFlow'
 import { ONBOARDING_STEPS } from './onboardingConfig'
@@ -17,21 +16,53 @@ import {
   resolvePostPledgeRoute,
 } from './onboardingHelpers'
 
-const { mockGetUserWebsite, mockTrackEvent } = vi.hoisted(() => ({
+const {
+  mockGetUserWebsite,
+  mockSaveAboutFields,
+  mockTrackEvent,
+  mockErrorSnackbar,
+  mockUseDictationAppend,
+} = vi.hoisted(() => ({
   mockGetUserWebsite: vi.fn(),
+  mockSaveAboutFields: vi.fn(),
   mockTrackEvent: vi.fn(),
+  mockErrorSnackbar: vi.fn(),
+  mockUseDictationAppend: vi.fn(),
 }))
 
-// Bio + issues come from the website via the legacy getUserWebsite (not a
-// typed route), so mock the function directly (same as
-// OnboardingCampaignStoryStep.test.tsx) to drive the real story step's
-// completeness signal without exercising the network layer.
+// Mock dictation so a test can flip a story card into an active recording state
+// without the getUserMedia/WebSocket pipeline. Default (set in beforeEach) is
+// idle, matching real on-mount behavior so the other tests are unaffected.
+const IDLE_DICTATION = {
+  status: 'idle' as const,
+  error: null,
+  partialTranscript: '',
+  active: false,
+  busy: false,
+  start: vi.fn(),
+  stop: vi.fn(),
+  toggle: vi.fn(),
+}
+vi.mock('app/dashboard/briefings/shared/useDictationAppend', () => ({
+  useDictationAppend: (input: { analyticsLabel: string }) =>
+    mockUseDictationAppend(input),
+}))
+
+// Bio + issues come from (and are saved to) the website via legacy functions
+// (not typed routes), so mock them directly to seed the story draft and stub
+// the deferred save without exercising the network layer. getUserWebsite feeds
+// the draft's initial values; saveAboutFields is the persist target on the
+// final story step.
 vi.mock('app/dashboard/website/util/website.util', async (importOriginal) => {
   const actual =
     await importOriginal<
       typeof import('app/dashboard/website/util/website.util')
     >()
-  return { ...actual, getUserWebsite: mockGetUserWebsite }
+  return {
+    ...actual,
+    getUserWebsite: mockGetUserWebsite,
+    saveAboutFields: mockSaveAboutFields,
+  }
 })
 
 // Keeps the real EVENTS map but replaces trackEvent with a spy, so tests can
@@ -43,11 +74,13 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   return { ...actual, trackEvent: mockTrackEvent }
 })
 
-// The campaign-story cards use the app's SnackbarProvider (only for save
-// errors), which isn't mounted in this test tree, so mock it down to no-ops,
-// same as OnboardingCampaignStoryStep.test.tsx.
+// The story step uses the app's SnackbarProvider (only for save errors), which
+// isn't mounted in this test tree, so mock it down to no-ops.
 vi.mock('helpers/useSnackbar', () => ({
-  useSnackbar: () => ({ errorSnackbar: vi.fn(), successSnackbar: vi.fn() }),
+  useSnackbar: () => ({
+    errorSnackbar: mockErrorSnackbar,
+    successSnackbar: vi.fn(),
+  }),
 }))
 
 // Stubbed out so tests can drive the manual-office path with a couple of
@@ -132,6 +165,44 @@ const advancePastManualOfficeEntry = async (): Promise<void> => {
   fireEvent.click(continueButton) // manual-office-entry -> next step
 }
 
+// From the first story step (why), click Continue through background and issues
+// to the pledge. The final Continue persists the draft; whether it fires
+// generation depends on the draft's completeness (seeded from the mocks).
+// Continue now requires the current story field to have content, and the draft
+// seeds async — so wait for Continue to enable before each click (a click while
+// disabled is a no-op and would strand the flow on the current step).
+const clickEnabledContinue = async (): Promise<void> => {
+  const btn = await screen.findByRole('button', { name: 'Continue' })
+  await waitFor(() => expect(btn).toBeEnabled())
+  fireEvent.click(btn)
+}
+
+const continueThroughStorySteps = async (): Promise<void> => {
+  // why -> background
+  await clickEnabledContinue()
+  await screen.findByRole('heading', { level: 2, name: /your background/i })
+  // background -> issues
+  await clickEnabledContinue()
+  await screen.findByRole('button', { name: /add a policy priority/i })
+  // issues -> pledge (persists the draft)
+  await clickEnabledContinue()
+}
+
+// Skip is now per-question: it advances one story step at a time (why ->
+// background -> issues -> pledge), so a full skip clicks Skip on each step.
+// Awaits the step in between since advancing is async + guarded by
+// isAdvancingRef (a too-fast second click would be dropped).
+const skipThroughStorySteps = async (): Promise<void> => {
+  // why -> background
+  fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
+  await screen.findByRole('heading', { level: 2, name: /your background/i })
+  // background -> issues
+  fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
+  await screen.findByRole('button', { name: /add a policy priority/i })
+  // issues -> pledge
+  fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
+}
+
 beforeEach(() => {
   // Flag resolved (ready) but story cohort off by default, so every existing
   // test keeps seeing the story step omitted while Continue stays enabled
@@ -139,6 +210,13 @@ beforeEach(() => {
   // by calling setCampaignStoryFlag(true, true) themselves.
   setCampaignStoryFlag(true, false)
   mockTrackEvent.mockClear()
+  // Reset call history + implementation so a prior test's calls/returns don't
+  // leak (these vi.fn()s aren't restored by vi.restoreAllMocks). Empty story by
+  // default; completion tests override with a seeded website.
+  mockGetUserWebsite.mockReset().mockResolvedValue({ content: { about: {} } })
+  mockSaveAboutFields.mockReset().mockResolvedValue(true)
+  mockErrorSnackbar.mockClear()
+  mockUseDictationAppend.mockReset().mockReturnValue(IDLE_DICTATION)
 })
 
 // vi.spyOn on an already-spied export returns the SAME mock instance rather
@@ -166,11 +244,25 @@ describe('new onboarding flow shell', () => {
     ).toBe('path-to-victory')
   })
 
-  it('routes structured users from campaign-story straight to pledge', () => {
+  it('routes through the three story steps and on to the pledge', () => {
+    const structured = { officePath: 'structured' as const }
     expect(
-      getNextOnboardingStep(ONBOARDING_STEPS, 'campaign-story', {
-        officePath: 'structured',
-      })?.id,
+      getNextOnboardingStep(ONBOARDING_STEPS, 'campaign-story-why', structured)
+        ?.id,
+    ).toBe('campaign-story-background')
+    expect(
+      getNextOnboardingStep(
+        ONBOARDING_STEPS,
+        'campaign-story-background',
+        structured,
+      )?.id,
+    ).toBe('campaign-story-issues')
+    expect(
+      getNextOnboardingStep(
+        ONBOARDING_STEPS,
+        'campaign-story-issues',
+        structured,
+      )?.id,
     ).toBe('pledge')
   })
 
@@ -188,9 +280,11 @@ describe('new onboarding flow shell', () => {
     ).toBe('manual-office-entry')
     expect(visibleStepIds).toContain('manual-office-entry')
     expect(visibleStepIds).not.toContain('path-to-victory')
-    // Unlike its voter-demographics predecessor, campaign-story has no
-    // officePath-based shouldSkip, so it stays visible for manual users too.
-    expect(visibleStepIds).toContain('campaign-story')
+    // Unlike its voter-demographics predecessor, the story steps have no
+    // officePath-based shouldSkip, so they stay visible for manual users too.
+    expect(visibleStepIds).toContain('campaign-story-why')
+    expect(visibleStepIds).toContain('campaign-story-background')
+    expect(visibleStepIds).toContain('campaign-story-issues')
   })
 
   it('disables continue on the ballot-status step until a status is selected', async () => {
@@ -293,31 +387,37 @@ describe('new onboarding flow shell', () => {
       unmatchedOffice: true,
     }
 
-    // path-to-victory is skipped for manual users, but campaign-story is
-    // not, so it sits directly before pledge in both directions.
+    // path-to-victory is skipped for manual users, but the story steps are
+    // not, so the last story step sits directly before the pledge, and the
+    // first story step directly after manual-office-entry.
     expect(
       getPreviousOnboardingStep(ONBOARDING_STEPS, 'pledge', answers)?.id,
-    ).toBe('campaign-story')
+    ).toBe('campaign-story-issues')
     expect(
       getNextOnboardingStep(ONBOARDING_STEPS, 'manual-office-entry', answers)
         ?.id,
-    ).toBe('campaign-story')
+    ).toBe('campaign-story-why')
   })
 
-  it('renders the campaign-story step when the flag is on and never the demographics step', async () => {
+  it('renders the first story step (why) when the flag is on and never the demographics step', async () => {
     setCampaignStoryFlag(true, true)
     mswServer.use(
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
     )
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: '' },
+    })
     renderFlow({ campaign: { id: 1 } as Campaign })
 
     await advancePastManualOfficeEntry()
 
+    // The story steps suppress the page h1; the card carries the question.
     expect(
       await screen.findByRole('heading', {
         level: 1,
-        name: /tell your campaign story/i,
+        name: /why are you running/i,
       }),
     ).toBeInTheDocument()
     expect(
@@ -325,7 +425,7 @@ describe('new onboarding flow shell', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('omits the campaign-story step when the flag is off', async () => {
+  it('omits the story steps when the flag is off', async () => {
     setCampaignStoryFlag(true, false)
     mswServer.use(
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
@@ -344,12 +444,12 @@ describe('new onboarding flow shell', () => {
     expect(
       screen.queryByRole('heading', {
         level: 1,
-        name: /tell your campaign story/i,
+        name: /why are you running/i,
       }),
     ).not.toBeInTheDocument()
   })
 
-  it('fires plan generation once when continuing a completed campaign-story step', async () => {
+  it('persists and fires plan generation once when continuing through a completed story', async () => {
     const prewarm = vi
       .spyOn(landscapeModule, 'prewarmStrategicLandscape')
       .mockResolvedValue()
@@ -358,6 +458,7 @@ describe('new onboarding flow shell', () => {
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
     )
+    // Returning candidate: the draft seeds complete from the website + story.
     mockGetUserWebsite.mockResolvedValue({
       content: {
         about: {
@@ -370,31 +471,152 @@ describe('new onboarding flow shell', () => {
       status: 200,
       data: { background: 'I grew up here and ran a small business.' },
     })
+    let storyBody: { background?: string } | null = null
+    api.mock('PUT /v1/campaigns/mine/story', async ({ body }) => {
+      storyBody = body
+      return { status: 200, data: { background: 'saved' } }
+    })
     renderFlow({ campaign: { id: 1 } as Campaign })
 
     await advancePastManualOfficeEntry()
-
-    expect(
-      await screen.findByRole('heading', {
-        level: 1,
-        name: /tell your campaign story/i,
-      }),
-    ).toBeInTheDocument()
-
-    // The footer label flips to "Continue" once the story cards report
-    // complete (bio + background + an issue all present).
-    const continueButton = await screen.findByRole('button', {
-      name: 'Continue',
+    await screen.findByRole('heading', {
+      level: 1,
+      name: /why are you running/i,
     })
-    fireEvent.click(continueButton)
+
+    await continueThroughStorySteps()
 
     expect(
       await screen.findByText('Take our pledge to get your campaign plan'),
     ).toBeInTheDocument()
+    // Deferred save fired on the final step: background via the story endpoint,
+    // bio + issues via saveAboutFields.
+    expect(storyBody).toEqual({
+      background: 'I grew up here and ran a small business.',
+    })
+    expect(mockSaveAboutFields).toHaveBeenCalledWith(
+      expect.objectContaining({
+        issues: [{ title: 'Roads', description: 'Fix them' }],
+      }),
+    )
     expect(prewarm).toHaveBeenCalledTimes(1)
+    // Each story step fires its per-step Completed event as it's Continued.
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.OnboardingV2.WhyAreYouRunningCompleted,
+      expect.anything(),
+    )
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.OnboardingV2.BackgroundCompleted,
+      expect.anything(),
+    )
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.OnboardingV2.IssuesCompleted,
+      expect.anything(),
+    )
   })
 
-  it('does not fire generation when skipping an incomplete campaign-story step', async () => {
+  it('blocks Continue on the issues step until at least one policy exists', async () => {
+    setCampaignStoryFlag(true, true)
+    mswServer.use(
+      http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
+      http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
+    )
+    // Why + background answered, but no issues yet.
+    mockGetUserWebsite.mockResolvedValue({
+      content: { about: { bio: '<p>My why</p>', issues: [] } },
+    })
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: 'My background' },
+    })
+    api.mock('PUT /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: 'saved' },
+    })
+    renderFlow({ campaign: { id: 1 } as Campaign })
+
+    await advancePastManualOfficeEntry()
+    await screen.findByRole('heading', {
+      level: 1,
+      name: /why are you running/i,
+    })
+    // why -> background -> issues. clickEnabledContinue waits for the seeded
+    // field to enable Continue before clicking (why/background are seeded
+    // non-empty here; issues starts empty).
+    await clickEnabledContinue()
+    await screen.findByRole('heading', { level: 2, name: /your background/i })
+    await clickEnabledContinue()
+    await screen.findByRole('button', { name: /add a policy priority/i })
+
+    // No policy added yet → Continue is blocked (Skip is still the way out).
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeEnabled()
+
+    // Add a policy → Continue unlocks.
+    fireEvent.click(
+      screen.getByRole('button', { name: /add a policy priority/i }),
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+  })
+
+  it('blocks Continue on the issues step while a policy row is mid-dictation', async () => {
+    setCampaignStoryFlag(true, true)
+    mswServer.use(
+      http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
+      http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
+    )
+    // Complete story so the length gate is satisfied; only dictation should
+    // hold Continue.
+    mockGetUserWebsite.mockResolvedValue({
+      content: {
+        about: {
+          bio: '<p>My why</p>',
+          issues: [{ title: 'Roads', description: 'Fix them' }],
+        },
+      },
+    })
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: 'My background' },
+    })
+    api.mock('PUT /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: 'saved' },
+    })
+    // Only the issue row is actively recording; why/background stay idle so the
+    // earlier steps' Continue still advances.
+    mockUseDictationAppend.mockImplementation(
+      (input: { analyticsLabel: string }) =>
+        input.analyticsLabel.startsWith('onboarding_story_issue')
+          ? { ...IDLE_DICTATION, status: 'recording' as const, active: true }
+          : IDLE_DICTATION,
+    )
+    renderFlow({ campaign: { id: 1 } as Campaign })
+
+    await advancePastManualOfficeEntry()
+    await screen.findByRole('heading', {
+      level: 1,
+      name: /why are you running/i,
+    })
+    // Await the background step between clicks (see the note above — the
+    // async, isAdvancingRef-guarded Continue makes back-to-back clicks flaky).
+    await clickEnabledContinue()
+    await screen.findByRole('heading', { level: 2, name: /your background/i })
+    await clickEnabledContinue()
+    await screen.findByRole('button', { name: /add a policy priority/i })
+
+    // Issue present (length gate passes) but a row is recording → both Continue
+    // and Skip are held until recording stops, so neither can advance while an
+    // in-flight transcript is still landing.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled(),
+    )
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeDisabled()
+  })
+
+  it('shows an error and stays on the step when a field save fails on Continue', async () => {
     const prewarm = vi
       .spyOn(landscapeModule, 'prewarmStrategicLandscape')
       .mockResolvedValue()
@@ -404,8 +626,45 @@ describe('new onboarding flow shell', () => {
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
     )
     mockGetUserWebsite.mockResolvedValue({
-      content: { about: { bio: '', issues: [] } },
+      content: { about: { bio: '<p>My why</p>', issues: [] } },
     })
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: 'My background' },
+    })
+    // The why field's save (saveAboutFields) fails on Continue.
+    mockSaveAboutFields.mockResolvedValue(false)
+    renderFlow({ campaign: { id: 1 } as Campaign })
+
+    await advancePastManualOfficeEntry()
+    await screen.findByRole('heading', {
+      level: 1,
+      name: /why are you running/i,
+    })
+
+    // Continue on the why step persists that field; the failed save surfaces an
+    // error and holds the candidate on the why step (no advance to background).
+    await clickEnabledContinue()
+
+    await waitFor(() => expect(mockErrorSnackbar).toHaveBeenCalled())
+    expect(
+      screen.queryByRole('heading', { level: 2, name: /your background/i }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { level: 1, name: /why are you running/i }),
+    ).toBeInTheDocument()
+    expect(prewarm).not.toHaveBeenCalled()
+  })
+
+  it('does not fire generation when skipping the story', async () => {
+    const prewarm = vi
+      .spyOn(landscapeModule, 'prewarmStrategicLandscape')
+      .mockResolvedValue()
+    setCampaignStoryFlag(true, true)
+    mswServer.use(
+      http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
+      http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
+    )
     api.mock('GET /v1/campaigns/mine/story', {
       status: 200,
       data: { background: '' },
@@ -413,26 +672,17 @@ describe('new onboarding flow shell', () => {
     renderFlow({ campaign: { id: 1 } as Campaign })
 
     await advancePastManualOfficeEntry()
-
-    expect(
-      await screen.findByRole('heading', {
-        level: 1,
-        name: /tell your campaign story/i,
-      }),
-    ).toBeInTheDocument()
-
-    const skipButton = await screen.findByRole('button', {
-      name: 'Skip for now',
-    })
-    fireEvent.click(skipButton)
+    await skipThroughStorySteps()
 
     expect(
       await screen.findByText('Take our pledge to get your campaign plan'),
     ).toBeInTheDocument()
     expect(prewarm).not.toHaveBeenCalled()
+    // Nothing was answered, so persist writes nothing.
+    expect(mockSaveAboutFields).not.toHaveBeenCalled()
   })
 
-  it('does not fire a stray Skipped event on re-advance after completion', async () => {
+  it('does not re-fire generation or a step Completed when going back and skipping after completion', async () => {
     const prewarm = vi
       .spyOn(landscapeModule, 'prewarmStrategicLandscape')
       .mockResolvedValue()
@@ -453,51 +703,37 @@ describe('new onboarding flow shell', () => {
       status: 200,
       data: { background: 'I grew up here and ran a small business.' },
     })
-    // A dedicated client (renderFlow's is private to the helper) so the test
-    // can drop the cached website fetch below, forcing the re-entered story
-    // step through a real loading window instead of reusing stale cache.
-    const queryClient = new QueryClient()
-    render(
-      <QueryClientProvider client={queryClient}>
-        <OnboardingFlow campaign={{ id: 1 } as Campaign} />
-      </QueryClientProvider>,
-    )
+    api.mock('PUT /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: 'saved' },
+    })
+    renderFlow({ campaign: { id: 1 } as Campaign })
 
     await advancePastManualOfficeEntry()
+    await screen.findByRole('heading', {
+      level: 1,
+      name: /why are you running/i,
+    })
 
-    expect(
-      await screen.findByRole('heading', {
-        level: 1,
-        name: /tell your campaign story/i,
-      }),
-    ).toBeInTheDocument()
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+    await continueThroughStorySteps()
 
     expect(
       await screen.findByText('Take our pledge to get your campaign plan'),
     ).toBeInTheDocument()
     expect(prewarm).toHaveBeenCalledTimes(1)
     expect(mockTrackEvent).toHaveBeenCalledWith(
-      EVENTS.OnboardingV2.CampaignStoryCompleted,
+      EVENTS.OnboardingV2.IssuesCompleted,
       expect.anything(),
     )
     mockTrackEvent.mockClear()
 
-    // Simulate re-entering the story step mid-refetch: drop the cached
-    // website fetch and swap in an incomplete response, so the remounted
-    // step transiently (then persistently) reports storyComplete === false,
-    // same as a user navigating back and forward before the story loads.
-    // Generation already fired this session, so re-advancing must not
-    // re-fire Completed or fire a stray Skipped.
-    mockGetUserWebsite.mockResolvedValue({
-      content: { about: { bio: '', issues: [] } },
-    })
-    queryClient.removeQueries({ queryKey: USER_WEBSITE_QUERY_KEY })
+    // Back to the last story step (issues), then Skip it. Generation already
+    // fired this session, so re-leaving must not re-fire it; skipping the step
+    // now fires Onboarding Skipped, but never a duplicate Issues Completed.
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
 
     const skipButton = await screen.findByRole('button', {
-      name: 'Skip for now',
+      name: 'Skip',
     })
     fireEvent.click(skipButton)
 
@@ -506,24 +742,21 @@ describe('new onboarding flow shell', () => {
     ).toBeInTheDocument()
     expect(prewarm).toHaveBeenCalledTimes(1)
     expect(mockTrackEvent).not.toHaveBeenCalledWith(
-      EVENTS.OnboardingV2.CampaignStorySkipped,
+      EVENTS.OnboardingV2.IssuesCompleted,
       expect.anything(),
     )
-    expect(mockTrackEvent).not.toHaveBeenCalledWith(
-      EVENTS.OnboardingV2.CampaignStoryCompleted,
-      expect.anything(),
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.OnboardingV2.OnboardingSkipped,
+      expect.objectContaining({ step: 'What Issues Do You Want To Solve' }),
     )
   })
 
-  it('fires CampaignStorySkipped only once across skip, back, and skip again', async () => {
+  it('fires Onboarding Skipped once per story step, labeled with the step it left', async () => {
     setCampaignStoryFlag(true, true)
     mswServer.use(
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
     )
-    mockGetUserWebsite.mockResolvedValue({
-      content: { about: { bio: '', issues: [] } },
-    })
     api.mock('GET /v1/campaigns/mine/story', {
       status: 200,
       data: { background: '' },
@@ -531,35 +764,56 @@ describe('new onboarding flow shell', () => {
     renderFlow({ campaign: { id: 1 } as Campaign })
 
     await advancePastManualOfficeEntry()
+    await skipThroughStorySteps()
 
+    expect(
+      await screen.findByText('Take our pledge to get your campaign plan'),
+    ).toBeInTheDocument()
+
+    const skippedSteps = mockTrackEvent.mock.calls
+      .filter(([event]) => event === EVENTS.OnboardingV2.OnboardingSkipped)
+      .map(([, props]) => (props as { step?: string })?.step)
+    expect(skippedSteps).toEqual([
+      'Why Are You Running',
+      "What's Your Background",
+      'What Issues Do You Want To Solve',
+    ])
+  })
+
+  it('returns from the pledge to the first unanswered story step, not the last one', async () => {
+    setCampaignStoryFlag(true, true)
+    mswServer.use(
+      http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
+      http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
+    )
+    // Empty story, skipped from the first step.
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: '' },
+    })
+    renderFlow({ campaign: { id: 1 } as Campaign })
+
+    await advancePastManualOfficeEntry()
+    await screen.findByRole('heading', {
+      level: 1,
+      name: /why are you running/i,
+    })
+
+    await skipThroughStorySteps()
+    await screen.findByText('Take our pledge to get your campaign plan')
+
+    // Back lands straight on the why step (first unanswered), not the issues
+    // step (the literal previous step), and without stepping through each one.
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     expect(
       await screen.findByRole('heading', {
         level: 1,
-        name: /tell your campaign story/i,
+        name: /why are you running/i,
       }),
     ).toBeInTheDocument()
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }))
-
-    expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
-    ).toBeInTheDocument()
-
-    // Back to the (still-incomplete) story step, then skip a second time.
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }))
-
-    expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
-    ).toBeInTheDocument()
-
-    const skippedCalls = mockTrackEvent.mock.calls.filter(
-      ([event]) => event === EVENTS.OnboardingV2.CampaignStorySkipped,
-    )
-    expect(skippedCalls).toHaveLength(1)
   })
 
-  it('labels the pledge button "Agree & Continue" for the campaign-story cohort', async () => {
+  it('labels the pledge button "Meet your campaign manager" for the campaign-story cohort', async () => {
     setCampaignStoryFlag(true, true)
     mswServer.use(
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
@@ -576,19 +830,19 @@ describe('new onboarding flow shell', () => {
 
     await advancePastManualOfficeEntry()
 
-    // On the (incomplete) story step, skip to the pledge.
-    fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }))
+    // Skip through the (incomplete) story to the pledge.
+    await skipThroughStorySteps()
 
     expect(
       await screen.findByText('Take our pledge to get your campaign plan'),
     ).toBeInTheDocument()
-    // Story comes before the pledge and submit routes to the Campaign Manager,
-    // so the old "Let's Create Your Story" copy is gone.
+    // Story comes before the pledge and submit routes into the Campaign
+    // Manager, so the pledge CTA is labeled to match that destination.
     expect(
-      screen.getByRole('button', { name: 'Agree & Continue' }),
+      screen.getByRole('button', { name: 'Meet your campaign manager' }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: "Let's Create Your Story" }),
+      screen.queryByRole('button', { name: 'Agree & Continue' }),
     ).not.toBeInTheDocument()
   })
 
@@ -628,7 +882,7 @@ describe('new onboarding flow shell', () => {
     expect(screen.getByRole('button', { name: /continue/i })).toBeEnabled()
   })
 
-  it('fires CampaignStoryCompleted and generation once when a prior skip is followed by completion', async () => {
+  it('fires Issues Completed and generation once when a prior issues-skip is followed by completion', async () => {
     const prewarm = vi
       .spyOn(landscapeModule, 'prewarmStrategicLandscape')
       .mockResolvedValue()
@@ -637,46 +891,73 @@ describe('new onboarding flow shell', () => {
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
     )
+    // Why + background answered (kept via Continue), but no issues yet — so the
+    // first pass is incomplete. The candidate skips the issues step, then comes
+    // back and adds a policy to complete it.
     mockGetUserWebsite.mockResolvedValue({
-      content: { about: { bio: '', issues: [] } },
+      content: { about: { bio: '<p>My why is long enough</p>', issues: [] } },
     })
     api.mock('GET /v1/campaigns/mine/story', {
       status: 200,
       data: { background: 'I grew up here and ran a small business.' },
     })
-    // A dedicated client (renderFlow's is private to the helper) so the test
-    // can drop the cached website fetch below, forcing the re-entered story
-    // step to pick up the now-complete bio/issues instead of reusing the
-    // stale (incomplete) cache from the first visit.
-    const queryClient = new QueryClient()
-    render(
-      <QueryClientProvider client={queryClient}>
-        <OnboardingFlow campaign={{ id: 1 } as Campaign} />
-      </QueryClientProvider>,
-    )
+    api.mock('PUT /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: 'saved' },
+    })
+    renderFlow({ campaign: { id: 1 } as Campaign })
 
     await advancePastManualOfficeEntry()
+    await screen.findByRole('heading', {
+      level: 1,
+      name: /why are you running/i,
+    })
 
-    expect(
-      await screen.findByRole('heading', {
-        level: 1,
-        name: /tell your campaign story/i,
-      }),
-    ).toBeInTheDocument()
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }))
+    // Continue keeps why + background; Skip the (empty) issues step.
+    await clickEnabledContinue()
+    await screen.findByRole('heading', { level: 2, name: /your background/i })
+    await clickEnabledContinue()
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
 
     expect(
       await screen.findByText('Take our pledge to get your campaign plan'),
     ).toBeInTheDocument()
     expect(mockTrackEvent).toHaveBeenCalledWith(
-      EVENTS.OnboardingV2.CampaignStorySkipped,
-      expect.anything(),
+      EVENTS.OnboardingV2.OnboardingSkipped,
+      expect.objectContaining({ step: 'What Issues Do You Want To Solve' }),
     )
     expect(prewarm).not.toHaveBeenCalled()
 
-    // Back to the story step, now with a complete bio + issue, so the
-    // candidate finishes their story after having skipped once before.
+    // Back returns to the issues step (why + background still answered), add a
+    // policy to complete the story, then Continue.
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: /add a policy priority/i }),
+    )
+    await clickEnabledContinue()
+
+    expect(
+      await screen.findByText('Take our pledge to get your campaign plan'),
+    ).toBeInTheDocument()
+    expect(prewarm).toHaveBeenCalledTimes(1)
+
+    const issuesCompletedCalls = mockTrackEvent.mock.calls.filter(
+      ([event]) => event === EVENTS.OnboardingV2.IssuesCompleted,
+    )
+    expect(issuesCompletedCalls).toHaveLength(1)
+  })
+
+  it('does not fire generation when a returning candidate skips a fully-seeded story', async () => {
+    const prewarm = vi
+      .spyOn(landscapeModule, 'prewarmStrategicLandscape')
+      .mockResolvedValue()
+    setCampaignStoryFlag(true, true)
+    mswServer.use(
+      http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
+      http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
+    )
+    // Draft seeds COMPLETE from the DB (all three answered). Skipping every
+    // question must not count as completion, so no generation / Completed.
     mockGetUserWebsite.mockResolvedValue({
       content: {
         about: {
@@ -685,27 +966,37 @@ describe('new onboarding flow shell', () => {
         },
       },
     })
-    queryClient.removeQueries({ queryKey: USER_WEBSITE_QUERY_KEY })
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-
-    const continueButton = await screen.findByRole('button', {
-      name: 'Continue',
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: 'I grew up here and ran a small business.' },
     })
-    fireEvent.click(continueButton)
+    api.mock('PUT /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: 'saved' },
+    })
+    renderFlow({ campaign: { id: 1 } as Campaign })
+
+    await advancePastManualOfficeEntry()
+    await screen.findByRole('heading', {
+      level: 1,
+      name: /why are you running/i,
+    })
+
+    await skipThroughStorySteps()
 
     expect(
       await screen.findByText('Take our pledge to get your campaign plan'),
     ).toBeInTheDocument()
-    expect(prewarm).toHaveBeenCalledTimes(1)
-
-    const skippedCalls = mockTrackEvent.mock.calls.filter(
-      ([event]) => event === EVENTS.OnboardingV2.CampaignStorySkipped,
+    expect(prewarm).not.toHaveBeenCalled()
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.OnboardingV2.OnboardingSkipped,
+      expect.objectContaining({ step: 'Why Are You Running' }),
     )
-    const completedCalls = mockTrackEvent.mock.calls.filter(
-      ([event]) => event === EVENTS.OnboardingV2.CampaignStoryCompleted,
+    // Skipping never fires a step Completed.
+    expect(mockTrackEvent).not.toHaveBeenCalledWith(
+      EVENTS.OnboardingV2.IssuesCompleted,
+      expect.anything(),
     )
-    expect(skippedCalls).toHaveLength(1)
-    expect(completedCalls).toHaveLength(1)
   })
 })
 

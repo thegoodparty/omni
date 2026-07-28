@@ -133,6 +133,11 @@ export type Person = z.infer<typeof PersonSchema>
 // Response-side pagination metadata returned alongside a people list. Distinct
 // from the request-side PaginationSchema in shared/Pagination.schema.ts (which
 // carries offset/limit/sortOrder), so it lives here rather than reusing that.
+// `fenced` (ENG-10804) mirrors PeopleAggregatesResponseSchema's field: true
+// when people-api's statement-timeout guard fired and totalResults is a
+// FENCE_LIMIT floor, not an exact count. Optional so a producer/consumer on
+// either side of a deploy window (people-api and gp-api deploy
+// independently) still validates without the field.
 export const PeopleListPaginationSchema = z.object({
   totalResults: z.number(),
   currentPage: z.number(),
@@ -140,6 +145,7 @@ export const PeopleListPaginationSchema = z.object({
   totalPages: z.number(),
   hasNextPage: z.boolean(),
   hasPreviousPage: z.boolean(),
+  fenced: z.boolean().optional(),
 })
 
 export type PeopleListPagination = z.infer<typeof PeopleListPaginationSchema>

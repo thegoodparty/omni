@@ -12,7 +12,10 @@ import { describe, expect, it } from 'vitest'
 // It models the cron's structure in-memory so it stays fast and deterministic:
 // each office carries the boolean gates the real dispatchBriefingIfNeeded
 // checks plus a per-office latency, and the two loop shapes below mirror the
-// before/after cron exactly (including the intentional inter-batch throttle).
+// before/after cron. BEFORE is the original fully-serial loop with the
+// inter-batch throttle; AFTER is a single bounded-concurrency pass with no
+// throttle (the agent job system queues internally, so the cron no longer
+// sleeps between batches).
 
 type BenchOffice = {
   id: string
@@ -71,18 +74,16 @@ const runSerial = async (
   }
 }
 
-// AFTER: bounded concurrency WITHIN a batch (same p-map primitive as prod),
-// preserving the identical inter-batch throttle.
+// AFTER: a single bounded-concurrency pass over the whole candidate set (same
+// p-map primitive as prod), with no inter-batch throttle — the agent job
+// system queues internally, so the cron enqueues as fast as the concurrency
+// bound allows.
 const runBoundedConcurrent = async (
   offices: BenchOffice[],
-  opts: { batchSize: number; interBatchMs: number; concurrency: number },
+  opts: { concurrency: number },
   process: (o: BenchOffice) => Promise<void>,
 ): Promise<void> => {
-  const chunks = chunk(offices, opts.batchSize)
-  for (const [i, batch] of chunks.entries()) {
-    await pMap(batch, process, { concurrency: opts.concurrency })
-    if (i < chunks.length - 1) await sleep(opts.interBatchMs)
-  }
+  await pMap(offices, process, { concurrency: opts.concurrency })
 }
 
 // Deterministic population: the realistic case is that most offices have no
@@ -147,7 +148,7 @@ describe('dispatchDailyBriefings perf: pre-filter + bounded concurrency', () => 
     const afterStart = performance.now()
     await runBoundedConcurrent(
       candidates,
-      LOOP_OPTS,
+      { concurrency: LOOP_OPTS.concurrency },
       makeProcessor(afterDispatched),
     )
     const afterMs = performance.now() - afterStart
@@ -212,7 +213,7 @@ describe('dispatchDailyBriefings perf: pre-filter + bounded concurrency', () => 
     const concurrentFiltered = new Set<string>()
     await runBoundedConcurrent(
       candidates,
-      LOOP_OPTS,
+      { concurrency: LOOP_OPTS.concurrency },
       makeProcessor(concurrentFiltered),
     )
 

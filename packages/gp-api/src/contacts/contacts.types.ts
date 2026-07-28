@@ -1,3 +1,8 @@
+// people-api's POST /v1/people/aggregates response (ENG-10706) is a
+// cross-service shape, so its type lives in contracts (ENG-10775 added the
+// `fenced` flag there) — re-exported here so existing importers don't churn.
+export type { PeopleAggregatesResponse } from '@goodparty_org/contracts'
+
 // Stable error code returned when a campaign cannot use the People-API voter
 // data path (district can't be resolved, or the campaign fails the
 // federal/state download-access rule). The webapp maps it to a clean
@@ -24,12 +29,4 @@ export type StatsResponse = {
     presenceOfChildren: DistrictStatCategory
     estimatedIncomeRange: DistrictStatCategory
   }
-}
-
-// people-api's POST /v1/people/aggregates response (ENG-10706) — a filtered
-// COUNT/AVG(age)/AVG(income) over a list's membership.
-export type PeopleAggregatesResponse = {
-  count: number
-  avgAge: number | null
-  avgIncome: number | null
 }

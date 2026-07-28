@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { cn } from '@styleguide'
 import {
   CircleAlertIcon,
@@ -5,6 +6,7 @@ import {
   TriangleAlertIcon,
 } from '@styleguide/components/ui/icons'
 import type { OrdinanceAuthorityFinding } from '@goodparty_org/contracts'
+import { CardMarkdown } from '../../shared/agent-chat/chatUI'
 import SourceLine from './SourceLine'
 
 // pass = authority confirmed, attention = authority with a caveat worth
@@ -32,8 +34,10 @@ const VARIANTS = {
 
 // The authority-check verdict card (present_authority_finding tool payload):
 // status icon, verdict headline, the statute-grounded explanation, an optional
-// "what this means for you" confirmation, and the cited source.
-export default function AuthorityFindingWidget({
+// "what this means for you" confirmation, and the cited source. Memoized because
+// its `finding` is a stable reference across a streaming turn's reveal ticks —
+// so its markdown isn't re-parsed while later prose types out below the card.
+function AuthorityFindingWidget({
   finding,
 }: {
   finding: OrdinanceAuthorityFinding
@@ -56,13 +60,13 @@ export default function AuthorityFindingWidget({
         <p className="text-sm font-semibold text-foreground">
           {finding.headline}
         </p>
-        <p className="text-sm leading-6 text-foreground">
+        <CardMarkdown className="text-sm leading-6 text-foreground">
           {finding.explanation}
-        </p>
+        </CardMarkdown>
         {finding.confirmation ? (
-          <p className="text-sm leading-6 text-foreground">
+          <CardMarkdown className="text-sm leading-6 text-foreground">
             {finding.confirmation}
-          </p>
+          </CardMarkdown>
         ) : null}
         <div className="mt-1">
           <SourceLine source={finding.source} />
@@ -71,3 +75,5 @@ export default function AuthorityFindingWidget({
     </div>
   )
 }
+
+export default memo(AuthorityFindingWidget)

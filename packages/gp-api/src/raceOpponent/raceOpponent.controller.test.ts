@@ -2002,6 +2002,7 @@ describe('race_opponent_summary dispatch / persist / read', () => {
       state: 'NC',
       l2DistrictType: 'City',
       l2DistrictName: 'HENDERSONVILLE CITY',
+      level: null,
     })
     const dispatchRun = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
@@ -2626,6 +2627,32 @@ describe('race_opponent_actions persist / read', () => {
       issue: 'roads',
     })
     expect(result.data.standoutActions[1].opponentName).toBeNull()
+  })
+
+  it('GET never leaks haystaq columns into the candidate-facing response', async () => {
+    // A row with every haystaq column populated must still serialize without
+    // any hs_ field: the candidate read is deliberately blind to district
+    // sentiment stats, which exist only for the internal backfill/producer.
+    await seedStandoutRow(0, {
+      title: 'Card with stats',
+      hsColumn: 'hs_infrastructure_support',
+      positionPhrase: 'funding infrastructure more',
+      positionDir: 'high',
+      haystaqTotalActive: 12000,
+      haystaqCountGe50: 6400,
+      haystaqPctGe50: 53.3,
+      haystaqCountGe70: 3100,
+      haystaqPctGe70: 25.8,
+    })
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.standoutActions).toHaveLength(1)
+    expect(JSON.stringify(result.data.standoutActions)).not.toContain('hs_')
+    expect(result.data.standoutActions[0]).not.toHaveProperty('haystaq')
   })
 
   it('GET omits a persisted card that fails contract re-parse instead of 500ing', async () => {

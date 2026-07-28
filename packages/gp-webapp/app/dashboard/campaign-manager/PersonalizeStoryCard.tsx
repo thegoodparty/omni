@@ -1,7 +1,13 @@
 'use client'
 
-import { Button } from '@styleguide'
+import { useEffect, useState } from 'react'
 import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
+import ManagerPromptCard from './ManagerPromptCard'
+
+// Persisted skip: the ⋮ "Skip" hides the card until the story is completed (it
+// reappears if the candidate reopens it another way). localStorage matches the
+// meet card's dismissal pattern.
+const PERSONALIZE_DISMISSED_KEY = 'campaign-manager-personalize-dismissed'
 
 interface Props {
   onPersonalize: () => void
@@ -17,23 +23,37 @@ export default function PersonalizeStoryCard({
   onPersonalize,
 }: Props): React.JSX.Element | null {
   const { isComplete, isLoading } = useCampaignStoryComplete(true)
-  if (isLoading || isComplete) return null
+  const [dismissed, setDismissed] = useState(false)
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(PERSONALIZE_DISMISSED_KEY) === '1') {
+        setDismissed(true)
+      }
+    } catch {
+      // Storage disabled: leave it shown.
+    }
+  }, [])
+
+  const onSkip = (): void => {
+    try {
+      window.localStorage.setItem(PERSONALIZE_DISMISSED_KEY, '1')
+    } catch {
+      // Storage disabled: hide for this session only.
+    }
+    setDismissed(true)
+  }
+
+  if (isLoading || isComplete || dismissed) return null
+
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-xl font-semibold">
-          Personalize your campaign messaging
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Tell me your reasons for running and I can personalize your voter
-          outreach plan to match.
-        </p>
-      </div>
-      {/* onPersonalize opens the manager AND auto-launches the story intake
-          chat flow (see CampaignManagerHome's startStory). */}
-      <Button className="self-start" onClick={onPersonalize}>
-        Personalize your campaign
-      </Button>
-    </div>
+    // onPersonalize opens the manager AND auto-launches the story intake chat
+    // flow (see CampaignManagerHome's startStory).
+    <ManagerPromptCard
+      title="Personalize your campaign messaging"
+      description="Tell me your reasons for running and I can personalize your voter outreach plan to match."
+      ctaLabel="Personalize your campaign"
+      onCta={onPersonalize}
+      onSkip={onSkip}
+    />
   )
 }
