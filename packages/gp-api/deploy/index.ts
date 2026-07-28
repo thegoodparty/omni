@@ -448,7 +448,6 @@ export = async () => {
     annotationAttachmentsBucketName,
     campaignPlanSharesBucketName,
     agentRunInputsBucketName,
-    agentArtifactsBucketName,
     meetingPipelineBucketName,
     serveAnalysisBucketName,
     assetsBucketName,
@@ -460,6 +459,20 @@ export = async () => {
   )
   const taskRoleObjectArns = taskRoleBucketNames.map(
     (name) => pulumi.interpolate`arn:aws:s3:::${name}/*`,
+  )
+
+  // Buckets gp-api only reads (externally written), granted GetObject/ListBucket
+  // but not write/delete. The agent-artifacts bucket is written by the agent
+  // runner (gp-ai-projects); gp-api only reads results in
+  // onExperimentRunCompleted.
+  const taskRoleReadOnlyBucketNames: pulumi.Input<string>[] = [
+    agentArtifactsBucketName,
+  ]
+  const taskRoleReadOnlyObjectArns = taskRoleReadOnlyBucketNames.map(
+    (name) => pulumi.interpolate`arn:aws:s3:::${name}/*`,
+  )
+  const taskRoleReadOnlyBucketArns = taskRoleReadOnlyBucketNames.map(
+    (name) => pulumi.interpolate`arn:aws:s3:::${name}`,
   )
 
   const campaignPlanInputQueueName = select({
@@ -613,6 +626,16 @@ export = async () => {
         Effect: 'Allow',
         Action: ['s3:ListBucket', 's3:GetBucketLocation'],
         Resource: taskRoleBucketArns,
+      },
+      {
+        Effect: 'Allow',
+        Action: ['s3:GetObject'],
+        Resource: taskRoleReadOnlyObjectArns,
+      },
+      {
+        Effect: 'Allow',
+        Action: ['s3:ListBucket', 's3:GetBucketLocation'],
+        Resource: taskRoleReadOnlyBucketArns,
       },
       {
         Effect: 'Allow',
