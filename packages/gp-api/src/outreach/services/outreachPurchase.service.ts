@@ -39,15 +39,22 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       return calcTextAmountInCents(contactCount)
     }
 
+    // Every PeerlyPhoneList row is written with a real campaignId
+    // (recordUpload requires one), so a p2p purchase with a phoneListToken
+    // but no campaignId is a client-supplied contradiction, not a legacy
+    // no-campaign case — reject it rather than looking the token up
+    // unscoped.
+    if (!campaignId) {
+      throw new BadRequestException(
+        'A campaign is required to bill a p2p purchase',
+      )
+    }
+
     const billedContactCount = await this.resolveBilledContactCount(
       phoneListToken,
       campaignId,
       contactCount,
     )
-
-    if (!campaignId) {
-      return calcTextAmountInCents(billedContactCount)
-    }
 
     const hasOffer =
       await this.campaignsService.checkFreeTextsEligibility(campaignId)
@@ -77,7 +84,7 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
   // against, so this throws before the caller ever calls Stripe.
   private async resolveBilledContactCount(
     phoneListToken: string | undefined,
-    campaignId: number | undefined,
+    campaignId: number,
     clientContactCount: number,
   ): Promise<number> {
     if (!phoneListToken) {
@@ -99,7 +106,10 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       peerlyLeadsLoaded ??
       (await this.peerlyPhoneListCapture.countRecipients(capturedList.id))
 
-    if (!serverContactCount) {
+    // A Peerly-confirmed 0 (e.g. every contact scrubbed to DNC) is a valid
+    // answer and must bill $0, not fail — only reject when neither Peerly
+    // nor the captured rows produced any count at all.
+    if (peerlyLeadsLoaded === null && !serverContactCount) {
       throw new BadRequestException(
         'No billable contacts found for this purchase',
       )

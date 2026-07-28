@@ -566,6 +566,7 @@ const TaskFlow = ({
               {...{
                 onComplete: handlePurchaseComplete,
                 phoneListId,
+                phoneListToken: phoneListToken || undefined,
                 contactCount,
                 type,
                 pricePerContact: purchaseMetaData?.pricePerContact,

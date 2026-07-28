@@ -167,10 +167,13 @@ describe('OutreachPurchaseHandlerService', () => {
   describe('calculateAmount', () => {
     it('uses server-side pricing, not client pricePerContact', async () => {
       mockServerLeadsLoaded(500)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(false)
 
       const amount = await service.calculateAmount({
         ...baseMetadata,
-        campaignId: undefined,
+        campaignId: 1,
         pricePerContact: 0,
       })
 
@@ -192,15 +195,15 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(mockPeerlyPhoneListCapture.findFirst).not.toHaveBeenCalled()
     })
 
-    it('skips discount check when campaignId is missing', async () => {
-      mockServerLeadsLoaded(500)
+    it('throws BadRequestException when campaignId is missing for a p2p purchase, without looking up the token', async () => {
+      await expect(
+        service.calculateAmount({
+          ...baseMetadata,
+          campaignId: undefined,
+        }),
+      ).rejects.toThrow(BadRequestException)
 
-      const amount = await service.calculateAmount({
-        ...baseMetadata,
-        campaignId: undefined,
-      })
-
-      expect(amount).toBe(calcTextAmountInCents(500))
+      expect(mockPeerlyPhoneListCapture.findFirst).not.toHaveBeenCalled()
       expect(
         mockCampaignsService.checkFreeTextsEligibility,
       ).not.toHaveBeenCalled()
@@ -270,11 +273,14 @@ describe('OutreachPurchaseHandlerService', () => {
 
     it('bills the Peerly-derived leads_loaded, not the client contactCount, and logs the mismatch', async () => {
       mockServerLeadsLoaded(80)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(false)
 
       const amount = await service.calculateAmount({
         ...baseMetadata,
         contactCount: 100,
-        campaignId: undefined,
+        campaignId: 1,
       })
 
       expect(amount).toBe(calcTextAmountInCents(80))
@@ -289,11 +295,14 @@ describe('OutreachPurchaseHandlerService', () => {
 
     it('falls back to the captured recipient count when the Peerly fetch throws', async () => {
       mockServerFallbackCount(80)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(false)
 
       const amount = await service.calculateAmount({
         ...baseMetadata,
         contactCount: 80,
-        campaignId: undefined,
+        campaignId: 1,
       })
 
       expect(amount).toBe(calcTextAmountInCents(80))
@@ -303,6 +312,22 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(mockPeerlyPhoneListCapture.countRecipients).toHaveBeenCalledWith(
         CAPTURED_LIST_FIXTURE.id,
       )
+    })
+
+    it('bills $0 without falling back when Peerly confirms a legitimate 0 leads_loaded', async () => {
+      mockServerLeadsLoaded(0)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(false)
+
+      const amount = await service.calculateAmount({
+        ...baseMetadata,
+        contactCount: 500,
+        campaignId: 1,
+      })
+
+      expect(amount).toBe(0)
+      expect(mockPeerlyPhoneListCapture.countRecipients).not.toHaveBeenCalled()
     })
 
     it('applies the free-texts discount to the server-derived count, not an understated client count', async () => {
