@@ -1,0 +1,21 @@
+// Privacy takedown flag for a public /people profile. When a candidate/official
+// asks (e.g. under CA privacy law) that their programmatic page be stripped,
+// the public page renders the minimal "removal requested" states (K/L) rather
+// than 404/410 — the civics spine still needs a stable, crawlable URL, but the
+// authored/empowerment content is suppressed.
+//
+// Like ProfileClaimRequest this is keyed by the canonical Person
+// (`personId` = gp_candidate_id) and is NOT a foreign key: removal usually
+// applies to *unclaimed* persons that have no User or PersonProfile row at all,
+// and Person lives in election-api (a different service/schema). Unique on
+// personId so the flag is idempotent.
+model PersonProfileRemoval {
+  id          String   @id @default(uuid(7))
+  personId    String   @unique @map("person_id") // subject Person being removed (gp_candidate_id)
+  note        String?  @db.Text // optional ops note on why/what was requested
+  requestedAt DateTime @default(now()) @map("requested_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("person_profile_removal")
+}

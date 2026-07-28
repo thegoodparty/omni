@@ -1,0 +1,61 @@
+// Product-owned overlay for a public /people profile. election-api holds the
+// read-only civics spine (Person + OfficeHolder, written by the data team);
+// this table holds everything the owner can edit in-product plus the
+// publish/delete render gate. The marketing site composes the two at render
+// time — election-api is never written by the app. Keyed 1:1 to the owning
+// User and to the canonical Person (`personId` = civics gp_candidate_id).
+model PersonProfile {
+  id       String @id @default(uuid(7))
+  personId String @unique @map("person_id") // subject Person in election-api (gp_candidate_id)
+
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId Int  @unique @map("user_id")
+
+  // Render gate. The public page is "live" only when publishedAt is set and
+  // deletedAt is null; deletedAt drives the immediate cache-bust + "gone" state
+  // without any election-api write.
+  publishedAt DateTime? @map("published_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  // Identity overrides — win over the election-api spine at render time.
+  displayName       String? @map("display_name")
+  roleTitleOverride String? @map("role_title_override")
+  bioOverride       String? @map("bio_override") @db.Text
+  coverImageUrl     String? @map("cover_image_url")
+  avatarUrl         String? @map("avatar_url")
+
+  // Product-authored narrative with no BallotReady source.
+  whyRunning String? @map("why_running") @db.Text
+  /// [PersonProfileAccomplishments]
+  accomplishments Json? @db.JsonB
+
+  // Recent Experience (§4). Seeded in-product from the election-api spine
+  // (Candidacy/OfficeHolder, which only reach back ~2018) and then editable —
+  // the owner can edit those rows or add ones BallotReady never had. Stored as
+  // an ordered overlay list; when present it wins over the spine at render.
+  /// [PersonProfileRecentExperience]
+  recentExperience Json? @map("recent_experience") @db.JsonB
+
+  // Public contact overrides. Instagram/TikTok are overlay-only (no BR source).
+  publicEmail          String? @map("public_email")
+  publicPhone          String? @map("public_phone")
+  officePhone          String? @map("office_phone")
+  websiteUrl           String? @map("website_url")
+  governmentWebsiteUrl String? @map("government_website_url")
+  instagramUrl         String? @map("instagram_url")
+  tiktokUrl            String? @map("tiktok_url")
+  facebookUrl          String? @map("facebook_url")
+  twitterUrl           String? @map("twitter_url")
+  linkedinUrl          String? @map("linkedin_url")
+
+  // Publication settings (Serve transparency defaults, per-issue overridable).
+  defaultTransparency String? @map("default_transparency")
+
+  issues PersonProfileIssue[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([publishedAt])
+  @@map("person_profile")
+}

@@ -128,7 +128,14 @@ import { dirname, join, relative } from 'node:path'
 // dashboard feature — its route + ~15 client components (Chat, ChatProvider,
 // ChatInput, history, feedback, etc.) were deleted. Campaign Manager supersedes
 // it; the gp-api endpoints are left orphaned (removed from the frontend only).
-const BASELINE = 546
+// 2026-07-27: 546 -> 549 for the Serve/Win public-profile editor
+// (app/dashboard/public-profile/): PublicProfileEditor (form + publish toggle +
+// image-upload + save mutation), ListEditors (add/remove/controlled Recent
+// Experience & Accomplishments rows), and PrioritiesPublicationEditor
+// (per-priority visibility/status toggles + mutation) are all genuinely
+// interactive and can't be server components. The page.tsx shell stays a server
+// component (it fetches data and gates access). Net +3 over develop's 546.
+const BASELINE = 549
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

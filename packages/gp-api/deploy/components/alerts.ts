@@ -128,6 +128,23 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join('\n\n'),
     notify: 'win-bugs',
   },
+  // ------ People (public profiles) ------ //
+  {
+    slug: 'people-profile-revalidation-failing',
+    name: '[People] Public profile cache revalidation failing',
+    type: 'metric',
+    // person_profile.revalidation.count{result="failed"} — the outbound cache
+    // bust to gp-marketing. Sustained failures mean publish/unpublish/delete
+    // edits are live in gp-api but the public /people page stays stale until its
+    // ISR window (1h) expires.
+    expr: 'sum(rate(person_profile_revalidation_count_total{service_name="gp-api", deployment_environment_name="$ENV", result="failed"}[5m]))',
+    threshold: 0,
+    for: '10m',
+    message: [
+      'gp-api has been failing to revalidate public /people profile pages for 10 minutes.',
+      'Owner edits (publish/unpublish/delete) are persisted but the cached marketing page will not refresh until its ISR window expires. Click *View in Grafana* (People Profiles dashboard), then check that MARKETING_REVALIDATE_SECRET matches gp-marketing and that POST $WEBAPP/api/revalidate-person is reachable and returns 200.',
+    ].join('\n\n'),
+  },
   {
     slug: 'admin-impersonation-email-fallback-spike',
     name: '[Admin] Impersonation falling back to email actor',

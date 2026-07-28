@@ -10,11 +10,12 @@ model Person {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
   brPersonId   Int?     @map("br_person_id") // BallotReady Person databaseId; null for GP-native persons
-  // slugify(firstName-lastName); a cosmetic, human-readable prefix of the URL.
-  // NOT unique: the canonical /people/<slug>-<personId> URL disambiguates on the
-  // trailing UUID (lookups resolve by `id`), and full-name collisions are routine
-  // in US politics, so a unique slug would break ETL inserts of the second person.
-  slug         String
+  // Canonical, collision-disambiguated URL slug: the public profile lives at
+  // /people/<slug> with NO trailing UUID, so this is the authoritative lookup
+  // key and MUST be unique. The gp-data-platform person mart mints it
+  // deterministically (base `first-last`, then `-state`, then a stable hex
+  // suffix) so a person keeps the same slug across ETL runs.
+  slug         String   @unique
 
   // Name parts (BallotReady Person)
   firstName  String? @map("first_name")
@@ -45,9 +46,12 @@ model Person {
 
   state String?
 
+  // Whether the person has taken the GoodParty pledge. A gp-api-native flag
+  // rolled up from their candidacies by ETL (a person is pledged if pledged on
+  // any candidacy). Read-only, not PII — flows through default responses.
+  isPledged Boolean @default(false) @map("is_pledged")
+
   // Relations
   Candidacies   Candidacy[]
   OfficeHolders OfficeHolder[]
-
-  @@index([slug])
 }
