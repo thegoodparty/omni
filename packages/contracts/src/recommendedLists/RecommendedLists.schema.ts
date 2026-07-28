@@ -180,11 +180,11 @@ export const RecommendedListEnvelopeSchema = z.discriminatedUnion('kind', [
     details: RecommendedListAnchorSchema,
   }),
   RecommendedListEnvelopeBaseSchema.extend({
-    kind: z.literal('issueAligned'),
+    kind: z.literal('persuasionIssueAligned'),
     details: RecommendedListIssueCardSchema,
   }),
   RecommendedListEnvelopeBaseSchema.extend({
-    kind: z.literal('partisanAligned'),
+    kind: z.literal('persuasionPartisanAligned'),
     details: RecommendedListPartisanSchema,
   }),
   RecommendedListEnvelopeBaseSchema.extend({
