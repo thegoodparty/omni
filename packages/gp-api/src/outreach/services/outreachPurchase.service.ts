@@ -167,7 +167,7 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     // it's not a fetch failure — falling back here would hit the same
     // pre-scrub overbill the null-status check above exists to prevent.
     const listId = status.Data.list_id
-    if (!listId) {
+    if (listId === undefined) {
       throw new BadRequestException(
         'Phone list has no list_id yet; try again shortly',
       )

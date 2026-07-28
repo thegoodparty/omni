@@ -364,6 +364,38 @@ describe('OutreachPurchaseHandlerService', () => {
       ).not.toHaveBeenCalled()
     })
 
+    it('honors a list_id of 0 rather than treating it as absent', async () => {
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValueOnce(
+        CAPTURED_LIST_FIXTURE,
+      )
+      vi.mocked(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).mockResolvedValueOnce({
+        Data: { list_id: 0, list_state: PhoneListState.ACTIVE },
+      })
+      vi.mocked(
+        mockPeerlyPhoneListService.getPhoneListDetails,
+      ).mockResolvedValueOnce({
+        ...PHONE_LIST_DETAILS_FIXTURE,
+        list_id: 0,
+        leads_loaded: 500,
+      })
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(false)
+
+      const amount = await service.calculateAmount({
+        ...baseMetadata,
+        contactCount: 500,
+        campaignId: 1,
+      })
+
+      expect(amount).toBe(calcTextAmountInCents(500))
+      expect(
+        mockPeerlyPhoneListService.getPhoneListDetails,
+      ).toHaveBeenCalledWith(0)
+    })
+
     it('bills $0 without falling back when Peerly confirms a legitimate 0 leads_loaded', async () => {
       mockServerLeadsLoaded(0)
       vi.mocked(
