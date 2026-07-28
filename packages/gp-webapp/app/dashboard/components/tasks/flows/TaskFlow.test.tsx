@@ -111,7 +111,15 @@ const mockAudienceRequests = () => {
       return Promise.resolve({ data: [savedList] })
     }
     if (route === 'GET /v1/contacts/list-detail') {
-      return Promise.resolve({ data: { demographics: { people: 100 } } })
+      // ENG-10799: the audience step now reads the channel-eligible
+      // reachability leaf (reachability.robocall for this describe block's
+      // robocall flows) instead of demographics.people.
+      return Promise.resolve({
+        data: {
+          demographics: { people: 100 },
+          reachability: { robocall: 100 },
+        },
+      })
     }
     return Promise.resolve({ data: [] })
   })
