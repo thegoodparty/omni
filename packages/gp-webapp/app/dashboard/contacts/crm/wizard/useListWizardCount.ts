@@ -12,6 +12,10 @@ const CAP_ERROR_MESSAGE =
 
 export interface ListWizardCountResult {
   count: number | undefined
+  // True when people-api's statement-timeout guard floored `count` at
+  // FENCE_LIMIT (ENG-10804) — a lower bound, not the selection's true size.
+  // Render via formatFencedCount; never persist a fenced count as exact.
+  fenced: boolean | undefined
   isLoading: boolean
   // True while a payload change is still waiting out the debounce: the query
   // (and thus `count`) still reflects the PREVIOUS payload. `isLoading` stays
@@ -57,7 +61,7 @@ export const useListWizardCount = (
     queryKey: ['list-wizard-count', orgSlug, debouncedPayload],
     queryFn: () =>
       clientRequest('POST /v1/contacts/count', debouncedPayload).then(
-        (res) => res.data.count,
+        (res) => res.data,
       ),
     enabled,
     // The count is an at-a-glance affordance while building; a window-focus
@@ -76,7 +80,8 @@ export const useListWizardCount = (
     countQuery.error instanceof FetchError && countQuery.error.status === 400
 
   return {
-    count: countQuery.data,
+    count: countQuery.data?.count,
+    fenced: countQuery.data?.fenced,
     isLoading: countQuery.isPending || countQuery.isFetching,
     isStale: isDebouncing,
     isError: countQuery.isError,

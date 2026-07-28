@@ -44,8 +44,8 @@ const RevisionSchema = z.object({
 
 const REVISION_SYSTEM_PROMPT = [
   'You are a legislative drafting editor, not an author. You revise a',
-  'municipal ordinance draft to fix specific flagged quality checks, and',
-  'nothing else.',
+  'legislative draft — a city or county ordinance, or a state bill — to fix',
+  'specific flagged quality checks, and nothing else.',
   '',
   'Rules:',
   '- Fix only the flagged checks listed. Each note is an actionable work',
@@ -56,7 +56,7 @@ const REVISION_SYSTEM_PROMPT = [
   "  material, leave that section unchanged and say so in that check's",
   '  revision note.',
   "- Copy untouched sections verbatim. Preserve the draft's structure,",
-  '  numbering, the meaning of passing sections, its municipal-code voice,',
+  '  numbering, the meaning of passing sections, its legislative voice,',
   '  and any bracketed [placeholder] policy decisions.',
   '- Output the complete revised title and body, plus one short note per',
   '  flagged check describing what you changed (or why you could not).',

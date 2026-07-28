@@ -37,6 +37,14 @@ Shared-table touches: `OutreachType.nativeDoorKnocking` (new value — legacy
 (nullable unique pointer — the per-channel pointer idiom, like
 `phoneListId`).
 
+## Where the code lives
+
+`src/doorKnocking/` (turf CRUD + the knock transaction; controller routes
+under `/v1/door-knocking`), `src/vendors/geoapify/` (Route Planner client —
+requires `GEOAPIFY_API_KEY`, validated lazily at call time so environments
+without it still boot), and the S2S evaluation/residents contracts in
+`@goodparty_org/contracts` implemented by people-api's `src/doorKnocking/`.
+
 ## The knock transaction (the money path)
 
 `knock(doorKnockingTurfId, mode, loop)` runs as ONE advisory-locked
@@ -67,8 +75,8 @@ call, loser returns `created: false`; (b) crash-mid-freeze → zero rows;
 
 ## Serving
 
-Every read of a route (knock response, later opens, walk start) = frozen
-route + live enrichment: residents-by-address from people-api (only units
+`GET /v1/door-knocking/turfs/:id/route`. Every read of a route (later
+opens, walk start) = frozen route + live enrichment: residents-by-address from people-api (only units
 containing a target; targets get live age/party; otherResidents are
 name-only) + each stop's knock status derived from
 `contact_interaction_door_knock` (org-wide, latest row per person —

@@ -160,7 +160,6 @@ export const EVENTS = {
     },
     Dashboard: {
       ClickDashboard: 'Navigation - Dashboard: Click Dashboard',
-      ClickAIAssistant: 'Navigation - Dashboard: Click AI Assistant',
       ClickVoterData: 'Navigation - Dashboard: Click Voter Data',
       ClickDoorKnocking: 'Navigation - Dashboard: Click Door Knocking',
       ClickContentBuilder: 'Navigation - Dashboard: Click Content Builder',
@@ -318,21 +317,6 @@ export const EVENTS = {
     ActionHistory: {
       ClickMenu: 'Dashboard - Campaign Action History: Click Menu',
       ClickDelete: 'Dashboard - Campaign Action History: Click Delete',
-    },
-  },
-  AIAssistant: {
-    ClickNewChat: 'AI Assistant: Click new chat',
-    ClickViewChatHistory: 'AI Assistant: Click view chat history',
-    AskQuestion: 'AI Assistant: Ask a question',
-    ChatHistory: {
-      ClickMenu: 'AI Assistant - Chat History: Click menu',
-      ClickDelete: 'AI Assistant - Chat History: Click delete',
-    },
-    Chat: {
-      ClickThumbsUp: 'AI Assistant - Chat: Click thumbs up',
-      ClickThumbsDown: 'AI Assistant - Chat: Click thumbs down',
-      ClickRegenerate: 'AI Assistant - Chat: Click regenerate',
-      ClickCopy: 'AI Assistant - Chat: Click copy',
     },
   },
   ProUpgrade: {
@@ -694,9 +678,14 @@ export const EVENTS = {
     VotesNeededFailed: 'Onboarding V2 - Votes Needed Failed',
     OfficeNextClicked: 'Onboarding V2 - Office Next Clicked',
     PledgeSubmitClicked: 'Onboarding V2 - Pledge Submit Clicked',
-    CampaignStoryViewed: 'Onboarding V2 - Campaign Story Viewed',
-    CampaignStoryCompleted: 'Onboarding V2 - Campaign Story Completed',
-    CampaignStorySkipped: 'Onboarding V2 - Campaign Story Skipped',
+    WhyAreYouRunningViewed: 'Onboarding V2 - Why Are You Running Viewed',
+    WhyAreYouRunningCompleted: 'Onboarding V2 - Why Are You Running Completed',
+    BackgroundViewed: "Onboarding V2 - What's Your Background Viewed",
+    BackgroundCompleted: "Onboarding V2 - What's Your Background Completed",
+    IssuesViewed: 'Onboarding V2 - What Issues Do You Want To Solve Viewed',
+    IssuesCompleted:
+      'Onboarding V2 - What Issues Do You Want To Solve Completed',
+    OnboardingSkipped: 'Onboarding V2 - Onboarding Skipped',
   },
   CommunityIssues: {
     ListViewed: 'Community Issues - List Viewed',

@@ -65,6 +65,11 @@ interface PlanViewProps {
   // prototype), so it hides the duplicate download in the bottom bar.
   // Onboarding keeps it as its primary CTA.
   showBottomDownload?: boolean
+  // The whole fixed bottom bar (download + "Campaign Manager" button). The
+  // story-cohort tracker hides it: it's `fixed bottom-0` and would sit on top
+  // of the always-present Campaign Manager footer chat dock, and its button is
+  // redundant with that dock. Onboarding + the story-off plan keep it.
+  showBottomBar?: boolean
 }
 
 // Pure presentation of the campaign plan: hero, sections, disclaimer, and
@@ -88,6 +93,7 @@ const PlanView = ({
   contentClassName,
   showHero = true,
   showBottomDownload = true,
+  showBottomBar = true,
 }: PlanViewProps): React.JSX.Element => {
   const [shareOpen, setShareOpen] = useState(false)
   const [downloading, setDownloading] = useState(false)
@@ -175,7 +181,10 @@ const PlanView = ({
   return (
     <div
       className={cn(
-        'text-foreground relative min-h-screen w-full pb-28',
+        'text-foreground relative min-h-screen w-full',
+        // Only reserve space for the fixed bottom bar when it's actually
+        // rendered; without the bar (story tracker) pb-28 is dead space.
+        showBottomBar && 'pb-28',
         rootClassName ?? 'bg-base-surface',
       )}
     >
@@ -223,96 +232,98 @@ const PlanView = ({
         </p>
       </main>
 
-      <div
-        className={`${bottomBarClassName} border-t border-base-border bg-base-surface`}
-      >
-        <div className="mx-auto flex h-20 w-full max-w-4xl items-center justify-between gap-3 px-4 sm:px-8">
-          {showBottomDownload ? (
-            <>
-              {/* Mobile download. While the plan is still generating the button
+      {showBottomBar && (
+        <div
+          className={`${bottomBarClassName} border-t border-base-border bg-base-surface`}
+        >
+          <div className="mx-auto flex h-20 w-full max-w-4xl items-center justify-between gap-3 px-4 sm:px-8">
+            {showBottomDownload ? (
+              <>
+                {/* Mobile download. While the plan is still generating the button
               is disabled; a disabled button suppresses its own pointer
               events, so the tooltip trigger wraps it (the span gets the
               hover instead). */}
-              {planReady ? (
-                <IconButton
-                  type="button"
-                  variant="outline"
-                  size="large"
-                  onClick={() => handleDownload('download-button')}
-                  loading={downloading}
-                  aria-label="Download campaign plan"
-                  className="sm:hidden"
-                >
-                  <DownloadIcon className="size-5" />
-                </IconButton>
-              ) : (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex sm:hidden">
-                      <IconButton
-                        type="button"
-                        variant="outline"
-                        size="large"
-                        loading
-                        aria-label="Preparing campaign plan"
-                      >
-                        <DownloadIcon className="size-5" />
-                      </IconButton>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>{downloadNotReadyTooltip}</TooltipContent>
-                </Tooltip>
-              )}
+                {planReady ? (
+                  <IconButton
+                    type="button"
+                    variant="outline"
+                    size="large"
+                    onClick={() => handleDownload('download-button')}
+                    loading={downloading}
+                    aria-label="Download campaign plan"
+                    className="sm:hidden"
+                  >
+                    <DownloadIcon className="size-5" />
+                  </IconButton>
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex sm:hidden">
+                        <IconButton
+                          type="button"
+                          variant="outline"
+                          size="large"
+                          loading
+                          aria-label="Preparing campaign plan"
+                        >
+                          <DownloadIcon className="size-5" />
+                        </IconButton>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>{downloadNotReadyTooltip}</TooltipContent>
+                  </Tooltip>
+                )}
 
-              {/* Desktop download. Label reads "Preparing plan…" while the plan
+                {/* Desktop download. Label reads "Preparing plan…" while the plan
               is still generating, and the tooltip explains the disabled
               state on hover. */}
-              {planReady ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="large"
-                  icon={<DownloadIcon className="size-5" />}
-                  onClick={() => handleDownload('download-button')}
-                  loading={downloading}
-                  className="hidden sm:inline-flex"
-                >
-                  Download
-                </Button>
-              ) : (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="hidden sm:inline-flex">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="large"
-                        icon={<DownloadIcon className="size-5" />}
-                        loading
-                        loadingText="Preparing plan…"
-                      >
-                        Download
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>{downloadNotReadyTooltip}</TooltipContent>
-                </Tooltip>
-              )}
-            </>
-          ) : (
-            <span />
-          )}
+                {planReady ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="large"
+                    icon={<DownloadIcon className="size-5" />}
+                    onClick={() => handleDownload('download-button')}
+                    loading={downloading}
+                    className="hidden sm:inline-flex"
+                  >
+                    Download
+                  </Button>
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="hidden sm:inline-flex">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="large"
+                          icon={<DownloadIcon className="size-5" />}
+                          loading
+                          loadingText="Preparing plan…"
+                        >
+                          Download
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>{downloadNotReadyTooltip}</TooltipContent>
+                  </Tooltip>
+                )}
+              </>
+            ) : (
+              <span />
+            )}
 
-          <Button
-            type="button"
-            variant="default"
-            size="large"
-            onClick={handleContinue}
-          >
-            Campaign Manager
-          </Button>
+            <Button
+              type="button"
+              variant="default"
+              size="large"
+              onClick={handleContinue}
+            >
+              Campaign Manager
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
 
       <SharePlanModal
         open={shareOpen}

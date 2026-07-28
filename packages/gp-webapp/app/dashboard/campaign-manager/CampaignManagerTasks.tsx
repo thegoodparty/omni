@@ -20,6 +20,7 @@ import {
 } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import TaskCard from '../chief-of-staff/components/TaskCard'
 import PersonalizeStoryCard from './PersonalizeStoryCard'
+import StoryReadyCard from './StoryReadyCard'
 import {
   type ComposeFlowType,
   useOutreachComposeFlow,
@@ -138,7 +139,10 @@ export default function CampaignManagerTasks({
         />
       )}
 
+      {/* Mutually exclusive: PersonalizeStoryCard shows while the story is
+          incomplete, StoryReadyCard once it's complete. */}
       <PersonalizeStoryCard onPersonalize={onPersonalize} />
+      <StoryReadyCard />
 
       <div className="flex flex-col gap-3">
         <h2 className="text-sm font-semibold text-muted-foreground">

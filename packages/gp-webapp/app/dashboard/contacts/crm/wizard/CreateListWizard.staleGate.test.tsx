@@ -38,6 +38,7 @@ const selectList = vi.fn()
 
 const settledCount: ListWizardCountResult = {
   count: 250,
+  fenced: false,
   isLoading: false,
   isStale: false,
   isError: false,

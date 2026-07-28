@@ -6,6 +6,20 @@ machines** — a manual single QC run and an SQS-driven improve loop. The chat
 flow that authors drafts lives in `src/chats/general/ordinance-flow/`; this
 module owns the records and everything that grades or revises them.
 
+**Office-level framing:** the flow prompt is level-aware. `DistrictResolverService`
+carries the position's BallotReady `level`; the handler threads it into
+`OrdinanceFlowContext.officeLevel`, and `ordinanceFlowPrompt.ts` swaps every
+municipal block for a bill/legislature variant when the office is `STATE` (or
+`FEDERAL`): document vocabulary, the authority test (constitutional/federal
+limits instead of state-preempts-municipal), current-law research (state
+statutes, not the municipal `OrdinanceCodeRecord`), and the peer set for
+comparables (other states; the card contract's `city` field carries the peer
+state's name until the contract gains a jurisdiction shape). When the org's
+position doesn't resolve, `officeLevel` is null and the flow defaults to the
+municipal framing. The QC judge and reviser prompts are level-neutral
+("enacting body", "legislative voice") so the quality loop never pushes a
+state bill back into ordinance style.
+
 ## Key files
 
 | File | Role |

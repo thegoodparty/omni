@@ -328,6 +328,30 @@ the same shape with the statistic slot replaced by grounded salience from the
 inputs (e.g. the issue is contested in the race) or by the candidate's own
 commitment — never "many voters feel..." backed by nothing.
 
+Attach a `haystaq` block to each card, verbatim from the surviving Step 4
+`stats`. A card that cites a surviving column `c` carries that column's numbers
+plus the axis identity; a numberless card carries `haystaq: null` (never a
+fabricated column). Map Step 4's `stats[c]` keys onto the artifact field names:
+
+```python
+s = stats[c]  # the column this card cites
+haystaq = {
+    "hs_column": c,
+    # position_phrase: a short human phrase for the CANDIDATE'S pole of this
+    # issue axis (e.g. "funding infrastructure more", "expanding transit").
+    "position_phrase": "...",
+    # position_dir: "high" when the candidate's stance aligns with high scorers
+    # on hs_column, else "low".
+    "position_dir": "high",
+    "total_active": s["total_active"],
+    "voter_count_ge50": s["count_ge50"],
+    "voter_percentage_ge50": s["pct_ge50"],
+    "voter_count_ge70": s["count_ge70"],
+    "voter_percentage_ge70": s["pct_ge70"],
+}
+# numberless card: haystaq = None
+```
+
 Set `haystaq_status`:
 
 - `"no_district"` — the district params were absent and Databricks was skipped entirely.
@@ -370,6 +394,14 @@ for c in out["actions"]:
         c["title"] + c["body"] + c["sms_message"]
         + (c["opponent_name"] or "") + c["issue"]
     )
+    hs = c["haystaq"]
+    assert hs is None or hs["hs_column"].startswith("hs_")
+    hs_pcts = (
+        {round(hs["voter_percentage_ge50"], 1), round(hs["voter_percentage_ge70"], 1)}
+        if hs is not None else set()
+    )
+    for pct in re.findall(r"(\d+(?:\.\d+)?)%", c["body"]):
+        assert round(float(pct), 1) in hs_pcts, f"body cites {pct}% not in haystaq"
     pair = (c["opponent_name"], c["issue"])
     assert pair not in seen_pairs; seen_pairs.add(pair)
     for pct in re.findall(r"\d+(?:\.\d+)?%", c["body"] + " " + c["sms_message"]):

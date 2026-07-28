@@ -36,7 +36,6 @@ test.describe('Navigation Menu by Org Type', () => {
       timeout: 10000,
     })
     await expect(sidebar.getByText('Voter Outreach')).toBeVisible()
-    await expect(sidebar.getByText('AI Assistant')).toBeVisible()
     await expect(sidebar.getByText('Content Builder')).toBeVisible()
 
     // The Website tab was retired with the new compliance flow (ENG-10505).
@@ -60,7 +59,6 @@ test.describe('Navigation Menu by Org Type', () => {
     await expect(sidebar.getByText('Campaign Manager')).not.toBeVisible()
     await expect(sidebar.getByText('Voter Outreach')).not.toBeVisible()
     await expect(sidebar.getByText('Website')).not.toBeVisible()
-    await expect(sidebar.getByText('AI Assistant')).not.toBeVisible()
     await expect(sidebar.getByText('Content Builder')).not.toBeVisible()
   })
 })
