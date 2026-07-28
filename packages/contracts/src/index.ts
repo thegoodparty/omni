@@ -722,3 +722,19 @@ export {
   DoorKnockingKnockResponseSchema,
   type DoorKnockingKnockResponse,
 } from './doorKnocking/DoorKnockingTurf.schema'
+
+export {
+  DOOR_KNOCK_STATUSES,
+  DoorKnockStatusSchema,
+  type DoorKnockStatus,
+  RoutePayloadTargetSchema,
+  type RoutePayloadTarget,
+  RoutePayloadAddressSchema,
+  type RoutePayloadAddress,
+  RoutePayloadStopSchema,
+  type RoutePayloadStop,
+  DoorKnockingRoutePayloadSchema,
+  type DoorKnockingRoutePayload,
+  RoutePathGeometrySchema,
+  type RoutePathGeometry,
+} from './doorKnocking/DoorKnockingRoutePayload.schema'

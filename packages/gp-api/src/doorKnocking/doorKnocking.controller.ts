@@ -19,6 +19,7 @@ import {
   DoorKnockingKnockRequest,
   DoorKnockingKnockRequestSchema,
   DoorKnockingKnockResponseSchema,
+  DoorKnockingRoutePayloadSchema,
   DoorKnockingTurfSchema,
   UpdateDoorKnockingTurf,
   UpdateDoorKnockingTurfSchema,
@@ -31,12 +32,14 @@ import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
 import { Campaign, Organization } from '../generated/prisma'
 import { DoorKnockingTurfService } from './services/doorKnockingTurf.service'
 import { DoorKnockingKnockService } from './services/doorKnockingKnock.service'
+import { DoorKnockingServeService } from './services/doorKnockingServe.service'
 
 @Controller('door-knocking')
 export class DoorKnockingController {
   constructor(
     private readonly turfService: DoorKnockingTurfService,
     private readonly knockService: DoorKnockingKnockService,
+    private readonly serveService: DoorKnockingServeService,
   ) {}
 
   @Post('turfs')
@@ -91,6 +94,16 @@ export class DoorKnockingController {
     @ReqOrganization() organization: Organization,
   ) {
     await this.turfService.delete(id, organization.slug)
+  }
+
+  @Get('turfs/:id/route')
+  @UseOrganization()
+  @ResponseSchema(DoorKnockingRoutePayloadSchema)
+  serveRoute(
+    @Param('id', ParseIntPipe) id: number,
+    @ReqOrganization() organization: Organization,
+  ) {
+    return this.serveService.serve(id, organization)
   }
 
   @Post('turfs/:id/knock')

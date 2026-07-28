@@ -12,6 +12,8 @@ import {
   Bbox,
   DoorKnockingEvaluateResponse,
   DoorKnockingEvaluateResponseSchema,
+  DoorKnockingResidentsResponse,
+  DoorKnockingResidentsResponseSchema,
 } from '@goodparty_org/contracts'
 import { FilterObject } from '@/contacts/utils/voterFileFilter.utils'
 import { HttpStatus } from '@nestjs/common'
@@ -110,6 +112,43 @@ export class DoorKnockingPeopleApiService {
         'people-api door-knocking evaluate failed',
       )
       throw new BadGatewayException('Turf evaluation failed')
+    }
+  }
+
+  async residents(args: {
+    districtId: string
+    addressKeys: string[]
+    targetPersonIds: string[]
+  }): Promise<DoorKnockingResidentsResponse> {
+    try {
+      const response = await lastValueFrom(
+        this.httpService.post(
+          `${PEOPLE_API_URL}/v1/door-knocking/residents`,
+          args,
+          { headers: { Authorization: `Bearer ${this.s2sToken()}` } },
+        ),
+      )
+      return DoorKnockingResidentsResponseSchema.parse(response.data)
+    } catch (error) {
+      // people-api 400s when residents exceed the per-route population cap
+      // — a caller-visible contract violation, not an upstream failure.
+      if (
+        isAxiosError(error) &&
+        error.response?.status === HttpStatus.BAD_REQUEST
+      ) {
+        throw new BadRequestException(
+          'Residents lookup exceeded the expected population for this route',
+        )
+      }
+      // Never log the raw AxiosError: config.headers carries the S2S JWT.
+      this.logger.error(
+        {
+          status: isAxiosError(error) ? error.response?.status : undefined,
+          message: error instanceof Error ? error.message : String(error),
+        },
+        'people-api door-knocking residents failed',
+      )
+      throw new BadGatewayException('Residents lookup failed')
     }
   }
 }
