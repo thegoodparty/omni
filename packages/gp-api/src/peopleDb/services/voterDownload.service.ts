@@ -29,7 +29,7 @@ export class VoterDownloadService
   implements OnApplicationBootstrap, OnModuleInit, OnModuleDestroy
 {
   private readonly logger = new Logger(VoterDownloadService.name)
-  private pool!: Pool
+  private pool?: Pool
   private unsubscribe: (() => void) | null = null
 
   constructor(
@@ -37,14 +37,27 @@ export class VoterDownloadService
     private readonly peopleDbUrl: PeopleDbUrlProvider,
   ) {}
 
+  // A satellite dependency (people-db) must never take down the whole gp-api
+  // monolith at boot — fail soft here and let a request-time call surface the
+  // misconfiguration instead. The url provider's 5-min refresh + onChange
+  // recovers automatically once the URL becomes resolvable.
   async onModuleInit() {
-    this.pool = this.buildPool(await this.peopleDbUrl.ensureLoaded())
+    try {
+      this.pool = this.buildPool(await this.peopleDbUrl.ensureLoaded())
+    } catch (err) {
+      this.logger.debug(
+        { err },
+        'people-db download pool not initialized at boot; will retry lazily on first download',
+      )
+    }
     this.unsubscribe = this.peopleDbUrl.onChange((url) => {
       const previous = this.pool
       this.pool = this.buildPool(url)
       // end() drains: it waits for checked-out clients (e.g. an in-flight COPY)
-      // to be released before closing, so no explicit delay is needed.
-      previous.end().catch((err: unknown) => {
+      // to be released before closing, so no explicit delay is needed. If
+      // there was no previous pool (never initialized at boot), there is
+      // nothing to drain.
+      previous?.end().catch((err: unknown) => {
         this.logger.warn({ err }, 'Failed to end previous pg pool')
       })
     })
@@ -74,7 +87,10 @@ export class VoterDownloadService
     // in its TTFB. Fire-and-forget; if it fails the next real request will
     // retry and surface the error normally. Runs only when Nest finishes
     // bootstrapping, so unit tests that instantiate the service directly do
-    // not pay this cost or pollute pool-call assertions.
+    // not pay this cost or pollute pool-call assertions. No-op if the pool
+    // was never initialized at boot (e.g. the URL was unresolved) — the
+    // first real download will build it lazily.
+    if (!this.pool) return
     this.pool
       .connect()
       .then((client) => client.release())
@@ -86,7 +102,7 @@ export class VoterDownloadService
 
   async onModuleDestroy() {
     this.unsubscribe?.()
-    await this.pool.end()
+    await this.pool?.end()
   }
 
   async streamPeopleCsv(
@@ -102,6 +118,12 @@ export class VoterDownloadService
       dto,
     )
     const effectiveDistrictId = useVoterOnlyPath ? null : districtId
+
+    if (!this.pool) {
+      throw new InternalServerErrorException(
+        'people-db download pool not initialized',
+      )
+    }
 
     let client: PoolClient
     try {

@@ -687,6 +687,57 @@ describe('VoterDownloadService', () => {
     })
   })
 
+  describe('fail-soft boot', () => {
+    it('does not reject onModuleInit when the people-db URL cannot be resolved', async () => {
+      const unresolvedProvider = {
+        ensureLoaded: vi.fn<() => Promise<string>>(() =>
+          Promise.reject(new Error('Cannot resolve database URL')),
+        ),
+        onChange: vi.fn<(listener: (url: string) => void) => () => void>(() =>
+          vi.fn(),
+        ),
+      }
+
+      const unresolvedService = new VoterDownloadService(
+        districtServiceMock as never,
+        unresolvedProvider as never,
+      )
+
+      await expect(unresolvedService.onModuleInit()).resolves.toBeUndefined()
+      expect(unresolvedProvider.onChange).toHaveBeenCalledTimes(1)
+    })
+
+    it('throws a clean InternalServerErrorException from streamPeopleCsv when the pool was never initialized', async () => {
+      const unresolvedProvider = {
+        ensureLoaded: vi.fn<() => Promise<string>>(() =>
+          Promise.reject(new Error('Cannot resolve database URL')),
+        ),
+        onChange: vi.fn<(listener: (url: string) => void) => () => void>(() =>
+          vi.fn(),
+        ),
+      }
+
+      const unresolvedService = new VoterDownloadService(
+        districtServiceMock as never,
+        unresolvedProvider as never,
+      )
+      await unresolvedService.onModuleInit()
+
+      const { res } = makeRawResponse()
+
+      await expect(
+        unresolvedService.streamPeopleCsv(
+          {
+            districtId: DISTRICT_UUID,
+            filters: { filters: [], filterOperators: {} },
+          } as never,
+          res,
+        ),
+      ).rejects.toMatchObject({ status: 500 })
+      expect(mockPoolConnect).not.toHaveBeenCalled()
+    })
+  })
+
   describe('database URL swap', () => {
     it('ends the previous pool and builds a new one with the new URL', () => {
       mockPoolEnd.mockResolvedValue(undefined)
