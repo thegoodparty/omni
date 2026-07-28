@@ -7,6 +7,8 @@ import { MapboxOverlay } from '@deck.gl/mapbox'
 import { ScatterplotLayer } from '@deck.gl/layers'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css'
+import { PolygonLayer } from '@deck.gl/layers'
+import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { NEXT_PUBLIC_GEOAPIFY_TILES_KEY } from 'appEnv'
 import { DecodedPack } from './packDecoder'
 import { FilterResult } from './filterEngine'
@@ -31,8 +33,22 @@ export type PolygonRing = Array<[number, number]>
 interface VoterMapCanvasProps {
   pack: DecodedPack
   filterResult: FilterResult
+  turfs: DoorKnockingTurf[]
+  focusTurf: DoorKnockingTurf | null
+  // Bump to clear the in-progress drawing (e.g. after a turf is saved).
+  clearDrawToken: number
   onPolygonChange: (ring: PolygonRing | null) => void
 }
+
+const hexToRgba = (
+  hex: string,
+  alpha: number,
+): [number, number, number, number] => [
+  parseInt(hex.slice(1, 3), 16),
+  parseInt(hex.slice(3, 5), 16),
+  parseInt(hex.slice(5, 7), 16),
+  alpha,
+]
 
 const buildColors = (
   filterResult: FilterResult,
@@ -79,12 +95,16 @@ const packBounds = (
 export default function VoterMapCanvas({
   pack,
   filterResult,
+  turfs,
+  focusTurf,
+  clearDrawToken,
   onPolygonChange,
 }: VoterMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const hasTilesKey = NEXT_PUBLIC_GEOAPIFY_TILES_KEY.length > 0
   const overlayRef = useRef<MapboxOverlay | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  const drawRef = useRef<MapboxDraw | null>(null)
   const onPolygonChangeRef = useRef(onPolygonChange)
   onPolygonChangeRef.current = onPolygonChange
 
@@ -108,6 +128,7 @@ export default function VoterMapCanvas({
     // MapboxDraw predates maplibre's types but is runtime-compatible — the
     // POC shipped this exact pairing.
     map.addControl(draw as unknown as maplibregl.IControl, 'top-right')
+    drawRef.current = draw
 
     const overlay = new MapboxOverlay({ layers: [] })
     map.addControl(overlay as unknown as maplibregl.IControl)
@@ -146,6 +167,7 @@ export default function VoterMapCanvas({
     return () => {
       overlayRef.current = null
       mapRef.current = null
+      drawRef.current = null
       map.remove()
     }
     // The map mounts once per pack — everything dynamic flows through the
@@ -158,6 +180,15 @@ export default function VoterMapCanvas({
     const dotCount = pack.manifest.counts.dots
     overlay.setProps({
       layers: [
+        new PolygonLayer<DoorKnockingTurf>({
+          id: 'saved-turfs',
+          data: turfs,
+          getPolygon: (turf) => turf.geoPoly.coordinates[0] ?? [],
+          getFillColor: (turf) => hexToRgba(turf.color, 40),
+          getLineColor: (turf) => hexToRgba(turf.color, 220),
+          lineWidthMinPixels: 2,
+          pickable: false,
+        }),
         new ScatterplotLayer({
           id: 'voter-dots',
           data: {
@@ -177,7 +208,36 @@ export default function VoterMapCanvas({
         }),
       ],
     })
-  }, [pack, filterResult])
+  }, [pack, filterResult, turfs])
+
+  useEffect(() => {
+    if (!focusTurf || !mapRef.current) return
+    const ring = focusTurf.geoPoly.coordinates[0] ?? []
+    if (ring.length === 0) return
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (const [x, y] of ring) {
+      if (x < minX) minX = x
+      if (x > maxX) maxX = x
+      if (y < minY) minY = y
+      if (y > maxY) maxY = y
+    }
+    mapRef.current.fitBounds(
+      [
+        [minX, minY],
+        [maxX, maxY],
+      ],
+      { padding: 64 },
+    )
+  }, [focusTurf])
+
+  useEffect(() => {
+    if (clearDrawToken === 0) return
+    drawRef.current?.deleteAll()
+    onPolygonChangeRef.current(null)
+  }, [clearDrawToken])
 
   // A missing key would otherwise render a silent blank map (401s from the
   // tile CDN) — fail loudly for developers instead.
