@@ -1,18 +1,27 @@
 # app/dashboard/campaign-story/
 
-**The standalone `/dashboard/campaign-story` route and its sidebar tab were
-removed.** The why/background/issues cards and the `sections.ts` /
-`useCampaignStory*` modules in this directory now exist purely as reusable
-pieces: composed into onboarding by
-`app/onboarding/components/OnboardingCampaignStoryStep.tsx`, and read by the
-plan tab's `CampaignPlanStoryGate` (`campaign-plan/components/`). A candidate
-edits their story during onboarding or via the campaign manager, not a
-dedicated dashboard tab.
+**The standalone `/dashboard/campaign-story` route + "Your story" sidebar tab
+exist** (restored under the `campaign-story` flag). The page
+(`components/CampaignStoryPage.tsx`) renders the **onboarding** story cards
+(`app/onboarding/components/StoryIntakeCard` for why/background,
+`StoryIssuesCard` for the policy priorities). Unlike onboarding it's a single
+editable page: one **Save** in the page header (`StoryHeaderBar`) commits every
+dirty field at once (`saveAll`), and a **Start over** at the bottom (shown once
+any field has content) clears the fields in memory — Save stays the only thing
+that persists, so Start over deletes nothing until the candidate Saves the empty
+state. The cards get no `save` prop here (their per-field Save bar is
+onboarding-only).
 
-Candidate-facing "Campaign Story" cards: the candidate's "why" (a RichEditor),
-their "background" (a textarea), and a structured "Your Policies" editor —
-capturing the narrative foundation reused across the campaign plan, stump
-speech, and voter messaging.
+The `sections.ts` + `useCampaignStory*` modules are shared: `sections.ts` (which
+owns the `CampaignStorySection` type + `CAMPAIGN_STORY_SECTIONS`) is read by the
+plan tab's `CampaignPlanStoryGate` (`campaign-plan/components/`). The old
+self-saving cards (`CampaignStoryWhyCard`, `CampaignStoryCard`,
+`StoryCardActions`, `OnboardingCampaignStoryStep`) have been **deleted** —
+everything now runs through the onboarding `StoryIntakeCard` / `StoryIssuesCard`.
+
+The candidate's story is: the "why", the "background", and a structured set of
+policy priorities — the narrative foundation reused across the campaign plan,
+stump speech, and voter messaging.
 
 **Only `background` is part of the story record.** The "why" and issues are
 **website** fields shared with the Pro-upgrade flow:
@@ -54,10 +63,9 @@ already round-trips through `Website.content.about`.
 
 | File | Role |
 |------|------|
-| `components/CampaignStoryWhyCard.tsx` | The "why" card — a `RichEditor` (toolbar hidden) bound to the website bio via `saveAboutFields({ bio })` (autosaves on blur) + Campaign Manager hint + "Help me rewrite" |
-| `components/CampaignStoryCard.tsx` | The "background" card — textarea (char counter, `/100` soft suggestion, not enforced) autosaving to `campaign_story` via `PUT /v1/campaigns/mine/story` + Campaign Manager hint + "Help me rewrite" |
-| `components/useStoryRewrite.ts` | Shared "Help me rewrite" logic (request, suggestion state, accept/discard, the 403 limit, analytics) used by both prompt cards |
-| `components/RewriteSuggestion.tsx` | Shared presentational suggestion panel (loading/error/draft + Discard / Try again / Use this) |
+| `components/CampaignStoryPage.tsx` | The "Your story" dashboard page — renders the onboarding `StoryIntakeCard` (why/background) + `StoryIssuesCard` (policies); one header Save commits all dirty fields, a bottom Start over clears them |
+| `components/useStoryRewrite.ts` | Shared "Improve with AI" logic (request, apply-in-place, undo, the 403 limit, analytics) — used by the onboarding cards (`StoryFieldBar`) |
+| `sections.ts` | Owns the `CampaignStorySection` type + `CAMPAIGN_STORY_SECTIONS` (the `background` prompt), read by the plan-tab `CampaignPlanStoryGate` |
 
 ## Patterns
 
@@ -68,9 +76,9 @@ already round-trips through `Website.content.about`.
   "Campaign Tracker" label (`CampaignPlanRouter.tsx`, `CampaignPlanView.tsx`,
   `DashboardMenu.tsx`), and the story-completeness gate
   (`CampaignPlanStoryGate`).
-- **Persistence (background).** Consumers (`OnboardingCampaignStoryStep`,
-  `CampaignPlanStoryGate`) read the story client-side via `useCampaignStory()`
-  (`GET /v1/campaigns/mine/story`); the background card autosaves on blur via
+- **Persistence (background).** Consumers (the onboarding story draft, the
+  "Your story" page, `CampaignPlanStoryGate`) read the story client-side via
+  `useCampaignStory()` (`GET /v1/campaigns/mine/story`) and write via
   `PUT /v1/campaigns/mine/story`. Backed by the `campaign_story` table in
   gp-api (`src/campaignStory/`); response shape is `CampaignStory`
   (`background`) from `@goodparty_org/contracts`.
@@ -82,16 +90,19 @@ already round-trips through `Website.content.about`.
   plain text while emitting the same HTML the Pro-upgrade editor reads. Initial
   bio + issues are fetched client-side (`getUserWebsite`) by whichever consumer
   mounts the cards (onboarding, the plan-tab gate).
-- **"Help me rewrite"** (why + background) calls
+- **"Improve with AI"** (why + background) calls
   `POST /v1/campaigns/mine/story/rewrite` (Gemini Flash, server-side) with the
   field id + current text; gp-api pairs it with the candidate's name and a
-  field-specific, non-partisan prompt. The suggestion renders in a card with
-  Discard / Try again / Use this. "Use this" replaces the field and persists
-  immediately (no wait for blur). The button is disabled when the field is empty
-  (nothing to rewrite). The endpoint is stateless on the field text, so the why
+  field-specific, non-partisan prompt. While it runs the button reads
+  "Improving…"; on success the improved text is dropped **straight into the
+  field** and persisted immediately (no suggestion panel, no wait for blur), and
+  an **Undo** link appears (left of the button) that restores the pre-improvement
+  text and re-saves it. Undo stays until it's clicked or the next improvement
+  recaptures the baseline. The button is disabled when the field is empty
+  (nothing to improve). The endpoint is stateless on the field text, so the why
   rewrite operates on the bio's plain text. The shared `PolicyForm` "Policy
-  focus" editor has its own "Help me rewrite" too (rewrite `field: 'issue'`), so
-  both the Campaign Story "Your Policies" editor and the Pro-upgrade flow get it.
+  focus" editor has its own separate "Help me rewrite" (rewrite `field: 'issue'`,
+  still a suggestion panel), independent of `useStoryRewrite`.
 - **Rewrite limit.** A per-campaign lifetime cap of 200 rewrite attempts,
   tracked in `campaign_story.rewrite_count` and enforced server-side (403). A
   lifetime attempt is refunded if the Gemini call itself fails, so infra errors
@@ -99,20 +110,28 @@ already round-trips through `Website.content.about`.
   notice and disables rewriting for the session (manual edits still allowed).
 - **Rewrite analytics.** `useStoryRewrite` fires Segment events via
   `trackEvent(EVENTS.CampaignStory.*)`: `RewriteRequested` ({ field, source:
-  'initial' | 'retry' }), `RewriteAccepted`, `RewriteDiscarded`, and
-  `RewriteLimitReached` (403) — all carry `field`. Names live in
-  `helpers/analyticsHelper.ts`.
+  'initial' }), `RewriteAccepted` (fired when the improvement is auto-applied),
+  `RewriteDiscarded` (fired on Undo), and `RewriteLimitReached` (403) — all carry
+  `field`. Names live in `helpers/analyticsHelper.ts`.
 - **Campaign Manager hint** is length-driven and always visible: empty → "say
   more" → positive once past `SUGGESTED_CHARS`. It deliberately avoids quality
   claims ("strong, specific…") from a length signal — that waits for the real
   rewrite AI.
-- **Onboarding completion → plan generation.** Each card reports its *live*
-  answered-state up (`onAnsweredChange`, fired on every keystroke);
-  `OnboardingCampaignStoryStep` combines why + background + the issues count
-  into a single `onCompleteChange(complete)` callback. `OnboardingFlow.tsx`
-  owns the step's footer copy and fires plan + tracker generation once the
-  candidate completes (or explicitly skips) the story step - see the
-  `campaign-story` branches in `OnboardingFlow.tsx`.
+- **Shared cards live in onboarding.** Both onboarding and the "Your story"
+  dashboard page render the new-design `StoryIntakeCard` (why/background) +
+  `StoryIssuesCard` (inline "Priority N" rows, no modal) from
+  `app/onboarding/components/`. Onboarding is deferred (one save on the final
+  step, `useOnboardingStoryDraft`); the dashboard passes each card a `save`
+  (`StorySaveState`) so it persists that field on its own Save button
+  (`CampaignStoryPage`). The `useStoryRewrite` hook here backs the shared
+  `StoryFieldBar` and gained an `'issue'` field (+ optional `title`) for the
+  policy rows. See `app/onboarding/CLAUDE.md`.
+- **why persistence → Pro.** Because the why is the website bio, any writer must
+  invalidate `USER_WEBSITE_QUERY_KEY` after saving or a later reader within the
+  5-min `staleTime` (notably the Pro-upgrade candidate profile, which seeds its
+  bio from that cache on in-app navigation) reads the pre-write snapshot and the
+  why won't pre-fill. `useOnboardingStoryDraft.persist` and `CampaignStoryPage`
+  both invalidate; keep that up in any new writer.
 - **Plan tab review + generation.** The actual review + confirm + generation
   UI lives on the plan tab
   (`campaign-plan/components/CampaignPlanStoryGate.tsx`), which shows the why
@@ -150,9 +169,10 @@ already round-trips through `Website.content.about`.
 
 ## Related
 
-- `app/onboarding/components/OnboardingCampaignStoryStep.tsx` composes the same
-  why/background/issues cards into the onboarding flow as a skippable step,
-  firing plan + tracker generation on completion.
+- `app/onboarding/components/` owns the shared story cards (`StoryIntakeCard`,
+  `StoryIssuesCard`, `StoryFieldBar`) used by both onboarding (deferred, one save
+  on leaving the story) and the `/dashboard/campaign-story` page (single header
+  Save + Start over) — see `app/onboarding/CLAUDE.md`.
 - `app/shared/experiments/campaignStoryFlag.ts` — flag wrapper hook + key.
 - `app/dashboard/shared/DashboardMenu.tsx` — reads the flag to label the plan
   tab "Campaign Tracker" for the story cohort. No dedicated sidebar entry for

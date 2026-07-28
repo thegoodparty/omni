@@ -200,7 +200,7 @@
     "node-fetch": "^3.3.2",
     "p-limit": "^6.2.0",
     "p-retry": "^7.1.1",
-    "postcss": "^8.4.23",
+    "postcss": "^8.5.11",
     "prettier": "^3.8.3",
     "storybook": "^10.3.4",
     "tsx": "^4.22.3",

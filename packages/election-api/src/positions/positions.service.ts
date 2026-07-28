@@ -38,7 +38,6 @@ type PositionWithOptionalDistrictAndTurnouts = {
   level: Position['level']
   isWinIcp: Position['isWinIcp']
   isServeIcp: Position['isServeIcp']
-  placeId?: Position['placeId'] | null
   district?: {
     id: District['id']
     L2DistrictType: District['L2DistrictType']
@@ -124,7 +123,6 @@ export class PositionsService extends createPrismaBase(MODELS.Position) {
       level: true,
       isWinIcp: true,
       isServeIcp: true,
-      ...(includeFilingFee ? { placeId: true } : {}),
     }
 
     if (!includeDistrict) {
@@ -283,29 +281,24 @@ export class PositionsService extends createPrismaBase(MODELS.Position) {
   }
 
   // Resolves the position's next upcoming election date (yyyy-mm-dd), used by
-  // gp-api to date a re-election campaign. Reuses the same Position->Race join
-  // as the filing-fee lookup (no FK; shared placeId + name match against
-  // Race.positionNames). electionDate is null when the position has no future
-  // race, so the caller never dates a campaign to a past election.
+  // gp-api to date a re-election campaign. Races are joined by the Race.positionId
+  // FK, which BallotReady maintains per election schedule — so a multi-seat
+  // "cohort" position (several Position rows sharing a name, one per schedule)
+  // resolves only to its own races. electionDate is null when the position has
+  // no future race, so the caller never dates a campaign to a past election.
   async getNextElectionForPosition(
     id: string,
   ): Promise<{ electionDate: string | null }> {
     const position = await this.model.findUnique({
       where: { id },
-      select: { id: true, placeId: true, name: true },
+      select: { id: true },
     })
     if (!position) {
       throw new NotFoundException(`Position not found for id=${id}`)
     }
-    if (!position.placeId || !position.name) {
-      return { electionDate: null }
-    }
 
     const races = await this.client.race.findMany({
-      where: {
-        placeId: position.placeId,
-        positionNames: { has: position.name },
-      },
+      where: { positionId: id },
       select: { electionDate: true, isPrimary: true, isRunoff: true },
     })
     const chosen = pickNextUpcomingRace(races, new Date())
@@ -317,13 +310,12 @@ export class PositionsService extends createPrismaBase(MODELS.Position) {
   }
 
   /**
-   * BallotReady stores filing fees on the Race row, not the Position. There's
-   * no FK between Position and Race — the de-facto join is shared `placeId`
-   * plus a position-name match against Race.positionNames. One Position can
-   * have many Races (different election dates, primary vs. general), so we
-   * pick the most relevant one: matching electionDate exact > nearest future
-   * general > nearest future > latest historical. Returns an empty result if
-   * no candidate race exists or its filingRequirements yields nothing.
+   * BallotReady stores filing fees on the Race row, not the Position. Races are
+   * joined by the Race.positionId FK. One Position can have many Races (different
+   * election dates, primary vs. general), so we pick the most relevant one:
+   * matching electionDate exact > nearest future general > nearest future >
+   * latest historical. Returns an empty result if no candidate race exists or
+   * its filingRequirements yields nothing.
    */
   private async lookupFilingFee(
     position: PositionWithOptionalDistrictAndTurnouts,
@@ -334,13 +326,9 @@ export class PositionsService extends createPrismaBase(MODELS.Position) {
       filingRequirementsText: null,
       extractionSource: null,
     }
-    if (!position.placeId || !position.name) return empty
 
     const races = await this.client.race.findMany({
-      where: {
-        placeId: position.placeId,
-        positionNames: { has: position.name },
-      },
+      where: { positionId: position.id },
       select: {
         electionDate: true,
         isPrimary: true,

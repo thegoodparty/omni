@@ -15,7 +15,9 @@ import {
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { useContactsTable } from '../ContactsTableProvider'
 import { MAX_SEGMENT_NAME_LENGTH } from '../shared/segments.util'
 import { LOCKED_LIST_MESSAGE } from '../shared/constants'
 import type { SegmentResponse } from '../shared/contacts-types'
@@ -37,6 +39,7 @@ export default function RenameListDialog({
   open,
   onOpenChange,
 }: RenameListDialogProps) {
+  const { isWinContext, isWinContextReady } = useContactsTable()
   const orgSlug = useOrganization()?.slug
   const queryClient = useQueryClient()
   const { successSnackbar, errorSnackbar } = useSnackbar()
@@ -56,6 +59,16 @@ export default function RenameListDialog({
         name: nextName,
       }).then((res) => res.data),
     onSuccess: async () => {
+      // ENG-10767: the legacy FiltersSheet fired Segment Updated for filter
+      // edits; action: 'rename' distinguishes this name-only update (the
+      // legacy fires carry a filters property instead). Ready-gated like the
+      // surface's other events.
+      if (isWinContextReady) {
+        trackEvent(EVENTS.Contacts.SegmentUpdated, {
+          action: 'rename',
+          context: isWinContext ? 'win' : 'serve',
+        })
+      }
       successSnackbar('List renamed')
       await invalidateSegments()
       onOpenChange(false)

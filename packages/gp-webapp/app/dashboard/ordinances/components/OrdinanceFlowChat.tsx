@@ -21,17 +21,14 @@ import type {
 import {
   AssistantRow,
   ChatComposer,
-  InlineSegments,
   ThinkingRow,
   UserBubble,
 } from '../../shared/agent-chat/chatUI'
-import {
-  segmentsTextLength,
-  segmentsToLive,
-} from '../../shared/agent-chat/streaming'
+import { segmentsTextLength } from '../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../briefings/shared/useDictationAppend'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { buildOrdinanceAnchor } from '../data/anchor'
 import { ordinanceFlowChatApi } from '../data/chat-api'
 import { fetchOrdinanceBySlug, saveClarifyAnswer } from '../data/ordinances-api'
@@ -44,15 +41,34 @@ import {
 import ClarifyQuestionWidget from './ClarifyQuestionWidget'
 import OrdinanceStepper from './OrdinanceStepper'
 import {
-  StepWidgetBlocks,
+  DRAFT_TOOL,
+  TurnBlocks,
   isStepWidgetTool,
+  liveTurnBlocks,
   parseStepWidget,
-  parseStepWidgets,
-  type StepWidgetInstance,
+  persistedTurnBlocks,
+  type PositionedWidget,
 } from './stepWidgets'
 
 const CLARIFY_TOOL = 'ask_clarify_question'
 const OFFER_TOOL = 'offer_next_step'
+
+const STEP_VIEWED_EVENTS: Partial<Record<OrdinanceFlowStep, string>> = {
+  clarify: EVENTS.Ordinances.ClarifyViewed,
+  authority: EVENTS.Ordinances.AuthorityViewed,
+  current_law: EVENTS.Ordinances.CurrentLawViewed,
+  comparables: EVENTS.Ordinances.HowOthersSolvedItViewed,
+  draft: EVENTS.Ordinances.DraftCreationViewed,
+}
+
+// The draft step is absent on purpose: its completion is the draft finishing
+// in chat (the present_draft tool call), not the advance click.
+const STEP_COMPLETED_EVENTS: Partial<Record<OrdinanceFlowStep, string>> = {
+  clarify: EVENTS.Ordinances.ClarifyCompleted,
+  authority: EVENTS.Ordinances.AuthorityCompleted,
+  current_law: EVENTS.Ordinances.CurrentLawCompleted,
+  comparables: EVENTS.Ordinances.HowOthersSolvedItCompleted,
+}
 
 // User-meaningful "working" actions shown as shimmer pills. Bookkeeping tools
 // (ask_clarify_question renders as the widget; save_note/save_synthesis are
@@ -162,9 +178,7 @@ export default function OrdinanceFlowChat({
   // Each live widget records how much turn text preceded its tool call, so it
   // appears only after that text has typed out — and, unlike a turn-global
   // revealDone gate, never unmounts when later text in the same turn streams.
-  const [liveWidgets, setLiveWidgets] = useState<
-    Array<{ instance: StepWidgetInstance; appearAfter: number }>
-  >([])
+  const [liveWidgets, setLiveWidgets] = useState<PositionedWidget[]>([])
   // The tool whose arguments the model is currently writing, if any, so the
   // working shimmer can name it (e.g. "Preparing your question...").
   const [generatingTool, setGeneratingTool] = useState<string | null>(null)
@@ -227,6 +241,14 @@ export default function OrdinanceFlowChat({
         if (isStepWidgetTool(event.toolName)) {
           const widget = parseStepWidget(event.toolName, event.args)
           if (widget) {
+            // Live tool call only — a reloaded transcript re-renders the same
+            // widget from its persisted segment without passing through here,
+            // so the event fires exactly once per created draft.
+            if (event.toolName === DRAFT_TOOL) {
+              void trackEvent(EVENTS.Ordinances.DraftCreationCompleted)
+            }
+            // Record the text length streamed so far so the card renders inline
+            // at that seam — the lead-in above it, later prose below it.
             setLiveWidgets((prev) => [
               ...prev,
               { instance: widget, appearAfter: textLength() },
@@ -256,8 +278,11 @@ export default function OrdinanceFlowChat({
 
   const nextStep = stepValue ? nextOrdinanceStep(stepValue) : null
   const goToNextStep = useCallback(() => {
-    if (nextStep) router.push(`/dashboard/ordinances/solve/${slug}/${nextStep}`)
-  }, [router, slug, nextStep])
+    if (!nextStep) return
+    const completed = stepValue ? STEP_COMPLETED_EVENTS[stepValue] : undefined
+    if (completed) void trackEvent(completed)
+    router.push(`/dashboard/ordinances/solve/${slug}/${nextStep}`)
+  }, [router, slug, nextStep, stepValue])
 
   const answerClarify = useCallback(
     (questionId: string, question: string, answer: string): void => {
@@ -313,6 +338,11 @@ export default function OrdinanceFlowChat({
   useEffect(() => {
     sendRef.current = send
   }, [send])
+
+  useEffect(() => {
+    const viewed = stepValue ? STEP_VIEWED_EVENTS[stepValue] : undefined
+    if (viewed) void trackEvent(viewed)
+  }, [slug, stepValue])
 
   useEffect(() => {
     if (!stepValue) return
@@ -454,11 +484,18 @@ export default function OrdinanceFlowChat({
     segmentsTextLength(visibleSegments) >= segmentsTextLength(liveSegments)
   const showClarify = Boolean(liveClarify) && revealDone
   const showOffer = Boolean(liveOffer) && revealDone
+  // Interleave the step cards into the streamed turn at the seam each tool
+  // fired: the lead-in text types out, the card appears there and stays, and any
+  // following prose types out below it.
   const revealedTextLength = segmentsTextLength(visibleSegments)
-  const shownWidgets = liveWidgets
-    .filter((w) => revealedTextLength >= w.appearAfter)
-    .map((w) => w.instance)
-  const showWidgets = shownWidgets.length > 0
+  const turnBlocks = liveTurnBlocks(
+    visibleSegments,
+    liveWidgets,
+    revealedTextLength,
+  )
+  const showWidgets = liveWidgets.some(
+    (w) => revealedTextLength >= w.appearAfter,
+  )
   // Show the wait shimmer only when the assistant is working but nothing is
   // visible on screen yet, or while a tool's arguments generate. Keying
   // "nothing visible" on the revealed segments (not on the arrival of the first
@@ -525,14 +562,12 @@ export default function OrdinanceFlowChat({
               showWidgets ||
               working) && (
               <AssistantRow>
-                {visibleSegments.length > 0 ? (
-                  <InlineSegments
-                    segments={visibleSegments}
+                {turnBlocks.length > 0 ? (
+                  <TurnBlocks
+                    blocks={turnBlocks}
+                    slug={slug}
                     toolLabel={ordinanceToolLabel}
                   />
-                ) : null}
-                {showWidgets ? (
-                  <StepWidgetBlocks widgets={shownWidgets} slug={slug} />
                 ) : null}
                 {showClarify && liveClarify ? (
                   <ClarifyQuestionWidget
@@ -624,16 +659,18 @@ function AssistantMessage({
 }): React.JSX.Element {
   const segments = message.segments ?? []
   const clarify = clarifyFromSegments(segments)
-  const stepWidgets = parseStepWidgets(segments)
-  // Same interleaved model as the live turn: text and tool pills in stream
-  // order, so a reloaded turn reads identically to how it streamed.
-  const rendered = segmentsToLive(segments, message.content ?? '')
+  // Same interleaved model as the live turn: text, tool pills, and step cards in
+  // stream order, so a reloaded turn reads identically to how it streamed.
+  const blocks = persistedTurnBlocks(segments, message.content ?? '')
 
   return (
     <>
       <AssistantRow>
-        <InlineSegments segments={rendered} toolLabel={ordinanceToolLabel} />
-        <StepWidgetBlocks widgets={stepWidgets} slug={slug} />
+        <TurnBlocks
+          blocks={blocks}
+          slug={slug}
+          toolLabel={ordinanceToolLabel}
+        />
         {clarify ? (
           <ClarifyQuestionWidget
             question={clarify}

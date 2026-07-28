@@ -18,34 +18,20 @@ export class NavigationHelper {
     await WaitHelper.waitForPageReady(page)
   }
 
+  // Target ONLY the app's cookie banner (CookiesSnackbar) via its testid. The
+  // previous generic patterns (getByRole 'Close', /ok/i, ...) substring-match
+  // accessible names, so `Close` matched any task-row button whose description
+  // contained the word "close" (e.g. the recurring "Fundraising ask ... close
+  // out the month strong" task), clicked it, and popped its detail modal over
+  // the page — deterministically breaking every dashboard spec while that task
+  // was in "This week".
   static async dismissCookieBanner(page: Page): Promise<void> {
-    try {
-      // Try multiple common cookie banner patterns
-      const cookieSelectors = [
-        page.getByRole('button', { name: 'Close' }),
-        page.getByRole('button', { name: /accept/i }),
-        page.getByRole('button', { name: /agree/i }),
-        page.getByRole('button', { name: /ok/i }),
-        page.getByRole('button', { name: /dismiss/i }),
-        page.locator(
-          '[data-testid*="cookie"] button, [class*="cookie"] button, [id*="cookie"] button',
-        ),
-        page.locator('button:has-text("×"), button:has-text("✕")'),
-      ]
-
-      for (const selector of cookieSelectors) {
-        try {
-          if (await selector.first().isVisible({ timeout: 2000 })) {
-            await selector.first().click()
-            await selector.first().waitFor({ state: 'hidden', timeout: 5000 })
-            return
-          }
-        } catch {
-          // Try next selector
-        }
-      }
-    } catch {
-      // Cookie banner not present - continue silently
+    const accept = page.getByTestId('cookie-accept-btn')
+    if (await accept.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await accept.click()
+      await accept
+        .waitFor({ state: 'hidden', timeout: 5000 })
+        .catch(() => undefined)
     }
   }
 
@@ -63,6 +49,26 @@ export class NavigationHelper {
       }
     } catch {
       // Overlays not present - continue
+    }
+  }
+
+  // A dashboard "awareness task" (e.g. "Fundraising ask") can pop open as a
+  // vaul Drawer on the mobile dashboard — its full-screen overlay
+  // (data-slot="drawer-overlay") sits over the page and intercepts the mobile
+  // menu trigger click. Close it before opening the menu. Scoped to the vaul
+  // overlay so it never matches the Radix Sheet sidebar (data-slot=
+  // "sheet-overlay", managed by openMobileMenu), and only acts while the sidebar
+  // is closed so the Escape can't collapse the sidebar itself.
+  static async dismissTaskDrawer(page: Page): Promise<void> {
+    const sidebar = page.getByRole('dialog', { name: MOBILE_DRAWER_TITLE })
+    if (await sidebar.isVisible().catch(() => false)) return
+
+    const drawerOverlay = page.locator('[data-slot="drawer-overlay"]').first()
+    if (await drawerOverlay.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await page.keyboard.press('Escape')
+      await drawerOverlay
+        .waitFor({ state: 'hidden', timeout: 5000 })
+        .catch(() => undefined)
     }
   }
 

@@ -6,13 +6,13 @@ import {
   MdFactCheck,
   MdFileOpen,
   MdFolderShared,
+  MdMenuBook,
   MdMessage,
   MdPeople,
   MdPoll,
   MdSensorDoor,
 } from 'react-icons/md'
 import {
-  Bot,
   Circle,
   CircleUserRound,
   ClipboardList,
@@ -59,7 +59,11 @@ import {
   SidebarSeparator,
   useSidebar,
 } from '@styleguide'
-import { FlagIcon, ScrollTextIcon } from '@styleguide/components/ui/icons'
+import {
+  BookOpenIcon,
+  FlagIcon,
+  ScrollTextIcon,
+} from '@styleguide/components/ui/icons'
 import {
   OrganizationPicker,
   useOrganization,
@@ -121,15 +125,6 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     link: '/dashboard/profile',
     id: 'campaign-details-dashboard',
     onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickMyProfile),
-  },
-  {
-    label: 'AI Assistant',
-    icon: <MdAutoAwesome />,
-    v2Icon: Bot,
-    v2Category: 'campaign',
-    link: '/dashboard/campaign-assistant',
-    id: 'campaign-assistant-dashboard',
-    onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickAIAssistant),
   },
   {
     label: 'Content Builder',
@@ -236,6 +231,15 @@ const CHIEF_OF_STAFF_MENU_ITEM: MenuItem = {
   v2Category: 'elected-office',
 }
 
+const PUBLIC_PROFILE_MENU_ITEM: MenuItem = {
+  id: 'public-profile-dashboard',
+  label: 'Public Profile',
+  link: '/dashboard/public-profile',
+  icon: <MdFactCheck />,
+  v2Icon: CircleUserRound,
+  v2Category: 'elected-office',
+}
+
 const ORDINANCES_MENU_ITEM: MenuItem = {
   id: 'ordinances-dashboard',
   label: 'Ordinances',
@@ -253,6 +257,15 @@ const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   v2Icon: ScrollTextIcon,
   v2Category: 'campaign',
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignPlan),
+}
+
+const CAMPAIGN_STORY_MENU_ITEM: MenuItem = {
+  id: 'campaign-story-dashboard',
+  label: 'Your story',
+  link: '/dashboard/campaign-story',
+  icon: <MdMenuBook />,
+  v2Icon: BookOpenIcon,
+  v2Category: 'campaign',
 }
 
 const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
@@ -303,6 +316,8 @@ export const getDashboardMenuItems = (
     if (ordinancesShown) {
       menuItems.splice(communityIssuesShown ? 2 : 1, 0, ORDINANCES_MENU_ITEM)
     }
+    // The office holder's editable public /people profile (Serve side of §4).
+    menuItems.push(PUBLIC_PROFILE_MENU_ITEM)
   }
 
   // Chief of Staff is the primary Serve tab (Serve home), so it sits above
@@ -340,9 +355,24 @@ export const getDashboardMenuItems = (
     })
   }
 
+  // Story-cohort users get a "Your story" tab just above the tracker (the story
+  // is what the tracker + plan are generated from).
+  if (campaignStoryEnabled) {
+    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
+  }
+
   // Visible to non-Pro users too: the page renders a locked upgrade view
   // rather than the feature — the content is gated on isPro at the route.
   menuItems.push(KNOW_YOUR_OPPONENT_MENU_ITEM)
+
+  // Public Profile for Win candidates (campaign-category twin of the
+  // elected-office item pushed above). The route resolves the product itself;
+  // the category filter shows exactly one of the two per org type.
+  menuItems.push({
+    ...PUBLIC_PROFILE_MENU_ITEM,
+    id: 'public-profile-campaign',
+    v2Category: 'campaign',
+  })
 
   return menuItems
 }

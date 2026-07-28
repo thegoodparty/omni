@@ -9,38 +9,115 @@ const reachability: ListDetailReachability = {
   robocall: 0,
   phoneBanking: 45,
   doorKnocking: 10,
-  email: null,
-  metaAds: null,
+  polls: 120,
+}
+
+// ENG-10805: sms/polls fenced (mirroring each other, per gp-api), the other
+// three channels unfenced with distinct counts — so a channel rendering the
+// wrong fenced-ness or the wrong count fails independently of the others.
+const partiallyFencedReachability: ListDetailReachability = {
+  sms: 10000,
+  robocall: 300,
+  phoneBanking: 450,
+  doorKnocking: 50,
+  polls: 10000,
+  fenced: {
+    sms: true,
+    robocall: false,
+    phoneBanking: false,
+    doorKnocking: false,
+    polls: true,
+  },
+}
+
+// ENG-10806: one failed people-api aggregate call (landline) nulls only the
+// channels it backs — the rest of the reachability block still renders real
+// numbers, and the route itself stays a 200.
+const degradedReachability: ListDetailReachability = {
+  sms: 777,
+  robocall: null,
+  phoneBanking: null,
+  doorKnocking: 111,
+  polls: 777,
 }
 
 describe('ReachabilityGrid', () => {
   it('renders a number for every channel that has one, including zero', () => {
-    render(<ReachabilityGrid reachability={reachability} isError={false} />)
+    render(
+      <ReachabilityGrid
+        reachability={reachability}
+        isLoading={false}
+        isError={false}
+      />,
+    )
 
-    expect(screen.getByText('120')).toBeInTheDocument()
+    expect(screen.getAllByText('120')).toHaveLength(2)
     expect(screen.getByText('0')).toBeInTheDocument()
     expect(screen.getByText('45')).toBeInTheDocument()
     expect(screen.getByText('10')).toBeInTheDocument()
   })
 
-  it('renders "Unavailable" (never 0) for channels whose value is null', () => {
-    render(<ReachabilityGrid reachability={reachability} isError={false} />)
+  it('renders the same count for polls as for text', () => {
+    render(
+      <ReachabilityGrid
+        reachability={reachability}
+        isLoading={false}
+        isError={false}
+      />,
+    )
 
-    // email and metaAds are always null per the contract — both render
-    // Unavailable, not 0.
-    expect(screen.getAllByText('Unavailable')).toHaveLength(2)
+    expect(screen.getAllByText(String(reachability.polls))).toHaveLength(2)
   })
 
   it('renders every channel as Unavailable when the detail fetch failed, never a stale 0', () => {
-    render(<ReachabilityGrid reachability={reachability} isError />)
+    render(
+      <ReachabilityGrid
+        reachability={reachability}
+        isLoading={false}
+        isError
+      />,
+    )
 
-    expect(screen.getAllByText('Unavailable')).toHaveLength(6)
+    expect(screen.getAllByText('Unavailable')).toHaveLength(5)
     expect(screen.queryByText('120')).not.toBeInTheDocument()
   })
 
-  it('renders every channel as Unavailable while reachability is undefined (loading)', () => {
-    render(<ReachabilityGrid reachability={undefined} isError={false} />)
+  it('renders a neutral placeholder — never Unavailable — while loading', () => {
+    render(
+      <ReachabilityGrid reachability={undefined} isLoading isError={false} />,
+    )
 
-    expect(screen.getAllByText('Unavailable')).toHaveLength(6)
+    expect(screen.queryByText('Unavailable')).not.toBeInTheDocument()
+    expect(screen.getAllByText('—')).toHaveLength(5)
+  })
+
+  it('degrades only the channels backed by a failed aggregate to Unavailable', () => {
+    render(
+      <ReachabilityGrid
+        reachability={degradedReachability}
+        isLoading={false}
+        isError={false}
+      />,
+    )
+
+    expect(screen.getAllByText('Unavailable')).toHaveLength(2)
+    expect(screen.getAllByText('777')).toHaveLength(2)
+    expect(screen.getByText('111')).toBeInTheDocument()
+  })
+
+  it('renders a fenced channel as "10,000+" while unfenced channels stay exact', () => {
+    render(
+      <ReachabilityGrid
+        reachability={partiallyFencedReachability}
+        isLoading={false}
+        isError={false}
+      />,
+    )
+
+    expect(screen.getAllByText('10,000+')).toHaveLength(2)
+    expect(screen.queryByText('10,000')).not.toBeInTheDocument()
+    expect(screen.getByText('300')).toBeInTheDocument()
+    expect(screen.getByText('450')).toBeInTheDocument()
+    expect(screen.getByText('50')).toBeInTheDocument()
   })
 })

@@ -25,6 +25,7 @@ const baseUser: User = {
   metaData: null,
   passwordResetToken: null,
   clerkId: 'user_subject_123',
+  personId: null,
 }
 
 const adminUser: User = {

@@ -18,12 +18,16 @@ export class HttpClient {
   ): Promise<T> => {
     try {
       return await ofetch<T>(path, {
-        baseURL: this.baseUrl,
-        headers: {
-          Authorization: `Bearer ${await this.getToken()}`,
-          ...(init?.headers ?? {}),
-        },
         ...init,
+        // baseURL after ...init so a caller-supplied init.baseURL can't
+        // override the configured API root.
+        baseURL: this.baseUrl,
+        // headers last, with Authorization after the caller's headers so the
+        // managed Bearer token always wins while other caller headers merge.
+        headers: {
+          ...(init?.headers ?? {}),
+          Authorization: `Bearer ${await this.getToken()}`,
+        },
       })
     } catch (error: unknown) {
       if (error instanceof FetchError) {

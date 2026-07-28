@@ -1,0 +1,30 @@
+{
+  "name": "rent-cap-spokane",
+  "seedType": "new",
+  "issueSlug": null,
+  "goalText": "Enact a citywide 5% annual cap on residential rent increases to slow displacement of longtime tenants.",
+  "clarifyAnswers": [
+    {
+      "questionId": "q1_cap",
+      "question": "What annual cap on rent increases should the ordinance set?",
+      "answer": "5% per year on residential units citywide"
+    },
+    {
+      "questionId": "q2_exemptions",
+      "question": "Which units, if any, should be exempt from the cap?",
+      "answer": "New construction in its first 10 years and owner-occupied duplexes"
+    },
+    {
+      "questionId": "q3_sunset",
+      "question": "Should the ordinance include a sunset or review clause?",
+      "answer": "A three-year sunset with a council review before renewal"
+    }
+  ],
+  "authority": null,
+  "comparables": null,
+  "existingLaw": null,
+  "draftTitle": null,
+  "draftBody": null,
+  "draftSources": null,
+  "qualityReport": null
+}

@@ -3,6 +3,7 @@ import {
   BadRequestException,
   Injectable,
 } from '@nestjs/common'
+import { extname } from 'node:path'
 import { PeerlyBaseConfig } from '../config/peerlyBaseConfig'
 import { Readable } from 'stream'
 import FormData from 'form-data'
@@ -14,6 +15,20 @@ import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
 import { PeerlyHttpService } from './peerlyHttp.service'
 
 const MAX_FILE_SIZE = 512000
+
+// Peerly's /v2/media rejects filenames longer than 100 chars with an opaque
+// 400 ("An unknown validation error occurred.") — verified live 2026-07-22.
+const MAX_FILENAME_LENGTH = 100
+
+const truncateFileName = (fileName: string) => {
+  if (fileName.length <= MAX_FILENAME_LENGTH) {
+    return fileName
+  }
+  const ext = extname(fileName)
+  return ext.length < MAX_FILENAME_LENGTH
+    ? fileName.slice(0, MAX_FILENAME_LENGTH - ext.length) + ext
+    : fileName.slice(0, MAX_FILENAME_LENGTH)
+}
 
 const ALLOWED_MEDIA_TYPES = [
   MimeTypes.IMAGE_JPEG,
@@ -63,7 +78,7 @@ export class PeerlyMediaService extends PeerlyBaseConfig {
       form.append('title', title)
     }
     form.append('initial_file_upload', fileStream, {
-      filename: fileName,
+      filename: truncateFileName(fileName),
       contentType: mimeType,
       knownLength: fileStream instanceof Buffer ? fileStream.length : undefined,
     })

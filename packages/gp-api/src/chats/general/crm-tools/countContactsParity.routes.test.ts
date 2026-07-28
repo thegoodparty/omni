@@ -66,7 +66,7 @@ describe('count_contacts tool ↔ POST /v1/contacts/count parity', () => {
       { headers: { [ORG_SLUG_HEADER]: slug } },
     )
     expect(routeResponse.status).toBe(201)
-    expect(routeResponse.data).toEqual({ count: 7 })
+    expect(routeResponse.data).toEqual({ count: 7, fenced: false })
 
     const organization = await service.prisma.organization.findUniqueOrThrow({
       where: { slug },
@@ -77,7 +77,7 @@ describe('count_contacts tool ↔ POST /v1/contacts/count parity', () => {
     })
     const toolResult = await tool.execute(tool.inputSchema.parse(filter))
 
-    expect(toolResult).toEqual({ count: routeResponse.data.count })
+    expect(toolResult).toEqual(routeResponse.data)
 
     // Both paths must have sent people-api the exact same request body —
     // same resolved id filter, same demographic filters, same search.
@@ -85,5 +85,50 @@ describe('count_contacts tool ↔ POST /v1/contacts/count parity', () => {
     const [routeCall, toolCall] = postSpy.mock.calls
     expect(routeCall?.[0]).toBe(toolCall?.[0])
     expect(routeCall?.[1]).toEqual(toolCall?.[1])
+  })
+
+  // ENG-10804: when people-api's statement-timeout guard floors the count at
+  // FENCE_LIMIT, both the UI count route and the assistant tool must agree
+  // it's a floor, not an exact figure — same shared service call, so a
+  // divergence here would mean one path lost the flag on the way out.
+  it('returns fenced:true parity when the people-api count is fenced', async () => {
+    const slug = `eo-crm-parity-fenced-${Date.now()}`
+    await service.prisma.organization.create({
+      data: {
+        slug,
+        ownerId: service.user.id,
+        overrideDistrictId: DISTRICT_ID,
+      },
+    })
+
+    const postSpy = vi
+      .spyOn(service.app.get(HttpService), 'post')
+      .mockReturnValue(
+        of({
+          data: { pagination: { totalResults: 10000, fenced: true } },
+        }) as never,
+      )
+
+    const filter = { hasCellPhone: true }
+
+    const routeResponse = await service.client.post(
+      '/v1/contacts/count',
+      filter,
+      { headers: { [ORG_SLUG_HEADER]: slug } },
+    )
+    expect(routeResponse.status).toBe(201)
+    expect(routeResponse.data).toEqual({ count: 10000, fenced: true })
+
+    const organization = await service.prisma.organization.findUniqueOrThrow({
+      where: { slug },
+    })
+    const tool = buildCountContactsTool({
+      contacts: service.app.get(ContactsService),
+      organization,
+    })
+    const toolResult = await tool.execute(tool.inputSchema.parse(filter))
+
+    expect(toolResult).toEqual(routeResponse.data)
+    expect(postSpy).toHaveBeenCalledTimes(2)
   })
 })

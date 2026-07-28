@@ -10,6 +10,8 @@ export type RaceListItem = {
   election: {
     electionDay: string
   }
+  isPrimary: boolean | null
+  isRunoff: boolean | null
   city?: string | null
   district?: string | null
 }

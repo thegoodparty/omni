@@ -11,6 +11,7 @@ import { useTestService } from '@/test-service'
 import { LlmService } from '../../../../llm/services/llm.service'
 import { OrdinanceFlowSearchService } from '../services/ordinanceFlowSearch.service'
 import { seedFromFixture } from './seedFromFixture'
+import { measureStepVerbosity } from './verbosity'
 import { judgePanel } from './coldJudge'
 import { gatherVerificationEvidence } from './verifyCitations'
 import { stepRubrics, type RubricStep } from './rubrics'
@@ -116,11 +117,13 @@ const runStep = async (
     .map((s) => s.toolName as string)
   const payloadsFor = (tool: string): unknown[] =>
     segments.filter((s) => s.toolName === tool).map((s) => s.payload)
+  // Read message.content, not text segments: content always carries the full
+  // assistant text, while segments are only written for tool-bearing turns —
+  // a pure-text turn has no segments, which made text assertions here run
+  // against ''.
   const assistantText = messages
     .filter((m) => m.role === 'assistant')
-    .flatMap((m) => m.segments)
-    .filter((s) => s.kind === 'text')
-    .map((s) => s.text ?? '')
+    .map((m) => m.content ?? '')
     .join('\n')
 
   return {
@@ -153,6 +156,22 @@ const buildArtifact = (assistantText: string, payloadJson: string): string =>
     'Structured step payload:',
     payloadJson,
   ].join('\n')
+
+// Advisory reading-load report, logged every run so a prompt change shows its
+// verbosity delta next to the judge results. Not a gate — budgets only become
+// gates once baselines and product targets agree.
+const reportVerbosity = (
+  step: string,
+  assistantText: string,
+  payloads: unknown[],
+): void => {
+  const v = measureStepVerbosity({ assistantText, payloads })
+  // Direct stream write — vitest's console interception hides console.*
+  // output from passing tests, and this report must survive a green run.
+  process.stdout.write(
+    `verbosity ${step}: prose=${v.proseWords}w payload=${v.payloadWords}w total=${v.totalWords}w\n`,
+  )
+}
 
 // Run the step's cold-judge rubric against one persisted artifact. Faithfulness
 // GATE dims hard-fail the step on a majority no-pass; SCORE dims advise — a
@@ -228,6 +247,7 @@ d('ordinance-flow step evals (real Claude)', () => {
       const questionMarks = (assistantText.match(/\?/g) ?? []).length
       expect(questionMarks).toBe(0)
       assertGovernanceVoice(assistantText)
+      reportVerbosity('clarify', assistantText, questions)
 
       await runJudges(
         'clarify',
@@ -240,12 +260,23 @@ d('ordinance-flow step evals (real Claude)', () => {
   it(
     'draft step persists a draft via present_draft',
     async () => {
-      const { ordinance, toolNames } = await runStep('bike-parking', 'draft')
+      const { ordinance, toolNames, assistantText, payloadsFor } =
+        await runStep('bike-parking', 'draft')
 
       expect(toolNames).toContain('present_draft')
       expect(ordinance.draftBody?.length ?? 0).toBeGreaterThan(500)
       expect(ordinance.draftTitle?.length ?? 0).toBeGreaterThan(0)
       expect(ordinance.status).toBe('draft')
+      // The turn's reading load is the prose plus the draft CARD copy — the
+      // body is the document itself, rendered on the draft page, and counting
+      // it would track document length instead of turn verbosity.
+      const draftCard = payloadsFor('present_draft')[0] as {
+        title?: string
+        description?: string
+      }
+      reportVerbosity('draft', assistantText, [
+        { title: draftCard?.title, description: draftCard?.description },
+      ])
 
       await runJudges(
         'draft',
@@ -304,6 +335,7 @@ d('ordinance-flow step evals (real Claude)', () => {
       expect(ordinance.authority).not.toBeNull()
       expect(toolNames).toContain('offer_next_step')
       assertGovernanceVoice(assistantText)
+      reportVerbosity('authority', assistantText, verdicts)
 
       await runJudges(
         'authority',
@@ -333,6 +365,10 @@ d('ordinance-flow step evals (real Claude)', () => {
       expect((summary.gaps ?? []).length).toBeGreaterThan(0)
       expect(ordinance.existingLaw).not.toBeNull()
       assertGovernanceVoice(assistantText)
+      reportVerbosity('current_law', assistantText, [
+        summary,
+        ...payloadsFor('present_legislative_history'),
+      ])
 
       await runJudges(
         'current_law',
@@ -374,6 +410,7 @@ d('ordinance-flow step evals (real Claude)', () => {
       }
       expect(toolNames).toContain('offer_next_step')
       assertGovernanceVoice(assistantText)
+      reportVerbosity('comparables', assistantText, presented)
 
       await runJudges(
         'comparables',
