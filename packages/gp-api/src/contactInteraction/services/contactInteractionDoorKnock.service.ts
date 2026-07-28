@@ -31,6 +31,7 @@ export class ContactInteractionDoorKnockService extends createPrismaBase(
         occurredAt: data.occurredAt,
         outcome: data.outcome,
         supportAnswer: data.supportAnswer,
+        willVote: data.willVote,
         note: data.note,
       },
     })

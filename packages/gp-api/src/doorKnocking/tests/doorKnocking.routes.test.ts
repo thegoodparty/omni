@@ -834,4 +834,191 @@ describe('door-knocking routes', () => {
       expect(res.status).toBe(404)
     })
   })
+  describe('interactions', () => {
+    const CLIENT_KEY = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+
+    const knockAndGetTarget = async () => {
+      const turf = await createTurf()
+      stubVendors()
+      const knocked = await knock(turf.id)
+      expect(knocked.status).toBe(201)
+      const target =
+        await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+          orderBy: { id: 'asc' },
+        })
+      return target
+    }
+
+    const record = (body: Record<string, unknown>) =>
+      service.client.post('/v1/door-knocking/interactions', body, {
+        ...orgHeaders(),
+        validateStatus: () => true,
+      })
+
+    it('records a knock and returns the derived status', async () => {
+      const target = await knockAndGetTarget()
+
+      const res = await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'answered',
+        supportAnswer: 'supporter',
+        willVote: 'yes',
+        note: 'Wants a yard sign',
+      })
+
+      expect(res.status).toBe(201)
+      expect(res.data).toEqual({
+        personId: target.personId,
+        knockStatus: 'supporter',
+      })
+
+      const row =
+        await service.prisma.contactInteractionDoorKnock.findFirstOrThrow({
+          where: { organizationSlug: orgSlug },
+        })
+      expect(row).toMatchObject({
+        personId: target.personId,
+        outcome: 'answered',
+        supportAnswer: 'supporter',
+        willVote: 'yes',
+        note: 'Wants a yard sign',
+        sourceId: CLIENT_KEY,
+        manual: false,
+      })
+      expect(row.occurredAt).toBeInstanceOf(Date)
+    })
+
+    it('replaying the same clientKey re-syncs one row, never a duplicate', async () => {
+      const target = await knockAndGetTarget()
+
+      const first = await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'answered',
+        supportAnswer: 'supporter',
+      })
+      const replay = await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'not_home',
+      })
+
+      expect(first.status).toBe(201)
+      expect(replay.status).toBe(201)
+      // Re-sync semantics (the CRM's recordIdempotent): the latest sync of
+      // this clientKey wins, still exactly one row.
+      expect(replay.data.knockStatus).toBe('not_home')
+      const rows = await service.prisma.contactInteractionDoorKnock.findMany({
+        where: { organizationSlug: orgSlug },
+      })
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        outcome: 'not_home',
+        supportAnswer: null,
+      })
+    })
+
+    it('accepts the extended vocabulary end to end', async () => {
+      const target = await knockAndGetTarget()
+
+      const res = await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'inaccessible',
+      })
+
+      expect(res.status).toBe(201)
+      expect(res.data.knockStatus).toBe('inaccessible')
+    })
+
+    it('rejects answers from doors that were not answered', async () => {
+      const target = await knockAndGetTarget()
+
+      const support = await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'inaccessible',
+        supportAnswer: 'supporter',
+      })
+      const gotv = await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'not_home',
+        willVote: 'yes',
+      })
+
+      expect(support.status).toBe(400)
+      expect(gotv.status).toBe(400)
+      expect(await service.prisma.contactInteractionDoorKnock.count()).toBe(0)
+    })
+
+    it("404s for another organization's stop target", async () => {
+      const target = await knockAndGetTarget()
+      const suffix = Date.now()
+      const otherSlug = `campaign-int-${suffix}`
+      await service.prisma.organization.create({
+        data: {
+          slug: otherSlug,
+          ownerId: service.user.id,
+          overrideDistrictId: DISTRICT_ID,
+        },
+      })
+
+      const res = await service.client.post(
+        '/v1/door-knocking/interactions',
+        {
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+        },
+        {
+          headers: { 'x-organization-slug': otherSlug },
+          validateStatus: () => true,
+        },
+      )
+
+      expect(res.status).toBe(404)
+      expect(await service.prisma.contactInteractionDoorKnock.count()).toBe(0)
+    })
+
+    it('the recorded status shows up on the next serve', async () => {
+      const turf = await createTurf()
+      stubVendors({
+        residents: {
+          addresses: [],
+        },
+      })
+      await knock(turf.id)
+      const target =
+        await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+          orderBy: { id: 'asc' },
+        })
+      await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'answered',
+        supportAnswer: 'non_supporter',
+      })
+
+      const res = await service.client.get(
+        `/v1/door-knocking/turfs/${turf.id}/route`,
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+
+      expect(res.status).toBe(200)
+      const targets = (
+        res.data.stops as Array<{
+          addresses: Array<{
+            targets: Array<{ personId: string; knockStatus: string }>
+          }>
+        }>
+      )
+        .flatMap((s) => s.addresses)
+        .flatMap((a) => a.targets)
+      expect(
+        targets.find((t) => t.personId === target.personId)?.knockStatus,
+      ).toBe('non_supporter')
+    })
+  })
 })

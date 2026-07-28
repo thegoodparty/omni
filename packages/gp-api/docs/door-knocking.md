@@ -24,7 +24,7 @@ only mutable record — one row per knock on a person.
 | `door_knocking_route` | Frozen route header | `doorKnockingTurfId` UNIQUE — locked/idempotent both mean "this row exists". Never mutated after creation |
 | `door_knocking_stop` | One per unique lat/lng, in visit order | `(routeId, seq)` unique; `displayAddress` copied verbatim from `Residence_Addresses_AddressLine` at freeze |
 | `door_knocking_stop_target` | Bare-minimum person snapshot | personId (people-api UUID — never raw LALVOTERIDs), name, addressKey. Redact-in-place on deletion requests |
-| `contact_interaction_door_knock` | One row per knock on a person (EXISTS — CRM epic) | The CRM convention model (`src/contactInteraction/`); our writes target it via `sourceId`. OPEN: its locked 3-way vocabulary (answered/not_home/refused_to_engage + supporter/unsure/non_supporter) is narrower than the door-knocking question flow (no `inaccessible`, no `willVote`, no engaged/not_a_voter split) — Feliks ↔ Tomer to resolve before the interaction write path lands |
+| `contact_interaction_door_knock` | One row per knock on a person (CRM epic's model, extended additively) | Writes land here via `POST /v1/door-knocking/interactions`: `sourceId` = the phone's clientKey (replay-idempotent upsert, first write wins), `occurredAt` server-stamped. The vocabulary was extended additively for the question flow: `inaccessible` + `not_a_voter` outcomes, nullable `willVote` — `supportAnswer` stays the CRM's 3-way. CRM readers unaffected |
 
 The route-created activity event (one per target at freeze) is deferred to
 the interaction-write PR alongside the vocabulary resolution — it should

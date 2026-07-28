@@ -738,3 +738,10 @@ export {
   RoutePathGeometrySchema,
   type RoutePathGeometry,
 } from './doorKnocking/DoorKnockingRoutePayload.schema'
+
+export {
+  RecordDoorKnockInteractionSchema,
+  type RecordDoorKnockInteraction,
+  RecordDoorKnockInteractionResponseSchema,
+  type RecordDoorKnockInteractionResponse,
+} from './doorKnocking/DoorKnockingInteraction.schema'

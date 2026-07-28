@@ -22,6 +22,8 @@ const DOOR_KNOCK_OUTCOME_LABELS: Record<DoorKnockOutcome, string> = {
   answered: 'Answered',
   not_home: 'Not Home',
   refused_to_engage: 'Refused to Engage',
+  inaccessible: 'Inaccessible',
+  not_a_voter: 'Not a Voter',
 }
 
 const SUPPORT_ANSWER_LABELS: Record<SupportAnswer, string> = {

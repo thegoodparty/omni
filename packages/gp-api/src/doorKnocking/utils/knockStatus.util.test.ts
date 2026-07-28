@@ -31,6 +31,21 @@ describe('deriveKnockStatus', () => {
     ).toBe('unknown')
   })
 
+  it('maps the door-knocking-tool outcomes', () => {
+    expect(
+      deriveKnockStatus({
+        outcome: DoorKnockOutcome.inaccessible,
+        supportAnswer: null,
+      }),
+    ).toBe('inaccessible')
+    expect(
+      deriveKnockStatus({
+        outcome: DoorKnockOutcome.not_a_voter,
+        supportAnswer: null,
+      }),
+    ).toBe('not_a_voter')
+  })
+
   it('maps door outcomes when no support answer exists', () => {
     expect(
       deriveKnockStatus({
@@ -63,6 +78,13 @@ describe('rollupStopStatus', () => {
   it('not_home outranks settled outcomes', () => {
     expect(rollupStopStatus(['refused', 'not_home', 'supporter'])).toBe(
       'not_home',
+    )
+  })
+
+  it('not_a_voter is the least actionable status', () => {
+    expect(rollupStopStatus(['not_a_voter', 'refused'])).toBe('refused')
+    expect(rollupStopStatus(['not_a_voter', 'inaccessible'])).toBe(
+      'inaccessible',
     )
   })
 
