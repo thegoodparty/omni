@@ -215,9 +215,20 @@ export class OutreachMaterializationService {
           voterFileFilterId,
           campaign.organizationSlug,
         )
-      robocallFilter = filter
-        ? { ...filter, hasLandline: true }
-        : { hasLandline: true }
+      // assertNotLocked (the delete guard) is a read-then-write, not atomic,
+      // so a delete request racing this launch's stamp above can still
+      // remove the filter row after we've committed to this id. Silently
+      // dropping every saved criterion here would materialize the whole
+      // district's landline population instead of the intended audience —
+      // fail loudly so tryMaterializeOutreach error-logs it instead.
+      if (!filter) {
+        throw new Error(
+          `Outreach ${outreach.id}: voterFileFilter ${voterFileFilterId} ` +
+            `not found for org ${campaign.organizationSlug} — cannot ` +
+            'materialize robocall without filter context',
+        )
+      }
+      robocallFilter = { ...filter, hasLandline: true }
     }
 
     const segment = String(voterFileFilterId)

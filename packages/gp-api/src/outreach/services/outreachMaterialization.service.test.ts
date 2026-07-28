@@ -398,9 +398,9 @@ describe('OutreachMaterializationService', () => {
         voterFileFilterId: null,
         personIds: ['cap-rc-1'],
       })
-      vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
-        peoplePage(['filter-rc-1', 'filter-rc-2']),
-      )
+      const findContactsForFilter = vi
+        .spyOn(contacts, 'findContactsForFilter')
+        .mockResolvedValue(peoplePage(['filter-rc-1', 'filter-rc-2']))
 
       await materialization.materializeOutreach(campaign, outreach)
 
@@ -412,6 +412,11 @@ describe('OutreachMaterializationService', () => {
         'filter-rc-1',
         'filter-rc-2',
       ])
+      expect(findContactsForFilter).toHaveBeenCalledWith(
+        expect.objectContaining({ hasLandline: true }),
+        { resultsPerPage: 1000, page: 1 },
+        expect.objectContaining({ slug: campaign.organizationSlug }),
+      )
     })
 
     it('throws when the phone list has no capture rows and no filter exists to fall back to', async () => {
