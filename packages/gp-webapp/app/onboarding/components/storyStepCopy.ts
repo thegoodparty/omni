@@ -1,8 +1,16 @@
 // Shared copy for the Campaign Story cards so the onboarding steps and the
 // standalone "Your story" dashboard page read identically.
 
+// The question is the step's page heading (onboarding) / card heading
+// (dashboard). In onboarding the card inside the step uses the shorter label
+// below so the question isn't repeated twice on screen.
 export const STORY_WHY_QUESTION = 'Why are you running?'
 export const STORY_BACKGROUND_QUESTION = "What's your background?"
+
+// Card headings used inside the onboarding steps (the page h1 already shows the
+// question).
+export const STORY_WHY_CARD_TITLE = 'Your story'
+export const STORY_BACKGROUND_CARD_TITLE = 'Your background'
 
 // Italic "e.g. …" placeholders shown inside the empty story fields.
 export const WHY_EXAMPLE_PLACEHOLDER =

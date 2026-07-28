@@ -34,12 +34,23 @@ import { useP2pUxEnabled } from 'app/dashboard/components/tasks/flows/hooks/P2pU
 import { PhoneListInput } from 'helpers/createP2pPhoneList'
 import { AUTO_VOTER_FILTER_NAME_PATTERN } from 'app/dashboard/components/tasks/flows/util/flowHandlers.util'
 import { fetchListDetail } from 'app/dashboard/contacts/crm/lists/useListRowDetail'
+import type { ListDetailReachability } from 'app/dashboard/contacts/crm/shared/contacts-types'
+import { formatFencedCount } from 'app/dashboard/contacts/crm/shared/formatFencedCount.util'
+import { REACHABILITY_CHANNELS } from 'app/dashboard/contacts/crm/shared/reachabilityChannels'
 
 const TEXT_PRICE = 0.035
 const CALL_PRICE = 0.04
 const CALL_W_VOICEMAIL_PRICE = 0.055
 
 const NEW_FROM_FILTERS = '__new__'
+
+// ENG-10799: the reachability leaves a saved-list outreach flow can map to
+// (excludes 'fenced' and 'polls' — no flow here sends polls, which mirrors
+// sms 1:1 anyway).
+type ReachabilityCountKey = keyof Omit<
+  ListDetailReachability,
+  'fenced' | 'polls'
+>
 
 interface SavedList {
   id: number
@@ -112,6 +123,17 @@ export default function AudienceStep({
   const [campaign] = useCampaign()
   const { p2pUxEnabled } = useP2pUxEnabled()
   const [count, setCount] = useState(0)
+  // Whether `count` is a FENCE_LIMIT-capped lower bound (ENG-10775/10805)
+  // rather than an exact figure — only ever true for the saved-list branch.
+  const [countFenced, setCountFenced] = useState(false)
+  // ENG-10808: the saved list's raw membership (demographics.people),
+  // tracked alongside the channel-eligible `count` so the audience step can
+  // show a "7,032 people in this list · 1,607 reachable by robocall"
+  // breakdown instead of just the eligible number — a user who came in
+  // expecting to text/call their whole list needs to see why they're
+  // quoted a smaller number. Only ever set on the saved-list branch.
+  const [listSize, setListSize] = useState<number | null>(null)
+  const [listSizeFenced, setListSizeFenced] = useState(false)
   const [loading, setLoading] = useState(false)
   const [countError, setCountError] = useState<CountVoterFileError | null>(null)
   // Tracks the latest count request so out-of-order responses can be dropped.
@@ -135,13 +157,34 @@ export default function AudienceStep({
   // the same saved-list selector as text.
   const showsSavedListSelector =
     isTextType || isRobocallType || isPhoneBankingType || isDoorKnockingType
-  // Robocall, phone banking, and door knocking all have no live
-  // checkbox-driven count for a saved list, so all three fetch the list's
-  // refreshed people count instead of leaving the estimate blank. Text
-  // deliberately leaves count at 0 (the phone-list build owns its real count
-  // later).
-  const fetchesSavedListCount =
-    isRobocallType || isPhoneBankingType || isDoorKnockingType
+  // ENG-10799: a saved list's raw membership (demographics.people) is not
+  // what a channel can actually reach — e.g. a 7,032-person list with 1,607
+  // landline holders must price/report as a 1,607-person robocall, not
+  // 7,032. Every saved-list flow now reads its own reachability leaf
+  // instead: robocall's landline count, phone banking/door knocking's
+  // reachable count, and text's SMS-eligible count (previously left at 0
+  // here on the theory that the later phone-list build owns the real
+  // number — but the estimate, cost preview, and persisted voterCount all
+  // need the eligible count up front too, same as the other three flows).
+  const reachabilityKey: ReachabilityCountKey | null = isRobocallType
+    ? 'robocall'
+    : isPhoneBankingType
+      ? 'phoneBanking'
+      : isDoorKnockingType
+        ? 'doorKnocking'
+        : isTextType
+          ? 'sms'
+          : null
+  const fetchesSavedListCount = reachabilityKey !== null
+  // ENG-10808: reuses the list-detail sheet's canonical channel labels
+  // (`ReachabilityGrid`'s source) so the breakdown sentence can't drift
+  // from "Text"/"Robocall"/"Phone banking"/"Door knocking" elsewhere in the
+  // CRM — lowercased to read as a mid-sentence noun phrase.
+  const reachabilityChannelLabel = reachabilityKey
+    ? (REACHABILITY_CHANNELS.find(
+        (channel) => channel.key === reachabilityKey,
+      )?.label.toLowerCase() ?? null)
+    : null
 
   const [savedLists, setSavedLists] = useState<SavedList[]>([])
   // Empty string = "build a new audience from the checkboxes" (the default).
@@ -294,28 +337,58 @@ export default function AudienceStep({
     // A selected saved list drives the audience server-side from its persisted
     // fields; the checkbox-based live count doesn't apply to it.
     if (selectedList) {
-      if (!fetchesSavedListCount) {
+      if (!reachabilityKey) {
         setCountError(null)
         setCount(0)
+        setCountFenced(false)
+        setListSize(null)
+        setListSizeFenced(false)
         setLoading(false)
         onChangeCallback('voterCount', 0)
         return
       }
 
-      // Robocall's cost preview (CALL_PRICE / CALL_W_VOICEMAIL_PRICE) needs a
-      // real count even for a saved list; phone banking and door knocking
-      // have no cost preview but still need the real voters-selected number
-      // and the zero-member Next guard on their download path. All three
-      // fetch the list's refreshed people count instead of leaving the
-      // estimate blank. Shares the fetch with the CRM lists index (see
+      // ENG-10799: pull the channel-eligible count off the list's
+      // reachability leaf (robocall's landline count, phone
+      // banking/door knocking's reachable count, text's SMS-eligible
+      // count) instead of demographics.people, the raw list size — that's
+      // the number that drives the voters-selected display, the robocall
+      // cost preview, and the zero-member Next guard on every flow's
+      // download path. Shares the fetch with the CRM lists index (see
       // fetchListDetail) instead of a second hand-rolled call.
       setCountError(null)
       setLoading(true)
       fetchListDetail(selectedList.id)
         .then((data) => {
           if (requestId !== countRequestIdRef.current) return
-          setCount(data.demographics.people)
-          onChangeCallback('voterCount', data.demographics.people)
+          const eligibleCount = data.reachability[reachabilityKey]
+          // ENG-10806: a null leaf means that channel's aggregate call
+          // failed server-side — same unpriceable-audience treatment as
+          // the catch below, not a silent $0.00. Also clears listSize
+          // (ENG-10808) so the breakdown line can't render off a stale
+          // list size paired with no eligible count.
+          if (eligibleCount === null) {
+            setCountError({ ok: false, message: GENERIC_COUNT_ERROR_MESSAGE })
+            setCount(0)
+            setCountFenced(false)
+            setListSize(null)
+            setListSizeFenced(false)
+            onChangeCallback('voterCount', 0)
+            return
+          }
+          setCount(eligibleCount)
+          // A fenced count (ENG-10775/10805) is a capped lower bound, not
+          // exact membership — still the safest number to bill/persist
+          // (never an overcount), but flagged for display so it renders
+          // with a trailing "+" instead of reading as exact.
+          setCountFenced(!!data.reachability.fenced?.[reachabilityKey])
+          // ENG-10808: the same response's demographics.people is the raw
+          // list size — kept alongside the eligible count purely for the
+          // breakdown sentence below (never sent to onChangeCallback; the
+          // persisted voterCount stays the channel-eligible number).
+          setListSize(data.demographics.people)
+          setListSizeFenced(!!data.demographics.fenced)
+          onChangeCallback('voterCount', eligibleCount)
         })
         .catch(() => {
           if (requestId !== countRequestIdRef.current) return
@@ -324,6 +397,9 @@ export default function AudienceStep({
           // against an uncounted (possibly large) saved list.
           setCountError({ ok: false, message: GENERIC_COUNT_ERROR_MESSAGE })
           setCount(0)
+          setCountFenced(false)
+          setListSize(null)
+          setListSizeFenced(false)
           onChangeCallback('voterCount', 0)
         })
         .finally(() => {
@@ -336,6 +412,7 @@ export default function AudienceStep({
     if (!hasValues) {
       setCountError(null)
       setCount(0)
+      setCountFenced(false)
       setLoading(false)
       onChangeCallback('voterCount', 0)
       return
@@ -363,10 +440,12 @@ export default function AudienceStep({
       if (typeof res === 'number') {
         setCountError(null)
         setCount(res)
+        setCountFenced(false)
         onChangeCallback('voterCount', res)
       } else {
         setCountError(res)
         setCount(0)
+        setCountFenced(false)
         onChangeCallback('voterCount', 0)
       }
       setLoading(false)
@@ -387,7 +466,7 @@ export default function AudienceStep({
     type,
     hasValues,
     selectedList,
-    fetchesSavedListCount,
+    reachabilityKey,
     onChangeCallback,
   ])
 
@@ -424,17 +503,18 @@ export default function AudienceStep({
       : countError.message || GENERIC_COUNT_ERROR_MESSAGE
     : null
   const hasCountError = !!countError
-  // The zero-count guard only applies where a real count exists: robocall,
-  // phone banking, and door knocking fetch the saved list's count; the text
-  // saved-list branch deliberately leaves count at 0 (the phone-list build
-  // owns its real count later).
+  // The zero-count guard applies to every saved-list flow now that all four
+  // (robocall, phone banking, door knocking, text) fetch a real
+  // channel-eligible count (ENG-10799) instead of leaving one of them at 0.
   const isNextDisabled = selectedList
     ? loading || hasCountError || (fetchesSavedListCount && count === 0)
     : !hasValues || loading || hasCountError || (hasValues && count === 0)
 
-  // Shared by the checkbox-built audience and (robocall/phone banking only)
-  // the saved-list branch, which fetches a real count instead of leaving this
-  // blank — see the count useEffect above.
+  // Shared by the checkbox-built audience and the saved-list branch (every
+  // channel now fetches its own channel-eligible count — ENG-10799 — see the
+  // count useEffect above). `countFenced` is only ever set on the saved-list
+  // branch; formatFencedCount renders the same as numberFormatter unless
+  // that count is a capped lower bound, in which case it appends "+".
   const votersAndCostSummary = (
     <div className="p-4 text-sm">
       Voters selected:
@@ -445,7 +525,7 @@ export default function AudienceStep({
             className="inline-block align-middle animate-spin"
           />
         ) : (
-          numberFormatter(count)
+          formatFencedCount(count, countFenced)
         )}
       </span>
       {price && (
@@ -514,6 +594,25 @@ export default function AudienceStep({
             {fetchesSavedListCount && (
               <>
                 {votersAndCostSummary}
+                {/* ENG-10808: only worth a second line when the channel
+                excludes someone — if the whole list is reachable, "Voters
+                selected" above already says the one number that matters.
+                A fenced value on either side can coincidentally equal the
+                other at the shared FENCE_LIMIT cap without the true
+                (uncapped) numbers actually matching, so equality alone
+                can't collapse the line unless neither side is fenced. */}
+                {!loading &&
+                  !hasCountError &&
+                  listSize !== null &&
+                  (listSize !== count || listSizeFenced || countFenced) && (
+                    <div className="px-4 -mt-2 pb-2 text-sm text-muted-foreground text-left">
+                      {formatFencedCount(listSize, listSizeFenced)} people in
+                      this list
+                      <span className="mx-1">·</span>
+                      {formatFencedCount(count, countFenced)} reachable by{' '}
+                      {reachabilityChannelLabel}
+                    </div>
+                  )}
                 {inlineCountErrorMessage ? (
                   <Alert variant="destructive" className="mb-4 text-left">
                     <MdError />

@@ -56,6 +56,11 @@ interface TaskFlowState extends FlowState {
   voterCount: number
   phoneListToken: string | null
   leadsLoaded: number | null
+  // ENG-10808: from the phone-list status poll's capture-row fields
+  // (ENG-10800/ENG-10801) — surfaced on the purchase review alongside
+  // leadsLoaded so a user can see why it's smaller than their list.
+  excludedOptedOutCount: number | null
+  excludedDuplicatePhoneCount: number | null
   // ENG-10765: distinguishes a saved-list selection from a throwaway
   // checkbox-built filter (both carry an `id` on voterFileFilter) so
   // DownloadStep knows to hit the segment export instead of the checkbox
@@ -81,6 +86,8 @@ const DEFAULT_STATE: TaskFlowState = {
   phoneListToken: '',
   phoneListId: null,
   leadsLoaded: null,
+  excludedOptedOutCount: null,
+  excludedDuplicatePhoneCount: null,
   savedListId: null,
   audienceSource: null,
   audienceListId: null,
@@ -127,7 +134,13 @@ const TaskFlow = ({
   const outreachOption = OUTREACH_OPTIONS.find(
     (outreach) => outreach.type === type,
   )
-  const { phoneListToken, phoneListId, leadsLoaded } = state
+  const {
+    phoneListToken,
+    phoneListId,
+    leadsLoaded,
+    excludedOptedOutCount,
+    excludedDuplicatePhoneCount,
+  } = state
   const { id: campaignId, aiContent } = campaign
   const [stopPolling, setStopPolling] = useState(false)
   const [draftOutreachId, setDraftOutreachId] = useState<number | null>(null)
@@ -140,6 +153,9 @@ const TaskFlow = ({
     outreachType: effectiveOutreachType,
     campaignId,
     outreachId: draftOutreachId ?? undefined,
+    // Server re-derives the billed count from this token rather than
+    // trusting contactCount (ENG-10802).
+    phoneListToken: phoneListToken || undefined,
   }
 
   const trackingAttrs = useMemo(
@@ -459,10 +475,17 @@ const TaskFlow = ({
                   setStopPolling(true)
                   return
                 }
-                const { phoneListId, leadsLoaded } = result
+                const {
+                  phoneListId,
+                  leadsLoaded,
+                  excludedOptedOutCount,
+                  excludedDuplicatePhoneCount,
+                } = result
                 handleChange({
                   phoneListId,
                   leadsLoaded,
+                  excludedOptedOutCount,
+                  excludedDuplicatePhoneCount,
                 })
                 setStopPolling(true)
               },
@@ -563,10 +586,13 @@ const TaskFlow = ({
               {...{
                 onComplete: handlePurchaseComplete,
                 phoneListId,
+                phoneListToken: phoneListToken || undefined,
                 contactCount,
                 type,
                 pricePerContact: purchaseMetaData?.pricePerContact,
                 outreachId: draftOutreachId,
+                excludedOptedOutCount,
+                excludedDuplicatePhoneCount,
               }}
             />
           </CheckoutSessionProvider>

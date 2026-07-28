@@ -117,11 +117,13 @@ const runStep = async (
     .map((s) => s.toolName as string)
   const payloadsFor = (tool: string): unknown[] =>
     segments.filter((s) => s.toolName === tool).map((s) => s.payload)
+  // Read message.content, not text segments: content always carries the full
+  // assistant text, while segments are only written for tool-bearing turns —
+  // a pure-text turn has no segments, which made text assertions here run
+  // against ''.
   const assistantText = messages
     .filter((m) => m.role === 'assistant')
-    .flatMap((m) => m.segments)
-    .filter((s) => s.kind === 'text')
-    .map((s) => s.text ?? '')
+    .map((m) => m.content ?? '')
     .join('\n')
 
   return {

@@ -27,20 +27,21 @@ export interface OnboardingStoryDraft {
   setWhy: (value: string) => void
   setBackground: (value: string) => void
   setIssues: (value: WebsiteIssue[]) => void
-  // "Complete" once all three are answered — the gate for firing plan generation
-  // when the candidate finishes (rather than skips) the story.
-  isComplete: boolean
-  // Persists all three at once (bio + issues on the website, background on the
-  // story). Called only on the final story step's Continue. Returns success.
-  persist: () => Promise<boolean>
+  // Per-field persistence, called on that step's Continue. Each writes the
+  // field's current value verbatim — including an empty one, so a candidate who
+  // clears a field and continues clears the stored value too. Skip persists
+  // nothing (the caller just doesn't call these). Returns success.
+  persistWhy: () => Promise<boolean>
+  persistBackground: () => Promise<boolean>
+  persistIssues: () => Promise<boolean>
 }
 
 // Holds the onboarding Campaign Story answers in memory across the three story
-// steps (why / background / issues) and defers persistence until the final
-// step. The why is edited as plain text and stored as the website bio; a
-// returning candidate's HTML bio is stripped to plain for the textarea (the
-// toolbar was hidden in the old card anyway). `enabled` gates the fetches to the
-// story cohort so the non-story flow never triggers them.
+// steps (why / background / issues) and persists each on its own Continue. The
+// why is edited as plain text and stored as the website bio; a returning
+// candidate's HTML bio is stripped to plain for the textarea (the toolbar was
+// hidden in the old card anyway). `enabled` gates the fetches to the story
+// cohort so the non-story flow never triggers them.
 export const useOnboardingStoryDraft = (
   enabled: boolean,
 ): OnboardingStoryDraft => {
@@ -78,26 +79,40 @@ export const useOnboardingStoryDraft = (
     setIssues(website?.content?.about?.issues ?? [])
   }, [enabled, isReady, website, story])
 
-  const isComplete =
-    why.trim().length > 0 && background.trim().length > 0 && issues.length > 0
+  // Refresh the shared website cache after a bio/issues write so a later reader
+  // within staleTime (notably the Pro-upgrade candidate profile, which seeds
+  // its bio + issues from USER_WEBSITE_QUERY_KEY, and the plan-tab story gate)
+  // refetches the value we just wrote instead of the pre-write snapshot.
+  // Without this the why wouldn't pre-fill in Pro after onboarding.
+  const invalidateWebsite = (): void => {
+    void queryClient.invalidateQueries({ queryKey: USER_WEBSITE_QUERY_KEY })
+  }
 
-  const persist = async (): Promise<boolean> => {
-    const okAbout = await saveAboutFields({ bio: why, issues })
-    let okStory = true
+  const persistWhy = async (): Promise<boolean> => {
+    const ok = await saveAboutFields({ bio: why })
+    // Only refresh the cache on a confirmed write; invalidating after a failed
+    // save would refetch and overwrite the cache with the pre-write value.
+    if (ok) invalidateWebsite()
+    return ok
+  }
+
+  const persistIssues = async (): Promise<boolean> => {
+    const ok = await saveAboutFields({ issues })
+    if (ok) invalidateWebsite()
+    return ok
+  }
+
+  const persistBackground = async (): Promise<boolean> => {
     try {
       await clientRequest('PUT /v1/campaigns/mine/story', { background })
     } catch (error) {
-      okStory = false
-      reportErrorToSentry(error, { context: 'useOnboardingStoryDraft.persist' })
+      reportErrorToSentry(error, {
+        context: 'useOnboardingStoryDraft.persistBackground',
+      })
+      return false
     }
-    // Invalidate the shared caches so a later reader within staleTime (notably
-    // the Pro-upgrade candidate profile, which seeds its bio + issues from
-    // USER_WEBSITE_QUERY_KEY, and the plan-tab story gate) refetches the values
-    // we just wrote instead of the pre-write snapshot. Without this the why
-    // wouldn't pre-fill in Pro after onboarding (ENG: Bryan's report).
-    void queryClient.invalidateQueries({ queryKey: USER_WEBSITE_QUERY_KEY })
     void queryClient.invalidateQueries({ queryKey: CAMPAIGN_STORY_QUERY_KEY })
-    return okAbout && okStory
+    return true
   }
 
   return {
@@ -109,7 +124,8 @@ export const useOnboardingStoryDraft = (
     setWhy,
     setBackground,
     setIssues,
-    isComplete,
-    persist,
+    persistWhy,
+    persistBackground,
+    persistIssues,
   }
 }

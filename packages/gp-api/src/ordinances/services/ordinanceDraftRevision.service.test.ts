@@ -168,4 +168,17 @@ describe('OrdinanceDraftRevisionService', () => {
 
     expect(revision.body).toBe('x'.repeat(halfLength))
   })
+
+  // The reviser edits state bills too: told to preserve "municipal-code
+  // voice", it would rewrite a state bill's statutory voice toward ordinance
+  // style instead of preserving the draft's own register.
+  it('preserves the legislative voice without assuming a municipal draft', async () => {
+    const jsonCompletion = vi.fn().mockResolvedValue(modelOutput())
+    await build(jsonCompletion).revise(record(), flaggedChecks)
+
+    const system = jsonCompletion.mock.calls[0]?.[0]?.messages?.[0]?.content
+    expect(system).toContain('legislative voice')
+    expect(system).not.toContain('municipal ordinance')
+    expect(system).not.toContain('municipal-code voice')
+  })
 })

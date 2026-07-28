@@ -1,3 +1,4 @@
+import { resolve } from 'path'
 import dotenv from 'dotenv'
 import { readFileSync } from 'fs'
 import swc from 'unplugin-swc'
@@ -19,6 +20,17 @@ export default defineConfig({
     // We use tsconfigpaths, and therefore we need this.
     tsconfigPaths(),
   ],
+  resolve: {
+    alias: {
+      // tsconfig maps this package to its .d.ts (the SDK's exports map has
+      // no types condition), which vite-tsconfig-paths would otherwise apply
+      // at RUNTIME too. Point vitest at the real CJS entry instead.
+      '@geoapify/route-planner-sdk': resolve(
+        __dirname,
+        '../../node_modules/@geoapify/route-planner-sdk/dist/index.min.esm.js',
+      ),
+    },
+  },
   test: {
     globalSetup: ['./src/test-global-setup.ts'],
     coverage: {

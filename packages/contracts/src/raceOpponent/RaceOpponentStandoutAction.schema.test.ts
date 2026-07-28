@@ -1,5 +1,19 @@
 import { describe, it, expect } from 'vitest'
-import { RaceOpponentStandoutActionSchema } from './index'
+import {
+  RaceOpponentStandoutActionSchema,
+  RaceOpponentStandoutActionHaystaqSchema,
+} from './index'
+
+const validHaystaq = {
+  hsColumn: 'hs_infrastructure_support',
+  positionPhrase: 'funding infrastructure more',
+  positionDir: 'high' as const,
+  totalActive: 12000,
+  voterCountGe50: 6400,
+  voterPercentageGe50: 53.3,
+  voterCountGe70: 3100,
+  voterPercentageGe70: 25.8,
+}
 
 const validAction = {
   title: 'Knock the north precinct',
@@ -78,5 +92,119 @@ describe('RaceOpponentStandoutActionSchema', () => {
   it.each(requiredNonEmpty)('rejects an action missing %s', (field) => {
     const { [field]: _omitted, ...rest } = validAction
     expect(RaceOpponentStandoutActionSchema.safeParse(rest).success).toBe(false)
+  })
+
+  it('parses an action with a full haystaq object', () => {
+    const result = RaceOpponentStandoutActionSchema.parse({
+      ...validAction,
+      haystaq: validHaystaq,
+    })
+    expect(result.haystaq).toEqual(validHaystaq)
+  })
+
+  it('parses an action with haystaq null (DB null round-trips)', () => {
+    const result = RaceOpponentStandoutActionSchema.parse({
+      ...validAction,
+      haystaq: null,
+    })
+    expect(result.haystaq).toBeNull()
+  })
+
+  it('parses a legacy action with haystaq absent', () => {
+    const result = RaceOpponentStandoutActionSchema.parse(validAction)
+    expect(result.haystaq).toBeUndefined()
+  })
+})
+
+describe('RaceOpponentStandoutActionHaystaqSchema', () => {
+  it('parses a full haystaq object', () => {
+    expect(RaceOpponentStandoutActionHaystaqSchema.parse(validHaystaq)).toEqual(
+      validHaystaq,
+    )
+  })
+
+  it('parses with only hsColumn (all counts omitted)', () => {
+    const result = RaceOpponentStandoutActionHaystaqSchema.parse({
+      hsColumn: 'hs_infrastructure_support',
+    })
+    expect(result.hsColumn).toBe('hs_infrastructure_support')
+    expect(result.totalActive).toBeUndefined()
+    expect(result.voterPercentageGe50).toBeUndefined()
+  })
+
+  it('accepts null for nullish count and phrase fields', () => {
+    const result = RaceOpponentStandoutActionHaystaqSchema.parse({
+      hsColumn: 'hs_infrastructure_support',
+      positionPhrase: null,
+      positionDir: null,
+      totalActive: null,
+      voterCountGe50: null,
+      voterPercentageGe50: null,
+      voterCountGe70: null,
+      voterPercentageGe70: null,
+    })
+    expect(result.totalActive).toBeNull()
+    expect(result.positionDir).toBeNull()
+  })
+
+  it('rejects an empty hsColumn', () => {
+    expect(
+      RaceOpponentStandoutActionHaystaqSchema.safeParse({
+        ...validHaystaq,
+        hsColumn: '',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a missing hsColumn', () => {
+    const { hsColumn: _omitted, ...rest } = validHaystaq
+    expect(
+      RaceOpponentStandoutActionHaystaqSchema.safeParse(rest).success,
+    ).toBe(false)
+  })
+
+  it('rejects a percentage over 100', () => {
+    expect(
+      RaceOpponentStandoutActionHaystaqSchema.safeParse({
+        ...validHaystaq,
+        voterPercentageGe50: 100.1,
+      }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a negative percentage', () => {
+    expect(
+      RaceOpponentStandoutActionHaystaqSchema.safeParse({
+        ...validHaystaq,
+        voterPercentageGe70: -1,
+      }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a negative count', () => {
+    expect(
+      RaceOpponentStandoutActionHaystaqSchema.safeParse({
+        ...validHaystaq,
+        totalActive: -5,
+      }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a non-integer count', () => {
+    expect(
+      RaceOpponentStandoutActionHaystaqSchema.safeParse({
+        ...validHaystaq,
+        voterCountGe50: 6400.5,
+      }).success,
+    ).toBe(false)
+  })
+
+  it('rejects an invalid positionDir', () => {
+    expect(
+      RaceOpponentStandoutActionHaystaqSchema.safeParse({
+        ...validHaystaq,
+        positionDir: 'medium',
+      }).success,
+    ).toBe(false)
   })
 })

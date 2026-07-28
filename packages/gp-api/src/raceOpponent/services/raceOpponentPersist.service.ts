@@ -5,6 +5,8 @@ import {
   RaceOpponentFieldAnalysis,
   RaceOpponentFieldAnalysisSchema,
   RaceOpponentStandoutAction,
+  RaceOpponentStandoutActionHaystaq,
+  RaceOpponentStandoutActionHaystaqSchema,
   RaceOpponentStandoutActionSchema,
   RaceOpponentSummary,
   RaceOpponentSummarySchema,
@@ -666,6 +668,7 @@ export class RaceOpponentPersistService extends createPrismaBase(
         smsMessage: rawAction.sms_message,
         opponentName: rawAction.opponent_name,
         issue: rawAction.issue,
+        haystaq: this.parseHaystaq(runId, rawAction.haystaq),
       })
       if (result.success) {
         actions.push(result.data)
@@ -680,6 +683,37 @@ export class RaceOpponentPersistService extends createPrismaBase(
       )
     }
     return actions
+  }
+
+  // Own-safeParse salvage for the per-card haystaq block (snake_case in the
+  // artifact -> camelCase contract): a malformed block nulls the stats and
+  // keeps the card, never dropping an otherwise-valid card over its stats.
+  // undefined (absent) and null (explicit) both round-trip to null columns.
+  private parseHaystaq(
+    runId: string,
+    raw: unknown,
+  ): RaceOpponentStandoutActionHaystaq | null | undefined {
+    if (raw === undefined) return undefined
+    if (raw === null) return null
+    const record = z.record(z.string(), z.unknown()).safeParse(raw)
+    const result = record.success
+      ? RaceOpponentStandoutActionHaystaqSchema.safeParse({
+          hsColumn: record.data.hs_column,
+          positionPhrase: record.data.position_phrase,
+          positionDir: record.data.position_dir,
+          totalActive: record.data.total_active,
+          voterCountGe50: record.data.voter_count_ge50,
+          voterPercentageGe50: record.data.voter_percentage_ge50,
+          voterCountGe70: record.data.voter_count_ge70,
+          voterPercentageGe70: record.data.voter_percentage_ge70,
+        })
+      : record
+    if (result.success) return result.data
+    this.logger.warn(
+      { runId },
+      'dropped malformed haystaq on stand-out action; card kept',
+    )
+    return undefined
   }
 
   // Idempotent replace-on-persist for stand-out actions: delete the campaign's
@@ -707,6 +741,14 @@ export class RaceOpponentPersistService extends createPrismaBase(
             smsMessage: action.smsMessage,
             opponentName: action.opponentName ?? null,
             issue: action.issue,
+            hsColumn: action.haystaq?.hsColumn ?? null,
+            positionPhrase: action.haystaq?.positionPhrase ?? null,
+            positionDir: action.haystaq?.positionDir ?? null,
+            haystaqTotalActive: action.haystaq?.totalActive ?? null,
+            haystaqCountGe50: action.haystaq?.voterCountGe50 ?? null,
+            haystaqPctGe50: action.haystaq?.voterPercentageGe50 ?? null,
+            haystaqCountGe70: action.haystaq?.voterCountGe70 ?? null,
+            haystaqPctGe70: action.haystaq?.voterPercentageGe70 ?? null,
           })),
         })
       }
