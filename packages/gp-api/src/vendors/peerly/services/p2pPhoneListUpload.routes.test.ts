@@ -327,10 +327,35 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
       optedOutAt: new Date(),
     })
 
-    const post = stubPeopleApi([
+    const allMatches = [
       personPayload({ id: 'p-match-1' }),
       personPayload({ id: 'p-match-2', cellPhone: '5559990000' }),
-    ])
+      personPayload({ id: 'p-opted-out', cellPhone: '5551230000' }),
+    ]
+    // A fixed-list stub can't distinguish a real exclusion from a CSV that
+    // merely happens not to include the opted-out id — this one includes
+    // 'p-opted-out' among the filter matches and honors whatever notIn the
+    // request actually carries, so the CSV/recipient assertions below only
+    // pass if the scrub genuinely reached people-api.
+    const post = vi
+      .spyOn(service.app.get(HttpService), 'post')
+      .mockImplementation(((
+        url: string,
+        body: { filters?: { id?: { notIn?: string[] } } },
+      ) =>
+        url.includes('/v1/people')
+          ? of({
+              data: {
+                people: allMatches.filter(
+                  (person) =>
+                    !(body.filters?.id?.notIn ?? []).includes(
+                      person.id as string,
+                    ),
+                ),
+                pagination: { totalResults: 2, hasNextPage: false },
+              },
+            })
+          : of({ data: {} })) as never)
     stubPeerlyUpload()
 
     const result = await service.client.post(
@@ -341,9 +366,6 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
 
     expect(result.status).toBe(201)
 
-    // The scrub reached people-api as a notIn on the opted-out id — proof
-    // the exclusion is enforced server-side, not just an artifact of what
-    // this stub happens to return.
     const peopleCall = post.mock.calls.find((call) =>
       String(call[0]).includes('/v1/people'),
     )

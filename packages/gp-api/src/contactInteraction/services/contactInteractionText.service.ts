@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@/generated/prisma'
+import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 
@@ -46,13 +47,18 @@ export class ContactInteractionTextService extends createPrismaBase(
   // Org-wide opt-out scrub set (ENG-10800): every person who has ever opted
   // out of a text/p2p send in this org, regardless of which outreach or
   // channel recorded it — a scrub that only looked at one outreach would let
-  // the same person land on the very next send.
+  // the same person land on the very next send. Capped at one past
+  // resolveOptOutScrub's own cap check: an org with far more opt-outs than
+  // the cap must not have all of them materialized into Node heap just to
+  // be discarded — the +1 is enough for the caller to detect "over cap" and
+  // skip the scrub without ever fetching the full set.
   async findOptedOutPersonIds(organizationSlug: string): Promise<string[]> {
     const rows = await this.client.$queryRaw<{ personId: string }[]>(Prisma.sql`
       SELECT DISTINCT person_id AS "personId"
       FROM contact_interaction_text
       WHERE organization_slug = ${organizationSlug}
       AND opted_out_at IS NOT NULL
+      LIMIT ${MAX_RESOLVED_ID_SET_SIZE + 1}
     `)
     return rows.map((row) => row.personId)
   }
