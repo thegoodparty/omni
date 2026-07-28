@@ -859,6 +859,56 @@ describe('AudienceStep robocall saved-list selector', () => {
     expect(nextCallback).not.toHaveBeenCalled()
   })
 
+  // ENG-10806: a null reachability leaf means that channel's aggregate
+  // failed server-side, not that the list is empty — must get the same
+  // error treatment as a rejected list-detail fetch, not a $0.00 estimate.
+  it('surfaces an error and blocks Next when the saved list has a null robocall reachability leaf', async () => {
+    const savedList = { id: 42, name: 'My Super Voters' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({
+          data: {
+            demographics: { people: 5000, avgAge: null, avgIncome: null },
+            reachability: {
+              sms: 0,
+              robocall: null,
+              phoneBanking: 0,
+              doorKnocking: 0,
+              polls: 0,
+            },
+            outreachHistory: [],
+          },
+        })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    const nextCallback = vi.fn()
+
+    render(
+      <AudienceStep
+        type="robocall"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={nextCallback}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+
+    await waitFor(() =>
+      expect(screen.getByText('Voter data unavailable')).toBeInTheDocument(),
+    )
+
+    const nextButton = screen.getByRole('button', { name: 'Next' })
+    expect(nextButton).toBeDisabled()
+
+    fireEvent.click(nextButton)
+    expect(nextCallback).not.toHaveBeenCalled()
+  })
+
   it('blocks Next when the selected saved list has zero members', async () => {
     const savedList = { id: 42, name: 'My Super Voters' }
     mockClientRequest.mockImplementation((route: string) => {
