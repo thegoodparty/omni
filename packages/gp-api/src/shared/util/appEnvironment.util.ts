@@ -15,6 +15,15 @@ const CURRENT_ENV = process.env.NODE_ENV
 export const OTEL_SERVICE_ENVIRONMENT = process.env.OTEL_SERVICE_ENVIRONMENT
 export const IS_PROD_DEPLOY = OTEL_SERVICE_ENVIRONMENT === 'prod'
 
+// Fail-closed allowlist of the known NON-prod deploys. Deliberately NOT
+// `!IS_PROD_DEPLOY`: an absent or unexpected OTEL_SERVICE_ENVIRONMENT
+// ('production', 'staging', undefined, a typo) is not in this list, so a
+// test-only affordance gated on it DENIES rather than silently ungating prod.
+export const IS_NON_PROD_DEPLOY =
+  OTEL_SERVICE_ENVIRONMENT === 'preview' ||
+  OTEL_SERVICE_ENVIRONMENT === 'dev' ||
+  OTEL_SERVICE_ENVIRONMENT === 'qa'
+
 // Canonical prod user-facing app origin. In prod the webapp (Clerk-protected
 // app routes such as /serve/welcome, /reset-password, /set-password) is served
 // at app.goodparty.org, while WEBAPP_ROOT_URL is the MARKETING origin

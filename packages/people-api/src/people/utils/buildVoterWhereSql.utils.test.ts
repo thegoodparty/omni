@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
-import { buildVoterWhereSql, isNameSearch } from './buildVoterWhereSql.utils'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import {
+  buildVoterWhereSql,
+  isNameSearch,
+  stateEquals,
+} from './buildVoterWhereSql.utils'
 import { FilterData } from '../schemas/filters.schema'
 
 const EMPTY_FILTERS: FilterData = {
@@ -105,10 +109,10 @@ describe('buildVoterWhereSql name search', () => {
     const { sql, values } = build('4155551234')
 
     expect(sql).toBe(
-      'WHERE v."State" = CAST(?::text AS "public"."USState") AND (v."VoterTelephones_CellPhoneFormatted" = ? OR v."VoterTelephones_LandlineFormatted" = ?)',
+      `WHERE v."State" = 'CA'::"public"."USState" AND (v."VoterTelephones_CellPhoneFormatted" = ? OR v."VoterTelephones_LandlineFormatted" = ?)`,
     )
     expect(sql).not.toContain('LIKE')
-    expect(values).toEqual(['CA', '(415) 555-1234', '(415) 555-1234'])
+    expect(values).toEqual(['(415) 555-1234', '(415) 555-1234'])
   })
 
   it('an 11-digit number with leading 1 also routes to the exact phone branch', () => {
@@ -117,6 +121,64 @@ describe('buildVoterWhereSql name search', () => {
     expect(sql).toContain('v."VoterTelephones_CellPhoneFormatted" = ?')
     expect(sql).not.toContain('LIKE')
     expect(values).toContain('(415) 555-1234')
+  })
+})
+
+describe('stateEquals', () => {
+  it('inlines State as a literal enum constant, not a bind parameter', () => {
+    const { sql, values } = stateEquals('v', 'TX')
+
+    // The literal (not `?`) is what lets the planner propagate the constant
+    // across the v."State" = dv."State" join and keep the nested-loop plan.
+    expect(sql).toBe(`v."State" = 'TX'::"public"."USState"`)
+    expect(sql).not.toContain('?')
+    expect(values).toEqual([])
+  })
+
+  it('inlines for the dv alias too', () => {
+    const { sql } = stateEquals('dv', 'TX')
+
+    expect(sql).toBe(`dv."State" = 'TX'::"public"."USState"`)
+  })
+
+  it('rejects a value outside the USState allowlist (Prisma.raw injection guard)', () => {
+    expect(() => stateEquals('v', `TX'; DROP TABLE`)).toThrow('non-USState')
+    expect(() => stateEquals('v', 'ZZ')).toThrow('non-USState')
+  })
+})
+
+describe('stateEquals with PEOPLE_STATE_ENUM=false (loader-cluster plain-text path)', () => {
+  const original = process.env.PEOPLE_STATE_ENUM
+
+  beforeEach(() => {
+    process.env.PEOPLE_STATE_ENUM = 'false'
+  })
+
+  afterEach(() => {
+    if (original === undefined) {
+      delete process.env.PEOPLE_STATE_ENUM
+    } else {
+      process.env.PEOPLE_STATE_ENUM = original
+    }
+  })
+
+  it('emits plain-text comparison without the enum cast', () => {
+    const { sql, values } = stateEquals('v', 'TX')
+
+    expect(sql).toBe(`v."State" = 'TX'`)
+    expect(sql).not.toContain('::"public"."USState"')
+    expect(sql).not.toContain('?')
+    expect(values).toEqual([])
+  })
+
+  it('emits plain-text for the dv alias too', () => {
+    const { sql } = stateEquals('dv', 'TX')
+
+    expect(sql).toBe(`dv."State" = 'TX'`)
+  })
+
+  it('still rejects values outside the USState allowlist', () => {
+    expect(() => stateEquals('v', 'ZZ')).toThrow('non-USState')
   })
 })
 

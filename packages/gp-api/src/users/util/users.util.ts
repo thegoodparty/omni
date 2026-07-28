@@ -29,6 +29,18 @@ export function isAdmin(user: User) {
 export const isTestUser = (params: { email: string }) =>
   params.email.endsWith('@test.goodparty.org')
 
+// Distinct from isTestUser on purpose: isTestUser gates behavior for seeded
+// e2e accounts only (stubbed vendor calls, skipped dispatches) and must NOT
+// cover @goodparty.org — staff dogfood real flows in prod. isInternalUser is
+// for staff-facing affordances and reporting exclusions, where both domains
+// count as internal.
+export const INTERNAL_EMAIL_SUFFIXES = ['@goodparty.org', '@test.goodparty.org']
+
+export const isInternalUser = (params: { email: string }) =>
+  INTERNAL_EMAIL_SUFFIXES.some((suffix) =>
+    params.email.toLowerCase().endsWith(suffix),
+  )
+
 export const isTestCampaign = (
   campaign: { user?: { email?: string | null } | null } | null,
 ): boolean => {

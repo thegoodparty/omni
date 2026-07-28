@@ -6,6 +6,10 @@ import type { CampaignStory } from '@goodparty_org/contracts'
 
 const STORY_ROUTE = 'GET /v1/campaigns/mine/story' as const
 
+// The React Query key for the campaign story. Exported so writers (e.g. the
+// onboarding deferred save) can invalidate it after a background write.
+export const CAMPAIGN_STORY_QUERY_KEY = ['campaign-story', 'mine'] as const
+
 // One source of truth for "has content" — same trim semantics as the gp-api
 // ingress trim, so the client gate and the server agree on what counts.
 export const isStoryFieldAnswered = (value?: string | null): boolean =>
@@ -35,7 +39,7 @@ export const useCampaignStory = (
   enabled = true,
 ): UseCampaignStoryResult => {
   const query = useQuery({
-    queryKey: ['campaign-story', 'mine'],
+    queryKey: CAMPAIGN_STORY_QUERY_KEY,
     queryFn: () => clientRequest(STORY_ROUTE, {}).then((res) => res.data),
     initialData,
     enabled,

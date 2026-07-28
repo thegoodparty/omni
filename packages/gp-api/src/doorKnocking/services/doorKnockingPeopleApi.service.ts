@@ -132,6 +132,17 @@ export class DoorKnockingPeopleApiService {
       )
       return DoorKnockingResidentsResponseSchema.parse(response.data)
     } catch (error) {
+      // people-api 400s when residents exceed the per-route population cap
+      // — a caller-visible contract violation, not an upstream failure.
+      if (
+        isAxiosError(error) &&
+        error.response?.status === HttpStatus.BAD_REQUEST
+      ) {
+        throw new BadRequestException(
+          'Residents lookup exceeded the expected population for this route',
+        )
+      }
+      // Never log the raw AxiosError: config.headers carries the S2S JWT.
       this.logger.error(
         {
           status: isAxiosError(error) ? error.response?.status : undefined,

@@ -13,6 +13,8 @@ import { clientFetch } from 'gpApi/clientFetch'
 import { useState } from 'react'
 import Body2 from '@shared/typography/Body2'
 import { syncEcanvasser } from '@shared/utils/syncEcanvasser'
+import { useSnackbar } from 'helpers/useSnackbar'
+import { reportErrorToSentry } from '@shared/sentry'
 import DoorKnockingTabs from '../shared/DoorKnockingTabs'
 import { Campaign } from 'helpers/types'
 import type { EcanvasserSummary } from './types'
@@ -78,6 +80,7 @@ export default function DoorKnockingPage(
     props.summary,
   )
   const [isSynching, setIsSynching] = useState(false)
+  const { errorSnackbar } = useSnackbar()
 
   const fetchSummary = async () => {
     const data = await fetchEcanvasserSummary()
@@ -91,11 +94,22 @@ export default function DoorKnockingPage(
 
   const handleSync = async (): Promise<void> => {
     setIsSynching(true)
-    if (props.campaign) {
-      await syncEcanvasser(props.campaign.id, true)
+    try {
+      if (props.campaign) {
+        const synced = await syncEcanvasser(props.campaign.id, true)
+        if (synced === false) {
+          errorSnackbar("Couldn't sync interactions. Please try again.")
+          return
+        }
+      }
+      // Await the refresh so the spinner stays until the summary is updated.
+      await fetchSummary()
+    } catch (e) {
+      reportErrorToSentry(e, { context: 'DoorKnockingPage.handleSync' })
+      errorSnackbar("Couldn't refresh interactions. Please try again.")
+    } finally {
+      setIsSynching(false)
     }
-    fetchSummary()
-    setIsSynching(false)
   }
 
   return (

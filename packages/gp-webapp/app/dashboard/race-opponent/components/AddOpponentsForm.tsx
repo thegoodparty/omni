@@ -28,6 +28,9 @@ export type ManualOpponentInput = {
 }
 
 type OpponentRow = {
+  // Stable, unique key per row so controlled input state stays aligned with the
+  // correct row when an earlier row is removed (array index keys misalign here).
+  id: string
   name: string
   ballotpediaUrl: string
   website: string
@@ -42,7 +45,12 @@ type RowErrors = {
 // client-side so "Add another opponent" can't build a payload the backend 400s.
 const MAX_OPPONENTS = 10
 
-const EMPTY_ROW: OpponentRow = { name: '', ballotpediaUrl: '', website: '' }
+const createEmptyRow = (): OpponentRow => ({
+  id: crypto.randomUUID(),
+  name: '',
+  ballotpediaUrl: '',
+  website: '',
+})
 
 const URL_ERROR_MESSAGE = 'Enter a valid https URL (https://…).'
 
@@ -55,7 +63,7 @@ const AddOpponentsForm = ({
   submitting,
   onSubmit,
 }: Props): React.JSX.Element => {
-  const [rows, setRows] = useState<OpponentRow[]>([{ ...EMPTY_ROW }])
+  const [rows, setRows] = useState<OpponentRow[]>([createEmptyRow()])
   const [errors, setErrors] = useState<RowErrors[]>([{}])
 
   const updateRow = (
@@ -69,7 +77,7 @@ const AddOpponentsForm = ({
   }
 
   const addRow = (): void => {
-    setRows((prev) => [...prev, { ...EMPTY_ROW }])
+    setRows((prev) => [...prev, createEmptyRow()])
     setErrors((prev) => [...prev, {}])
   }
 
@@ -156,7 +164,7 @@ const AddOpponentsForm = ({
         {rows.map((row, index) => {
           const rowErrors = errors[index] ?? {}
           return (
-            <div key={index} className="flex flex-col gap-4">
+            <div key={row.id} className="flex flex-col gap-4">
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
                   <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">

@@ -5,6 +5,7 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { IdParamSchema } from '@/shared/schemas/IdParam.schema'
 import { PaginatedResponseSchema } from '@/shared/schemas/PaginatedResponse.schema'
+import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 import {
   CampaignWithLiveContextSchema,
   CampaignWithPositionNameSchema,
@@ -171,6 +172,28 @@ export class CampaignsController {
   ) {
     await this.filingInstructions.emailToCandidate(campaign, user)
     return { success: true }
+  }
+
+  // Test-only: flip the caller's own campaign to Pro without going through the
+  // Stripe upgrade webhook. isPro is otherwise set only by that webhook, which
+  // can't reach an ephemeral per-PR preview — so E2E specs that need a Pro Win
+  // campaign (the Contacts pro-gated flows) had no way to provision one and were
+  // stranded @dev-only. Hard-guarded so it can never grant Pro in production or
+  // to a real user: fail-closed to a known non-prod deploy (so a misconfigured
+  // or absent env denies rather than ungates), and only for @test.goodparty.org
+  // users acting on their own campaign.
+  @Post('mine/test-set-pro')
+  @UseCampaign()
+  @HttpCode(HttpStatus.OK)
+  async testSetPro(@ReqCampaign() campaign: Campaign, @ReqUser() user: User) {
+    if (!IS_NON_PROD_DEPLOY) {
+      throw new ForbiddenException('Not available in this environment')
+    }
+    if (!user.email?.endsWith('@test.goodparty.org')) {
+      throw new ForbiddenException('Test users only')
+    }
+    await this.campaigns.setIsPro(campaign.id, true, false)
+    return { isPro: true }
   }
 
   @Get('slug/:slug')

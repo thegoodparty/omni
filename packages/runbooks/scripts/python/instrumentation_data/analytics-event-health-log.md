@@ -22,6 +22,172 @@ Severity ranks (1 = loudest): 1 orphaned-firing / declared-not-in-use-still-firi
 drop, active elevated · 3 anomaly drop, active/system · 4 intent divergence · 5 dormant
 elevated · 6 instrumented-never-observed · 7 dormant (collapsed to a tail line).
 
+## 2026-07-27
+
+Basis: complete weeks before 2026-07-27. 515 events — active 336, deprecating 69, system 39, dormant 38, retired 23, instrumented_never_observed 9, code_unknown 1. 62 flagged (32 priority, 30 dormant tail).
+
+### Flagged (ranked)
+
+| rank | event | status | elev | evidence | divergence |
+| --- | --- | --- | --- | --- | --- |
+| 1 orphaned-firing / not-in-use still firing | Settings - Personal Info: Click Upload | active |  | 30d=25; last_seen 2026-07-25 | declared not-in-use but still firing |
+| 2 call site removed, name constant remains | Navigation - Dashboard: Click Voter Data | active |  | 30d=19; week 1 vs base 41.5; last_seen 2026-07-18; call_sites=0 (removed 2026-07-20) |  |
+| 4 anomaly drop, active | Voter Data: Click Detail View | active |  | 30d=15; week 1 vs base 35.0; last_seen 2026-07-18 |  |
+| 4 anomaly drop, active | Voter Data - File Detail: Click Custom File Info Icon | active |  | 30d=1; week 1 vs base 30.8; last_seen 2026-06-30 |  |
+| 5 intent divergence | Profile - Why Running: Click Save | deprecating |  | 30d=14; last_seen 2026-07-07; PR https://github.com/thegoodparty/omni/pull/1778 | declared in-use but code removed + quiet |
+| 5 intent divergence | Profile - Policy Priorities: Click Save | deprecating |  | 30d=12; last_seen 2026-07-07; PR https://github.com/thegoodparty/omni/pull/1778 | declared in-use but code removed + quiet |
+| 5 intent divergence | Community Issues - High Priority Trending Issue Created | deprecating |  | 30d=6; last_seen 2026-07-14; PR https://github.com/thegoodparty/omni/pull/437 | declared in-use but code removed + quiet |
+| 5 intent divergence | Dashboard - Campaign Plan: Community Events Requested | deprecating |  | 30d=1; last_seen 2026-06-27; PR https://github.com/thegoodparty/omni/pull/54 | declared in-use but code removed + quiet |
+| 5 intent divergence | Dashboard - Campaign Plan: Community Events Displayed | deprecating |  | 30d=1; last_seen 2026-06-27; PR https://github.com/thegoodparty/omni/pull/54 | declared in-use but code removed + quiet |
+| 5 intent divergence | Dashboard - Campaign Plan: Community Events Results Received | deprecating |  | 30d=1; last_seen 2026-06-27; PR https://github.com/thegoodparty/omni/pull/54 | declared in-use but code removed + quiet |
+| 5 intent divergence | Serve Onboarding - Magic Link Activated | retired | yes | 30d=0; last_seen 2026-06-24; PR https://github.com/thegoodparty/omni/pull/198 | declared in-use but code removed + quiet |
+| 5 intent divergence | Serve Onboarding - Magic Link Sent | retired | yes | 30d=0; last_seen 2026-06-24; PR https://github.com/thegoodparty/omni/pull/198 | declared in-use but code removed + quiet |
+| 5 intent divergence | Win Onboarding - Magic Link Sent | retired | yes | 30d=0; last_seen 2026-06-24; PR https://github.com/thegoodparty/omni/pull/318 | declared in-use but code removed + quiet |
+| 5 intent divergence | Onboarding V2 - Resources Viewed | deprecating | yes | 30d=0; last_seen 2026-06-10; PR https://github.com/thegoodparty/omni/pull/2002 | declared in-use but code removed + quiet |
+| 5 intent divergence | Onboarding V2 - Resources Completed | deprecating | yes | 30d=0; last_seen 2026-06-10; PR https://github.com/thegoodparty/omni/pull/2002 | declared in-use but code removed + quiet |
+| 6 dormant (elevated) | Onboarding - User Created | dormant | yes | 30d=0; last_seen 2026-04-17; PR https://github.com/thegoodparty/omni/pull/319 |  |
+| 6 dormant (elevated) | Serve Onboarding - Add Image Viewed | dormant | yes | 30d=0; last_seen 2026-06-26; PR https://github.com/thegoodparty/omni/pull/1022 |  |
+| 6 dormant (elevated) | Serve Onboarding - Poll Preview Viewed | dormant | yes | 30d=0; last_seen 2026-06-26; PR https://github.com/thegoodparty/omni/pull/1022 |  |
+| 6 dormant (elevated) | Serve Onboarding - SMS Poll Creation Failed | dormant | yes | 30d=0; last_seen 2026-06-17; PR https://github.com/thegoodparty/omni/pull/1374 |  |
+| 6 dormant (elevated) | Serve Onboarding - Success Page Viewed | dormant | yes | 30d=0; last_seen 2026-06-26; PR https://github.com/thegoodparty/omni/pull/1098 |  |
+| 6 dormant (elevated) | Serve Onboarding - Poll Image Uploaded | dormant | yes | 30d=0; last_seen 2026-06-26; PR https://github.com/thegoodparty/omni/pull/1022 |  |
+| 6 dormant (elevated) | Serve Onboarding - SMS Poll Sent | dormant | yes | 30d=0; last_seen 2026-06-26; PR https://github.com/thegoodparty/omni/pull/1022 |  |
+| 6 dormant (elevated) | Serve Onboarding - Party Designation Blocked | dormant | yes | 30d=0; last_seen 2026-06-25; PR https://github.com/thegoodparty/omni/pull/254 |  |
+| 7 instrumented, never observed | Community Issues - Dispatch Skipped | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/701 |  |
+| 7 instrumented, never observed | Constituent Data - Activity List Created | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/852 |  |
+| 7 instrumented, never observed | Constituent Data - Contact Searched | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Constituent Data - Contact Viewed | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Constituent Data - Note Added | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Voter Data - Activity List Created | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/852 |  |
+| 7 instrumented, never observed | Voter Outreach - 10DLC Compliance Rejected | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/974 |  |
+| 7 instrumented, never observed | Win - Opponent Activity Viewed | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Win - Self Research Completed | instrumented_never_observed |  | 30d=0 |  |
+
+**Dormant tail (30)** — code present, 0 fires/30d, not elevated: Account - Password Reset Requested · Voter Data - Custom Voter File - Audience: Click Back · Candidate Website - Unpublished · Account - Pro Subscription Confirmed · Voter Data - File Detail - Learn & Take Action: Click Schedule · Click to Call CTA Viewed · Voter Data - Need Help: Submit · Voter Data: Click Need Help · Profile - Running Against: Cancel Edit · Voter Data - File Detail - Learn & Take Action: Click Read More · Navigation - Dashboard: Click Community · Voter Data - Need Help: Exit modal · AI Assistant - Chat History: Click delete · schedule_campaign_image_too_large · Profile - Running Against: Submit Edit · Candidate Website - Continued · Candidate Website - Started domain selection · Candidate Website - Selected domain · Voter Data - Need Help: Select Voter File type · Candidate Website - Purchased domain · AI Assistant - Chat: Click thumbs down · Content Builder - Editor: Open Kebab Menu · AI Assistant - Chat History: Click menu · Profile - Running Against: Click Edit · Profile - Top Issues: Cancel Edit · Pro Upgrade - Committee Check Page: Click Upload · Click to Call Phone Submitted · Click to Call CTA Clicked · Briefing Assistant - Dictation Started · Briefing Assistant - Agenda Submission Failed
+
+### Changes since last run
+
+- new: 17 (see flagged table)
+- escalated: Serve Onboarding - Magic Link Activated, Serve Onboarding - Magic Link Sent, Win Onboarding - Magic Link Sent
+- resolved: 19 (see flagged table)
+- still open: 42 event(s)
+
+### Metadata completeness (description field)
+
+- Non-system events with a description: 443/467 (95%). Remaining are blank pending the historical backfill.
+- Onboarding / activation / compliance missing a description (fill first): Onboarding V2 - Campaign Story Skipped · Onboarding V2 - Campaign Story Viewed · Voter Outreach - 10DLC Compliance PIN Sent
+- Other non-system events missing a description: 21 (not listed).
+
+### Watchlist proposals (self-healing)
+
+104 event(s) in a watched family, first seen in the last 90d, not yet on the watchlist. Triage in the runbook (add real funnel/activation milestones; skip UI micro-interactions), confirm in code, then paste the agreed rows into `monitored_events.yaml`:
+
+```yaml
+  - {event: "Voter Outreach - 10DLC Compliance PIN Resent", product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  - {event: "Onboarding V2 - Campaign Story Viewed", product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Onboarding V2 - Campaign Story Skipped", product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Community Issues - Trending Issues Dispatch Skipped", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Community Issues - Top Issues Dispatch Skipped", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Briefing Assistant - Dispatch Skipped", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Voter Outreach - 10DLC Compliance Candidate Profile Submitted", product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  - {event: "Community Issues - Trending Issues Refreshed", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Community Issues - Top Issues Refreshed", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Pro Upgrade - Filing Details Submit Error", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  - {event: "Community Issues - Ask AI Started", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Community Issues - Prioritize Clicked", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Dashboard - Campaign Plan: Plan Shared", product: win, family: win_dashboard, floor: null, owner: TBD}
+  - {event: "Community Issues - Run Poll Clicked", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Serve Onboarding - Confirm Viewed", product: serve, family: serve, floor: null, owner: TBD}
+```
+(89 more — see the JSON report.)
+
+## 2026-07-23
+
+Basis: complete weeks before 2026-07-20. 513 events — active 337, deprecating 67, system 39, dormant 26, instrumented_never_observed 23, retired 20, code_unknown 1. 64 flagged (40 priority, 24 dormant tail).
+
+### Flagged (ranked)
+
+| rank | event | status | elev | evidence | divergence |
+| --- | --- | --- | --- | --- | --- |
+| 1 orphaned-firing / not-in-use still firing | Settings - Personal Info: Click Upload | active |  | 30d=15; last_seen 2026-07-22 | declared not-in-use but still firing |
+| 4 anomaly drop, active | Navigation - Dashboard: Click Voter Data | active |  | 30d=69; week 1 vs base 41.5; last_seen 2026-07-18 |  |
+| 4 anomaly drop, active | Voter Data: Click Detail View | active |  | 30d=60; week 1 vs base 35.0; last_seen 2026-07-18 |  |
+| 4 anomaly drop, active | Voter Data - File Detail: Click Custom File Info Icon | active |  | 30d=2; week 1 vs base 30.8; last_seen 2026-06-30 |  |
+| 5 intent divergence | Community Issues - High Priority Trending Issue Created | deprecating |  | 30d=70; last_seen 2026-07-14; PR https://github.com/thegoodparty/omni/pull/437 | declared in-use but code removed + quiet |
+| 5 intent divergence | Dashboard - Campaign Plan: Community Events Requested | deprecating |  | 30d=65; last_seen 2026-06-27; PR https://github.com/thegoodparty/omni/pull/54 | declared in-use but code removed + quiet |
+| 5 intent divergence | Dashboard - Campaign Plan: Community Events Displayed | deprecating |  | 30d=53; last_seen 2026-06-27; PR https://github.com/thegoodparty/omni/pull/54 | declared in-use but code removed + quiet |
+| 5 intent divergence | Dashboard - Campaign Plan: Community Events Results Received | deprecating |  | 30d=53; last_seen 2026-06-27; PR https://github.com/thegoodparty/omni/pull/54 | declared in-use but code removed + quiet |
+| 5 intent divergence | Profile - Why Running: Click Save | deprecating |  | 30d=28; last_seen 2026-07-07; PR https://github.com/thegoodparty/omni/pull/1778 | declared in-use but code removed + quiet |
+| 5 intent divergence | Profile - Policy Priorities: Click Save | deprecating |  | 30d=15; last_seen 2026-07-07; PR https://github.com/thegoodparty/omni/pull/1778 | declared in-use but code removed + quiet |
+| 5 intent divergence | Serve Onboarding - Magic Link Activated | deprecating | yes | 30d=14; last_seen 2026-06-24; PR https://github.com/thegoodparty/omni/pull/198 | declared in-use but code removed + quiet |
+| 5 intent divergence | Serve Onboarding - Magic Link Sent | deprecating | yes | 30d=3; last_seen 2026-06-24; PR https://github.com/thegoodparty/omni/pull/198 | declared in-use but code removed + quiet |
+| 5 intent divergence | Win Onboarding - Magic Link Sent | deprecating | yes | 30d=1; last_seen 2026-06-24; PR https://github.com/thegoodparty/omni/pull/318 | declared in-use but code removed + quiet |
+| 5 intent divergence | Onboarding V2 - Resources Viewed | deprecating | yes | 30d=0; last_seen 2026-06-10; PR https://github.com/thegoodparty/omni/pull/2002 | declared in-use but code removed + quiet |
+| 5 intent divergence | Onboarding V2 - Resources Completed | deprecating | yes | 30d=0; last_seen 2026-06-10; PR https://github.com/thegoodparty/omni/pull/2002 | declared in-use but code removed + quiet |
+| 6 dormant (elevated) | Onboarding - User Created | dormant | yes | 30d=0; last_seen 2026-04-17; PR https://github.com/thegoodparty/omni/pull/319 |  |
+| 6 dormant (elevated) | Serve Onboarding - SMS Poll Creation Failed | dormant | yes | 30d=0; last_seen 2026-06-17; PR https://github.com/thegoodparty/omni/pull/1374 |  |
+| 7 instrumented, never observed | Community Issues - Dispatch Skipped | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/701 |  |
+| 7 instrumented, never observed | Constituent Data - Activity List Created | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/852 |  |
+| 7 instrumented, never observed | Constituent Data - Contact Searched | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Constituent Data - Contact Viewed | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Constituent Data - List Created | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/852 |  |
+| 7 instrumented, never observed | Constituent Data - List Exported | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/852 |  |
+| 7 instrumented, never observed | Constituent Data - Note Added | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Contacts - Assistant Chat Opened | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Contacts - Assistant Message Sent | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Contacts - List Wizard Conditions Completed | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Contacts - List Wizard Conditions Viewed | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Contacts - List Wizard Method Completed | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Contacts - List Wizard Method Viewed | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Contacts - List Wizard Name Completed | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Contacts - List Wizard Name Viewed | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Voter Data - Activity List Created | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/852 |  |
+| 7 instrumented, never observed | Voter Data - Contact Searched | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Voter Data - Contact Viewed | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Voter Data - Note Added | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Voter Data - Send Outreach Clicked | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Voter Outreach - 10DLC Compliance Rejected | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/974 |  |
+| 7 instrumented, never observed | Win - Opponent Activity Viewed | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Win - Self Research Completed | instrumented_never_observed |  | 30d=0 |  |
+
+**Dormant tail (24)** — code present, 0 fires/30d, not elevated: Account - Password Reset Requested · Account - Pro Subscription Confirmed · Settings - Delete Account: Cancel Delete · Pro user can not download voter file page · Click to Call CTA Viewed · Voter Data - Need Help: Submit · Profile - Running Against: Cancel Edit · Voter Data - File Detail - Learn & Take Action: Click Read More · Navigation - Dashboard: Click Community · Download Voter File Failure · AI Assistant - Chat History: Click delete · schedule_campaign_image_too_large · Polls - Poll Preview Completed · Profile - Running Against: Submit Edit · Payment - Schedule and Pay Viewed · Voter Data - Need Help: Select Voter File type · AI Assistant - Chat: Click thumbs down · Content Builder - Editor: Open Kebab Menu · AI Assistant - Chat History: Click menu · Profile - Running Against: Click Edit · Profile - Top Issues: Cancel Edit · Pro Upgrade - Committee Check Page: Click Upload · Click to Call Phone Submitted · Click to Call CTA Clicked
+
+### Changes since last run
+
+- new: Contacts - Assistant Chat Opened, Contacts - Assistant Message Sent, Contacts - List Wizard Conditions Completed, Contacts - List Wizard Conditions Viewed, Contacts - List Wizard Method Completed, Contacts - List Wizard Method Viewed, Contacts - List Wizard Name Completed, Contacts - List Wizard Name Viewed, Pro user can not download voter file page, Voter Data - Need Help: Select Voter File type, Voter Data - Send Outreach Clicked, Voter Outreach - 10DLC Compliance Rejected
+- escalated: none
+- resolved: Payment - Completed, Payment - Review and Pay Screen Viewed, Polls - Expand Poll Recommendations Completed, Polls - Expand Poll Recommendations Viewed, Polls - Expand Poll Review Viewed, Settings - Delete Account: Click Delete, Settings - Delete Account: Submit Delete, Sign Up: Click Login, Voter Data - List Created, Voter Data - List Exported, Voter Outreach - 10DLC Compliance PIN Resent, [Experiment] Exposure
+- still open: 52 event(s)
+
+### Metadata completeness (description field)
+
+- Non-system events with a description: 430/451 (95%). Remaining are blank pending the historical backfill.
+- Onboarding / activation / compliance missing a description (fill first): Voter Outreach - 10DLC Compliance PIN Sent
+- Other non-system events missing a description: 20 (not listed).
+
+### Watchlist proposals (self-healing)
+
+105 event(s) in a watched family, first seen in the last 90d, not yet on the watchlist. Triage in the runbook (add real funnel/activation milestones; skip UI micro-interactions), confirm in code, then paste the agreed rows into `monitored_events.yaml`:
+
+```yaml
+  - {event: "Voter Outreach - 10DLC Compliance PIN Resent", product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  - {event: "Community Issues - Trending Issues Dispatch Skipped", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Community Issues - Top Issues Dispatch Skipped", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Briefing Assistant - Dispatch Skipped", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Voter Outreach - 10DLC Compliance Candidate Profile Submitted", product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  - {event: "Community Issues - Trending Issues Refreshed", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Community Issues - Top Issues Refreshed", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Pro Upgrade - Filing Details Submit Error", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  - {event: "Community Issues - Ask AI Started", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Community Issues - Prioritize Clicked", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Dashboard - Campaign Plan: Plan Shared", product: win, family: win_dashboard, floor: null, owner: TBD}
+  - {event: "Community Issues - Run Poll Clicked", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Serve Onboarding - Confirm Viewed", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Community Issues - List Viewed", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Community Issues - Issue Detail Viewed", product: serve, family: serve, floor: null, owner: TBD}
+```
+(90 more — see the JSON report.)
+
 ## 2026-07-20
 
 Basis: complete weeks before 2026-07-20. 503 events — active 328, deprecating 67, system 39, dormant 32, retired 20, instrumented_never_observed 16, code_unknown 1. 64 flagged (35 priority, 29 dormant tail).

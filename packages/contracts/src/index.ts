@@ -112,8 +112,6 @@ export {
   type TextConstituentActivity,
   RobocallConstituentActivitySchema,
   type RobocallConstituentActivity,
-  NoteConstituentActivitySchema,
-  type NoteConstituentActivity,
   ConstituentActivitySchema,
   type ConstituentActivity,
   GetIndividualActivitiesResponseSchema,
@@ -137,6 +135,11 @@ export {
   ListDetailContactsResponseSchema,
   type ListDetailContactsResponse,
 } from './people/ListDetailContacts.schema'
+
+export {
+  PeopleAggregatesResponseSchema,
+  type PeopleAggregatesResponse,
+} from './people/PeopleAggregates.schema'
 
 export { EmailSchema } from './shared/Email.schema'
 export { PhoneSchema } from './shared/Phone.schema'
@@ -528,6 +531,8 @@ export {
 } from './artifactFeedback/ArtifactFeedback.schema'
 
 export * from './artifactReview'
+
+export * from './recommendedLists'
 
 export * from './raceOpponent'
 

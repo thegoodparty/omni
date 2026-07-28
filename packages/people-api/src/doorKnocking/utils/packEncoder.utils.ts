@@ -5,6 +5,10 @@ import {
   PEOPLE_FILTER_VALUE_ENUMS,
 } from '@goodparty_org/contracts'
 import { VALUE_MAPPERS } from 'src/people/utils/filters.sql.utils'
+import {
+  classifyPoliticalParty,
+  RULED_POLITICAL_PARTIES,
+} from 'src/people/utils/politicalParty.rules'
 
 export type PackRow = {
   id: string
@@ -52,7 +56,6 @@ const invertMapper = (
 }
 
 const MAPPED_DIMS = [
-  ['party', 'politicalParty', 'Parties_Description'],
   ['gender', 'gender', 'Gender'],
   ['maritalStatus', 'maritalStatus', 'Marital_Status'],
   ['veteranStatus', 'veteranStatus', 'Veteran_Status'],
@@ -174,7 +177,25 @@ export class PackEncoder {
         bytes: new GrowableU8(),
       }
     })
+    // Party classifies by the shared substring-precedence rules (not an
+    // invertible value map): the bucket must match exactly the rows the
+    // canonical-party list filter selects. Display-'Other' rows (non-blank,
+    // rule-less) land in byte 0 alongside null/blank, same as before the
+    // politicalParty.rules refactor.
+    const partyValues = [UNKNOWN, ...RULED_POLITICAL_PARTIES]
+    const partyBytes = new Map(partyValues.map((value, i) => [value, i]))
+    const party: DimPlane = {
+      key: 'party',
+      values: partyValues,
+      encode: (row) => {
+        const raw = row.Parties_Description
+        if (typeof raw !== 'string' || raw === '') return 0
+        return partyBytes.get(classifyPoliticalParty(raw)) ?? 0
+      },
+      bytes: new GrowableU8(),
+    }
     this.dims = [
+      party,
       ...mapped,
       {
         key: 'age',

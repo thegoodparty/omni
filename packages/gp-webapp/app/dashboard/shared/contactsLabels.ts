@@ -66,7 +66,8 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
         allContactsTitle: 'All voters',
         listDetailsTitle: 'Voter list details',
         wizardVoterFileStepTitle: 'Build a voter list',
-        wizardVoterFileBranchTitle: 'Build my list using the voter file.',
+        wizardVoterFileBranchTitle:
+          'Build a list using voter demographics and data',
         wizardVoterFileBranchDescription:
           'Use this option to select voters from your voter file.',
         wizardActivityBranchDescription:

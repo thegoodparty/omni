@@ -15,24 +15,18 @@ import {
   wizardBuildButton,
   wizardPillGroup,
 } from 'src/helpers/crm-contacts-e2e'
-import {
-  setupElectedOfficeUser,
-  switchOrganization,
-  getSelectedOrgName,
-  getOrgPickerOptions,
-} from 'src/helpers/organizations'
+import { setupProCampaignUser } from 'src/helpers/organizations'
 
-// @dev-only: this spec exercises the Win Contacts surface for a pro campaign
-// org — real people rows are pro-gated, and the flow needs the warm dev
-// stack's real district voter data. An ephemeral per-PR preview can't
-// guarantee the pro provisioning or the data, so this runs on the post-merge
-// develop e2e (and on demand), not on PRs. See e2e-tests/CLAUDE.md.
+// Exercises the Win Contacts surface for a pro campaign org. setupProCampaignUser
+// provisions Pro via the test-only endpoint (no Stripe webhook), and a per-PR
+// preview's gp-api serves the same real district voter data as dev — so this
+// runs on PRs. See e2e-tests/CLAUDE.md ("@dev-only") for what still earns the tag.
 //
 // ENG-10756 port: the Win-mode CRM page — branch step (Win-only), the
 // Political Party filter group (Win-only, ENG-10423), the send-outreach
 // affordances (Win-only, ENG-10749), the list-detail download, and the Win
 // person record (party field + outreach Activity Feed, ENG-10432).
-test.describe('Win Contacts @dev-only', () => {
+test.describe('Win Contacts', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
     await enableCrmFlags(page)
@@ -43,28 +37,10 @@ test.describe('Win Contacts @dev-only', () => {
   }) => {
     test.setTimeout(5 * 60 * 1000)
 
-    // setupElectedOfficeUser creates a pro campaign org and a derived
-    // elected-office org for the same race, then leaves the EO org selected.
-    // The Win context is the campaign (non-eo) org, so switch to it: the EO
-    // org would resolve as Serve, which drops the branch step and the party
-    // filter.
-    const { client } = await setupElectedOfficeUser(page)
-
-    const eoOrgName = await getSelectedOrgName(page)
-    const allOrgs = await getOrgPickerOptions(page)
-    const campaignOrgName = allOrgs.find((name) => name !== eoOrgName)
-    expect(campaignOrgName).toBeTruthy()
-    await switchOrganization(page, campaignOrgName!)
-
-    // Repoint the API client at the campaign org for the member lookup below.
-    const { data: orgsResponse } = await client.get<{
-      organizations: { slug: string }[]
-    }>('/v1/organizations')
-    const campaignSlug = orgsResponse.organizations.find(
-      (org) => !org.slug.startsWith('eo-'),
-    )?.slug
-    expect(campaignSlug).toBeTruthy()
-    client.defaults.headers['x-organization-slug'] = campaignSlug!
+    // A pro Win campaign org (no elected office, so the page stays in Win mode
+    // with the branch step + party filter). The client is already scoped to
+    // the campaign org for the member lookup below.
+    const { client } = await setupProCampaignUser(page)
 
     await gotoCrmContacts(page)
 
@@ -98,16 +74,18 @@ test.describe('Win Contacts @dev-only', () => {
     ).toBeVisible({ timeout: 10_000 })
     await expect(wizard.getByText('Step 1 of 3')).toBeVisible()
     await expect(
-      wizard.getByText('Build my list using outreach activity.'),
+      wizard.getByText('Build a list from previous campaign activity'),
     ).toBeVisible()
     await expect(
-      wizard.getByText('Build my list using the voter file.'),
+      wizard.getByText('Build a list using voter demographics and data'),
     ).toBeVisible()
 
     // Continue is disabled until a branch is chosen.
     const continueButton = wizard.getByRole('button', { name: 'Continue' })
     await expect(continueButton).toBeDisabled()
-    await wizard.getByText('Build my list using the voter file.').click()
+    await wizard
+      .getByText('Build a list using voter demographics and data')
+      .click()
     await expect(continueButton).toBeEnabled()
     await continueButton.click()
 
@@ -151,15 +129,16 @@ test.describe('Win Contacts @dev-only', () => {
     // --- Download from the detail-sheet footer: the request must succeed
     // (pro-gated on the server). Assert the response rather than the
     // streamed file event, which is not deterministically observable. ---
-    const downloadResponsePromise = page.waitForResponse(
-      (response) =>
-        response.url().includes('/api/v1/contacts/download') &&
-        response.request().method() === 'GET',
-      { timeout: 30000 },
-    )
+    // "Download list" is an <a download> click (useContactsDownload.ts), so the
+    // browser's download machinery consumes the response and it isn't reliably
+    // surfaced to waitForResponse on a cold preview. Wait on the download event
+    // — the correct primitive for an anchor download; its start (a .csv
+    // attachment) proves the pro-gated download was allowed. The export is
+    // generated server-side (~10-15s per the app's toast), so allow room.
+    const downloadPromise = page.waitForEvent('download', { timeout: 90_000 })
     await detailSheet.getByRole('button', { name: 'Download list' }).click()
-    const downloadResponse = await downloadResponsePromise
-    expect(downloadResponse.ok()).toBeTruthy()
+    const download = await downloadPromise
+    expect(download.suggestedFilename()).toMatch(/\.csv$/)
 
     await detailSheet.getByRole('button', { name: 'Close' }).click()
     await expect(detailSheet).toBeHidden({ timeout: 10_000 })
