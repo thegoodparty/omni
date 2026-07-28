@@ -169,7 +169,7 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     } catch (error) {
       if (this.isPeerlyClientError(error)) {
         throw new BadRequestException(
-          'Phone list is still being processed by Peerly; try again shortly',
+          'Peerly rejected the phone list request; the purchase cannot proceed',
         )
       }
       this.logger.warn(
@@ -204,7 +204,7 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     } catch (error) {
       if (this.isPeerlyClientError(error)) {
         throw new BadRequestException(
-          'Phone list is still being processed by Peerly; try again shortly',
+          'Peerly rejected the phone list details request; the purchase cannot proceed',
         )
       }
       this.logger.warn(
