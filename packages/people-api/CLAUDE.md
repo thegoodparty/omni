@@ -39,12 +39,13 @@ npm run test -w packages/people-api   # vitest run
 
 ## Pointer table — when in doubt
 
-| Doing                        | Read                                  |
-| ---------------------------- | ------------------------------------- |
-| Adding an endpoint / module  | `docs/architecture.md` § Module shape |
-| Touching the voter data flow | `docs/data-pipeline.md`               |
-| First-time setup             | `docs/getting-started.md`             |
-| AI rule-by-rule code review  | `ai-rules/` (git submodule)           |
+| Doing                                       | Read                                        |
+| ------------------------------------------- | ------------------------------------------- |
+| Adding an endpoint / module                 | `docs/architecture.md` § Module shape       |
+| Touching the voter data flow                | `docs/data-pipeline.md`                     |
+| First-time setup                            | `docs/getting-started.md`                   |
+| Debugging the count/aggregate timeout fence | `docs/slow-aggregate-plan-investigation.md` |
+| AI rule-by-rule code review                 | `ai-rules/` (git submodule)                 |
 
 ## Code style
 
