@@ -68,7 +68,7 @@
     "@fastify/helmet": "^13.0.1",
     "@fastify/multipart": "^9.0.3",
     "@fastify/otel": "^0.16.0",
-    "@fastify/static": "^9.1.3",
+    "@fastify/static": "^10.1.2",
     "@fastify/websocket": "^11.2.0",
     "@geoapify/route-planner-sdk": "^2.0.0",
     "@goodparty_org/contracts": "*",
