@@ -672,6 +672,12 @@ export type APIEndpoints = {
     Request: { segment?: string }
     Response: Blob
   }
+  // Binary SoA pack for the door-knocking exploration map — fetched via raw
+  // fetch(...arrayBuffer()), not clientRequest (which is JSON-only).
+  'GET /v1/door-knocking/pack': {
+    Request: undefined
+    Response: ArrayBuffer
+  }
   'GET /v1/contacts/list-detail': {
     // Omitted segment = the universe row's detail (ENG-10778): the whole
     // unfiltered district.

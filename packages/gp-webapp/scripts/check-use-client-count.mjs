@@ -135,7 +135,10 @@ import { dirname, join, relative } from 'node:path'
 // (per-priority visibility/status toggles + mutation) are all genuinely
 // interactive and can't be server components. The page.tsx shell stays a server
 // component (it fetches data and gates access). Net +3 over develop's 546.
-const BASELINE = 549
+// 2026-07-28: 549 -> 552 for the three native door-knocking client files
+// (page gate, map page, map canvas — the canvas is behind next/dynamic
+// ssr:false so the heavy libs stay out of shared bundles).
+const BASELINE = 552
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
