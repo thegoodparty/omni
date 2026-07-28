@@ -70,30 +70,34 @@ test('office picker filters by role pill and highlights one row for zip 28806', 
     .first()
     .waitFor({ state: 'visible', timeout: 30000 })
 
-  // Regression 1 — the role pill actually narrows the list. The pill renders as
-  // a radio named "City Council (N)"; it lives in a separate group from the
-  // office rows, so match its leading-paren label to avoid the office rows.
-  await expect(
-    page.getByRole('radio', { name: /^City Council \(\s*\d+\s*\)/i }),
-  ).toBeVisible()
+  // Regression 1 — selecting a duplicate row highlights exactly that row, not
+  // its twin. 28806 returns two "Asheville City Mayor" rows (same office + date,
+  // different race id); before the fix they shared a radio value and lit up
+  // together. Match on the accessible name — RadioCardItem exposes the office
+  // title via aria-labelledby, so the radio's DOM textContent is empty.
+  const mayorRows = officeGroup.getByRole('radio', {
+    name: /Asheville City Mayor/i,
+  })
+  await expect(mayorRows.first()).toBeVisible()
+  await mayorRows.first().click()
+  await expect(officeGroup.getByRole('radio', { checked: true })).toHaveCount(1)
+
+  // Regression 2 — the role pill actually narrows the list. The pill renders as
+  // a radio named "City Council (N)" in a separate group from the office rows;
+  // match its leading-paren label so it isn't confused with an office row.
+  // After clicking, every remaining office row must be a City Council office
+  // (compare the total count with the City-Council-named count).
   await page
     .getByRole('radio', { name: /^City Council \(\s*\d+\s*\)/i })
     .click()
 
   await expect
-    .poll(
-      async () => {
-        const names = await officeGroup.getByRole('radio').allTextContents()
-        return (
-          names.length > 0 && names.every((name) => /city council/i.test(name))
-        )
-      },
-      { timeout: 10000 },
-    )
+    .poll(async () => {
+      const total = await officeGroup.getByRole('radio').count()
+      const cityCouncil = await officeGroup
+        .getByRole('radio', { name: /city council/i })
+        .count()
+      return total > 0 && total === cityCouncil
+    })
     .toBe(true)
-
-  // Regression 2 — selecting an office highlights exactly one row (duplicate
-  // rows previously shared a value and lit up together).
-  await officeGroup.getByRole('radio').first().click()
-  await expect(officeGroup.getByRole('radio', { checked: true })).toHaveCount(1)
 })
