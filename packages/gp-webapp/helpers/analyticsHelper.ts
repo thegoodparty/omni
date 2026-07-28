@@ -625,8 +625,6 @@ export const EVENTS = {
     ReadAloudStopped: 'Briefing Assistant - Read Aloud Stopped',
     ReadAloudCompleted: 'Briefing Assistant - Read Aloud Completed',
     ReadAloudFailed: 'Briefing Assistant - Read Aloud Failed',
-    DictationStarted: 'Briefing Assistant - Dictation Started',
-    DictationFailed: 'Briefing Assistant - Dictation Failed',
     ShareDrawerOpened: 'Briefing Assistant - Share Drawer Opened',
     ShareCompleted: 'Briefing Assistant - Share Completed',
     AttachmentClicked: 'Briefing Assistant - Attachment Clicked',
@@ -634,6 +632,13 @@ export const EVENTS = {
     AgendaSubmissionFailed: 'Briefing Assistant - Agenda Submission Failed',
     SourcesExpanded: 'Briefing Assistant - Sources Expanded',
     TocItemClicked: 'Briefing Assistant - TOC Item Clicked',
+  },
+  // Speech-to-text dictation. Shared capability used across features (briefings,
+  // onboarding story steps, etc.), so the events are not namespaced to any one.
+  // The firing `label` prop identifies the surface (e.g. onboarding_story_why).
+  Dictation: {
+    Started: 'Dictation - Started',
+    Failed: 'Dictation - Failed',
   },
   // V2 onboarding flow that ends in the generated campaign plan. All new
   // events (no reuse of legacy Onboarding/Dashboard events) so V2 funnels
