@@ -60,6 +60,8 @@ const CAPTURED_LIST_FIXTURE: PeerlyPhoneList = {
   token: 'token-abc',
   peerlyListId: 42,
   voterFileFilterId: null,
+  excludedOptedOutCount: 0,
+  excludedDuplicatePhoneCount: 0,
 }
 
 const PHONE_LIST_DETAILS_FIXTURE = {
