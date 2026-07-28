@@ -338,7 +338,9 @@ describe('CampaignTrackerTasksService.onExperimentRunCompleted', () => {
       expect(text).toContain('Weekly campaign tasks generated')
       expect(text).toContain('Jordan Nguyen')
       expect(text).toContain('hs-9')
-      expect(text).toContain('DOORKNOCKING: Knock doors')
+      // UTC-midnight instants render as their calendar date in any process TZ
+      expect(text).toContain('DOORKNOCKING: Knock doors (Jul 13)')
+      expect(text).toContain('TEXT: Send intro text (Jul 14)')
     })
 
     it('notifies with the first-week title on the initial generation', async () => {
@@ -453,6 +455,165 @@ describe('CampaignTrackerTasksService.notifyProUpgrade', () => {
     // findUnique defaults to isPro: false
     await h.service.notifyProUpgrade(42)
     expect(h.slack.message).not.toHaveBeenCalled()
+  })
+})
+
+// The one-shot outreach-schedule post: the legacy plan-created message the
+// ClickUp automation parses into voter-contact tasks, now also sent for
+// tracker-cohort campaigns. Fires after the week post on generation and on
+// Pro upgrade, claimed via campaignStrategy.outreachSlackPostedAt so the two
+// triggers can't both post.
+describe('CampaignTrackerTasksService outreach schedule CAS post', () => {
+  let h: ReturnType<typeof makeService>
+  beforeEach(() => {
+    h = makeService()
+  })
+
+  const weekTasks = [
+    {
+      id: 'k1',
+      title: 'Knock doors',
+      date: new Date('2026-07-13'),
+      flowType: 'doorKnocking',
+    },
+  ]
+  // UTC-midnight instants, as materializeStaticTasks stores them. The message
+  // must render the calendar date regardless of process timezone.
+  const outreachRows = [
+    {
+      id: 'o1',
+      title: 'Introduction Text',
+      date: new Date('2026-09-08T00:00:00Z'),
+      flowType: 'text',
+    },
+    {
+      id: 'o2',
+      title: 'Election Day Reminder Robocall',
+      date: new Date('2026-11-02T00:00:00Z'),
+      flowType: 'robocall',
+    },
+  ]
+
+  const runGeneration = async () => {
+    h.prisma.campaign.findUnique.mockResolvedValueOnce(proCampaign())
+    h.prisma.campaignTrackerTask.findMany
+      .mockResolvedValueOnce(weekTasks)
+      .mockResolvedValueOnce(outreachRows)
+    h.s3.getFile.mockResolvedValueOnce(
+      JSON.stringify({
+        generated_at: '2026-06-24T00:00:00Z',
+        tasks: [
+          {
+            kind: 'task',
+            title: 'Knock doors',
+            description: 'go',
+            phase: 'active',
+            channel: 'doorKnocking',
+          },
+        ],
+      }),
+    )
+    await h.service.onExperimentRunCompleted({
+      runId: 'run-1',
+      status: ExperimentRunStatus.COMPLETED,
+      experimentType: CAMPAIGN_TRACKER_EXPERIMENT_TYPE,
+      organizationSlug: 'org-1',
+      artifactBucket: 'bucket',
+      artifactKey: 'key',
+    } as never)
+  }
+
+  it('posts the schedule in the plan-created format after the week post', async () => {
+    await runGeneration()
+
+    expect(h.slack.message).toHaveBeenCalledTimes(2)
+    const [message, channel] = h.slack.message.mock.calls[1]!
+    expect(channel).toBe(SlackChannel.casClickupTasks)
+    const text = message.blocks[0].text.text
+    expect(text).toContain(':white_check_mark: *AI Campaign Plan Created*')
+    expect(text).toContain('Candidate: Jordan Nguyen')
+    expect(text).toContain('HubSpot ID: hs-9')
+    expect(text).toContain('*Outreach Tasks (2):*')
+    // Dates come from the stored UTC-midnight instants, never the process TZ.
+    expect(text).toContain('- TEXT: Introduction Text (Due: Sep 8, 2026)')
+    expect(text).toContain(
+      '- ROBOCALL: Election Day Reminder Robocall (Due: Nov 2, 2026)',
+    )
+    expect(h.prisma.campaignStrategy.updateMany).toHaveBeenCalledWith({
+      where: { campaignId: 42, outreachSlackPostedAt: null },
+      data: { outreachSlackPostedAt: expect.any(Date) },
+    })
+  })
+
+  it('skips the schedule post when the claim is already taken', async () => {
+    h.prisma.campaignStrategy.updateMany.mockResolvedValueOnce({ count: 0 })
+    await runGeneration()
+
+    expect(h.slack.message).toHaveBeenCalledTimes(1)
+    const text = firstOrThrow(h.slack.message.mock.calls)[0].blocks[0].text.text
+    expect(text).not.toContain('AI Campaign Plan Created')
+  })
+
+  it('releases the claim when the Slack send fails', async () => {
+    // The real SlackService swallows errors and resolves undefined.
+    h.slack.message.mockResolvedValueOnce('ok').mockResolvedValueOnce(undefined)
+    await runGeneration()
+
+    expect(h.prisma.campaignStrategy.updateMany).toHaveBeenLastCalledWith({
+      where: { campaignId: 42 },
+      data: { outreachSlackPostedAt: null },
+    })
+  })
+
+  it('posts the schedule after the pro-upgrade week post', async () => {
+    h.prisma.campaign.findUnique.mockResolvedValueOnce(proCampaign())
+    h.prisma.campaignTrackerTask.findFirst
+      .mockResolvedValueOnce({ date: new Date('2026-07-06') })
+      .mockResolvedValue({ week: 2 })
+    h.prisma.campaignTrackerTask.findMany
+      .mockResolvedValueOnce(weekTasks)
+      .mockResolvedValueOnce(outreachRows)
+
+    const result = await h.service.notifyProUpgrade(42)
+
+    expect(result).toBe(true)
+    expect(h.slack.message).toHaveBeenCalledTimes(2)
+    const text = h.slack.message.mock.calls[1]![0].blocks[0].text.text
+    expect(text).toContain('AI Campaign Plan Created')
+    expect(text).toContain('- TEXT: Introduction Text (Due: Sep 8, 2026)')
+  })
+
+  it('does not claim or post when the campaign has no outreach rows', async () => {
+    h.prisma.campaign.findUnique.mockResolvedValueOnce(proCampaign())
+    h.prisma.campaignTrackerTask.findMany
+      .mockResolvedValueOnce(weekTasks)
+      // outreach fetch finds nothing (e.g. lost primary tore the rows down)
+      .mockResolvedValueOnce([])
+    h.s3.getFile.mockResolvedValueOnce(
+      JSON.stringify({
+        generated_at: '2026-06-24T00:00:00Z',
+        tasks: [
+          {
+            kind: 'task',
+            title: 'Knock doors',
+            description: 'go',
+            phase: 'active',
+            channel: 'doorKnocking',
+          },
+        ],
+      }),
+    )
+    await h.service.onExperimentRunCompleted({
+      runId: 'run-1',
+      status: ExperimentRunStatus.COMPLETED,
+      experimentType: CAMPAIGN_TRACKER_EXPERIMENT_TYPE,
+      organizationSlug: 'org-1',
+      artifactBucket: 'bucket',
+      artifactKey: 'key',
+    } as never)
+
+    expect(h.slack.message).toHaveBeenCalledTimes(1)
+    expect(h.prisma.campaignStrategy.updateMany).not.toHaveBeenCalled()
   })
 })
 
