@@ -194,6 +194,9 @@ describe('VoterQueryService', () => {
       expect(mockStatsService.getTotalCounts).not.toHaveBeenCalled()
       expect(mockClient.$queryRaw).toHaveBeenCalledTimes(2)
       expect(result.pagination.totalResults).toBe(7)
+      // The primary count query completed under the timeout, so the result is
+      // exact, not a FENCE_LIMIT floor.
+      expect(result.pagination.fenced).toBe(false)
       // A broad/low-selectivity filter (not just name-search) can trip the same
       // pathological plan, so this count runs through the same guard: exactly
       // one transaction carrying the SET LOCAL statement_timeout + the count.
@@ -487,10 +490,14 @@ describe('VoterQueryService', () => {
       } as never)
 
       expect(result.pagination.totalResults).toBe(10000)
+      // The primary count was cancelled and the FENCE_LIMIT-capped retry won,
+      // so the reported total is a floor, not an exact count (ENG-10804).
+      expect(result.pagination.fenced).toBe(true)
       expect(mockClient.$queryRaw).toHaveBeenCalledTimes(3)
       // The data query is not name-search, so it never entered a transaction —
-      // only the count's cancelled attempt + its fenced retry did.
-      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
+      // only the count's cancelled attempt and its fenced retry did (the
+      // fenced retry runs under its own statement timeout too, ENG-10806).
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(2)
       const fencedCountSql = sqlOf(mockClient.$queryRaw.mock.calls[2]?.[0])
       expect(fencedCountSql).toContain('FROM (SELECT v.* FROM')
       expect(fencedCountSql).toContain('LIMIT ?) v')
@@ -875,6 +882,49 @@ describe('VoterQueryService', () => {
       expect(fencedSql).toContain('FROM (SELECT v.* FROM')
       expect(fencedSql).toContain('LIMIT')
       expect(valuesOf(fenced).slice(-1)).toEqual([10000])
+    })
+
+    it('runs the fenced retry under its own (longer) statement timeout', async () => {
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([]) // primary aggregate (cancelled inside the txn)
+        .mockResolvedValueOnce([
+          { count: 10000n, avgAge: 41, avgIncome: 48000 },
+        ]) // fenced retry
+      mockClient.$transaction.mockRejectedValueOnce(statementTimeoutError())
+
+      await service.getAggregates({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+      } as never)
+
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(2)
+      expect(mockClient.$executeRaw).toHaveBeenCalledTimes(2)
+      expect(sqlOf(mockClient.$executeRaw.mock.calls[0]?.[0])).toBe(
+        "SET LOCAL statement_timeout = '2500ms'",
+      )
+      // Double the primary's timeout — the fenced retry is a real query too
+      // and can hit the same pathological plan, so it needs a bound of its
+      // own instead of running unfenced.
+      expect(sqlOf(mockClient.$executeRaw.mock.calls[1]?.[0])).toBe(
+        "SET LOCAL statement_timeout = '5000ms'",
+      )
+    })
+
+    it('propagates a clean error when the fenced retry itself times out', async () => {
+      mockClient.$transaction
+        .mockRejectedValueOnce(statementTimeoutError())
+        .mockRejectedValueOnce(statementTimeoutError())
+
+      await expect(
+        service.getAggregates({
+          districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+          filters: { filters: [], filterOperators: {} },
+        } as never),
+      ).rejects.toThrow(/57014/)
+
+      // No further retry attempted — the second timeout propagates as-is
+      // instead of hanging or looping.
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(2)
     })
 
     it('resolves the district and returns count/avgAge/avgIncome', async () => {

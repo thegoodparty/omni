@@ -122,11 +122,13 @@ const runStep = async (entry: SyntheticOrdinanceEntry, step: DataStateStep) => {
     .map((s) => s.toolName as string)
   const payloadsFor = (tool: string): unknown[] =>
     segments.filter((s) => s.toolName === tool).map((s) => s.payload)
+  // Read message.content, not text segments: content always carries the full
+  // assistant text, while segments are only written for tool-bearing turns —
+  // a pure-text turn (e.g. the no-code-record prose flag this file exists to
+  // probe) has no segments, which made these assertions run against ''.
   const assistantText = messages
     .filter((m) => m.role === 'assistant')
-    .flatMap((m) => m.segments)
-    .filter((s) => s.kind === 'text')
-    .map((s) => s.text ?? '')
+    .map((m) => m.content ?? '')
     .join('\n')
 
   return { seeded, ordinance, toolNames, payloadsFor, assistantText }

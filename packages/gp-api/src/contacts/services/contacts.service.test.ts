@@ -1357,9 +1357,9 @@ describe('ContactsService', () => {
         })
         const createSpy = vi.spyOn(ListPeopleDTO, 'create')
 
-        const count = await service.countContacts({ partyDemocrat: true }, org)
+        const result = await service.countContacts({ partyDemocrat: true }, org)
 
-        expect(count).toBe(1234)
+        expect(result).toEqual({ count: 1234, fenced: false })
         // The translated filter set reaches the people-db query, and only
         // one row is requested so no real voter rows are loaded just to read
         // the total.
@@ -1641,13 +1641,23 @@ describe('ContactsService', () => {
         })
         expect(result.reachability).toEqual({
           sms: 60,
-          robocall: 60,
+          // Robocall/telemarketing reach landlines, not cell phones — same
+          // aggregate phoneBanking uses, distinct from the cellphone/sms
+          // count (ENG-10798).
+          robocall: 45,
           // phoneBanking mirrors segmentsToFiltersMap.const.ts: landline-only,
           // not the cellphone count sms/robocall use.
           phoneBanking: 45,
           doorKnocking: 30,
           // Polls are delivered by text, so they mirror the sms count.
           polls: 60,
+          fenced: {
+            sms: undefined,
+            robocall: undefined,
+            phoneBanking: undefined,
+            doorKnocking: undefined,
+            polls: undefined,
+          },
         })
 
         expect(mockVoterQueryService.getAggregates).toHaveBeenCalledTimes(4)
@@ -1680,8 +1690,6 @@ describe('ContactsService', () => {
 
         const result = await service.getListDetail({ segment: 42 }, org)
 
-        // Only the base call's fenced-ness surfaces on demographics — the
-        // channel-specific calls below it aren't threaded through yet.
         expect(result.demographics).toEqual({
           people: 10000,
           avgAge: 41,
@@ -1781,10 +1789,19 @@ describe('ContactsService', () => {
           })
           expect(result.reachability).toEqual({
             sms: 60000,
-            robocall: 60000,
+            // Robocall/telemarketing reach landlines, not cell phones
+            // (ENG-10798).
+            robocall: 45000,
             phoneBanking: 45000,
             doorKnocking: 30000,
             polls: 60000,
+            fenced: {
+              sms: undefined,
+              robocall: undefined,
+              phoneBanking: undefined,
+              doorKnocking: undefined,
+              polls: undefined,
+            },
           })
           expect(result.outreachHistory).toEqual([])
 
@@ -1875,7 +1892,7 @@ describe('ContactsService', () => {
           { kind: 'empty' },
         )
 
-        const count = await service.countContacts(
+        const result = await service.countContacts(
           {
             activityConditions: [
               {
@@ -1888,7 +1905,7 @@ describe('ContactsService', () => {
           org,
         )
 
-        expect(count).toBe(0)
+        expect(result).toEqual({ count: 0, fenced: false })
         expect(mockVoterQueryService.findPeople).not.toHaveBeenCalled()
       })
 
@@ -1907,12 +1924,12 @@ describe('ContactsService', () => {
         })
         const createSpy = vi.spyOn(ListPeopleDTO, 'create')
 
-        const count = await service.countContacts(
+        const result = await service.countContacts(
           { supportStatus: ['unknown'] },
           org,
         )
 
-        expect(count).toBe(7)
+        expect(result).toEqual({ count: 7, fenced: false })
         expect(createSpy).toHaveBeenCalledWith(
           expect.objectContaining({
             filters: { id: { notIn: [PERSON_ID_3] } },

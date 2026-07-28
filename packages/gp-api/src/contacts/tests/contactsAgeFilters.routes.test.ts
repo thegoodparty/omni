@@ -39,6 +39,7 @@ describe('POST /v1/contacts/count age filter bounds', () => {
           totalPages: 3,
           hasNextPage: true,
           hasPreviousPage: false,
+          fenced: false,
         },
         people: [],
       })
@@ -54,7 +55,7 @@ describe('POST /v1/contacts/count age filter bounds', () => {
     )
 
     expect(response.status).toBe(201)
-    expect(response.data).toEqual({ count: 3 })
+    expect(response.data).toEqual({ count: 3, fenced: false })
     expect(findPeopleSpy).toHaveBeenCalledTimes(1)
     expect(findPeopleSpy.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({
@@ -82,7 +83,7 @@ describe('POST /v1/contacts/count age filter bounds', () => {
     )
 
     expect(response.status).toBe(201)
-    expect(response.data).toEqual({ count: 3 })
+    expect(response.data).toEqual({ count: 3, fenced: false })
     expect(findPeopleSpy).toHaveBeenCalledTimes(1)
     expect(findPeopleSpy.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({

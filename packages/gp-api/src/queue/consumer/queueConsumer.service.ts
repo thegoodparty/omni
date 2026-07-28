@@ -37,6 +37,7 @@ import { RaceOpponentPersistService } from 'src/raceOpponent/services/raceOppone
 import { RaceOpponentResearchPersistService } from 'src/raceOpponent/services/raceOpponentResearchPersist.service'
 import { OrdinanceCodePersistService } from 'src/ordinances/services/ordinanceCodePersist.service'
 import { OrdinanceQualityLoopService } from 'src/ordinances/services/ordinanceQualityLoop.service'
+import { RecommendedListsComputeService } from 'src/recommendedLists/services/recommendedListsCompute.service'
 import { PollIssuesService } from 'src/polls/services/pollIssues.service'
 import { PollsService } from 'src/polls/services/polls.service'
 import {
@@ -65,6 +66,7 @@ import {
   WeeklyTasksDigestMessageSchema,
   OcrAttachmentMessageSchema,
   OrdinanceQualityLoopMessageSchema,
+  RecommendedListsRecomputeMessageSchema,
   PollAnalysisCompleteEvent,
   PollAnalysisCompleteEventSchema,
   PollCreationEvent,
@@ -162,6 +164,7 @@ export class QueueConsumerService {
     private readonly annotationAttachments: AnnotationAttachmentService,
     private readonly ordinanceCodePersist: OrdinanceCodePersistService,
     private readonly ordinanceQualityLoop: OrdinanceQualityLoopService,
+    private readonly recommendedLists: RecommendedListsComputeService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(QueueConsumerService.name)
@@ -447,6 +450,23 @@ export class QueueConsumerService {
           return true
         }
         return await this.ordinanceQualityLoop.handleStep(step.data)
+      }
+      case QueueType.RECOMMENDED_LISTS_RECOMPUTE: {
+        // Parse failure is a poison message — it can never become valid, and
+        // requeueing would block the campaign's FIFO group until the DLQ
+        // limit. Ack-drop it. A valid recompute is idempotent and its own
+        // stale-guard, so redelivery of a valid message is safe.
+        const recompute = RecommendedListsRecomputeMessageSchema.safeParse(
+          queueMessage.data,
+        )
+        if (!recompute.success) {
+          this.logger.error(
+            { messageId: message.MessageId, error: recompute.error },
+            'malformed recommended lists recompute message, discarding',
+          )
+          return true
+        }
+        return await this.recommendedLists.handleRecompute(recompute.data)
       }
       default:
         this.logger.warn(

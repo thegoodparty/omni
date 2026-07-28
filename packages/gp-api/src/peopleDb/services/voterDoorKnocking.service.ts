@@ -9,7 +9,7 @@ import { Prisma } from '../../generated/people-prisma'
 import { createPeopleDbBase, PEOPLE_MODELS } from '../peopleDbBase.util'
 import { DistrictService } from './district.service'
 import { DATABASE_SCHEMA } from './voterQuery.service'
-import { buildHouseholdKeySql } from '../utils/buildHouseholdKeySql.util'
+import { buildDoorKnockingAddressKeySql } from '../utils/doorKnockingAddressKey.util'
 import { buildVoterWhereSql } from '../utils/buildVoterWhereSql.util'
 import { resolveDistrict } from '../utils/resolveDistrict.util'
 import {
@@ -105,7 +105,7 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
         v."LastName" AS "lastName",
         v."Residence_Addresses_Latitude"::float8 AS "lat",
         v."Residence_Addresses_Longitude"::float8 AS "lng",
-        ${buildHouseholdKeySql('v')} AS "addressKey",
+        ${buildDoorKnockingAddressKeySql('v')} AS "addressKey",
         COALESCE(v."Residence_Addresses_AddressLine", '') AS "displayAddress"
       FROM ${VOTER_TABLE} v
       ${joinClause}
@@ -133,10 +133,15 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
       districtId: effectiveDistrictId,
       filters: EMPTY_FILTERS,
       extraConditions: [
-        Prisma.sql`${buildHouseholdKeySql('v')} = ANY(${dto.addressKeys}::text[])`,
+        // ROOFTOP_ONLY keeps the population in parity with evaluate — the
+        // cap below is sized against the rooftop-only roster, and a unit's
+        // non-rooftop rows would inflate rows toward a spurious rejection.
+        ROOFTOP_ONLY,
+        Prisma.sql`${buildDoorKnockingAddressKeySql('v')} = ANY(${dto.addressKeys}::text[])`,
       ],
     })
 
+    const residentsCap = dto.targetPersonIds.length * 10
     const rows = await this.client.$queryRaw<ResidentRow[]>(Prisma.sql`
       SELECT v."id",
         v."FirstName" AS "firstName",
@@ -144,10 +149,20 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
         v."Age",
         v."Age_Int",
         v."Parties_Description",
-        ${buildHouseholdKeySql('v')} AS "addressKey"
+        ${buildDoorKnockingAddressKeySql('v')} AS "addressKey"
       FROM ${VOTER_TABLE} v
       ${joinClause}
-      ${whereClause}`)
+      ${whereClause}
+      LIMIT ${residentsCap + 1}`)
+
+    // Mirrors evaluate's guard: reject rather than silently truncate — a
+    // truncated response would serve wrong rosters. The cap is generous
+    // (unit-level addressKeys hold household-sized populations).
+    if (rows.length > residentsCap) {
+      throw new BadRequestException(
+        'Residents lookup exceeded the expected population for this route',
+      )
+    }
 
     const targetIds = new Set<string>(dto.targetPersonIds)
     const byAddress = new Map<
@@ -170,9 +185,11 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
           firstName: row.firstName,
           lastName: row.lastName,
           age: mapAge(row),
-          // Unlike /v1/people output (null → 'Other'), no party data (null
-          // or empty) stays null here — the contract distinguishes "no
-          // data" from an actual third-party registration.
+          // No party data (null/empty) stays null — unlike /v1/people
+          // output, which collapses it to 'Other'. A non-empty unrecognized
+          // value (Green, Libertarian, …) IS a real registration and maps
+          // to 'Other' deliberately; the ?? null only narrows the mapper's
+          // optional return type.
           politicalParty: row.Parties_Description
             ? (mapPoliticalParty(row.Parties_Description) ?? null)
             : null,

@@ -69,11 +69,7 @@ export class ContactsController {
     @Body() filters: CountContactsDTO,
     @ReqOrganization() organization: Organization,
   ) {
-    const count = await this.contactsService.countContacts(
-      filters,
-      organization,
-    )
-    return { count }
+    return this.contactsService.countContacts(filters, organization)
   }
 
   @Get('list-detail')

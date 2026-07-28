@@ -127,6 +127,7 @@ describe('crud_saved_filters against the real service pipeline', () => {
       id: expect.any(Number),
       name: 'Texted responders',
       count: 57,
+      fenced: false,
     })
     const id = (result as { id: number }).id
     const persisted = await service.prisma.voterFileFilter.findUniqueOrThrow({

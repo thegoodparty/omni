@@ -182,6 +182,20 @@ describe('VoterDoorKnockingService', () => {
       expect(lastQuerySql().values).toContainEqual([ADDRESS_KEY])
     })
 
+    it('rejects when the live population exceeds the residents cap', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce(
+        Array.from({ length: 11 }, (_, i) =>
+          residentRow(
+            `${String(i).padStart(8, '0')}-2222-2222-2222-222222222222`,
+          ),
+        ),
+      )
+
+      await expect(service.residents(dto as never)).rejects.toThrow(
+        BadRequestException,
+      )
+    })
+
     it('groups residents at a moved-away target address as otherResidents', async () => {
       mockClient.$queryRaw.mockResolvedValueOnce([residentRow(OTHER_ID)])
 

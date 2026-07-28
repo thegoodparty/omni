@@ -17,6 +17,12 @@ import type {
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
+  GetMinePersonProfileResponse,
+  PersonProfile,
+  SetProfileIssuesRequest,
+  UpsertPersonProfileRequest,
+} from 'app/dashboard/public-profile/shared/types'
+import type {
   SynthesizeSpeechRequest,
   SynthesizeSpeechResponse,
   TranscribeSessionRequest,
@@ -660,7 +666,7 @@ export type APIEndpoints = {
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
     } & Record<string, unknown>
-    Response: { count: number }
+    Response: { count: number; fenced?: boolean }
   }
   'GET /v1/contacts/download': {
     Request: { segment?: string }
@@ -894,6 +900,45 @@ export type APIEndpoints = {
   'POST /v1/community-issues/:id/prioritize': {
     Request: { id: string }
     Response: Priority
+  }
+
+  // --- Person public-profile overlay (in-product editing; Serve + Win) -------
+  // Owner-scoped by req.user in gp-api; there is no way to address another
+  // user's profile. `canCreate` is false until the data team has minted the
+  // caller's canonical personId (publish is unavailable until then).
+  'GET /v1/person-profiles/mine': {
+    Request: {}
+    Response: GetMinePersonProfileResponse
+  }
+  'POST /v1/person-profiles': {
+    Request: UpsertPersonProfileRequest
+    Response: PersonProfile
+  }
+  'PUT /v1/person-profiles/mine': {
+    Request: UpsertPersonProfileRequest
+    Response: PersonProfile
+  }
+  'POST /v1/person-profiles/mine/publish': {
+    Request: {}
+    Response: PersonProfile
+  }
+  'POST /v1/person-profiles/mine/unpublish': {
+    Request: {}
+    Response: PersonProfile
+  }
+  'DELETE /v1/person-profiles/mine': {
+    Request: {}
+    Response: PersonProfile
+  }
+  'PUT /v1/person-profiles/mine/issues': {
+    Request: SetProfileIssuesRequest
+    Response: PersonProfile
+  }
+  // Multipart image upload — call with `{}` payload and `{ body: formData,
+  // query: { target: 'avatar' | 'cover' } }` overrides.
+  'POST /v1/person-profiles/mine/upload-image': {
+    Request: {}
+    Response: PersonProfile
   }
 
   'POST /v1/community-issues/self-dispatch': {

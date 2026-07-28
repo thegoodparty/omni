@@ -305,4 +305,18 @@ describe('OrdinanceQualityReportService', () => {
       }),
     )
   })
+
+  // The rubric grades state bills too: a judge that demands "municipal-code
+  // style" and asks whether "the council" has power would push a state bill
+  // back into ordinance voice on every loop pass.
+  it('grades against the enacting body, not a hardcoded municipal council', async () => {
+    const jsonCompletion = vi.fn().mockResolvedValue(fullResponse)
+    await build(jsonCompletion).generate(record(), 7)
+
+    const system = jsonCompletion.mock.calls[0]?.[0]?.messages?.[0]?.content
+    expect(system).toContain('enacting body')
+    expect(system).not.toContain('municipal ordinance')
+    expect(system).not.toContain('does the council have')
+    expect(system).not.toContain('municipal-code style')
+  })
 })

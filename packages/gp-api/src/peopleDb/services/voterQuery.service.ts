@@ -56,6 +56,13 @@ const SLOW_QUERY_TIMEOUT_MS = 2500
 // fence: exact when it completes under the timeout, floored at this limit
 // when it would be slow.
 const FENCE_LIMIT = 10000
+// queryWithTimeoutFence's retry still runs a live query (an unordered,
+// LIMIT-capped subquery, but a query nonetheless) — it can hit the same
+// pathological plan under enough load, so it needs its own bound instead of
+// running unfenced and holding a connection open indefinitely. Double the
+// primary timeout: the retry already paid the cost of the first attempt, so
+// give it real room before giving up.
+const FENCE_RETRY_TIMEOUT_MS = SLOW_QUERY_TIMEOUT_MS * 2
 
 type RawPeopleQueryArgs = {
   districtId: string | null
@@ -145,6 +152,7 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
     }
 
     let totalResults: number
+    let fenced: boolean
     let people: Array<BaseDbPerson>
     let currentPage: number
 
@@ -155,7 +163,8 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       // behavior: a client paging in from the (much longer) voter list lands on
       // the last household page instead of an empty one (no caller clamps
       // `page`), and currentPage matches the rows returned.
-      totalResults = await this.rawCountForDistrict(countArgs)
+      ;({ count: totalResults, fenced } =
+        await this.rawCountForDistrict(countArgs))
       const householdPages = Math.max(
         1,
         Math.ceil(totalResults / resultsPerPage),
@@ -174,10 +183,12 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       // page. Metadata never claims a page whose rows we didn't return (the old
       // divergence: clamped currentPage but empty rows). totalPages still tells
       // the client the valid range, and the webapp clamps navigation to it.
-      ;[totalResults, people] = await Promise.all([
+      const [countResult, peopleResult] = await Promise.all([
         this.rawCountForDistrict(countArgs),
         buildData((page - 1) * resultsPerPage),
       ])
+      ;({ count: totalResults, fenced } = countResult)
+      people = peopleResult
       currentPage = Math.max(1, page)
     }
 
@@ -191,6 +202,7 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
         totalPages,
         hasNextPage: currentPage < totalPages,
         hasPreviousPage: currentPage > 1,
+        fenced,
       },
       people: people.map(transformToPersonOutput),
     }
@@ -251,7 +263,7 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
     filters: FilterData
     search?: string
     groupByHousehold?: boolean
-  }): Promise<number> {
+  }): Promise<{ count: number; fenced: boolean }> {
     const { state, districtId, search, groupByHousehold } = args
 
     // The pre-computed stats shortcut counts voters; it does not know household
@@ -264,7 +276,7 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
     ) {
       const { totalConstituents } =
         await this.statsService.getTotalCounts(districtId)
-      return totalConstituents
+      return { count: totalConstituents, fenced: false }
     }
 
     const whereClause = buildVoterWhereSql({
@@ -303,10 +315,7 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       FROM (SELECT DISTINCT ${buildHouseholdKeySql('v')} ${fromSql} ${whereClause} LIMIT ${FENCE_LIMIT}) distinct_hh`
       : Prisma.sql`SELECT ${countExpr} AS voter_count
       FROM (SELECT v.* ${fromSql} ${whereClause} LIMIT ${FENCE_LIMIT}) v`
-    // findPeople's pagination.totalResults doesn't carry a fenced flag yet
-    // (out of scope for ENG-10775, which only threads it through the
-    // aggregates/list-detail path) — the flag is discarded here.
-    const { rows } = await this.queryWithTimeoutFence<{
+    const { rows, fenced } = await this.queryWithTimeoutFence<{
       voter_count: bigint
     }>(countSql, fencedCountSql)
 
@@ -314,7 +323,7 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
     if (count === 0 && districtId) {
       await this.warnIfStatsButNoVoterRows(districtId, state)
     }
-    return count
+    return { count, fenced }
   }
 
   // Partial voter data (dev by construction, or a prod ETL regression) leaves
@@ -348,9 +357,11 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
 
   // Shared by every guarded raw query (the count and the aggregates): attempt
   // primarySql under a statement timeout; if Postgres cancels it (SQLSTATE
-  // 57014), retry once with fencedSql. SET LOCAL only holds for the
-  // transaction it runs in, and Prisma batch transactions execute on a single
-  // connection, so the timeout scopes to exactly this query.
+  // 57014), retry once with fencedSql under its own (longer) statement
+  // timeout — a fenced retry that also times out fails cleanly instead of
+  // running unbounded. SET LOCAL only holds for the transaction it runs in,
+  // and Prisma batch transactions execute on a single connection, so each
+  // timeout scopes to exactly the query it wraps.
   private async queryWithTimeoutFence<T>(
     primarySql: Prisma.Sql,
     fencedSql: Prisma.Sql,
@@ -374,7 +385,14 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
         { elapsedMs: Date.now() - startedAt },
         'Query hit the statement timeout; retrying with fenced subquery',
       )
-      const rows = await this.client.$queryRaw<T[]>(fencedSql)
+      const [, rows] = await this.client.$transaction([
+        this.client.$executeRaw(
+          Prisma.raw(
+            `SET LOCAL statement_timeout = '${FENCE_RETRY_TIMEOUT_MS}ms'`,
+          ),
+        ),
+        this.client.$queryRaw<T[]>(fencedSql),
+      ])
       return { rows, fenced: true }
     }
   }

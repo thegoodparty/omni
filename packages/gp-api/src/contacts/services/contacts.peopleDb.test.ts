@@ -227,9 +227,12 @@ describe('ContactsService — people-db (sole path)', () => {
       const org = makeOrganization()
       mockVoterQueryService.findPeople.mockResolvedValue(FIXTURE_PAGE)
 
-      const count = await service.countContacts({}, org)
+      const result = await service.countContacts({}, org)
 
-      expect(count).toBe(FIXTURE_PAGE.pagination.totalResults)
+      expect(result).toEqual({
+        count: FIXTURE_PAGE.pagination.totalResults,
+        fenced: false,
+      })
       expect(mockVoterQueryService.findPeople).toHaveBeenCalledWith(
         expect.objectContaining({
           districtId: OVERRIDE_DISTRICT_ID,

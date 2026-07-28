@@ -1,7 +1,7 @@
 import { HOUSEHOLD_KEY_RESIDENCE_COLUMNS } from '@goodparty_org/contracts'
 import { Prisma } from '../../generated/people-prisma'
 
-const quoteIdent = (id: string) => `"${id.replace(/"/g, '""')}"`
+export const quoteIdent = (id: string) => `"${id.replace(/"/g, '""')}"`
 
 // Normalized residence-address composite that identifies one physical
 // household for door-knocking de-dup. Each column is COALESCE'd to '' so a

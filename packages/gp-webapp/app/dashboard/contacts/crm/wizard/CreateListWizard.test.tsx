@@ -323,6 +323,44 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     })
   })
 
+  it('renders a fenced count as "10,000+" and omits voterCount on create (ENG-10804)', async () => {
+    const user = userEvent.setup()
+    api.mock('POST /v1/contacts/count', {
+      status: 200,
+      data: { count: 10000, fenced: true },
+    })
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 103, name: 'Fenced list' } }
+    })
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build a list using voter demographics and data/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
+
+    // A fence floor never reads as an exact figure — "10,000+", not "10,000".
+    await user.click(
+      await screen.findByRole('button', {
+        name: /build your list \(10,000\+\)/i,
+      }),
+    )
+    await user.type(screen.getByLabelText(/list name/i), 'Fenced list')
+    await clickSaveList(user)
+
+    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    expect(sentBody).toMatchObject({ name: 'Fenced list' })
+    // Persisting a fenced count as an exact voterCount would display a
+    // permanently wrong number — omitted like an unsettled count.
+    expect(sentBody).not.toHaveProperty('voterCount')
+  })
+
   it('keeps Save list disabled while the live count is still resolving (ENG-10769)', async () => {
     const user = userEvent.setup()
     // A count that never settles: saving now would omit voterCount and let

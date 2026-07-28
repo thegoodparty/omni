@@ -13,7 +13,6 @@ import {
   MdSensorDoor,
 } from 'react-icons/md'
 import {
-  Bot,
   Circle,
   CircleUserRound,
   ClipboardList,
@@ -128,15 +127,6 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickMyProfile),
   },
   {
-    label: 'AI Assistant',
-    icon: <MdAutoAwesome />,
-    v2Icon: Bot,
-    v2Category: 'campaign',
-    link: '/dashboard/campaign-assistant',
-    id: 'campaign-assistant-dashboard',
-    onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickAIAssistant),
-  },
-  {
     label: 'Content Builder',
     icon: <MdFileOpen />,
     v2Icon: FileText,
@@ -241,6 +231,15 @@ const CHIEF_OF_STAFF_MENU_ITEM: MenuItem = {
   v2Category: 'elected-office',
 }
 
+const PUBLIC_PROFILE_MENU_ITEM: MenuItem = {
+  id: 'public-profile-dashboard',
+  label: 'Public Profile',
+  link: '/dashboard/public-profile',
+  icon: <MdFactCheck />,
+  v2Icon: CircleUserRound,
+  v2Category: 'elected-office',
+}
+
 const ORDINANCES_MENU_ITEM: MenuItem = {
   id: 'ordinances-dashboard',
   label: 'Ordinances',
@@ -317,6 +316,8 @@ export const getDashboardMenuItems = (
     if (ordinancesShown) {
       menuItems.splice(communityIssuesShown ? 2 : 1, 0, ORDINANCES_MENU_ITEM)
     }
+    // The office holder's editable public /people profile (Serve side of §4).
+    menuItems.push(PUBLIC_PROFILE_MENU_ITEM)
   }
 
   // Chief of Staff is the primary Serve tab (Serve home), so it sits above
@@ -363,6 +364,15 @@ export const getDashboardMenuItems = (
   // Visible to non-Pro users too: the page renders a locked upgrade view
   // rather than the feature — the content is gated on isPro at the route.
   menuItems.push(KNOW_YOUR_OPPONENT_MENU_ITEM)
+
+  // Public Profile for Win candidates (campaign-category twin of the
+  // elected-office item pushed above). The route resolves the product itself;
+  // the category filter shows exactly one of the two per org type.
+  menuItems.push({
+    ...PUBLIC_PROFILE_MENU_ITEM,
+    id: 'public-profile-campaign',
+    v2Category: 'campaign',
+  })
 
   return menuItems
 }
