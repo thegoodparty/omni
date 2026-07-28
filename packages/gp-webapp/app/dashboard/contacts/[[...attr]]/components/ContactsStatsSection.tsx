@@ -25,11 +25,13 @@ interface StatCard {
 
 type ContactsStatsSectionProps = {
   totalVisibleContacts: number
+  totalVisibleContactsFenced?: boolean
   onlyTotalVisibleContacts: boolean
 }
 
 export default function ContactsStatsSection({
   totalVisibleContacts,
+  totalVisibleContactsFenced,
   onlyTotalVisibleContacts,
 }: ContactsStatsSectionProps) {
   const query = useQuery(districtStatsQueryOptions)
@@ -57,7 +59,11 @@ export default function ContactsStatsSection({
               data-testid={`contact-stats-${card.key}`}
             >
               {card.getValue(
-                getContactStatsRendered(query.data, totalVisibleContacts),
+                getContactStatsRendered(
+                  query.data,
+                  totalVisibleContacts,
+                  totalVisibleContactsFenced,
+                ),
               )}
             </h4>
           )}

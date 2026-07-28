@@ -1641,9 +1641,9 @@ describe('ContactsService', () => {
           of({ data: { people: [], pagination: { totalResults: 1234 } } }),
         )
 
-        const count = await service.countContacts({ partyDemocrat: true }, org)
+        const result = await service.countContacts({ partyDemocrat: true }, org)
 
-        expect(count).toBe(1234)
+        expect(result).toEqual({ count: 1234, fenced: false })
         // The translated filter set reaches people-api, and only one row is
         // requested so no real voter rows are loaded just to read the total.
         expect(mockHttpService.post).toHaveBeenCalledWith(
@@ -2186,7 +2186,7 @@ describe('ContactsService', () => {
           { kind: 'empty' },
         )
 
-        const count = await service.countContacts(
+        const result = await service.countContacts(
           {
             activityConditions: [
               {
@@ -2199,7 +2199,7 @@ describe('ContactsService', () => {
           org,
         )
 
-        expect(count).toBe(0)
+        expect(result).toEqual({ count: 0, fenced: false })
         expect(mockHttpService.post).not.toHaveBeenCalled()
       })
 
@@ -2216,12 +2216,12 @@ describe('ContactsService', () => {
           of({ data: { people: [], pagination: { totalResults: 7 } } }),
         )
 
-        const count = await service.countContacts(
+        const result = await service.countContacts(
           { supportStatus: ['unknown'] },
           org,
         )
 
-        expect(count).toBe(7)
+        expect(result).toEqual({ count: 7, fenced: false })
         expect(mockHttpService.post).toHaveBeenCalledWith(
           expect.stringContaining(PEOPLE_V1_PATH),
           expect.objectContaining({
