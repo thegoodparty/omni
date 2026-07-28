@@ -1,6 +1,7 @@
 import { createZodDto } from 'nestjs-zod'
 import {
   DoorKnockingEvaluateRequestSchema,
+  DoorKnockingPackRequestSchema,
   DoorKnockingResidentsRequestSchema,
 } from '@goodparty_org/contracts'
 import { filtersSchema } from 'src/people/schemas/filters.schema'
@@ -16,4 +17,8 @@ export class DoorKnockingEvaluateDTO extends createZodDto(evaluateSchema) {}
 
 export class DoorKnockingResidentsDTO extends createZodDto(
   DoorKnockingResidentsRequestSchema,
+) {}
+
+export class DoorKnockingPackDTO extends createZodDto(
+  DoorKnockingPackRequestSchema,
 ) {}

@@ -104,7 +104,7 @@ export const buildVoterFiltersSql = (
   return Prisma.sql`${Prisma.join(andClauses, ' AND ')}`
 }
 
-const VALUE_MAPPERS = {
+export const VALUE_MAPPERS = {
   ethnicity: (value: string): string | null => {
     switch (value) {
       case 'Asian':

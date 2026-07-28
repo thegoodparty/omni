@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Param,
@@ -10,6 +11,7 @@ import {
   Post,
   Put,
   Query,
+  StreamableFile,
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { z } from 'zod'
@@ -37,6 +39,7 @@ import { DoorKnockingTurfService } from './services/doorKnockingTurf.service'
 import { DoorKnockingKnockService } from './services/doorKnockingKnock.service'
 import { DoorKnockingServeService } from './services/doorKnockingServe.service'
 import { DoorKnockingInteractionService } from './services/doorKnockingInteraction.service'
+import { DoorKnockingPackService } from './services/doorKnockingPack.service'
 
 @Controller('door-knocking')
 export class DoorKnockingController {
@@ -45,6 +48,7 @@ export class DoorKnockingController {
     private readonly knockService: DoorKnockingKnockService,
     private readonly serveService: DoorKnockingServeService,
     private readonly interactionService: DoorKnockingInteractionService,
+    private readonly packService: DoorKnockingPackService,
   ) {}
 
   @Post('turfs')
@@ -109,6 +113,13 @@ export class DoorKnockingController {
     @ReqOrganization() organization: Organization,
   ) {
     return this.serveService.serve(id, organization)
+  }
+
+  @Get('pack')
+  @UseOrganization()
+  @Header('Content-Type', 'application/octet-stream')
+  async pack(@ReqOrganization() organization: Organization) {
+    return new StreamableFile(await this.packService.build(organization))
   }
 
   @Post('interactions')

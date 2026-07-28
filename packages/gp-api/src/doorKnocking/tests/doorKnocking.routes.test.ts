@@ -1,4 +1,5 @@
 import { HttpService } from '@nestjs/axios'
+import { Readable } from 'stream'
 import { of, throwError } from 'rxjs'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
@@ -1019,6 +1020,46 @@ describe('door-knocking routes', () => {
       expect(
         targets.find((t) => t.personId === target.personId)?.knockStatus,
       ).toBe('non_supporter')
+    })
+  })
+  describe('pack', () => {
+    it('proxies the binary and threads org knock statuses', async () => {
+      const personId = '77777777-1111-1111-1111-111111111111'
+      await service.prisma.contactInteractionDoorKnock.create({
+        data: {
+          organizationSlug: orgSlug,
+          personId,
+          occurredAt: new Date('2026-07-10T10:00:00Z'),
+          outcome: 'answered',
+          supportAnswer: 'supporter',
+        },
+      })
+      const packBytes = Buffer.from([1, 2, 3, 4])
+      let packBody: Record<string, unknown> | undefined
+      vi.spyOn(service.app.get(HttpService), 'post').mockImplementation(((
+        url: string,
+        body: Record<string, unknown>,
+      ) => {
+        if (url.includes('/v1/door-knocking/pack')) {
+          packBody = body
+          return of({ data: Readable.from([packBytes]) })
+        }
+        return of({ data: {} })
+      }) as never)
+
+      const res = await service.client.get('/v1/door-knocking/pack', {
+        ...orgHeaders(),
+        responseType: 'arraybuffer',
+        validateStatus: () => true,
+      })
+
+      expect(res.status).toBe(200)
+      expect(res.headers['content-type']).toContain('application/octet-stream')
+      expect(Buffer.from(res.data as ArrayBuffer)).toEqual(packBytes)
+      expect(packBody?.knockStatuses).toEqual([
+        { personId, status: 'supporter' },
+      ])
+      expect(packBody?.districtId).toBe(DISTRICT_ID)
     })
   })
 })

@@ -1,3 +1,4 @@
+import { INCOME_RANGE_MAPPING } from '@goodparty_org/contracts'
 import { VoterFileFilter } from '../../generated/prisma'
 
 type RangeCondition = {
@@ -92,17 +93,9 @@ export const LANGUAGE_CODE_TO_LABEL: Record<string, string> = {
 
 // The only incomeRanges strings the conversion below understands; anything
 // else is silently dropped, so the catalog advertises exactly these keys.
-export const INCOME_RANGE_MAPPING: Record<string, NumericRange> = {
-  'Under $25k': { min: 0, max: 24999 },
-  '$25k - $35k': { min: 25000, max: 34999 },
-  '$35k - $50k': { min: 35000, max: 49999 },
-  '$50k - $75k': { min: 50000, max: 74999 },
-  '$75k - $100k': { min: 75000, max: 99999 },
-  '$100k - $125k': { min: 100000, max: 124999 },
-  '$125k - $150k': { min: 125000, max: 149999 },
-  '$150k - $200k': { min: 150000, max: 199999 },
-  '$200k+': { min: 200000, max: null },
-}
+// Single-sourced from contracts so people-api's pack encoder buckets by the
+// same bounds.
+export { INCOME_RANGE_MAPPING }
 
 // Accepts a full persisted VoterFileFilter (saved-segment path) or the
 // unsaved, partial filter set the live count sends (ENG-10517). Only the filter

@@ -87,13 +87,16 @@ locale), and is snapshotted offline on the phone.
 
 ## The pack (exploration map, step 2)
 
-Built per request from people_db, never stored: positions + person→
-household→dot index arrays + one byte per person per dimension (SoA), plus
-a `canvassStatus` byte joined in-memory from this package's interactions
-table (`(personId, status)` only — a SQL CASE over support→engaged→
-answered, latest per person). Map-minimal SELECT: no AddressLine, accuracy
-in WHERE only (v1 = `GeoMatchRooftop` only), `registered` computed as
-`(StateVoterID IS NOT NULL)`.
+`GET /v1/door-knocking/pack` (gp-api) → `POST /v1/door-knocking/pack`
+(people-api). Built per request from people_db, never stored: positions +
+person→household→dot index arrays + one byte per person per dimension
+(SoA). Dim buckets are derived by inverting people-api's `VALUE_MAPPERS`,
+so pack filtering can't drift from list-filter semantics. The
+`canvassStatus` plane is encoded from the org-wide latest-per-person
+statuses gp-api ships with the request (`(personId, status)` only — no
+PII), so the proxy never patches bytes. Map-minimal SELECT: no
+AddressLine, accuracy in WHERE only (v1 = `GeoMatchRooftop` only),
+`registered` computed as `(StateVoterID IS NOT NULL)`.
 
 ## Interim geo — and what changes when the data team delivers
 

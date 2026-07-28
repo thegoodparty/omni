@@ -30,6 +30,10 @@ const bootstrap = async () => {
     AppModule,
     new FastifyAdapter({
       disableRequestLogging: true,
+      // Internal S2S-only API. The door-knocking pack request carries the
+      // org's knock statuses (up to 200k entries ≈ 18 MiB) — Fastify's
+      // 1 MiB default would reject moderately active orgs.
+      bodyLimit: 32 * 1024 * 1024,
       genReqId: (req: IncomingMessage | Http2ServerRequest) =>
         (req.headers['x-request-id'] as string) || randomUUID(),
       // Ensure bracketed query params like filters[] and filter[field][op] parse correctly
