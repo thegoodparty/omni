@@ -362,13 +362,12 @@ export default function AudienceStep({
         .then((data) => {
           if (requestId !== countRequestIdRef.current) return
           const eligibleCount = data.reachability[reachabilityKey]
+          // ENG-10806: a null leaf means that channel's aggregate call
+          // failed server-side — same unpriceable-audience treatment as
+          // the catch below, not a silent $0.00. Also clears listSize
+          // (ENG-10808) so the breakdown line can't render off a stale
+          // list size paired with no eligible count.
           if (eligibleCount === null) {
-            // ENG-10806: each channel's count comes from its own
-            // people-api aggregates call, so this one can fail
-            // independently of the rest of the response. Unlike the
-            // list-detail sheet (which just degrades that one tile), this
-            // flow has no other number to fall back to — treat it the
-            // same as the full-fetch failure below.
             setCountError({ ok: false, message: GENERIC_COUNT_ERROR_MESSAGE })
             setCount(0)
             setCountFenced(false)
