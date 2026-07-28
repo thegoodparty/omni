@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common'
+import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { FREE_TEXTS_OFFER } from '@/shared/constants/freeTextsOffer'
 import {
@@ -118,6 +118,13 @@ const mockServerFallbackCount = (count: number) => {
     count,
   )
 }
+
+// Mirrors what PeerlyErrorHandlingService.handleApiError actually throws: a
+// BadGatewayException wrapping the original axios error as `cause`.
+const buildPeerlyHttpError = (status: number) =>
+  new BadGatewayException('Peerly API error', {
+    cause: { isAxiosError: true, response: { status } },
+  })
 
 describe('calcTextAmountInCents', () => {
   it('returns 4 cents for 1 text', () => {
@@ -345,6 +352,53 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(
         mockPeerlyPhoneListService.getPhoneListDetails,
       ).toHaveBeenCalledWith(42)
+      expect(mockPeerlyPhoneListCapture.countRecipients).toHaveBeenCalledWith(
+        CAPTURED_LIST_FIXTURE.id,
+      )
+    })
+
+    it('throws BadRequestException, without falling back, when Peerly returns a 4xx', async () => {
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValueOnce(
+        CAPTURED_LIST_FIXTURE,
+      )
+      vi.mocked(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).mockRejectedValueOnce(buildPeerlyHttpError(400))
+
+      await expect(
+        service.calculateAmount({
+          ...baseMetadata,
+          campaignId: 1,
+        }),
+      ).rejects.toThrow(BadRequestException)
+
+      expect(mockPeerlyPhoneListCapture.countRecipients).not.toHaveBeenCalled()
+      expect(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).not.toHaveBeenCalled()
+    })
+
+    it('falls back to the captured recipient count when Peerly returns a 5xx', async () => {
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValueOnce(
+        CAPTURED_LIST_FIXTURE,
+      )
+      vi.mocked(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).mockRejectedValueOnce(buildPeerlyHttpError(500))
+      vi.mocked(
+        mockPeerlyPhoneListCapture.countRecipients,
+      ).mockResolvedValueOnce(80)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(false)
+
+      const amount = await service.calculateAmount({
+        ...baseMetadata,
+        contactCount: 80,
+        campaignId: 1,
+      })
+
+      expect(amount).toBe(calcTextAmountInCents(80))
       expect(mockPeerlyPhoneListCapture.countRecipients).toHaveBeenCalledWith(
         CAPTURED_LIST_FIXTURE.id,
       )
