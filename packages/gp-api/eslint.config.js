@@ -191,4 +191,15 @@ module.exports = defineConfig([
       },
     },
   },
+  {
+    // deploy/ (Pulumi IaC) isn't in the default tsconfig.json project, so
+    // typed linting there needs its own project — mirrors the scripts/ case.
+    // Without this, lint-staged fails on any staged deploy/*.ts file.
+    files: ['deploy/**/*.ts'],
+    languageOptions: {
+      parserOptions: {
+        project: 'tsconfig.deploy.json',
+      },
+    },
+  },
 ])

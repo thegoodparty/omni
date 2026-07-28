@@ -149,4 +149,44 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Click *View in Grafana* to see the warn log lines (search "Actor has no gp-api Clerk account") and inspect the affected actorEmail values, then verify whether those admins exist in the gp-api Clerk instance.',
     ].join('\n\n'),
   },
+  {
+    slug: 'district-auto-match-no-district-spike',
+    name: '[Serve] District auto-match: no-district spike',
+    type: 'log',
+    // Count of DISTINCT campaigns whose gold auto-match resolved a position but
+    // found NO associated district in the last 6h. Keying off failureKind
+    // isolates the *silent* failure mode (election-api returns a position with
+    // no district, or a 404) from failureKind="error" (upstream 5xx), which
+    // already pages via the per-route 5xx controller alerts — so this does not
+    // double-alert on genuine election-api outages. The distinct-campaign count
+    // dedupes a single campaign retrying (the place_id incident logged 30
+    // retries from one position). Real no_match volume is ~0 in normal
+    // operation, so a spike almost always means the position→district pipeline
+    // (dbt mart / district association) broke without erroring.
+    expr: [
+      'count(sum by (campaignId) (count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      // Pin the cheap |= line filter before | json (as the sibling alerts do):
+      // it narrows 6h of all gp-api logs down to the handful of DistrictMatch
+      // events before the JSON parse, so the every-minute eval stays light and
+      // can't time out into a false page (execErrState is Alerting).
+      '|= "DistrictMatch"',
+      '| json',
+      '| event = "DistrictMatch"',
+      '| failureKind = "no_match"',
+      '[6h])))',
+    ].join(' '),
+    threshold: 5,
+    for: '30m',
+    // The [6h] range vector needs a matching fetch window; the default 600s
+    // would let the engine see only 10 minutes of logs and never accumulate
+    // the 6h count this alert is built on.
+    timeRangeSeconds: 21600,
+    message: [
+      'More than 5 distinct campaigns hit a "no matched district" outcome in the last 6h — well above the ~0 baseline.',
+      'This usually means the auto-district-matching pipeline broke *silently*: election-api is returning a position with no associated district (or a 404) rather than an error. Likely causes: a district-association / dbt mart regression, or an election-api data/deploy issue that stopped attaching districts. Note that upstream election-api errors (5xx) are excluded here — those page via the per-route error alerts instead.',
+      'Click *View in Grafana* to see the failure logs (event="DistrictMatch", failureKind="no_match"), then inspect the affected positionId / ballotreadyPositionId values and confirm whether election-api is still returning districts for them.',
+    ].join('\n\n'),
+    notify: 'serve-bugs',
+  },
 ]
