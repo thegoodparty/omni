@@ -182,6 +182,17 @@ describe('POST /v1/door-knocking', () => {
     })
   })
 
+  it('rejects a presented-but-invalid S2S token (guard is wired)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/door-knocking/evaluate',
+      headers: { authorization: 'Bearer not-a-real-token' },
+      payload: evaluatePayload,
+    })
+
+    expect(res.statusCode).toBe(401)
+  })
+
   describe('residents', () => {
     const residentsPayload = {
       districtId: DISTRICT_ID,

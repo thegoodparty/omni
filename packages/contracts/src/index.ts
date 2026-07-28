@@ -78,6 +78,7 @@ export {
   PeopleListResponseSchema,
   type PeopleListResponse,
   HOUSEHOLD_KEY_RESIDENCE_COLUMNS,
+  DOOR_KNOCKING_UNIT_KEY_COLUMNS,
   SupportStatusRollupSchema,
   type SupportStatusRollup,
 } from './people/Person.schema'
@@ -704,3 +705,20 @@ export {
   DoorKnockingPackManifestSchema,
   type DoorKnockingPackManifest,
 } from './doorKnocking/DoorKnockingPack.schema'
+
+export {
+  GeoJsonPolygonSchema,
+  type GeoJsonPolygon,
+  CreateDoorKnockingTurfSchema,
+  type CreateDoorKnockingTurf,
+  UpdateDoorKnockingTurfSchema,
+  type UpdateDoorKnockingTurf,
+  DoorKnockingTurfSchema,
+  type DoorKnockingTurf,
+  DoorKnockingKnockRequestSchema,
+  type DoorKnockingKnockRequest,
+  DoorKnockingRouteHeaderSchema,
+  type DoorKnockingRouteHeader,
+  DoorKnockingKnockResponseSchema,
+  type DoorKnockingKnockResponse,
+} from './doorKnocking/DoorKnockingTurf.schema'

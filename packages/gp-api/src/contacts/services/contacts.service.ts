@@ -217,6 +217,16 @@ export class ContactsService {
     return { districtId: null }
   }
 
+  // Door knocking resolves the same district (and passes the same
+  // eligibility gate) as every other voter-data read — public so
+  // DoorKnockingModule reuses this instead of duplicating the gate.
+  async resolveEligibleDistrictId(org: Organization): Promise<string> {
+    return this.withOrgDistrictResolution(
+      org,
+      async ({ districtId }) => districtId,
+    )
+  }
+
   private async withOrgDistrictResolution<Result>(
     org: Organization,
     fn: (params: { districtId: string }) => Promise<Result>,
