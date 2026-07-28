@@ -94,6 +94,31 @@ const stubPeopleApi = (people: Record<string, unknown>[]) =>
         })
       : of({ data: {} })) as never)
 
+// A fixed-list stub can't distinguish a real exclusion from an assertion
+// that merely happens to pass — this one applies whatever `id` operator
+// (`in` or `notIn`) the request actually carries against the full candidate
+// pool, so CSV/recipient/count assertions only pass if gp-api genuinely
+// composed and sent the right filter.
+const stubPeopleApiHonoringIdFilter = (candidates: Record<string, unknown>[]) =>
+  vi.spyOn(service.app.get(HttpService), 'post').mockImplementation(((
+    url: string,
+    body: { filters?: { id?: { in?: string[]; notIn?: string[] } } },
+  ) => {
+    if (!url.includes('/v1/people')) return of({ data: {} })
+    const idFilter = body.filters?.id
+    const people = candidates.filter((person) => {
+      if (idFilter?.in) return idFilter.in.includes(person.id as string)
+      if (idFilter?.notIn) return !idFilter.notIn.includes(person.id as string)
+      return true
+    })
+    return of({
+      data: {
+        people,
+        pagination: { totalResults: people.length, hasNextPage: false },
+      },
+    })
+  }) as never)
+
 const stubPeerlyUpload = (token = 'peerly-upload-token') =>
   vi
     .spyOn(service.app.get(PeerlyPhoneListService), 'uploadPhoneList')
@@ -327,35 +352,11 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
       optedOutAt: new Date(),
     })
 
-    const allMatches = [
+    const post = stubPeopleApiHonoringIdFilter([
       personPayload({ id: 'p-match-1' }),
       personPayload({ id: 'p-match-2', cellPhone: '5559990000' }),
       personPayload({ id: 'p-opted-out', cellPhone: '5551230000' }),
-    ]
-    // A fixed-list stub can't distinguish a real exclusion from a CSV that
-    // merely happens not to include the opted-out id — this one includes
-    // 'p-opted-out' among the filter matches and honors whatever notIn the
-    // request actually carries, so the CSV/recipient assertions below only
-    // pass if the scrub genuinely reached people-api.
-    const post = vi
-      .spyOn(service.app.get(HttpService), 'post')
-      .mockImplementation(((
-        url: string,
-        body: { filters?: { id?: { notIn?: string[] } } },
-      ) =>
-        url.includes('/v1/people')
-          ? of({
-              data: {
-                people: allMatches.filter(
-                  (person) =>
-                    !(body.filters?.id?.notIn ?? []).includes(
-                      person.id as string,
-                    ),
-                ),
-                pagination: { totalResults: 2, hasNextPage: false },
-              },
-            })
-          : of({ data: {} })) as never)
+    ])
     stubPeerlyUpload()
 
     const result = await service.client.post(
@@ -382,6 +383,134 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
     })
     expect(recipients).toHaveLength(2)
     expect(recipients.map((r) => r.personId)).not.toContain('p-opted-out')
+  })
+
+  it('shrinks an activity-condition "in" set to the ids that are not opted out', async () => {
+    const campaign = await seedWinCampaign()
+    const outreach = await seedCompletedOutreach(campaign.id, OutreachType.text)
+    const texts = service.app.get(ContactInteractionTextService)
+    // All three match the "no_response" activity condition (respondedAt
+    // null); 'p-opted-out' additionally opted out on the same row — a real
+    // shape, since a "STOP" reply is itself a non-response.
+    await texts.create({
+      organizationSlug: WIN_SLUG,
+      personId: 'p-no-response-1',
+      occurredAt: new Date(),
+      outreachId: outreach.id,
+    })
+    await texts.create({
+      organizationSlug: WIN_SLUG,
+      personId: 'p-opted-out',
+      occurredAt: new Date(),
+      outreachId: outreach.id,
+      optedOutAt: new Date(),
+    })
+    await texts.create({
+      organizationSlug: WIN_SLUG,
+      personId: 'p-no-response-2',
+      occurredAt: new Date(),
+      outreachId: outreach.id,
+    })
+
+    const post = stubPeopleApiHonoringIdFilter([
+      personPayload({ id: 'p-no-response-1' }),
+      personPayload({ id: 'p-opted-out', cellPhone: '5551230000' }),
+      personPayload({ id: 'p-no-response-2', cellPhone: '5559990000' }),
+    ])
+    stubPeerlyUpload()
+
+    const result = await service.client.post(
+      '/v1/p2p/phone-list',
+      {
+        name: 'Activity condition + opt-out',
+        activityConditions: [
+          {
+            outreachType: 'text',
+            outreachId: outreach.id,
+            actions: ['no_response'],
+          },
+        ],
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+
+    // The resolved "in" set (3 ids matching the activity condition) shrank
+    // to the 2 that aren't opted out, rather than the opt-out riding along
+    // as a separate, illegal sibling `notIn` on the same `id` key.
+    const peopleCall = post.mock.calls.find((call) =>
+      String(call[0]).includes('/v1/people'),
+    )
+    const sentFilters = peopleCall?.[1] as {
+      filters: { id: { in: string[] } }
+    }
+    expect(new Set(sentFilters.filters.id.in)).toEqual(
+      new Set(['p-no-response-1', 'p-no-response-2']),
+    )
+
+    const capturedList = await service.prisma.peerlyPhoneList.findUnique({
+      where: { token: 'peerly-upload-token' },
+    })
+    expect(capturedList?.excludedOptedOutCount).toBe(1)
+    const recipients = await service.prisma.peerlyPhoneListRecipient.findMany({
+      where: { peerlyPhoneListId: capturedList?.id },
+    })
+    expect(recipients.map((r) => r.personId).sort()).toEqual([
+      'p-no-response-1',
+      'p-no-response-2',
+    ])
+  })
+
+  it('sends no candidates (and no illegal empty "in") when every activity-condition match opted out', async () => {
+    const campaign = await seedWinCampaign()
+    const outreach = await seedCompletedOutreach(campaign.id, OutreachType.text)
+    const texts = service.app.get(ContactInteractionTextService)
+    await texts.create({
+      organizationSlug: WIN_SLUG,
+      personId: 'p-all-opted-out-1',
+      occurredAt: new Date(),
+      outreachId: outreach.id,
+      optedOutAt: new Date(),
+    })
+    await texts.create({
+      organizationSlug: WIN_SLUG,
+      personId: 'p-all-opted-out-2',
+      occurredAt: new Date(),
+      outreachId: outreach.id,
+      optedOutAt: new Date(),
+    })
+
+    const post = stubPeopleApiHonoringIdFilter([
+      personPayload({ id: 'p-all-opted-out-1' }),
+      personPayload({ id: 'p-all-opted-out-2', cellPhone: '5559990000' }),
+    ])
+    stubPeerlyUpload()
+
+    const result = await service.client.post(
+      '/v1/p2p/phone-list',
+      {
+        name: 'All matches opted out',
+        activityConditions: [
+          {
+            outreachType: 'text',
+            outreachId: outreach.id,
+            actions: ['no_response'],
+          },
+        ],
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    // No contacts survive the scrub, so the build 400s rather than uploading
+    // an empty list — and it does so via the 'empty' short-circuit, never by
+    // sending people-api an illegal zero-length `in`.
+    expect(result.status).toBe(400)
+    const peopleCall = post.mock.calls.find((call) =>
+      String(call[0]).includes('/v1/people'),
+    )
+    expect(peopleCall).toBeUndefined()
+    expect(await service.prisma.peerlyPhoneList.count()).toBe(0)
   })
 
   it('does not exclude an opt-out recorded in a different organization', async () => {
