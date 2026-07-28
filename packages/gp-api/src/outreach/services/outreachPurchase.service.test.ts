@@ -295,7 +295,7 @@ describe('OutreachPurchaseHandlerService', () => {
       )
     })
 
-    it('falls back to the captured recipient count when the Peerly fetch throws', async () => {
+    it('falls back to the captured recipient count when checkPhoneListStatus throws', async () => {
       mockServerFallbackCount(80)
       vi.mocked(
         mockCampaignsService.checkFreeTextsEligibility,
@@ -311,6 +311,40 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(
         mockPeerlyPhoneListService.getPhoneListDetails,
       ).not.toHaveBeenCalled()
+      expect(mockPeerlyPhoneListCapture.countRecipients).toHaveBeenCalledWith(
+        CAPTURED_LIST_FIXTURE.id,
+      )
+    })
+
+    it('falls back to the captured recipient count when getPhoneListDetails throws', async () => {
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValueOnce(
+        CAPTURED_LIST_FIXTURE,
+      )
+      vi.mocked(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).mockResolvedValueOnce({
+        Data: { list_id: 42, list_state: PhoneListState.ACTIVE },
+      })
+      vi.mocked(
+        mockPeerlyPhoneListService.getPhoneListDetails,
+      ).mockRejectedValueOnce(new Error('Peerly details fetch failed'))
+      vi.mocked(
+        mockPeerlyPhoneListCapture.countRecipients,
+      ).mockResolvedValueOnce(80)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(false)
+
+      const amount = await service.calculateAmount({
+        ...baseMetadata,
+        contactCount: 80,
+        campaignId: 1,
+      })
+
+      expect(amount).toBe(calcTextAmountInCents(80))
+      expect(
+        mockPeerlyPhoneListService.getPhoneListDetails,
+      ).toHaveBeenCalledWith(42)
       expect(mockPeerlyPhoneListCapture.countRecipients).toHaveBeenCalledWith(
         CAPTURED_LIST_FIXTURE.id,
       )
