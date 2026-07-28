@@ -846,7 +846,14 @@ describe('GET /v1/p2p/phone-list/:token/status (ENG-10728 peerlyListId stamping)
       { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
     )
     expect(first.status).toBe(200)
-    expect(first.data).toEqual({ phoneListId: 555, leadsLoaded: 10 })
+    // ENG-10808: the two exclusion counts ride along from the capture row
+    // (default 0 here since this row was created without them).
+    expect(first.data).toEqual({
+      phoneListId: 555,
+      leadsLoaded: 10,
+      excludedOptedOutCount: 0,
+      excludedDuplicatePhoneCount: 0,
+    })
 
     const afterFirstPoll = await service.prisma.peerlyPhoneList.findUnique({
       where: { token: 'poll-token' },

@@ -22,6 +22,11 @@ export type PhoneListResult =
 export interface PhoneListStatusResponse {
   phoneListId: number
   leadsLoaded: number
+  // ENG-10808: surfaced from the capture row (ENG-10800/ENG-10801) so the
+  // purchase review can explain why leadsLoaded is smaller than the saved
+  // list's raw membership.
+  excludedOptedOutCount: number
+  excludedDuplicatePhoneCount: number
 }
 
 export const createP2pPhoneList = async (

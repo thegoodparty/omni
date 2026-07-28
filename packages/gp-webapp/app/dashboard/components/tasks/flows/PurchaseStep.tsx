@@ -16,6 +16,9 @@ interface PurchaseStepProps {
   phoneListId?: number | null
   phoneListToken?: string
   outreachId?: number
+  // ENG-10808: from the phone-list status poll's capture-row fields.
+  excludedOptedOutCount?: number | null
+  excludedDuplicatePhoneCount?: number | null
 }
 
 export const PurchaseStep = ({
@@ -26,6 +29,8 @@ export const PurchaseStep = ({
   phoneListId,
   phoneListToken,
   outreachId,
+  excludedOptedOutCount,
+  excludedDuplicatePhoneCount,
 }: PurchaseStepProps) => {
   const { checkoutSession, error, fetchClientSecret } = useCheckoutSession()
   const hasTrackedPaymentStarted = useRef(false)
@@ -73,6 +78,8 @@ export const PurchaseStep = ({
             onComplete,
             outreachId,
             phoneListToken,
+            excludedOptedOutCount,
+            excludedDuplicatePhoneCount,
           }}
         />
       )}

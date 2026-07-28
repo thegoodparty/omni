@@ -362,6 +362,21 @@ export default function AudienceStep({
         .then((data) => {
           if (requestId !== countRequestIdRef.current) return
           const eligibleCount = data.reachability[reachabilityKey]
+          if (eligibleCount === null) {
+            // ENG-10806: each channel's count comes from its own
+            // people-api aggregates call, so this one can fail
+            // independently of the rest of the response. Unlike the
+            // list-detail sheet (which just degrades that one tile), this
+            // flow has no other number to fall back to — treat it the
+            // same as the full-fetch failure below.
+            setCountError({ ok: false, message: GENERIC_COUNT_ERROR_MESSAGE })
+            setCount(0)
+            setCountFenced(false)
+            setListSize(null)
+            setListSizeFenced(false)
+            onChangeCallback('voterCount', 0)
+            return
+          }
           setCount(eligibleCount)
           // A fenced count (ENG-10775/10805) is a capped lower bound, not
           // exact membership — still the safest number to bill/persist
