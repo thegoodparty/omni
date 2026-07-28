@@ -209,6 +209,15 @@ filter when an outreach has a `phoneListId` but no capture rows) does **not**
 run this scrub — it already overstates by design, and ENG-10800 didn't touch
 it.
 
+**Phone dedup (ENG-10801).** `P2pPhoneListUploadService.buildPhoneList` keeps
+one CSV row per phone number: a `Set` of seen numbers spans the whole
+pagination loop, and a person whose number was already kept is skipped
+(first-seen wins — deterministic given people-api's stable ordering). This
+also fixes the inbound sweep's phone->person mapping (`PeerlyPhoneListRecipient`),
+which was ambiguous whenever two people shared a captured phone. The skipped
+count is persisted on `PeerlyPhoneList.excludedDuplicatePhoneCount`, alongside
+`excludedOptedOutCount`, for the same ENG-10808 UI to surface.
+
 ### Write-back (collect-forward)
 
 Two `@Cron` sweeps in `src/outreach/services/` (scheduled fetch — Peerly

@@ -95,7 +95,11 @@ export class P2pPhoneListUploadService {
       campaign.organizationSlug,
     )
 
-    let phoneList: { csvBuffer: Buffer; recipients: PhoneListRecipient[] }
+    let phoneList: {
+      csvBuffer: Buffer
+      recipients: PhoneListRecipient[]
+      excludedDuplicatePhoneCount: number
+    }
     try {
       phoneList = await this.buildPhoneList(
         resolvedFilterInput,
@@ -118,7 +122,7 @@ export class P2pPhoneListUploadService {
         'Failed to generate voter data for phone list',
       )
     }
-    const { csvBuffer, recipients } = phoneList
+    const { csvBuffer, recipients, excludedDuplicatePhoneCount } = phoneList
     if (recipients.length === 0) {
       throw new BadRequestException(
         'No contacts matched the filter with a valid phone number and ' +
@@ -161,6 +165,7 @@ export class P2pPhoneListUploadService {
       voterFileFilterId: filterInput.voterFileFilterId ?? null,
       recipients,
       excludedOptedOutCount: excludePersonIds.size,
+      excludedDuplicatePhoneCount,
     })
 
     this.logger.debug(
@@ -174,9 +179,20 @@ export class P2pPhoneListUploadService {
     filterInput: ContactsFilterResolutionInput,
     organization: Organization,
     excludePersonIds: Set<string>,
-  ): Promise<{ csvBuffer: Buffer; recipients: PhoneListRecipient[] }> {
+  ): Promise<{
+    csvBuffer: Buffer
+    recipients: PhoneListRecipient[]
+    excludedDuplicatePhoneCount: number
+  }> {
     const recipients: PhoneListRecipient[] = []
     const rows = [CSV_HEADER_ROW]
+    // Spans every page: two voters sharing a cell phone must dedupe even
+    // when people-api splits them across pages (ENG-10801). Keeping the
+    // first person per number is deterministic given people-api's stable
+    // ordering, and it fixes the inbound sweep's phone->person mapping,
+    // which is ambiguous when a phone maps to more than one capture row.
+    const seenPhones = new Set<string>()
+    let excludedDuplicatePhoneCount = 0
 
     let page = 1
     let hasNextPage = true
@@ -214,6 +230,11 @@ export class P2pPhoneListUploadService {
           !person.address.zip
         )
           continue
+        if (seenPhones.has(person.cellPhone)) {
+          excludedDuplicatePhoneCount += 1
+          continue
+        }
+        seenPhones.add(person.cellPhone)
         recipients.push({ personId: person.id, phone: person.cellPhone })
         rows.push(
           [
@@ -247,6 +268,7 @@ export class P2pPhoneListUploadService {
     return {
       csvBuffer: Buffer.from(rows.join('\n') + '\n', 'utf-8'),
       recipients,
+      excludedDuplicatePhoneCount,
     }
   }
 

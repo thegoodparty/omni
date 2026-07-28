@@ -1,25 +1,30 @@
 model PeerlyPhoneList {
-  id                    String                     @id @default(uuid(7))
-  createdAt             DateTime                   @default(now()) @map("created_at")
-  organizationSlug      String                     @map("organization_slug")
-  organization          Organization               @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
-  campaign              Campaign                   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  campaignId            Int                        @map("campaign_id")
+  id                          String                     @id @default(uuid(7))
+  createdAt                   DateTime                   @default(now()) @map("created_at")
+  organizationSlug            String                     @map("organization_slug")
+  organization                Organization               @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  campaign                    Campaign                   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId                  Int                        @map("campaign_id")
   // The Peerly upload token returned by /phonelists on create — the only
   // handle available until the status endpoint resolves a numeric list id.
-  token                 String                     @unique
+  token                       String                     @unique
   // Stamped by the status endpoint the first time Peerly reports the list
   // ready (task 03 looks this row up by peerlyListId, which equals
   // Outreach.phoneListId).
-  peerlyListId          Int?                       @unique @map("peerly_list_id")
-  voterFileFilterId     Int?                       @map("voter_file_filter_id")
+  peerlyListId                Int?                       @unique @map("peerly_list_id")
+  voterFileFilterId           Int?                       @map("voter_file_filter_id")
   // Count of org-opted-out contacts screened out of this build's filter
   // resolution (ENG-10800). Zero also covers "the scrub was skipped" (over
   // the people-api id-filter cap) — the send proceeds unscrubbed either way,
   // so the count and the fact of a skip are both worth distinguishing only
   // in the structured log, not here.
-  excludedOptedOutCount Int                        @default(0) @map("excluded_opted_out_count")
-  recipients            PeerlyPhoneListRecipient[]
+  excludedOptedOutCount       Int                        @default(0) @map("excluded_opted_out_count")
+  // Count of duplicate-phone rows skipped from this build (ENG-10801): the
+  // same cell phone can be shared by multiple matched people, and only the
+  // first is kept per number. Surfaced the same way as
+  // excludedOptedOutCount, for ENG-10808's UI to read.
+  excludedDuplicatePhoneCount Int                        @default(0) @map("excluded_duplicate_phone_count")
+  recipients                  PeerlyPhoneListRecipient[]
 
   @@map("peerly_phone_list")
 }
