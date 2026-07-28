@@ -1543,3 +1543,175 @@ describe('AudienceStep door knocking saved-list selector', () => {
     expect(await screen.findByText('200')).toBeInTheDocument()
   })
 })
+
+// ENG-10808: a saved list's raw membership can outnumber who a channel can
+// actually reach (e.g. a 7,032-voter list with only 1,607 landline
+// holders) — a user quoted the smaller number needs to see why. Robocall is
+// used for most cases here since its mock already sets demographics.people
+// well above reachability.robocall; the breakdown must read both numbers
+// off that same list-detail response, never a second fetch.
+describe('AudienceStep list-size vs eligible-count breakdown', () => {
+  beforeEach(() => {
+    mockCountVoterFile.mockReset()
+    mockClientRequest.mockReset()
+  })
+
+  it('shows the list size and the channel-eligible count when they differ', async () => {
+    const savedList = { id: 42, name: 'Big Robocall List' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({
+          data: {
+            demographics: { people: 7032, avgAge: null, avgIncome: null },
+            reachability: {
+              sms: 0,
+              robocall: 1607,
+              phoneBanking: 0,
+              doorKnocking: 0,
+              polls: 0,
+            },
+            outreachHistory: [],
+          },
+        })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    render(
+      <AudienceStep
+        type="robocall"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+    expect(
+      await screen.findByText(/7,032 people in this list/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/1,607 reachable by robocall/)).toBeInTheDocument()
+  })
+
+  it('collapses to a single number when the list size equals the eligible count', async () => {
+    const savedList = { id: 42, name: 'Fully Reachable List' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({
+          data: {
+            demographics: { people: 500, avgAge: null, avgIncome: null },
+            reachability: {
+              sms: 0,
+              robocall: 500,
+              phoneBanking: 0,
+              doorKnocking: 0,
+              polls: 0,
+            },
+            outreachHistory: [],
+          },
+        })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    render(
+      <AudienceStep
+        type="robocall"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+    await waitFor(() => expect(screen.getByText('500')).toBeInTheDocument())
+    expect(screen.queryByText(/people in this list/)).not.toBeInTheDocument()
+  })
+
+  it('renders a fenced list size with a trailing "+" in the breakdown', async () => {
+    const savedList = { id: 42, name: 'Huge List' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({
+          data: {
+            demographics: {
+              people: 10000,
+              avgAge: null,
+              avgIncome: null,
+              fenced: true,
+            },
+            reachability: {
+              sms: 0,
+              robocall: 3000,
+              phoneBanking: 0,
+              doorKnocking: 0,
+              polls: 0,
+            },
+            outreachHistory: [],
+          },
+        })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    render(
+      <AudienceStep
+        type="robocall"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+    expect(
+      await screen.findByText(/10,000\+ people in this list/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/3,000 reachable by robocall/)).toBeInTheDocument()
+  })
+
+  it('shows the reachable-by-text breakdown for the text flow', async () => {
+    const savedList = { id: 42, name: 'Big Texting List' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({
+          data: {
+            demographics: { people: 9000, avgAge: null, avgIncome: null },
+            reachability: {
+              sms: 3200,
+              robocall: 0,
+              phoneBanking: 0,
+              doorKnocking: 0,
+              polls: 3200,
+            },
+            outreachHistory: [],
+          },
+        })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    render(
+      <AudienceStep
+        type="text"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+    expect(
+      await screen.findByText(/9,000 people in this list/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/3,200 reachable by text/)).toBeInTheDocument()
+  })
+})
