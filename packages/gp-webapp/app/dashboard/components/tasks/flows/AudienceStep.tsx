@@ -597,11 +597,15 @@ export default function AudienceStep({
                 {votersAndCostSummary}
                 {/* ENG-10808: only worth a second line when the channel
                 excludes someone — if the whole list is reachable, "Voters
-                selected" above already says the one number that matters. */}
+                selected" above already says the one number that matters.
+                A fenced value on either side can coincidentally equal the
+                other at the shared FENCE_LIMIT cap without the true
+                (uncapped) numbers actually matching, so equality alone
+                can't collapse the line unless neither side is fenced. */}
                 {!loading &&
                   !hasCountError &&
                   listSize !== null &&
-                  listSize !== count && (
+                  (listSize !== count || listSizeFenced || countFenced) && (
                     <div className="px-4 -mt-2 pb-2 text-sm text-muted-foreground text-left">
                       {formatFencedCount(listSize, listSizeFenced)} people in
                       this list

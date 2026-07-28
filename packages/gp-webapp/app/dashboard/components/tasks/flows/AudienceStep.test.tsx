@@ -1693,6 +1693,59 @@ describe('AudienceStep list-size vs eligible-count breakdown', () => {
     expect(screen.queryByText(/people in this list/)).not.toBeInTheDocument()
   })
 
+  // Delegate finding: two independently fenced values can coincidentally
+  // equal each other at the shared FENCE_LIMIT cap (both queries hit their
+  // statement-timeout guard and floored) without the true, uncapped
+  // numbers actually matching — e.g. a 15,000-person list where only
+  // 12,000 are SMS-eligible both render "10,000+". Collapsing the
+  // breakdown here would hide that gap entirely.
+  it('still shows the breakdown when both sides are fenced to the same displayed value', async () => {
+    const savedList = { id: 42, name: 'Huge Robocall List' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({
+          data: {
+            demographics: {
+              people: 10000,
+              avgAge: null,
+              avgIncome: null,
+              fenced: true,
+            },
+            reachability: {
+              sms: 0,
+              robocall: 10000,
+              phoneBanking: 0,
+              doorKnocking: 0,
+              polls: 0,
+              fenced: { robocall: true },
+            },
+            outreachHistory: [],
+          },
+        })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    render(
+      <AudienceStep
+        type="robocall"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+    expect(
+      await screen.findByText(/10,000\+ people in this list/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/10,000\+ reachable by robocall/),
+    ).toBeInTheDocument()
+  })
+
   it('renders a fenced list size with a trailing "+" in the breakdown', async () => {
     const savedList = { id: 42, name: 'Huge List' }
     mockClientRequest.mockImplementation((route: string) => {
