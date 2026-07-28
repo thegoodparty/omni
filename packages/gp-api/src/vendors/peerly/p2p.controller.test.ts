@@ -70,7 +70,11 @@ describe('P2pController', () => {
     }
     mockPeerlyPhoneListCapture = {
       stampPeerlyListId: vi.fn().mockResolvedValue(undefined),
-      findFirst: vi.fn().mockResolvedValue({ id: 1 }),
+      findFirst: vi.fn().mockResolvedValue({
+        id: 1,
+        excludedOptedOutCount: 0,
+        excludedDuplicatePhoneCount: 0,
+      }),
     }
     mockRes = createMockReply()
     controller = new P2pController(
@@ -225,7 +229,12 @@ describe('P2pController', () => {
         mockRes,
       )
 
-      expect(result).toEqual({ phoneListId: 123, leadsLoaded: 500 })
+      expect(result).toEqual({
+        phoneListId: 123,
+        leadsLoaded: 500,
+        excludedOptedOutCount: 0,
+        excludedDuplicatePhoneCount: 0,
+      })
       expect(mockRes.status).not.toHaveBeenCalled()
       expect(
         mockPeerlyPhoneListService.getPhoneListDetails,
@@ -257,7 +266,45 @@ describe('P2pController', () => {
         mockRes,
       )
 
-      expect(result).toEqual({ phoneListId: 123, leadsLoaded: 500 })
+      expect(result).toEqual({
+        phoneListId: 123,
+        leadsLoaded: 500,
+        excludedOptedOutCount: 0,
+        excludedDuplicatePhoneCount: 0,
+      })
+    })
+
+    // ENG-10808: distinct, non-zero, and unequal-to-each-other values so a
+    // swapped-field or dropped-field regression fails immediately.
+    it('surfaces the capture row exclusion counts alongside phoneListId and leadsLoaded', async () => {
+      vi.mocked(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).mockResolvedValue({
+        Data: { list_state: PhoneListState.ACTIVE, list_id: 123 },
+      })
+      vi.mocked(
+        mockPeerlyPhoneListService.getPhoneListDetails,
+      ).mockResolvedValue({
+        leads_loaded: 500,
+      })
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValue({
+        id: 1,
+        excludedOptedOutCount: 12,
+        excludedDuplicatePhoneCount: 7,
+      })
+
+      const result = await controller.checkPhoneListStatus(
+        mockCampaign,
+        'test-token',
+        mockRes,
+      )
+
+      expect(result).toEqual({
+        phoneListId: 123,
+        leadsLoaded: 500,
+        excludedOptedOutCount: 12,
+        excludedDuplicatePhoneCount: 7,
+      })
     })
 
     it('404s a token the campaign does not own, before touching Peerly', async () => {

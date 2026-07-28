@@ -81,23 +81,14 @@ export class RacesService {
     level,
     name,
     officeType,
-    electionDate,
+    timeframe,
   }: RacesByZipSchema): Promise<RaceListItem[]> {
-    const today = new Date().toISOString().slice(0, 10)
-    const electionDateTo =
-      electionDate ??
-      (() => {
-        const d = new Date()
-        d.setFullYear(d.getFullYear() + 2)
-        return d.toISOString().slice(0, 10)
-      })()
     return this.elections.searchPositions({
       zip: zipcode,
       name,
       officeType,
       displayOfficeLevels: expandLevelToDisplayLevels(level),
-      electionDateFrom: electionDate ?? today,
-      electionDateTo,
+      timeframe,
     })
   }
 

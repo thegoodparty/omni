@@ -80,6 +80,36 @@ describe('useListWizardCount — debounce', () => {
   })
 })
 
+describe('useListWizardCount — isStale', () => {
+  it('flags a payload change as stale until the debounce settles', async () => {
+    api.mock('POST /v1/contacts/count', { status: 200, data: { count: 7 } })
+
+    const qc = newClient()
+    const { result, rerender } = renderHook(
+      ({ payload }) => useListWizardCount(payload, true),
+      {
+        wrapper: wrapper(qc),
+        initialProps: {
+          payload: { genderMale: true } as Record<string, unknown>,
+        },
+      },
+    )
+
+    // Let the mount's own debounce settle so we start from a clean, non-stale
+    // baseline (the seed payload fires immediately, same as FiltersSheet).
+    await waitFor(() => expect(result.current.isStale).toBe(false))
+
+    // A fresh selection re-opens the debounce window synchronously: the count
+    // still reflects the previous payload, so it reads stale right away — this
+    // is the exact window ENG-10769's Save gate must treat as not-yet-settled.
+    rerender({ payload: { genderFemale: true } })
+    expect(result.current.isStale).toBe(true)
+
+    // ...and it clears once the 600ms debounce elapses and the new count lands.
+    await waitFor(() => expect(result.current.isStale).toBe(false))
+  })
+})
+
 describe('useListWizardCount — stale response sequencing', () => {
   it('never renders a slower response for a superseded payload over a fresher one', async () => {
     let releaseSlow!: () => void
@@ -119,6 +149,37 @@ describe('useListWizardCount — stale response sequencing', () => {
 
     // The slow, superseded response must not overwrite the current total.
     expect(result.current.count).toBe(5)
+  })
+})
+
+describe('useListWizardCount — fenced (ENG-10804)', () => {
+  it('surfaces the fenced flag from the count response', async () => {
+    api.mock('POST /v1/contacts/count', {
+      status: 200,
+      data: { count: 10000, fenced: true },
+    })
+
+    const qc = newClient()
+    const { result } = renderHook(
+      () => useListWizardCount({ genderMale: true }, true),
+      { wrapper: wrapper(qc) },
+    )
+
+    await waitFor(() => expect(result.current.count).toBe(10000))
+    expect(result.current.fenced).toBe(true)
+  })
+
+  it('reads fenced as undefined when the response omits it', async () => {
+    api.mock('POST /v1/contacts/count', { status: 200, data: { count: 42 } })
+
+    const qc = newClient()
+    const { result } = renderHook(
+      () => useListWizardCount({ genderMale: true }, true),
+      { wrapper: wrapper(qc) },
+    )
+
+    await waitFor(() => expect(result.current.count).toBe(42))
+    expect(result.current.fenced).toBeUndefined()
   })
 })
 

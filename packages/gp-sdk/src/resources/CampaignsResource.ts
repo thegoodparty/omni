@@ -54,4 +54,17 @@ export class CampaignsResource extends BaseResource {
         '/resend-cv-pin',
       {},
     )
+
+  grantInternalTestingApproval = (campaignId: number): Promise<void> =>
+    this.postRequest<void>(
+      `${this.resourceBasePath}/tcr-compliance/admin/${campaignId}` +
+        '/internal-testing-approval',
+      {},
+    )
+
+  revokeInternalTestingApproval = (campaignId: number): Promise<void> =>
+    this.deleteRequest<void>(
+      `${this.resourceBasePath}/tcr-compliance/admin/${campaignId}` +
+        '/internal-testing-approval',
+    )
 }

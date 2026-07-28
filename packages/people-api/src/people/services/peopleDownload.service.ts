@@ -12,11 +12,7 @@ import { CopyToStreamQuery, to as copyTo } from 'pg-copy-streams'
 import { DatabaseUrlProvider } from 'src/prisma/database-url.provider'
 import { DistrictService } from 'src/district/services/district.service'
 import { DownloadPeopleDTO } from '../people.schema'
-import {
-  buildVoterSelectSql,
-  ExcludableVoterColumn,
-  ExtraSelectedField,
-} from '../people.select'
+import { DOWNLOAD_COLUMNS, ExcludableVoterColumn } from '../people.select'
 import { buildVoterWhereSql } from '../utils/buildVoterWhereSql.utils'
 import { buildHouseholdKeySql } from '../utils/buildHouseholdKeySql.utils'
 import { inlinePrismaSql } from '../utils/inlinePrismaSql.utils'
@@ -25,37 +21,6 @@ import { resolveDistrict } from '../utils/resolveDistrict.utils'
 const DATABASE_SCHEMA = 'green'
 const VOTER_TABLENAME = 'Voter'
 const DISTRICTVOTER_TABLENAME = 'DistrictVoter'
-
-// Same turnout columns as the previous fast-csv implementation; preserved
-// exactly so the exported CSV schema does not change.
-const EXTRA_FIELDS: ExtraSelectedField[] = [
-  'AnyElection_2017',
-  'AnyElection_2019',
-  'AnyElection_2021',
-  'AnyElection_2023',
-  'AnyElection_2025',
-  'General_2016',
-  'General_2018',
-  'General_2020',
-  'General_2022',
-  'General_2024',
-  'General_2026',
-  'OtherElection_2016',
-  'OtherElection_2018',
-  'OtherElection_2020',
-  'OtherElection_2022',
-  'OtherElection_2024',
-  'OtherElection_2026',
-  'PresidentialPrimary_2016',
-  'PresidentialPrimary_2020',
-  'PresidentialPrimary_2024',
-  'Primary_2016',
-  'Primary_2018',
-  'Primary_2020',
-  'Primary_2022',
-  'Primary_2024',
-  'Primary_2026',
-]
 
 const quoteIdent = (id: string) => `"${id.replace(/"/g, '""')}"`
 
@@ -122,8 +87,10 @@ export class PeopleDownloadService
     dto: DownloadPeopleDTO,
     res: FastifyReply,
   ): Promise<void> {
-    const { state, useVoterOnlyPath, districtId, districtType, districtName } =
-      await resolveDistrict(this.districtService, dto)
+    const { state, useVoterOnlyPath, districtId } = await resolveDistrict(
+      this.districtService,
+      dto,
+    )
     const effectiveDistrictId = useVoterOnlyPath ? null : districtId
 
     let client: PoolClient
@@ -159,8 +126,6 @@ export class PeopleDownloadService
         effectiveDistrictId,
         state,
         filters: dto.filters,
-        districtName,
-        districtType,
         groupByHousehold: dto.groupByHousehold,
         excludeColumns: dto.excludeColumns,
       })
@@ -240,8 +205,6 @@ export class PeopleDownloadService
     effectiveDistrictId: string | null
     state: string
     filters: DownloadPeopleDTO['filters']
-    districtName: string
-    districtType: string
     groupByHousehold?: boolean
     excludeColumns?: ExcludableVoterColumn[]
   }): string {
@@ -250,21 +213,20 @@ export class PeopleDownloadService
       effectiveDistrictId,
       state,
       filters,
-      districtName,
-      districtType,
       groupByHousehold,
       excludeColumns,
     } = args
 
-    const { columnNames } = buildVoterSelectSql(EXTRA_FIELDS)
     const excluded = new Set<string>(excludeColumns ?? [])
 
-    const voterCols = columnNames
-      .filter((c) => !excluded.has(c))
-      .map((c) => `v.${quoteIdent(c)} AS ${quoteIdent(c)}`)
+    const voterCols = DOWNLOAD_COLUMNS.filter(
+      ({ column }) => !excluded.has(column),
+    )
+      .map(
+        ({ column, header }) =>
+          `v.${quoteIdent(column)} AS ${quoteIdent(header)}`,
+      )
       .join(', ')
-    const electionLocationLiteral = client.escapeLiteral(districtName)
-    const electionTypeLiteral = client.escapeLiteral(districtType)
 
     // Mirror the list endpoint's door-knocking de-dup: emit one row per
     // physical household. DISTINCT ON keeps a single representative voter per
@@ -276,7 +238,7 @@ export class PeopleDownloadService
     const distinctOn = groupByHousehold ? `DISTINCT ON (${householdKey}) ` : ''
     const orderBy = groupByHousehold ? `ORDER BY ${householdKey}, v."id"` : ''
 
-    const selectList = `SELECT ${distinctOn}${voterCols}, ${electionLocationLiteral} AS "electionLocation", ${electionTypeLiteral} AS "electionType"`
+    const selectList = `SELECT ${distinctOn}${voterCols}`
 
     const voterTable = `"${DATABASE_SCHEMA}"."${VOTER_TABLENAME}"`
     const dvTable = `"${DATABASE_SCHEMA}"."${DISTRICTVOTER_TABLENAME}"`

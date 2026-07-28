@@ -52,6 +52,8 @@ describe('CampaignTcrComplianceController', () => {
     retrieveCampaignVerifyToken: ReturnType<typeof vi.fn>
     submitCampaignVerifyToken: ReturnType<typeof vi.fn>
     resendCampaignVerifyPin: ReturnType<typeof vi.fn>
+    grantInternalTestingApproval: ReturnType<typeof vi.fn>
+    revokeInternalTestingApproval: ReturnType<typeof vi.fn>
     model: { update: ReturnType<typeof vi.fn> }
   }
   let mockUserService: { findByCampaign: ReturnType<typeof vi.fn> }
@@ -78,6 +80,10 @@ describe('CampaignTcrComplianceController', () => {
       retrieveCampaignVerifyToken: vi.fn().mockResolvedValue('cv-token-123'),
       submitCampaignVerifyToken: vi.fn().mockResolvedValue({ brand: 'ok' }),
       resendCampaignVerifyPin: vi.fn().mockResolvedValue(undefined),
+      grantInternalTestingApproval: vi
+        .fn()
+        .mockResolvedValue(mockTcrCompliance),
+      revokeInternalTestingApproval: vi.fn().mockResolvedValue(undefined),
       model: { update: vi.fn().mockResolvedValue(mockTcrCompliance) },
     }
 
@@ -501,6 +507,89 @@ describe('CampaignTcrComplianceController', () => {
         controller.resendCampaignVerifyPinForCampaign(12345),
       ).rejects.toThrow(NotFoundException)
       expect(mockTcrService.resendCampaignVerifyPin).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('grantInternalTestingApproval (admin)', () => {
+    it('is gated by AdminOrM2MGuard', () => {
+      expect(
+        getGuards('grantInternalTestingApproval').map(
+          (g: { name: string }) => g.name,
+        ),
+      ).toContain(AdminOrM2MGuard.name)
+    })
+
+    it('responds with HTTP 204 No Content', () => {
+      const statusCode = Reflect.getMetadata(
+        HTTP_CODE_METADATA,
+        CampaignTcrComplianceController.prototype.grantInternalTestingApproval,
+      )
+      expect(statusCode).toBe(HttpStatus.NO_CONTENT)
+    })
+
+    it('loads the campaign owner and delegates the grant to the service', async () => {
+      mockCampaignsService.findUniqueOrThrow.mockResolvedValue(mockCampaign)
+
+      await controller.grantInternalTestingApproval(mockCampaign.id)
+
+      expect(mockUserService.findByCampaign).toHaveBeenCalledWith(mockCampaign)
+      expect(mockTcrService.grantInternalTestingApproval).toHaveBeenCalledWith(
+        mockUser,
+        mockCampaign,
+      )
+    })
+
+    it('throws NotFoundException when the campaign has no user', async () => {
+      mockUserService.findByCampaign.mockResolvedValue(null)
+
+      await expect(
+        controller.grantInternalTestingApproval(mockCampaign.id),
+      ).rejects.toThrow(NotFoundException)
+      expect(mockTcrService.grantInternalTestingApproval).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('revokeInternalTestingApproval (admin)', () => {
+    it('is gated by AdminOrM2MGuard', () => {
+      expect(
+        getGuards('revokeInternalTestingApproval').map(
+          (g: { name: string }) => g.name,
+        ),
+      ).toContain(AdminOrM2MGuard.name)
+    })
+
+    it('responds with HTTP 204 No Content', () => {
+      const statusCode = Reflect.getMetadata(
+        HTTP_CODE_METADATA,
+        CampaignTcrComplianceController.prototype.revokeInternalTestingApproval,
+      )
+      expect(statusCode).toBe(HttpStatus.NO_CONTENT)
+    })
+
+    it('verifies the campaign exists and delegates the revoke', async () => {
+      mockCampaignsService.findUniqueOrThrow.mockResolvedValue(mockCampaign)
+
+      await controller.revokeInternalTestingApproval(mockCampaign.id)
+
+      expect(mockCampaignsService.findUniqueOrThrow).toHaveBeenCalledWith({
+        where: { id: mockCampaign.id },
+      })
+      expect(mockTcrService.revokeInternalTestingApproval).toHaveBeenCalledWith(
+        mockCampaign.id,
+      )
+    })
+
+    it('does not revoke when the campaign does not exist', async () => {
+      mockCampaignsService.findUniqueOrThrow.mockRejectedValue(
+        new NotFoundException(),
+      )
+
+      await expect(
+        controller.revokeInternalTestingApproval(12345),
+      ).rejects.toThrow(NotFoundException)
+      expect(
+        mockTcrService.revokeInternalTestingApproval,
+      ).not.toHaveBeenCalled()
     })
   })
 })

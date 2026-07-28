@@ -223,6 +223,7 @@ export class CrmCampaignsService {
           pinDeliveryMethod: true,
           pinDeliveryDestination: true,
           pinSentDetectedAt: true,
+          peerlyIdentityId: true,
         },
       }),
       this.ecanvasser.findByCampaignId(campaignId),
@@ -359,6 +360,9 @@ export class CrmCampaignsService {
       ),
       n10_dlc_pin_delivery_destination:
         tcrCompliance?.pinDeliveryDestination ?? undefined,
+      // String on purpose: the event-side property is number-typed, which
+      // HubSpot renders with thousands separators and breaks id lookups.
+      peerly_identity_id: tcrCompliance?.peerlyIdentityId ?? undefined,
 
       // election details
       br_position_id: ballotReadyPositionId ?? undefined,

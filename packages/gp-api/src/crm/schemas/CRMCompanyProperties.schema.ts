@@ -52,6 +52,7 @@ export const CRMCompanyPropertiesSchema = z
     [HS_PROPS.n10_dlc_pin_delivery_method]: z.string(),
     [HS_PROPS.n10_dlc_pin_sent_at]: timestampSchema,
     [HS_PROPS.n10_dlc_pin_delivery_destination]: z.string(),
+    [HS_PROPS.peerly_identity_id]: z.string(),
 
     // election details
     [HS_PROPS.br_position_id]: z.string(),

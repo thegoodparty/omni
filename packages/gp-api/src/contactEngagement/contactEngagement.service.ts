@@ -1,7 +1,6 @@
 import { ContactInteractionDoorKnockService } from '@/contactInteraction/services/contactInteractionDoorKnock.service'
 import { ContactInteractionRobocallService } from '@/contactInteraction/services/contactInteractionRobocall.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
-import { ContactNoteService } from '@/contactNote/services/contactNote.service'
 import { PollIndividualMessageService } from '@/polls/services/pollIndividualMessage.service'
 import { VoterOutreachActivityService } from '@/voterOutreachActivity/services/voterOutreachActivity.service'
 import { Injectable } from '@nestjs/common'
@@ -21,7 +20,6 @@ import {
   DoorKnockConstituentActivity,
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
-  NoteConstituentActivity,
   OutreachConstituentActivity,
   PollConstituentActivity,
   RobocallConstituentActivity,
@@ -39,8 +37,6 @@ const activityId = (activity: ConstituentActivity): string => {
   switch (activity.type) {
     case ConstituentActivityType.POLL_INTERACTIONS:
       return activity.data.pollId
-    case ConstituentActivityType.NOTE:
-      return activity.data.noteId
     case ConstituentActivityType.OUTREACH:
       return String(activity.data.activityId)
     case ConstituentActivityType.DOOR_KNOCK:
@@ -64,7 +60,6 @@ export class ContactEngagementService {
     private readonly contactInteractionDoorKnock: ContactInteractionDoorKnockService,
     private readonly contactInteractionText: ContactInteractionTextService,
     private readonly contactInteractionRobocall: ContactInteractionRobocallService,
-    private readonly contactNote: ContactNoteService,
   ) {}
 
   async getIndividualActivities(
@@ -95,10 +90,6 @@ export class ContactEngagementService {
       { occurredAt: Prisma.SortOrder.desc },
       { id: Prisma.SortOrder.desc },
     ]
-    const noteOrderBy = [
-      { createdAt: Prisma.SortOrder.desc },
-      { id: Prisma.SortOrder.desc },
-    ]
 
     // Bounds a union source to the window this page can actually need: with
     // no cursor (page 1), a source's own top `limit + 1` rows — in a merge
@@ -125,7 +116,7 @@ export class ContactEngagementService {
       return [...before, ...atCursor]
     }
 
-    const [doorKnocks, texts, robocalls, notes] = await Promise.all([
+    const [doorKnocks, texts, robocalls] = await Promise.all([
       fetchWindow(
         (windowTake) =>
           this.contactInteractionDoorKnock.findMany({
@@ -180,25 +171,6 @@ export class ContactEngagementService {
               this.contactInteractionRobocall.findMany({
                 where: { organizationSlug, personId, occurredAt: cursorDate },
                 orderBy,
-              })
-          : null,
-      ),
-      fetchWindow(
-        (windowTake) =>
-          this.contactNote.findMany({
-            where: {
-              organizationSlug,
-              personId,
-              ...(cursorDate ? { createdAt: { lt: cursorDate } } : {}),
-            },
-            orderBy: noteOrderBy,
-            take: windowTake,
-          }),
-        cursorDate
-          ? () =>
-              this.contactNote.findMany({
-                where: { organizationSlug, personId, createdAt: cursorDate },
-                orderBy: noteOrderBy,
               })
           : null,
       ),
@@ -279,17 +251,6 @@ export class ContactEngagementService {
       }),
     )
 
-    const noteActivities: NoteConstituentActivity[] = notes.map((note) => ({
-      type: ConstituentActivityType.NOTE,
-      date: note.createdAt.toISOString(),
-      data: {
-        noteId: note.id,
-        body: note.body,
-        createdAt: note.createdAt.toISOString(),
-        updatedAt: note.updatedAt.toISOString(),
-      },
-    }))
-
     const outreachConstituentActivities: OutreachConstituentActivity[] =
       outreachActivities.map((activity) => ({
         type: ConstituentActivityType.OUTREACH,
@@ -307,7 +268,6 @@ export class ContactEngagementService {
       ...doorKnockActivities,
       ...textActivities,
       ...robocallActivities,
-      ...noteActivities,
     ]
     // date desc, then type/id as an explicit tiebreak — same-day Win outreach
     // attributions (occurredAt from a date-only picker) can be byte-identical,

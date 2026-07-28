@@ -79,14 +79,6 @@ const placeFilterSchema = z.object({
 })
 ///  .strict()
 
-export const getPlaceByPositionIdParamsSchema = z.object({
-  positionId: z.guid('Position ID must be a valid UUID'),
-})
-
-export class GetPlaceByPositionIdParamsDTO extends createZodDto(
-  getPlaceByPositionIdParamsSchema,
-) {}
-
 const mostElectionsSchema = z.object({
   count: z
     .string()

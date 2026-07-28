@@ -22,6 +22,9 @@ export interface OrdinanceDraftRevision {
   revisions: { checkId: string; note: string }[]
   sourcesToAdd: OrdinanceSource[]
   tokens: number
+  inputTokens: number
+  outputTokens: number
+  model: string
 }
 
 const REVISION_MAX_TOKENS = 8192
@@ -41,8 +44,8 @@ const RevisionSchema = z.object({
 
 const REVISION_SYSTEM_PROMPT = [
   'You are a legislative drafting editor, not an author. You revise a',
-  'municipal ordinance draft to fix specific flagged quality checks, and',
-  'nothing else.',
+  'legislative draft — a city or county ordinance, or a state bill — to fix',
+  'specific flagged quality checks, and nothing else.',
   '',
   'Rules:',
   '- Fix only the flagged checks listed. Each note is an actionable work',
@@ -53,7 +56,7 @@ const REVISION_SYSTEM_PROMPT = [
   "  material, leave that section unchanged and say so in that check's",
   '  revision note.',
   "- Copy untouched sections verbatim. Preserve the draft's structure,",
-  '  numbering, the meaning of passing sections, its municipal-code voice,',
+  '  numbering, the meaning of passing sections, its legislative voice,',
   '  and any bracketed [placeholder] policy decisions.',
   '- Output the complete revised title and body, plus one short note per',
   '  flagged check describing what you changed (or why you could not).',
@@ -126,20 +129,21 @@ export class OrdinanceDraftRevisionService {
     flaggedChecks: OrdinanceQualityCheck[],
     opts?: { abortSignal?: AbortSignal },
   ): Promise<OrdinanceDraftRevision> {
-    const { object, tokens } = await this.llm.jsonCompletion({
-      messages: [
-        { role: 'system', content: REVISION_SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: buildRevisionUserPrompt(record, flaggedChecks),
-        },
-      ],
-      schema: RevisionSchema,
-      models: QUALITY_LOOP_MODELS,
-      retries: QUALITY_LOOP_LLM_RETRIES,
-      maxTokens: REVISION_MAX_TOKENS,
-      abortSignal: opts?.abortSignal,
-    })
+    const { object, tokens, inputTokens, outputTokens, model } =
+      await this.llm.jsonCompletion({
+        messages: [
+          { role: 'system', content: REVISION_SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: buildRevisionUserPrompt(record, flaggedChecks),
+          },
+        ],
+        schema: RevisionSchema,
+        models: QUALITY_LOOP_MODELS,
+        retries: QUALITY_LOOP_LLM_RETRIES,
+        maxTokens: REVISION_MAX_TOKENS,
+        abortSignal: opts?.abortSignal,
+      })
 
     const previousLength = record.draftBody?.length ?? 0
     if (object.body.length < previousLength * MIN_BODY_RATIO) {
@@ -162,6 +166,9 @@ export class OrdinanceDraftRevisionService {
       revisions: object.revisions,
       sourcesToAdd,
       tokens,
+      inputTokens,
+      outputTokens,
+      model,
     }
   }
 }

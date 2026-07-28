@@ -89,6 +89,7 @@ describe('PurchaseService', () => {
     metaData: null,
     passwordResetToken: null,
     clerkId: null,
+    personId: null,
   }
 
   const mockCampaign: Campaign = {

@@ -8,6 +8,7 @@ import {
   OrdinanceClarifyAnswersSchema,
   OrdinanceComparablesSchema,
   OrdinanceScratchpadSchema,
+  type BallotReadyPositionLevel,
   type OrdinanceAuthority,
   type OrdinanceClarifyAnswers,
   type OrdinanceComparables,
@@ -23,10 +24,12 @@ export interface OrdinanceFlowContext {
   step: OrdinanceFlowStep
   organizationSlug: string
   officeTitle: string | null
+  officeLevel: BallotReadyPositionLevel | null
   jurisdiction: string | null
   seedType: OrdinanceSeedType
   issueSlug: string | null
   goalText: string | null
+  sourceLink: string | null
   clarifyAnswers: OrdinanceClarifyAnswers
   authority: OrdinanceAuthority | null
   comparables: OrdinanceComparables | null
@@ -95,12 +98,16 @@ export class OrdinanceFlowContextService extends createPrismaBase(
       step: anchor.step,
       organizationSlug: electedOffice.organizationSlug,
       officeTitle: electedOffice.organization.customPositionName,
+      // Only the district resolver knows the position's level; the handler
+      // fills it in loadContext when the org's position resolves.
+      officeLevel: null,
       jurisdiction: codeRecord
         ? `${codeRecord.place}, ${codeRecord.state}`
         : null,
       seedType: ordinance.seedType,
       issueSlug: ordinance.issueSlug,
       goalText: ordinance.goalText,
+      sourceLink: ordinance.sourceLink,
       clarifyAnswers:
         this.parseJson(
           OrdinanceClarifyAnswersSchema,

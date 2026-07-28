@@ -22,6 +22,7 @@ export const ORDINANCE_FIXTURE_NAMES = [
   'bike-parking-redraft',
   'oil-spill',
   'oil-spill-early',
+  'rent-cap-spokane',
 ] as const
 export type OrdinanceFixtureName = (typeof ORDINANCE_FIXTURE_NAMES)[number]
 
