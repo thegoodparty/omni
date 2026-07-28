@@ -177,6 +177,21 @@ export default function CreateListFlow({
       }).catch(() => undefined)
     }
   }, [step])
+  // Closing the flow from confirm unmounts without a step change, so the
+  // effect above never sees it — only a returned cleanup runs on unmount.
+  // Both paths null the ref before deleting, so they can't double-fire.
+  useEffect(
+    () => () => {
+      const orphanId = createdFilterIdRef.current
+      createdFilterIdRef.current = null
+      if (orphanId !== null) {
+        void clientRequest('DELETE /v1/voters/voter-file/filter/:id', {
+          id: String(orphanId),
+        }).catch(() => undefined)
+      }
+    },
+    [],
+  )
 
   const save = useMutation({
     mutationFn: async (drawAnother: boolean) => {
