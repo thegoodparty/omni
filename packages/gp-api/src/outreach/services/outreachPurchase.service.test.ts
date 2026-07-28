@@ -378,6 +378,32 @@ describe('OutreachPurchaseHandlerService', () => {
       ).not.toHaveBeenCalled()
     })
 
+    it('throws BadRequestException, without falling back, when getPhoneListDetails returns a 4xx', async () => {
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValueOnce(
+        CAPTURED_LIST_FIXTURE,
+      )
+      vi.mocked(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).mockResolvedValueOnce({
+        Data: { list_id: 42, list_state: PhoneListState.ACTIVE },
+      })
+      vi.mocked(
+        mockPeerlyPhoneListService.getPhoneListDetails,
+      ).mockRejectedValueOnce(buildPeerlyHttpError(400))
+
+      await expect(
+        service.calculateAmount({
+          ...baseMetadata,
+          campaignId: 1,
+        }),
+      ).rejects.toThrow(BadRequestException)
+
+      expect(mockPeerlyPhoneListCapture.countRecipients).not.toHaveBeenCalled()
+      expect(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).not.toHaveBeenCalled()
+    })
+
     it('falls back to the captured recipient count when Peerly returns a 5xx', async () => {
       vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValueOnce(
         CAPTURED_LIST_FIXTURE,
