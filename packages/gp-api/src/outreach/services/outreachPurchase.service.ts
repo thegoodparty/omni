@@ -109,8 +109,10 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       throw new BadRequestException('No phone list found for this purchase')
     }
 
-    const peerlyLeadsLoaded =
-      await this.fetchLeadsLoadedFromPeerly(phoneListToken)
+    const peerlyLeadsLoaded = await this.fetchLeadsLoadedFromPeerly(
+      phoneListToken,
+      capturedList.peerlyListId,
+    )
     const serverContactCount =
       peerlyLeadsLoaded ??
       (await this.peerlyPhoneListCapture.countRecipients(capturedList.id))
@@ -143,6 +145,7 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
   // retries once the list goes active.
   private async fetchLeadsLoadedFromPeerly(
     phoneListToken: string,
+    capturedListId: number | null,
   ): Promise<number | null> {
     let status
     try {
@@ -163,11 +166,13 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     }
 
     // `list_id` is Zod-optional, so a successfully-parsed status response can
-    // still omit it (not yet assigned, or a Peerly inconsistency). Either way
-    // it's not a fetch failure — falling back here would hit the same
-    // pre-scrub overbill the null-status check above exists to prevent.
-    const listId = status.Data.list_id
-    if (listId === undefined) {
+    // still omit it (not yet assigned, or a Peerly inconsistency). Fall back
+    // to the DB's own peerlyListId — stamped durably once by an earlier
+    // successful poll — before treating this as unresolved; either way,
+    // falling back further to captured rows would hit the same pre-scrub
+    // overbill the null-status check above exists to prevent.
+    const listId = status.Data.list_id ?? capturedListId
+    if (listId === null) {
       throw new BadRequestException(
         'Phone list has no list_id yet; try again shortly',
       )

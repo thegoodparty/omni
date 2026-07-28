@@ -338,10 +338,11 @@ describe('OutreachPurchaseHandlerService', () => {
       ).not.toHaveBeenCalled()
     })
 
-    it('throws BadRequestException, without falling back, when Peerly returns a status with no list_id', async () => {
-      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValueOnce(
-        CAPTURED_LIST_FIXTURE,
-      )
+    it('throws BadRequestException when Peerly omits list_id and no peerlyListId is stamped yet', async () => {
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValueOnce({
+        ...CAPTURED_LIST_FIXTURE,
+        peerlyListId: null,
+      })
       vi.mocked(
         mockPeerlyPhoneListService.checkPhoneListStatus,
       ).mockResolvedValueOnce({
@@ -362,6 +363,38 @@ describe('OutreachPurchaseHandlerService', () => {
       expect(
         mockCampaignsService.checkFreeTextsEligibility,
       ).not.toHaveBeenCalled()
+    })
+
+    it('falls back to the DB-stamped peerlyListId when Peerly omits list_id', async () => {
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValueOnce(
+        CAPTURED_LIST_FIXTURE,
+      )
+      vi.mocked(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).mockResolvedValueOnce({
+        Data: { list_state: PhoneListState.ACTIVE },
+      })
+      vi.mocked(
+        mockPeerlyPhoneListService.getPhoneListDetails,
+      ).mockResolvedValueOnce({
+        ...PHONE_LIST_DETAILS_FIXTURE,
+        leads_loaded: 500,
+      })
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(false)
+
+      const amount = await service.calculateAmount({
+        ...baseMetadata,
+        contactCount: 500,
+        campaignId: 1,
+      })
+
+      expect(amount).toBe(calcTextAmountInCents(500))
+      expect(
+        mockPeerlyPhoneListService.getPhoneListDetails,
+      ).toHaveBeenCalledWith(CAPTURED_LIST_FIXTURE.peerlyListId)
+      expect(mockPeerlyPhoneListCapture.countRecipients).not.toHaveBeenCalled()
     })
 
     it('honors a list_id of 0 rather than treating it as absent', async () => {
