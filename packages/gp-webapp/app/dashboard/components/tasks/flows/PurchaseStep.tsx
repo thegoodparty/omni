@@ -32,7 +32,8 @@ export const PurchaseStep = ({
   excludedOptedOutCount,
   excludedDuplicatePhoneCount,
 }: PurchaseStepProps) => {
-  const { checkoutSession, error, fetchClientSecret } = useCheckoutSession()
+  const { checkoutSession, error, setError, fetchClientSecret } =
+    useCheckoutSession()
   const hasTrackedPaymentStarted = useRef(false)
   const hasFetchedSession = useRef(false)
 
@@ -67,7 +68,7 @@ export const PurchaseStep = ({
   return (
     <div className="p-4 w-[80vw] max-w-xl">
       {error ? (
-        <PurchaseError {...{}} />
+        <PurchaseError error={error} />
       ) : !phoneListId || !checkoutSession ? (
         <LoadingAnimation {...{}} />
       ) : (
@@ -80,6 +81,8 @@ export const PurchaseStep = ({
             phoneListToken,
             excludedOptedOutCount,
             excludedDuplicatePhoneCount,
+            onError: () =>
+              setError('Failed to complete purchase. Please try again.'),
           }}
         />
       )}
