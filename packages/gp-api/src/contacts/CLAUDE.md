@@ -195,6 +195,20 @@ honored — the list matches what the wizard's count promised
 (`src/vendors/peerly/services/p2pPhoneListUpload.service.ts` +
 `peerlyPhoneListCapture.service.ts`).
 
+**Opt-out scrub (ENG-10800).** `P2pPhoneListUploadService` excludes every
+org-wide opted-out person (`ContactInteractionTextService.findOptedOutPersonIds`
+— any past text/p2p send, not just the outreach that recorded it) from a new
+phone-list build via `findContactsForFilter`'s `excludePersonIds` param, which
+folds into whatever `id` resolution activity conditions/support status already
+produced (`ContactsService.excludePersonIdsFromResolution`). Over the
+people-api 100k id-filter cap (`MAX_RESOLVED_ID_SET_SIZE`), the scrub is
+skipped and logged loudly rather than blocking the send. The excluded count is
+persisted on `PeerlyPhoneList.excludedOptedOutCount` for a later UI ticket
+(ENG-10808) to surface. The materialization fallback above (re-resolving the
+filter when an outreach has a `phoneListId` but no capture rows) does **not**
+run this scrub — it already overstates by design, and ENG-10800 didn't touch
+it.
+
 ### Write-back (collect-forward)
 
 Two `@Cron` sweeps in `src/outreach/services/` (scheduled fetch — Peerly
