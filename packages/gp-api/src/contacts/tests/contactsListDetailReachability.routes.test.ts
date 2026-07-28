@@ -1,5 +1,5 @@
 import { HttpService } from '@nestjs/axios'
-import { of } from 'rxjs'
+import { of, throwError } from 'rxjs'
 import { describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import type { FilterObject } from '../utils/voterFileFilter.utils'
@@ -99,5 +99,72 @@ describe('GET /v1/contacts/list-detail reachability', () => {
       // Polls mirrors sms's count, so it mirrors sms's fenced-ness too.
       polls: true,
     })
+  })
+
+  // ENG-10806: the tester's "counts = unavailable" bug — one failed
+  // people-api aggregate call used to fail the whole route, flipping every
+  // tile to "Unavailable" at once. The four calls now settle independently.
+  it('degrades only the failed channel when one non-base aggregate fails', async () => {
+    const slug = await setupOrg('degraded')
+    vi.spyOn(service.app.get(HttpService), 'post').mockImplementation(
+      (_url, body) => {
+        const filters = (body as { filters: FilterObject }).filters
+        if (filters.hasLandline) {
+          return throwError(
+            () => new Error('people-api landline aggregate unavailable'),
+          ) as never
+        }
+        const match = filters.hasCellPhone
+          ? { count: 777 }
+          : filters.hasAddress
+            ? { count: 111 }
+            : { count: 999 }
+        return of({
+          data: { avgAge: null, avgIncome: null, ...match },
+        }) as never
+      },
+    )
+
+    const response = await service.client.get('/v1/contacts/list-detail', {
+      headers: { [ORG_SLUG_HEADER]: slug },
+    })
+
+    expect(response.status).toBe(200)
+    expect(response.data.demographics.people).toBe(999)
+    expect(response.data.reachability).toEqual(
+      expect.objectContaining({
+        sms: 777,
+        // landline failed — both channels it backs go null, not 0/missing.
+        robocall: null,
+        phoneBanking: null,
+        doorKnocking: 111,
+        polls: 777,
+      }),
+    )
+  })
+
+  it('still 502s the whole route when the base aggregate fails', async () => {
+    const slug = await setupOrg('base-fail')
+    vi.spyOn(service.app.get(HttpService), 'post').mockImplementation(
+      (_url, body) => {
+        const filters = (body as { filters: FilterObject }).filters
+        const isBase =
+          !filters.hasCellPhone && !filters.hasLandline && !filters.hasAddress
+        if (isBase) {
+          return throwError(
+            () => new Error('people-api base aggregate unavailable'),
+          ) as never
+        }
+        return of({
+          data: { avgAge: null, avgIncome: null, count: 1 },
+        }) as never
+      },
+    )
+
+    const response = await service.client.get('/v1/contacts/list-detail', {
+      headers: { [ORG_SLUG_HEADER]: slug },
+    })
+
+    expect(response.status).toBe(502)
   })
 })

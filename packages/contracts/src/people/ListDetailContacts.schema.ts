@@ -24,12 +24,15 @@ export type ListDetailDemographics = z.infer<
 >
 
 export const ListDetailReachabilitySchema = z.object({
-  sms: z.number().int().min(0),
-  robocall: z.number().int().min(0),
-  phoneBanking: z.number().int().min(0),
-  doorKnocking: z.number().int().min(0),
+  // ENG-10806: each channel comes from its own people-api aggregates call —
+  // null means that specific call failed, degrading only that tile instead
+  // of the whole route (see contacts.service.ts's fetchListDetailAggregates).
+  sms: z.number().int().min(0).nullable(),
+  robocall: z.number().int().min(0).nullable(),
+  phoneBanking: z.number().int().min(0).nullable(),
+  doorKnocking: z.number().int().min(0).nullable(),
   // Polls are delivered by text, so reachability mirrors sms 1:1.
-  polls: z.number().int().min(0),
+  polls: z.number().int().min(0).nullable(),
   // Per-channel mirror of demographics.fenced (ENG-10805): each channel's
   // count comes from its own people-api aggregates call, so it can be
   // fenced independently of the base count and of the other channels.

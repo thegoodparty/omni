@@ -88,7 +88,11 @@ same pathological `DistrictVoter` → `Voter` nested loop that a rare
 name-search LIKE pattern does. The fenced count is exact when the query
 completes under the timeout and a `FENCE_LIMIT` floor otherwise; the fenced
 aggregates fallback computes AVG age/income over that same capped subquery, so
-they become a sample rather than an exact figure when the fence binds.
+they become a sample rather than an exact figure when the fence binds. The
+fenced retry runs under its own `SET LOCAL statement_timeout` too
+(`FENCE_RETRY_TIMEOUT_MS`, 2x `SLOW_QUERY_TIMEOUT_MS`, ENG-10806) — a fenced
+retry that also times out fails cleanly instead of holding the connection
+open unbounded.
 
 The voter LIST fence stays name-search-only: fencing a broad filter's list
 would silently drop rows from an ordered, paginated page, whereas a count has

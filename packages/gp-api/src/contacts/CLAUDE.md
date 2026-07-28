@@ -270,6 +270,13 @@ over interaction rows with a non-null `support_answer`; a "list" =
 - Reachability has five channels: sms, robocall, phoneBanking, doorKnocking,
   polls. `email`/`metaAds` were removed (ENG-10783, no data source ever
   existed for them); `polls` mirrors the sms (has-cell-phone) count 1:1.
+- `fetchListDetailAggregates`'s four people-api calls (base, cellphone,
+  landline, address) settle independently (ENG-10806, `Promise.allSettled`):
+  a failed cellphone/landline/address call nulls only the reachability
+  channels it backs (`ListDetailReachabilitySchema`'s channels are
+  nullable) — the route still 200s and the other tiles render real numbers.
+  Only a failed base call still 502s (`BadGatewayException`); there's
+  nothing to show without it.
 - Age filter ranges are mutually exclusive since ENG-10752/10753; the
   catalog + `voterFilterBase.schema.ts` own the vocabulary.
 - Download does not re-apply a stored `search` (people-api `/download`

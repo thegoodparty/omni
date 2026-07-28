@@ -56,6 +56,13 @@ const SLOW_QUERY_TIMEOUT_MS = 2500
 // fence: exact when it completes under the timeout, floored at this limit
 // when it would be slow.
 const FENCE_LIMIT = 10000
+// queryWithTimeoutFence's retry still runs a live query (an unordered,
+// LIMIT-capped subquery, but a query nonetheless) — it can hit the same
+// pathological plan under enough load, so it needs its own bound instead of
+// running unfenced and holding a connection open indefinitely. Double the
+// primary timeout: the retry already paid the cost of the first attempt, so
+// give it real room before giving up.
+const FENCE_RETRY_TIMEOUT_MS = SLOW_QUERY_TIMEOUT_MS * 2
 
 type RawPeopleQueryArgs = {
   districtId: string | null
@@ -348,9 +355,11 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
 
   // Shared by every guarded raw query (the count and the aggregates): attempt
   // primarySql under a statement timeout; if Postgres cancels it (SQLSTATE
-  // 57014), retry once with fencedSql. SET LOCAL only holds for the
-  // transaction it runs in, and Prisma batch transactions execute on a single
-  // connection, so the timeout scopes to exactly this query.
+  // 57014), retry once with fencedSql under its own (longer) statement
+  // timeout — a fenced retry that also times out fails cleanly instead of
+  // running unbounded. SET LOCAL only holds for the transaction it runs in,
+  // and Prisma batch transactions execute on a single connection, so each
+  // timeout scopes to exactly the query it wraps.
   private async queryWithTimeoutFence<T>(
     primarySql: Prisma.Sql,
     fencedSql: Prisma.Sql,
@@ -374,7 +383,14 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
         { elapsedMs: Date.now() - startedAt },
         'Query hit the statement timeout; retrying with fenced subquery',
       )
-      const rows = await this.client.$queryRaw<T[]>(fencedSql)
+      const [, rows] = await this.client.$transaction([
+        this.client.$executeRaw(
+          Prisma.raw(
+            `SET LOCAL statement_timeout = '${FENCE_RETRY_TIMEOUT_MS}ms'`,
+          ),
+        ),
+        this.client.$queryRaw<T[]>(fencedSql),
+      ])
       return { rows, fenced: true }
     }
   }

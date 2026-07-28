@@ -581,7 +581,11 @@ export class ContactsService {
 
   // Demographics + reachable-by-channel aggregates shared by a saved list's
   // detail and the universe detail (ENG-10778 made the latter a second
-  // caller): one base count plus three channel-restricted counts.
+  // caller): one base count plus three channel-restricted counts. The four
+  // calls settle independently (ENG-10806) — a saved list's demographics and
+  // most reachability tiles shouldn't all flip to "Unavailable" because one
+  // people-api aggregate call failed. Only the base call is load-bearing:
+  // there's nothing to show without it, so its rejection still 502s.
   private async fetchListDetailAggregates(
     organization: Organization,
     baseFilters: FilterObject,
@@ -590,7 +594,7 @@ export class ContactsService {
   > {
     const [base, cellphone, landline, address] =
       await this.withOrgDistrictResolution(organization, (districtParams) =>
-        Promise.all([
+        Promise.allSettled([
           this.fetchPeopleAggregates(districtParams, baseFilters),
           this.fetchPeopleAggregates(districtParams, {
             ...baseFilters,
@@ -611,32 +615,41 @@ export class ContactsService {
         ]),
       )
 
+    if (base.status === 'rejected') {
+      throw base.reason
+    }
+    const cellphoneValue =
+      cellphone.status === 'fulfilled' ? cellphone.value : null
+    const landlineValue =
+      landline.status === 'fulfilled' ? landline.value : null
+    const addressValue = address.status === 'fulfilled' ? address.value : null
+
     return {
       demographics: {
-        people: base.count,
-        avgAge: base.avgAge,
-        avgIncome: base.avgIncome,
+        people: base.value.count,
+        avgAge: base.value.avgAge,
+        avgIncome: base.value.avgIncome,
         // ENG-10775: the base (unfiltered-by-channel) aggregates call backs
         // the People/avg-age/avg-income tiles the webapp renders as
         // "10,000+".
-        fenced: base.fenced ?? false,
+        fenced: base.value.fenced ?? false,
       },
       reachability: {
-        sms: cellphone.count,
+        sms: cellphoneValue?.count ?? null,
         // Robocall/telemarketing reach landlines, not cell phones (mirrors
         // TYPE_OVERRIDES in voterFilePeopleFilter.util.ts).
-        robocall: landline.count,
-        phoneBanking: landline.count,
-        doorKnocking: address.count,
+        robocall: landlineValue?.count ?? null,
+        phoneBanking: landlineValue?.count ?? null,
+        doorKnocking: addressValue?.count ?? null,
         // Polls are delivered by text, so reachability mirrors sms 1:1.
-        polls: cellphone.count,
+        polls: cellphoneValue?.count ?? null,
         fenced: {
-          sms: cellphone.fenced,
-          robocall: landline.fenced,
-          phoneBanking: landline.fenced,
-          doorKnocking: address.fenced,
+          sms: cellphoneValue?.fenced,
+          robocall: landlineValue?.fenced,
+          phoneBanking: landlineValue?.fenced,
+          doorKnocking: addressValue?.fenced,
           // Polls mirrors sms 1:1, so its fenced-ness does too.
-          polls: cellphone.fenced,
+          polls: cellphoneValue?.fenced,
         },
       },
     }

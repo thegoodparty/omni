@@ -425,6 +425,7 @@ export default function ListDetailSheet({
 
           <ReachabilityGrid
             reachability={detailQuery.data?.reachability}
+            isLoading={detailQuery.isLoading}
             isError={detailQuery.isError}
           />
 
