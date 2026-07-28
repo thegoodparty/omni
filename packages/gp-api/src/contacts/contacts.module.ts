@@ -1,7 +1,6 @@
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { ContactNoteModule } from '@/contactNote/contactNote.module'
-import { HttpModule } from '@nestjs/axios'
 import { forwardRef, Module } from '@nestjs/common'
 import { CampaignsModule } from 'src/campaigns/campaigns.module'
 import { ElectionsModule } from 'src/elections/elections.module'
@@ -16,7 +15,6 @@ import { ContactsService } from './services/contacts.service'
 @Module({
   imports: [
     ClerkModule,
-    HttpModule,
     forwardRef(() => CampaignsModule),
     // Contacts -> Voters -> Peerly -> Contacts: every cycle edge needs
     // forwardRef

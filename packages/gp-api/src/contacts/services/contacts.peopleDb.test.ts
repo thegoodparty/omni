@@ -7,27 +7,17 @@ import {
 } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
 import { Organization } from '../../generated/prisma'
-import { of } from 'rxjs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { ContactsService } from './contacts.service'
 import type { PeopleListResponse, PersonOutput } from '../schemas/person.schema'
 
-// Task 3.2: parity tests for the USE_LOCAL_PEOPLE_DB=true branch wired in
-// Task 3.1. contacts.service.test.ts covers the existing httpService (flag
-// off) path exhaustively; this file mocks the ported people-db services
-// (VoterQueryService/VoterDownloadService/StatsService) and asserts (a) the
-// flag routes to the local service instead of httpService, (b) the default
-// (flag off) behavior is unchanged, and (c) the returned shape validates
-// against the relevant @goodparty_org/contracts schema.
-vi.mock('@nestjs/axios', () => ({
-  HttpService: vi.fn(),
-}))
-
-// A real-looking GUID: the ported services actually run their DTOs
-// (ListPeopleDTO.create, AggregatesDTO.create, ...) through Zod, whose
-// districtId field is z.guid() — unlike the httpService-only path, a
-// non-UUID placeholder would throw here.
+// Task 3.2 (superseded): people-db is now the SOLE contacts path — the
+// USE_LOCAL_PEOPLE_DB flag and the legacy people-api HTTP client are gone.
+// This file asserts (a) each people-facing ContactsService method calls the
+// correct ported people-db service (VoterQueryService/VoterDownloadService/
+// StatsService) with the transformed DTO, and (b) the returned shape
+// validates against the relevant @goodparty_org/contracts schema.
 const OVERRIDE_DISTRICT_ID = '11111111-1111-1111-1111-111111111111'
 
 const makeOrganization = (
@@ -99,10 +89,10 @@ const FIXTURE_AGGREGATES = {
   fenced: false,
 }
 
-// The actual on-wire shape from both people-api's controller and this
-// service's local StatsService.getStats (see report — this doesn't match
-// contacts.types.ts's aspirational StatsResponse type). No contracts Zod
-// schema exists for it, so these tests assert routing + pass-through only.
+// The actual on-wire shape from this service's local StatsService.getStats
+// (see report — this doesn't match contacts.types.ts's aspirational
+// StatsResponse type). No contracts Zod schema exists for it, so these tests
+// assert routing + pass-through only.
 const FIXTURE_STATS = {
   districtId: OVERRIDE_DISTRICT_ID,
   totalConstituents: 5000,
@@ -110,12 +100,8 @@ const FIXTURE_STATS = {
   buckets: {},
 }
 
-describe('ContactsService — USE_LOCAL_PEOPLE_DB parity', () => {
+describe('ContactsService — people-db (sole path)', () => {
   let service: ContactsService
-  let mockHttpService: {
-    post: ReturnType<typeof vi.fn>
-    get: ReturnType<typeof vi.fn>
-  }
   let mockVoterFileFilterService: {
     findByIdAndOrganizationSlug: ReturnType<typeof vi.fn>
     findOutreachesByVoterFileFilterId: ReturnType<typeof vi.fn>
@@ -154,14 +140,6 @@ describe('ContactsService — USE_LOCAL_PEOPLE_DB parity', () => {
   }
 
   beforeEach(() => {
-    delete process.env.USE_LOCAL_PEOPLE_DB
-
-    mockHttpService = {
-      post: vi
-        .fn()
-        .mockReturnValue(of({ data: { people: [], pagination: {} } })),
-      get: vi.fn(),
-    }
     mockVoterFileFilterService = {
       findByIdAndOrganizationSlug: vi.fn().mockResolvedValue(null),
       findOutreachesByVoterFileFilterId: vi.fn().mockResolvedValue([]),
@@ -207,7 +185,6 @@ describe('ContactsService — USE_LOCAL_PEOPLE_DB parity', () => {
     }
 
     service = new ContactsService(
-      mockHttpService as never,
       mockVoterFileFilterService as never,
       mockElectionsService as never,
       mockCampaignsService as never,
@@ -221,12 +198,10 @@ describe('ContactsService — USE_LOCAL_PEOPLE_DB parity', () => {
       mockStatsService as never,
       createMockLogger(),
     )
-    vi.clearAllMocks()
   })
 
   describe('findContacts', () => {
-    it('uses VoterQueryService.findPeople when USE_LOCAL_PEOPLE_DB=true and validates PeopleListResponse', async () => {
-      process.env.USE_LOCAL_PEOPLE_DB = 'true'
+    it('calls VoterQueryService.findPeople and validates PeopleListResponse', async () => {
       const org = makeOrganization()
       mockVoterQueryService.findPeople.mockResolvedValue(FIXTURE_PAGE)
 
@@ -243,28 +218,12 @@ describe('ContactsService — USE_LOCAL_PEOPLE_DB parity', () => {
           page: 1,
         }),
       )
-      expect(mockHttpService.post).not.toHaveBeenCalled()
-      expect(PeopleListResponseSchema.safeParse(result).success).toBe(true)
-    })
-
-    it('uses httpService when USE_LOCAL_PEOPLE_DB is off (default)', async () => {
-      const org = makeOrganization()
-      mockHttpService.post.mockReturnValue(of({ data: FIXTURE_PAGE }))
-
-      const result = await service.findContacts(
-        { resultsPerPage: 10, page: 1, search: undefined, segment: 'all' },
-        org,
-      )
-
-      expect(mockHttpService.post).toHaveBeenCalledOnce()
-      expect(mockVoterQueryService.findPeople).not.toHaveBeenCalled()
       expect(PeopleListResponseSchema.safeParse(result).success).toBe(true)
     })
   })
 
   describe('countContacts', () => {
-    it('uses VoterQueryService.findPeople when USE_LOCAL_PEOPLE_DB=true', async () => {
-      process.env.USE_LOCAL_PEOPLE_DB = 'true'
+    it('calls VoterQueryService.findPeople with resultsPerPage: 1', async () => {
       const org = makeOrganization()
       mockVoterQueryService.findPeople.mockResolvedValue(FIXTURE_PAGE)
 
@@ -278,24 +237,11 @@ describe('ContactsService — USE_LOCAL_PEOPLE_DB parity', () => {
           page: 1,
         }),
       )
-      expect(mockHttpService.post).not.toHaveBeenCalled()
-    })
-
-    it('uses httpService when USE_LOCAL_PEOPLE_DB is off (default)', async () => {
-      const org = makeOrganization()
-      mockHttpService.post.mockReturnValue(of({ data: FIXTURE_PAGE }))
-
-      const count = await service.countContacts({}, org)
-
-      expect(count).toBe(FIXTURE_PAGE.pagination.totalResults)
-      expect(mockHttpService.post).toHaveBeenCalledOnce()
-      expect(mockVoterQueryService.findPeople).not.toHaveBeenCalled()
     })
   })
 
   describe('findContactsForFilter', () => {
-    it('uses VoterQueryService.findPeople when USE_LOCAL_PEOPLE_DB=true and validates PeopleListResponse', async () => {
-      process.env.USE_LOCAL_PEOPLE_DB = 'true'
+    it('calls VoterQueryService.findPeople and validates PeopleListResponse', async () => {
       const org = makeOrganization()
       mockVoterQueryService.findPeople.mockResolvedValue(FIXTURE_PAGE)
 
@@ -312,7 +258,6 @@ describe('ContactsService — USE_LOCAL_PEOPLE_DB parity', () => {
           page: 2,
         }),
       )
-      expect(mockHttpService.post).not.toHaveBeenCalled()
       expect(PeopleListResponseSchema.safeParse(result).success).toBe(true)
     })
   })
@@ -321,8 +266,7 @@ describe('ContactsService — USE_LOCAL_PEOPLE_DB parity', () => {
   // universe-detail path (no segment), which fans out to it four times
   // (base + cellphone + landline + address).
   describe('list-detail aggregates (fetchPeopleAggregates)', () => {
-    it('uses VoterQueryService.getAggregates when USE_LOCAL_PEOPLE_DB=true and validates ListDetailContactsResponse', async () => {
-      process.env.USE_LOCAL_PEOPLE_DB = 'true'
+    it('calls VoterQueryService.getAggregates and validates ListDetailContactsResponse', async () => {
       const org = makeOrganization()
       mockVoterQueryService.getAggregates.mockResolvedValue(FIXTURE_AGGREGATES)
 
@@ -332,20 +276,6 @@ describe('ContactsService — USE_LOCAL_PEOPLE_DB parity', () => {
       expect(mockVoterQueryService.getAggregates).toHaveBeenCalledWith(
         expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
       )
-      expect(mockHttpService.post).not.toHaveBeenCalled()
-      expect(ListDetailContactsResponseSchema.safeParse(result).success).toBe(
-        true,
-      )
-    })
-
-    it('uses httpService when USE_LOCAL_PEOPLE_DB is off (default)', async () => {
-      const org = makeOrganization()
-      mockHttpService.post.mockReturnValue(of({ data: FIXTURE_AGGREGATES }))
-
-      const result = await service.getListDetail({ segment: undefined }, org)
-
-      expect(mockHttpService.post).toHaveBeenCalledTimes(4)
-      expect(mockVoterQueryService.getAggregates).not.toHaveBeenCalled()
       expect(ListDetailContactsResponseSchema.safeParse(result).success).toBe(
         true,
       )
@@ -353,8 +283,7 @@ describe('ContactsService — USE_LOCAL_PEOPLE_DB parity', () => {
   })
 
   describe('sampleContacts', () => {
-    it('uses VoterQueryService.samplePeople when USE_LOCAL_PEOPLE_DB=true and validates Person[]', async () => {
-      process.env.USE_LOCAL_PEOPLE_DB = 'true'
+    it('calls VoterQueryService.samplePeople and validates Person[]', async () => {
       const org = makeOrganization()
       mockVoterQueryService.samplePeople.mockResolvedValue([FIXTURE_PERSON])
 
@@ -370,28 +299,12 @@ describe('ContactsService — USE_LOCAL_PEOPLE_DB parity', () => {
           hasCellPhone: true,
         }),
       )
-      expect(mockHttpService.post).not.toHaveBeenCalled()
-      expect(z.array(PersonSchema).safeParse(result).success).toBe(true)
-    })
-
-    it('uses httpService when USE_LOCAL_PEOPLE_DB is off (default)', async () => {
-      const org = makeOrganization()
-      mockHttpService.post.mockReturnValue(of({ data: [FIXTURE_PERSON] }))
-
-      const result = await service.sampleContacts(
-        { size: 25, excludeIds: [] },
-        org,
-      )
-
-      expect(mockHttpService.post).toHaveBeenCalledOnce()
-      expect(mockVoterQueryService.samplePeople).not.toHaveBeenCalled()
       expect(z.array(PersonSchema).safeParse(result).success).toBe(true)
     })
   })
 
   describe('findPerson', () => {
-    it('uses VoterQueryService.findPerson when USE_LOCAL_PEOPLE_DB=true and validates Person', async () => {
-      process.env.USE_LOCAL_PEOPLE_DB = 'true'
+    it('calls VoterQueryService.findPerson and validates Person', async () => {
       const org = makeOrganization()
       mockVoterQueryService.findPerson.mockResolvedValue(FIXTURE_PERSON)
 
@@ -401,18 +314,6 @@ describe('ContactsService — USE_LOCAL_PEOPLE_DB parity', () => {
         'person-1',
         expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
       )
-      expect(mockHttpService.get).not.toHaveBeenCalled()
-      expect(PersonSchema.safeParse(result).success).toBe(true)
-    })
-
-    it('uses httpService when USE_LOCAL_PEOPLE_DB is off (default)', async () => {
-      const org = makeOrganization()
-      mockHttpService.get.mockReturnValue(of({ data: FIXTURE_PERSON }))
-
-      const result = await service.findPerson('person-1', org)
-
-      expect(mockHttpService.get).toHaveBeenCalledOnce()
-      expect(mockVoterQueryService.findPerson).not.toHaveBeenCalled()
       expect(PersonSchema.safeParse(result).success).toBe(true)
     })
   })
@@ -428,8 +329,7 @@ describe('ContactsService — USE_LOCAL_PEOPLE_DB parity', () => {
       },
     })
 
-    it('uses VoterDownloadService.streamPeopleCsv when USE_LOCAL_PEOPLE_DB=true', async () => {
-      process.env.USE_LOCAL_PEOPLE_DB = 'true'
+    it('calls VoterDownloadService.streamPeopleCsv with contacts.csv + gp_download cookie', async () => {
       const org = makeOrganization()
       mockVoterDownloadService.streamPeopleCsv.mockResolvedValue(undefined)
       const res = makeMockReply()
@@ -450,32 +350,11 @@ describe('ContactsService — USE_LOCAL_PEOPLE_DB parity', () => {
           }),
         }),
       )
-      expect(mockHttpService.post).not.toHaveBeenCalled()
-    })
-
-    it('uses httpService when USE_LOCAL_PEOPLE_DB is off (default)', async () => {
-      const org = makeOrganization()
-      const mockStream = {
-        destroyed: false,
-        pipe: vi.fn(),
-        destroy: vi.fn(),
-        on: vi.fn((event: string, cb: (err?: Error) => void) => {
-          if (event === 'end') setImmediate(() => cb())
-        }),
-      }
-      mockHttpService.post.mockReturnValue(of({ data: mockStream }))
-      const res = makeMockReply()
-
-      await service.downloadContacts({ segment: 'all' }, res as never, org)
-
-      expect(mockHttpService.post).toHaveBeenCalledOnce()
-      expect(mockVoterDownloadService.streamPeopleCsv).not.toHaveBeenCalled()
     })
   })
 
   describe('countVoterFilePeople', () => {
-    it('uses VoterQueryService.findPeople when USE_LOCAL_PEOPLE_DB=true', async () => {
-      process.env.USE_LOCAL_PEOPLE_DB = 'true'
+    it('calls VoterQueryService.findPeople with the transformed filter shape', async () => {
       const org = makeOrganization()
       mockVoterQueryService.findPeople.mockResolvedValue(FIXTURE_PAGE)
 
@@ -497,28 +376,11 @@ describe('ContactsService — USE_LOCAL_PEOPLE_DB parity', () => {
           filters: expect.objectContaining({ filters: ['hasCellPhone'] }),
         }),
       )
-      expect(mockHttpService.post).not.toHaveBeenCalled()
-    })
-
-    it('uses httpService when USE_LOCAL_PEOPLE_DB is off (default)', async () => {
-      const org = makeOrganization()
-      mockHttpService.post.mockReturnValue(of({ data: FIXTURE_PAGE }))
-
-      const count = await service.countVoterFilePeople(
-        { hasCellPhone: true },
-        false,
-        org,
-      )
-
-      expect(count).toBe(FIXTURE_PAGE.pagination.totalResults)
-      expect(mockHttpService.post).toHaveBeenCalledOnce()
-      expect(mockVoterQueryService.findPeople).not.toHaveBeenCalled()
     })
   })
 
   describe('fetchStatsByDistrictId', () => {
-    it('uses StatsService.getStats when USE_LOCAL_PEOPLE_DB=true', async () => {
-      process.env.USE_LOCAL_PEOPLE_DB = 'true'
+    it('calls StatsService.getStats', async () => {
       mockStatsService.getStats.mockResolvedValue(FIXTURE_STATS)
 
       const result = await service.fetchStatsByDistrictId(OVERRIDE_DISTRICT_ID)
@@ -526,17 +388,6 @@ describe('ContactsService — USE_LOCAL_PEOPLE_DB parity', () => {
       expect(mockStatsService.getStats).toHaveBeenCalledWith(
         expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
       )
-      expect(mockHttpService.get).not.toHaveBeenCalled()
-      expect(result).toEqual(FIXTURE_STATS)
-    })
-
-    it('uses httpService when USE_LOCAL_PEOPLE_DB is off (default)', async () => {
-      mockHttpService.get.mockReturnValue(of({ data: FIXTURE_STATS }))
-
-      const result = await service.fetchStatsByDistrictId(OVERRIDE_DISTRICT_ID)
-
-      expect(mockHttpService.get).toHaveBeenCalledOnce()
-      expect(mockStatsService.getStats).not.toHaveBeenCalled()
       expect(result).toEqual(FIXTURE_STATS)
     })
   })

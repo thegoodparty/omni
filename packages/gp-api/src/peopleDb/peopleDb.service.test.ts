@@ -74,6 +74,29 @@ describe('PeopleDbService', () => {
     expect(service.instance).toBeDefined()
   })
 
+  it('does not reject onModuleInit when ensureLoaded rejects (satellite dep must not crash boot)', async () => {
+    const provider = new PeopleDbUrlProvider()
+    vi.spyOn(provider, 'ensureLoaded').mockRejectedValue(
+      new Error('SSM parameter unresolved'),
+    )
+    const service = new PeopleDbService(provider)
+
+    await expect(service.onModuleInit()).resolves.toBeUndefined()
+    expect(prismaClientCtor).not.toHaveBeenCalled()
+  })
+
+  it('throws a clear error from .instance when the client was never initialized', () => {
+    const provider = new PeopleDbUrlProvider()
+    vi.spyOn(provider, 'ensureLoaded').mockRejectedValue(
+      new Error('SSM parameter unresolved'),
+    )
+    const service = new PeopleDbService(provider)
+
+    expect(() => service.instance).toThrow(
+      'people-db client not initialized — PEOPLE_DATABASE_URL / SSM parameter is unresolved',
+    )
+  })
+
   it('applies the pool params to the built connection url', async () => {
     const { provider } = mockUrlProvider('postgresql://u:p@h:5432/a')
     const service = new PeopleDbService(provider)

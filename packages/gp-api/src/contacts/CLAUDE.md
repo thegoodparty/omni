@@ -24,11 +24,11 @@ fixes track under ENG-10744.
 
 - **There is no Contact table.** A "contact" is a people-db `Voter` row
   (200M+ L2 records, partitioned Postgres, read-mostly), served live
-  through `PeopleQueryModule` (`src/peopleDb/`, direct in-process access) or,
-  until the `USE_LOCAL_PEOPLE_DB` cutover finishes, the legacy people-api HTTP
-  client. `personId` everywhere is that Voter row's `id` — a stable hash of
-  `LALVOTERID` (~97% month-over-month stability; orphaned enhancement rows
-  from L2 churn are accepted).
+  through `PeopleQueryModule` (`src/peopleDb/`, direct in-process access —
+  the sole path; the legacy people-api HTTP client and its S2S JWT machinery
+  are gone). `personId` everywhere is that Voter row's `id` — a stable hash
+  of `LALVOTERID` (~97% month-over-month stability; orphaned enhancement
+  rows from L2 churn are accepted).
 - **Enhancements live in gp-api Postgres**, keyed
   `(organizationSlug, personId)`: `ContactNote` plus the per-channel
   `ContactInteraction*` models. Orgs are legally isolated — outreach data
@@ -100,18 +100,13 @@ gating is per-action inside the services (see Access control).
 | `POST /v1/voters/voter-file/filter`, `GET /filters`, `GET/PUT/DELETE /filter/:id`  | Saved-filter CRUD; PUT/DELETE 409 once locked                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `POST /v1/outreach`                                                                | Outreach create (draft-first); launch triggers materialization                                                                                                                                                                                                                                                                                                                                                                                             |
 
-Underlying people data access is flag-gated in `ContactsService`
-(`USE_LOCAL_PEOPLE_DB`, read per-call so it can be toggled without a
-redeploy): `true` routes list/count, person detail, download, stats,
-aggregates, and sample lookups to `PeopleQueryModule` services in-process
-(`src/peopleDb/`); the default (unset/`false`) still calls the legacy
-people-api HTTP client (S2S JWT `iss: gp-api` / `aud: people-api`, minted in
-`contacts.service.ts`: `POST /v1/people`, `GET /v1/people/:id`,
-`POST /v1/people/download`, `GET /v1/people/stats`,
-`POST /v1/people/aggregates`, sample routes) until a follow-up removes the
-fallback. Either path has no user-facing routes and enforces district
-scoping via a district join — the id-list filter can't enumerate outside
-the org's district.
+Underlying people data access in `ContactsService` routes list/count, person
+detail, download, stats, aggregates, and sample lookups directly to
+`PeopleQueryModule` services in-process (`src/peopleDb/`) — this is the sole
+path; the flag that used to gate it (`USE_LOCAL_PEOPLE_DB`) and the legacy
+people-api HTTP/S2S client it fell back to are gone. `PeopleQueryModule` has
+no user-facing routes and enforces district scoping via a district join — the
+id-list filter can't enumerate outside the org's district.
 
 ## Data model
 
@@ -139,8 +134,7 @@ not null; robocall `answered`/`voicemail_left` from their timestamps,
 webapp → `GET /v1/contacts` → `ContactsService.findContacts` → resolve
 filters (`convertVoterFileFilterToFilters` in
 `utils/voterFileFilter.utils.ts` + activity/support resolution below) →
-`VoterQueryService.findPeople` (`USE_LOCAL_PEOPLE_DB`) or the legacy
-people-api `POST /v1/people` → join/strip (party choke point
+`VoterQueryService.findPeople` → join/strip (party choke point
 `stripPartyIfElectedOffice`) → respond. Typeahead is the same endpoint
 with a small page; person detail adds derived `supportStatus` and
 `optedOutAt` (`ContactInteractionTextService.latestOptOutAt`). The count
@@ -282,8 +276,7 @@ over interaction rows with a non-null `support_answer`; a "list" =
 - Age filter ranges are mutually exclusive since ENG-10752/10753; the
   catalog + `voterFilterBase.schema.ts` own the vocabulary.
 - Download does not re-apply a stored `search` (the download path has no
-  search param, on either the local or people-api HTTP path) —
-  long-standing quirk, don't "fix" casually.
+  search param) — long-standing quirk, don't "fix" casually.
 - The wizard blocks zero-filter lists and Serve drops outreach
   affordances (ENG-10749–10751).
 - New interaction writes must be DB-level idempotent (upsert on the

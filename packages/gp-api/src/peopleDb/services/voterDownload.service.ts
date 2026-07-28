@@ -52,14 +52,20 @@ export class VoterDownloadService
 
   private buildPool(connectionString: string): Pool {
     // Each COPY holds one session for the entire download. Cap connections so
-    // CSV downloads cannot crowd out other workloads.
+    // CSV downloads cannot crowd out other workloads, and cap how long a
+    // checkout waits to acquire one so a saturated pool fails fast instead of
+    // hanging the request indefinitely.
     //
     // NOTE: `COPY ... TO STDOUT` requires a session-mode Postgres connection.
     // It is INCOMPATIBLE with `pgbouncer` in transaction or statement pooling
     // mode. people-db currently connects directly to Aurora Postgres, which
     // is session-mode. If a transaction-mode pooler is ever introduced in
     // front of the DB, this service must bypass it.
-    return new Pool({ connectionString, max: 10 })
+    return new Pool({
+      connectionString,
+      max: 10,
+      connectionTimeoutMillis: 10_000,
+    })
   }
 
   onApplicationBootstrap() {

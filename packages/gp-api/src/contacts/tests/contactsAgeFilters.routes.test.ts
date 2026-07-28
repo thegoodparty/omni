@@ -1,7 +1,7 @@
-import { HttpService } from '@nestjs/axios'
-import { of } from 'rxjs'
+import { randomUUID } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 
 const service = useTestService()
 
@@ -9,8 +9,8 @@ const ORG_SLUG_HEADER = 'X-Organization-Slug'
 
 // ENG-10752: the count route runs the same convertVoterFileFilterToFilters
 // translation the saved-segment list/download paths use, so pinning the
-// forwarded people-api payload here pins the query bounds for all of them —
-// new keys carry the mutually exclusive bounds, retired keys keep the exact
+// forwarded people-db query here pins the query bounds for all of them — new
+// keys carry the mutually exclusive bounds, retired keys keep the exact
 // bounds existing saved filters were created with.
 describe('POST /v1/contacts/count age filter bounds', () => {
   const setupOrg = async (suffix: string) => {
@@ -19,22 +19,33 @@ describe('POST /v1/contacts/count age filter bounds', () => {
       data: {
         slug,
         ownerId: service.user.id,
-        overrideDistrictId: `district-age-bounds-${suffix}`,
+        // The ported people-db services run their DTOs through Zod, whose
+        // districtId field is z.guid() — unlike the retired httpService
+        // path, a non-UUID placeholder fails validation here.
+        overrideDistrictId: randomUUID(),
       },
     })
     return slug
   }
 
-  const spyOnPeopleApi = () =>
+  const spyOnFindPeople = () =>
     vi
-      .spyOn(service.app.get(HttpService), 'post')
-      .mockReturnValue(
-        of({ data: { pagination: { totalResults: 3 } } }) as never,
-      )
+      .spyOn(service.app.get(VoterQueryService), 'findPeople')
+      .mockResolvedValue({
+        pagination: {
+          totalResults: 3,
+          currentPage: 1,
+          pageSize: 1,
+          totalPages: 3,
+          hasNextPage: true,
+          hasPreviousPage: false,
+        },
+        people: [],
+      })
 
   it('forwards a new age key with its mutually exclusive bounds', async () => {
     const slug = await setupOrg('new')
-    const postSpy = spyOnPeopleApi()
+    const findPeopleSpy = spyOnFindPeople()
 
     const response = await service.client.post(
       '/v1/contacts/count',
@@ -44,15 +55,25 @@ describe('POST /v1/contacts/count age filter bounds', () => {
 
     expect(response.status).toBe(201)
     expect(response.data).toEqual({ count: 3 })
-    expect(postSpy).toHaveBeenCalledTimes(1)
-    expect(postSpy.mock.calls[0]?.[1]).toEqual(
-      expect.objectContaining({ filters: { ageInt: { gte: 25, lte: 34 } } }),
+    expect(findPeopleSpy).toHaveBeenCalledTimes(1)
+    expect(findPeopleSpy.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        filters: expect.objectContaining({
+          filterOperators: expect.objectContaining({
+            ageInt: expect.objectContaining({
+              operator: 'range',
+              gte: 25,
+              lte: 34,
+            }),
+          }),
+        }),
+      }),
     )
   })
 
   it('forwards a retired age key with its original overlapping bounds', async () => {
     const slug = await setupOrg('legacy')
-    const postSpy = spyOnPeopleApi()
+    const findPeopleSpy = spyOnFindPeople()
 
     const response = await service.client.post(
       '/v1/contacts/count',
@@ -62,9 +83,19 @@ describe('POST /v1/contacts/count age filter bounds', () => {
 
     expect(response.status).toBe(201)
     expect(response.data).toEqual({ count: 3 })
-    expect(postSpy).toHaveBeenCalledTimes(1)
-    expect(postSpy.mock.calls[0]?.[1]).toEqual(
-      expect.objectContaining({ filters: { ageInt: { gte: 18, lte: 25 } } }),
+    expect(findPeopleSpy).toHaveBeenCalledTimes(1)
+    expect(findPeopleSpy.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        filters: expect.objectContaining({
+          filterOperators: expect.objectContaining({
+            ageInt: expect.objectContaining({
+              operator: 'range',
+              gte: 18,
+              lte: 25,
+            }),
+          }),
+        }),
+      }),
     )
   })
 

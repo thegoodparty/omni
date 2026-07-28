@@ -1,8 +1,7 @@
-import { HttpService } from '@nestjs/axios'
 import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
-import { of } from 'rxjs'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   OfficeLevel,
@@ -15,7 +14,13 @@ const service = useTestService()
 
 const WIN_SLUG = 'campaign-p2p-phone-list'
 const ORG_SLUG_HEADER = 'X-Organization-Slug'
-const DISTRICT_ID = 'district-p2p-phone-list'
+// districtId and the resolved activity-condition id set both now flow
+// through the real people-db Zod DTOs (ListPeopleDTO etc.), which require
+// GUID-shaped strings — unlike the legacy people-api HTTP path, which just
+// serialized these into a JSON body with no format validation.
+const DISTRICT_ID = '20000000-0000-0000-0000-000000000000'
+const PERSON_NO_RESPONSE = '00000000-0000-0000-0000-000000000001'
+const PERSON_RESPONDED = '00000000-0000-0000-0000-000000000002'
 
 const stubDistrict = () =>
   vi.spyOn(service.app.get(ElectionsService), 'getDistrict').mockResolvedValue({
@@ -73,7 +78,7 @@ const seedCompletedOutreach = (
   })
 
 const personPayload = (overrides: Record<string, unknown> = {}) => ({
-  id: 'p-no-response',
+  id: PERSON_NO_RESPONSE,
   firstName: 'Jane',
   lastName: 'Doe',
   cellPhone: '5551234567',
@@ -81,18 +86,21 @@ const personPayload = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
+// People data resolves through the in-process VoterQueryService now instead
+// of the legacy people-api HTTP client — this suite doesn't run a real
+// people-db, so the local service call is stubbed directly.
 const stubPeopleApi = (people: Record<string, unknown>[]) =>
-  vi.spyOn(service.app.get(HttpService), 'post').mockImplementation(((
-    url: string,
-  ) =>
-    url.includes('/v1/people')
-      ? of({
-          data: {
-            people,
-            pagination: { totalResults: people.length, hasNextPage: false },
-          },
-        })
-      : of({ data: {} })) as never)
+  vi.spyOn(service.app.get(VoterQueryService), 'findPeople').mockResolvedValue({
+    people,
+    pagination: {
+      totalResults: people.length,
+      currentPage: 1,
+      pageSize: people.length,
+      totalPages: 1,
+      hasNextPage: false,
+      hasPreviousPage: false,
+    },
+  } as never)
 
 const stubPeerlyUpload = (token = 'peerly-upload-token') =>
   vi
@@ -110,14 +118,14 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
     const texts = service.app.get(ContactInteractionTextService)
     await texts.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-responded',
+      personId: PERSON_RESPONDED,
       occurredAt: new Date(),
       outreachId: outreach.id,
       respondedAt: new Date(),
     })
     await texts.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-no-response',
+      personId: PERSON_NO_RESPONSE,
       occurredAt: new Date(),
       outreachId: outreach.id,
     })
@@ -152,16 +160,17 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
     expect(result.status).toBe(201)
     expect(result.data).toEqual({ token: 'peerly-upload-token' })
 
-    // The activity condition genuinely reached people-api — only the
-    // non-responder's id, intersected with hasCellPhone, is requested. This
-    // is the exact defect the legacy voter-DB path had (it ignored
+    // The activity condition genuinely reached the people-db query — only
+    // the non-responder's id, intersected with hasCellPhone, is requested.
+    // This is the exact defect the legacy voter-DB path had (it ignored
     // activityConditions entirely).
-    const peopleCall = post.mock.calls.find((call) =>
-      String(call[0]).includes('/v1/people'),
-    )
-    expect(peopleCall?.[1]).toMatchObject({
-      filters: { id: { in: ['p-no-response'] }, hasCellPhone: true },
+    const peopleCall = post.mock.calls[0]
+    const sentFilterOperators = peopleCall?.[0].filters.filterOperators
+    expect(sentFilterOperators).toMatchObject({
+      hasCellPhone: { operator: 'is', value: 'not_null' },
+      id: { operator: 'in', values: [PERSON_NO_RESPONSE] },
     })
+    expect(Object.keys(sentFilterOperators ?? {})).toHaveLength(2)
 
     // The CSV Peerly received has only the header plus the one matching row.
     const uploadArgs = upload.mock.calls[0]?.[0] as { csvBuffer: Buffer }
@@ -186,7 +195,7 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
     })
     expect(recipients).toEqual([
       expect.objectContaining({
-        personId: 'p-no-response',
+        personId: PERSON_NO_RESPONSE,
         phone: '5551234567',
       }),
     ])
@@ -250,15 +259,16 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
     )
 
     expect(result.status).toBe(201)
-    // The persisted segment's criteria drove resolution: the people-api
+    // The persisted segment's criteria drove resolution: the people-db
     // request carries the saved partyDemocrat filter, not just the (empty)
     // inline fields — plus the channel-forced hasCellPhone.
-    const peopleCall = post.mock.calls.find((call) =>
-      String(call[0]).includes('/v1/people'),
-    )
-    expect(peopleCall?.[1]).toMatchObject({
-      filters: { politicalParty: { eq: 'Democratic' }, hasCellPhone: true },
+    const peopleCall = post.mock.calls[0]
+    const sentFilterOperators = peopleCall?.[0].filters.filterOperators
+    expect(sentFilterOperators).toMatchObject({
+      politicalParty: { operator: 'eq', value: 'Democratic' },
+      hasCellPhone: { operator: 'is', value: 'not_null' },
     })
+    expect(Object.keys(sentFilterOperators ?? {})).toHaveLength(2)
     expect(
       await service.prisma.peerlyPhoneList.findUnique({
         where: { token: 'peerly-upload-token' },

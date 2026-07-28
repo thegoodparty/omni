@@ -4,11 +4,12 @@ A second, **read-only** Prisma client + raw-SQL voter engine inside gp-api,
 talking directly to the people-db Postgres cluster (the same `green`-schema
 Voter table, 200M+ L2 records, partitioned by state, that the now-retired
 `people-api` package used to serve over HTTP). This module is the in-process
-replacement for that service: filter pipeline, id `in`/`notIn`, trigram
-search, stats/aggregates, CSV download, and door-knocking targeting all live
-here now. `ContactsService` (`src/contacts/`) switches between this module
-and the legacy people-api HTTP client behind the `USE_LOCAL_PEOPLE_DB` flag
-(see `src/contacts/CLAUDE.md`) while the cutover rolls out.
+replacement for that service — and the SOLE path: filter pipeline, id
+`in`/`notIn`, trigram search, stats/aggregates, CSV download, and
+door-knocking targeting all live here now. `ContactsService` (`src/contacts/`)
+calls this module directly; the `USE_LOCAL_PEOPLE_DB` flag and the legacy
+people-api HTTP/S2S client it used to fall back to are gone (see
+`src/contacts/CLAUDE.md`).
 
 ## Connection: `PeopleDbUrlProvider` + `PEOPLE_DB_SSM_PARAM`
 
@@ -33,15 +34,23 @@ the last-known-good value rather than taking down a healthy process.
 `PeopleDbService` owns the live `PrismaClient` and exposes it only through
 the `instance` getter — **never cache the reference**, always read through
 `.instance` (or `createPeopleDbBase`'s `this.model`/`this.client`, below) so
-callers follow the client across a database-URL swap. On a `PeopleDbUrlProvider`
-change event, `swap()` builds a fresh client, atomically repoints `instance`
-to it, and fire-and-forgets `$disconnect()` on the old client (drains
-in-flight queries; a failed teardown of the old client must never disturb
-the new one). Each built client sets `connection_limit=25`, `pool_timeout=5`,
+callers follow the client across a database-URL swap. `onModuleInit` itself
+is fail-soft end to end: `ensureLoaded()` + building the client are wrapped
+in try/catch, logged at `debug`, and left unset on failure — a satellite
+dependency (people-db) must never take down the whole gp-api monolith at
+boot. `instance` throws a clear error (`people-db client not initialized —
+PEOPLE_DATABASE_URL / SSM parameter is unresolved`) when the client was never
+built, so misconfiguration surfaces as a request-time error, not a boot
+crash. On a `PeopleDbUrlProvider` change event, `swap()` builds a fresh
+client, atomically repoints `instance` to it, and fire-and-forgets
+`$disconnect()` on the old client (drains in-flight queries; a failed
+teardown of the old client must never disturb the new one) — this is also
+what recovers a never-initialized client once the URL becomes resolvable.
+Each built client sets `connection_limit=25`, `pool_timeout=5`,
 `connect_timeout=5`, `socket_timeout=60` on the connection URL. Initial
-`$connect()` is fail-soft: a broken `PEOPLE_DATABASE_URL` logs and moves on
-rather than blocking gp-api boot, since gp-api's core boot must not
-hard-depend on people-db being reachable.
+`$connect()` within `buildClient` is separately fail-soft: a broken
+`PEOPLE_DATABASE_URL` logs and moves on rather than throwing, so Prisma can
+reconnect lazily on the first real query.
 
 ## `createPeopleDbBase` — the PrismaBase equivalent
 

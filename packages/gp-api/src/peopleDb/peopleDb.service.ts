@@ -22,7 +22,7 @@ export type PeopleDbPrismaClient = PrismaClient<
 @Injectable()
 export class PeopleDbService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PeopleDbService.name)
-  private activeClient!: PeopleDbPrismaClient
+  private activeClient?: PeopleDbPrismaClient
   private unsubscribe: (() => void) | null = null
 
   constructor(private readonly peopleDbUrl: PeopleDbUrlProvider) {}
@@ -31,15 +31,32 @@ export class PeopleDbService implements OnModuleInit, OnModuleDestroy {
   // getter (never cache the reference) so they follow the client across a
   // database-URL swap.
   get instance(): PeopleDbPrismaClient {
+    if (!this.activeClient) {
+      throw new Error(
+        'people-db client not initialized — PEOPLE_DATABASE_URL / SSM parameter is unresolved',
+      )
+    }
     return this.activeClient
   }
 
+  // A satellite dependency (people-db) must never take down the whole gp-api
+  // monolith at boot — fail soft here and let a request-time call to
+  // `.instance` surface the misconfiguration instead. The url provider's
+  // 5-min refresh + onChange->swap recovers automatically once the URL
+  // becomes resolvable.
   async onModuleInit() {
-    const url = await this.peopleDbUrl.ensureLoaded()
-    this.activeClient = await this.buildClient(url)
-    this.unsubscribe = this.peopleDbUrl.onChange((url) => {
-      void this.swap(url)
-    })
+    try {
+      const url = await this.peopleDbUrl.ensureLoaded()
+      this.activeClient = await this.buildClient(url)
+      this.unsubscribe = this.peopleDbUrl.onChange((url) => {
+        void this.swap(url)
+      })
+    } catch (err) {
+      this.logger.debug(
+        { err },
+        'people-db not initialized at boot; will retry lazily on first query',
+      )
+    }
   }
 
   async onModuleDestroy() {
@@ -56,7 +73,7 @@ export class PeopleDbService implements OnModuleInit, OnModuleDestroy {
       // $disconnect drains in-flight queries before closing connections, so no
       // explicit delay is needed. Fire-and-forget: a failed teardown of the old
       // client must not disturb the now-live new one.
-      previous.$disconnect().catch((err: Error) => {
+      previous?.$disconnect().catch((err: Error) => {
         this.logger.warn(
           { err },
           'Failed to disconnect previous people-db Prisma client',
