@@ -859,6 +859,67 @@ describe('AudienceStep robocall saved-list selector', () => {
     expect(nextCallback).not.toHaveBeenCalled()
   })
 
+  // ENG-10806: the fetch itself can succeed while the active channel's own
+  // aggregates call failed independently (a null leaf), distinct from the
+  // full-fetch-rejection case above — a regression that removes or
+  // misgates this guard (e.g. `setCount(eligibleCount)` running on a null
+  // value, or the null check silently passing through) would otherwise go
+  // uncaught.
+  it('surfaces an error and blocks Next when the resolved response has a null channel count', async () => {
+    const savedList = { id: 42, name: 'My Super Voters' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({
+          data: {
+            demographics: { people: 6607, avgAge: null, avgIncome: null },
+            reachability: {
+              sms: 0,
+              robocall: null,
+              phoneBanking: 0,
+              doorKnocking: 0,
+              polls: 0,
+            },
+            outreachHistory: [],
+          },
+        })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    const onChangeCallback = vi.fn()
+    const nextCallback = vi.fn()
+
+    render(
+      <AudienceStep
+        type="robocall"
+        audience={{}}
+        onChangeCallback={onChangeCallback}
+        nextCallback={nextCallback}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+
+    await waitFor(() =>
+      expect(screen.getByText('Voter data unavailable')).toBeInTheDocument(),
+    )
+    // Never a silent $0.00 estimate — the null leaf reports the same
+    // voterCount: 0 as every other error path, never the raw list size and
+    // never left unset.
+    expect(onChangeCallback).toHaveBeenCalledWith('voterCount', 0)
+    // No breakdown line either — there's no eligible count to pair with
+    // the list size.
+    expect(screen.queryByText(/people in this list/)).not.toBeInTheDocument()
+
+    const nextButton = screen.getByRole('button', { name: 'Next' })
+    expect(nextButton).toBeDisabled()
+
+    fireEvent.click(nextButton)
+    expect(nextCallback).not.toHaveBeenCalled()
+  })
+
   it('blocks Next when the selected saved list has zero members', async () => {
     const savedList = { id: 42, name: 'My Super Voters' }
     mockClientRequest.mockImplementation((route: string) => {
