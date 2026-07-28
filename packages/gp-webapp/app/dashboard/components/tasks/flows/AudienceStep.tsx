@@ -342,6 +342,16 @@ export default function AudienceStep({
         .then((data) => {
           if (requestId !== countRequestIdRef.current) return
           const eligibleCount = data.reachability[reachabilityKey]
+          // ENG-10806: a null leaf means that channel's aggregate call
+          // failed server-side — same unpriceable-audience treatment as
+          // the catch below, not a silent $0.00.
+          if (eligibleCount === null) {
+            setCountError({ ok: false, message: GENERIC_COUNT_ERROR_MESSAGE })
+            setCount(0)
+            setCountFenced(false)
+            onChangeCallback('voterCount', 0)
+            return
+          }
           setCount(eligibleCount)
           // A fenced count (ENG-10775/10805) is a capped lower bound, not
           // exact membership — still the safest number to bill/persist
