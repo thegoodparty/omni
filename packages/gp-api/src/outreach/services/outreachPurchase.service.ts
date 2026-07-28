@@ -82,6 +82,15 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
   // uploaded), falling back to the captured recipient rows if Peerly can't be
   // reached. Either source missing entirely means there's nothing to bill
   // against, so this throws before the caller ever calls Stripe.
+  //
+  // This does a live Peerly fetch on every call, so PurchaseService's
+  // free-purchase recheck (a second calculateAmount call before granting a
+  // $0 purchase) can see a different leads_loaded than the one that produced
+  // the original $0 checkout session, and reject a since-legitimate purchase
+  // rather than risk under-billing. That's the same tradeoff
+  // DomainsService.calculateAmount already accepts (it re-fetches live
+  // vendor pricing on every call) — failing the recheck closed on drift, not
+  // trusting a stale amount, is intentional here too.
   private async resolveBilledContactCount(
     phoneListToken: string | undefined,
     campaignId: number,
