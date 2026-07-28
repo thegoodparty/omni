@@ -72,6 +72,20 @@ overview: `docs/features/campaign-tracker-v3.md`.
   `CampaignTasksService.notifySlackOnProUpgrade` for tracker-cohort campaigns. All
   three Slack messages share `postCampaignWeekToSlack` + the casClickupTasks
   channel; every one is Pro-gated.
+- **The outreach schedule posts once, in the legacy plan-created format.**
+  `postOutreachScheduleOnce` (called after the week post on generation and on
+  Pro upgrade) sends the full text/robocall schedule as
+  `:white_check_mark: *AI Campaign Plan Created*` with `(Due: MMM d, yyyy)`
+  dates — the exact shape the ops-owned Zapier automation parses into ClickUp
+  voter-contact tasks (it ignores the week posts). One-shot via the
+  `campaignStrategy.outreachSlackPostedAt` claim, released on a failed send.
+  Don't change the message format without coordinating with CAS/ops.
+- **CAS post dates are formatted from UTC parts** (`formatInTimeZone(...,
+  'UTC', ...)`): stored task dates are UTC-midnight instants, and a process
+  west of UTC would render them a day early with plain `format`. Outreach send
+  offsets come from `VOTER_CONTACT_SCHEDULE` in contracts — shared with the
+  plan document's Voter Contact Plan section so all surfaces show identical
+  dates.
 - **Catalog ships as an experiment attachment, not a param** (6 KB SQS limit);
   prior tasks come back to the agent via the MCP tracker-tasks tool. The
   generator filters to `type === 'dynamic'` **and** excludes text/robocall (the

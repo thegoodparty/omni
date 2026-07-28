@@ -326,6 +326,12 @@ export {
 export { CAMPAIGN_TASK_CATALOG } from './campaigns/CampaignTaskCatalog.data'
 
 export {
+  VOTER_CONTACT_SCHEDULE,
+  voterContactSendOffsetDays,
+  type VoterContactSend,
+} from './campaigns/VoterContactSchedule.data'
+
+export {
   CampaignWithPositionNameSchema,
   type CampaignWithPositionName,
 } from './campaigns/CampaignWithPositionName.schema'
