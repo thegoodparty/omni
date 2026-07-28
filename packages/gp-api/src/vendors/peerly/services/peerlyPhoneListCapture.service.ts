@@ -86,4 +86,12 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
       select: { personId: true, phone: true },
     })
   }
+
+  // Billing fallback when Peerly's own leads_loaded can't be fetched: the
+  // captured rows are the recipients the list actually uploaded with.
+  countRecipients(peerlyPhoneListId: string): Promise<number> {
+    return this.client.peerlyPhoneListRecipient.count({
+      where: { peerlyPhoneListId },
+    })
+  }
 }
