@@ -193,6 +193,9 @@ describe('PeopleService', () => {
       expect(mockStatsService.getTotalCounts).not.toHaveBeenCalled()
       expect(mockClient.$queryRaw).toHaveBeenCalledTimes(2)
       expect(result.pagination.totalResults).toBe(7)
+      // The primary count query completed under the timeout, so the result is
+      // exact, not a FENCE_LIMIT floor.
+      expect(result.pagination.fenced).toBe(false)
       // A broad/low-selectivity filter (not just name-search) can trip the same
       // pathological plan, so this count runs through the same guard: exactly
       // one transaction carrying the SET LOCAL statement_timeout + the count.
@@ -486,6 +489,9 @@ describe('PeopleService', () => {
       } as never)
 
       expect(result.pagination.totalResults).toBe(10000)
+      // The primary count was cancelled and the FENCE_LIMIT-capped retry won,
+      // so the reported total is a floor, not an exact count (ENG-10804).
+      expect(result.pagination.fenced).toBe(true)
       expect(mockClient.$queryRaw).toHaveBeenCalledTimes(3)
       // The data query is not name-search, so it never entered a transaction —
       // only the count's cancelled attempt and its fenced retry did (the

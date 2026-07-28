@@ -136,7 +136,14 @@ people-api `POST /v1/people` → join/strip (party choke point
 with a small page; person detail adds derived `supportStatus` and
 `optedOutAt` (`ContactInteractionTextService.latestOptOutAt`). The count
 endpoint runs the identical translation with `resultsPerPage: 1` and
-returns only `pagination.totalResults`.
+returns `{ count, fenced }` — `fenced` (ENG-10804) mirrors
+`pagination.fenced`: true when people-api's statement-timeout guard
+floored the total at `FENCE_LIMIT` (10k), a lower bound rather than an
+exact figure. `GET /v1/contacts`'s own `pagination.fenced` carries the
+same signal for the list total. The webapp renders a fenced count via
+`formatFencedCount` ("10,000+") and never persists it as an exact
+`voterCount`; the assistant's `count_contacts` tool reports it as "at
+least N".
 
 ### Activity-condition + support-status resolution
 

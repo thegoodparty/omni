@@ -152,6 +152,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
     }
 
     let totalResults: number
+    let fenced: boolean
     let people: Array<BaseDbPerson>
     let currentPage: number
 
@@ -162,7 +163,8 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       // behavior: a client paging in from the (much longer) voter list lands on
       // the last household page instead of an empty one (no caller clamps
       // `page`), and currentPage matches the rows returned.
-      totalResults = await this.rawCountForDistrict(countArgs)
+      ;({ count: totalResults, fenced } =
+        await this.rawCountForDistrict(countArgs))
       const householdPages = Math.max(
         1,
         Math.ceil(totalResults / resultsPerPage),
@@ -181,10 +183,12 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       // page. Metadata never claims a page whose rows we didn't return (the old
       // divergence: clamped currentPage but empty rows). totalPages still tells
       // the client the valid range, and the webapp clamps navigation to it.
-      ;[totalResults, people] = await Promise.all([
+      const [countResult, peopleResult] = await Promise.all([
         this.rawCountForDistrict(countArgs),
         buildData((page - 1) * resultsPerPage),
       ])
+      ;({ count: totalResults, fenced } = countResult)
+      people = peopleResult
       currentPage = Math.max(1, page)
     }
 
@@ -198,6 +202,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
         totalPages,
         hasNextPage: currentPage < totalPages,
         hasPreviousPage: currentPage > 1,
+        fenced,
       },
       people: people.map(transformToPersonOutput),
     }
@@ -258,7 +263,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
     filters: FilterData
     search?: string
     groupByHousehold?: boolean
-  }): Promise<number> {
+  }): Promise<{ count: number; fenced: boolean }> {
     const { state, districtId, search, groupByHousehold } = args
 
     // The pre-computed stats shortcut counts voters; it does not know household
@@ -271,7 +276,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
     ) {
       const { totalConstituents } =
         await this.statsService.getTotalCounts(districtId)
-      return totalConstituents
+      return { count: totalConstituents, fenced: false }
     }
 
     const whereClause = buildVoterWhereSql({
@@ -310,10 +315,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       FROM (SELECT DISTINCT ${buildHouseholdKeySql('v')} ${fromSql} ${whereClause} LIMIT ${FENCE_LIMIT}) distinct_hh`
       : Prisma.sql`SELECT ${countExpr} AS voter_count
       FROM (SELECT v.* ${fromSql} ${whereClause} LIMIT ${FENCE_LIMIT}) v`
-    // findPeople's pagination.totalResults doesn't carry a fenced flag yet
-    // (out of scope for ENG-10775, which only threads it through the
-    // aggregates/list-detail path) — the flag is discarded here.
-    const { rows } = await this.queryWithTimeoutFence<{
+    const { rows, fenced } = await this.queryWithTimeoutFence<{
       voter_count: bigint
     }>(countSql, fencedCountSql)
 
@@ -321,7 +323,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
     if (count === 0 && districtId) {
       await this.warnIfStatsButNoVoterRows(districtId, state)
     }
-    return count
+    return { count, fenced }
   }
 
   // Partial voter data (dev by construction, or a prod ETL regression) leaves

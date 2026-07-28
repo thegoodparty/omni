@@ -660,7 +660,7 @@ export type APIEndpoints = {
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
     } & Record<string, unknown>
-    Response: { count: number }
+    Response: { count: number; fenced?: boolean }
   }
   'GET /v1/contacts/download': {
     Request: { segment?: string }
