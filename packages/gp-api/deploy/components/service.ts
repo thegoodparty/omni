@@ -324,10 +324,18 @@ export function createService({
     { customTimeouts: { create: '5m', update: '5m' } },
   )
 
+  // Preview stacks are ephemeral and their per-PR DNS records routinely drift
+  // out of Pulumi state (e.g. a stack whose state was cleared while the record
+  // lingered in Route53), which makes a redeploy fail with "record already
+  // exists". Adopt/overwrite the existing record for preview so a drifted
+  // record self-heals; keep the fail-if-exists default for dev/qa/prod.
+  const allowOverwrite = environment === 'preview'
+
   new aws.route53.Record('dnsARecord', {
     zoneId: hostedZoneId,
     name: domain,
     type: 'A',
+    allowOverwrite,
     aliases: [
       {
         name: loadBalancer.dnsName,
@@ -340,6 +348,7 @@ export function createService({
     zoneId: hostedZoneId,
     name: domain,
     type: 'AAAA',
+    allowOverwrite,
     aliases: [
       {
         name: loadBalancer.dnsName,
