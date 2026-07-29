@@ -120,7 +120,12 @@ rerouting** are in `app/dashboard/components/campaignManager/` and the shared
   refresh (ENG-10369). The `deriveProUpgradeStep` index still returns `PAYMENT` until
   `isPro` is true — don't bounce a just-paid candidate through the index; the success
   route owns the wait. A near-instant Continue click + a slow webhook can still flash
-  the stale banner briefly — accepted async window.
+  the stale banner briefly — accepted async window. This seam caused a real double
+  charge (ENG-10771): a just-paid candidate re-entering the wizard derived `PAYMENT`
+  from stale `isPro=false`, and `PaymentStep` POSTs a checkout-session on mount —
+  gp-api now 409s that (`ALREADY_PRO` / `CHECKOUT_ALREADY_COMPLETED` /
+  `CHECKOUT_IN_PROGRESS`), so the backstop is server-side, but don't add more
+  POST-on-mount paths that trust the cached campaign.
 - **"Not filed" is a branch point, not progress** (ENG-10372/10355). A persisted
   `not-filed` answer must NOT count as progress and the router must NOT derive
   `filing-instructions` — otherwise a returning not-filed candidate is stranded on the
@@ -136,6 +141,51 @@ rerouting** are in `app/dashboard/components/campaignManager/` and the shared
   advance on success; a failed write shows an error snackbar and does NOT navigate, so
   there's never a stranded un-persisted answer.
 - **Scroll reset** on step change is handled by the shell (dashboard convention).
+
+## Debugging the flow
+
+**"Purchase Error [POST] /payments/purchase/checkout-session: 400"** — the payment
+step surfaces a *generic* error for every non-2xx, so read the response body/logs
+before touching this dir. The common codes come from gp-api guards, not from wizard
+bugs:
+
+- 400 `NO_ACTIVE_CAMPAIGN` — none of the user's campaigns passes `isActiveCampaign`
+  (past election, `didWin` set, or `primary_result='lost'`). The most common cause is
+  the **PrimaryResultModal trap**: `app/dashboard/components/PrimaryResultModal.tsx`
+  force-opens (no close/esc) when a campaign's BallotReady `primaryElectionDate` is
+  already past, and independents with no primary answer "I did not win" → the fresh
+  campaign is dead minutes after signup. Triage SQL + repair recipe:
+  `packages/gp-api/src/payments/CLAUDE.md` § Debugging Pro billing issues.
+- 409 `ALREADY_PRO` / `CHECKOUT_ALREADY_COMPLETED` / `CHECKOUT_IN_PROGRESS` — the
+  double-charge guards (ENG-10771). Usually means the webhook seam above, not a bug.
+  Known deferred UX gap: the wizard shows the same generic error for all of these.
+
+**Manual test recipe (dev.goodparty.org)**: `/dashboard/pro-upgrade` → "Yes, I'm
+already filed" → EIN must look *real* (`12-3456789` is rejected as a placeholder;
+`84-3917265` passes) → filing details → candidate profile (500-char bio + ≥1 policy
+priority) → Stripe test card `4242 4242 4242 4242`, any future expiry/CVC/ZIP —
+**uncheck "Save my information"** or the Link phone prompt blocks "Complete upgrade".
+Post-payment, dev has two more gates before texting: any numeric PIN validates on
+dev, but the 10DLC "under review" state stays until the registration is APPROVED.
+
+**E2E specs** live in `e2e-tests/tests/app/dashboard/pro-upgrade/` (entry,
+happy-path, not-filed, step-resume, validation). Traps learned fixing the
+permanently-red develop gate (PR #1009):
+
+- The happy-path spec is `@dev-only` and needs `BASE_URL=https://dev.goodparty.org`
+  (the alias, not the raw Vercel deploy URL) — the referer-restricted Google Maps key
+  rejects `*.vercel.app`, so Places suggestions (`.pac-item`) never render and the
+  filing-details address step hangs. Run locally with
+  `BASE_URL=https://dev.goodparty.org --retries=0 --workers=1`; Clerk keys are in
+  `packages/gp-webapp/.env.local`, not `e2e-tests/.env`.
+- Playwright `getByRole(name:)` is case-insensitive SUBSTRING matching — a generic
+  `{ name: 'Close' }` matcher once clicked a dashboard task titled "…close out the
+  month strong" and aria-hid the page. Target testids, never generic role names.
+- Stripe's webhook lands ~2s AFTER the success step exits, so the dashboard can
+  render pre-Pro; assert `isPro` via API, then reload, before asserting Pro UI.
+- The post-payment card says "Your registration is being verified" — "Enter your
+  PIN" only appears after CampaignVerify approves (ENG-10785), never within a test
+  run. Don't assert on the PIN state.
 
 ## Related
 
