@@ -133,16 +133,18 @@ export class DatabricksSqlProvider implements DatabricksProvider {
   // once on a fresh connection; a timed-out attempt is not retried because a
   // hung warehouse would just consume a second full deadline.
   async query(sql: string): Promise<DatabricksRowSet> {
+    const gen = this.generation
     try {
       return await this.attempt(sql)
     } catch (err) {
       if (this.closed) throw err
-      await this.resetSession()
+      this.resetSession(gen)
       if (err instanceof QueryTimedOutError) throw err
+      const retryGen = this.generation
       try {
         return await this.attempt(sql)
       } catch (retryErr) {
-        if (!this.closed) await this.resetSession()
+        if (!this.closed) this.resetSession(retryGen)
         throw retryErr
       }
     }
@@ -151,10 +153,16 @@ export class DatabricksSqlProvider implements DatabricksProvider {
   private async attempt(sql: string): Promise<DatabricksRowSet> {
     const timeoutMs = this.opts.queryTimeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS
     let timer: ReturnType<typeof setTimeout> | undefined
-    const work = this.runQuery(sql)
+    let currentOp: DbsqlOperationLike | undefined
+    const work = this.runQuery(sql, (op) => {
+      currentOp = op
+    })
     const deadline = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
-        // The abandoned attempt may still settle later — keep it handled.
+        // The hung attempt's finally never runs, so close its operation
+        // here or the handle leaks on the warehouse. The abandoned attempt
+        // may still settle later — keep it handled.
+        currentOp?.close().catch(noop)
         work.catch(noop)
         reject(new QueryTimedOutError(timeoutMs))
       }, timeoutMs)
@@ -166,9 +174,13 @@ export class DatabricksSqlProvider implements DatabricksProvider {
     }
   }
 
-  private async runQuery(sql: string): Promise<DatabricksRowSet> {
+  private async runQuery(
+    sql: string,
+    onOperation?: (op: DbsqlOperationLike) => void,
+  ): Promise<DatabricksRowSet> {
     const session = await this.ensureSession()
     const op = await session.executeStatement(sql, { runAsync: true })
+    onOperation?.(op)
     try {
       const rawRows = await op.fetchAll()
       const rows = toRowRecords(rawRows)
@@ -179,19 +191,20 @@ export class DatabricksSqlProvider implements DatabricksProvider {
     }
   }
 
-  private async resetSession(): Promise<void> {
+  // Generation-checked: a no-op when another caller already reset the same
+  // dead session, so concurrent failures share one reconnect instead of
+  // tearing down each other's in-flight retries. Closes are fire-and-forget —
+  // a hung transport must not block the caller's error path past the deadline.
+  private resetSession(gen: number): void {
+    if (gen !== this.generation) return
     this.generation++
     const session = this.session
     const conn = this.clientConn
     this.session = undefined
     this.clientConn = undefined
     this.connectPromise = undefined
-    if (session) {
-      await session.close().catch(noop)
-    }
-    if (conn) {
-      await conn.close().catch(noop)
-    }
+    session?.close().catch(noop)
+    conn?.close().catch(noop)
   }
 
   async close(): Promise<void> {
