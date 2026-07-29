@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Res,
@@ -10,12 +11,16 @@ import {
   UsePipes,
 } from '@nestjs/common'
 import {
+  ContactStatusesSchema,
   ListDetailContactsResponseSchema,
   PersonSchema,
+  type UpdateContactStatusInput,
+  UpdateContactStatusInputSchema,
 } from '@goodparty_org/contracts'
-import { Organization } from '../generated/prisma'
+import { Organization, User } from '../generated/prisma'
 import { FastifyReply } from 'fastify'
 import { ZodValidationPipe } from 'nestjs-zod'
+import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { ReqOrganization } from 'src/organizations/decorators/ReqOrganization.decorator'
 import { UseOrganization } from 'src/organizations/decorators/UseOrganization.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
@@ -27,6 +32,7 @@ import {
   DownloadContactsDTO,
   ListContactsDTO,
 } from './schemas/listContacts.schema'
+import { UpdateContactStatusParamsDTO } from './schemas/updateContactStatus.schema'
 import { ContactsService } from './services/contacts.service'
 
 @Controller('contacts')
@@ -96,5 +102,22 @@ export class ContactsController {
     @ReqOrganization() organization: Organization,
   ) {
     return this.contactsService.findPerson(params.id, organization)
+  }
+
+  @Patch(':personId/status')
+  @ResponseSchema(ContactStatusesSchema)
+  async updateContactStatus(
+    @Param() { personId }: UpdateContactStatusParamsDTO,
+    @Body(new ZodValidationPipe(UpdateContactStatusInputSchema))
+    body: UpdateContactStatusInput,
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    return this.contactsService.updateContactStatus(
+      personId,
+      body,
+      organization,
+      user.id,
+    )
   }
 }

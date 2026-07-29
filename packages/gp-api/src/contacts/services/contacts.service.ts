@@ -8,10 +8,20 @@ import {
 } from '@nestjs/common'
 import {
   MAX_OVERLAP_SAVED_FILTER_SETS,
+  SupportStatusRollupSchema,
+  VoterLikelihoodSchema,
+  type ContactStatuses,
   type ListDetailContactsResponse,
   type PeopleOverlapCountResponse,
+  type SupportStatusRollup,
+  type UpdateContactStatusInput,
+  type VoterLikelihood,
 } from '@goodparty_org/contracts'
-import { Organization } from '../../generated/prisma'
+import {
+  ContactStatusField,
+  ContactStatusSource,
+  Organization,
+} from '../../generated/prisma'
 import { isAxiosError } from 'axios'
 import { FastifyReply } from 'fastify'
 import jwt from 'jsonwebtoken'
@@ -19,6 +29,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { lastValueFrom } from 'rxjs'
+import type { ZodType } from 'zod'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { SUPPORT_STATUS_UNKNOWN } from 'src/contactInteraction/contactInteraction.types'
 import {
@@ -27,6 +38,7 @@ import {
   MAX_RESOLVED_ID_SET_SIZE,
 } from 'src/contactInteraction/services/activityConditionResolution.service'
 import { ContactInteractionTextService } from 'src/contactInteraction/services/contactInteractionText.service'
+import { ContactStatusService } from 'src/contactInteraction/services/contactStatus.service'
 import { SupportStatusService } from 'src/contactInteraction/services/supportStatus.service'
 import { ElectionsService } from 'src/elections/services/elections.service'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
@@ -39,7 +51,6 @@ import {
 } from '../contacts.types'
 import { CountContactsDTO } from '../schemas/countContacts.schema'
 import type { VoterFileFilter } from '../../generated/prisma'
-import type { SupportStatusRollup } from '@goodparty_org/contracts'
 import type { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
 import { ListDetailContactsDTO } from '../schemas/listDetailContacts.schema'
 import {
@@ -81,6 +92,27 @@ export const PRO_FILTERING_REQUIRED_MESSAGE =
 // outreach/task-flow audience download) still only excludes party — this
 // list is scoped to the CRM download (downloadContacts) below (ENG-10830).
 const PARTY_DOWNLOAD_COLUMN = 'Parties_Description'
+
+// people-api's Voter_Status seed vocabulary has six values; the editable
+// voter-likelihood vocabulary (ENG-10833) has five, so `Unreliable` needs a
+// mapping decision. `unlikely` is the recommendation the ticket shipped with
+// (keeps the five-value UI intact) — a product default, not yet confirmed
+// with Nigel/product; this map is the one line to change if that flips.
+const VOTER_LIKELIHOOD_SEED_MAP: Record<
+  NonNullable<PersonOutput['voterStatus']>,
+  VoterLikelihood
+> = {
+  Super: 'super',
+  Likely: 'likely',
+  Unreliable: 'unlikely',
+  Unlikely: 'unlikely',
+  'First Time': 'first_time',
+}
+
+const seedVoterLikelihood = (
+  voterStatus: PersonOutput['voterStatus'],
+): VoterLikelihood =>
+  voterStatus ? VOTER_LIKELIHOOD_SEED_MAP[voterStatus] : 'unknown'
 
 // Serve (`eo-`) CRM downloads must omit these columns entirely — a blank
 // column still reveals the field exists (ENG-10830). Party (completing
@@ -132,6 +164,7 @@ export class ContactsService {
     private readonly organizations: OrganizationsService,
     private readonly voterFileDownloadAccess: VoterFileDownloadAccessService,
     private readonly supportStatusService: SupportStatusService,
+    private readonly contactStatusService: ContactStatusService,
     private readonly contactInteractionTextService: ContactInteractionTextService,
     private readonly activityConditionResolution: ActivityConditionResolutionService,
     private readonly logger: PinoLogger,
@@ -1011,18 +1044,147 @@ export class ContactsService {
       organization,
       fetchPerson,
     )
-    const [statuses, optedOutAt] = await Promise.all([
-      this.supportStatusService.statusForPeople(organization.slug, [person.id]),
-      this.contactInteractionTextService.latestOptOutAt(
-        organization.slug,
-        person.id,
-      ),
-    ])
-    return {
+    // voterLikelihood is Win-only (ENG-10833) — Serve responses stay exactly
+    // as they were (field omitted), so skip the lookup entirely for `eo-`
+    // orgs rather than compute-and-drop it.
+    const [optedOutAt, supportStatus, voterLikelihoodOrNull] =
+      await Promise.all([
+        this.contactInteractionTextService.latestOptOutAt(
+          organization.slug,
+          person.id,
+        ),
+        this.effectiveStatus(
+          organization.slug,
+          person.id,
+          ContactStatusField.support_status,
+          SupportStatusRollupSchema,
+          () => this.derivedSupportStatus(organization.slug, person.id),
+        ),
+        this.hasElectedOfficeAccess(organization)
+          ? Promise.resolve(null)
+          : this.effectiveStatus(
+              organization.slug,
+              person.id,
+              ContactStatusField.voter_likelihood,
+              VoterLikelihoodSchema,
+              () => seedVoterLikelihood(person.voterStatus),
+            ),
+      ])
+    const base = {
       ...this.stripPartyIfElectedOffice(organization, person),
-      supportStatus: statuses.get(person.id) ?? SUPPORT_STATUS_UNKNOWN,
+      supportStatus,
       optedOutAt: optedOutAt ? optedOutAt.toISOString() : null,
     }
+    return voterLikelihoodOrNull === null
+      ? base
+      : { ...base, voterLikelihood: voterLikelihoodOrNull }
+  }
+
+  // Both editable statuses (ENG-10833) are Win-only. Rejects `eo-` orgs
+  // before the pro gate so a non-pro Serve org 400s with the "not available
+  // for this organization" reason rather than the pro-upsell one.
+  async updateContactStatus(
+    personId: string,
+    dto: UpdateContactStatusInput,
+    organization: Organization,
+    actorUserId: number,
+  ): Promise<ContactStatuses> {
+    if (this.hasElectedOfficeAccess(organization)) {
+      throw new BadRequestException(
+        'Contact status is not available for this organization',
+      )
+    }
+    await this.assertProAccess(organization)
+
+    // Also validates personId resolves within the org's district (findPerson
+    // 404s otherwise, mirroring the manual-interaction write path). This
+    // read is unlocked and only advisory: ContactStatusService.changeStatus
+    // derives the authoritative fromValue from a row-locked read inside its
+    // own transaction, so a race between two PATCHes for the same (org,
+    // personId, field) can't record a stale fromValue — this snapshot is
+    // used only as the fallback when no override row exists yet.
+    const current = await this.findPerson(personId, organization)
+    const field =
+      dto.field === 'voter_likelihood'
+        ? ContactStatusField.voter_likelihood
+        : ContactStatusField.support_status
+    const fallbackFromValue =
+      dto.field === 'voter_likelihood'
+        ? current.voterLikelihood
+        : current.supportStatus
+
+    await this.contactStatusService.changeStatus({
+      organizationSlug: organization.slug,
+      personId,
+      field,
+      toValue: dto.value,
+      source: ContactStatusSource.manual,
+      actorUserId,
+      fallbackFromValue: fallbackFromValue ?? null,
+    })
+
+    // Read back from the persisted record rather than trusting the request
+    // body, so a retry racing a concurrent change reports real DB state.
+    const [voterLikelihood, supportStatus] = await Promise.all([
+      this.effectiveStatus(
+        organization.slug,
+        personId,
+        ContactStatusField.voter_likelihood,
+        VoterLikelihoodSchema,
+        () => seedVoterLikelihood(current.voterStatus),
+      ),
+      this.effectiveStatus(
+        organization.slug,
+        personId,
+        ContactStatusField.support_status,
+        SupportStatusRollupSchema,
+        () => this.derivedSupportStatus(organization.slug, personId),
+      ),
+    ])
+
+    return { voterLikelihood, supportStatus }
+  }
+
+  private async derivedSupportStatus(
+    organizationSlug: string,
+    personId: string,
+  ): Promise<SupportStatusRollup> {
+    const statuses = await this.supportStatusService.statusForPeople(
+      organizationSlug,
+      [personId],
+    )
+    return statuses.get(personId) ?? SUPPORT_STATUS_UNKNOWN
+  }
+
+  // Single override-lookup + fallback merge, reused by findPerson (both
+  // fields) and updateContactStatus (the fromValue snapshot and the
+  // post-write read-back). `schema` re-validates the persisted string against
+  // the field's vocabulary — real narrowing instead of a bare cast, since a
+  // Prisma `String` column carries no static type. `fallback` computes the
+  // seed/derived value used when no override row exists for this (org,
+  // person, field).
+  private async effectiveStatus<Value extends string>(
+    organizationSlug: string,
+    personId: string,
+    field: ContactStatusField,
+    schema: ZodType<Value>,
+    fallback: () => Value | Promise<Value>,
+  ): Promise<Value> {
+    const overrides = await this.contactStatusService.currentStatusForPeople(
+      organizationSlug,
+      field,
+      [personId],
+    )
+    const override = overrides.get(personId)
+    const parsed =
+      override === undefined ? undefined : schema.safeParse(override)
+    if (parsed !== undefined && !parsed.success) {
+      this.logger.warn(
+        { organizationSlug, personId, field, override },
+        'contact-status override failed validation; using fallback',
+      )
+    }
+    return parsed?.success ? parsed.data : fallback()
   }
 
   async downloadContacts(

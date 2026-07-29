@@ -40,6 +40,7 @@ model User {
   artifactFeedbacks     ArtifactFeedback[]
   userAgendaUploads     UserAgendaUpload[]
   personProfile         PersonProfile?
+  contactStatusEvents   ContactStatusEvent[]
 
   @@index([firstName])
   @@index([lastName])

@@ -408,6 +408,8 @@ const SUPPORT_STATUS_LABELS: Record<SupportStatusRollup, string> = {
   supporter: 'Supporter',
   non_supporter: 'Non-supporter',
   unknown: 'Support unknown',
+  undecided: 'Undecided',
+  refused: 'Refused',
 }
 
 // Header chip (ENG-10732): Opted Out when any of the org's text interactions

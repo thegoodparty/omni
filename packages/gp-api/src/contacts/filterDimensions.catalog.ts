@@ -1,5 +1,4 @@
 import {
-  SupportStatusRollupSchema,
   type ActivityConditionAction,
   type SupportStatusRollup,
 } from '@goodparty_org/contracts'
@@ -89,7 +88,23 @@ const ACTIVITY_ACTION_LABELS: Record<ActivityConditionAction, string> = {
   no_answer: 'No Answer',
 }
 
-const SUPPORT_STATUS_LABELS: Record<SupportStatusRollup, string> = {
+// `undecided`/`refused` (ENG-10833) extend the shared SupportStatusRollup
+// vocabulary for the manual-override current-status table, but the derived
+// (interaction-based) rollup ActivityConditionResolutionService resolves
+// filters against can never produce them — advertising them here would let
+// the wizard/assistant build a supportStatus filter that silently matches
+// zero people. Deliberately excluded until a later ticket teaches filter
+// resolution to read overrides.
+const DERIVED_SUPPORT_STATUS_VALUES = [
+  'supporter',
+  'non_supporter',
+  'unknown',
+] as const satisfies readonly SupportStatusRollup[]
+
+const SUPPORT_STATUS_LABELS: Record<
+  (typeof DERIVED_SUPPORT_STATUS_VALUES)[number],
+  string
+> = {
   supporter: 'Supporter',
   non_supporter: 'Non-supporter',
   unknown: 'Support Unknown',
@@ -304,7 +319,7 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     label: 'Support Status',
     kind: 'multi-value',
     modes: 'both',
-    values: SupportStatusRollupSchema.options.map((value) => ({
+    values: DERIVED_SUPPORT_STATUS_VALUES.map((value) => ({
       key: value,
       label: SUPPORT_STATUS_LABELS[value],
     })),
