@@ -119,25 +119,25 @@ Use `date-fns` for parse / format / arithmetic / compare / diff / start-or-end-o
 
 Per-area `CLAUDE.md` files cover purpose, key files, patterns, and gotchas for the dirs you'll touch most:
 
-| Working in                               | Read                                        |
-| ---------------------------------------- | ------------------------------------------- |
-| Campaigns / plans / tasks                | `src/campaigns/CLAUDE.md`                   |
-| The CRM (contacts, saved filters, write-back, assistant) | `src/contacts/CLAUDE.md` (system-level doc) |
-| Contact interactions (per-channel models) | `src/contactInteraction/contactInteraction.types.ts` |
-| Campaign plan PDF sharing                | `src/campaignPlanShares/CLAUDE.md`          |
-| Voter file / L2 lookups                  | `src/voters/CLAUDE.md`                      |
-| Stripe payments / pro upgrades           | `src/payments/CLAUDE.md`                    |
-| Campaign websites / domains              | `src/websites/CLAUDE.md`                    |
-| Opposition research (Know Your Opponent) | `src/raceOpponent/CLAUDE.md`                |
-| Ordinances / drafting / quality loop     | `src/ordinances/CLAUDE.md`                  |
-| SQS producer/consumer / async            | `src/queue/CLAUDE.md`                       |
-| Auth, JWT, Clerk M2M, roles              | `src/authentication/CLAUDE.md`              |
-| Agent experiments                        | `src/agentExperiments/CLAUDE.md`            |
-| Schema / migrations                      | `prisma/CLAUDE.md`                          |
-| `@goodparty_org/contracts`               | `contracts/CLAUDE.md` + `docs/contracts.md` |
-| Pulumi / Docker / Grafana                | `deploy/CLAUDE.md`                          |
-| One-off / build scripts                  | `scripts/CLAUDE.md`                         |
-| Seed data / factories / scenarios        | `seed/CLAUDE.md`                            |
+| Working in                                               | Read                                                 |
+| -------------------------------------------------------- | ---------------------------------------------------- |
+| Campaigns / plans / tasks                                | `src/campaigns/CLAUDE.md`                            |
+| The CRM (contacts, saved filters, write-back, assistant) | `src/contacts/CLAUDE.md` (system-level doc)          |
+| Contact interactions (per-channel models)                | `src/contactInteraction/contactInteraction.types.ts` |
+| Campaign plan PDF sharing                                | `src/campaignPlanShares/CLAUDE.md`                   |
+| Voter file / L2 lookups                                  | `src/voters/CLAUDE.md`                               |
+| Stripe payments / pro upgrades                           | `src/payments/CLAUDE.md`                             |
+| Campaign websites / domains                              | `src/websites/CLAUDE.md`                             |
+| Opposition research (Know Your Opponent)                 | `src/raceOpponent/CLAUDE.md`                         |
+| Ordinances / drafting / quality loop                     | `src/ordinances/CLAUDE.md`                           |
+| SQS producer/consumer / async                            | `src/queue/CLAUDE.md`                                |
+| Auth, JWT, Clerk M2M, roles                              | `src/authentication/CLAUDE.md`                       |
+| Agent experiments                                        | `src/agentExperiments/CLAUDE.md`                     |
+| Schema / migrations                                      | `prisma/CLAUDE.md`                                   |
+| `@goodparty_org/contracts`                               | `contracts/CLAUDE.md` + `docs/contracts.md`          |
+| Pulumi / Docker / Grafana                                | `deploy/CLAUDE.md`                                   |
+| One-off / build scripts                                  | `scripts/CLAUDE.md`                                  |
+| Seed data / factories / scenarios                        | `seed/CLAUDE.md`                                     |
 
 `VoterOutreachActivity` is deprecated: new per-person interaction write paths
 target the `ContactInteraction*` models via `ContactInteractionModule` (see
@@ -223,6 +223,8 @@ The submodule is initialized automatically by `npm install` via the `postinstall
 - `NotFoundException` (404) — missing resources
 - DB ops rely on Prisma + global `PrismaExceptionFilter` — **do not** wrap them in try/catch
 - **Wrap only external service calls in try/catch.** Keep DB operations outside the catch block so they aren't swallowed.
+- **Default to letting errors propagate** to the global `HttpExceptionFilter` (logs `{ statusCode, err }`) and `PrismaExceptionFilter`; add a try/catch only to translate an external failure, recover, or add lost context. **Never swallow** — a bare `catch {}` or returning null/`[]` to hide a failure is prohibited (rules.mdc Rule 3 § Error Handling & Observability).
+- **Log errors via the injected `PinoLogger` with the raw `{ err }`** — never `@nestjs/common`'s `Logger`, and never hand-extract `.message`/`.status` into strings. Pino serializes the full error incl. provider fields like Clerk's `status`/`errors[]` (rules.mdc Rule 3).
 - `@HttpCode(HttpStatus.NO_CONTENT)` methods must **`await`** the service call — never `return` it (rules.mdc Rule 24).
 
 ## Design rules — high-cost mistakes

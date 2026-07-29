@@ -115,7 +115,10 @@ export class ClerkAuthService implements AuthProvider {
         machineSecretKey: GP_WEBAPP_MACHINE_SECRET,
       })
       return { id, subject }
-    } catch {
+    } catch (err) {
+      // Never log the token or machine secret; pass the raw error so pino
+      // serializes Clerk's reason (a rotated secret otherwise 401s silently).
+      this.logger.warn({ err }, 'M2M token verification failed')
       throw new UnauthorizedException('M2M token verification failed')
     }
   }
