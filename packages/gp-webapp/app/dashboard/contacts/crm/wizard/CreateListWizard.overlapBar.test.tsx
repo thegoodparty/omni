@@ -98,6 +98,19 @@ const overlapResult = (
 
 const savedList = { id: 1, name: 'A saved list' }
 
+// The count now renders inside its own <span> (font-semibold), so the full
+// sentence is split across DOM nodes — a plain getByText full-string match
+// only sees the <p>'s OWN direct text-node children (it excludes the span's
+// text), never matching. Match on the paragraph's combined textContent
+// instead, which still requires the exact copy (including spaces) to
+// survive — the point of the space bug this strip fixes.
+const overlapParagraph = (expectedText: string): HTMLElement =>
+  screen.getByText(
+    (_, element) =>
+      element?.tagName.toLowerCase() === 'p' &&
+      element.textContent === expectedText,
+  )
+
 beforeEach(() => {
   vi.clearAllMocks()
   mockedUseSnackbar.mockReturnValue({
@@ -121,10 +134,13 @@ describe('CreateListWizard — saved-list overlap strip (ENG-10840)', () => {
     await reachConditionsStepWithSelection(user)
 
     expect(
-      screen.getByText(
+      overlapParagraph(
         "47,240 (24%) voters already exist in lists you've saved.",
       ),
     ).toBeInTheDocument()
+    // The count renders bold in its own span, distinct from the muted
+    // sentence around it.
+    expect(screen.getByText('47,240')).toHaveClass('font-semibold')
   })
 
   it('renders no strip when the org has no saved lists', async () => {
@@ -185,7 +201,7 @@ describe('CreateListWizard — saved-list overlap strip (ENG-10840)', () => {
     await reachConditionsStepWithSelection(user)
 
     expect(
-      screen.getByText("10,000+ voters already exist in lists you've saved."),
+      overlapParagraph("10,000+ voters already exist in lists you've saved."),
     ).toBeInTheDocument()
   })
 
@@ -198,7 +214,7 @@ describe('CreateListWizard — saved-list overlap strip (ENG-10840)', () => {
     await reachConditionsStepWithSelection(user)
 
     expect(
-      screen.getByText("47,240 voters already exist in lists you've saved."),
+      overlapParagraph("47,240 voters already exist in lists you've saved."),
     ).toBeInTheDocument()
   })
 })

@@ -385,10 +385,23 @@ export default function CreateListWizard({
         ? 'Name your list'
         : labels.wizardVoterFileStepTitle
 
+  // The label hides the number whenever there's no trustworthy CURRENT
+  // count — mid-fetch, still debouncing, or never resolved (including a
+  // terminal error, since formatFencedCount can't format undefined either
+  // way). isLoading/isStale always hide it regardless of isError: a
+  // refetch of a previously-errored query can have isFetching and isError
+  // both true at once, and that's still a real in-flight fetch.
   const buildLabel =
     isLoading || isStale || count === undefined
       ? 'Build your list'
       : `Build your list (${formatFencedCount(count, fenced)})`
+  // isZeroMatch above excludes isError because a failed refetch's count is
+  // unknown, not a real value — the same discipline applies here: without
+  // `&& !isError`, a query that errors on its very first fetch (no prior
+  // successful count) leaves `count` undefined forever, so the CTA would be
+  // stuck showing the loading spinner permanently instead of settling into
+  // the errored "Build your list" guidance state.
+  const isCounting = isLoading || isStale || (count === undefined && !isError)
 
   return (
     <CrmSheet
@@ -396,6 +409,11 @@ export default function CreateListWizard({
       onOpenChange={onOpenChange}
       onBack={stepIndex > 0 ? handleBack : undefined}
       bodyRef={bodyRef}
+      banner={
+        stepName === 'conditions' && overlapBarProps ? (
+          <OverlapBar {...overlapBarProps} peopleNoun={peopleNoun} />
+        ) : undefined
+      }
       header={
         <>
           <DrawerTitle className="text-base font-semibold">
@@ -421,19 +439,15 @@ export default function CreateListWizard({
             </Button>
           )}
           {stepName === 'conditions' && (
-            <>
-              {overlapBarProps && (
-                <OverlapBar {...overlapBarProps} peopleNoun={peopleNoun} />
-              )}
-              <Button
-                type="button"
-                className="w-full text-sm"
-                onClick={handleNext}
-                disabled={!isConditionsStepValid || isZeroMatch}
-              >
-                {buildLabel}
-              </Button>
-            </>
+            <Button
+              type="button"
+              className="w-full text-sm"
+              onClick={handleNext}
+              disabled={!isConditionsStepValid || isZeroMatch}
+              loading={isCounting}
+            >
+              {buildLabel}
+            </Button>
           )}
           {stepName === 'name' && (
             <Button
