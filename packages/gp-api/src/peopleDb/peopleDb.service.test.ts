@@ -85,6 +85,33 @@ describe('PeopleDbService', () => {
     expect(prismaClientCtor).not.toHaveBeenCalled()
   })
 
+  it('subscribes to url changes even when the initial load fails, and recovers on change', async () => {
+    const provider = new PeopleDbUrlProvider()
+    let listener: ((url: string) => void) | null = null
+    vi.spyOn(provider, 'ensureLoaded').mockRejectedValue(
+      new Error('SSM parameter unresolved'),
+    )
+    const onChange = vi.spyOn(provider, 'onChange').mockImplementation((cb) => {
+      listener = cb
+      return () => {
+        listener = null
+      }
+    })
+    const service = new PeopleDbService(provider)
+
+    await service.onModuleInit()
+
+    // Boot failed to build a client, but the listener MUST be registered so
+    // the provider's later refresh can recover it.
+    expect(onChange).toHaveBeenCalledTimes(1)
+    expect(prismaClientCtor).not.toHaveBeenCalled()
+
+    // The URL becomes resolvable -> swap builds the client from scratch.
+    listener!('postgresql://u:p@h:5432/recovered')
+    await vi.waitFor(() => expect(service.instance).toBeDefined())
+    expect(prismaClientCtor).toHaveBeenCalledTimes(1)
+  })
+
   it('throws a clear error from .instance when the client was never initialized', () => {
     const provider = new PeopleDbUrlProvider()
     vi.spyOn(provider, 'ensureLoaded').mockRejectedValue(

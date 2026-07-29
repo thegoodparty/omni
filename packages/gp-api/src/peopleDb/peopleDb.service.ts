@@ -48,15 +48,19 @@ export class PeopleDbService implements OnModuleInit, OnModuleDestroy {
     try {
       const url = await this.peopleDbUrl.ensureLoaded()
       this.activeClient = await this.buildClient(url)
-      this.unsubscribe = this.peopleDbUrl.onChange((url) => {
-        void this.swap(url)
-      })
     } catch (err) {
       this.logger.debug(
         { err },
         'people-db not initialized at boot; will retry lazily on first query',
       )
     }
+    // Subscribe OUTSIDE the try/catch: if the initial load failed, the
+    // 5-min provider refresh -> onChange -> swap is what recovers a
+    // never-initialized client, so the listener must be registered even on
+    // the failure path (mirrors VoterDownloadService).
+    this.unsubscribe = this.peopleDbUrl.onChange((url) => {
+      void this.swap(url)
+    })
   }
 
   async onModuleDestroy() {
