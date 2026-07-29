@@ -106,7 +106,7 @@ ADR: `docs/adr/0002-zod-everywhere.md`.
 
 ## 5. Auth posture
 
-Three global guards run on every request: `ClerkM2MAuthGuard`, `JwtAuthGuard`, `RolesGuard`.
+Two global guards run on every request: `SessionGuard` (also verifies Clerk M2M `mt_*` tokens) and `RolesGuard`.
 
 - `@PublicAccess()` — anonymous OK
 - `@Roles(UserRole.ADMIN)` — restrict

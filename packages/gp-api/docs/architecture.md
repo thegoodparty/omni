@@ -29,11 +29,10 @@ src/<feature>/
 
 ## Auth chain
 
-Three global guards run on every request, in order:
+Two global guards run on every request, in order:
 
-1. `ClerkM2MAuthGuard` — accepts Clerk M2M tokens (`mt_*`).
-2. `JwtAuthGuard` — accepts user JWTs from cookies.
-3. `RolesGuard` — enforces `@Roles(...)` decorators.
+1. `SessionGuard` — accepts user JWTs from cookies, and verifies Clerk M2M (`mt_*`) tokens.
+2. `RolesGuard` — enforces `@Roles(...)` decorators.
 
 Route decorators:
 
