@@ -48,7 +48,7 @@ import {
   StatusChangeActivityRow,
   TextActivityRow,
 } from './ActivityFeedEntry'
-import type { SupportStatusRollup } from '../shared/contacts-types'
+import { SUPPORT_STATUS_ROLLUP_LABELS } from '@goodparty_org/contracts'
 
 export const formatPersonName = (person: Person) =>
   [person.firstName, person.lastName, person.nameSuffix]
@@ -410,16 +410,6 @@ const getIncomeBucket = (income: number | null) => {
   )
 }
 
-// Buckets shown read-only in the demographics block (ENG-10698). Status is
-// derived server-side (SupportStatusService) and never set from the UI.
-const SUPPORT_STATUS_LABELS: Record<SupportStatusRollup, string> = {
-  supporter: 'Supporter',
-  non_supporter: 'Non-supporter',
-  unknown: 'Support unknown',
-  undecided: 'Undecided',
-  refused: 'Refused',
-}
-
 // Header chip (ENG-10732): Opted Out when any of the org's text interactions
 // for this person carries optedOutAt (server-derived,
 // ContactInteractionTextService), Opted In otherwise. Not conflated with
@@ -554,7 +544,9 @@ const PersonContent: React.FC<{
           {showCrmSurfaces ? (
             <Field
               label="Support Status"
-              value={SUPPORT_STATUS_LABELS[person.supportStatus ?? 'unknown']}
+              value={
+                SUPPORT_STATUS_ROLLUP_LABELS[person.supportStatus ?? 'unknown']
+              }
             />
           ) : null}
           <Field label="Registered Voter" value={person.registeredVoter} />
