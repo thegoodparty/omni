@@ -1,3 +1,4 @@
+import { type IdOverrides } from '@goodparty_org/contracts'
 import { Prisma } from '../../generated/prisma'
 import { FilterData } from '../schemas/filters.schema'
 import { buildVoterFiltersSql } from './filters.sql.utils'
@@ -20,11 +21,32 @@ export const buildOverlapCountSql = (args: {
   search?: string
   savedFilterSets: FilterData[]
   fenceLimit?: number
+  // ENG-10838: threaded through the current in-progress selection only —
+  // it goes through the identical convertVoterFileFilterToFilters/resolution
+  // path as the live count. Saved sets are deliberately NOT override-aware
+  // yet: each is built independently via buildVoterFiltersSql below with no
+  // per-set idOverrides, so a saved list's own Voter Likelihood membership
+  // still reflects seed voterStatus only (a documented, scoped gap — see
+  // packages/gp-api/src/contacts/CLAUDE.md).
+  idOverrides?: IdOverrides
 }): Prisma.Sql => {
-  const { state, districtId, filters, search, savedFilterSets, fenceLimit } =
-    args
+  const {
+    state,
+    districtId,
+    filters,
+    search,
+    savedFilterSets,
+    fenceLimit,
+    idOverrides,
+  } = args
 
-  const whereClause = buildVoterWhereSql({ state, districtId, filters, search })
+  const whereClause = buildVoterWhereSql({
+    state,
+    districtId,
+    filters,
+    search,
+    idOverrides,
+  })
 
   const savedClauses = savedFilterSets.map(
     (savedFilters) => buildVoterFiltersSql(savedFilters) ?? Prisma.sql`TRUE`,

@@ -119,4 +119,44 @@ describe('buildOverlapCountSql', () => {
 
     expect(text).toContain('lower(v."FirstName") LIKE')
   })
+
+  describe('idOverrides (ENG-10838)', () => {
+    const voterStatusFilter = (): FilterData => ({
+      filters: ['voterStatus'],
+      filterValues: {},
+      filterOperators: {
+        voterStatus: { operator: 'in', values: ['Unlikely'] },
+      },
+    })
+
+    it('threads idOverrides into the current-selection WHERE only, not the saved sets', () => {
+      const includedId = '22222222-2222-2222-2222-222222222222'
+      const sql = buildOverlapCountSql({
+        state: 'CA',
+        filters: voterStatusFilter(),
+        savedFilterSets: [hasCellPhoneFilter()],
+        idOverrides: { include: [includedId] },
+      })
+      const text = sqlTextOf(sql)
+
+      expect(text).toContain('OR v."id" = ANY(')
+    })
+
+    it('is byte-identical to today when idOverrides is omitted', () => {
+      const withoutOverrides = buildOverlapCountSql({
+        state: 'CA',
+        filters: voterStatusFilter(),
+        savedFilterSets: [hasCellPhoneFilter()],
+      })
+      const withUndefinedOverrides = buildOverlapCountSql({
+        state: 'CA',
+        filters: voterStatusFilter(),
+        savedFilterSets: [hasCellPhoneFilter()],
+        idOverrides: undefined,
+      })
+      expect(sqlTextOf(withUndefinedOverrides)).toBe(
+        sqlTextOf(withoutOverrides),
+      )
+    })
+  })
 })

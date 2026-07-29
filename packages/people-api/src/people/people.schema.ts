@@ -1,4 +1,5 @@
 import {
+  IdOverridesSchema,
   MAX_OVERLAP_SAVED_FILTER_SETS,
   MAX_PAGE,
   MAX_PAGINATION_OFFSET,
@@ -15,6 +16,12 @@ const withDistrictInput = <T extends z.ZodRawShape>(shape: T) =>
 
 export const listPeopleSchema = withDistrictInput({
   filters: filtersSchema,
+  // Override-aware Voter Likelihood filtering (ENG-10838): a sibling of
+  // `filters`, not a PeopleFilters field — gp-api resolves include/exclude
+  // person-id sets from contact-status overrides and composes them as an OR
+  // scoped to the voterStatus clause only (buildVoterFiltersSql). Omitted
+  // when the org has no overrides, so the SQL stays byte-identical to today.
+  idOverrides: IdOverridesSchema.optional(),
   search: z.string().optional(),
   // resultsPerPage feeds `LIMIT ${take}` and page feeds `OFFSET ${skip}` in raw
   // SQL (people.service.ts), so this is the last line of defense against
@@ -49,6 +56,10 @@ export class ListPeopleDTO extends createZodDto(listPeopleSchema) {}
 
 export const downloadPeopleSchema = withDistrictInput({
   filters: filtersSchema,
+  // See listPeopleSchema's idOverrides comment (ENG-10838) — same sibling
+  // shape, threaded so a Voter-Likelihood-filtered download matches the
+  // count/list membership.
+  idOverrides: IdOverridesSchema.optional(),
   // Mirror the list endpoint: door-knocking exports one row per physical
   // household so the CSV matches the on-screen de-duplicated list.
   groupByHousehold: z.coerce.boolean().optional().default(false),
@@ -69,6 +80,8 @@ export class StatsDTO extends createZodDto(withDistrictInput({})) {}
 // unfiltered DistrictStats row (see StatsService).
 export const aggregatesSchema = withDistrictInput({
   filters: filtersSchema,
+  // See listPeopleSchema's idOverrides comment (ENG-10838).
+  idOverrides: IdOverridesSchema.optional(),
 })
 
 export class AggregatesDTO extends createZodDto(aggregatesSchema) {}
@@ -81,6 +94,10 @@ export class AggregatesDTO extends createZodDto(aggregatesSchema) {}
 // runs.
 export const overlapCountSchema = withDistrictInput({
   filters: filtersSchema,
+  // See listPeopleSchema's idOverrides comment (ENG-10838) — applies to the
+  // current in-progress `filters` selection only. `savedFilterSets` entries
+  // are deliberately NOT override-aware yet (see buildOverlapCountSql.utils.ts).
+  idOverrides: IdOverridesSchema.optional(),
   search: z.string().optional(),
   savedFilterSets: z.array(filtersSchema).max(MAX_OVERLAP_SAVED_FILTER_SETS),
 })

@@ -281,4 +281,55 @@ describe('people query schemas', () => {
   it('rejects the aggregates request without a districtId', () => {
     expect(() => aggregatesSchema.parse({ filters: {} })).toThrow()
   })
+
+  describe('idOverrides (ENG-10838)', () => {
+    const INCLUDED_ID = '22222222-2222-2222-2222-222222222222'
+    const EXCLUDED_ID = '33333333-3333-3333-3333-333333333333'
+
+    it('accepts include/exclude on the list request and is optional', () => {
+      const withOverrides = listPeopleSchema.parse({
+        districtId: DISTRICT_ID,
+        filters: {},
+        idOverrides: { include: [INCLUDED_ID], exclude: [EXCLUDED_ID] },
+      })
+      expect(withOverrides.idOverrides).toEqual({
+        include: [INCLUDED_ID],
+        exclude: [EXCLUDED_ID],
+      })
+
+      const withoutOverrides = listPeopleSchema.parse({
+        districtId: DISTRICT_ID,
+        filters: {},
+      })
+      expect(withoutOverrides.idOverrides).toBeUndefined()
+    })
+
+    it('accepts idOverrides on download and aggregates requests', () => {
+      expect(
+        downloadPeopleSchema.parse({
+          districtId: DISTRICT_ID,
+          filters: {},
+          idOverrides: { include: [INCLUDED_ID] },
+        }).idOverrides,
+      ).toEqual({ include: [INCLUDED_ID] })
+
+      expect(
+        aggregatesSchema.parse({
+          districtId: DISTRICT_ID,
+          filters: {},
+          idOverrides: { exclude: [EXCLUDED_ID] },
+        }).idOverrides,
+      ).toEqual({ exclude: [EXCLUDED_ID] })
+    })
+
+    it('rejects a non-uuid entry in include/exclude', () => {
+      expect(() =>
+        listPeopleSchema.parse({
+          districtId: DISTRICT_ID,
+          filters: {},
+          idOverrides: { include: ['not-a-uuid'] },
+        }),
+      ).toThrow()
+    })
+  })
 })

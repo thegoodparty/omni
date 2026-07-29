@@ -1,3 +1,4 @@
+import { type IdOverrides } from '@goodparty_org/contracts'
 import { Prisma } from '../../generated/prisma'
 import { FilterData } from '../schemas/filters.schema'
 import { FilterOperator } from '../schemas/filters.schema.utils'
@@ -7,8 +8,37 @@ import {
   type PoliticalPartyRule,
 } from './politicalParty.rules'
 
+const hasIdOverrides = (
+  idOverrides: IdOverrides | undefined,
+): idOverrides is IdOverrides =>
+  !!idOverrides &&
+  ((idOverrides.include?.length ?? 0) > 0 ||
+    (idOverrides.exclude?.length ?? 0) > 0)
+
+// Override-aware Voter Likelihood filtering (ENG-10838): wraps ONLY the
+// voterStatus clause in an OR against the override include/exclude id sets —
+// never the whole filter conjunction. `buildVoterFiltersSql` AND-joins this
+// composite alongside every other filter's clause, so age/party/etc still
+// apply to an override-included person; only the voterStatus dimension
+// itself is override-aware. `baseClause` falls back to TRUE so a caller that
+// (incorrectly) sends idOverrides without a voterStatus filter still gets
+// well-formed SQL rather than a broken composite.
+const composeIdOverridesClause = (
+  baseClause: Prisma.Sql | null,
+  idOverrides: IdOverrides,
+): Prisma.Sql => {
+  const base = baseClause ?? Prisma.sql`TRUE`
+  const scoped = idOverrides.exclude?.length
+    ? Prisma.sql`(${base} AND v."id" != ALL(${idOverrides.exclude}::uuid[]))`
+    : base
+  return idOverrides.include?.length
+    ? Prisma.sql`(${scoped} OR v."id" = ANY(${idOverrides.include}::uuid[]))`
+    : scoped
+}
+
 export const buildVoterFiltersSql = (
   filterData: FilterData,
+  idOverrides?: IdOverrides,
 ): Prisma.Sql | null => {
   const { filters, filterOperators } = filterData
   const andClauses: Prisma.Sql[] = []
@@ -81,9 +111,13 @@ export const buildVoterFiltersSql = (
       case 'estimatedIncomeAmountInt':
         sql = buildNumericFilter('Estimated_Income_Amount_Int', op)
         break
-      case 'voterStatus':
-        sql = buildFieldFilter('Voter_Status', op)
+      case 'voterStatus': {
+        const voterStatusClause = buildFieldFilter('Voter_Status', op)
+        sql = hasIdOverrides(idOverrides)
+          ? composeIdOverridesClause(voterStatusClause, idOverrides)
+          : voterStatusClause
         break
+      }
       case 'politicalParty':
         sql = buildPoliticalPartyFilter(op)
         break

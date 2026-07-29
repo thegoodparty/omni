@@ -620,4 +620,125 @@ describe('buildVoterFiltersSql', () => {
       expect(sqlStr).toContain("= ''")
     })
   })
+
+  describe('idOverrides composition (ENG-10838)', () => {
+    const voterStatusFilter = (values: string[]): FilterData => ({
+      filters: ['voterStatus'],
+      filterValues: {},
+      filterOperators: {
+        voterStatus: { operator: 'in', values },
+      },
+    })
+
+    it('is byte-identical to today when idOverrides is omitted', () => {
+      const withoutArg = buildVoterFiltersSql(voterStatusFilter(['Unlikely']))
+      const withUndefined = buildVoterFiltersSql(
+        voterStatusFilter(['Unlikely']),
+        undefined,
+      )
+      expect(sqlToString(withUndefined)).toBe(sqlToString(withoutArg))
+      expect(flatValues(withUndefined)).toEqual(flatValues(withoutArg))
+    })
+
+    it('is byte-identical to today when include/exclude are both empty', () => {
+      const withoutOverrides = buildVoterFiltersSql(
+        voterStatusFilter(['Unlikely']),
+      )
+      const withEmptyOverrides = buildVoterFiltersSql(
+        voterStatusFilter(['Unlikely']),
+        {},
+      )
+      expect(sqlToString(withEmptyOverrides)).toBe(
+        sqlToString(withoutOverrides),
+      )
+    })
+
+    it('excludes an id even though it matches the seed voterStatus', () => {
+      const excludedId = '11111111-1111-1111-1111-111111111111'
+      const result = buildVoterFiltersSql(voterStatusFilter(['Unlikely']), {
+        exclude: [excludedId],
+      })
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('Voter_Status')
+      expect(sqlStr).toContain('AND')
+      expect(sqlStr).toContain('v."id" != ALL(')
+      expect(flatValues(result)).toContain(excludedId)
+    })
+
+    it('includes an id even though it fails the seed voterStatus', () => {
+      const includedId = '22222222-2222-2222-2222-222222222222'
+      const result = buildVoterFiltersSql(voterStatusFilter(['Unlikely']), {
+        include: [includedId],
+      })
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('Voter_Status')
+      expect(sqlStr).toContain('OR')
+      expect(sqlStr).toContain('v."id" = ANY(')
+      expect(flatValues(result)).toContain(includedId)
+    })
+
+    it('combines include and exclude: (voterStatus AND NOT excl) OR incl', () => {
+      const includedId = '22222222-2222-2222-2222-222222222222'
+      const excludedId = '11111111-1111-1111-1111-111111111111'
+      const result = buildVoterFiltersSql(voterStatusFilter(['Unlikely']), {
+        include: [includedId],
+        exclude: [excludedId],
+      })
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('v."id" != ALL(')
+      expect(sqlStr).toContain('v."id" = ANY(')
+      expect(sqlStr).toMatch(/AND.*OR/)
+    })
+
+    it('binds include and exclude as one array parameter each', () => {
+      const includeIds = [
+        '22222222-2222-2222-2222-222222222222',
+        '33333333-3333-3333-3333-333333333333',
+      ]
+      const excludeIds = ['11111111-1111-1111-1111-111111111111']
+      const result = buildVoterFiltersSql(voterStatusFilter(['Unlikely']), {
+        include: includeIds,
+        exclude: excludeIds,
+      })
+
+      includeIds.forEach((id) => expect(flatValues(result)).toContain(id))
+      excludeIds.forEach((id) => expect(flatValues(result)).toContain(id))
+      // The result?.values array itself (not fully flattened) has exactly one
+      // entry per array-bound parameter: the voterStatus 'in' array, the
+      // exclude array, and the include array — never one entry per id.
+      expect(result?.values).toHaveLength(3)
+    })
+
+    // The critical composition-correctness case (ENG-10838): the OR must
+    // scope to ONLY the voterStatus clause. An override-included person must
+    // still be excluded by every other selected filter (age/party/gender/…) —
+    // the OR can never bubble up to wrap the whole filter conjunction.
+    it('scopes the OR to voterStatus only — other filters still AND at the top level', () => {
+      const includedId = '22222222-2222-2222-2222-222222222222'
+      const filterData: FilterData = {
+        filters: ['voterStatus', 'gender'],
+        filterValues: {},
+        filterOperators: {
+          voterStatus: { operator: 'in', values: ['Unlikely'] },
+          gender: { operator: 'eq', value: 'M' },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData, { include: [includedId] })
+      const sqlStr = sqlToString(result)
+
+      // buildVoterFiltersSql AND-joins one clause per filter key: the
+      // voterStatus/id OR-composite (its own parenthesized clause) is one
+      // item, gender is a second, sibling item — `(<composite>) AND <gender>`.
+      // So the OR never becomes the outermost operator of the whole
+      // expression, and gender still filters an override-included row. The
+      // composite's closing paren is immediately followed by the top-level
+      // AND join to the gender clause, not swallowed inside the OR.
+      expect(sqlStr).toContain('OR v."id" = ANY(')
+      expect(sqlStr).toContain(') AND v."Gender" = ')
+    })
+  })
 })

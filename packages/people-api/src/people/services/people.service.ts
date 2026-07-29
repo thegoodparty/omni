@@ -1,5 +1,6 @@
 import { Prisma } from '../../generated/prisma'
 import {
+  type IdOverrides,
   PeopleAggregatesResponse,
   PeopleAggregatesResponseSchema,
   PeopleOverlapCountResponse,
@@ -131,6 +132,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       districtId: effectiveDistrictId,
       filters,
       search,
+      idOverrides: dto.idOverrides,
     })
     const buildData = (skip: number) => {
       const queryArgs = {
@@ -153,6 +155,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       filters,
       search,
       groupByHousehold,
+      idOverrides: dto.idOverrides,
     }
 
     let totalResults: number
@@ -224,6 +227,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       state,
       districtId: effectiveDistrictId,
       filters: dto.filters,
+      idOverrides: dto.idOverrides,
     })
     // Same DistrictVoter -> Voter join as rawCountForDistrict, so it shares the
     // same pathological-plan exposure; the fenced fallback trades an exact
@@ -233,6 +237,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       districtId: effectiveDistrictId,
       filters: dto.filters,
       fenceLimit: FENCE_LIMIT,
+      idOverrides: dto.idOverrides,
     })
     const { rows, fenced } = await this.queryWithTimeoutFence<{
       count: bigint
@@ -273,6 +278,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       filters: dto.filters,
       search: dto.search,
       savedFilterSets: dto.savedFilterSets,
+      idOverrides: dto.idOverrides,
     }
     const sql = buildOverlapCountSql(baseArgs)
     const fencedSql = buildOverlapCountSql({
@@ -302,6 +308,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
     filters: FilterData
     search?: string
     groupByHousehold?: boolean
+    idOverrides?: IdOverrides
   }): Promise<{ count: number; fenced: boolean }> {
     const { state, districtId, search, groupByHousehold } = args
 
@@ -323,6 +330,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       districtId,
       search,
       filters: args.filters,
+      idOverrides: args.idOverrides,
     })
 
     // COUNT(DISTINCT <household key>) so totalResults/totalPages reflect
