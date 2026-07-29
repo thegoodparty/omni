@@ -599,14 +599,30 @@ export class ContactsService {
           )
           return null
         }
-        const savedIdResolution =
-          await this.activityConditionResolution.resolveIdFilter(
-            organization.slug,
+        // resolveIdFilter 400s past MAX_RESOLVED_ID_SET_SIZE — correct for
+        // the single-filter endpoints, but here it would abort the whole
+        // union, so the oversized set is dropped like the party case above.
+        let savedIdResolution: IdFilterResolution
+        try {
+          savedIdResolution =
+            await this.activityConditionResolution.resolveIdFilter(
+              organization.slug,
+              {
+                activityConditions: savedFilter.activityConditions,
+                supportStatus: savedFilter.supportStatus,
+              },
+            )
+        } catch (error) {
+          if (!(error instanceof BadRequestException)) throw error
+          this.logger.warn(
             {
-              activityConditions: savedFilter.activityConditions,
-              supportStatus: savedFilter.supportStatus,
+              organizationSlug: organization.slug,
+              voterFileFilterId: savedFilter.id,
             },
+            'Saved-list overlap count dropped a saved list whose resolved id set exceeded the id-filter cap',
           )
+          return null
+        }
         return savedIdResolution.kind === 'empty'
           ? null
           : this.mergeIdFilter(savedBaseFilters, savedIdResolution)

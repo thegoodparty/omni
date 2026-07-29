@@ -1,8 +1,10 @@
 import { HttpService } from '@nestjs/axios'
+import { BadRequestException } from '@nestjs/common'
 import { of } from 'rxjs'
 import { describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { PinoLogger } from 'nestjs-pino'
+import { ActivityConditionResolutionService } from 'src/contactInteraction/services/activityConditionResolution.service'
 
 const service = useTestService()
 
@@ -171,6 +173,50 @@ describe('POST /v1/contacts/overlap-count', () => {
     expect(postSpy).toHaveBeenCalledTimes(1)
     const body = postSpy.mock.calls[0]?.[1] as Record<string, unknown>
     expect((body.savedFilterSets as unknown[]).length).toBe(1)
+  })
+
+  // resolveIdFilter 400s when a resolution exceeds MAX_RESOLVED_ID_SET_SIZE
+  // (100k). One oversized saved list must be dropped from the union, not
+  // abort the whole overlap count.
+  it('drops a saved list whose resolved id set exceeds the cap instead of failing the count', async () => {
+    const slug = await setupProOrg('cap-exceeded')
+    await createSavedFilter(slug, { name: 'small', genderFemale: true })
+    await createSavedFilter(slug, {
+      name: 'huge',
+      activityConditions: {
+        create: { outreachType: 'doorKnocking', actions: [] },
+      },
+    })
+    const resolution = service.app.get(ActivityConditionResolutionService)
+    const realResolve = resolution.resolveIdFilter.bind(resolution)
+    vi.spyOn(resolution, 'resolveIdFilter').mockImplementation(
+      (organizationSlug, input) =>
+        input.activityConditions?.length
+          ? Promise.reject(
+              new BadRequestException(
+                'Activity filter matches too many contacts',
+              ),
+            )
+          : realResolve(organizationSlug, input),
+    )
+    const warnSpy = vi.spyOn(PinoLogger.prototype, 'warn')
+    const postSpy = spyOnPeopleApi({ count: 6, fenced: false })
+
+    const response = await service.client.post(
+      '/v1/contacts/overlap-count',
+      { genderMale: true },
+      { headers: { [ORG_SLUG_HEADER]: slug } },
+    )
+
+    expect(response.status).toBe(201)
+    expect(response.data).toEqual({ count: 6, fenced: false })
+    expect(postSpy).toHaveBeenCalledTimes(1)
+    const body = postSpy.mock.calls[0]?.[1] as Record<string, unknown>
+    expect((body.savedFilterSets as unknown[]).length).toBe(1)
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationSlug: slug }),
+      expect.stringContaining('id-filter cap'),
+    )
   })
 
   it('caps at the 25 most-recently-saved lists and logs a truncation warning', async () => {
