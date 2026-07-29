@@ -81,19 +81,20 @@ const StatusField: React.FC<{
 )
 
 // Read-only — TCPA product decision (2026-07-28): a manual opt-in override on
-// a texted STOP has no safe semantics, so this pill carries no menu
-// affordance. Presentation matches the OptedInChip it replaces exactly.
+// a texted STOP has no safe semantics, so this field carries no menu
+// affordance. Sized to the sibling SelectTriggers (h-10 w-full rounded-md
+// px-3, left-aligned text-sm) so the three fields read as one row.
 const OptInStatusPill: React.FC<{ optedOutAt: string | null }> = ({
   optedOutAt,
 }) => (
   <Badge
     variant="outline"
-    shape="pill"
-    className={
+    className={cn(
+      'h-10 w-full justify-start rounded-md px-3 py-2 text-base font-normal md:text-sm',
       optedOutAt
-        ? 'w-fit border-destructive/40 bg-destructive/10 text-destructive-dark'
-        : 'w-fit border-success/40 bg-success/10 text-success-dark'
-    }
+        ? 'border-destructive/40 bg-destructive/10 text-destructive-dark'
+        : 'border-success/40 bg-success/10 text-success-dark',
+    )}
   >
     {optedOutAt ? 'Opted Out' : 'Opted In'}
   </Badge>
