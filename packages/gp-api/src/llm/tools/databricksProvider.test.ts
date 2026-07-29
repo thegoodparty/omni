@@ -494,11 +494,11 @@ describe('DatabricksSqlProvider', () => {
 
     const second = provider.query(SELECT_N)
     await tick()
-    gates[0](new Error('old connect failed late'))
+    gates[0]?.(new Error('old connect failed late'))
     await tick()
     const third = provider.query(SELECT_N)
     await tick()
-    gates[1]()
+    gates[1]?.()
 
     expect(await second).toEqual({ columns: ['n'], rows: [{ n: 1 }] })
     expect(await third).toEqual({ columns: ['n'], rows: [{ n: 1 }] })
