@@ -150,10 +150,6 @@ import { GeneralChatsModule } from '@/chats/general/general-chats.module'
     },
     {
       provide: APP_INTERCEPTOR,
-      useClass: ImpersonationInterceptor,
-    },
-    {
-      provide: APP_INTERCEPTOR,
       useClass: AdminAuditInterceptor,
     },
     {
