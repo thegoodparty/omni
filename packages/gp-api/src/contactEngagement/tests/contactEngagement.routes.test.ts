@@ -583,6 +583,44 @@ describe('ContactEngagement routes', () => {
       })
     })
 
+    // ENG-10841: a door-knock-sourced event carries no actorUserId (the
+    // canvass answer isn't attributed to a staff user) — the feed already
+    // renders a null actor as `actorName: null` for any source, so this just
+    // pins the door_knock shape rather than re-testing that renderer.
+    it('renders a door-knock-sourced event with source door_knock and no actor name', async () => {
+      const personId = 'person-win-status-door-knock'
+
+      await service.prisma.contactStatusEvent.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          field: 'voter_likelihood',
+          fromValue: null,
+          toValue: 'likely',
+          source: 'door_knock',
+          actorUserId: null,
+          sourceId: 'client-key-1',
+          createdAt: new Date('2026-01-01T10:00:00Z'),
+        },
+      })
+
+      const result = await service.client.get(
+        `/v1/contact-engagement/${personId}/activities`,
+        { headers: { 'x-organization-slug': campaignOrgSlug } },
+      )
+
+      expect(result.status).toBe(200)
+      expect(result.data.results).toHaveLength(1)
+      expect(result.data.results[0].data).toMatchObject({
+        field: 'voter_likelihood',
+        fromLabel: null,
+        toLabel: 'Likely',
+        actorName: null,
+        actorUserId: null,
+        source: 'door_knock',
+      })
+    })
+
     it('interleaves STATUS_CHANGE with other entry types across a paginated cursor walk', async () => {
       const personId = 'person-win-status-cursor'
 

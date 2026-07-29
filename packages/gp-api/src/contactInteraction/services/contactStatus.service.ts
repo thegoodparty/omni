@@ -17,6 +17,11 @@ export type ChangeStatusInput = {
   toValue: string
   source: ContactStatusSource
   actorUserId: number | null
+  // Idempotency key for activity-sourced writes (door-knock sync, later
+  // phone-banking). A conflict on the unique (organizationSlug, field,
+  // sourceId) resolves to a silent no-op (this call returns null) rather than
+  // throwing — a re-synced/replayed activity event must not fail the
+  // caller's interaction write. Omit for manual edits.
   sourceId?: string | null
   // The derived/seed value the caller observed via its own (unlocked) read,
   // used ONLY when no current-state row exists yet for this (org, personId,
@@ -84,18 +89,31 @@ export class ContactStatusService extends createPrismaBase(
         return null
       }
 
-      const event = await tx.contactStatusEvent.create({
-        data: {
-          organizationSlug,
-          personId,
-          field,
-          fromValue,
-          toValue,
-          source,
-          actorUserId,
-          sourceId: sourceId ?? null,
-        },
-      })
+      let event: ContactStatusEvent
+      try {
+        event = await tx.contactStatusEvent.create({
+          data: {
+            organizationSlug,
+            personId,
+            field,
+            fromValue,
+            toValue,
+            source,
+            actorUserId,
+            sourceId: sourceId ?? null,
+          },
+        })
+      } catch (err) {
+        // Activity-sourced callers (door-knock sync, later phone-banking) pass
+        // a stable sourceId so a re-synced/replayed write is a no-op, not an
+        // error that fails the caller's interaction write. This constraint
+        // can only fire when sourceId is non-null — Postgres treats NULLs as
+        // distinct, so manual edits (null sourceId) never collide on it.
+        if (sourceId && isUniqueConstraintError(err)) {
+          return null
+        }
+        throw err
+      }
 
       if (existing) {
         await tx.contactCurrentStatus.updateMany({
