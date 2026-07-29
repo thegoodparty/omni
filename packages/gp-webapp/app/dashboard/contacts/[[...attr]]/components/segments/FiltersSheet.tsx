@@ -189,7 +189,9 @@ export default function Filters({
         ? filterSections.map((section) => ({
             ...section,
             fields: section.fields.filter(
-              (field) => field.key !== 'political_party',
+              (field) =>
+                field.key !== 'political_party' &&
+                field.key !== 'contacts_made',
             ),
           }))
         : filterSections,

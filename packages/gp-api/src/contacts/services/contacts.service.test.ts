@@ -88,6 +88,9 @@ describe('ContactsService', () => {
     let mockActivityConditionResolutionService: {
       resolveIdFilter: ReturnType<typeof vi.fn>
     }
+    let mockContactsMadeResolutionService: {
+      resolveContactsMade: ReturnType<typeof vi.fn>
+    }
 
     beforeEach(() => {
       mockHttpService = {
@@ -134,6 +137,9 @@ describe('ContactsService', () => {
       mockActivityConditionResolutionService = {
         resolveIdFilter: vi.fn().mockResolvedValue({ kind: 'none' }),
       }
+      mockContactsMadeResolutionService = {
+        resolveContactsMade: vi.fn().mockResolvedValue({ kind: 'none' }),
+      }
 
       service = new ContactsService(
         mockHttpService as never,
@@ -146,6 +152,7 @@ describe('ContactsService', () => {
         mockContactStatusService as never,
         mockContactInteractionTextService as never,
         mockActivityConditionResolutionService as never,
+        mockContactsMadeResolutionService as never,
         createMockLogger(),
       )
       vi.clearAllMocks()

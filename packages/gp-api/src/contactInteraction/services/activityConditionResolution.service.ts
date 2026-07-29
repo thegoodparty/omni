@@ -80,6 +80,66 @@ const buildActionsPredicate = (
 const intersect = (a: Set<string>, b: Set<string>): Set<string> =>
   new Set([...a].filter((id) => b.has(id)))
 
+const asInSet = (idFilter: { in: string[] } | { notIn: string[] }) =>
+  'in' in idFilter ? new Set(idFilter.in) : null
+
+const asNotInSet = (idFilter: { in: string[] } | { notIn: string[] }) =>
+  'notIn' in idFilter ? new Set(idFilter.notIn) : null
+
+// AND-composes two id-set resolutions that both need to collapse onto
+// people-api's single `id` operator (ENG-10839: activity/support-status
+// resolution AND the contacts-made 0/1-4/5+ bucket resolution can both
+// produce a plain in/notIn set for the same request). 'none' is the
+// identity value; 'empty' short-circuits (an empty set intersected with
+// anything is still empty). Two `notIn` sets union their exclusions rather
+// than intersect — each notIn set means "everyone except these", so the
+// combined constraint excludes everyone either side excludes.
+export const intersectIdFilterResolutions = (
+  a: IdFilterResolution,
+  b: IdFilterResolution,
+): IdFilterResolution => {
+  if (a.kind === 'empty' || b.kind === 'empty') return { kind: 'empty' }
+  if (a.kind === 'none') return b
+  if (b.kind === 'none') return a
+
+  const aIn = asInSet(a.idFilter)
+  const bIn = asInSet(b.idFilter)
+
+  if (aIn && bIn) {
+    const merged = [...aIn].filter((id) => bIn.has(id))
+    return merged.length === 0
+      ? { kind: 'empty' }
+      : { kind: 'filter', idFilter: { in: merged } }
+  }
+
+  const aNotIn = asNotInSet(a.idFilter)
+  const bNotIn = asNotInSet(b.idFilter)
+
+  if (aIn && bNotIn) {
+    const merged = [...aIn].filter((id) => !bNotIn.has(id))
+    return merged.length === 0
+      ? { kind: 'empty' }
+      : { kind: 'filter', idFilter: { in: merged } }
+  }
+  if (bIn && aNotIn) {
+    const merged = [...bIn].filter((id) => !aNotIn.has(id))
+    return merged.length === 0
+      ? { kind: 'empty' }
+      : { kind: 'filter', idFilter: { in: merged } }
+  }
+
+  // Neither side has an `in` set left, so both must be `notIn` (idFilter is
+  // always in|notIn) — union their exclusions.
+  const merged = new Set([...(aNotIn ?? []), ...(bNotIn ?? [])])
+  if (merged.size > MAX_RESOLVED_ID_SET_SIZE) {
+    throw new BadRequestException(
+      'This filter resolves too many people to apply directly — narrow ' +
+        'the activity conditions, support status, or contacts-made selection.',
+    )
+  }
+  return { kind: 'filter', idFilter: { notIn: [...merged] } }
+}
+
 // Conditions -> person-id sets, and the final composition with the
 // support-status filter into the single `id` operator people-api accepts.
 // Every supportStatus lookup below goes through

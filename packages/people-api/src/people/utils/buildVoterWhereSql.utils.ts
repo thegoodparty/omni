@@ -79,6 +79,7 @@ export const buildVoterWhereSql = (args: {
   search?: string
   extraConditions?: Prisma.Sql[]
   idOverrides?: IdOverrides
+  contactsMadeIdOverrides?: IdOverrides
 }): Prisma.Sql => {
   const { state, districtId } = args
 
@@ -121,7 +122,11 @@ export const buildVoterWhereSql = (args: {
       }
     }
   }
-  const voterFiltersSql = buildVoterFiltersSql(args.filters, args.idOverrides)
+  const voterFiltersSql = buildVoterFiltersSql(
+    args.filters,
+    args.idOverrides,
+    args.contactsMadeIdOverrides,
+  )
   if (voterFiltersSql) {
     parts.push(voterFiltersSql)
   }

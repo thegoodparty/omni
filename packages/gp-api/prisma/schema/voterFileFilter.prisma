@@ -65,6 +65,12 @@ model VoterFileFilter {
   homeownerLikely            Boolean?                           @default(false) @map("homeowner_likely")
   homeownerNo                Boolean?                           @default(false) @map("homeowner_no")
   homeownerUnknown           Boolean?                           @default(false) @map("homeowner_unknown")
+  contactsMade0              Boolean?                           @default(false) @map("contacts_made_0")
+  contactsMade1              Boolean?                           @default(false) @map("contacts_made_1")
+  contactsMade2              Boolean?                           @default(false) @map("contacts_made_2")
+  contactsMade3              Boolean?                           @default(false) @map("contacts_made_3")
+  contactsMade4              Boolean?                           @default(false) @map("contacts_made_4")
+  contactsMade5Plus          Boolean?                           @default(false) @map("contacts_made_5_plus")
   voterCount                 Int?                               @map("voter_count")
   outreaches                 Outreach[]
   doorKnockingTurfs          DoorKnockingTurf[]

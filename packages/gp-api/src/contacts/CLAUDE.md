@@ -205,6 +205,70 @@ per-set `idOverrides` on the wire (`PeopleOverlapCountRequestSchema`'s
 `savedFilterSets` would need to become `{ filters, idOverrides }[]`) — a real
 follow-up, not a one-line change.
 
+### Contacts-made filter (ENG-10839)
+
+The wizard's "Contacts made" pill row (0/1/2/3/4/5+, Win-only — hidden for
+Serve like Political Party) counts every logged interaction ROW across
+`contact_interaction_text`/`_robocall`/`_door_knock`, regardless of outcome —
+a 3-attempt door-knock sync that logs 3 rows counts as 3. Six booleans on
+`VoterFileFilter` (`contactsMade0`…`contactsMade4`, `contactsMade5Plus`,
+5Plus meaning ≥5), added additively (migration
+`20260729042120_add_contacts_made_filter_columns`) and excluded from
+`convertVoterFileFilterToFilters`'s generic loop (`fieldsHandledSeparately`,
+same treatment as the `audience*` booleans) since they resolve through
+`ContactsMadeResolutionService.resolveContactsMade`, not a people-api
+`PeopleFilters` key.
+
+Resolution (`ContactsMadeResolutionService`, contactInteraction) runs one
+grouped SQL query per request — `SELECT person_id, COUNT(*) FROM (UNION ALL
+of the three tables) GROUP BY person_id HAVING <bucket predicate>` — never
+six per-bucket queries. Selection `S ⊆ {0,1,2,3,4,5}` maps to one of three
+shapes:
+
+- **`S` excludes 0**: `{ kind: 'filter', idFilter: { in: <union of the
+  selected buckets' ids> } }` — the ordinary `buildIdFilter` path.
+- **`S = {0}`**: `{ kind: 'filter', idFilter: { notIn: <everyone ever
+  contacted> } }` — enumerating "everyone NOT contacted" directly isn't
+  tractable (could be the whole district), so `notIn` expresses it without
+  enumeration.
+- **`S = {0, …non-zero}`**: `{ kind: 'override', idOverrides: { include:
+  <bucket ids>, exclude: <everyone contacted> } }` — bucket ids are a
+  subset of the contacted set, so this can't collapse to a single
+  in/notIn operator. It reuses people-api's `composeIdOverridesClause`
+  (ENG-10838) with an **absent base clause** (`composeIdOverridesClause(null,
+  …)` already falls back to `TRUE`), traveling as a second, independent
+  top-level sibling `contactsMadeIdOverrides: { include?, exclude? }` —
+  same `IdOverridesSchema` shape as ENG-10838's `idOverrides`, but a
+  **separate wire field** composed unconditionally in
+  `buildVoterFiltersSql` (AND-ed with everything else, never scoped to a
+  single filter key) rather than sharing the voterStatus-scoped
+  `idOverrides` channel, since a request can select both a Voter
+  Likelihood override AND a contacts-made mixed bucket at once and the two
+  id sets must not conflate.
+
+`ContactsService.resolveIdFilterWithContactsMade` composes this with the
+existing `ActivityConditionResolutionService.resolveIdFilter` call: both can
+produce a plain `id` in/notIn constraint destined for the same people-api
+`id` key, so the two are AND-intersected first via the exported
+`intersectIdFilterResolutions` (activityConditionResolution.service.ts) —
+two `notIn` sets union their exclusions, an `in`/`notIn` pair subtracts, two
+`in` sets intersect. The mixed-case `contactsMadeIdOverrides` never goes
+through this intersection — it AND-composes at the SQL level instead. Every
+read-path consumer that already calls activity/support resolution also calls
+this (list, count, overlap-count's current selection, `findContactsForFilter`,
+list-detail aggregates, download) — capped at the same
+`MAX_RESOLVED_ID_SET_SIZE` (100k) as activity-condition resolution, thrown
+as a `BadRequestException` rather than silently truncated.
+
+Win-only enforcement mirrors party: `assertNoContactsMadeFilterForElectedOffice`
+(same shape as `assertNoPartyFilterForElectedOffice`, but checked on the raw
+pre-conversion `VoterFileFilter`/DTO booleans since contactsMade fields never
+reach the converted `FilterObject`) 400s at `resolveBaseFilters` and
+`segmentToFilters` — the same choke points party is asserted at, minus the
+two legacy voter-file endpoints (`countVoterFilePeople`,
+`downloadVoterFilePeople`) which skip activity/support resolution entirely
+and so skip contacts-made too, by the same existing precedent.
+
 ### Saved-filter lifecycle
 
 Create/edit via the wizard (or the assistant's `crud_saved_filters`) →
@@ -369,9 +433,13 @@ over interaction rows with a non-null `support_answer`; a "list" =
   `tests/contactNotes.routes.test.ts`,
   `tests/contactInteractions.routes.test.ts`,
   `tests/contactsOptedOutChip.routes.test.ts`,
-  `tests/contactsAgeFilters.routes.test.ts`, `contacts.e2e.ts`.
+  `tests/contactsAgeFilters.routes.test.ts`,
+  `tests/contactsVoterLikelihoodOverride.routes.test.ts`,
+  `tests/contactsMade.routes.test.ts`, `contacts.e2e.ts`.
   Assistant/UI parity: `chats/general/crm-tools/countContactsParity.routes.test.ts`.
-- Resolution + derivation: `src/contactInteraction/tests/`.
+- Resolution + derivation: `src/contactInteraction/tests/`, including
+  `contactsMadeResolution.service.test.ts` (the bucket SQL + the
+  in/notIn/override decision table).
 - people-api SQL builders: `filters.sql.utils.test.ts` pattern (assert
   SQL string + params).
 - Webapp e2e (hard merge gate): `e2e-tests/tests/app/contacts/*.spec.ts`

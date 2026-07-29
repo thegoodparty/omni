@@ -29,6 +29,9 @@ export const buildOverlapCountSql = (args: {
   // still reflects seed voterStatus only (a documented, scoped gap — see
   // packages/gp-api/src/contacts/CLAUDE.md).
   idOverrides?: IdOverrides
+  // ENG-10839: same current-selection-only scoping as idOverrides above —
+  // saved sets are not contacts-made-override-aware either.
+  contactsMadeIdOverrides?: IdOverrides
 }): Prisma.Sql => {
   const {
     state,
@@ -38,6 +41,7 @@ export const buildOverlapCountSql = (args: {
     savedFilterSets,
     fenceLimit,
     idOverrides,
+    contactsMadeIdOverrides,
   } = args
 
   const whereClause = buildVoterWhereSql({
@@ -46,6 +50,7 @@ export const buildOverlapCountSql = (args: {
     filters,
     search,
     idOverrides,
+    contactsMadeIdOverrides,
   })
 
   const savedClauses = savedFilterSets.map(

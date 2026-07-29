@@ -22,6 +22,14 @@ export const listPeopleSchema = withDistrictInput({
   // scoped to the voterStatus clause only (buildVoterFiltersSql). Omitted
   // when the org has no overrides, so the SQL stays byte-identical to today.
   idOverrides: IdOverridesSchema.optional(),
+  // Contacts-made filtering (ENG-10839): a second, independent
+  // request-level id-overrides sibling, unconditionally OR-composed at the
+  // top level rather than scoped to a single filter clause (see
+  // buildVoterFiltersSql). gp-api resolves it from the org's
+  // contact_interaction_* row counts for the mixed "0 contacts + a specific
+  // non-zero bucket" selection only — every other contacts-made selection
+  // travels as a plain `filters.id` in/notIn instead.
+  contactsMadeIdOverrides: IdOverridesSchema.optional(),
   search: z.string().optional(),
   // resultsPerPage feeds `LIMIT ${take}` and page feeds `OFFSET ${skip}` in raw
   // SQL (people.service.ts), so this is the last line of defense against
@@ -60,6 +68,8 @@ export const downloadPeopleSchema = withDistrictInput({
   // shape, threaded so a Voter-Likelihood-filtered download matches the
   // count/list membership.
   idOverrides: IdOverridesSchema.optional(),
+  // See listPeopleSchema's contactsMadeIdOverrides comment (ENG-10839).
+  contactsMadeIdOverrides: IdOverridesSchema.optional(),
   // Mirror the list endpoint: door-knocking exports one row per physical
   // household so the CSV matches the on-screen de-duplicated list.
   groupByHousehold: z.coerce.boolean().optional().default(false),
@@ -82,6 +92,8 @@ export const aggregatesSchema = withDistrictInput({
   filters: filtersSchema,
   // See listPeopleSchema's idOverrides comment (ENG-10838).
   idOverrides: IdOverridesSchema.optional(),
+  // See listPeopleSchema's contactsMadeIdOverrides comment (ENG-10839).
+  contactsMadeIdOverrides: IdOverridesSchema.optional(),
 })
 
 export class AggregatesDTO extends createZodDto(aggregatesSchema) {}
@@ -98,6 +110,9 @@ export const overlapCountSchema = withDistrictInput({
   // current in-progress `filters` selection only. `savedFilterSets` entries
   // are deliberately NOT override-aware yet (see buildOverlapCountSql.utils.ts).
   idOverrides: IdOverridesSchema.optional(),
+  // See listPeopleSchema's contactsMadeIdOverrides comment (ENG-10839) —
+  // same current-selection-only scoping as idOverrides above.
+  contactsMadeIdOverrides: IdOverridesSchema.optional(),
   search: z.string().optional(),
   savedFilterSets: z.array(filtersSchema).max(MAX_OVERLAP_SAVED_FILTER_SETS),
 })
