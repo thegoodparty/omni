@@ -36,12 +36,24 @@ const composeIdOverridesClause = (
     : scoped
 }
 
+// ENG-10839: contacts-made's mixed "0 + a non-zero bucket" selection needs
+// an OR-of-id-sets clause with no people-api filter key to scope against
+// (unlike voterStatus above) — gp-api resolves it to a plain include/exclude
+// pair over the Voter PK with nothing else to AND against, so this composes
+// unconditionally (composeIdOverridesClause's baseClause falls back to TRUE)
+// as its own top-level AND clause, independent of whichever `filters` keys
+// are present. Omitted -> no clause added, SQL byte-identical to before.
 export const buildVoterFiltersSql = (
   filterData: FilterData,
   idOverrides?: IdOverrides,
+  contactsMadeIdOverrides?: IdOverrides,
 ): Prisma.Sql | null => {
   const { filters, filterOperators } = filterData
   const andClauses: Prisma.Sql[] = []
+
+  if (hasIdOverrides(contactsMadeIdOverrides)) {
+    andClauses.push(composeIdOverridesClause(null, contactsMadeIdOverrides))
+  }
 
   for (const filter of filters) {
     const op = filterOperators[filter]

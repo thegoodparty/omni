@@ -12,14 +12,23 @@ export const buildAggregatesSql = (args: {
   filters: FilterData
   fenceLimit?: number
   idOverrides?: IdOverrides
+  contactsMadeIdOverrides?: IdOverrides
 }): Prisma.Sql => {
-  const { state, districtId, filters, fenceLimit, idOverrides } = args
+  const {
+    state,
+    districtId,
+    filters,
+    fenceLimit,
+    idOverrides,
+    contactsMadeIdOverrides,
+  } = args
 
   const whereClause = buildVoterWhereSql({
     state,
     districtId,
     filters,
     idOverrides,
+    contactsMadeIdOverrides,
   })
   const fromSql = districtId
     ? Prisma.sql`FROM "green"."DistrictVoter" dv

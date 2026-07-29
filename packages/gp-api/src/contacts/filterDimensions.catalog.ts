@@ -8,6 +8,7 @@ import {
 } from '@/shared/schemas/activityCondition.schema'
 import {
   AUDIENCE_VOTER_STATUS_VALUES,
+  CONTACTS_MADE_BUCKET_FIELDS,
   INCOME_RANGE_MAPPING,
   LANGUAGE_CODE_TO_LABEL,
 } from './utils/voterFileFilter.utils'
@@ -146,6 +147,19 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
       { key: 'partyRepublican', label: 'Republican' },
       { key: 'partyUnknown', label: 'Unknown' },
     ],
+  },
+  {
+    // Every logged interaction row across text/robocall/door-knock,
+    // regardless of outcome (ENG-10839) — campaign activity, so Win-only
+    // like party.
+    key: 'contactsMade',
+    label: 'Contacts Made',
+    kind: 'boolean-group',
+    modes: 'win',
+    values: CONTACTS_MADE_BUCKET_FIELDS.map(({ field, bucket }) => ({
+      key: field,
+      label: bucket === 5 ? '5+' : String(bucket),
+    })),
   },
   {
     key: 'age',

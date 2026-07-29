@@ -127,6 +127,7 @@ describe('ContactsService.getFilterDimensions', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger() as unknown as PinoLogger,
     )
 
@@ -149,12 +150,15 @@ describe('ContactsService.getFilterDimensions', () => {
   })
 
   it('returns the shared dimensions for both modes', () => {
+    const winOnlyKeys = new Set(
+      FILTER_DIMENSIONS.filter((d) => d.modes === 'win').map((d) => d.key),
+    )
     const winKeys = buildService()
       .getFilterDimensions(organization('win-campaign'))
       .map((d) => d.key)
     const serveKeys = buildService()
       .getFilterDimensions(organization('eo-city-council'))
       .map((d) => d.key)
-    expect(winKeys.filter((key) => key !== 'party')).toEqual(serveKeys)
+    expect(winKeys.filter((key) => !winOnlyKeys.has(key))).toEqual(serveKeys)
   })
 })

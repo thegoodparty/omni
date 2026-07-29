@@ -83,6 +83,20 @@ export const AUDIENCE_VOTER_STATUS_VALUES = [
   { field: 'audienceUnknown', value: 'Unknown' },
 ] as const
 
+// Contacts-made boolean -> bucket (ENG-10839). 5 means "5+" (>= 5 logged
+// interactions). Resolved by ContactsMadeResolutionService, never sent to
+// people-api as a raw filter key (see fieldsHandledSeparately below) — kept
+// here so the filter-dimensions catalog and the resolution service share one
+// vocabulary, mirroring AUDIENCE_VOTER_STATUS_VALUES above.
+export const CONTACTS_MADE_BUCKET_FIELDS = [
+  { field: 'contactsMade0', bucket: 0 },
+  { field: 'contactsMade1', bucket: 1 },
+  { field: 'contactsMade2', bucket: 2 },
+  { field: 'contactsMade3', bucket: 3 },
+  { field: 'contactsMade4', bucket: 4 },
+  { field: 'contactsMade5Plus', bucket: 5 },
+] as const
+
 // languageCodes entry -> the people-api language filter value (also the
 // human-readable label the catalog shows for that code).
 export const LANGUAGE_CODE_TO_LABEL: Record<string, string> = {
@@ -182,6 +196,12 @@ export const convertVoterFileFilterToFilters = (
     'homeownerNo',
     'homeownerUnknown',
     'incomeUnknown',
+    'contactsMade0',
+    'contactsMade1',
+    'contactsMade2',
+    'contactsMade3',
+    'contactsMade4',
+    'contactsMade5Plus',
   ])
 
   for (const [key, value] of Object.entries(segment)) {

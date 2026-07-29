@@ -90,6 +90,17 @@ wraps the whole conjunction. Omitted → SQL byte-identical to before. See
 `packages/gp-api/src/contacts/CLAUDE.md` § Override-aware Voter Likelihood
 filtering for the full resolution algorithm.
 
+`contactsMadeIdOverrides: { include?, exclude? }` (ENG-10839) is a second,
+independent top-level sibling on the same four request shapes — same
+`IdOverridesSchema` type as `idOverrides` above, but composed
+**unconditionally** (`composeIdOverridesClause(null, …)`, falling back to a
+`TRUE` base) as its own top-level AND clause in `buildVoterFiltersSql`,
+never scoped to a single filter key. Kept as a separate wire field rather
+than reusing `idOverrides` because a request can select both a Voter
+Likelihood override and a contacts-made mixed bucket at once, and the two
+id sets must not conflate. See `packages/gp-api/src/contacts/CLAUDE.md` §
+Contacts-made filter for the full resolution algorithm.
+
 Every `/people` count AND the filtered aggregates (`getAggregates`) run under
 a 2.5s `SET LOCAL statement_timeout` (`SLOW_QUERY_TIMEOUT_MS`); on
 cancellation (SQLSTATE 57014) `people.service.ts` retries once with a fenced

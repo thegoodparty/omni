@@ -35,10 +35,15 @@ import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { SUPPORT_STATUS_UNKNOWN } from 'src/contactInteraction/contactInteraction.types'
 import {
   ActivityConditionResolutionService,
+  intersectIdFilterResolutions,
   type IdFilterResolution,
   MAX_RESOLVED_ID_SET_SIZE,
 } from 'src/contactInteraction/services/activityConditionResolution.service'
 import { ContactInteractionTextService } from 'src/contactInteraction/services/contactInteractionText.service'
+import {
+  ContactsMadeResolutionService,
+  type ContactsMadeBucket,
+} from 'src/contactInteraction/services/contactsMadeResolution.service'
 import { ContactStatusService } from 'src/contactInteraction/services/contactStatus.service'
 import { SupportStatusService } from 'src/contactInteraction/services/supportStatus.service'
 import { ElectionsService } from 'src/elections/services/elections.service'
@@ -62,6 +67,7 @@ import { PeopleListResponse, PersonOutput } from '../schemas/person.schema'
 import type { SampleContacts } from '../schemas/sampleContacts.schema'
 import defaultSegmentToFiltersMap from '../segmentsToFiltersMap.const'
 import {
+  CONTACTS_MADE_BUCKET_FIELDS,
   convertVoterFileFilterToFilters,
   type FilterObject,
 } from '../utils/voterFileFilter.utils'
@@ -159,6 +165,21 @@ const extractVoterStatusSeedValues = (filters: FilterObject): string[] => {
   return []
 }
 
+// ENG-10839: reads the selected contacts-made buckets straight off the raw
+// VoterFileFilter/count-DTO booleans — they never reach the converted
+// FilterObject (convertVoterFileFilterToFilters's fieldsHandledSeparately
+// strips them for dedicated resolution instead of the generic key->filter
+// loop), so this reads the same pre-conversion shape resolveBaseFilters and
+// segmentToFilters receive.
+const extractContactsMadeSelection = (
+  filterInput: Partial<VoterFileFilter>,
+): Set<ContactsMadeBucket> =>
+  new Set(
+    CONTACTS_MADE_BUCKET_FIELDS.filter(({ field }) => filterInput[field]).map(
+      ({ bucket }) => bucket,
+    ),
+  )
+
 // Serve (`eo-`) CRM downloads must omit these columns entirely — a blank
 // column still reveals the field exists (ENG-10830). Party (completing
 // ENG-10696), turnout propensity, and vote history.
@@ -212,6 +233,7 @@ export class ContactsService {
     private readonly contactStatusService: ContactStatusService,
     private readonly contactInteractionTextService: ContactInteractionTextService,
     private readonly activityConditionResolution: ActivityConditionResolutionService,
+    private readonly contactsMadeResolutionService: ContactsMadeResolutionService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(ContactsService.name)
@@ -282,6 +304,30 @@ export class ContactsService {
     if (this.hasPartyFilterForElectedOffice(organization, filters)) {
       throw new BadRequestException(
         'Political party filtering is not available for this organization',
+      )
+    }
+  }
+
+  // Win-only (ENG-10839), same shape as the party gate above but checked on
+  // the raw pre-conversion input: contactsMade* booleans never reach the
+  // converted FilterObject (see extractContactsMadeSelection's doc comment),
+  // so 'politicalParty' in filters' pattern doesn't apply here.
+  private hasContactsMadeSelection(
+    filterInput: Partial<VoterFileFilter>,
+  ): boolean {
+    return CONTACTS_MADE_BUCKET_FIELDS.some(({ field }) => filterInput[field])
+  }
+
+  private assertNoContactsMadeFilterForElectedOffice(
+    organization: Organization,
+    filterInput: Partial<VoterFileFilter>,
+  ): void {
+    if (
+      this.hasElectedOfficeAccess(organization) &&
+      this.hasContactsMadeSelection(filterInput)
+    ) {
+      throw new BadRequestException(
+        'Contacts-made filtering is not available for this organization',
       )
     }
   }
@@ -373,7 +419,68 @@ export class ContactsService {
   ): Promise<{ filters: FilterObject; idOverrides?: IdOverrides }> {
     const baseFilters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
+    this.assertNoContactsMadeFilterForElectedOffice(organization, filterInput)
     return this.resolveVoterLikelihoodFilter(organization, baseFilters)
+  }
+
+  // Composes activity-condition/support-status resolution with the
+  // contacts-made filter (ENG-10839). Both can produce a plain id in/notIn
+  // constraint destined for people-api's single `id` key, so they're
+  // intersected here (intersectIdFilterResolutions) before any caller merges
+  // the result in; the mixed "0 + a non-zero bucket" case can't collapse to
+  // a single in/notIn operator, so it travels as an independent
+  // contactsMadeIdOverrides clause instead (people-api AND-s it with the
+  // activity/support resolution's own `id` clause at the SQL level, rather
+  // than sharing the `id` key). Win-only: every caller already asserts an
+  // eo- org's filterInput carries no contactsMade selection
+  // (assertNoContactsMadeFilterForElectedOffice), so hasElectedOfficeAccess
+  // here is a defense-in-depth no-op, not the primary gate.
+  private async resolveIdFilterWithContactsMade(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+  ): Promise<{
+    idResolution: IdFilterResolution
+    contactsMadeIdOverrides?: IdOverrides
+  }> {
+    const idResolution = await this.activityConditionResolution.resolveIdFilter(
+      organization.slug,
+      {
+        activityConditions: filterInput.activityConditions,
+        supportStatus: filterInput.supportStatus,
+      },
+    )
+    if (this.hasElectedOfficeAccess(organization)) {
+      return { idResolution }
+    }
+
+    const selected = extractContactsMadeSelection(filterInput)
+    if (selected.size === 0) {
+      return { idResolution }
+    }
+
+    const contactsMadeResolution =
+      await this.contactsMadeResolutionService.resolveContactsMade(
+        organization.slug,
+        selected,
+      )
+
+    if (contactsMadeResolution.kind === 'override') {
+      // The activity/support resolution already resolved to nobody — that
+      // still wins outright, since the override clause only AND-s in.
+      return idResolution.kind === 'empty'
+        ? { idResolution }
+        : {
+            idResolution,
+            contactsMadeIdOverrides: contactsMadeResolution.idOverrides,
+          }
+    }
+
+    return {
+      idResolution: intersectIdFilterResolutions(
+        idResolution,
+        contactsMadeResolution,
+      ),
+    }
   }
 
   private async isProAccess(organization: Organization): Promise<boolean> {
@@ -516,6 +623,7 @@ export class ContactsService {
       districtParams: { districtId: string },
       filters: FilterObject,
       idOverrides: IdOverrides | undefined,
+      contactsMadeIdOverrides: IdOverrides | undefined,
       groupByHousehold: boolean,
       peopleSearch: string | undefined,
     ) => {
@@ -529,6 +637,7 @@ export class ContactsService {
               page,
               filters,
               idOverrides,
+              contactsMadeIdOverrides,
               search: peopleSearch,
               groupByHousehold,
             },
@@ -546,10 +655,8 @@ export class ContactsService {
       }
     }
 
-    const { filters, empty, idOverrides } = await this.segmentToFilters(
-      segment,
-      organization,
-    )
+    const { filters, empty, idOverrides, contactsMadeIdOverrides } =
+      await this.segmentToFilters(segment, organization)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     // A list saved from a search result set persists its search term. When the
@@ -567,6 +674,7 @@ export class ContactsService {
               params,
               filters,
               idOverrides,
+              contactsMadeIdOverrides,
               groupByHousehold,
               effectiveSearch,
             ),
@@ -613,13 +721,8 @@ export class ContactsService {
       filterInput,
     )
 
-    const idResolution = await this.activityConditionResolution.resolveIdFilter(
-      organization.slug,
-      {
-        activityConditions: filterInput.activityConditions,
-        supportStatus: filterInput.supportStatus,
-      },
-    )
+    const { idResolution, contactsMadeIdOverrides } =
+      await this.resolveIdFilterWithContactsMade(organization, filterInput)
     if (idResolution.kind === 'empty') {
       return this.withOrgDistrictResolution(organization, async () => ({
         count: 0,
@@ -642,6 +745,7 @@ export class ContactsService {
               page: 1,
               filters,
               idOverrides,
+              contactsMadeIdOverrides,
               search,
               groupByHousehold: false,
             },
@@ -685,13 +789,8 @@ export class ContactsService {
       filterInput,
     )
 
-    const idResolution = await this.activityConditionResolution.resolveIdFilter(
-      organization.slug,
-      {
-        activityConditions: filterInput.activityConditions,
-        supportStatus: filterInput.supportStatus,
-      },
-    )
+    const { idResolution, contactsMadeIdOverrides } =
+      await this.resolveIdFilterWithContactsMade(organization, filterInput)
     // The current selection resolves to nobody — nothing to overlap with, so
     // this mirrors countContacts' own empty-resolution short circuit rather
     // than paying a people-api round trip for a guaranteed zero.
@@ -720,6 +819,7 @@ export class ContactsService {
               ...districtParams,
               filters,
               idOverrides,
+              contactsMadeIdOverrides,
               search,
               savedFilterSets,
             },
@@ -878,14 +978,10 @@ export class ContactsService {
       filterInput,
     )
 
+    const { idResolution: rawIdResolution, contactsMadeIdOverrides } =
+      await this.resolveIdFilterWithContactsMade(organization, filterInput)
     const idResolution = this.excludePersonIdsFromResolution(
-      await this.activityConditionResolution.resolveIdFilter(
-        organization.slug,
-        {
-          activityConditions: filterInput.activityConditions,
-          supportStatus: filterInput.supportStatus,
-        },
-      ),
+      rawIdResolution,
       excludePersonIds,
     )
     if (idResolution.kind === 'empty') {
@@ -908,6 +1004,7 @@ export class ContactsService {
               page: pagination.page,
               filters,
               idOverrides,
+              contactsMadeIdOverrides,
               search,
               groupByHousehold: false,
             },
@@ -968,13 +1065,8 @@ export class ContactsService {
       filter,
     )
 
-    const idResolution = await this.activityConditionResolution.resolveIdFilter(
-      organization.slug,
-      {
-        activityConditions: filter.activityConditions,
-        supportStatus: filter.supportStatus,
-      },
-    )
+    const { idResolution, contactsMadeIdOverrides } =
+      await this.resolveIdFilterWithContactsMade(organization, filter)
 
     const outreachHistory =
       await this.voterFileFilterService.findOutreachesByVoterFileFilterId(
@@ -1005,6 +1097,7 @@ export class ContactsService {
       organization,
       filters,
       idOverrides,
+      contactsMadeIdOverrides,
     )
     return { ...aggregates, outreachHistory }
   }
@@ -1020,17 +1113,24 @@ export class ContactsService {
     organization: Organization,
     baseFilters: FilterObject,
     idOverrides?: IdOverrides,
+    contactsMadeIdOverrides?: IdOverrides,
   ): Promise<
     Pick<ListDetailContactsResponse, 'demographics' | 'reachability'>
   > {
     const [base, cellphone, landline, address] =
       await this.withOrgDistrictResolution(organization, (districtParams) =>
         Promise.allSettled([
-          this.fetchPeopleAggregates(districtParams, baseFilters, idOverrides),
+          this.fetchPeopleAggregates(
+            districtParams,
+            baseFilters,
+            idOverrides,
+            contactsMadeIdOverrides,
+          ),
           this.fetchPeopleAggregates(
             districtParams,
             { ...baseFilters, hasCellPhone: true },
             idOverrides,
+            contactsMadeIdOverrides,
           ),
           // phoneBanking mirrors the built-in channel map
           // (segmentsToFiltersMap.const.ts): it dials landlines, not cell
@@ -1040,11 +1140,13 @@ export class ContactsService {
             districtParams,
             { ...baseFilters, hasLandline: true },
             idOverrides,
+            contactsMadeIdOverrides,
           ),
           this.fetchPeopleAggregates(
             districtParams,
             { ...baseFilters, hasAddress: true },
             idOverrides,
+            contactsMadeIdOverrides,
           ),
         ]),
       )
@@ -1093,12 +1195,13 @@ export class ContactsService {
     districtParams: { districtId: string },
     filters: FilterObject,
     idOverrides?: IdOverrides,
+    contactsMadeIdOverrides?: IdOverrides,
   ): Promise<PeopleAggregatesResponse> {
     try {
       const response = await lastValueFrom(
         this.httpService.post(
           `${PEOPLE_API_URL}/v1/people/aggregates`,
-          { ...districtParams, filters, idOverrides },
+          { ...districtParams, filters, idOverrides, contactsMadeIdOverrides },
           {
             headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
           },
@@ -1372,10 +1475,8 @@ export class ContactsService {
       throw new BadRequestException('Campaign is not pro')
     }
 
-    const { filters, empty, idOverrides } = await this.segmentToFilters(
-      segment,
-      organization,
-    )
+    const { filters, empty, idOverrides, contactsMadeIdOverrides } =
+      await this.segmentToFilters(segment, organization)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     const excludeColumns = this.hasElectedOfficeAccess(organization)
@@ -1388,6 +1489,7 @@ export class ContactsService {
             params,
             filters,
             idOverrides,
+            contactsMadeIdOverrides,
             groupByHousehold,
             excludeColumns,
             res,
@@ -1399,6 +1501,7 @@ export class ContactsService {
     districtParams: { districtId: string },
     filters: FilterObject,
     idOverrides: IdOverrides | undefined,
+    contactsMadeIdOverrides: IdOverrides | undefined,
     groupByHousehold: boolean,
     excludeColumns: string[] | undefined,
     res: FastifyReply,
@@ -1412,6 +1515,7 @@ export class ContactsService {
             ...districtParams,
             filters,
             idOverrides,
+            contactsMadeIdOverrides,
             groupByHousehold,
             excludeColumns,
           },
@@ -1551,9 +1655,10 @@ export class ContactsService {
         params,
         filters,
         // Legacy voter-file download (task-flow / outreach audience CSV):
-        // demographic booleans only, no Voter Likelihood override
-        // resolution — out of scope for ENG-10838 (see the doc comment on
-        // countVoterFilePeople above).
+        // demographic booleans only, no Voter Likelihood/contacts-made
+        // override resolution — out of scope for ENG-10838/10839 (see the
+        // doc comment on countVoterFilePeople above).
+        undefined,
         undefined,
         groupByHousehold,
         this.hasElectedOfficeAccess(organization)
@@ -1690,6 +1795,7 @@ export class ContactsService {
     filters: FilterObject
     empty: boolean
     idOverrides?: IdOverrides
+    contactsMadeIdOverrides?: IdOverrides
   }> {
     const resolvedSegment = segment || ALL_CONTACTS_SEGMENT
     // Built-in segments (segmentsToFiltersMap.const.ts) carry no voterStatus
@@ -1703,19 +1809,15 @@ export class ContactsService {
         organization.slug,
       )
     if (!customSegment) return { filters: {}, empty: false }
+    this.assertNoContactsMadeFilterForElectedOffice(organization, customSegment)
 
     const { filters: baseFilters, idOverrides } =
       await this.resolveVoterLikelihoodFilter(
         organization,
         convertVoterFileFilterToFilters(customSegment),
       )
-    const idResolution = await this.activityConditionResolution.resolveIdFilter(
-      organization.slug,
-      {
-        activityConditions: customSegment.activityConditions,
-        supportStatus: customSegment.supportStatus,
-      },
-    )
+    const { idResolution, contactsMadeIdOverrides } =
+      await this.resolveIdFilterWithContactsMade(organization, customSegment)
     if (idResolution.kind === 'empty') {
       return { filters: baseFilters, empty: true, idOverrides }
     }
@@ -1723,6 +1825,7 @@ export class ContactsService {
       filters: this.mergeIdFilter(baseFilters, idResolution),
       empty: false,
       idOverrides,
+      contactsMadeIdOverrides,
     }
   }
 

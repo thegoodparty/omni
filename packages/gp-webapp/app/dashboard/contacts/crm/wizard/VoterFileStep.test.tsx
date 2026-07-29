@@ -127,3 +127,100 @@ describe('VoterFileStep — Voter Likelihood section position', () => {
     expect(headings).not.toContain('Political party')
   })
 })
+
+// ENG-10839: Contacts Made moves to render directly ABOVE Support status in
+// the wizard (prototype order) — the opposite side from Voter Likelihood,
+// which renders below. Win-only, stripped for Serve like Political Party.
+describe('VoterFileStep — Contacts Made section', () => {
+  const noop = vi.fn()
+
+  it('renders the Contacts Made group heading directly above Support status', () => {
+    render(
+      <VoterFileStep
+        filters={{}}
+        onFiltersChange={noop}
+        supportStatus={[]}
+        onSupportStatusChange={noop}
+        isElectedOfficial={false}
+      />,
+    )
+
+    const headings = screen
+      .getAllByRole('heading', { level: 4 })
+      .map((heading) => heading.textContent)
+
+    const contactsMadeIndex = headings.indexOf('Contacts made')
+    const supportStatusIndex = headings.indexOf('Support status')
+
+    expect(contactsMadeIndex).toBeGreaterThan(-1)
+    expect(contactsMadeIndex).toBe(supportStatusIndex - 1)
+  })
+
+  it('renders every Contacts Made option (0 through 5+)', () => {
+    render(
+      <VoterFileStep
+        filters={{}}
+        onFiltersChange={noop}
+        supportStatus={[]}
+        onSupportStatusChange={noop}
+        isElectedOfficial={false}
+      />,
+    )
+
+    const contactsMadeGroup = screen.getByRole('toolbar', {
+      name: 'Contacts Made',
+    })
+    expect(contactsMadeGroup).toBeInTheDocument()
+    ;['0', '1', '2', '3', '4', '5+'].forEach((label) => {
+      expect(
+        within(contactsMadeGroup).getByRole('button', { name: label }),
+      ).toBeInTheDocument()
+    })
+  })
+
+  it('toggling a pill reports it via onFiltersChange', async () => {
+    const user = userEvent.setup()
+    const onFiltersChange = vi.fn()
+
+    render(
+      <VoterFileStep
+        filters={{}}
+        onFiltersChange={onFiltersChange}
+        supportStatus={[]}
+        onSupportStatusChange={noop}
+        isElectedOfficial={false}
+      />,
+    )
+
+    const contactsMadeGroup = screen.getByRole('toolbar', {
+      name: 'Contacts Made',
+    })
+    await user.click(
+      within(contactsMadeGroup).getByRole('button', { name: '0' }),
+    )
+
+    expect(onFiltersChange).toHaveBeenCalledWith(
+      expect.objectContaining({ contactsMade0: true }),
+    )
+  })
+
+  it('does not render the section for an elected official (Win-only)', () => {
+    render(
+      <VoterFileStep
+        filters={{}}
+        onFiltersChange={noop}
+        supportStatus={[]}
+        onSupportStatusChange={noop}
+        isElectedOfficial
+      />,
+    )
+
+    const headings = screen
+      .getAllByRole('heading', { level: 4 })
+      .map((heading) => heading.textContent)
+    expect(headings).not.toContain('Contacts made')
+    expect(
+      screen.queryByRole('toolbar', { name: 'Contacts Made' }),
+    ).not.toBeInTheDocument()
+  })
+})
