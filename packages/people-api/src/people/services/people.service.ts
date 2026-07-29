@@ -2,11 +2,14 @@ import { Prisma } from '../../generated/prisma'
 import {
   PeopleAggregatesResponse,
   PeopleAggregatesResponseSchema,
+  PeopleOverlapCountResponse,
+  PeopleOverlapCountResponseSchema,
 } from '@goodparty_org/contracts'
 import {
   AggregatesDTO,
   GetPersonQueryDTO,
   ListPeopleDTO,
+  OverlapCountDTO,
   SamplePeopleDTO,
 } from '../people.schema'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -29,6 +32,7 @@ import {
   stateEquals,
 } from '../utils/buildVoterWhereSql.utils'
 import { buildAggregatesSql } from '../utils/buildAggregatesSql.utils'
+import { buildOverlapCountSql } from '../utils/buildOverlapCountSql.utils'
 import { buildHouseholdKeySql } from '../utils/buildHouseholdKeySql.utils'
 
 export const DATABASE_SCHEMA = 'green'
@@ -249,6 +253,41 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       avgIncome: row?.avgIncome ?? null,
       fenced,
     })
+  }
+
+  // Saved-list overlap count (ENG-10840): how many of the current selection
+  // also belong to at least one of the org's saved lists. Shares the same
+  // pathological-plan exposure as the count/aggregates queries (see
+  // SLOW_QUERY_TIMEOUT_MS), so it runs through the identical
+  // queryWithTimeoutFence guard rather than a bespoke timeout.
+  async getOverlapCount(
+    dto: OverlapCountDTO,
+  ): Promise<PeopleOverlapCountResponse> {
+    const resolved = await resolveDistrict(this.districtService, dto)
+    const { state, useVoterOnlyPath, districtId } = resolved
+    const effectiveDistrictId = useVoterOnlyPath ? null : districtId
+
+    const baseArgs = {
+      state,
+      districtId: effectiveDistrictId,
+      filters: dto.filters,
+      search: dto.search,
+      savedFilterSets: dto.savedFilterSets,
+    }
+    const sql = buildOverlapCountSql(baseArgs)
+    const fencedSql = buildOverlapCountSql({
+      ...baseArgs,
+      fenceLimit: FENCE_LIMIT,
+    })
+
+    const { rows, fenced } = await this.queryWithTimeoutFence<{
+      overlap_count: bigint
+    }>(sql, fencedSql)
+    const count = Number(rows[0]?.overlap_count ?? 0n)
+
+    // ENG-10775 pattern: the producer validates its own response against the
+    // shared contract so gp-api and people-api can't drift on this shape.
+    return PeopleOverlapCountResponseSchema.parse({ count, fenced })
   }
 
   async samplePeople(dto: SamplePeopleDTO) {

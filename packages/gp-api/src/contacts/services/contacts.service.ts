@@ -6,7 +6,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import type { ListDetailContactsResponse } from '@goodparty_org/contracts'
+import {
+  MAX_OVERLAP_SAVED_FILTER_SETS,
+  type ListDetailContactsResponse,
+  type PeopleOverlapCountResponse,
+} from '@goodparty_org/contracts'
 import { Organization } from '../../generated/prisma'
 import { isAxiosError } from 'axios'
 import { FastifyReply } from 'fastify'
@@ -450,6 +454,139 @@ export class ContactsService {
     }
 
     return this.withOrgDistrictResolution(organization, fetchCount)
+  }
+
+  // Saved-list overlap count (ENG-10840): how many of the in-progress
+  // selection also belong to at least one of the org's saved lists — the
+  // wizard's "N (P%) voters already exist in lists you've saved" strip.
+  // Takes the identical in-progress payload as countContacts and runs the
+  // identical filter translation, so the "current selection" side of the
+  // overlap matches the live count exactly. Pro-gated the same way.
+  async overlapCount(
+    filterInput: CountContactsDTO,
+    organization: Organization,
+  ): Promise<{ count: number; fenced: boolean }> {
+    if (!(await this.isProAccess(organization))) {
+      throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
+    }
+
+    const baseFilters = convertVoterFileFilterToFilters(filterInput)
+    this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
+
+    const idResolution = await this.activityConditionResolution.resolveIdFilter(
+      organization.slug,
+      {
+        activityConditions: filterInput.activityConditions,
+        supportStatus: filterInput.supportStatus,
+      },
+    )
+    // The current selection resolves to nobody — nothing to overlap with, so
+    // this mirrors countContacts' own empty-resolution short circuit rather
+    // than paying a people-api round trip for a guaranteed zero.
+    if (idResolution.kind === 'empty') {
+      return { count: 0, fenced: false }
+    }
+    const filters = this.mergeIdFilter(baseFilters, idResolution)
+    const search = filterInput.search || undefined
+
+    const savedFilterSets = await this.resolveSavedFilterSets(organization)
+    // No saved list resolves to any member — the union of zero sets is
+    // empty, so this skips the people-api call entirely (also covers "the
+    // org has no saved lists at all").
+    if (savedFilterSets.length === 0) {
+      return { count: 0, fenced: false }
+    }
+
+    const fetchOverlapCount = async (districtParams: {
+      districtId: string
+    }) => {
+      try {
+        const response = await lastValueFrom(
+          this.httpService.post(
+            `${PEOPLE_API_URL}/v1/people/overlap-count`,
+            { ...districtParams, filters, search, savedFilterSets },
+            {
+              headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
+            },
+          ),
+        )
+        // People API response is untyped — external API returns unknown shape
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+        return response.data as PeopleOverlapCountResponse
+      } catch (error) {
+        this.logger.error(
+          { error },
+          'Failed to fetch overlap count from people API',
+        )
+        throw new BadGatewayException(
+          'Failed to fetch overlap count from people API',
+        )
+      }
+    }
+
+    return this.withOrgDistrictResolution(organization, fetchOverlapCount)
+  }
+
+  // The saved-list universe for the overlap union: each saved filter's own
+  // activity-condition/support-status parts resolve to a person-id set
+  // exactly as the live count does, so activity-based saved lists
+  // participate correctly. Capped at the org's most-recently-saved
+  // MAX_OVERLAP_SAVED_FILTER_SETS lists (small N per org — the lists index is
+  // an accepted N+1 today); truncation is logged, never a silent cap. A
+  // saved list whose resolution is empty (matches nobody, e.g. a
+  // now-orphaned activity condition) contributes nothing to the OR, so it's
+  // dropped rather than sent as a meaningless filter set.
+  private async resolveSavedFilterSets(
+    organization: Organization,
+  ): Promise<FilterObject[]> {
+    const savedFilters =
+      await this.voterFileFilterService.findRecentByOrganizationSlug(
+        organization.slug,
+        MAX_OVERLAP_SAVED_FILTER_SETS + 1,
+      )
+    const truncated = savedFilters.length > MAX_OVERLAP_SAVED_FILTER_SETS
+    const capped = truncated
+      ? savedFilters.slice(0, MAX_OVERLAP_SAVED_FILTER_SETS)
+      : savedFilters
+
+    if (truncated) {
+      // findRecentByOrganizationSlug's `take` caps what came back, so
+      // savedFilters.length alone can't distinguish "exactly at the fetch
+      // limit" from "many more beyond it" — fetch the org's real total for
+      // an honest log line (only paid on the rare truncating org, not the
+      // hot path).
+      const total = await this.voterFileFilterService.countByOrganizationSlug(
+        organization.slug,
+      )
+      this.logger.warn(
+        {
+          organizationSlug: organization.slug,
+          total,
+          cap: MAX_OVERLAP_SAVED_FILTER_SETS,
+        },
+        'Saved-list overlap count truncated to the most recently saved lists',
+      )
+    }
+
+    const resolved = await Promise.all(
+      capped.map(async (savedFilter) => {
+        const savedBaseFilters = convertVoterFileFilterToFilters(savedFilter)
+        const savedIdResolution =
+          await this.activityConditionResolution.resolveIdFilter(
+            organization.slug,
+            {
+              activityConditions: savedFilter.activityConditions,
+              supportStatus: savedFilter.supportStatus,
+            },
+          )
+        return savedIdResolution.kind === 'empty'
+          ? null
+          : this.mergeIdFilter(savedBaseFilters, savedIdResolution)
+      }),
+    )
+    return resolved.filter(
+      (filterObject): filterObject is FilterObject => filterObject !== null,
+    )
   }
 
   // Ad-hoc filter set, paged full-row export. The Peerly phone-list capture

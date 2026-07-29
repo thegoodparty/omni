@@ -72,6 +72,14 @@ export class ContactsController {
     return this.contactsService.countContacts(filters, organization)
   }
 
+  @Post('overlap-count')
+  async overlapCount(
+    @Body() filters: CountContactsDTO,
+    @ReqOrganization() organization: Organization,
+  ) {
+    return this.contactsService.overlapCount(filters, organization)
+  }
+
   @Get('list-detail')
   @ResponseSchema(ListDetailContactsResponseSchema)
   async getListDetail(
