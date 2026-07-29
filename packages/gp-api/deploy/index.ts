@@ -570,6 +570,15 @@ export = async () => {
         qa: '',
         prod: 'true',
       }),
+      // Prod-only on purpose: each weekly regen dispatches a paid CAP run per
+      // eligible campaign, so enabling dev/qa would accumulate spend for no
+      // audience. Cost was cohort-checked before enabling (Jul 2026).
+      CAMPAIGN_TRACKER_AUTOMATION_ENABLED: select({
+        preview: '',
+        dev: '',
+        qa: '',
+        prod: 'true',
+      }),
       SERVE_ANALYSIS_BUCKET_NAME: `serve-analyze-data-${environment === 'preview' ? 'dev' : environment}`,
       MEETING_PIPELINE_BUCKET: meetingPipelineBucketName,
       TEVYN_POLL_CSVS_BUCKET: tevynPollCsvsBucket.bucket,
