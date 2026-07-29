@@ -87,6 +87,19 @@ export {
 } from './people/Person.schema'
 
 export {
+  VoterLikelihoodSchema,
+  type VoterLikelihood,
+  ContactStatusFieldSchema,
+  type ContactStatusField,
+  ContactStatusSourceSchema,
+  type ContactStatusSource,
+  UpdateContactStatusInputSchema,
+  type UpdateContactStatusInput,
+  ContactStatusesSchema,
+  type ContactStatuses,
+} from './people/ContactStatus.schema'
+
+export {
   ContactNoteSchema,
   type ContactNote,
   ContactNoteInputSchema,

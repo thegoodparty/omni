@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { SupportStatusRollupSchema } from '@goodparty_org/contracts'
 import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
 import { ACTIVITY_CONDITION_CHANNEL_ACTIONS } from '@/shared/schemas/activityCondition.schema'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -86,12 +85,18 @@ describe('FILTER_DIMENSIONS catalog', () => {
     }
   })
 
-  it('sources supportStatus values from the contracts rollup enum', () => {
+  // undecided/refused (ENG-10833) extend the shared SupportStatusRollup
+  // vocabulary for manual overrides, but filter resolution can't produce
+  // them from derived interaction data yet — the catalog deliberately caps
+  // this dimension at the three values it can actually resolve.
+  it('sources supportStatus values from the derived rollup, not the full manual-override vocabulary', () => {
     const supportStatus = FILTER_DIMENSIONS.find(
       (d) => d.key === 'supportStatus',
     )
     expect(supportStatus?.values.map((value) => value.key)).toEqual([
-      ...SupportStatusRollupSchema.options,
+      'supporter',
+      'non_supporter',
+      'unknown',
     ])
   })
 
@@ -111,6 +116,7 @@ describe('ContactsService.getFilterDimensions', () => {
   const buildService = () =>
     new ContactsService(
       { post: () => undefined, get: () => undefined } as unknown as HttpService,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
