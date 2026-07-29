@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, Param, Put } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  NotFoundException,
+  Param,
+  Post,
+  Put,
+} from '@nestjs/common'
 import { z } from 'zod'
 import { Campaign } from '../../generated/prisma'
 import { CampaignTrackerTasksService } from './services/campaignTrackerTasks.service'
@@ -6,6 +17,7 @@ import { ReqCampaign } from '../decorators/ReqCampaign.decorator'
 import { UseCampaign } from '../decorators/UseCampaign.decorator'
 import { McpTool } from '@/mcp/decorators/McpTool.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 import {
   completeTaskBodySchema,
   CompleteTaskBodySchema,
@@ -31,6 +43,20 @@ export class CampaignTrackerController {
   @ResponseSchema(z.array(CampaignTrackerTaskResponseSchema))
   listCampaignTrackerTasks(@ReqCampaign() campaign: Campaign) {
     return this.trackerTasksService.listCampaignTrackerTasks(campaign)
+  }
+
+  // Manual generation override. In prod the weekly cron is the only trigger;
+  // this route lets a candidate dispatch a run for their own campaign in
+  // non-prod (dev/qa/preview), where the cron is disabled. Gated on the
+  // fail-closed IS_NON_PROD_DEPLOY allowlist so it 404s in prod (and on any
+  // unexpected env value) rather than exposing on-demand paid runs there.
+  @Post('generate')
+  @HttpCode(HttpStatus.ACCEPTED)
+  async generateTasks(@ReqCampaign() campaign: Campaign) {
+    if (!IS_NON_PROD_DEPLOY) {
+      throw new NotFoundException()
+    }
+    await this.trackerTasksService.generateNow(campaign)
   }
 
   @Put('complete/:id')

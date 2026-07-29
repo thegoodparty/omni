@@ -7,14 +7,14 @@ overview: `docs/features/campaign-tracker-v3.md`.
 
 ## Key files
 
-| File | Role |
-|------|------|
-| `services/campaignTrackerTasks.service.ts` | Core. Bootstrap (atomic claim + materialize + dispatch), dispatch params, artifact persistence (append), completion. |
-| `services/campaignTrackerDispatch.service.ts` | Thursday `@Cron` weekly re-generation (env-gated, CronLock dedup, active/non-demo cohort); primary-loss gate (tears down outreach + skips). |
-| `services/staticTrackerTasks.util.ts` | Builds the static catalog rows **and** the 7 deterministic outreach rows (`buildOutreachTrackerTaskRows`) from `@goodparty_org/contracts` at bootstrap. |
-| `campaignTracker.controller.ts` | `/campaigns/tracker-tasks` GET (also an `@McpTool`) + complete/uncomplete. |
-| `schemas/trackerTaskResponse.schema.ts` | `@ResponseSchema` for the GET (required for the MCP tool). |
-| `campaignTracker.consts.ts` | Experiment type, cron job name, `CHANNEL_TO_FLOW_TYPE` (the canonical map). |
+| File                                          | Role                                                                                                                                                    |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `services/campaignTrackerTasks.service.ts`    | Core. Bootstrap (atomic claim + materialize + dispatch), dispatch params, artifact persistence (append), completion.                                    |
+| `services/campaignTrackerDispatch.service.ts` | Thursday `@Cron` weekly re-generation (env-gated, CronLock dedup, active/non-demo cohort); primary-loss gate (tears down outreach + skips).             |
+| `services/staticTrackerTasks.util.ts`         | Builds the static catalog rows **and** the 7 deterministic outreach rows (`buildOutreachTrackerTaskRows`) from `@goodparty_org/contracts` at bootstrap. |
+| `campaignTracker.controller.ts`               | `/campaigns/tracker-tasks` GET (also an `@McpTool`) + complete/uncomplete + `POST generate` (non-prod manual override).                                 |
+| `schemas/trackerTaskResponse.schema.ts`       | `@ResponseSchema` for the GET (required for the MCP tool).                                                                                              |
+| `campaignTracker.consts.ts`                   | Experiment type, cron job name, `CHANNEL_TO_FLOW_TYPE` (the canonical map).                                                                             |
 
 ## Patterns / non-obvious logic
 
@@ -28,7 +28,7 @@ overview: `docs/features/campaign-tracker-v3.md`.
   `bootstrapTrackerIfPlanComplete` (in `campaignStrategy.service.ts`) only
   proceeds if a `campaign_story` row exists. The tracker takes the story as
   input, so story-off (legacy) campaigns generate their plan but never bootstrap
-  the tracker. The gate is on the story *data*, not the flag, so it holds
+  the tracker. The gate is on the story _data_, not the flag, so it holds
   regardless of flag state. Then: two plan sections complete on independent SQS
   messages, so `bootstrapForCampaign` claims `CampaignStrategy.trackerBootstrapped`
   with one conditional `updateMany` (false->true); only the winner materializes +
@@ -54,6 +54,16 @@ overview: `docs/features/campaign-tracker-v3.md`.
   `electionRelative` dates off the **general** election). Belt and suspenders:
   the catalog attachment excludes them (see the generator) and
   `onExperimentRunCompleted` drops any `text`/`robocall` rows the agent emits.
+- **Manual generation is non-prod only.** The weekly cron
+  (`CAMPAIGN_TRACKER_AUTOMATION_ENABLED='true'`) runs in prod only, so dev/qa
+  never generate on their own. `POST /campaigns/tracker-tasks/generate` →
+  `CampaignTrackerTasksService.generateNow` lets a candidate dispatch a run for
+  their own campaign there. It reuses `dispatchGeneration` but deliberately
+  skips the cron's `CronLock` lease + weekly coverage dedup (re-fireable on
+  demand), and picks mode the same way the cron would (`initial` with no prior
+  dynamic generation, else `weekly`). The controller gates on the fail-closed
+  `IS_NON_PROD_DEPLOY`, so the route 404s in prod (and on any unexpected env
+  value) — prod behavior is unchanged.
 - **Lost primary → tear down outreach, stop generating.** The weekly dispatcher
   checks `campaign.primaryResult === 'lost'` (synced from HubSpot `Lost Primary`)
   before the date/dedup checks; if lost it calls `removeOutreachTasks` (deletes
@@ -81,7 +91,7 @@ overview: `docs/features/campaign-tracker-v3.md`.
   `campaignStrategy.outreachSlackPostedAt` claim, released on a failed send.
   Don't change the message format without coordinating with CAS/ops.
 - **CAS post dates are formatted from UTC parts** (`formatInTimeZone(...,
-  'UTC', ...)`): stored task dates are UTC-midnight instants, and a process
+'UTC', ...)`): stored task dates are UTC-midnight instants, and a process
   west of UTC would render them a day early with plain `format`. Outreach send
   offsets come from `VOTER_CONTACT_SCHEDULE` in contracts — shared with the
   plan document's Voter Contact Plan section so all surfaces show identical
@@ -100,13 +110,13 @@ overview: `docs/features/campaign-tracker-v3.md`.
   deterministic rows (static catalog + outreach, both `isDefaultTask = true`).
   Comparisons that mean "latest generation" filter `isDefaultTask = false` first
   (so a default-row `week` never pollutes the max).
-- The digest is a *separate* consumer of this table; a change to what counts as
+- The digest is a _separate_ consumer of this table; a change to what counts as
   "current" must be mirrored in `weeklyTasksDigestHandler.service.ts`.
 - **The digest mirrors the week view: dynamic + deterministic outreach.**
   `fetchTrackerDigestRows` surfaces the latest dynamic generation **plus** the
   deterministic text/robocall outreach dated in the window
   (`(is_default_task = false AND week = latest generation) OR (is_default_task =
-  true AND flow_type IN (text, robocall))`), matching what `buildActiveWeeks`
+true AND flow_type IN (text, robocall))`), matching what `buildActiveWeeks`
   shows for a week (dynamic-latest-gen + `isDefaultTask` outreach). The static
   setup checklist (non-outreach default rows) is **not** emailed. Two subtleties:
   the dynamic branch needs `is_default_task = false` alongside `week = g.gen`
