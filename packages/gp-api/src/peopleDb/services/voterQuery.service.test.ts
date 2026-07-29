@@ -175,6 +175,44 @@ describe('VoterQueryService', () => {
       expect(result.pagination.totalResults).toBe(5)
     })
 
+    it('uses raw count path (not stats shortcut) when contactsMadeIdOverrides is set with empty filters', async () => {
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([{ voter_count: 3n }])
+        .mockResolvedValueOnce([makeDbPerson({ id: 'person-overrides' })])
+
+      const result = await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        contactsMadeIdOverrides: {
+          include: ['3f9a1b2c-0000-0000-0000-000000000001'],
+        },
+        resultsPerPage: 10,
+        page: 1,
+      } as never)
+
+      expect(mockStatsService.getTotalCounts).not.toHaveBeenCalled()
+      expect(result.pagination.totalResults).toBe(3)
+    })
+
+    it('uses raw count path (not stats shortcut) when idOverrides is set with empty filters', async () => {
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([{ voter_count: 2n }])
+        .mockResolvedValueOnce([makeDbPerson({ id: 'person-id-overrides' })])
+
+      const result = await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        idOverrides: {
+          exclude: ['3f9a1b2c-0000-0000-0000-000000000002'],
+        },
+        resultsPerPage: 10,
+        page: 1,
+      } as never)
+
+      expect(mockStatsService.getTotalCounts).not.toHaveBeenCalled()
+      expect(result.pagination.totalResults).toBe(2)
+    })
+
     it('uses raw count path (not stats shortcut) when filters are provided, guarded by the statement timeout', async () => {
       mockClient.$queryRaw
         .mockResolvedValueOnce([{ voter_count: 7n }])
@@ -368,8 +406,14 @@ describe('VoterQueryService', () => {
       const result = await service.findPeople(searchDto())
 
       expect(result.people[0]?.id).toBe('fenced-person')
-      expect(mockClient.$transaction).toHaveBeenCalledTimes(2)
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(3)
       expect(mockClient.$queryRaw).toHaveBeenCalledTimes(3)
+
+      // The fenced retry runs inside its own transaction under the longer
+      // fence-retry timeout — not unbounded.
+      expect(sqlOf(mockClient.$executeRaw.mock.calls.at(-1)?.[0])).toBe(
+        "SET LOCAL statement_timeout = '5000ms'",
+      )
 
       const primary = mockClient.$queryRaw.mock.calls[1]?.[0]
       const fenced = mockClient.$queryRaw.mock.calls[2]?.[0]
@@ -413,7 +457,10 @@ describe('VoterQueryService', () => {
       )
 
       expect(result.people[0]?.householdSize).toBe(2)
-      expect(mockClient.$transaction).toHaveBeenCalledTimes(2)
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(3)
+      expect(sqlOf(mockClient.$executeRaw.mock.calls.at(-1)?.[0])).toBe(
+        "SET LOCAL statement_timeout = '5000ms'",
+      )
       const fencedSql = sqlOf(mockClient.$queryRaw.mock.calls[2]?.[0])
       expect(fencedSql).toContain('DISTINCT ON')
       expect(fencedSql).toContain('COUNT(*) OVER (PARTITION BY')

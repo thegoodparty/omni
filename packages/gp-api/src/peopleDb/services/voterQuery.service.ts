@@ -324,7 +324,11 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       districtId &&
       !groupByHousehold &&
       !args.search &&
-      args.filters.filters.length === 0
+      args.filters.filters.length === 0 &&
+      (args.idOverrides?.include?.length ?? 0) === 0 &&
+      (args.idOverrides?.exclude?.length ?? 0) === 0 &&
+      (args.contactsMadeIdOverrides?.include?.length ?? 0) === 0 &&
+      (args.contactsMadeIdOverrides?.exclude?.length ?? 0) === 0
     ) {
       const { totalConstituents } =
         await this.statsService.getTotalCounts(districtId)
@@ -483,12 +487,20 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
         { elapsedMs: Date.now() - startedAt },
         'Name-search voter query hit the statement timeout; retrying with trigram-fenced subquery',
       )
-      return this.client.$queryRaw<Array<BaseDbPerson>>(
-        this.buildRawPeopleQuery({
-          ...args,
-          fenceLimit: FENCE_LIMIT,
-        }),
-      )
+      const [, people] = await this.client.$transaction([
+        this.client.$executeRaw(
+          Prisma.raw(
+            `SET LOCAL statement_timeout = '${FENCE_RETRY_TIMEOUT_MS}ms'`,
+          ),
+        ),
+        this.client.$queryRaw<Array<BaseDbPerson>>(
+          this.buildRawPeopleQuery({
+            ...args,
+            fenceLimit: FENCE_LIMIT,
+          }),
+        ),
+      ])
+      return people
     }
   }
 
