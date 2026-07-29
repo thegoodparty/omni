@@ -138,26 +138,28 @@ describe('ContactStatusService', () => {
       }),
     ])
 
+    // createdAt has millisecond precision, so two racing commits can tie —
+    // assert order-independent invariants instead of sorting by createdAt.
     const events = await service.prisma.contactStatusEvent.findMany({
       where: { organizationSlug: org, personId: 'p-1' },
-      orderBy: { createdAt: 'asc' },
     })
     expect(events).toHaveLength(2)
-    const [firstEvent, secondEvent] = events
-    expect(firstEvent).toMatchObject({ fromValue: 'unknown' })
+    const seedEvent = events.find((e) => e.fromValue === 'unknown')
+    const chainedEvent = events.find((e) => e.fromValue !== 'unknown')
+    expect(seedEvent).toBeDefined()
     // The second writer to actually commit must chain off the first
     // writer's toValue — never re-record the shared 'unknown' fallback.
-    expect(secondEvent?.fromValue).toBe(firstEvent?.toValue)
+    expect(chainedEvent?.fromValue).toBe(seedEvent?.toValue)
 
     const current = await contactStatus.currentStatusForPeople(
       org,
       ContactStatusField.voter_likelihood,
       ['p-1'],
     )
-    // Whichever write landed last determines the current value; both
-    // in-memory results reflect a real committed event either way.
+    // The chaining event committed last by construction; the current value
+    // must reflect it. Both in-memory results reflect a committed event.
     expect([first, second].filter((e) => e !== null)).toHaveLength(2)
-    expect(current.get('p-1')).toBe(secondEvent?.toValue)
+    expect(current.get('p-1')).toBe(chainedEvent?.toValue)
   })
 
   it('isolates rows by organizationSlug for the same personId', async () => {
