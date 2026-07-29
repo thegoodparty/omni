@@ -263,7 +263,12 @@ describe('ContactStatusService', () => {
     ).toEqual([])
   })
 
-  it('rejects a duplicate sourceId for the same org + field', async () => {
+  // ENG-10841: a re-synced/replayed activity event (e.g. the door-knocking
+  // tool retrying a dead-zone sync) must not fail the caller's write. The
+  // unique (organizationSlug, field, sourceId) still enforces "exactly one
+  // event per sourceId" at the DB — attemptChangeStatus just resolves that
+  // conflict to a no-op instead of propagating the Prisma error.
+  it('no-ops a duplicate sourceId for the same org + field, leaving the first record untouched', async () => {
     const org = await seedOrganization('campaign-duplicate-source')
     await contactStatus.changeStatus({
       organizationSlug: org,
@@ -276,18 +281,31 @@ describe('ContactStatusService', () => {
       sourceId: 'door-knock-event-1',
     })
 
-    await expect(
-      contactStatus.changeStatus({
-        organizationSlug: org,
-        personId: 'p-2',
-        field: ContactStatusField.support_status,
-        fallbackFromValue: null,
-        toValue: 'non_supporter',
-        source: ContactStatusSource.door_knock,
-        actorUserId: null,
-        sourceId: 'door-knock-event-1',
-      }),
-    ).rejects.toThrow()
+    const result = await contactStatus.changeStatus({
+      organizationSlug: org,
+      personId: 'p-2',
+      field: ContactStatusField.support_status,
+      fallbackFromValue: null,
+      toValue: 'non_supporter',
+      source: ContactStatusSource.door_knock,
+      actorUserId: null,
+      sourceId: 'door-knock-event-1',
+    })
+
+    expect(result).toBeNull()
+    const events = await service.prisma.contactStatusEvent.findMany({
+      where: { organizationSlug: org, sourceId: 'door-knock-event-1' },
+    })
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ personId: 'p-1', toValue: 'supporter' })
+    // The no-op'd second call must not have created a current-status row for
+    // p-2 either — nothing about it should have persisted.
+    const p2Status = await contactStatus.currentStatusForPeople(
+      org,
+      ContactStatusField.support_status,
+      ['p-2'],
+    )
+    expect(p2Status.get('p-2')).toBeUndefined()
   })
 
   it('does not collide on a null sourceId across manual events', async () => {
