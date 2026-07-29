@@ -1,38 +1,81 @@
 import { Injectable } from '@nestjs/common'
-import { ContactStatusField, ContactStatusSource } from '@/generated/prisma'
+import {
+  ContactStatusField,
+  ContactStatusSource,
+  Prisma,
+} from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
+import { retryIf } from '@/shared/util/retry-if'
 
 export type ChangeStatusInput = {
   organizationSlug: string
   personId: string
   field: ContactStatusField
-  fromValue: string | null
   toValue: string
   source: ContactStatusSource
   actorUserId: number | null
   sourceId?: string | null
+  // The derived/seed value the caller observed via its own (unlocked) read,
+  // used ONLY when no current-state row exists yet for this (org, personId,
+  // field) — there's nothing to lock in that case. Advisory: whenever a row
+  // DOES exist, the authoritative fromValue is read from it inside this
+  // method's own transaction instead, so two writers racing on the same
+  // (org, personId, field) can't both record the same stale fromValue.
+  fallbackFromValue: string | null
 }
+
+// First-ever-write race sentinel (mirrors OwnershipLostError in
+// ordinanceQualityLoop.service.ts): thrown when two concurrent changeStatus
+// calls both find no current-state row to lock and both attempt to create
+// one — the loser hits the (organizationSlug, personId, field) unique
+// constraint. Caught only around that specific insert, never around the
+// event insert, so a genuine duplicate sourceId (contact_status_event's own
+// unique) still propagates as a real Prisma error instead of being retried.
+class CurrentStatusRaceError extends Error {}
 
 @Injectable()
 export class ContactStatusService extends createPrismaBase(
   MODELS.ContactCurrentStatus,
 ) {
-  // Event insert + current-state upsert in one transaction, so a reader can
-  // never observe an event with no matching current-state row (or vice
-  // versa). Callers decide whether a write is a no-op (unchanged value) —
-  // this always writes what it's given.
+  // Decide-and-write must be atomic: a read-then-conditionally-write split
+  // across two calls lets two racing PATCHes for the same (org, personId,
+  // field) both read the pre-write value and both record it as fromValue,
+  // corrupting the append-only history. `FOR UPDATE` locks the current-state
+  // row for the transaction's lifetime, serializing concurrent writers so
+  // each sees the previous writer's committed value.
   async changeStatus(input: ChangeStatusInput) {
+    return retryIf(() => this.attemptChangeStatus(input), {
+      shouldRetry: (err) => err instanceof CurrentStatusRaceError,
+      retries: 1,
+    })
+  }
+
+  private async attemptChangeStatus(input: ChangeStatusInput) {
     const {
       organizationSlug,
       personId,
       field,
-      fromValue,
       toValue,
       source,
       actorUserId,
       sourceId,
+      fallbackFromValue,
     } = input
     return this.client.$transaction(async (tx) => {
+      const [existing] = await tx.$queryRaw<{ value: string }[]>(Prisma.sql`
+        SELECT value FROM contact_current_status
+        WHERE organization_slug = ${organizationSlug}
+          AND person_id = ${personId}
+          AND field::text = ${field}
+        FOR UPDATE
+      `)
+
+      const fromValue = existing?.value ?? fallbackFromValue
+      if (fromValue === toValue) {
+        return null
+      }
+
       const event = await tx.contactStatusEvent.create({
         data: {
           organizationSlug,
@@ -45,17 +88,25 @@ export class ContactStatusService extends createPrismaBase(
           sourceId: sourceId ?? null,
         },
       })
-      await tx.contactCurrentStatus.upsert({
-        where: {
-          organizationSlug_personId_field: {
-            organizationSlug,
-            personId,
-            field,
-          },
-        },
-        create: { organizationSlug, personId, field, value: toValue },
-        update: { value: toValue },
-      })
+
+      if (existing) {
+        await tx.contactCurrentStatus.updateMany({
+          where: { organizationSlug, personId, field },
+          data: { value: toValue },
+        })
+        return event
+      }
+
+      try {
+        await tx.contactCurrentStatus.create({
+          data: { organizationSlug, personId, field, value: toValue },
+        })
+      } catch (err) {
+        if (isUniqueConstraintError(err)) {
+          throw new CurrentStatusRaceError()
+        }
+        throw err
+      }
       return event
     })
   }

@@ -895,30 +895,31 @@ export class ContactsService {
     await this.assertProAccess(organization)
 
     // Also validates personId resolves within the org's district (findPerson
-    // 404s otherwise, mirroring the manual-interaction write path) and gives
-    // the pre-write effective values in the same round trip — the write's
-    // fromValue snapshot.
+    // 404s otherwise, mirroring the manual-interaction write path). This
+    // read is unlocked and only advisory: ContactStatusService.changeStatus
+    // derives the authoritative fromValue from a row-locked read inside its
+    // own transaction, so a race between two PATCHes for the same (org,
+    // personId, field) can't record a stale fromValue — this snapshot is
+    // used only as the fallback when no override row exists yet.
     const current = await this.findPerson(personId, organization)
     const field =
       dto.field === 'voter_likelihood'
         ? ContactStatusField.voter_likelihood
         : ContactStatusField.support_status
-    const fromValue =
+    const fallbackFromValue =
       dto.field === 'voter_likelihood'
         ? current.voterLikelihood
         : current.supportStatus
 
-    if (fromValue !== dto.value) {
-      await this.contactStatusService.changeStatus({
-        organizationSlug: organization.slug,
-        personId,
-        field,
-        fromValue: fromValue ?? null,
-        toValue: dto.value,
-        source: ContactStatusSource.manual,
-        actorUserId,
-      })
-    }
+    await this.contactStatusService.changeStatus({
+      organizationSlug: organization.slug,
+      personId,
+      field,
+      toValue: dto.value,
+      source: ContactStatusSource.manual,
+      actorUserId,
+      fallbackFromValue: fallbackFromValue ?? null,
+    })
 
     // Read back from the persisted record rather than trusting the request
     // body, so a retry racing a concurrent change reports real DB state.

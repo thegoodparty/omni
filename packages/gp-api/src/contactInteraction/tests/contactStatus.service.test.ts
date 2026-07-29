@@ -19,14 +19,14 @@ describe('ContactStatusService', () => {
     contactStatus = service.app.get(ContactStatusService)
   })
 
-  it('writes event + current state atomically; a second change records fromValue = first toValue', async () => {
+  it('writes event + current state atomically; a second change records fromValue = first toValue even with a stale fallback', async () => {
     const org = await seedOrganization('campaign-atomic')
 
     await contactStatus.changeStatus({
       organizationSlug: org,
       personId: 'p-1',
       field: ContactStatusField.voter_likelihood,
-      fromValue: 'unknown',
+      fallbackFromValue: 'unknown',
       toValue: 'super',
       source: ContactStatusSource.manual,
       actorUserId: service.user.id,
@@ -39,11 +39,14 @@ describe('ContactStatusService', () => {
     )
     expect(afterFirst.get('p-1')).toBe('super')
 
+    // A row now exists for (org, personId, field), so the authoritative
+    // fromValue must come from the row-locked read, not this deliberately
+    // wrong fallback — proves the fallback is advisory-only once a row exists.
     await contactStatus.changeStatus({
       organizationSlug: org,
       personId: 'p-1',
       field: ContactStatusField.voter_likelihood,
-      fromValue: 'super',
+      fallbackFromValue: 'unlikely',
       toValue: 'unlikely',
       source: ContactStatusSource.manual,
       actorUserId: service.user.id,
@@ -71,6 +74,92 @@ describe('ContactStatusService', () => {
     expect(current[0]?.value).toBe('unlikely')
   })
 
+  // Directly proves the ENG-10833/34 race fix: the authoritative fromValue
+  // is read from the DB row inside changeStatus's own transaction, not
+  // trusted from the caller's (unlocked, possibly stale) snapshot. A caller
+  // racing another writer would otherwise pass a value that's already gone
+  // stale by the time changeStatus runs.
+  it('derives fromValue from the locked current-state row, ignoring a stale caller-supplied fallback', async () => {
+    const org = await seedOrganization('campaign-locked-read')
+    await service.prisma.contactCurrentStatus.create({
+      data: {
+        organizationSlug: org,
+        personId: 'p-1',
+        field: ContactStatusField.voter_likelihood,
+        value: 'likely',
+      },
+    })
+
+    await contactStatus.changeStatus({
+      organizationSlug: org,
+      personId: 'p-1',
+      field: ContactStatusField.voter_likelihood,
+      // Stale on purpose: a caller that read this before another writer's
+      // change would see 'unknown', but the real current value is 'likely'.
+      fallbackFromValue: 'unknown',
+      toValue: 'super',
+      source: ContactStatusSource.manual,
+      actorUserId: service.user.id,
+    })
+
+    const event = await service.prisma.contactStatusEvent.findFirstOrThrow({
+      where: { organizationSlug: org, personId: 'p-1' },
+    })
+    expect(event.fromValue).toBe('likely')
+    expect(event.toValue).toBe('super')
+  })
+
+  // The scenario the bug report described: two PATCHes racing on the same
+  // (org, personId, field) with no override yet, each carrying its own
+  // (identical, now-stale-once-the-other-lands) fallback snapshot. Exactly
+  // one event must record the seed as fromValue; the second must chain off
+  // the first's toValue, never off the shared stale fallback.
+  it('serializes two concurrent first-writes for the same (org, personId, field)', async () => {
+    const org = await seedOrganization('campaign-concurrent-first-write')
+
+    const [first, second] = await Promise.all([
+      contactStatus.changeStatus({
+        organizationSlug: org,
+        personId: 'p-1',
+        field: ContactStatusField.voter_likelihood,
+        fallbackFromValue: 'unknown',
+        toValue: 'super',
+        source: ContactStatusSource.manual,
+        actorUserId: service.user.id,
+      }),
+      contactStatus.changeStatus({
+        organizationSlug: org,
+        personId: 'p-1',
+        field: ContactStatusField.voter_likelihood,
+        fallbackFromValue: 'unknown',
+        toValue: 'likely',
+        source: ContactStatusSource.manual,
+        actorUserId: service.user.id,
+      }),
+    ])
+
+    const events = await service.prisma.contactStatusEvent.findMany({
+      where: { organizationSlug: org, personId: 'p-1' },
+      orderBy: { createdAt: 'asc' },
+    })
+    expect(events).toHaveLength(2)
+    const [firstEvent, secondEvent] = events
+    expect(firstEvent).toMatchObject({ fromValue: 'unknown' })
+    // The second writer to actually commit must chain off the first
+    // writer's toValue — never re-record the shared 'unknown' fallback.
+    expect(secondEvent?.fromValue).toBe(firstEvent?.toValue)
+
+    const current = await contactStatus.currentStatusForPeople(
+      org,
+      ContactStatusField.voter_likelihood,
+      ['p-1'],
+    )
+    // Whichever write landed last determines the current value; both
+    // in-memory results reflect a real committed event either way.
+    expect([first, second].filter((e) => e !== null)).toHaveLength(2)
+    expect(current.get('p-1')).toBe(secondEvent?.toValue)
+  })
+
   it('isolates rows by organizationSlug for the same personId', async () => {
     const orgA = await seedOrganization('campaign-org-a')
     const orgB = await seedOrganization('campaign-org-b')
@@ -79,7 +168,7 @@ describe('ContactStatusService', () => {
       organizationSlug: orgA,
       personId: 'p-shared',
       field: ContactStatusField.support_status,
-      fromValue: null,
+      fallbackFromValue: null,
       toValue: 'supporter',
       source: ContactStatusSource.manual,
       actorUserId: service.user.id,
@@ -88,7 +177,7 @@ describe('ContactStatusService', () => {
       organizationSlug: orgB,
       personId: 'p-shared',
       field: ContactStatusField.support_status,
-      fromValue: null,
+      fallbackFromValue: null,
       toValue: 'non_supporter',
       source: ContactStatusSource.manual,
       actorUserId: service.user.id,
@@ -129,7 +218,7 @@ describe('ContactStatusService', () => {
       organizationSlug: org,
       personId: 'p-super',
       field: ContactStatusField.voter_likelihood,
-      fromValue: null,
+      fallbackFromValue: null,
       toValue: 'super',
       source: ContactStatusSource.manual,
       actorUserId: service.user.id,
@@ -138,7 +227,7 @@ describe('ContactStatusService', () => {
       organizationSlug: org,
       personId: 'p-likely',
       field: ContactStatusField.voter_likelihood,
-      fromValue: null,
+      fallbackFromValue: null,
       toValue: 'likely',
       source: ContactStatusSource.manual,
       actorUserId: service.user.id,
@@ -147,7 +236,7 @@ describe('ContactStatusService', () => {
       organizationSlug: org,
       personId: 'p-unlikely',
       field: ContactStatusField.voter_likelihood,
-      fromValue: null,
+      fallbackFromValue: null,
       toValue: 'unlikely',
       source: ContactStatusSource.manual,
       actorUserId: service.user.id,
@@ -178,7 +267,7 @@ describe('ContactStatusService', () => {
       organizationSlug: org,
       personId: 'p-1',
       field: ContactStatusField.support_status,
-      fromValue: null,
+      fallbackFromValue: null,
       toValue: 'supporter',
       source: ContactStatusSource.door_knock,
       actorUserId: null,
@@ -190,7 +279,7 @@ describe('ContactStatusService', () => {
         organizationSlug: org,
         personId: 'p-2',
         field: ContactStatusField.support_status,
-        fromValue: null,
+        fallbackFromValue: null,
         toValue: 'non_supporter',
         source: ContactStatusSource.door_knock,
         actorUserId: null,
@@ -205,7 +294,7 @@ describe('ContactStatusService', () => {
       organizationSlug: org,
       personId: 'p-1',
       field: ContactStatusField.voter_likelihood,
-      fromValue: null,
+      fallbackFromValue: null,
       toValue: 'super',
       source: ContactStatusSource.manual,
       actorUserId: service.user.id,
@@ -214,7 +303,7 @@ describe('ContactStatusService', () => {
       organizationSlug: org,
       personId: 'p-2',
       field: ContactStatusField.voter_likelihood,
-      fromValue: null,
+      fallbackFromValue: null,
       toValue: 'likely',
       source: ContactStatusSource.manual,
       actorUserId: service.user.id,
