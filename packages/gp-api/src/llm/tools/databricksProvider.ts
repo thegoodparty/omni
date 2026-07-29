@@ -49,6 +49,19 @@ export interface DatabricksSqlProviderOptions {
   catalog?: string
   schema?: string
   clientFactory?: () => DbsqlClientLike
+  queryTimeoutMs?: number
+}
+
+// The driver's own floors are useless here: 15min socket timeout and an
+// UNBOUNDED operation-status poll loop, while the chat stream's heartbeat
+// keeps a hung turn alive forever. 60s comfortably covers serverless
+// warehouse auto-resume.
+const DEFAULT_QUERY_TIMEOUT_MS = 60_000
+
+class QueryTimedOutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`DatabricksSqlProvider: query timed out after ${timeoutMs}ms`)
+  }
 }
 
 const noop = (): undefined => undefined
@@ -104,6 +117,7 @@ export class DatabricksSqlProvider implements DatabricksProvider {
   private session?: DbsqlSessionInstanceLike
   private connectPromise?: Promise<void>
   private closed = false
+  private generation = 0
 
   constructor(opts: DatabricksSqlProviderOptions) {
     if (opts.catalog !== undefined) assertSqlIdent('catalog', opts.catalog)
@@ -112,7 +126,47 @@ export class DatabricksSqlProvider implements DatabricksProvider {
     this.clientFactory = opts.clientFactory ?? defaultClientFactory
   }
 
+  // One bad statement must not poison this process-lifetime singleton: the
+  // cached session can outlive its OAuth token or its server-side session
+  // (2026-07-29 prod outage: every voter-data query failed for 12+ hours
+  // until the ECS task was recycled). On failure, drop the session and retry
+  // once on a fresh connection; a timed-out attempt is not retried because a
+  // hung warehouse would just consume a second full deadline.
   async query(sql: string): Promise<DatabricksRowSet> {
+    try {
+      return await this.attempt(sql)
+    } catch (err) {
+      if (this.closed) throw err
+      await this.resetSession()
+      if (err instanceof QueryTimedOutError) throw err
+      try {
+        return await this.attempt(sql)
+      } catch (retryErr) {
+        if (!this.closed) await this.resetSession()
+        throw retryErr
+      }
+    }
+  }
+
+  private async attempt(sql: string): Promise<DatabricksRowSet> {
+    const timeoutMs = this.opts.queryTimeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const work = this.runQuery(sql)
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        // The abandoned attempt may still settle later — keep it handled.
+        work.catch(noop)
+        reject(new QueryTimedOutError(timeoutMs))
+      }, timeoutMs)
+    })
+    try {
+      return await Promise.race([work, deadline])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  private async runQuery(sql: string): Promise<DatabricksRowSet> {
     const session = await this.ensureSession()
     const op = await session.executeStatement(sql, { runAsync: true })
     try {
@@ -122,6 +176,21 @@ export class DatabricksSqlProvider implements DatabricksProvider {
       return { columns, rows }
     } finally {
       await op.close().catch(noop)
+    }
+  }
+
+  private async resetSession(): Promise<void> {
+    this.generation++
+    const session = this.session
+    const conn = this.clientConn
+    this.session = undefined
+    this.clientConn = undefined
+    this.connectPromise = undefined
+    if (session) {
+      await session.close().catch(noop)
+    }
+    if (conn) {
+      await conn.close().catch(noop)
     }
   }
 
@@ -147,10 +216,15 @@ export class DatabricksSqlProvider implements DatabricksProvider {
     }
     if (this.session) return this.session
     if (!this.connectPromise) {
-      this.connectPromise = this.openSession().catch((err) => {
-        this.connectPromise = undefined
+      // Only clear the slot if it still holds this attempt — a reset may
+      // have installed a newer connect underneath a late failure.
+      const pending = this.openSession(this.generation).catch((err) => {
+        if (this.connectPromise === pending) {
+          this.connectPromise = undefined
+        }
         throw err
       })
+      this.connectPromise = pending
     }
     await this.connectPromise
     if (!this.session) {
@@ -182,7 +256,7 @@ export class DatabricksSqlProvider implements DatabricksProvider {
     )
   }
 
-  private async openSession(): Promise<void> {
+  private async openSession(gen: number): Promise<void> {
     const client = this.clientFactory()
     const conn = await client.connect(this.connectOptions())
     let session: DbsqlSessionInstanceLike
@@ -198,13 +272,17 @@ export class DatabricksSqlProvider implements DatabricksProvider {
       await conn.close().catch(noop)
       throw err
     }
-    // A close() may have landed while we were connecting. close() already ran
-    // and zeroed its handles, so publishing these live ones would leak them —
-    // tear down here instead.
-    if (this.closed) {
+    // A close() or a reset may have landed while we were connecting; both
+    // already zeroed their handles, so publishing these live ones would leak
+    // them — tear down here instead.
+    if (this.closed || gen !== this.generation) {
       await session.close().catch(noop)
       await conn.close().catch(noop)
-      throw new Error('DatabricksSqlProvider: provider is closed')
+      throw new Error(
+        this.closed
+          ? 'DatabricksSqlProvider: provider is closed'
+          : 'DatabricksSqlProvider: connection superseded',
+      )
     }
     this.clientConn = conn
     this.session = session

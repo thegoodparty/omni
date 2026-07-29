@@ -207,7 +207,7 @@ describe('DatabricksSqlProvider', () => {
     expect(state.executeCalls).toHaveLength(3)
   })
 
-  it('retries openSession when USE CATALOG fails on first attempt', async () => {
+  it('self-heals within one query when USE CATALOG fails once', async () => {
     const { factory, state } = makeFactory(() =>
       makeOperation({ rows: [{ x: 1 }], columns: ['x'] }),
     )
@@ -219,12 +219,9 @@ describe('DatabricksSqlProvider', () => {
       clientFactory: factory,
     })
 
-    await expect(provider.query(SELECT_X)).rejects.toThrow(
-      'catalog unavailable',
-    )
+    const result = await provider.query(SELECT_X)
 
-    await provider.query(SELECT_X)
-
+    expect(result).toEqual({ columns: ['x'], rows: [{ x: 1 }] })
     expect(state.executeCalls.map((c) => c.sql)).toEqual([
       'USE CATALOG goodparty_data_catalog',
       'USE CATALOG goodparty_data_catalog',
@@ -290,8 +287,7 @@ describe('DatabricksSqlProvider', () => {
     expect(state.sessionCloseCalls).toBe(0)
   })
 
-  it('propagates query errors and keeps the session open for retry', async () => {
-    const boom = new Error('boom')
+  it('reconnects and retries once when a cached session goes bad', async () => {
     const { factory, state } = makeFactory(() =>
       makeOperation({ rows: [{ x: 1 }], columns: ['x'] }),
     )
@@ -300,13 +296,118 @@ describe('DatabricksSqlProvider', () => {
       clientFactory: factory,
     })
 
-    state.failNextExecute = boom
-    await expect(provider.query(SELECT_X)).rejects.toBe(boom)
+    await provider.query(SELECT_X)
 
+    state.failNextExecute = new Error(
+      'THTTPException: Received a response with a bad HTTP status code: 400',
+    )
     const result = await provider.query(SELECT_X)
+
     expect(result).toEqual({ columns: ['x'], rows: [{ x: 1 }] })
-    expect(state.openSessionCalls).toBe(1)
-    expect(state.connectCalls).toBe(1)
+    expect(state.connectCalls).toBe(2)
+    expect(state.openSessionCalls).toBe(2)
+    expect(state.sessionCloseCalls).toBe(1)
+    expect(state.clientCloseCalls).toBe(1)
+  })
+
+  it('propagates the error when the retry also fails, then recovers', async () => {
+    const boom = new Error('boom')
+    const { factory, state } = makeFactory(() =>
+      makeOperation({ rows: [{ x: 1 }], columns: ['x'] }),
+    )
+    const provider = new DatabricksSqlProvider({
+      ...baseOpts,
+      clientFactory: factory,
+    })
+    const healthyResponder = state.responder
+
+    state.responder = () => {
+      throw boom
+    }
+    await expect(provider.query(SELECT_X)).rejects.toBe(boom)
+    expect(state.connectCalls).toBe(2)
+
+    state.responder = healthyResponder
+    const result = await provider.query(SELECT_X)
+
+    expect(result).toEqual({ columns: ['x'], rows: [{ x: 1 }] })
+    expect(state.connectCalls).toBe(3)
+  })
+
+  it('times out a hung query and recovers on a fresh session', async () => {
+    let hang = true
+    const { factory, state } = makeFactory(() =>
+      hang
+        ? {
+            fetchAll: () => new Promise<unknown[]>(() => undefined),
+            close: async () => noop(),
+          }
+        : makeOperation({ rows: [{ x: 1 }], columns: ['x'] }),
+    )
+    const provider = new DatabricksSqlProvider({
+      ...baseOpts,
+      queryTimeoutMs: 25,
+      clientFactory: factory,
+    })
+
+    await expect(provider.query(SELECT_X)).rejects.toThrow(
+      /timed out after 25ms/,
+    )
+    expect(state.sessionCloseCalls).toBe(1)
+
+    hang = false
+    const result = await provider.query(SELECT_X)
+
+    expect(result).toEqual({ columns: ['x'], rows: [{ x: 1 }] })
+    expect(state.connectCalls).toBe(2)
+  })
+
+  it('times out a hung connect and tears down the late session', async () => {
+    let releaseConnect = (): void => undefined
+    const connectGate = new Promise<void>((resolve) => {
+      releaseConnect = resolve
+    })
+    let gated = true
+    let sessionClosed = 0
+    let connClosed = 0
+    const factory = (): DbsqlClientLike => ({
+      connect: async () => {
+        if (gated) await connectGate
+        return {
+          openSession: async () => ({
+            executeStatement: async () =>
+              makeOperation({ rows: [{ n: 1 }], columns: ['n'] }),
+            close: async () => {
+              sessionClosed++
+            },
+          }),
+          close: async () => {
+            connClosed++
+          },
+        }
+      },
+    })
+    const provider = new DatabricksSqlProvider({
+      ...baseOpts,
+      queryTimeoutMs: 20,
+      clientFactory: factory,
+    })
+
+    await expect(provider.query(SELECT_N)).rejects.toThrow(
+      /timed out after 20ms/,
+    )
+
+    gated = false
+    releaseConnect()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    // The late-arriving session belongs to an abandoned attempt: torn down.
+    expect(sessionClosed).toBe(1)
+    expect(connClosed).toBe(1)
+
+    const result = await provider.query(SELECT_N)
+    expect(result).toEqual({ columns: ['n'], rows: [{ n: 1 }] })
+    expect(sessionClosed).toBe(1)
   })
 
   it('passes BigInt row values through unchanged', async () => {
