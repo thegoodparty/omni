@@ -85,11 +85,11 @@ describe('FILTER_DIMENSIONS catalog', () => {
     }
   })
 
-  // undecided/refused (ENG-10833) extend the shared SupportStatusRollup
-  // vocabulary for manual overrides, but filter resolution can't produce
-  // them from derived interaction data yet — the catalog deliberately caps
-  // this dimension at the three values it can actually resolve.
-  it('sources supportStatus values from the derived rollup, not the full manual-override vocabulary', () => {
+  // ENG-10837: the catalog advertises all five SupportStatusRollup values —
+  // SupportStatusService.personIdsByEffectiveStatus resolves undecided/
+  // refused (override-only, ENG-10833) alongside the three derivable ones,
+  // so the assistant/wizard can safely build a filter on any of them.
+  it('sources supportStatus values from the full SupportStatusRollup vocabulary', () => {
     const supportStatus = FILTER_DIMENSIONS.find(
       (d) => d.key === 'supportStatus',
     )
@@ -97,6 +97,8 @@ describe('FILTER_DIMENSIONS catalog', () => {
       'supporter',
       'non_supporter',
       'unknown',
+      'undecided',
+      'refused',
     ])
   })
 
