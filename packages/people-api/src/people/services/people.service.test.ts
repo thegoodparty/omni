@@ -1,6 +1,7 @@
 import { NotFoundException } from '@nestjs/common'
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { Prisma } from '../../generated/prisma'
+import { FilterData } from '../schemas/filters.schema'
 import { PeopleService } from './people.service'
 
 const makeDbPerson = (overrides: Record<string, unknown> = {}) =>
@@ -993,6 +994,100 @@ describe('PeopleService', () => {
       const sql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
       expect(sql).toContain('FROM "green"."Voter" v')
       expect(sql).not.toContain('DistrictVoter')
+    })
+  })
+
+  describe('getOverlapCount', () => {
+    const sqlTextOf = (call: unknown): string => {
+      const arg = (call as { strings?: readonly string[] }) ?? {}
+      return arg.strings ? arg.strings.join('?') : ''
+    }
+    const sqlOf = (call: unknown): string =>
+      (call as { sql?: string })?.sql ?? ''
+
+    const savedFilter = (fieldName: string): FilterData => ({
+      filters: [fieldName as never],
+      filterValues: {},
+      filterOperators: {
+        [fieldName]: { operator: 'is', value: 'not_null' },
+      },
+    })
+
+    it('runs the overlap query through the same statement-timeout guard as the count', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([{ overlap_count: 2n }])
+
+      await service.getOverlapCount({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        savedFilterSets: [savedFilter('hasCellPhone')],
+      } as never)
+
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
+      expect(mockClient.$executeRaw).toHaveBeenCalledTimes(1)
+      expect(sqlOf(mockClient.$executeRaw.mock.calls[0]?.[0])).toBe(
+        "SET LOCAL statement_timeout = '2500ms'",
+      )
+    })
+
+    it('resolves the district and returns count/fenced, unioning the saved sets with OR', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([{ overlap_count: 3n }])
+
+      const result = await service.getOverlapCount({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        savedFilterSets: [
+          savedFilter('hasCellPhone'),
+          savedFilter('hasLandline'),
+        ],
+      } as never)
+
+      expect(mockDistrictService.findDistrictById).toHaveBeenCalledWith(
+        '0e5bafca-93a9-86a5-2522-f373979720df',
+      )
+      expect(result).toEqual({ count: 3, fenced: false })
+
+      const sql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
+      expect(sql).toContain('SELECT COUNT(*)::bigint AS overlap_count')
+      // Both saved sets OR-joined in ONE query — a voter matching both
+      // contributes exactly one row, never a summed double-count.
+      expect(sql).toMatch(
+        /v\."VoterTelephones_CellPhoneFormatted" IS NOT NULL OR v\."VoterTelephones_LandlineFormatted" IS NOT NULL/,
+      )
+    })
+
+    it('retries with the fenced overlap SQL on statement cancellation (57014)', async () => {
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([]) // primary (cancelled inside the txn)
+        .mockResolvedValueOnce([{ overlap_count: 10000n }]) // fenced retry
+      mockClient.$transaction.mockRejectedValueOnce(statementTimeoutError())
+
+      const result = await service.getOverlapCount({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        savedFilterSets: [savedFilter('hasCellPhone')],
+      } as never)
+
+      expect(result).toEqual({ count: 10000, fenced: true })
+      expect(mockClient.$queryRaw).toHaveBeenCalledTimes(2)
+
+      const fencedSql = sqlTextOf(mockClient.$queryRaw.mock.calls[1]?.[0])
+      expect(fencedSql).toContain('FROM (SELECT v.* FROM')
+      expect(fencedSql).toContain('LIMIT')
+    })
+
+    it('returns zero without special-casing when no saved lists are given', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([{ overlap_count: 0n }])
+
+      const result = await service.getOverlapCount({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        savedFilterSets: [],
+      } as never)
+
+      expect(result).toEqual({ count: 0, fenced: false })
+      const sql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
+      // Union of zero saved sets is the empty set (FALSE), not "unfiltered".
+      expect(sql).toContain('AND FALSE')
     })
   })
 })

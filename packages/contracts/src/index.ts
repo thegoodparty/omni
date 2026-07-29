@@ -698,6 +698,14 @@ export {
 } from './people/PeopleFilters.schema'
 
 export {
+  MAX_OVERLAP_SAVED_FILTER_SETS,
+  PeopleOverlapCountRequestSchema,
+  type PeopleOverlapCountRequest,
+  PeopleOverlapCountResponseSchema,
+  type PeopleOverlapCountResponse,
+} from './people/PeopleOverlapCount.schema'
+
+export {
   DoorKnockingEvaluateRequestSchema,
   type DoorKnockingEvaluateRequest,
   DoorKnockingEvaluatedPersonSchema,

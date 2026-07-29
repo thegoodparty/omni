@@ -116,6 +116,9 @@ const baseFakePrisma = {
   },
   $queryRaw: vi.fn(async (query: unknown) => {
     const text = sqlText(query)
+    if (text.includes('overlap_count')) {
+      return [{ overlap_count: 7n }]
+    }
     if (text.includes('voter_count')) {
       return [{ voter_count: BigInt(dataset.length) }]
     }
@@ -155,35 +158,35 @@ type ListBody = {
   people: Array<{ id: string; householdId: string | null }>
 }
 
+let app: NestFastifyApplication
+
+beforeAll(async () => {
+  const moduleRef = await Test.createTestingModule({
+    imports: [AppModule],
+  })
+    .overrideProvider(PrismaService)
+    .useValue(fakePrisma)
+    .compile()
+
+  app = moduleRef.createNestApplication<NestFastifyApplication>(
+    new FastifyAdapter(),
+  )
+  app.setGlobalPrefix('v1')
+  app.useGlobalPipes(new ZodValidationPipe())
+  const httpAdapterHost = app.get(HttpAdapterHost)
+  app.useGlobalFilters(
+    new PrismaExceptionFilter(),
+    new AllExceptionsFilter(httpAdapterHost),
+  )
+  await app.init()
+  await app.getHttpAdapter().getInstance().ready()
+})
+
+afterAll(async () => {
+  await app?.close()
+})
+
 describe('POST /v1/people (list pagination)', () => {
-  let app: NestFastifyApplication
-
-  beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
-    })
-      .overrideProvider(PrismaService)
-      .useValue(fakePrisma)
-      .compile()
-
-    app = moduleRef.createNestApplication<NestFastifyApplication>(
-      new FastifyAdapter(),
-    )
-    app.setGlobalPrefix('v1')
-    app.useGlobalPipes(new ZodValidationPipe())
-    const httpAdapterHost = app.get(HttpAdapterHost)
-    app.useGlobalFilters(
-      new PrismaExceptionFilter(),
-      new AllExceptionsFilter(httpAdapterHost),
-    )
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
-  })
-
-  afterAll(async () => {
-    await app?.close()
-  })
-
   const listPeople = async (
     body: Record<string, unknown>,
   ): Promise<{ statusCode: number; body: ListBody }> => {
@@ -281,5 +284,35 @@ describe('POST /v1/people (list pagination)', () => {
       expect(body.people[0]?.id).toBe('person-20')
       expect(body.people[4]?.id).toBe('person-24')
     })
+  })
+})
+
+describe('POST /v1/people/overlap-count', () => {
+  it('returns the overlap count with the fenced flag', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/people/overlap-count',
+      payload: {
+        districtId: DISTRICT_ID,
+        filters: { filters: [], filterOperators: {} },
+        savedFilterSets: [{ filters: [], filterOperators: {} }],
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toEqual({ count: 7, fenced: false })
+  })
+
+  it('400s when savedFilterSets is missing', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/people/overlap-count',
+      payload: {
+        districtId: DISTRICT_ID,
+        filters: { filters: [], filterOperators: {} },
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
   })
 })

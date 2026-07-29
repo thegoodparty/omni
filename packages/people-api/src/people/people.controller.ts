@@ -5,6 +5,7 @@ import {
   GetPersonParamsDTO,
   GetPersonQueryDTO,
   ListPeopleDTO,
+  OverlapCountDTO,
   SamplePeopleDTO,
   StatsDTO,
 } from './people.schema'
@@ -47,6 +48,11 @@ export class PeopleController {
   @Post('aggregates')
   getAggregates(@Body() dto: AggregatesDTO) {
     return this.peopleService.getAggregates(dto)
+  }
+
+  @Post('overlap-count')
+  getOverlapCount(@Body() dto: OverlapCountDTO) {
+    return this.peopleService.getOverlapCount(dto)
   }
 
   // keep for backwards compatibility

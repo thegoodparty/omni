@@ -7,10 +7,12 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import {
+  MAX_OVERLAP_SAVED_FILTER_SETS,
   SupportStatusRollupSchema,
   VoterLikelihoodSchema,
   type ContactStatuses,
   type ListDetailContactsResponse,
+  type PeopleOverlapCountResponse,
   type SupportStatusRollup,
   type UpdateContactStatusInput,
   type VoterLikelihood,
@@ -83,10 +85,12 @@ const ALL_CONTACTS_SEGMENT = 'all'
 export const PRO_FILTERING_REQUIRED_MESSAGE =
   'Filtering voter data is only available for pro campaigns'
 
-// Mirrors people-api's EXCLUDABLE_VOTER_COLUMNS entry for the party column
-// (people.select.ts). The CSV download is a Postgres COPY stream gp-api
-// cannot post-process, so an `eo-` org's download asks people-api to drop
-// this column from the projection instead (ENG-10696).
+// Mirrors people-api's EXCLUDABLE_VOTER_COLUMNS entries (people.select.ts).
+// The CSV download is a Postgres COPY stream gp-api cannot post-process, so
+// an `eo-` org's download asks people-api to drop this column from the
+// projection instead (ENG-10696). downloadVoterFilePeople (the separate
+// outreach/task-flow audience download) still only excludes party — this
+// list is scoped to the CRM download (downloadContacts) below (ENG-10830).
 const PARTY_DOWNLOAD_COLUMN = 'Parties_Description'
 
 // people-api's Voter_Status seed vocabulary has six values; the editable
@@ -109,6 +113,26 @@ const seedVoterLikelihood = (
   voterStatus: PersonOutput['voterStatus'],
 ): VoterLikelihood =>
   voterStatus ? VOTER_LIKELIHOOD_SEED_MAP[voterStatus] : 'unknown'
+
+// Serve (`eo-`) CRM downloads must omit these columns entirely — a blank
+// column still reveals the field exists (ENG-10830). Party (completing
+// ENG-10696), turnout propensity, and vote history.
+const SERVE_EXCLUDED_DOWNLOAD_COLUMNS = [
+  PARTY_DOWNLOAD_COLUMN,
+  'Residence_HHParties_Description',
+  'VoterParties_Change_Changed_Party',
+  'VotingPerformanceEvenYearGeneral',
+  'VotingPerformanceEvenYearPrimary',
+  'VotingPerformanceEvenYearGeneralAndPrimary',
+  'General_2026',
+  'General_2024',
+  'General_2022',
+  'General_2020',
+  'Primary_2026',
+  'Primary_2024',
+  'Primary_2022',
+  'Primary_2020',
+]
 
 if (!PEOPLE_API_URL) {
   throw new Error('Please set PEOPLE_API_URL in your .env')
@@ -190,6 +214,18 @@ export class ContactsService {
     }
   }
 
+  // Single predicate backing both the throwing assert below and
+  // resolveSavedFilterSets' per-set drop (ENG-10840) — one place decides
+  // what counts as a party leak for an elected-office organization.
+  private hasPartyFilterForElectedOffice(
+    organization: Organization,
+    filters: FilterObject,
+  ): boolean {
+    return (
+      this.hasElectedOfficeAccess(organization) && 'politicalParty' in filters
+    )
+  }
+
   // Rejects a party filter/segment before the people-api call rather than
   // stripping party rows after the fact — list, count, and download all
   // resolve their request into a FilterObject before calling out, so this one
@@ -198,10 +234,7 @@ export class ContactsService {
     organization: Organization,
     filters: FilterObject,
   ): void {
-    if (
-      this.hasElectedOfficeAccess(organization) &&
-      'politicalParty' in filters
-    ) {
+    if (this.hasPartyFilterForElectedOffice(organization, filters)) {
       throw new BadRequestException(
         'Political party filtering is not available for this organization',
       )
@@ -485,6 +518,175 @@ export class ContactsService {
     }
 
     return this.withOrgDistrictResolution(organization, fetchCount)
+  }
+
+  // Saved-list overlap count (ENG-10840): how many of the in-progress
+  // selection also belong to at least one of the org's saved lists — the
+  // wizard's "N (P%) voters already exist in lists you've saved" strip.
+  // Takes the identical in-progress payload as countContacts and runs the
+  // identical filter translation, so the "current selection" side of the
+  // overlap matches the live count exactly. Pro-gated the same way.
+  async overlapCount(
+    filterInput: CountContactsDTO,
+    organization: Organization,
+  ): Promise<{ count: number; fenced: boolean }> {
+    if (!(await this.isProAccess(organization))) {
+      throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
+    }
+
+    const baseFilters = convertVoterFileFilterToFilters(filterInput)
+    this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
+
+    const idResolution = await this.activityConditionResolution.resolveIdFilter(
+      organization.slug,
+      {
+        activityConditions: filterInput.activityConditions,
+        supportStatus: filterInput.supportStatus,
+      },
+    )
+    // The current selection resolves to nobody — nothing to overlap with, so
+    // this mirrors countContacts' own empty-resolution short circuit rather
+    // than paying a people-api round trip for a guaranteed zero.
+    if (idResolution.kind === 'empty') {
+      return { count: 0, fenced: false }
+    }
+    const filters = this.mergeIdFilter(baseFilters, idResolution)
+    const search = filterInput.search || undefined
+
+    const savedFilterSets = await this.resolveSavedFilterSets(organization)
+    // No saved list resolves to any member — the union of zero sets is
+    // empty, so this skips the people-api call entirely (also covers "the
+    // org has no saved lists at all").
+    if (savedFilterSets.length === 0) {
+      return { count: 0, fenced: false }
+    }
+
+    const fetchOverlapCount = async (districtParams: {
+      districtId: string
+    }) => {
+      try {
+        const response = await lastValueFrom(
+          this.httpService.post(
+            `${PEOPLE_API_URL}/v1/people/overlap-count`,
+            { ...districtParams, filters, search, savedFilterSets },
+            {
+              headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
+            },
+          ),
+        )
+        // People API response is untyped — external API returns unknown shape
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+        return response.data as PeopleOverlapCountResponse
+      } catch (error) {
+        this.logger.error(
+          { error },
+          'Failed to fetch overlap count from people API',
+        )
+        throw new BadGatewayException(
+          'Failed to fetch overlap count from people API',
+        )
+      }
+    }
+
+    return this.withOrgDistrictResolution(organization, fetchOverlapCount)
+  }
+
+  // The saved-list universe for the overlap union: each saved filter's own
+  // activity-condition/support-status parts resolve to a person-id set
+  // exactly as the live count does, so activity-based saved lists
+  // participate correctly. Capped at the org's most-recently-saved
+  // MAX_OVERLAP_SAVED_FILTER_SETS lists (small N per org — the lists index is
+  // an accepted N+1 today); truncation is logged, never a silent cap. A
+  // saved list whose resolution is empty (matches nobody, e.g. a
+  // now-orphaned activity condition) contributes nothing to the OR, so it's
+  // dropped rather than sent as a meaningless filter set.
+  private async resolveSavedFilterSets(
+    organization: Organization,
+  ): Promise<FilterObject[]> {
+    const savedFilters =
+      await this.voterFileFilterService.findRecentByOrganizationSlug(
+        organization.slug,
+        MAX_OVERLAP_SAVED_FILTER_SETS + 1,
+      )
+    const truncated = savedFilters.length > MAX_OVERLAP_SAVED_FILTER_SETS
+    const capped = truncated
+      ? savedFilters.slice(0, MAX_OVERLAP_SAVED_FILTER_SETS)
+      : savedFilters
+
+    if (truncated) {
+      // findRecentByOrganizationSlug's `take` caps what came back, so
+      // savedFilters.length alone can't distinguish "exactly at the fetch
+      // limit" from "many more beyond it" — fetch the org's real total for
+      // an honest log line (only paid on the rare truncating org, not the
+      // hot path).
+      const total = await this.voterFileFilterService.countByOrganizationSlug(
+        organization.slug,
+      )
+      this.logger.warn(
+        {
+          organizationSlug: organization.slug,
+          total,
+          cap: MAX_OVERLAP_SAVED_FILTER_SETS,
+        },
+        'Saved-list overlap count truncated to the most recently saved lists',
+      )
+    }
+
+    const resolved = await Promise.all(
+      capped.map(async (savedFilter) => {
+        const savedBaseFilters = convertVoterFileFilterToFilters(savedFilter)
+        // Party never reaches Serve (ENG-10696) — the write path doesn't
+        // assert this on every saved-filter create/update, so a legacy or
+        // otherwise-tainted row can still carry `politicalParty`. Every
+        // other caller of convertVoterFileFilterToFilters 400s the whole
+        // request on this; the union here can't do that (one bad saved
+        // list would break the strip for every other list), so it drops
+        // just this set instead.
+        if (
+          this.hasPartyFilterForElectedOffice(organization, savedBaseFilters)
+        ) {
+          this.logger.warn(
+            {
+              organizationSlug: organization.slug,
+              voterFileFilterId: savedFilter.id,
+            },
+            'Saved-list overlap count dropped a saved list carrying a party predicate for an elected-office organization',
+          )
+          return null
+        }
+        // resolveIdFilter 400s past MAX_RESOLVED_ID_SET_SIZE — correct for
+        // the single-filter endpoints, but here it (or a transient DB
+        // failure) would abort the whole union, so the failing set is
+        // dropped like the party case above.
+        let savedIdResolution: IdFilterResolution
+        try {
+          savedIdResolution =
+            await this.activityConditionResolution.resolveIdFilter(
+              organization.slug,
+              {
+                activityConditions: savedFilter.activityConditions,
+                supportStatus: savedFilter.supportStatus,
+              },
+            )
+        } catch (error) {
+          this.logger.warn(
+            {
+              organizationSlug: organization.slug,
+              voterFileFilterId: savedFilter.id,
+              error,
+            },
+            'Saved-list overlap count dropped a saved list that failed id-filter resolution',
+          )
+          return null
+        }
+        return savedIdResolution.kind === 'empty'
+          ? null
+          : this.mergeIdFilter(savedBaseFilters, savedIdResolution)
+      }),
+    )
+    return resolved.filter(
+      (filterObject): filterObject is FilterObject => filterObject !== null,
+    )
   }
 
   // Ad-hoc filter set, paged full-row export. The Peerly phone-list capture
@@ -1001,7 +1203,7 @@ export class ContactsService {
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     const excludeColumns = this.hasElectedOfficeAccess(organization)
-      ? [PARTY_DOWNLOAD_COLUMN]
+      ? SERVE_EXCLUDED_DOWNLOAD_COLUMNS
       : undefined
     return this.withOrgDistrictResolution(organization, (params) =>
       empty
