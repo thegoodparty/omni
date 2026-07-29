@@ -143,6 +143,31 @@ describe('people query schemas', () => {
     ).toThrow()
   })
 
+  // ENG-10830: completing the party rule (ENG-10696) plus suppressing
+  // turnout propensity and vote history for Serve downloads.
+  it('accepts every ENG-10830 excludeColumns entry on the download query', () => {
+    const parsed = downloadPeopleSchema.parse({
+      districtId: DISTRICT_ID,
+      filters: {},
+      excludeColumns: [
+        'Residence_HHParties_Description',
+        'VoterParties_Change_Changed_Party',
+        'VotingPerformanceEvenYearGeneral',
+        'VotingPerformanceEvenYearPrimary',
+        'VotingPerformanceEvenYearGeneralAndPrimary',
+        'General_2026',
+        'General_2024',
+        'General_2022',
+        'General_2020',
+        'Primary_2026',
+        'Primary_2024',
+        'Primary_2022',
+        'Primary_2020',
+      ],
+    })
+    expect(parsed.excludeColumns).toHaveLength(13)
+  })
+
   it('accepts districtId getPerson query', () => {
     const parsed = getPersonQuerySchema.parse({
       districtId: DISTRICT_ID,
