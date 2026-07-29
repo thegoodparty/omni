@@ -13,10 +13,12 @@ import { ElectedOfficeSupportModule } from './electedOfficeSupport/electedOffice
 import { PersonsModule } from './persons/persons.module'
 import { OfficeHoldersModule } from './officeHolders/officeHolders.module'
 import { loggerModule } from './observability/logging/logger-module'
+import { AuthenticationModule } from './authentication/authentication.module'
 
 @Module({
   imports: [
     loggerModule,
+    AuthenticationModule,
     RacesModule,
     PlacesModule,
     HealthModule,

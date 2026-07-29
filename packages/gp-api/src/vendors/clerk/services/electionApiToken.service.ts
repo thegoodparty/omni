@@ -1,0 +1,81 @@
+import { Inject, Injectable } from '@nestjs/common'
+import { ClerkClient } from '@clerk/backend'
+import { PinoLogger } from 'nestjs-pino'
+import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
+
+// Renew slightly before expiry so an in-flight request never uses a token
+// that expires mid-call.
+const TOKEN_RENEWAL_BUFFER_MS = 30_000
+const TOKEN_TTL_SECONDS = 600
+
+const { GP_WEBAPP_MACHINE_SECRET } = process.env
+
+/**
+ * Mints and caches a Clerk M2M token for calling election-api. gp-api is the
+ * caller, so it mints with its own machine secret (GP_WEBAPP_MACHINE_SECRET);
+ * election-api verifies as the recipient. The gp-webapp machine must be
+ * connected to the election-api machine in the Clerk dashboard.
+ *
+ * The token is cached and reused until shortly before it expires; concurrent
+ * callers share a single in-flight mint.
+ */
+@Injectable()
+export class ElectionApiTokenService {
+  private cachedToken: string | null = null
+  private tokenExpiration: number | null = null
+  private pendingTokenPromise: Promise<string> | null = null
+
+  constructor(
+    @Inject(CLERK_CLIENT_PROVIDER_TOKEN)
+    private readonly clerkClient: ClerkClient,
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(ElectionApiTokenService.name)
+  }
+
+  async getToken(): Promise<string> {
+    if (this.cachedToken && this.isTokenValid()) {
+      return this.cachedToken
+    }
+    if (this.pendingTokenPromise) {
+      return this.pendingTokenPromise
+    }
+    const promise = this.createAndCacheToken()
+    this.pendingTokenPromise = promise
+    try {
+      return await promise
+    } finally {
+      if (this.pendingTokenPromise === promise) {
+        this.pendingTokenPromise = null
+      }
+    }
+  }
+
+  /** Authorization header for an election-api request. */
+  async authHeader(): Promise<{ Authorization: string }> {
+    return { Authorization: `Bearer ${await this.getToken()}` }
+  }
+
+  private isTokenValid(): boolean {
+    if (!this.tokenExpiration) return false
+    return Date.now() < this.tokenExpiration - TOKEN_RENEWAL_BUFFER_MS
+  }
+
+  private async createAndCacheToken(): Promise<string> {
+    if (!GP_WEBAPP_MACHINE_SECRET) {
+      throw new Error(
+        'GP_WEBAPP_MACHINE_SECRET must be set to mint an election-api M2M token',
+      )
+    }
+    const minted = await this.clerkClient.m2m.createToken({
+      machineSecretKey: GP_WEBAPP_MACHINE_SECRET,
+      secondsUntilExpiration: TOKEN_TTL_SECONDS,
+    })
+    if (!minted.token) {
+      throw new Error('Clerk M2M token creation returned no token')
+    }
+    this.cachedToken = minted.token
+    this.tokenExpiration = minted.expiration
+    return minted.token
+  }
+}

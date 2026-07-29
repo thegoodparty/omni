@@ -1,5 +1,6 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { SlackService } from '@/vendors/slack/services/slack.service'
+import { ElectionApiTokenService } from '@/vendors/clerk/services/electionApiToken.service'
 import { HttpService } from '@nestjs/axios'
 import { NotFoundException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
@@ -8,6 +9,8 @@ import { of, throwError } from 'rxjs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PositionWithOptionalDistrict } from '../types/elections.types'
 import { ElectionsService } from './elections.service'
+
+const AUTH_HEADER = { Authorization: 'Bearer mt_test' }
 
 const makePosition = (
   turnoutValue: number | null,
@@ -73,6 +76,10 @@ describe('ElectionsService', () => {
             errorMessage: vi.fn().mockResolvedValue(undefined),
             message: vi.fn().mockResolvedValue(undefined),
           },
+        },
+        {
+          provide: ElectionApiTokenService,
+          useValue: { authHeader: vi.fn().mockResolvedValue(AUTH_HEADER) },
         },
       ],
     }).compile()
@@ -888,6 +895,7 @@ describe('ElectionsService', () => {
       expect(mockHttpPost).toHaveBeenCalledWith(
         expect.stringContaining('campaign-strategy-context'),
         { brHashId: 'Z2lk-hash' },
+        { headers: AUTH_HEADER },
       )
     })
 

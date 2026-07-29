@@ -55,14 +55,19 @@ export const bootstrap = async ({
     new AllExceptionsFilter(httpAdapterHost.httpAdapter, logger),
   )
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('API Documentation')
-    .setDescription('The API description')
-    .setVersion('1.0')
-    .build()
+  // Swagger describes the full (now M2M-protected) API surface and is served
+  // outside the Nest guard chain, so keep it off in production to avoid
+  // leaking the schema publicly. It stays available in local/dev.
+  if (process.env.NODE_ENV !== 'production') {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('API Documentation')
+      .setDescription('The API description')
+      .setVersion('1.0')
+      .build()
 
-  const document = SwaggerModule.createDocument(app, swaggerConfig)
-  SwaggerModule.setup('api', app, document)
+    const document = SwaggerModule.createDocument(app, swaggerConfig)
+    SwaggerModule.setup('api', app, document)
+  }
 
   await app.register(helmet)
 

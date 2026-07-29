@@ -115,11 +115,12 @@ gp-data-platform (external — dbt + Databricks)
 | gp-webapp middleware → gp-api | JWT Bearer | Middleware intercepts `/api/v1/*`, injects `Authorization` header from cookie |
 | gp-admin → gp-api | SDK + Clerk M2M | `@goodparty_org/sdk`, per-env Clerk M2M secret; active Clerk org selects env (no cookie flow) |
 | gp-api → people-api | S2S JWT Bearer | Signed with `PEOPLE_API_S2S_SECRET`, 5-min TTL, cached, issuer: `gp-api` |
-| gp-api → election-api | HTTP | No auth (internal / public read-only data) |
+| gp-api → election-api | Clerk M2M | Mints `mt_*` token with `GP_WEBAPP_MACHINE_SECRET` (cached), sends `Authorization: Bearer` |
+| gp-marketing → election-api | Clerk M2M | Server-only; mints `mt_*` token with `GP_MARKETING_MACHINE_SECRET` (cached), sends `Authorization: Bearer` |
 | M2M caller → gp-api | Bearer `mt_*` token | `ClerkM2MAuthGuard` |
 | gp-api guards | — | Three global guards in order: `ClerkM2MAuthGuard` → `SessionGuard` → `RolesGuard` |
 | people-api | — | `S2SAuthGuard` (global), verifies JWT with shared secret, localhost bypass in dev |
-| election-api | — | No auth (public read-only API) |
+| election-api | — | Global `M2MAuthGuard` (default-deny), verifies `mt_*` against `ELECTION_API_MACHINE_SECRET`; only `/v1/health` is `@PublicAccess`. Enforcement gated by `ELECTION_API_AUTH_ENFORCED` (observe-only until `true`) |
 | Admin impersonation | — | `impersonateToken`/`impersonateUser` cookies override normal auth |
 
 Guard detail and decorators: `gp-api/src/authentication/CLAUDE.md`.
@@ -197,7 +198,7 @@ Guard detail and decorators: `gp-api/src/authentication/CLAUDE.md`.
 
 ### election-api — Election Data Service
 
-**Purpose**: Read-only public API over BallotReady election data. No auth required. All data written by gp-data-platform dbt models.
+**Purpose**: Read-only API over BallotReady election data. All data written by gp-data-platform dbt models. Secured by default with Clerk M2M — every route except `GET /v1/health` requires a valid `mt_*` token (see Auth Between Services). Callers: gp-api and gp-marketing (both server-side).
 
 **7 controllers**, all prefixed `/v1`:
 
@@ -225,6 +226,8 @@ District (state + L2 type/name, unique constraint)
 ```
 
 **Election code logic**: `determineElectionCode(date, state)` classifies election dates — General (even year, first Tues after first Mon in Nov), ConsolidatedGeneral (LA/MS/NJ/VA odd years, KS 4-year cycle), everything else LocalOrMunicipal.
+
+**Auth**: global `M2MAuthGuard` (`src/authentication/`) registered as `APP_GUARD` — default-deny, verifies Clerk M2M `mt_*` tokens against `ELECTION_API_MACHINE_SECRET`. Routes opt out with `@PublicAccess()` (only the health check). `ELECTION_API_AUTH_ENFORCED` toggles enforcement: while `!= 'true'` the guard runs in observe-only mode (verify + log, never reject) for safe rollout; set to `true` to start returning `401`. Swagger `/api` is only mounted outside production.
 
 **Deploy**: Docker → ECR → Pulumi → ECS Fargate (`packages/election-api/deploy/`). Local port 3001. Aurora Serverless v2. Not part of the full-stack PR-preview pairing — gp-webapp doesn't call it directly (election data is proxied through gp-api), and there is no per-PR election-api stack; PR previews use the shared dev election-api.
 
