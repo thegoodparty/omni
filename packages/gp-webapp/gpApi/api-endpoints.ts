@@ -411,6 +411,13 @@ export type APIEndpoints = {
     Response: CampaignTrackerTask
   }
 
+  // Manual generation override, non-prod only (gp-api 404s it in prod). Fire to
+  // dispatch a tracker run for the current campaign on demand.
+  'POST /v1/campaigns/tracker-tasks/generate': {
+    Request: {}
+    Response: void
+  }
+
   'GET /v1/elected-office/current': {
     Request: {}
     Response: ElectedOffice

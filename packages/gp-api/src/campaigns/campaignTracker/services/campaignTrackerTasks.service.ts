@@ -209,6 +209,29 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     })
   }
 
+  // Manual generation override for non-prod (see the controller's env gate).
+  // Dispatches a run immediately, deliberately skipping the weekly cron's
+  // CronLock daily lease and coverage dedup so it can be re-fired on demand for
+  // testing/demos. Mode mirrors the cron: `initial` when no dynamic generation
+  // exists yet, `weekly` once one does (so prior tasks feed back in).
+  async generateNow(campaign: Campaign): Promise<void> {
+    const withUser = await this.client.campaign.findUnique({
+      where: { id: campaign.id },
+      include: { user: true },
+    })
+    if (!withUser) {
+      throw new NotFoundException(`Campaign ${campaign.id} not found`)
+    }
+    const priorGeneration = await this.model.findFirst({
+      where: { campaignId: campaign.id, isDefaultTask: false },
+      select: { id: true },
+    })
+    await this.dispatchGeneration(
+      withUser,
+      priorGeneration ? 'weekly' : 'initial',
+    )
+  }
+
   // First-run bootstrap, called once the campaign plan finishes generating
   // (the story is already complete by then — a plan can't generate without
   // it). The two plan sections complete on independent SQS messages (possibly
