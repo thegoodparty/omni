@@ -29,6 +29,89 @@ Filename note: `paymentEventsService.ts` intentionally lacks the `.service` suff
 - **External calls are wrapped in try/catch and throw `BadGatewayException`** (`.cursor/rules/rules.mdc` Rule 3). DB writes are not wrapped — let `PrismaExceptionFilter` handle them.
 - `forwardRef(() => CampaignsModule)` because purchase fulfillment touches campaign state.
 
+## Pro subscription lifecycle
+
+Where Pro state lives (all of it — there is no subscription table):
+
+- `campaign.details.subscriptionId` / `subscriptionCanceledAt` — set by the
+  `checkout.session.completed` / `customer.subscription.*` webhooks in
+  `paymentEventsService.ts`. `isPro` flips here too.
+- `user.metaData.customerId` — Stripe customer id (backfilled on boot).
+- `user.metaData.checkoutSessionId` — the ONE open Pro checkout session per
+  user. Written only by `createProCheckoutSession`, cleared by the completion
+  and expiry webhooks.
+
+`POST /payments/purchase/checkout-session` is guarded (ENG-10771, PR #992 —
+each guard exists because a customer was double-billed without it):
+
+1. 400 `NO_ACTIVE_CAMPAIGN` — no campaign passes `isActiveCampaign`
+   (`campaigns/util/eligibility.util.ts`). Fulfillment webhooks resolve the
+   campaign via `findActiveByUserId` and skip with a 2xx when nothing
+   qualifies, so selling here = charged with no Pro and no cancel path.
+2. 409 `ALREADY_PRO` — a second completed checkout mints a SECOND Stripe
+   customer (Pro sessions carry only `customer_email`, never the stored
+   `customerId`, so Stripe cannot dedupe subscriptions itself).
+3. 409 `CHECKOUT_ALREADY_COMPLETED` — previous stored session already paid,
+   isPro flip still in flight.
+4. 409 `CHECKOUT_IN_PROGRESS` — lost the `compareAndSwapCheckoutSessionId`
+   CAS (atomic conditional `jsonb_set` in `UsersService`). All
+   `checkoutSessionId` writes go through that CAS; don't add a plain write.
+
+## Debugging Pro billing issues (recipes from real incidents)
+
+Tools: prod DB creds in the `GP_API_PROD` AWS secret (`DB_PASSWORD`,
+VPN-only); the Stripe live key is `STRIPE_SECRET_KEY` in the same secret —
+fine for read-only GETs (`/v1/customers/search?query=email:'...'`,
+subscriptions, checkout sessions). Loki:
+`{service_name="gp-api", deployment_environment_name="prod"} |= "checkout-session"`
+reconstructs the session-creation timeline; add `|= "user_<clerkId>"` for one
+user's navigation. A checkout session's `metadata.userId` is the fastest way
+to find which app user actually paid — trust it over the email on the Stripe
+customer (users enter arbitrary emails/names at checkout, which also creates
+cross-account confusion when one person has two app users).
+
+**"Charged twice" (ENG-10771 shape).** First check for TWO Stripe customers
+under one email, then list subs per customer. Known chain: duplicate checkout
+→ second customer + second sub; `checkout.session.completed` blindly
+overwrites `campaign.details.subscriptionId`, orphaning (not cancelling) the
+first sub, which keeps billing; CS cancelling the SECOND sub then fires
+`customer.subscription.deleted` and un-Pros the campaign while the FIRST sub
+still bills — paying-but-not-Pro. Repair = pick the sub to keep, fix
+`subscriptionId`/`customerId` by SQL, cancel/refund the other in Stripe.
+Refunds can be blocked on insufficient Stripe available balance — retry later.
+
+**Purchase error 400 `NO_ACTIVE_CAMPAIGN`.** `isActiveCampaign` requires: not
+demo, `primaryResult !== 'lost'`, `didWin === null`, valid future
+`details.electionDate` — across ALL the user's campaigns. Diagnose (read
+replica): `SELECT id, slug, primary_result, did_win, is_demo,
+details->>'electionDate' FROM campaign WHERE user_id = <id>`. Two known traps:
+
+1. **Re-running candidate reuses the old campaign** — office-picker date
+   change only merges `details`; `didWin=false` from the prior loss never
+   resets, so the campaign is permanently inactive.
+2. **PrimaryResultModal trap** — a campaign created AFTER its
+   BallotReady-sourced `details.primaryElectionDate` has passed forces a
+   no-escape modal on first dashboard visit; independents with no primary
+   answer "did not win" → `primary_result='lost'` minutes after signup.
+   Repair needs BOTH writes or the modal re-traps on next dashboard load:
+   `UPDATE campaign SET primary_result = NULL WHERE id = <id> AND
+   primary_result = 'lost';` and
+   `UPDATE campaign SET details = details - 'primaryElectionDate' WHERE id = <id>;`
+
+**"Cancelled Pro but Stripe kept billing" (ENG-10657 shape).** The
+portal-cancel → `customer.subscription.deleted` → de-Pro path works; suspect
+(a) two app users for one person with the sub on the other account, or
+(b) admin console `isPro: false` (adminCampaigns.service), which does NOT
+cancel the Stripe subscription (open gap, 86ajenb0v). Also: a passed election
+with `wonGeneral` null force-redirects every dashboard route to
+`/dashboard/election-result`, hiding Profile → Manage Subscription;
+`ActiveProSubscriptionAlert` on the election-result pages (PR #677) is the
+escape hatch.
+
+Open follow-ups (not ticketed): pass `customer` (stored customerId) on Pro
+checkout sessions instead of `customer_email`; alert on the webhook seeing a
+subscriptionId overwrite.
+
 ## Draft-first outreach fulfillment (TEXT)
 
 P2P outreach is persisted as an `Outreach` row with `status: pending_payment`
