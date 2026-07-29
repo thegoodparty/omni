@@ -154,6 +154,19 @@ describe('<StatusRow>', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('renders both dropdown menus above the person-overlay sheet (z-[1400])', async () => {
+    const user = userEvent.setup()
+
+    render(<Harness initialPerson={makePerson()} />)
+
+    await user.click(screen.getByRole('combobox', { name: 'Voter Likelihood' }))
+    expect(await screen.findByRole('listbox')).toHaveClass('z-[1400]')
+    await user.keyboard('{Escape}')
+
+    await user.click(screen.getByRole('combobox', { name: 'Support Status' }))
+    expect(await screen.findByRole('listbox')).toHaveClass('z-[1400]')
+  })
+
   it('changing Voter Likelihood PATCHes the right body, optimistically updates, and fires the event once', async () => {
     const user = userEvent.setup()
     const person = makePerson({ voterLikelihood: 'unknown' })
