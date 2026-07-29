@@ -180,11 +180,10 @@ Provides `this.model`, `this.client`, `this.logger`, bound passthroughs (`findMa
 
 ## Auth
 
-Three global guards run in order:
+Two global guards run in order:
 
-1. `ClerkM2MAuthGuard` — accepts `mt_*` tokens via Clerk M2M
-2. `SessionGuard` — accepts user JWTs from cookies
-3. `RolesGuard` — enforces `@Roles(...)`
+1. `SessionGuard` — accepts user JWTs from cookies, and verifies Clerk M2M (`mt_*`) tokens
+2. `RolesGuard` — enforces `@Roles(...)`
 
 Decorators: `@PublicAccess()`, `@Roles(UserRole.X)`, `@ReqUser()`. Route-level guards: `AdminOrM2MGuard`, `M2MOnly`. ADR: `docs/adr/0004-clerk-m2m-auth.md`.
 

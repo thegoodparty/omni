@@ -82,6 +82,10 @@ describe('ClerkAuthService', () => {
       await expect(service.verifySessionToken(token)).rejects.toThrow(
         'Agent token verification failed',
       )
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        { err: expect.any(Error) },
+        'Agent token verification failed',
+      )
     })
 
     it('rejects a gp-broker token with the wrong audience', async () => {

@@ -73,7 +73,8 @@ export class ClerkAuthService implements AuthProvider {
           issuer: 'gp-broker',
           audience: 'gp-api',
         }) as jwt.JwtPayload
-      } catch {
+      } catch (err) {
+        this.logger.warn({ err }, 'Agent token verification failed')
         throw new UnauthorizedException('Agent token verification failed')
       }
       if (!payload.sub) {
