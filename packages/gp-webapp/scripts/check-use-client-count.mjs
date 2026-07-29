@@ -146,7 +146,11 @@ import { dirname, join, relative } from 'node:path'
 // (mode/loop form + knock mutation), WalkView (route query + per-stop
 // expand/record state), RecordKnockForm (answer state + interaction
 // mutation) — all interactive, all inside the client-only map page.
-const BASELINE = 557
+// ENG-10836: +1 for crm/person/StatusRow.tsx — the person-record status row
+// needs client hooks (useMutation/useQueryClient for the PATCH + optimistic
+// update, useCrmEnabled for self-gating, Radix Select interactivity), so it
+// can't render as a server component.
+const BASELINE = 558
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

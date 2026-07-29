@@ -2,6 +2,7 @@ import type {
   ContactNote,
   ContactNoteInput,
   ContactNoteListResponse,
+  ContactStatuses,
   ConstituentActivity,
   ConstituentActivityEvent,
   ConstituentActivityEventType,
@@ -20,6 +21,8 @@ import type {
   RobocallConstituentActivity,
   SupportStatusRollup,
   TextConstituentActivity,
+  UpdateContactStatusInput,
+  VoterLikelihood,
   VoterOutreachAttributionSource,
 } from '@goodparty_org/contracts'
 // Keeps the activity-condition shape defined once (ENG-10708); the sibling
@@ -44,6 +47,11 @@ export interface SegmentResponse {
 }
 
 export type { Person, SupportStatusRollup }
+
+// The two editable per-contact statuses (ENG-10833/ENG-10836): request/
+// response shapes for PATCH /v1/contacts/:personId/status, defined once in
+// @goodparty_org/contracts/people/ContactStatus.schema.
+export type { ContactStatuses, UpdateContactStatusInput, VoterLikelihood }
 
 export type ListContactsResponse = PeopleListResponse
 

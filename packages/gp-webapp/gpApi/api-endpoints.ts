@@ -60,9 +60,11 @@ import type {
   ContactNote,
   ContactNoteInput,
   ContactNoteListResponse,
+  ContactStatuses,
   LogContactInteractionInput,
   LogContactInteractionResponse,
   SupportStatusRollup,
+  UpdateContactStatusInput,
 } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { ActivityConditionInput } from 'app/dashboard/contacts/crm/shared/activityConditionOptions'
 import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
@@ -664,6 +666,10 @@ export type APIEndpoints = {
       search?: string
     }
     Response: ListContactsResponse
+  }
+  'PATCH /v1/contacts/:personId/status': {
+    Request: UpdateContactStatusInput
+    Response: ContactStatuses
   }
   'GET /v1/contacts/:id': {
     Request: {}
