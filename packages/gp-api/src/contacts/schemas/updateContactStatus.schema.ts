@@ -7,7 +7,7 @@ import { z } from 'zod'
 // `@Body(new ZodValidationPipe(schema))` instead of a DTO class (same
 // pattern as LogContactInteractionInputSchema in logInteraction.schema.ts).
 const updateContactStatusParamsSchema = z.object({
-  personId: z.string().min(1),
+  personId: z.guid(),
 })
 
 export class UpdateContactStatusParamsDTO extends createZodDto(
