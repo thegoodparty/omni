@@ -128,6 +128,84 @@ describe('VoterFileStep — Voter Likelihood section position', () => {
   })
 })
 
+// ENG-10847: the full filter list renders in the Lovable prototype's order —
+// Contacts made, Support status, Voter likelihood first, demographics after,
+// with the product-only fields the prototype doesn't have (Gender, Cell
+// phone, Landline) trailing at the end.
+describe('VoterFileStep — prototype filter order', () => {
+  const noop = vi.fn()
+
+  it('renders every filter group in the Lovable order for Win', () => {
+    render(
+      <VoterFileStep
+        filters={{}}
+        onFiltersChange={noop}
+        supportStatus={[]}
+        onSupportStatusChange={noop}
+        isElectedOfficial={false}
+      />,
+    )
+
+    const headings = screen
+      .getAllByRole('heading', { level: 4 })
+      .map((heading) => heading.textContent)
+
+    expect(headings).toEqual([
+      'Contacts made',
+      'Support status',
+      'Voter likelihood',
+      'Political party',
+      'Age',
+      'Marital status',
+      'Children',
+      'Veteran status',
+      'Homeowner',
+      'Business owner',
+      'Level of education',
+      'Household income range',
+      'Language',
+      'Ethnicity',
+      'Gender',
+      'Cell phone',
+      'Landline',
+    ])
+  })
+
+  it('renders the same order minus Contacts made and Political party for Serve', () => {
+    render(
+      <VoterFileStep
+        filters={{}}
+        onFiltersChange={noop}
+        supportStatus={[]}
+        onSupportStatusChange={noop}
+        isElectedOfficial
+      />,
+    )
+
+    const headings = screen
+      .getAllByRole('heading', { level: 4 })
+      .map((heading) => heading.textContent)
+
+    expect(headings).toEqual([
+      'Support status',
+      'Voter likelihood',
+      'Age',
+      'Marital status',
+      'Children',
+      'Veteran status',
+      'Homeowner',
+      'Business owner',
+      'Level of education',
+      'Household income range',
+      'Language',
+      'Ethnicity',
+      'Gender',
+      'Cell phone',
+      'Landline',
+    ])
+  })
+})
+
 // ENG-10839: Contacts Made moves to render directly ABOVE Support status in
 // the wizard (prototype order) — the opposite side from Voter Likelihood,
 // which renders below. Win-only, stripped for Serve like Political Party.
