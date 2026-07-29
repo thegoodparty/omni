@@ -1144,7 +1144,9 @@ describe('ContactsService', () => {
         expect(mockHttpService.post).not.toHaveBeenCalled()
       })
 
-      it('excludes the party column from a Serve (eo-) org CSV download', async () => {
+      // ENG-10830: Serve downloads must omit party, turnout propensity, and
+      // vote history columns entirely (not ship them blank).
+      it('excludes party, turnout propensity, and vote history columns from a Serve (eo-) org CSV download', async () => {
         const org = makeOrganization({
           slug: 'eo-mayor-1',
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
@@ -1171,7 +1173,24 @@ describe('ContactsService', () => {
 
         expect(mockHttpService.post).toHaveBeenCalledWith(
           expect.stringContaining(`${PEOPLE_V1_PATH}/download`),
-          expect.objectContaining({ excludeColumns: ['Parties_Description'] }),
+          expect.objectContaining({
+            excludeColumns: [
+              'Parties_Description',
+              'Residence_HHParties_Description',
+              'VoterParties_Change_Changed_Party',
+              'VotingPerformanceEvenYearGeneral',
+              'VotingPerformanceEvenYearPrimary',
+              'VotingPerformanceEvenYearGeneralAndPrimary',
+              'General_2026',
+              'General_2024',
+              'General_2022',
+              'General_2020',
+              'Primary_2026',
+              'Primary_2024',
+              'Primary_2022',
+              'Primary_2020',
+            ],
+          }),
           expect.any(Object),
         )
       })
