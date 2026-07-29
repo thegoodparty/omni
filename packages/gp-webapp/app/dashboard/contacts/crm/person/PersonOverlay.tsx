@@ -45,6 +45,7 @@ import {
   DoorKnockActivityRow,
   formatDateTime,
   RobocallActivityRow,
+  StatusChangeActivityRow,
   TextActivityRow,
 } from './ActivityFeedEntry'
 import type { SupportStatusRollup } from '../shared/contacts-types'
@@ -352,6 +353,13 @@ const ActivitiesContent: React.FC = () => {
             return <TextActivityRow key={idx} activity={activity} />
           case 'ROBOCALL':
             return <RobocallActivityRow key={idx} activity={activity} />
+          case 'STATUS_CHANGE':
+            // Belt-and-suspenders: the feed itself never returns this type
+            // for a Serve context (gp-api gates it on electedOfficeId), but
+            // a Serve org must never render it even if that ever changed.
+            return isWinContext ? (
+              <StatusChangeActivityRow key={idx} activity={activity} />
+            ) : null
           default:
             // Exhaustiveness guard: a new ConstituentActivityType added to
             // the contract without a render branch here fails the build

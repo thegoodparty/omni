@@ -5,6 +5,7 @@ import {
   ContactStatusSourceSchema as GeneratedContactStatusSourceSchema,
   type ContactStatusSource as GeneratedContactStatusSource,
   SupportStatusRollupSchema as GeneratedSupportStatusRollupSchema,
+  type SupportStatusRollup as GeneratedSupportStatusRollup,
   VoterLikelihoodSchema as GeneratedVoterLikelihoodSchema,
   type VoterLikelihood as GeneratedVoterLikelihood,
 } from '../generated/enums'
@@ -55,3 +56,44 @@ export const ContactStatusesSchema = z.object({
 })
 
 export type ContactStatuses = z.infer<typeof ContactStatusesSchema>
+
+// Display-label maps for the two editable fields (ENG-10835 activity feed).
+// Centralized here — not in gp-webapp — so the feed's fromLabel/toLabel are
+// resolved once, server-side, and every consumer (webapp today, any future
+// one) renders the same text instead of maintaining its own copy of the
+// vocabulary.
+export const VOTER_LIKELIHOOD_LABELS: Record<VoterLikelihood, string> = {
+  unknown: 'Unknown',
+  first_time: 'First Time',
+  unlikely: 'Unlikely',
+  likely: 'Likely',
+  super: 'Super',
+}
+
+export const SUPPORT_STATUS_ROLLUP_LABELS: Record<
+  GeneratedSupportStatusRollup,
+  string
+> = {
+  supporter: 'Supporter',
+  non_supporter: 'Non-supporter',
+  unknown: 'Support unknown',
+  undecided: 'Undecided',
+  refused: 'Refused',
+}
+
+// fromValue/toValue persist as a plain Prisma `String` on ContactStatusEvent
+// (each field's vocabulary is only Zod-enforced at write time, via
+// UpdateContactStatusInputSchema above) — a value outside today's map, from a
+// future enum member or a not-yet-built write source, must render as itself
+// rather than throw or go blank (mirrors the fallback convention
+// ActivityFeedEntry.tsx already uses for DOOR_KNOCK outcome labels).
+export const resolveContactStatusLabel = (
+  field: ContactStatusField,
+  value: string,
+): string => {
+  const labels: Record<string, string> =
+    field === 'voter_likelihood'
+      ? VOTER_LIKELIHOOD_LABELS
+      : SUPPORT_STATUS_ROLLUP_LABELS
+  return labels[value] ?? value
+}

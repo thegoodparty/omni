@@ -10,6 +10,7 @@ import type {
   OutreachConstituentActivity,
   PollConstituentActivity,
   RobocallConstituentActivity,
+  StatusChangeConstituentActivity,
   TextConstituentActivity,
 } from '@goodparty_org/contracts'
 
@@ -33,6 +34,7 @@ export type {
   OutreachConstituentActivity,
   PollConstituentActivity,
   RobocallConstituentActivity,
+  StatusChangeConstituentActivity,
   TextConstituentActivity,
 }
 

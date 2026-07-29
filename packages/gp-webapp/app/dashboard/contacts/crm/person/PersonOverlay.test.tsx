@@ -1001,4 +1001,72 @@ describe('<PersonOverlay>', () => {
       )
     })
   })
+
+  describe('ENG-10835 STATUS_CHANGE entries', () => {
+    const statusChangeActivities: ConstituentActivity[] = [
+      {
+        type: 'STATUS_CHANGE',
+        date: '2026-07-20T10:00:00.000Z',
+        data: {
+          activityId: 'sce_1',
+          field: 'support_status',
+          fromLabel: 'Support unknown',
+          toLabel: 'Supporter',
+          actorName: 'Jane Staffer',
+          actorUserId: 7,
+          source: 'manual',
+        },
+      },
+    ]
+
+    it('renders a STATUS_CHANGE entry in the Win context when the CRM flag is on', () => {
+      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
+      setContext({
+        isElectedOfficial: false,
+        isWinContext: true,
+        selectedPersonId: 'p_42',
+        selectedPerson: { activities: statusChangeActivities },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getByText('Support Status updated')).toBeInTheDocument()
+      expect(
+        screen.getByText(
+          "Jane Staffer changed Support Status from 'Support unknown' to 'Supporter'",
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('never renders a STATUS_CHANGE entry outside the Win context, even if the feed returned one', () => {
+      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
+      setContext({
+        isElectedOfficial: true,
+        isWinContext: false,
+        selectedPersonId: 'p_42',
+        selectedPerson: { activities: statusChangeActivities },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(
+        screen.queryByText('Support Status updated'),
+      ).not.toBeInTheDocument()
+    })
+
+    it('does not render STATUS_CHANGE entries when the CRM flag is off', () => {
+      setContext({
+        isElectedOfficial: false,
+        isWinContext: true,
+        selectedPersonId: 'p_42',
+        selectedPerson: { activities: statusChangeActivities },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(
+        screen.queryByText('Support Status updated'),
+      ).not.toBeInTheDocument()
+    })
+  })
 })
