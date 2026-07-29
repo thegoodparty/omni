@@ -24,6 +24,7 @@ const mockUser: User = {
   metaData: null,
   passwordResetToken: null,
   clerkId: 'user_admin_clerk_id',
+  personId: null,
 }
 
 const mockTargetUser: User = {

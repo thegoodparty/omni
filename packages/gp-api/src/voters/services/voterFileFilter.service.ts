@@ -160,6 +160,30 @@ export class VoterFileFilterService extends createPrismaBase(
     })
   }
 
+  // Most-recently-saved lists first, capped at `limit` — the overlap-count
+  // union (ENG-10840) uses this to find the org's freshest lists once it
+  // exceeds MAX_OVERLAP_SAVED_FILTER_SETS, rather than every saved list ever
+  // created.
+  findRecentByOrganizationSlug(
+    organizationSlug: string,
+    limit: number,
+  ): Promise<VoterFileFilterWithConditions[]> {
+    return this.model.findMany({
+      where: { organizationSlug },
+      orderBy: { createdAt: Prisma.SortOrder.desc },
+      take: limit,
+      include: ACTIVITY_CONDITIONS_INCLUDE,
+    })
+  }
+
+  // The org's real total, for the overlap-count truncation log (ENG-10840) —
+  // findRecentByOrganizationSlug's `take` caps what it returns, so its result
+  // length alone can't tell a genuinely-truncated org apart from one sitting
+  // exactly at the fetch limit.
+  countByOrganizationSlug(organizationSlug: string): Promise<number> {
+    return this.model.count({ where: { organizationSlug } })
+  }
+
   findByIdAndOrganizationSlug(
     id: number,
     organizationSlug: string,

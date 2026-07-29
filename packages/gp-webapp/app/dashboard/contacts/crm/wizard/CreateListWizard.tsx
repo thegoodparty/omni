@@ -27,6 +27,8 @@ import ActivityStep, {
 } from './ActivityStep'
 import NameStep from './NameStep'
 import { useListWizardCount } from './useListWizardCount'
+import { useListWizardOverlapCount } from './useListWizardOverlapCount'
+import OverlapBar from './OverlapBar'
 import { formatFencedCount } from '../shared/formatFencedCount.util'
 
 type WizardStepName = 'branch' | 'conditions' | 'name'
@@ -61,6 +63,7 @@ export default function CreateListWizard({
     isWinContextReady,
     refreshCustomSegments,
     selectList,
+    customSegments,
   } = useContactsTable()
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -185,6 +188,48 @@ export default function CreateListWizard({
   // refetch retains the previous cached count (possibly 0) with
   // isLoading/isStale both false — an errored count is unknown, not zero.
   const isZeroMatch = !isLoading && !isStale && !isError && count === 0
+
+  // ENG-10840: the overlap strip only ever fires on a REAL selection (unlike
+  // the live count above, which deliberately also fires unfiltered to show
+  // the disabled CTA's full-universe total) — "no selection = no strip" is
+  // one of the AC's hard gates, so isConditionsStepValid alone (not the
+  // voter-file branch's always-on rule) decides whether it's enabled.
+  const hasSavedLists = customSegments.length > 0
+  const {
+    count: overlapCount,
+    fenced: overlapFenced,
+    isLoading: isOverlapLoading,
+    isStale: isOverlapStale,
+    isError: isOverlapError,
+  } = useListWizardOverlapCount(
+    backendPayload,
+    isConditionsStepValid && hasSavedLists,
+  )
+
+  // Render only once every input has settled: the live count backs the
+  // percent's denominator, so an in-flight/errored live count can't produce
+  // a stale or nonsensical percent. A failed overlap request (isOverlapError)
+  // hides the strip entirely rather than surfacing an error — it's a passive
+  // affordance, never something that blocks the CTA.
+  const overlapBarProps =
+    stepName === 'conditions' &&
+    isConditionsStepValid &&
+    hasSavedLists &&
+    !isOverlapLoading &&
+    !isOverlapStale &&
+    !isOverlapError &&
+    overlapCount !== undefined &&
+    !isLoading &&
+    !isStale &&
+    !isError &&
+    count !== undefined
+      ? {
+          overlapCount,
+          overlapFenced,
+          liveCount: count,
+          liveFenced: fenced,
+        }
+      : null
 
   const handleNext = () => {
     if (stepName === 'branch' && branch) {
@@ -340,10 +385,23 @@ export default function CreateListWizard({
         ? 'Name your list'
         : labels.wizardVoterFileStepTitle
 
+  // The label hides the number whenever there's no trustworthy CURRENT
+  // count — mid-fetch, still debouncing, or never resolved (including a
+  // terminal error, since formatFencedCount can't format undefined either
+  // way). isLoading/isStale always hide it regardless of isError: a
+  // refetch of a previously-errored query can have isFetching and isError
+  // both true at once, and that's still a real in-flight fetch.
   const buildLabel =
     isLoading || isStale || count === undefined
       ? 'Build your list'
       : `Build your list (${formatFencedCount(count, fenced)})`
+  // isZeroMatch above excludes isError because a failed refetch's count is
+  // unknown, not a real value — the same discipline applies here: without
+  // `&& !isError`, a query that errors on its very first fetch (no prior
+  // successful count) leaves `count` undefined forever, so the CTA would be
+  // stuck showing the loading spinner permanently instead of settling into
+  // the errored "Build your list" guidance state.
+  const isCounting = isLoading || isStale || (count === undefined && !isError)
 
   return (
     <CrmSheet
@@ -351,6 +409,11 @@ export default function CreateListWizard({
       onOpenChange={onOpenChange}
       onBack={stepIndex > 0 ? handleBack : undefined}
       bodyRef={bodyRef}
+      banner={
+        stepName === 'conditions' && overlapBarProps ? (
+          <OverlapBar {...overlapBarProps} peopleNoun={peopleNoun} />
+        ) : undefined
+      }
       header={
         <>
           <DrawerTitle className="text-base font-semibold">
@@ -381,6 +444,7 @@ export default function CreateListWizard({
               className="w-full text-sm"
               onClick={handleNext}
               disabled={!isConditionsStepValid || isZeroMatch}
+              loading={isCounting}
             >
               {buildLabel}
             </Button>

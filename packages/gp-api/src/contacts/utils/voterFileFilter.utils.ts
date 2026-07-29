@@ -1,3 +1,4 @@
+import { INCOME_RANGE_MAPPING } from '@goodparty_org/contracts'
 import { VoterFileFilter } from '../../generated/prisma'
 
 type RangeCondition = {
@@ -82,6 +83,20 @@ export const AUDIENCE_VOTER_STATUS_VALUES = [
   { field: 'audienceUnknown', value: 'Unknown' },
 ] as const
 
+// Contacts-made boolean -> bucket (ENG-10839). 5 means "5+" (>= 5 logged
+// interactions). Resolved by ContactsMadeResolutionService, never sent to
+// people-api as a raw filter key (see fieldsHandledSeparately below) — kept
+// here so the filter-dimensions catalog and the resolution service share one
+// vocabulary, mirroring AUDIENCE_VOTER_STATUS_VALUES above.
+export const CONTACTS_MADE_BUCKET_FIELDS = [
+  { field: 'contactsMade0', bucket: 0 },
+  { field: 'contactsMade1', bucket: 1 },
+  { field: 'contactsMade2', bucket: 2 },
+  { field: 'contactsMade3', bucket: 3 },
+  { field: 'contactsMade4', bucket: 4 },
+  { field: 'contactsMade5Plus', bucket: 5 },
+] as const
+
 // languageCodes entry -> the people-api language filter value (also the
 // human-readable label the catalog shows for that code).
 export const LANGUAGE_CODE_TO_LABEL: Record<string, string> = {
@@ -92,17 +107,9 @@ export const LANGUAGE_CODE_TO_LABEL: Record<string, string> = {
 
 // The only incomeRanges strings the conversion below understands; anything
 // else is silently dropped, so the catalog advertises exactly these keys.
-export const INCOME_RANGE_MAPPING: Record<string, NumericRange> = {
-  'Under $25k': { min: 0, max: 24999 },
-  '$25k - $35k': { min: 25000, max: 34999 },
-  '$35k - $50k': { min: 35000, max: 49999 },
-  '$50k - $75k': { min: 50000, max: 74999 },
-  '$75k - $100k': { min: 75000, max: 99999 },
-  '$100k - $125k': { min: 100000, max: 124999 },
-  '$125k - $150k': { min: 125000, max: 149999 },
-  '$150k - $200k': { min: 150000, max: 199999 },
-  '$200k+': { min: 200000, max: null },
-}
+// Single-sourced from contracts so people-api's pack encoder buckets by the
+// same bounds.
+export { INCOME_RANGE_MAPPING }
 
 // Accepts a full persisted VoterFileFilter (saved-segment path) or the
 // unsaved, partial filter set the live count sends (ENG-10517). Only the filter
@@ -189,6 +196,12 @@ export const convertVoterFileFilterToFilters = (
     'homeownerNo',
     'homeownerUnknown',
     'incomeUnknown',
+    'contactsMade0',
+    'contactsMade1',
+    'contactsMade2',
+    'contactsMade3',
+    'contactsMade4',
+    'contactsMade5Plus',
   ])
 
   for (const [key, value] of Object.entries(segment)) {

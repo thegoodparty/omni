@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import {
+  ContactStatusFieldSchema,
+  ContactStatusSourceSchema,
   DoorKnockOutcomeSchema,
   OutreachTypeSchema,
   SupportAnswerSchema,
@@ -20,6 +22,7 @@ export const ConstituentActivityTypeSchema = z.enum([
   'DOOR_KNOCK',
   'TEXT',
   'ROBOCALL',
+  'STATUS_CHANGE',
 ])
 export type ConstituentActivityType = z.infer<
   typeof ConstituentActivityTypeSchema
@@ -121,12 +124,38 @@ export type RobocallConstituentActivity = z.infer<
   typeof RobocallConstituentActivitySchema
 >
 
+// A contact-status-field override change (ENG-10835), Win-only — Serve orgs
+// can never write a ContactStatusEvent row (contacts.service.ts rejects the
+// PATCH for elected-office organizations), so this variant never appears in a
+// Serve feed. fromLabel/toLabel are the resolved display text (never the raw
+// enum value — see resolveContactStatusLabel in ContactStatus.schema),
+// fromLabel null for the never-seen-before edge (no prior override row).
+// actorName is the writer's display name, null for a future non-manual
+// source (door_knock/phone_banking) that isn't user-attributed.
+export const StatusChangeConstituentActivitySchema = z.object({
+  type: z.literal(ConstituentActivityTypeSchema.enum.STATUS_CHANGE),
+  date: z.string(),
+  data: z.object({
+    activityId: z.string(),
+    field: ContactStatusFieldSchema,
+    fromLabel: z.string().nullable(),
+    toLabel: z.string(),
+    actorName: z.string().nullable(),
+    actorUserId: z.number().nullable(),
+    source: ContactStatusSourceSchema,
+  }),
+})
+export type StatusChangeConstituentActivity = z.infer<
+  typeof StatusChangeConstituentActivitySchema
+>
+
 export const ConstituentActivitySchema = z.discriminatedUnion('type', [
   PollConstituentActivitySchema,
   OutreachConstituentActivitySchema,
   DoorKnockConstituentActivitySchema,
   TextConstituentActivitySchema,
   RobocallConstituentActivitySchema,
+  StatusChangeConstituentActivitySchema,
 ])
 export type ConstituentActivity = z.infer<typeof ConstituentActivitySchema>
 

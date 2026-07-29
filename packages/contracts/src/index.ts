@@ -23,6 +23,9 @@ export {
   type DoorKnockOutcome,
   DOOR_KNOCK_OUTCOME_VALUES,
   DoorKnockOutcomeSchema,
+  type WillVoteAnswer,
+  WILL_VOTE_ANSWER_VALUES,
+  WillVoteAnswerSchema,
   type VoterOutreachAttributionSource,
   VOTER_OUTREACH_ATTRIBUTION_SOURCE_VALUES,
   VoterOutreachAttributionSourceSchema,
@@ -84,6 +87,22 @@ export {
 } from './people/Person.schema'
 
 export {
+  VoterLikelihoodSchema,
+  type VoterLikelihood,
+  ContactStatusFieldSchema,
+  type ContactStatusField,
+  ContactStatusSourceSchema,
+  type ContactStatusSource,
+  UpdateContactStatusInputSchema,
+  type UpdateContactStatusInput,
+  ContactStatusesSchema,
+  type ContactStatuses,
+  VOTER_LIKELIHOOD_LABELS,
+  SUPPORT_STATUS_ROLLUP_LABELS,
+  resolveContactStatusLabel,
+} from './people/ContactStatus.schema'
+
+export {
   ContactNoteSchema,
   type ContactNote,
   ContactNoteInputSchema,
@@ -109,6 +128,8 @@ export {
   type TextConstituentActivity,
   RobocallConstituentActivitySchema,
   type RobocallConstituentActivity,
+  StatusChangeConstituentActivitySchema,
+  type StatusChangeConstituentActivity,
   ConstituentActivitySchema,
   type ConstituentActivity,
   GetIndividualActivitiesResponseSchema,
@@ -321,6 +342,12 @@ export {
 } from './campaigns/CampaignTaskCatalog.schema'
 
 export { CAMPAIGN_TASK_CATALOG } from './campaigns/CampaignTaskCatalog.data'
+
+export {
+  VOTER_CONTACT_SCHEDULE,
+  voterContactSendOffsetDays,
+  type VoterContactSend,
+} from './campaigns/VoterContactSchedule.data'
 
 export {
   CampaignWithPositionNameSchema,
@@ -665,13 +692,25 @@ export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
 
 export {
+  INCOME_RANGE_MAPPING,
+  type IncomeRange,
   PEOPLE_FILTER_VALUE_ENUMS,
   createEnumFilterSchema,
   createIdFilterSchema,
   createNumericFilterSchema,
   PeopleFiltersSchema,
   type PeopleFilters,
+  IdOverridesSchema,
+  type IdOverrides,
 } from './people/PeopleFilters.schema'
+
+export {
+  MAX_OVERLAP_SAVED_FILTER_SETS,
+  PeopleOverlapCountRequestSchema,
+  type PeopleOverlapCountRequest,
+  PeopleOverlapCountResponseSchema,
+  type PeopleOverlapCountResponse,
+} from './people/PeopleOverlapCount.schema'
 
 export {
   DoorKnockingEvaluateRequestSchema,
@@ -721,6 +760,8 @@ export {
   type DoorKnockingRouteHeader,
   DoorKnockingKnockResponseSchema,
   type DoorKnockingKnockResponse,
+  DoorKnockingModeSchema,
+  type DoorKnockingMode,
 } from './doorKnocking/DoorKnockingTurf.schema'
 
 export {
@@ -738,3 +779,10 @@ export {
   RoutePathGeometrySchema,
   type RoutePathGeometry,
 } from './doorKnocking/DoorKnockingRoutePayload.schema'
+
+export {
+  RecordDoorKnockInteractionSchema,
+  type RecordDoorKnockInteraction,
+  RecordDoorKnockInteractionResponseSchema,
+  type RecordDoorKnockInteractionResponse,
+} from './doorKnocking/DoorKnockingInteraction.schema'

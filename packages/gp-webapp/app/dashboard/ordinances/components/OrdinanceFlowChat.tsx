@@ -28,6 +28,7 @@ import { segmentsTextLength } from '../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../briefings/shared/useDictationAppend'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { buildOrdinanceAnchor } from '../data/anchor'
 import { ordinanceFlowChatApi } from '../data/chat-api'
 import { fetchOrdinanceBySlug, saveClarifyAnswer } from '../data/ordinances-api'
@@ -40,6 +41,7 @@ import {
 import ClarifyQuestionWidget from './ClarifyQuestionWidget'
 import OrdinanceStepper from './OrdinanceStepper'
 import {
+  DRAFT_TOOL,
   TurnBlocks,
   isStepWidgetTool,
   liveTurnBlocks,
@@ -50,6 +52,23 @@ import {
 
 const CLARIFY_TOOL = 'ask_clarify_question'
 const OFFER_TOOL = 'offer_next_step'
+
+const STEP_VIEWED_EVENTS: Partial<Record<OrdinanceFlowStep, string>> = {
+  clarify: EVENTS.Ordinances.ClarifyViewed,
+  authority: EVENTS.Ordinances.AuthorityViewed,
+  current_law: EVENTS.Ordinances.CurrentLawViewed,
+  comparables: EVENTS.Ordinances.HowOthersSolvedItViewed,
+  draft: EVENTS.Ordinances.DraftCreationViewed,
+}
+
+// The draft step is absent on purpose: its completion is the draft finishing
+// in chat (the present_draft tool call), not the advance click.
+const STEP_COMPLETED_EVENTS: Partial<Record<OrdinanceFlowStep, string>> = {
+  clarify: EVENTS.Ordinances.ClarifyCompleted,
+  authority: EVENTS.Ordinances.AuthorityCompleted,
+  current_law: EVENTS.Ordinances.CurrentLawCompleted,
+  comparables: EVENTS.Ordinances.HowOthersSolvedItCompleted,
+}
 
 // User-meaningful "working" actions shown as shimmer pills. Bookkeeping tools
 // (ask_clarify_question renders as the widget; save_note/save_synthesis are
@@ -222,6 +241,12 @@ export default function OrdinanceFlowChat({
         if (isStepWidgetTool(event.toolName)) {
           const widget = parseStepWidget(event.toolName, event.args)
           if (widget) {
+            // Live tool call only — a reloaded transcript re-renders the same
+            // widget from its persisted segment without passing through here,
+            // so the event fires exactly once per created draft.
+            if (event.toolName === DRAFT_TOOL) {
+              void trackEvent(EVENTS.Ordinances.DraftCreationCompleted)
+            }
             // Record the text length streamed so far so the card renders inline
             // at that seam — the lead-in above it, later prose below it.
             setLiveWidgets((prev) => [
@@ -253,8 +278,11 @@ export default function OrdinanceFlowChat({
 
   const nextStep = stepValue ? nextOrdinanceStep(stepValue) : null
   const goToNextStep = useCallback(() => {
-    if (nextStep) router.push(`/dashboard/ordinances/solve/${slug}/${nextStep}`)
-  }, [router, slug, nextStep])
+    if (!nextStep) return
+    const completed = stepValue ? STEP_COMPLETED_EVENTS[stepValue] : undefined
+    if (completed) void trackEvent(completed)
+    router.push(`/dashboard/ordinances/solve/${slug}/${nextStep}`)
+  }, [router, slug, nextStep, stepValue])
 
   const answerClarify = useCallback(
     (questionId: string, question: string, answer: string): void => {
@@ -310,6 +338,11 @@ export default function OrdinanceFlowChat({
   useEffect(() => {
     sendRef.current = send
   }, [send])
+
+  useEffect(() => {
+    const viewed = stepValue ? STEP_VIEWED_EVENTS[stepValue] : undefined
+    if (viewed) void trackEvent(viewed)
+  }, [slug, stepValue])
 
   useEffect(() => {
     if (!stepValue) return

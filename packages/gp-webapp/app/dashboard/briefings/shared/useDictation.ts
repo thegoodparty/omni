@@ -259,7 +259,7 @@ export const useDictation = (
           sawErrorRef.current = true
           setError(event.message)
           updateStatus('error')
-          trackEvent(EVENTS.BriefingAssistant.DictationFailed, {
+          trackEvent(EVENTS.Dictation.Failed, {
             label: analyticsLabelRef.current,
             code: event.code,
           })
@@ -320,7 +320,7 @@ export const useDictation = (
       sawErrorRef.current = true
       setError(message)
       updateStatus('error')
-      trackEvent(EVENTS.BriefingAssistant.DictationFailed, {
+      trackEvent(EVENTS.Dictation.Failed, {
         label: analyticsLabelRef.current,
         code: 'MIC_DENIED',
       })
@@ -353,7 +353,7 @@ export const useDictation = (
       sawErrorRef.current = true
       setError(message)
       updateStatus('error')
-      trackEvent(EVENTS.BriefingAssistant.DictationFailed, {
+      trackEvent(EVENTS.Dictation.Failed, {
         label: analyticsLabelRef.current,
         code: 'SESSION_FAILED',
       })
@@ -404,7 +404,7 @@ export const useDictation = (
       sawErrorRef.current = true
       setError('WebSocket error')
       updateStatus('error')
-      trackEvent(EVENTS.BriefingAssistant.DictationFailed, {
+      trackEvent(EVENTS.Dictation.Failed, {
         label: analyticsLabelRef.current,
         code: 'WS_ERROR',
       })
@@ -451,7 +451,7 @@ export const useDictation = (
         }
         sourceNode.connect(workletNode)
         workletNode.connect(audioContext.destination)
-        trackEvent(EVENTS.BriefingAssistant.DictationStarted, {
+        trackEvent(EVENTS.Dictation.Started, {
           label: analyticsLabelRef.current,
         })
       } catch (err) {
@@ -467,7 +467,7 @@ export const useDictation = (
         sawErrorRef.current = true
         setError(message)
         updateStatus('error')
-        trackEvent(EVENTS.BriefingAssistant.DictationFailed, {
+        trackEvent(EVENTS.Dictation.Failed, {
           label: analyticsLabelRef.current,
           code: 'AUDIO_PIPELINE_FAILED',
         })

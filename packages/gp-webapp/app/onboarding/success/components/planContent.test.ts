@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { VOTER_CONTACT_SCHEDULE } from '@goodparty_org/contracts'
 import { buildPlanData, type PlanInput } from './planContent'
 
 // Minimum-viable PlanInput fixture. Tests override only the fields under
@@ -300,5 +301,33 @@ describe('buildPlanData voter insights source precedence', () => {
       'Public safety and community trust',
       'Schools and youth programs',
     ])
+  })
+})
+
+describe('buildPlanData contact schedule', () => {
+  it('derives the 7 sends from the canonical schedule off the election date', () => {
+    const plan = buildPlanData(makeInput())
+
+    expect(plan.contactSchedule.map((s) => s.tactic)).toEqual(
+      VOTER_CONTACT_SCHEDULE.map((s) => s.tactic),
+    )
+    expect(plan.contactSchedule.map((s) => s.purpose)).toEqual(
+      VOTER_CONTACT_SCHEDULE.map((s) => s.purpose),
+    )
+    // 2026-11-03 election minus 56/49/35/28/14/1/0 days
+    expect(plan.contactSchedule.map((s) => s.date)).toEqual([
+      'Sep 8, 2026',
+      'Sep 15, 2026',
+      'Sep 29, 2026',
+      'Oct 6, 2026',
+      'Oct 20, 2026',
+      'Nov 2, 2026',
+      'Nov 3, 2026',
+    ])
+  })
+
+  it('is empty when there is no valid election date', () => {
+    const plan = buildPlanData(makeInput({ electionDateIso: null }))
+    expect(plan.contactSchedule).toEqual([])
   })
 })

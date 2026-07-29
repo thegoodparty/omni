@@ -128,7 +128,29 @@ import { dirname, join, relative } from 'node:path'
 // dashboard feature — its route + ~15 client components (Chat, ChatProvider,
 // ChatInput, history, feedback, etc.) were deleted. Campaign Manager supersedes
 // it; the gp-api endpoints are left orphaned (removed from the frontend only).
-const BASELINE = 546
+// 2026-07-27: 546 -> 549 for the Serve/Win public-profile editor
+// (app/dashboard/public-profile/): PublicProfileEditor (form + publish toggle +
+// image-upload + save mutation), ListEditors (add/remove/controlled Recent
+// Experience & Accomplishments rows), and PrioritiesPublicationEditor
+// (per-priority visibility/status toggles + mutation) are all genuinely
+// interactive and can't be server components. The page.tsx shell stays a server
+// component (it fetches data and gates access). Net +3 over develop's 546.
+// 2026-07-28: 549 -> 552 for the three native door-knocking client files
+// (page gate, map page, map canvas — the canvas is behind next/dynamic
+// ssr:false so the heavy libs stay out of shared bundles).
+// 2026-07-28: 552 -> 554 for the door-knocking turf save flow:
+// SaveTurfDialog (dialog form state + create mutation) and TurfList
+// (react-query turfs read + delete mutation) are both interactive and live
+// inside the client-only map page.
+// 2026-07-28: 554 -> 557 for the door-knocking walk flow: KnockTurfDialog
+// (mode/loop form + knock mutation), WalkView (route query + per-stop
+// expand/record state), RecordKnockForm (answer state + interaction
+// mutation) — all interactive, all inside the client-only map page.
+// ENG-10836: +1 for crm/person/StatusRow.tsx — the person-record status row
+// needs client hooks (useMutation/useQueryClient for the PATCH + optimistic
+// update, useCrmEnabled for self-gating, Radix Select interactivity), so it
+// can't render as a server component.
+const BASELINE = 558
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

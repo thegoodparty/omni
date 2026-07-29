@@ -39,6 +39,7 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
     isWinContextReady: true,
     refreshCustomSegments,
     selectList,
+    customSegments: [],
     ...overrides,
   } as ContextValue)
 }
@@ -188,8 +189,11 @@ describe('CreateListWizard — step navigation', () => {
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(pillForOption('Female'))
+    // 86ajrth65: the CTA is disabled/loading (spinner, no number) until the
+    // count settles, so the click must wait for the settled label — the
+    // default MSW count mock (250).
     await user.click(
-      await screen.findByRole('button', { name: /build your list/i }),
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
 
     expect(
@@ -219,7 +223,10 @@ describe('CreateListWizard — step navigation', () => {
     expect(cta).toBeDisabled()
 
     await user.click(screen.getByRole('radio', { name: 'Text' }))
-    expect(cta).toBeEnabled()
+    // 86ajrth65: selecting a channel starts the (now-enabled) count query,
+    // which is itself loading/disabled until it settles — wait for that
+    // rather than asserting synchronously.
+    await vi.waitFor(() => expect(cta).toBeEnabled(), { timeout: 10_000 })
   })
 
   it('resets all state when reopened after being cancelled', async () => {
@@ -270,8 +277,10 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     await user.click(pillForOption('Democrat'))
     await user.click(pillForOption('Supporter'))
 
+    // 86ajrth65: wait for the CTA's settled label — it's disabled/loading
+    // until the count resolves.
     await user.click(
-      await screen.findByRole('button', { name: /build your list/i }),
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
     await user.type(screen.getByLabelText(/list name/i), 'Likely Dem women')
     await clickSaveList(user)
@@ -361,10 +370,16 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     expect(sentBody).not.toHaveProperty('voterCount')
   })
 
-  it('keeps Save list disabled while the live count is still resolving (ENG-10769)', async () => {
+  it('keeps the build CTA (and so the whole flow) blocked while the live count never resolves (ENG-10769/86ajrth65)', async () => {
     const user = userEvent.setup()
-    // A count that never settles: saving now would omit voterCount and let
-    // the server default it to 0 — the display bug this ticket fixes.
+    // A count that never settles: pre-86ajrth65, this test reached the name
+    // step (the CTA stayed clickable while loading) to prove Save itself
+    // gated on the unresolved count — the exact voterCount-omission bug
+    // ENG-10769 fixes. 86ajrth65 moved that same guard a step earlier: the
+    // CTA's own `loading={isCounting}` state now blocks progress until the
+    // count settles, so the old race (reach the name step, then Save, with
+    // an unresolved count) can no longer happen — the flow can't leave this
+    // step at all.
     api.mock(
       'POST /v1/contacts/count',
       () => new Promise<never>(() => undefined),
@@ -379,12 +394,15 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(pillForOption('Female'))
-    await user.click(
-      await screen.findByRole('button', { name: /build your list/i }),
-    )
-    await user.type(screen.getByLabelText(/list name/i), 'Racy list')
 
-    expect(screen.getByRole('button', { name: 'Save list' })).toBeDisabled()
+    const cta = await screen.findByRole('button', { name: 'Build your list' })
+    await vi.waitFor(() => expect(cta).toHaveAttribute('data-loading', 'true'))
+    expect(cta).toBeDisabled()
+
+    // Programmatic activation must not advance either — the guard isn't
+    // just the disabled prop.
+    fireEvent.click(cta)
+    expect(screen.queryByLabelText(/list name/i)).not.toBeInTheDocument()
   })
 
   it('hides the Political Party section for an elected official', async () => {
@@ -443,8 +461,9 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     // UI — a fresh selection re-enables the build (ENG-10751 blocks an
     // all-cleared submit), and the earlier Female toggle stays cleared.
     await user.click(pillForOption('Democrat'))
+    // 86ajrth65: wait for the settled label — disabled/loading until then.
     await user.click(
-      await screen.findByRole('button', { name: /build your list/i }),
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
     await user.type(screen.getByLabelText(/list name/i), 'Cleared list')
     await clickSaveList(user)
@@ -528,7 +547,13 @@ describe('CreateListWizard — activity branch payload assembly', () => {
     await user.click(screen.getByRole('button', { name: 'Filter on activity' }))
     await user.click(screen.getByText('Support: Yes'))
 
-    const cta = screen.getByRole('button', { name: /build your list/i })
+    // 86ajrth65: the CTA is disabled/loading until the count settles —
+    // wait for the settled label before asserting/clicking.
+    const cta = await screen.findByRole(
+      'button',
+      { name: /build your list \(250\)/i },
+      { timeout: 10_000 },
+    )
     expect(cta).toBeEnabled()
     await user.click(cta)
     await user.type(screen.getByLabelText(/list name/i), 'Text + door knock')
@@ -589,9 +614,18 @@ describe('CreateListWizard — running total + CTA', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(pillForOption('Female'))
-    await user.click(
-      await screen.findByRole('button', { name: 'Build your list' }),
-    )
+
+    // 86ajrth65 + isCounting isError fix: a count that terminally errors on
+    // its very first fetch must NOT leave the CTA stuck in the loading
+    // state forever — once the query settles into its error, the CTA
+    // re-enables with the bare (no-number) label, same as any other
+    // settled state. Locks in the regression this ticket's isCounting fix
+    // closed.
+    const cta = await screen.findByRole('button', { name: 'Build your list' })
+    await vi.waitFor(() => expect(cta).toHaveAttribute('data-loading', 'false'))
+    expect(cta).toBeEnabled()
+
+    await user.click(cta)
 
     expect(await screen.findByText(/too many people/i)).toBeInTheDocument()
     // The build button must still be usable once named — the cap is
@@ -649,7 +683,9 @@ describe('CreateListWizard — ENG-10751 zero-filter build block', () => {
     expect(cta).toBeDisabled()
 
     await user.click(pillForOption('Female'))
-    expect(cta).toBeEnabled()
+    // 86ajrth65: selecting a pill restarts the debounce, so the CTA is
+    // loading/disabled again until the count resettles for the new payload.
+    await vi.waitFor(() => expect(cta).toBeEnabled(), { timeout: 10_000 })
 
     await user.click(screen.getByRole('button', { name: 'Clear filters' }))
     expect(cta).toBeDisabled()
@@ -766,8 +802,9 @@ describe('CreateListWizard — error handling', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(pillForOption('Female'))
+    // 86ajrth65: wait for the settled label — disabled/loading until then.
     await user.click(
-      await screen.findByRole('button', { name: /build your list/i }),
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
     await user.type(screen.getByLabelText(/list name/i), 'Broken list')
     await clickSaveList(user)
@@ -804,8 +841,9 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     await user.click(pillForOption('Democrat'))
     await user.click(pillForOption('Supporter'))
 
+    // 86ajrth65: wait for the settled label — disabled/loading until then.
     await user.click(
-      await screen.findByRole('button', { name: /build your list/i }),
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
     await user.type(screen.getByLabelText(/list name/i), 'Likely Dem women')
     await clickSaveList(user)
@@ -834,8 +872,9 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     // filters step directly.
     await user.click(pillForOption('Female'))
 
+    // 86ajrth65: wait for the settled label — disabled/loading until then.
     await user.click(
-      await screen.findByRole('button', { name: /build your list/i }),
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
     await user.type(
       screen.getByLabelText(/list name/i),
@@ -894,7 +933,14 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     await user.click(screen.getByRole('button', { name: 'Filter on activity' }))
     await user.click(screen.getByText('No Response'))
 
-    await user.click(screen.getByRole('button', { name: /build your list/i }))
+    // 86ajrth65: wait for the settled label — disabled/loading until then.
+    await user.click(
+      await screen.findByRole(
+        'button',
+        { name: /build your list \(250\)/i },
+        { timeout: 10_000 },
+      ),
+    )
     await user.type(screen.getByLabelText(/list name/i), 'Texted GOTV blast')
     await clickSaveList(user)
 
@@ -950,7 +996,14 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     await user.click(screen.getByRole('button', { name: 'Filter on activity' }))
     await user.click(screen.getByText('Support: Yes'))
 
-    await user.click(screen.getByRole('button', { name: /build your list/i }))
+    // 86ajrth65: wait for the settled label — disabled/loading until then.
+    await user.click(
+      await screen.findByRole(
+        'button',
+        { name: /build your list \(250\)/i },
+        { timeout: 10_000 },
+      ),
+    )
     await user.type(screen.getByLabelText(/list name/i), 'Text + door knock')
     await clickSaveList(user)
 
@@ -1060,8 +1113,9 @@ describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(pillForOption('Female'))
+    // 86ajrth65: wait for the settled label — disabled/loading until then.
     await user.click(
-      await screen.findByRole('button', { name: /build your list/i }),
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
 
     expect(trackEvent).toHaveBeenCalledWith(
@@ -1152,8 +1206,9 @@ describe('CreateListWizard — dismissed mid-mutation (vaul swipe-close path)', 
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(pillForOption('Female'))
+    // 86ajrth65: wait for the settled label — disabled/loading until then.
     await user.click(
-      await screen.findByRole('button', { name: /build your list/i }),
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
     await user.type(screen.getByLabelText(/list name/i), 'Mid-mutation list')
     await clickSaveList(user)

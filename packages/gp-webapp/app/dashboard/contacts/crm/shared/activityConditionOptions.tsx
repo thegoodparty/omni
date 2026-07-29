@@ -94,11 +94,20 @@ export const ACTIVITY_CONDITION_ACTION_LABELS: Record<
 export const CHANNELS_WITHOUT_CAMPAIGN_PICKER =
   new Set<ActivityConditionChannel>(['doorKnocking'])
 
+// All five SupportStatusRollup values (ENG-10837 — product decision
+// 2026-07-28 to match the profile vocabulary). undecided/refused only ever
+// come from a manual override (gp-api's SupportStatusService.
+// personIdsByEffectiveStatus resolves overrides alongside derivation), so
+// filtering on them matches nobody until a person has been manually set.
+// This is the single source for both the wizard's pills (VoterFileStep) and
+// the saved-list summary labels (ListFilterSummary) — don't duplicate.
 export const SUPPORT_STATUS_OPTIONS: {
   value: SupportStatusRollup
   label: string
 }[] = [
   { value: 'supporter', label: 'Supporter' },
   { value: 'non_supporter', label: 'Non-supporter' },
+  { value: 'undecided', label: 'Undecided' },
+  { value: 'refused', label: 'Refused' },
   { value: 'unknown', label: 'Support Unknown' },
 ]

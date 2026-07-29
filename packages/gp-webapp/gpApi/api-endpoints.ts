@@ -1,4 +1,12 @@
 import type {
+  CreateDoorKnockingTurf,
+  DoorKnockingKnockRequest,
+  DoorKnockingKnockResponse,
+  DoorKnockingRoutePayload,
+  DoorKnockingTurf,
+  RecordDoorKnockInteraction,
+  RecordDoorKnockInteractionResponse,
+  UpdateDoorKnockingTurf,
   CreateOrdinanceRequest,
   ExperimentVariantsResponse,
   Ordinance,
@@ -16,6 +24,12 @@ import type {
   SummarySource,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
+import type {
+  GetMinePersonProfileResponse,
+  PersonProfile,
+  SetProfileIssuesRequest,
+  UpsertPersonProfileRequest,
+} from 'app/dashboard/public-profile/shared/types'
 import type {
   SynthesizeSpeechRequest,
   SynthesizeSpeechResponse,
@@ -46,9 +60,11 @@ import type {
   ContactNote,
   ContactNoteInput,
   ContactNoteListResponse,
+  ContactStatuses,
   LogContactInteractionInput,
   LogContactInteractionResponse,
   SupportStatusRollup,
+  UpdateContactStatusInput,
 } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { ActivityConditionInput } from 'app/dashboard/contacts/crm/shared/activityConditionOptions'
 import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
@@ -395,6 +411,13 @@ export type APIEndpoints = {
     Response: CampaignTrackerTask
   }
 
+  // Manual generation override, non-prod only (gp-api 404s it in prod). Fire to
+  // dispatch a tracker run for the current campaign on demand.
+  'POST /v1/campaigns/tracker-tasks/generate': {
+    Request: {}
+    Response: void
+  }
+
   'GET /v1/elected-office/current': {
     Request: {}
     Response: ElectedOffice
@@ -651,6 +674,10 @@ export type APIEndpoints = {
     }
     Response: ListContactsResponse
   }
+  'PATCH /v1/contacts/:personId/status': {
+    Request: UpdateContactStatusInput
+    Response: ContactStatuses
+  }
   'GET /v1/contacts/:id': {
     Request: {}
     Response: Person
@@ -662,9 +689,50 @@ export type APIEndpoints = {
     } & Record<string, unknown>
     Response: { count: number; fenced?: boolean }
   }
+  'POST /v1/contacts/overlap-count': {
+    Request: {
+      activityConditions?: ActivityConditionInput[]
+      supportStatus?: SupportStatusRollup[]
+    } & Record<string, unknown>
+    Response: { count: number; fenced: boolean }
+  }
   'GET /v1/contacts/download': {
     Request: { segment?: string }
     Response: Blob
+  }
+  // Binary SoA pack for the door-knocking exploration map — fetched via raw
+  // fetch(...arrayBuffer()), not clientRequest (which is JSON-only).
+  'GET /v1/door-knocking/pack': {
+    Request: undefined
+    Response: ArrayBuffer
+  }
+  'GET /v1/door-knocking/turfs': {
+    Request: { voterFileFilterId?: number }
+    Response: DoorKnockingTurf[]
+  }
+  'POST /v1/door-knocking/turfs': {
+    Request: CreateDoorKnockingTurf
+    Response: DoorKnockingTurf
+  }
+  'PUT /v1/door-knocking/turfs/:id': {
+    Request: UpdateDoorKnockingTurf
+    Response: DoorKnockingTurf
+  }
+  'DELETE /v1/door-knocking/turfs/:id': {
+    Request: {}
+    Response: undefined
+  }
+  'POST /v1/door-knocking/turfs/:id/knock': {
+    Request: DoorKnockingKnockRequest
+    Response: DoorKnockingKnockResponse
+  }
+  'GET /v1/door-knocking/turfs/:id/route': {
+    Request: {}
+    Response: DoorKnockingRoutePayload
+  }
+  'POST /v1/door-knocking/interactions': {
+    Request: RecordDoorKnockInteraction
+    Response: RecordDoorKnockInteractionResponse
   }
   'GET /v1/contacts/list-detail': {
     // Omitted segment = the universe row's detail (ENG-10778): the whole
@@ -894,6 +962,45 @@ export type APIEndpoints = {
   'POST /v1/community-issues/:id/prioritize': {
     Request: { id: string }
     Response: Priority
+  }
+
+  // --- Person public-profile overlay (in-product editing; Serve + Win) -------
+  // Owner-scoped by req.user in gp-api; there is no way to address another
+  // user's profile. `canCreate` is false until the data team has minted the
+  // caller's canonical personId (publish is unavailable until then).
+  'GET /v1/person-profiles/mine': {
+    Request: {}
+    Response: GetMinePersonProfileResponse
+  }
+  'POST /v1/person-profiles': {
+    Request: UpsertPersonProfileRequest
+    Response: PersonProfile
+  }
+  'PUT /v1/person-profiles/mine': {
+    Request: UpsertPersonProfileRequest
+    Response: PersonProfile
+  }
+  'POST /v1/person-profiles/mine/publish': {
+    Request: {}
+    Response: PersonProfile
+  }
+  'POST /v1/person-profiles/mine/unpublish': {
+    Request: {}
+    Response: PersonProfile
+  }
+  'DELETE /v1/person-profiles/mine': {
+    Request: {}
+    Response: PersonProfile
+  }
+  'PUT /v1/person-profiles/mine/issues': {
+    Request: SetProfileIssuesRequest
+    Response: PersonProfile
+  }
+  // Multipart image upload — call with `{}` payload and `{ body: formData,
+  // query: { target: 'avatar' | 'cover' } }` overrides.
+  'POST /v1/person-profiles/mine/upload-image': {
+    Request: {}
+    Response: PersonProfile
   }
 
   'POST /v1/community-issues/self-dispatch': {

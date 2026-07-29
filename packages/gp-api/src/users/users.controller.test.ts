@@ -35,6 +35,7 @@ const mockUser: User = {
   metaData: null,
   passwordResetToken: null,
   clerkId: null,
+  personId: null,
 }
 
 function getGuards(methodName: keyof UsersController) {

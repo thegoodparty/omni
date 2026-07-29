@@ -1,5 +1,7 @@
 import { useTestService } from '@/test-service'
 import {
+  ContactStatusField,
+  ContactStatusSource,
   DoorKnockOutcome,
   OutreachType,
   SupportAnswer,
@@ -10,6 +12,7 @@ import { ActivityConditionResolutionService } from '../services/activityConditio
 import { ContactInteractionDoorKnockService } from '../services/contactInteractionDoorKnock.service'
 import { ContactInteractionRobocallService } from '../services/contactInteractionRobocall.service'
 import { ContactInteractionTextService } from '../services/contactInteractionText.service'
+import { ContactStatusService } from '../services/contactStatus.service'
 
 const service = useTestService()
 
@@ -18,6 +21,7 @@ describe('ActivityConditionResolutionService', () => {
   let doorKnocks: ContactInteractionDoorKnockService
   let texts: ContactInteractionTextService
   let robocalls: ContactInteractionRobocallService
+  let contactStatus: ContactStatusService
 
   const seedOrganization = async (slug: string) => {
     await service.prisma.organization.create({
@@ -47,11 +51,27 @@ describe('ActivityConditionResolutionService', () => {
     return outreach.id
   }
 
+  const override = (
+    organizationSlug: string,
+    personId: string,
+    toValue: string,
+  ) =>
+    contactStatus.changeStatus({
+      organizationSlug,
+      personId,
+      field: ContactStatusField.support_status,
+      toValue,
+      source: ContactStatusSource.manual,
+      actorUserId: service.user.id,
+      fallbackFromValue: null,
+    })
+
   beforeEach(() => {
     resolution = service.app.get(ActivityConditionResolutionService)
     doorKnocks = service.app.get(ContactInteractionDoorKnockService)
     texts = service.app.get(ContactInteractionTextService)
     robocalls = service.app.get(ContactInteractionRobocallService)
+    contactStatus = service.app.get(ContactStatusService)
   })
 
   describe('conditions with no supportStatus', () => {
@@ -769,5 +789,82 @@ describe('ActivityConditionResolutionService', () => {
         ).rejects.toThrow(BadRequestException)
       },
     )
+  })
+
+  describe('supportStatus — override-aware resolution (ENG-10837)', () => {
+    it('undecided resolves to exactly the manually-overridden persons', async () => {
+      const org = await seedOrganization('org-support-undecided')
+      await doorKnocks.create({
+        organizationSlug: org,
+        personId: 'p-sup',
+        occurredAt: new Date(),
+        outcome: DoorKnockOutcome.answered,
+        supportAnswer: SupportAnswer.supporter,
+        manual: true,
+      })
+      await override(org, 'p-undecided', 'undecided')
+
+      const result = await resolution.resolveIdFilter(org, {
+        supportStatus: ['undecided'],
+      })
+
+      expect(result).toEqual({
+        kind: 'filter',
+        idFilter: { in: ['p-undecided'] },
+      })
+    })
+
+    it('supporter resolves to derived + override supporters, excluding a person overridden away', async () => {
+      const org = await seedOrganization('org-support-override-union')
+      await doorKnocks.create({
+        organizationSlug: org,
+        personId: 'p-derived',
+        occurredAt: new Date(),
+        outcome: DoorKnockOutcome.answered,
+        supportAnswer: SupportAnswer.supporter,
+        manual: true,
+      })
+      await doorKnocks.create({
+        organizationSlug: org,
+        personId: 'p-overridden-away',
+        occurredAt: new Date(),
+        outcome: DoorKnockOutcome.answered,
+        supportAnswer: SupportAnswer.supporter,
+        manual: true,
+      })
+      await override(org, 'p-overridden-away', 'non_supporter')
+
+      const result = await resolution.resolveIdFilter(org, {
+        supportStatus: ['supporter'],
+      })
+
+      expect(result.kind).toBe('filter')
+      if (result.kind === 'filter' && 'in' in result.idFilter) {
+        expect(result.idFilter.in.sort()).toEqual(['p-derived'])
+      } else {
+        throw new Error('expected an in filter')
+      }
+    })
+
+    it('an "unknown" selection excludes people overridden to undecided/refused, not just supporter/non_supporter', async () => {
+      const org = await seedOrganization('org-support-unknown-widened')
+      // No interaction rows and no override — a genuine derived-unknown.
+      await override(org, 'p-undecided', 'undecided')
+      await override(org, 'p-refused', 'refused')
+
+      const result = await resolution.resolveIdFilter(org, {
+        supportStatus: ['unknown'],
+      })
+
+      expect(result.kind).toBe('filter')
+      if (result.kind === 'filter' && 'notIn' in result.idFilter) {
+        expect(result.idFilter.notIn.sort()).toEqual([
+          'p-refused',
+          'p-undecided',
+        ])
+      } else {
+        throw new Error('expected a notIn filter')
+      }
+    })
   })
 })

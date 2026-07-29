@@ -1,17 +1,34 @@
 import { z } from 'zod'
+import { DoorKnockStatusSchema } from './DoorKnockingRoutePayload.schema'
 
 // The exploration-map "pack": one binary buffer, built per request and
 // streamed people-api → gp-api → browser, never stored. Wire framing:
 //
-//   [u32 LE: manifest byte length][manifest JSON, utf8][typed arrays]
+//   [u32 LE: manifest byte length][manifest JSON, utf8, padded to a 4-byte
+//   boundary][typed arrays]
 //
 // where each typed array sits at its manifest-declared byteOffset from the
-// START of the buffer. people-api emits the demographic dims; gp-api appends
-// a `canvassStatus` dim (bytes joined from its interactions table) before
-// forwarding, so consumers must trust the manifest, not a fixed layout.
+// START of the buffer (f32/u32 arrays are 4-byte aligned). Consumers must
+// trust the manifest, not a fixed layout. The `canvassStatus` dim is joined
+// inside the encoder from the statuses gp-api sends with the request — the
+// binary is never patched after the fact.
 export const DoorKnockingPackRequestSchema = z
   .object({
     districtId: z.guid(),
+    // gp-api's org-wide latest-per-person knock statuses; bounded by doors
+    // actually knocked, so far smaller than the district. The cap fits
+    // people-api's 32 MiB body limit with headroom.
+    knockStatuses: z
+      .array(
+        z
+          .object({
+            personId: z.guid(),
+            status: DoorKnockStatusSchema,
+          })
+          .strict(),
+      )
+      .max(200_000)
+      .optional(),
   })
   .strict()
 
