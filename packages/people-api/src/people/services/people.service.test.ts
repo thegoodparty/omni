@@ -1,6 +1,7 @@
 import { NotFoundException } from '@nestjs/common'
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { Prisma } from '../../generated/prisma'
+import { FilterData } from '../schemas/filters.schema'
 import { PeopleService } from './people.service'
 
 const makeDbPerson = (overrides: Record<string, unknown> = {}) =>
