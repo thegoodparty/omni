@@ -168,20 +168,55 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
     return ranked[0]?.Race?.Position?.districtId ?? null
   }
 
-  // Resolves the canonical /people/<slug> URL to a person. `slug` is unique, so
-  // this returns the same full spine shape as getPersonById (PII omitted).
+  // Resolves the public /people/<base>-<id8> URL to a person, returning the same
+  // full spine shape as getPersonById (PII omitted). <id8> is the first 8 hex
+  // chars of the person's UUID `id`; the app appends it so a bare `first-last`
+  // (which is NOT unique — ~82 `jane-doe`s) still resolves to exactly one
+  // person. We resolve by that id prefix via an indexed range scan on the `id`
+  // PK — never a scan of the non-unique `slug` column. 8 hex is 32 bits, so a
+  // few dozen ids table-wide share a prefix; the base slug breaks that rare tie.
   async getPersonBySlug(slug: string) {
-    const person = await this.model.findUnique({
-      where: { slug },
+    const lastDash = slug.lastIndexOf('-')
+    const idPrefix = lastDash >= 0 ? slug.slice(lastDash + 1) : ''
+    const basePart = lastDash >= 0 ? slug.slice(0, lastDash) : slug
+
+    // Every minted slug ends in an 8-hex id suffix; anything else can't resolve.
+    if (!/^[0-9a-f]{8}$/.test(idPrefix)) {
+      throw new NotFoundException(`Person not found for slug=${slug}`)
+    }
+
+    const candidates = await this.model.findMany({
+      where: { id: this.idPrefixRange(idPrefix) },
       omit: { email: true, phone: true },
       include: {
         OfficeHolders: true,
         Candidacies: CANDIDACY_INCLUDE,
       },
     })
+
+    // Almost always 0-1 rows. Only when two ids share the same 8-hex prefix do
+    // we fall back to the base slug to pick the intended person.
+    const person =
+      candidates.length === 1
+        ? candidates[0]
+        : (candidates.find((p) => p.slug === basePart) ?? null)
+
     if (!person) {
       throw new NotFoundException(`Person not found for slug=${slug}`)
     }
     return person
+  }
+
+  // Half-open UUID range [<prefix>-0…, <next>-0…) covering every id whose text
+  // form starts with the 8-hex prefix — an indexed range on the `id` btree. A
+  // LIKE/cast on id::text would defeat the index and full-scan the table. The
+  // all-Fs prefix has no successor, so it uses an inclusive max-UUID bound.
+  private idPrefixRange(prefix8: string): Prisma.StringFilter {
+    const gte = `${prefix8}-0000-0000-0000-000000000000`
+    if (prefix8 === 'ffffffff') {
+      return { gte, lte: 'ffffffff-ffff-ffff-ffff-ffffffffffff' }
+    }
+    const next = (parseInt(prefix8, 16) + 1).toString(16).padStart(8, '0')
+    return { gte, lt: `${next}-0000-0000-0000-000000000000` }
   }
 }

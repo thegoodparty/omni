@@ -242,8 +242,14 @@ describe('GET /v1/persons/:personId (public profile)', () => {
 })
 
 describe('GET /v1/persons/by-slug/:slug (canonical URL resolution)', () => {
-  it('resolves a person by their unique slug with relations and no PII', async () => {
-    const res = await service.client.get(`/v1/persons/by-slug/${PERSON_SLUG}`)
+  // Public slug is `<base>-<id8>`; PERSON_ID starts 11111111, OTHER 22222222.
+  const PERSON_PUBLIC_SLUG = `${PERSON_SLUG}-11111111`
+  const OTHER_PUBLIC_SLUG = `${OTHER_PERSON_SLUG}-22222222`
+
+  it('resolves a person by the base slug + 8-hex id suffix, with relations and no PII', async () => {
+    const res = await service.client.get(
+      `/v1/persons/by-slug/${PERSON_PUBLIC_SLUG}`,
+    )
 
     expect(res.status).toBe(200)
     expect(res.data.id).toBe(PERSON_ID)
@@ -262,13 +268,28 @@ describe('GET /v1/persons/by-slug/:slug (canonical URL resolution)', () => {
   it('does not capture the by-slug segment as an id', async () => {
     // Regression guard for route ordering: `by-slug` must not hit :personId.
     const res = await service.client.get(
-      `/v1/persons/by-slug/${OTHER_PERSON_SLUG}`,
+      `/v1/persons/by-slug/${OTHER_PUBLIC_SLUG}`,
     )
     expect(res.status).toBe(200)
     expect(res.data.id).toBe(OTHER_PERSON_ID)
   })
 
-  it('404s for an unknown slug', async () => {
+  it('resolves by the id suffix even when the base slug is stale', async () => {
+    // The <id8> suffix is the real key; a wrong/old base still resolves (the
+    // marketing layer then 301s to the canonical slug).
+    const res = await service.client.get(
+      `/v1/persons/by-slug/some-old-name-11111111`,
+    )
+    expect(res.status).toBe(200)
+    expect(res.data.id).toBe(PERSON_ID)
+  })
+
+  it('404s when the id suffix matches no person', async () => {
+    const res = await service.client.get('/v1/persons/by-slug/nobody-deadbeef')
+    expect(res.status).toBe(404)
+  })
+
+  it('404s for a slug with no 8-hex id suffix', async () => {
     const res = await service.client.get('/v1/persons/by-slug/nobody-here')
     expect(res.status).toBe(404)
   })
