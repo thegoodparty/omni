@@ -167,6 +167,44 @@ a `::uuid[]` SQL builder in people-api's filter pipeline
 fallback). A condition naming a specific `outreachId` only accepts
 **completed** outreaches.
 
+### Override-aware Voter Likelihood filtering (ENG-10838)
+
+The wizard's Voter Likelihood filter (the `audience*` booleans /
+`AUDIENCE_VOTER_STATUS_VALUES`) respects per-person `voter_likelihood`
+overrides (`ContactStatusService`, ENG-10833) rather than only the seed
+`Voter_Status` column. `ContactsService.resolveVoterLikelihoodFilter` runs
+after `convertVoterFileFilterToFilters` on every read-path consumer (list,
+count, overlap-count's current selection, `findContactsForFilter`, list-detail
+aggregates, download): it maps the selected override-vocabulary values back to
+their full seed-value set (`unlikely` → `['Unlikely', 'Unreliable']`, fixing a
+gap where selecting just "Unlikely" missed real Unreliable-seed rows), then
+resolves `include` (overridden TO one of the selected values) and `exclude`
+(overridden to something else) person-id sets via two
+`ContactStatusService.personIdsByFieldValue` calls. Both travel to people-api
+as a new top-level `idOverrides: { include?, exclude? }` sibling of `filters`
+(NOT a `PeopleFilters` field — `IdOverridesSchema` in
+`@goodparty_org/contracts`), which `buildVoterFiltersSql` composes as an OR
+scoped to ONLY the voterStatus clause: `(<other filters>) AND ((<voterStatus>
+AND id != ALL(excl)) OR id = ANY(incl))` — an override-included person still
+has to pass every other selected filter. A no-op or 400 for `eo-` orgs
+(`hasElectedOfficeAccess`): Serve never writes `voter_likelihood` overrides, so
+the two lookups would always come back empty — skipped rather than paid for
+nothing. `idOverrides` is omitted entirely when no likelihood filter is
+selected or the org has zero overrides, so the SQL is byte-identical to
+before this ticket in that case.
+
+**Saved-list overlap count's saved sets are NOT override-aware** (a
+deliberate, scoped-out gap): `resolveSavedFilterSets` converts each saved
+`VoterFileFilter` straight through `convertVoterFileFilterToFilters` with no
+call into `resolveVoterLikelihoodFilter`, and `buildOverlapCountSql` builds
+each saved set via plain `buildVoterFiltersSql` with no per-set `idOverrides`.
+So a saved list's own membership in the overlap union still reflects seed
+`Voter_Status` only. The "current selection" side of the overlap (the
+in-progress wizard filter) IS override-aware. Extending saved sets needs a
+per-set `idOverrides` on the wire (`PeopleOverlapCountRequestSchema`'s
+`savedFilterSets` would need to become `{ filters, idOverrides }[]`) — a real
+follow-up, not a one-line change.
+
 ### Saved-filter lifecycle
 
 Create/edit via the wizard (or the assistant's `crud_saved_filters`) →

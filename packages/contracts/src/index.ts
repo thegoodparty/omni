@@ -700,6 +700,8 @@ export {
   createNumericFilterSchema,
   PeopleFiltersSchema,
   type PeopleFilters,
+  IdOverridesSchema,
+  type IdOverrides,
 } from './people/PeopleFilters.schema'
 
 export {

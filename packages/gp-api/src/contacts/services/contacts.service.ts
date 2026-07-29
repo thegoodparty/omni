@@ -11,6 +11,7 @@ import {
   SupportStatusRollupSchema,
   VoterLikelihoodSchema,
   type ContactStatuses,
+  type IdOverrides,
   type ListDetailContactsResponse,
   type PeopleOverlapCountResponse,
   type SupportStatusRollup,
@@ -113,6 +114,50 @@ const seedVoterLikelihood = (
   voterStatus: PersonOutput['voterStatus'],
 ): VoterLikelihood =>
   voterStatus ? VOTER_LIKELIHOOD_SEED_MAP[voterStatus] : 'unknown'
+
+// Override-aware Voter Likelihood filtering (ENG-10838). The people-api
+// Voter_Status FILTER vocabulary (PEOPLE_FILTER_VALUE_ENUMS.voterStatus) is a
+// superset of VOTER_LIKELIHOOD_SEED_MAP's PersonOutput-typed keys — it also
+// includes the literal 'Unknown' filter value, which a person's own
+// `voterStatus` field never carries (absent voterStatus is null, not the
+// string 'Unknown'). Kept as its own map rather than widening
+// VOTER_LIKELIHOOD_SEED_MAP's type, since that one is scoped to the narrower
+// per-person display path.
+const SEED_VOTER_STATUS_TO_LIKELIHOOD: Record<string, VoterLikelihood> = {
+  Super: 'super',
+  Likely: 'likely',
+  Unreliable: 'unlikely',
+  Unlikely: 'unlikely',
+  'First Time': 'first_time',
+  Unknown: 'unknown',
+}
+
+// The inverse: an override-vocabulary value expands to every seed value that
+// displays as that bucket absent an override. 'unlikely' expands to BOTH
+// seed values it collapses (Unlikely + Unreliable) — this is what makes the
+// filter's seed side agree with what a no-override person's own record
+// displays; selecting just "Unlikely" in the wizard today misses real
+// Unreliable-seed rows.
+const VOTER_LIKELIHOOD_TO_SEED_VALUES: Record<VoterLikelihood, string[]> = {
+  super: ['Super'],
+  likely: ['Likely'],
+  unlikely: ['Unlikely', 'Unreliable'],
+  first_time: ['First Time'],
+  unknown: ['Unknown'],
+}
+
+// `filters.voterStatus`'s op shape is always `{eq: string} | {in: string[]}`
+// for this field (convertVoterFileFilterToFilters never emits notIn/gte/is
+// for it) — pull the selected seed values out regardless of which shape
+// produced them (the audience* booleans or a raw voterStatus array from the
+// assistant's crud_saved_filters tool).
+const extractVoterStatusSeedValues = (filters: FilterObject): string[] => {
+  const op = filters.voterStatus
+  if (!op || typeof op === 'boolean') return []
+  if ('eq' in op && typeof op.eq === 'string') return [op.eq]
+  if ('in' in op && Array.isArray(op.in)) return op.in.map(String)
+  return []
+}
 
 // Serve (`eo-`) CRM downloads must omit these columns entirely — a blank
 // column still reveals the field exists (ENG-10830). Party (completing
@@ -239,6 +284,96 @@ export class ContactsService {
         'Political party filtering is not available for this organization',
       )
     }
+  }
+
+  // Override-aware Voter Likelihood filtering (ENG-10838): a person manually
+  // set to a bucket must match that bucket's filter even when their seed
+  // disagrees, and vice versa. Runs off whatever `filters.voterStatus`
+  // convertVoterFileFilterToFilters already produced, so both the wizard's
+  // audience* booleans AND the assistant's raw voterStatus array (which
+  // bypasses the booleans entirely — see filterDimensions.catalog.ts) get
+  // override-awareness through this one place. A no-op when the request
+  // carries no voterStatus filter at all — there's nothing to override.
+  // Serve orgs never have voter_likelihood override rows (the write path
+  // 400s for eo- orgs, ContactStatusService), so this is a guaranteed no-op
+  // there too; skip the two round trips rather than pay them for nothing.
+  private async resolveVoterLikelihoodFilter(
+    organization: Organization,
+    filters: FilterObject,
+  ): Promise<{ filters: FilterObject; idOverrides?: IdOverrides }> {
+    if (this.hasElectedOfficeAccess(organization)) {
+      return { filters }
+    }
+
+    const seedValues = extractVoterStatusSeedValues(filters)
+    if (seedValues.length === 0) {
+      return { filters }
+    }
+
+    const selected = new Set(
+      seedValues
+        .map((value) => SEED_VOTER_STATUS_TO_LIKELIHOOD[value])
+        .filter((value): value is VoterLikelihood => value !== undefined),
+    )
+    if (selected.size === 0) {
+      return { filters }
+    }
+
+    // Expand the selection back out to every seed value it collapses (the
+    // 'unlikely' -> [Unlikely, Unreliable] fix) so the seed side of the
+    // filter agrees with what a no-override person's own record displays.
+    const expandedSeedValues = [...selected].flatMap(
+      (value) => VOTER_LIKELIHOOD_TO_SEED_VALUES[value],
+    )
+    const updatedFilters: FilterObject = {
+      ...filters,
+      voterStatus:
+        expandedSeedValues.length === 1
+          ? { eq: expandedSeedValues[0] }
+          : { in: expandedSeedValues },
+    }
+
+    const excludedValues = VoterLikelihoodSchema.options.filter(
+      (value) => !selected.has(value),
+    )
+    const [include, exclude] = await Promise.all([
+      this.contactStatusService.personIdsByFieldValue(
+        organization.slug,
+        ContactStatusField.voter_likelihood,
+        [...selected],
+      ),
+      excludedValues.length
+        ? this.contactStatusService.personIdsByFieldValue(
+            organization.slug,
+            ContactStatusField.voter_likelihood,
+            excludedValues,
+          )
+        : Promise.resolve([]),
+    ])
+
+    if (include.length === 0 && exclude.length === 0) {
+      return { filters: updatedFilters }
+    }
+    return {
+      filters: updatedFilters,
+      idOverrides: {
+        ...(include.length ? { include } : {}),
+        ...(exclude.length ? { exclude } : {}),
+      },
+    }
+  }
+
+  // Shared by every consumer that converts a filter input straight into a
+  // FilterObject (count, overlap-count, findContactsForFilter, list-detail):
+  // convert -> party gate -> Voter Likelihood override resolution, in the
+  // order the call sites already ran the first two steps.
+  private async resolveBaseFilters(
+    organization: Organization,
+    filterInput: Partial<VoterFileFilter>,
+  ): Promise<{ filters: FilterObject; idOverrides?: IdOverrides }> {
+    const baseFilters = convertVoterFileFilterToFilters(filterInput)
+    this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
+    return this.resolveVoterLikelihoodFilter(organization, baseFilters)
   }
 
   private async isProAccess(organization: Organization): Promise<boolean> {
@@ -380,6 +515,7 @@ export class ContactsService {
     const fetchPeople = async (
       districtParams: { districtId: string },
       filters: FilterObject,
+      idOverrides: IdOverrides | undefined,
       groupByHousehold: boolean,
       peopleSearch: string | undefined,
     ) => {
@@ -392,6 +528,7 @@ export class ContactsService {
               resultsPerPage,
               page,
               filters,
+              idOverrides,
               search: peopleSearch,
               groupByHousehold,
             },
@@ -409,7 +546,7 @@ export class ContactsService {
       }
     }
 
-    const { filters, empty } = await this.segmentToFilters(
+    const { filters, empty, idOverrides } = await this.segmentToFilters(
       segment,
       organization,
     )
@@ -426,7 +563,13 @@ export class ContactsService {
       (params) =>
         empty
           ? Promise.resolve(this.emptyPeopleListResponse(resultsPerPage, page))
-          : fetchPeople(params, filters, groupByHousehold, effectiveSearch),
+          : fetchPeople(
+              params,
+              filters,
+              idOverrides,
+              groupByHousehold,
+              effectiveSearch,
+            ),
     )
     return this.stripPartyFromList(organization, response)
   }
@@ -465,8 +608,10 @@ export class ContactsService {
       throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
 
-    const baseFilters = convertVoterFileFilterToFilters(filterInput)
-    this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
+    const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
+      organization,
+      filterInput,
+    )
 
     const idResolution = await this.activityConditionResolution.resolveIdFilter(
       organization.slug,
@@ -496,6 +641,7 @@ export class ContactsService {
               resultsPerPage: 1,
               page: 1,
               filters,
+              idOverrides,
               search,
               groupByHousehold: false,
             },
@@ -534,8 +680,10 @@ export class ContactsService {
       throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
 
-    const baseFilters = convertVoterFileFilterToFilters(filterInput)
-    this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
+    const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
+      organization,
+      filterInput,
+    )
 
     const idResolution = await this.activityConditionResolution.resolveIdFilter(
       organization.slug,
@@ -568,7 +716,13 @@ export class ContactsService {
         const response = await lastValueFrom(
           this.httpService.post(
             `${PEOPLE_API_URL}/v1/people/overlap-count`,
-            { ...districtParams, filters, search, savedFilterSets },
+            {
+              ...districtParams,
+              filters,
+              idOverrides,
+              search,
+              savedFilterSets,
+            },
             {
               headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
             },
@@ -600,6 +754,17 @@ export class ContactsService {
   // saved list whose resolution is empty (matches nobody, e.g. a
   // now-orphaned activity condition) contributes nothing to the OR, so it's
   // dropped rather than sent as a meaningless filter set.
+  //
+  // Deliberately NOT Voter-Likelihood-override-aware (ENG-10838): each set
+  // here goes straight through convertVoterFileFilterToFilters with no call
+  // into resolveVoterLikelihoodFilter, so a saved list's own voterStatus
+  // membership in this union still reflects seed voterStatus only. Doing
+  // this per-saved-set correctly needs a per-set idOverrides on the wire
+  // (people-api's buildOverlapCountSql currently builds every saved set via
+  // plain buildVoterFiltersSql with no override composition) — a real
+  // extension, not a one-line addition, so it's out of scope for this ticket.
+  // The "current selection" side of the overlap (overlapCount above) IS
+  // override-aware.
   private async resolveSavedFilterSets(
     organization: Organization,
   ): Promise<FilterObject[]> {
@@ -708,8 +873,10 @@ export class ContactsService {
       throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
 
-    const baseFilters = convertVoterFileFilterToFilters(filterInput)
-    this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
+    const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
+      organization,
+      filterInput,
+    )
 
     const idResolution = this.excludePersonIdsFromResolution(
       await this.activityConditionResolution.resolveIdFilter(
@@ -740,6 +907,7 @@ export class ContactsService {
               resultsPerPage: pagination.resultsPerPage,
               page: pagination.page,
               filters,
+              idOverrides,
               search,
               groupByHousehold: false,
             },
@@ -795,8 +963,10 @@ export class ContactsService {
       throw new NotFoundException('List not found')
     }
 
-    const baseFilters = convertVoterFileFilterToFilters(filter)
-    this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
+    const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
+      organization,
+      filter,
+    )
 
     const idResolution = await this.activityConditionResolution.resolveIdFilter(
       organization.slug,
@@ -834,6 +1004,7 @@ export class ContactsService {
     const aggregates = await this.fetchListDetailAggregates(
       organization,
       filters,
+      idOverrides,
     )
     return { ...aggregates, outreachHistory }
   }
@@ -848,29 +1019,33 @@ export class ContactsService {
   private async fetchListDetailAggregates(
     organization: Organization,
     baseFilters: FilterObject,
+    idOverrides?: IdOverrides,
   ): Promise<
     Pick<ListDetailContactsResponse, 'demographics' | 'reachability'>
   > {
     const [base, cellphone, landline, address] =
       await this.withOrgDistrictResolution(organization, (districtParams) =>
         Promise.allSettled([
-          this.fetchPeopleAggregates(districtParams, baseFilters),
-          this.fetchPeopleAggregates(districtParams, {
-            ...baseFilters,
-            hasCellPhone: true,
-          }),
+          this.fetchPeopleAggregates(districtParams, baseFilters, idOverrides),
+          this.fetchPeopleAggregates(
+            districtParams,
+            { ...baseFilters, hasCellPhone: true },
+            idOverrides,
+          ),
           // phoneBanking mirrors the built-in channel map
           // (segmentsToFiltersMap.const.ts): it dials landlines, not cell
           // phones — the legacy raw-SQL export's phoneBanking population is
           // landline-only.
-          this.fetchPeopleAggregates(districtParams, {
-            ...baseFilters,
-            hasLandline: true,
-          }),
-          this.fetchPeopleAggregates(districtParams, {
-            ...baseFilters,
-            hasAddress: true,
-          }),
+          this.fetchPeopleAggregates(
+            districtParams,
+            { ...baseFilters, hasLandline: true },
+            idOverrides,
+          ),
+          this.fetchPeopleAggregates(
+            districtParams,
+            { ...baseFilters, hasAddress: true },
+            idOverrides,
+          ),
         ]),
       )
 
@@ -917,12 +1092,13 @@ export class ContactsService {
   private async fetchPeopleAggregates(
     districtParams: { districtId: string },
     filters: FilterObject,
+    idOverrides?: IdOverrides,
   ): Promise<PeopleAggregatesResponse> {
     try {
       const response = await lastValueFrom(
         this.httpService.post(
           `${PEOPLE_API_URL}/v1/people/aggregates`,
-          { ...districtParams, filters },
+          { ...districtParams, filters, idOverrides },
           {
             headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
           },
@@ -1196,7 +1372,7 @@ export class ContactsService {
       throw new BadRequestException('Campaign is not pro')
     }
 
-    const { filters, empty } = await this.segmentToFilters(
+    const { filters, empty, idOverrides } = await this.segmentToFilters(
       segment,
       organization,
     )
@@ -1211,6 +1387,7 @@ export class ContactsService {
         : this.streamPeopleDownload(
             params,
             filters,
+            idOverrides,
             groupByHousehold,
             excludeColumns,
             res,
@@ -1221,6 +1398,7 @@ export class ContactsService {
   private async streamPeopleDownload(
     districtParams: { districtId: string },
     filters: FilterObject,
+    idOverrides: IdOverrides | undefined,
     groupByHousehold: boolean,
     excludeColumns: string[] | undefined,
     res: FastifyReply,
@@ -1230,7 +1408,13 @@ export class ContactsService {
       response = await lastValueFrom(
         this.httpService.post<Readable>(
           `${PEOPLE_API_URL}/v1/people/download`,
-          { ...districtParams, filters, groupByHousehold, excludeColumns },
+          {
+            ...districtParams,
+            filters,
+            idOverrides,
+            groupByHousehold,
+            excludeColumns,
+          },
           {
             headers: {
               Authorization: `Bearer ${this.getValidS2SToken()}`,
@@ -1366,6 +1550,11 @@ export class ContactsService {
       this.streamPeopleDownload(
         params,
         filters,
+        // Legacy voter-file download (task-flow / outreach audience CSV):
+        // demographic booleans only, no Voter Likelihood override
+        // resolution — out of scope for ENG-10838 (see the doc comment on
+        // countVoterFilePeople above).
+        undefined,
         groupByHousehold,
         this.hasElectedOfficeAccess(organization)
           ? [PARTY_DOWNLOAD_COLUMN]
@@ -1497,8 +1686,14 @@ export class ContactsService {
   private async segmentToFilters(
     segment: string | undefined,
     organization: Organization,
-  ): Promise<{ filters: FilterObject; empty: boolean }> {
+  ): Promise<{
+    filters: FilterObject
+    empty: boolean
+    idOverrides?: IdOverrides
+  }> {
     const resolvedSegment = segment || ALL_CONTACTS_SEGMENT
+    // Built-in segments (segmentsToFiltersMap.const.ts) carry no voterStatus
+    // filter, so there's nothing to resolve — skip the round trip.
     const builtInFilters = this.resolveBuiltInSegment(resolvedSegment)
     if (builtInFilters) return { filters: builtInFilters, empty: false }
 
@@ -1509,7 +1704,11 @@ export class ContactsService {
       )
     if (!customSegment) return { filters: {}, empty: false }
 
-    const baseFilters = convertVoterFileFilterToFilters(customSegment)
+    const { filters: baseFilters, idOverrides } =
+      await this.resolveVoterLikelihoodFilter(
+        organization,
+        convertVoterFileFilterToFilters(customSegment),
+      )
     const idResolution = await this.activityConditionResolution.resolveIdFilter(
       organization.slug,
       {
@@ -1518,11 +1717,12 @@ export class ContactsService {
       },
     )
     if (idResolution.kind === 'empty') {
-      return { filters: baseFilters, empty: true }
+      return { filters: baseFilters, empty: true, idOverrides }
     }
     return {
       filters: this.mergeIdFilter(baseFilters, idResolution),
       empty: false,
+      idOverrides,
     }
   }
 

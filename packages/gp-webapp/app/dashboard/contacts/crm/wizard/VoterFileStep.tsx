@@ -22,6 +22,15 @@ interface VoterFileStepProps {
   isElectedOfficial: boolean
 }
 
+// filters.config.ts's "Voter Demographics" section key for the Voter
+// Likelihood field. Support status renders as its own hardcoded block AFTER
+// every filters.config.ts section, so reordering the config's section/field
+// array alone can't move Voter Likelihood "below" it (ENG-10838) — this
+// wizard pulls the field out of its normal section position and renders it
+// after Support status instead. The legacy flag-off page (FiltersSheet.tsx)
+// is untouched, so its rendering is unaffected by this move.
+const VOTER_LIKELIHOOD_FIELD_KEY = 'voter_likely'
+
 // Step 2 of the voter-file branch (ENG-10721 locked-prototype parity): pill
 // toggles over the same filters.config.ts sections/options FiltersSheet and
 // the original checkbox rendering used — the filter dimensions and the
@@ -35,15 +44,21 @@ export default function VoterFileStep({
   isElectedOfficial,
 }: VoterFileStepProps) {
   // Political party doesn't apply to an elected official's constituent file —
-  // same exclusion FiltersSheet applies today.
-  const displaySections = isElectedOfficial
-    ? filterSections.map((section) => ({
-        ...section,
-        fields: section.fields.filter(
-          (field) => field.key !== 'political_party',
-        ),
-      }))
-    : filterSections
+  // same exclusion FiltersSheet applies today. Voter Likelihood is pulled out
+  // here too (see VOTER_LIKELIHOOD_FIELD_KEY above) so it can render after
+  // Support status instead of inline with Voter Demographics.
+  const displaySections = filterSections.map((section) => ({
+    ...section,
+    fields: section.fields.filter(
+      (field) =>
+        field.key !== VOTER_LIKELIHOOD_FIELD_KEY &&
+        (!isElectedOfficial || field.key !== 'political_party'),
+    ),
+  }))
+
+  const voterLikelihoodField = filterSections
+    .flatMap((section) => section.fields)
+    .find((field) => field.key === VOTER_LIKELIHOOD_FIELD_KEY)
 
   const selectedOptionsForField = (
     options: Array<{ key: string; label: string }>,
@@ -69,6 +84,37 @@ export default function VoterFileStep({
     onSupportStatusChange([])
   }
 
+  const renderField = (field: {
+    key: string
+    label: string
+    options: Array<{ key: string; label: string }>
+  }) => (
+    <div key={field.key} className="flex flex-col gap-2">
+      <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>
+        {sentenceCase(field.label)}
+      </h4>
+      <ToggleGroup
+        type="multiple"
+        value={selectedOptionsForField(field.options)}
+        onValueChange={(values) =>
+          handleFieldValueChange(field.options, values)
+        }
+        aria-label={field.label}
+        className="flex flex-wrap gap-2"
+      >
+        {field.options.map((option) => (
+          <ToggleGroupItem
+            key={option.key}
+            value={option.key}
+            className={PILL_TOGGLE_ITEM_CLASSNAME}
+          >
+            {option.label}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+    </div>
+  )
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
@@ -88,32 +134,7 @@ export default function VoterFileStep({
 
       {displaySections.map((section) => (
         <div key={section.title} className="flex flex-col gap-4">
-          {section.fields.map((field) => (
-            <div key={field.key} className="flex flex-col gap-2">
-              <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>
-                {sentenceCase(field.label)}
-              </h4>
-              <ToggleGroup
-                type="multiple"
-                value={selectedOptionsForField(field.options)}
-                onValueChange={(values) =>
-                  handleFieldValueChange(field.options, values)
-                }
-                aria-label={field.label}
-                className="flex flex-wrap gap-2"
-              >
-                {field.options.map((option) => (
-                  <ToggleGroupItem
-                    key={option.key}
-                    value={option.key}
-                    className={PILL_TOGGLE_ITEM_CLASSNAME}
-                  >
-                    {option.label}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            </div>
-          ))}
+          {section.fields.map(renderField)}
         </div>
       ))}
 
@@ -139,6 +160,8 @@ export default function VoterFileStep({
           ))}
         </ToggleGroup>
       </div>
+
+      {voterLikelihoodField && renderField(voterLikelihoodField)}
     </div>
   )
 }

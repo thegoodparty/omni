@@ -126,6 +126,7 @@ export class PeopleDownloadService
         effectiveDistrictId,
         state,
         filters: dto.filters,
+        idOverrides: dto.idOverrides,
         groupByHousehold: dto.groupByHousehold,
         excludeColumns: dto.excludeColumns,
       })
@@ -205,6 +206,7 @@ export class PeopleDownloadService
     effectiveDistrictId: string | null
     state: string
     filters: DownloadPeopleDTO['filters']
+    idOverrides?: DownloadPeopleDTO['idOverrides']
     groupByHousehold?: boolean
     excludeColumns?: ExcludableVoterColumn[]
   }): string {
@@ -213,6 +215,7 @@ export class PeopleDownloadService
       effectiveDistrictId,
       state,
       filters,
+      idOverrides,
       groupByHousehold,
       excludeColumns,
     } = args
@@ -250,6 +253,7 @@ export class PeopleDownloadService
       state,
       districtId: effectiveDistrictId,
       filters,
+      idOverrides,
     })
     const whereClause = inlinePrismaSql(whereSql, client)
 

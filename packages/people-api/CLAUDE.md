@@ -80,6 +80,16 @@ Services backed by a Prisma model **must** extend `createPrismaBase(MODELS.Model
 
 Almost all `Voter` queries go through `Prisma.sql` / `$queryRaw`, not Prisma ORM CRUD. The Voter table has 100+ L2 columns and partitioning by state — the ORM path is too coarse. Filter Zod → `transformFilters` → `buildVoterFiltersSql` → `Prisma.sql` WHERE clauses → execute. Output is normalized via `transformToPersonOutput` before leaving the service.
 
+`idOverrides: { include?, exclude? }` (ENG-10838) is an optional top-level
+sibling of `filters` on `list`/`download`/`aggregates`/`overlap-count`
+requests — NOT a `PeopleFilters` field. gp-api resolves it from per-person
+Voter Likelihood overrides; `buildVoterFiltersSql` composes it as an OR
+scoped to ONLY the voterStatus clause (`(<voterStatus> AND id != ALL(excl))
+OR id = ANY(incl)`), AND-ed with every other filter at the top level — never
+wraps the whole conjunction. Omitted → SQL byte-identical to before. See
+`packages/gp-api/src/contacts/CLAUDE.md` § Override-aware Voter Likelihood
+filtering for the full resolution algorithm.
+
 Every `/people` count AND the filtered aggregates (`getAggregates`) run under
 a 2.5s `SET LOCAL statement_timeout` (`SLOW_QUERY_TIMEOUT_MS`); on
 cancellation (SQLSTATE 57014) `people.service.ts` retries once with a fenced
