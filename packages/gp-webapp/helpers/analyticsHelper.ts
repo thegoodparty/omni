@@ -453,6 +453,11 @@ export const EVENTS = {
     // Win-only by construction (ENG-10749 hides the button for Serve), so
     // there is no ConstituentData variant.
     SendOutreachClicked: 'Voter Data - Send Outreach Clicked',
+    // ENG-10836: the person-record status row (Voter Likelihood / Support
+    // Status dropdowns). Fires once per confirmed-successful change with
+    // { field, from, to } — never on a failed PATCH. Win-only surface (Opt In
+    // Status is read-only, no event), so there is no ConstituentData variant.
+    ContactStatusChanged: 'Voter Data - Contact Status Changed',
     ClickNeedHelp: 'Voter Data: Click Need Help',
     NeedHelp: {
       Exit: 'Voter Data - Need Help: Exit modal',
