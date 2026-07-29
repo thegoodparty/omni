@@ -257,7 +257,7 @@ export default function StatusRow({
           >
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="z-[1400]">
             {VOTER_LIKELIHOOD_OPTIONS.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
@@ -276,7 +276,7 @@ export default function StatusRow({
           >
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="z-[1400]">
             {SUPPORT_STATUS_OPTIONS.map((option) => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
