@@ -336,11 +336,12 @@ describe('DatabricksSqlProvider', () => {
 
   it('times out a hung query and recovers on a fresh session', async () => {
     let hang = true
+    const hungOpClose = vi.fn(async () => noop())
     const { factory, state } = makeFactory(() =>
       hang
         ? {
             fetchAll: () => new Promise<unknown[]>(() => undefined),
-            close: async () => noop(),
+            close: hungOpClose,
           }
         : makeOperation({ rows: [{ x: 1 }], columns: ['x'] }),
     )
@@ -354,12 +355,113 @@ describe('DatabricksSqlProvider', () => {
       /timed out after 25ms/,
     )
     expect(state.sessionCloseCalls).toBe(1)
+    // The hung operation's finally can never run — the deadline path must
+    // close the handle itself or it leaks on the warehouse.
+    expect(hungOpClose).toHaveBeenCalledTimes(1)
 
     hang = false
     const result = await provider.query(SELECT_X)
 
     expect(result).toEqual({ columns: ['x'], rows: [{ x: 1 }] })
     expect(state.connectCalls).toBe(2)
+  })
+
+  it('holds the deadline even when closing the dead session hangs', async () => {
+    const { factory, state } = makeFactory(() => ({
+      fetchAll: () => new Promise<unknown[]>(() => undefined),
+      close: async () => noop(),
+    }))
+    const hangingFactory = (): DbsqlClientLike => {
+      const client = factory()
+      return {
+        connect: async (opts) => {
+          const conn = await client.connect(opts)
+          return {
+            openSession: async () => {
+              const session = await conn.openSession()
+              return {
+                executeStatement: session.executeStatement,
+                close: () => new Promise<void>(() => undefined),
+              }
+            },
+            close: () => new Promise<void>(() => undefined),
+          }
+        },
+      }
+    }
+    const provider = new DatabricksSqlProvider({
+      ...baseOpts,
+      queryTimeoutMs: 25,
+      clientFactory: hangingFactory,
+    })
+
+    await expect(provider.query(SELECT_X)).rejects.toThrow(
+      /timed out after 25ms/,
+    )
+    expect(state.executeCalls).toHaveLength(1)
+  })
+
+  it('concurrent failures on one dead session share a single reconnect', async () => {
+    const boom = new Error('dead session')
+    const tick = (): Promise<void> =>
+      new Promise((resolve) => setTimeout(resolve, 0))
+    let gateConnects = false
+    let releaseConnGate = (): void => undefined
+    const connGate = new Promise<void>((resolve) => {
+      releaseConnGate = resolve
+    })
+    let releaseFailGate = (): void => undefined
+    const failGate = new Promise<void>((resolve) => {
+      releaseFailGate = resolve
+    })
+    let execCount = 0
+    let connectCalls = 0
+    const factory = (): DbsqlClientLike => ({
+      connect: async () => {
+        connectCalls++
+        if (gateConnects) await connGate
+        return {
+          openSession: async () => ({
+            executeStatement: async () => {
+              execCount++
+              // call 1: healthy warm-up. calls 2+3: the two concurrent
+              // queries hitting the dead session — the second failure is
+              // delayed until the first caller's reconnect is in flight.
+              if (execCount === 2) throw boom
+              if (execCount === 3) {
+                await failGate
+                throw boom
+              }
+              return makeOperation({ rows: [{ x: 1 }], columns: ['x'] })
+            },
+            close: async () => noop(),
+          }),
+          close: async () => noop(),
+        }
+      },
+    })
+    const provider = new DatabricksSqlProvider({
+      ...baseOpts,
+      clientFactory: factory,
+    })
+
+    await provider.query(SELECT_X)
+
+    gateConnects = true
+    const first = provider.query(SELECT_X)
+    const second = provider.query(SELECT_X)
+    await tick()
+    releaseFailGate()
+    await tick()
+    releaseConnGate()
+
+    const results = await Promise.all([first, second])
+
+    expect(results[0]).toEqual({ columns: ['x'], rows: [{ x: 1 }] })
+    expect(results[1]).toEqual({ columns: ['x'], rows: [{ x: 1 }] })
+    // One shared reconnect — the second caller's reset must not tear down
+    // the first caller's in-flight retry connection.
+    expect(connectCalls).toBe(2)
   })
 
   it('times out a hung connect and tears down the late session', async () => {
