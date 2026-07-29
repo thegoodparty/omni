@@ -412,25 +412,6 @@ export const RECOMMENDED_MAX_DOORS = 30
 export const MAX_LIST_HOUSEHOLDS = 150
 export const ALL_CONTACTS_ID = 'all'
 
-const bboxPolygon = (
-  voters: Voter[],
-  pad = 140,
-): { x: number; y: number }[] => {
-  if (voters.length === 0) return []
-  const xs = voters.map((v) => v.x)
-  const ys = voters.map((v) => v.y)
-  const minX = Math.min(...xs) - pad
-  const maxX = Math.max(...xs) + pad
-  const minY = Math.min(...ys) - pad
-  const maxY = Math.max(...ys) + pad
-  return [
-    { x: minX, y: minY },
-    { x: maxX, y: minY },
-    { x: maxX, y: maxY },
-    { x: minX, y: maxY },
-  ]
-}
-
 const votersInBox = (center: { x: number; y: number }, half: number): Voter[] =>
   ALL_VOTERS.filter(
     (v) => Math.abs(v.x - center.x) <= half && Math.abs(v.y - center.y) <= half,
@@ -473,51 +454,6 @@ const recList = (
     createdAt: '2026-07-20',
   }
 }
-
-// Nearest-N voters to a cluster center that match a predicate — used to seed
-// saved lists as compact walkable neighborhoods.
-const clusterList = (
-  center: { x: number; y: number },
-  count: number,
-  predicate: (v: Voter) => boolean = () => true,
-): Voter[] =>
-  ALL_VOTERS.filter(predicate)
-    .map((v) => ({
-      v,
-      d: (v.x - center.x) ** 2 + (v.y - center.y) ** 2,
-    }))
-    .sort((a, b) => a.d - b.d)
-    .slice(0, count)
-    .map((e) => e.v)
-
-const makeList = (
-  id: string,
-  name: string,
-  voters: Voter[],
-  extra: Partial<List> = {},
-): List => ({
-  id,
-  name,
-  voterIds: voters.map((v) => v.id),
-  polygon: bboxPolygon(voters),
-  createdAt: '2026-06-22',
-  ...extra,
-})
-
-export const SAMPLE_LISTS: List[] = [
-  makeList(
-    'list-lonesome-loop',
-    'Lonesome Loop — turnout push',
-    clusterList(CLUSTER_CENTERS[0]!, 42),
-    { color: 'blue', createdAt: '2026-06-22' },
-  ),
-  makeList(
-    'list-ward3-undecided',
-    'Ward 3 undecideds',
-    clusterList(CLUSTER_CENTERS[3]!, 28, (v) => v.support !== 'yes'),
-    { color: 'orange', createdAt: '2026-07-01' },
-  ),
-]
 
 export const RECOMMENDED_LISTS: List[] = [
   recList(

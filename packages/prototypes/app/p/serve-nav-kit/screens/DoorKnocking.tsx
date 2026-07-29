@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Button,
   Card,
@@ -24,7 +24,7 @@ import { ListCard } from './door-knocking/ListCard'
 import { ListDetailsSheet } from './door-knocking/ListDetailsSheet'
 import { Legend } from './door-knocking/Legend'
 import { MapCanvas } from './door-knocking/MapCanvas'
-import { NewListFlow, type NewListPreset } from './door-knocking/NewListFlow'
+import { NewListFlow } from './door-knocking/NewListFlow'
 import { SectionHeader } from './door-knocking/SectionHeader'
 import { VoterPanel } from './door-knocking/VoterPanel'
 import { WalkMode } from './door-knocking/WalkMode'
@@ -34,7 +34,6 @@ import {
   type Voter,
   ALL_VOTERS,
   RECOMMENDED_LISTS,
-  SAMPLE_LISTS,
   buildRoute,
   formatDuration,
   routeTotalMinutes,
@@ -48,13 +47,11 @@ type Props = {
 
 export const DoorKnocking = ({ title, aiPlaceholder, onExit }: Props) => {
   const [voters, setVoters] = useState<Voter[]>(ALL_VOTERS)
-  const [saved, setSaved] = useState<List[]>(SAMPLE_LISTS)
+  const [saved, setSaved] = useState<List[]>([])
   const [recommended, setRecommended] = useState<List[]>(RECOMMENDED_LISTS)
   const [activeListId, setActiveListId] = useState<string | null>(null)
   const [walkListId, setWalkListId] = useState<string | null>(null)
   const [newOpen, setNewOpen] = useState(false)
-  const [newPreset, setNewPreset] = useState<NewListPreset | null>(null)
-  const [pendingRecId, setPendingRecId] = useState<string | null>(null)
   const [detailsList, setDetailsList] = useState<{
     list: List
     kind: 'saved' | 'recommended'
@@ -90,6 +87,17 @@ export const DoorKnocking = ({ title, aiPlaceholder, onExit }: Props) => {
   useEffect(() => {
     if (walkListId) window.scrollTo({ top: 0 })
   }, [walkListId])
+
+  // With no saved lists, open the create-list drawer automatically on first
+  // arrival only. If the user closes it, they stay on the empty map.
+  const autoOpenedRef = useRef(false)
+  useEffect(() => {
+    if (autoOpenedRef.current) return
+    if (saved.length === 0) {
+      autoOpenedRef.current = true
+      setNewOpen(true)
+    }
+  }, [saved.length])
 
   const byId = useMemo(() => new Map(voters.map((v) => [v.id, v])), [voters])
   const listVoters = (list: List): Voter[] =>
@@ -139,15 +147,10 @@ export const DoorKnocking = ({ title, aiPlaceholder, onExit }: Props) => {
     setDeleteId(null)
   }
 
+  const openCreate = () => setNewOpen(true)
+
   const createListButton = (
-    <Button
-      size="small"
-      onClick={() => {
-        setNewPreset(null)
-        setPendingRecId(null)
-        setNewOpen(true)
-      }}
-    >
+    <Button size="small" onClick={openCreate}>
       <Plus className="size-4" />
       Create list
     </Button>
@@ -281,56 +284,29 @@ export const DoorKnocking = ({ title, aiPlaceholder, onExit }: Props) => {
           />
         ))}
         {saved.length === 0 && (
-          <Card className="text-muted-foreground p-4 text-sm">
-            No lists yet. Tap{' '}
-            <span className="text-foreground font-medium">Create list</span> to
-            add your first one.
+          <Card className="flex flex-col items-start justify-between gap-3 p-4 sm:flex-row sm:items-center">
+            <div className="space-y-1">
+              <p className="text-foreground text-sm font-semibold">
+                No saved lists yet
+              </p>
+              <p className="text-muted-foreground text-sm">
+                Your saved lists will appear here. Create your first list to
+                start door knocking.
+              </p>
+            </div>
+            <Button
+              size="small"
+              className="shrink-0 self-end"
+              onClick={openCreate}
+            >
+              <Plus className="size-4" />
+              Create list
+            </Button>
           </Card>
         )}
       </div>
     </div>
   )
-
-  const recommendedPanel =
-    recommended.length > 0 ? (
-      <section className="space-y-2">
-        <SectionHeader
-          title="Recommended lists"
-          description="Based on your campaign profile and top issues"
-        />
-        <div className="flex flex-col gap-2">
-          {recommended.slice(0, 3).map((list) => (
-            <ListCard
-              key={list.id}
-              variant="recommended"
-              title={list.name}
-              voters={listVoters(list)}
-              duration={formatDuration(routeTotalMinutes(listVoters(list)))}
-              reason={list.reason}
-              isActive={activeListId === list.id}
-              onClick={() =>
-                setActiveListId((id) => (id === list.id ? null : list.id))
-              }
-              onDetails={() => setDetailsList({ list, kind: 'recommended' })}
-              onSave={() => {
-                setPendingRecId(list.id)
-                setNewPreset({
-                  name: list.name,
-                  reason: list.reason,
-                  filters: list.filters ?? null,
-                  polygon: list.polygon,
-                  color: 'violet',
-                })
-                setNewOpen(true)
-              }}
-              onDelete={() =>
-                setRecommended((prev) => prev.filter((r) => r.id !== list.id))
-              }
-            />
-          ))}
-        </div>
-      </section>
-    ) : null
 
   return (
     <>
@@ -372,8 +348,7 @@ export const DoorKnocking = ({ title, aiPlaceholder, onExit }: Props) => {
               desktop, stacked full-width on mobile. */}
           <div className="mx-auto max-w-[608px] px-4 py-4 lg:absolute lg:top-4 lg:right-4 lg:bottom-4 lg:z-20 lg:mx-0 lg:flex lg:w-[360px] lg:max-w-[40vw] lg:flex-col lg:px-0 lg:py-0 lg:overflow-hidden lg:rounded-2xl lg:border lg:border-border lg:bg-card lg:shadow-md">
             <div className="space-y-4 lg:flex-1 lg:overflow-y-auto lg:p-4">
-              {saved.length > 0 && savedPanel}
-              {recommendedPanel}
+              {savedPanel}
             </div>
             <div className="border-border hidden shrink-0 border-t p-4 lg:block">
               {districtLegend}
@@ -384,20 +359,13 @@ export const DoorKnocking = ({ title, aiPlaceholder, onExit }: Props) => {
 
       <NewListFlow
         open={newOpen}
-        onOpenChange={(o) => {
-          setNewOpen(o)
-          if (!o) {
-            setNewPreset(null)
-            setPendingRecId(null)
-          }
-        }}
-        preset={newPreset}
+        onOpenChange={setNewOpen}
+        recommendations={recommended}
+        onRecommendationApplied={(id) =>
+          setRecommended((prev) => prev.filter((r) => r.id !== id))
+        }
         onCreate={(list) => {
           setSaved((prev) => [list, ...prev])
-          if (pendingRecId) {
-            setRecommended((prev) => prev.filter((r) => r.id !== pendingRecId))
-            setPendingRecId(null)
-          }
           toast('List created', { description: list.name })
         }}
       />

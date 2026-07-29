@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Button,
+  Card,
   Drawer,
   DrawerContent,
   DrawerHandle,
@@ -20,7 +21,14 @@ import {
   cn,
   toast,
 } from '@goodparty_org/styleguide'
-import { ArrowLeft, CheckCircle2, Users } from 'lucide-react'
+import {
+  ArrowLeft,
+  Check,
+  CheckCircle2,
+  ChevronRight,
+  Sparkles,
+  Users,
+} from 'lucide-react'
 import { FilterFields } from './FilterFields'
 import { MapCanvas } from './MapCanvas'
 import { Legend } from './Legend'
@@ -44,24 +52,55 @@ import {
   votersInPolygon,
 } from './doorKnockingData'
 
-export type NewListPreset = {
-  name: string
-  reason?: string
-  filters: CutFilters | null
-  polygon: { x: number; y: number }[]
-  color?: ListColor
-}
+// Step 1 of the create-list flow: goal picker, mirroring the phone bank flow.
+const DOOR_PURPOSES: ReadonlyArray<{
+  id: string
+  label: string
+  description: string
+}> = [
+  {
+    id: 'issue',
+    label: 'Discover local issues',
+    description: 'Hear what neighbors care about most.',
+  },
+  {
+    id: 'introduce',
+    label: 'Introduce myself',
+    description: 'Meet voters who do not know you yet.',
+  },
+  {
+    id: 'persuade',
+    label: 'Persuade undecided voters',
+    description: 'Talk with voters who could still swing your way.',
+  },
+  {
+    id: 'turnout',
+    label: 'Turn out my supporters',
+    description: 'Remind likely supporters to vote.',
+  },
+  {
+    id: 'event',
+    label: 'Invite people to an event',
+    description: 'Promote a town hall or meet and greet.',
+  },
+  {
+    id: 'custom',
+    label: 'Something else',
+    description: 'Build a list from scratch with your own filters.',
+  },
+]
 
 type Props = {
   open: boolean
   onOpenChange: (v: boolean) => void
   onCreate: (list: List) => void
-  // When opened from a recommended list, start the 2-step review→confirm flow
-  // pre-seeded with that list's area — mirrors the source's "Save" drawer.
-  preset?: NewListPreset | null
+  // Recommended lists surfaced inside the "who" step; picking one seeds its
+  // pre-drawn area and jumps to the review (draw) step.
+  recommendations?: List[]
+  onRecommendationApplied?: (id: string) => void
 }
 
-type Step = 'filters' | 'name' | 'draw' | 'confirm'
+type Step = 'purpose' | 'who' | 'name' | 'draw' | 'confirm'
 
 let listSeq = 0
 
@@ -69,9 +108,12 @@ export const NewListFlow = ({
   open,
   onOpenChange,
   onCreate,
-  preset,
+  recommendations = [],
+  onRecommendationApplied,
 }: Props) => {
-  const [step, setStep] = useState<Step>('filters')
+  const [step, setStep] = useState<Step>('purpose')
+  const [purposeId, setPurposeId] = useState<string | null>(null)
+  const [recId, setRecId] = useState<string | null>(null)
   const [customListId, setCustomListId] = useState<string>(ALL_CONTACTS_ID)
   const [filters, setFilters] = useState<CutFilters>(DEFAULT_FILTERS)
   const [savedName, setSavedName] = useState('')
@@ -79,8 +121,8 @@ export const NewListFlow = ({
   const [polygon, setPolygon] = useState<{ x: number; y: number }[]>([])
   const [routeName, setRouteName] = useState('')
   const [color, setColor] = useState<ListColor>(DEFAULT_LIST_COLOR)
-  // Recommended "Save" opens a 2-step flow (review the pre-drawn area → confirm),
-  // matching the source; a from-scratch "Create list" is the 3/4-step flow.
+  // Set when a recommendation is chosen: the draw step becomes a pre-seeded
+  // review of that list's area (its own header + copy).
   const [recMode, setRecMode] = useState(false)
   const [presetName, setPresetName] = useState('')
   const [presetReason, setPresetReason] = useState('')
@@ -96,28 +138,13 @@ export const NewListFlow = ({
     [filteredUniverse, polygon],
   )
 
-  // Opening from a recommended card seeds the review (draw) step with its
-  // pre-outlined area — the user can adjust it, then Add → Confirm.
-  useEffect(() => {
-    if (open && preset) {
-      setRecMode(true)
-      setPresetName(preset.name)
-      setPresetReason(preset.reason ?? '')
-      setStep('draw')
-      setCustomListId(ALL_CONTACTS_ID)
-      setFilters(preset.filters ?? DEFAULT_FILTERS)
-      setSavedFilterFlow(false)
-      setPolygon(preset.polygon)
-      setRouteName(preset.name)
-      setColor(preset.color ?? DEFAULT_LIST_COLOR)
-    }
-  }, [open, preset])
-
   const active = hasActiveFilters(filters)
   const needsName = customListId === ALL_CONTACTS_ID && active
 
   const reset = () => {
-    setStep('filters')
+    setStep('purpose')
+    setPurposeId(null)
+    setRecId(null)
     setCustomListId(ALL_CONTACTS_ID)
     setFilters(DEFAULT_FILTERS)
     setSavedName('')
@@ -135,25 +162,51 @@ export const NewListFlow = ({
     onOpenChange(false)
   }
 
-  const totalSteps = recMode ? 2 : needsName || savedFilterFlow ? 4 : 3
-  const currentStep = recMode
-    ? step === 'draw'
+  const totalSteps =
+    step === 'purpose'
+      ? 4
+      : step === 'who'
+        ? needsName
+          ? 5
+          : 4
+        : recMode
+          ? 4
+          : savedFilterFlow
+            ? 5
+            : 4
+  const currentStep =
+    step === 'purpose'
       ? 1
-      : 2
-    : step === 'filters'
-      ? 1
-      : step === 'name'
+      : step === 'who'
         ? 2
-        : step === 'draw'
-          ? savedFilterFlow
-            ? 3
-            : 2
-          : totalSteps
+        : step === 'name'
+          ? 3
+          : step === 'draw'
+            ? recMode
+              ? 3
+              : savedFilterFlow
+                ? 4
+                : 3
+            : recMode
+              ? 4
+              : savedFilterFlow
+                ? 5
+                : 4
 
-  // The review (draw) step is the first step in recommended mode, so no back.
-  const showBack = step !== 'filters' && !(recMode && step === 'draw')
+  const showBack = step !== 'purpose'
 
   const header = (() => {
+    if (step === 'purpose')
+      return {
+        title: 'What do you want to do?',
+        description:
+          'Pick a goal so we can shape the right door knocking list.',
+      }
+    if (step === 'who')
+      return {
+        title: 'Who do you want to reach?',
+        description: 'Pick a recommended route or filter your own list.',
+      }
     if (step === 'name')
       return {
         title: 'Name your list',
@@ -166,29 +219,41 @@ export const NewListFlow = ({
         description:
           'Review the route, give it a name and color, then save it to your team.',
       }
-    if (step === 'draw')
-      return recMode
-        ? {
-            title: presetName || 'Recommended lists',
-            description:
-              presetReason ||
-              'Recommended for you based on your profile and voters. Filters are pre-applied.',
-          }
-        : {
-            title: 'Draw your door knocking boundaries',
-            description: 'Outline map areas to build targeted door lists.',
-          }
-    return {
-      title: 'Filter voters',
-      description: 'Refine who to reach, then draw your route on the map.',
-    }
+    // draw
+    return recMode
+      ? {
+          title: presetName || 'Recommended list',
+          description:
+            presetReason ||
+            'Recommended for you based on your profile and voters. Filters are pre-applied.',
+        }
+      : {
+          title: 'Draw your door knocking boundaries',
+          description: 'Outline map areas to build targeted door lists.',
+        }
   })()
 
   const back = () => {
     if (step === 'confirm') setStep('draw')
-    else if (step === 'draw' && !recMode)
-      setStep(needsName ? 'name' : 'filters')
-    else if (step === 'name') setStep('filters')
+    else if (step === 'draw')
+      setStep(recMode ? 'who' : savedFilterFlow ? 'name' : 'who')
+    else if (step === 'name') setStep('who')
+    else if (step === 'who') setStep('purpose')
+  }
+
+  const applyRecommendation = (rec: List) => {
+    setRecMode(true)
+    setPresetName(rec.name)
+    setPresetReason(rec.reason ?? '')
+    setCustomListId(ALL_CONTACTS_ID)
+    setFilters(rec.filters ?? DEFAULT_FILTERS)
+    setSavedFilterFlow(false)
+    setPolygon(rec.polygon)
+    setColor(DEFAULT_LIST_COLOR)
+    setRouteName(rec.name)
+    setRecId(null)
+    onRecommendationApplied?.(rec.id)
+    setStep('draw')
   }
 
   const save = (stay: boolean) => {
@@ -277,11 +342,108 @@ export const NewListFlow = ({
 
         <div className="flex-1 overflow-y-auto px-4 py-5 lg:px-6">
           <div className="mx-auto w-full max-w-[608px]">
-            {step === 'filters' && (
+            {step === 'purpose' && (
+              <div className="space-y-3">
+                {DOOR_PURPOSES.map((p) => {
+                  const on = purposeId === p.id
+                  return (
+                    <Card
+                      key={p.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        setPurposeId(p.id)
+                        setStep('who')
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setPurposeId(p.id)
+                          setStep('who')
+                        }
+                      }}
+                      className={cn(
+                        'flex-row items-center justify-between gap-3 rounded-lg p-4 transition-colors',
+                        on ? 'border-primary' : 'hover:border-primary/50',
+                      )}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="text-foreground block truncate font-medium">
+                          {p.label}
+                        </span>
+                        <span className="text-muted-foreground block truncate text-sm">
+                          {p.description}
+                        </span>
+                      </span>
+                      <ChevronRight className="text-muted-foreground size-5 shrink-0" />
+                    </Card>
+                  )
+                })}
+              </div>
+            )}
+
+            {step === 'who' && (
               <div className="space-y-6">
+                {recommendations.length > 0 && (
+                  <div className="space-y-2">
+                    <h3 className="text-foreground flex items-center gap-1.5 text-sm font-semibold">
+                      <Sparkles
+                        className="text-primary size-3.5 shrink-0"
+                        aria-hidden="true"
+                      />
+                      Recommended lists
+                    </h3>
+                    <div className="space-y-2">
+                      {recommendations.map((rec) => {
+                        const on = recId === rec.id
+                        return (
+                          <Card
+                            key={rec.id}
+                            role="button"
+                            tabIndex={0}
+                            aria-pressed={on}
+                            onClick={() => setRecId(on ? null : rec.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault()
+                                setRecId(on ? null : rec.id)
+                              }
+                            }}
+                            className={cn(
+                              'flex-row items-center gap-3 p-4 transition-colors',
+                              on ? 'border-primary' : 'hover:border-primary/50',
+                            )}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="text-foreground truncate font-medium">
+                                {rec.name}
+                              </p>
+                              <p className="text-muted-foreground truncate text-sm">
+                                {rec.voterIds.length.toLocaleString()} doors
+                              </p>
+                            </div>
+                            {on && (
+                              <Check
+                                className="text-primary size-5 shrink-0"
+                                aria-hidden="true"
+                              />
+                            )}
+                          </Card>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   <Label htmlFor="custom-voter-list">Custom voter list</Label>
-                  <Select value={customListId} onValueChange={setCustomListId}>
+                  <Select
+                    value={customListId}
+                    onValueChange={(next) => {
+                      setRecId(null)
+                      setCustomListId(next)
+                    }}
+                  >
                     <SelectTrigger id="custom-voter-list" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
@@ -307,7 +469,10 @@ export const NewListFlow = ({
                 </div>
                 <FilterFields
                   filters={filters}
-                  setFilters={setFilters}
+                  setFilters={(next) => {
+                    setRecId(null)
+                    setFilters(next)
+                  }}
                   universe={universeFor(customListId)}
                 />
               </div>
@@ -457,11 +622,32 @@ export const NewListFlow = ({
 
         <div className="border-border bg-background shrink-0 border-t px-4 py-3 lg:px-6">
           <div className="mx-auto w-full max-w-[608px]">
-            {step === 'filters' && (
+            {step === 'who' && (
               <Button
                 className="w-full"
-                disabled={filteredUniverse.length === 0}
-                onClick={() => setStep(needsName ? 'name' : 'draw')}
+                disabled={!recId && filteredUniverse.length === 0}
+                onClick={() => {
+                  if (recId) {
+                    const rec = recommendations.find((r) => r.id === recId)
+                    if (rec) {
+                      applyRecommendation(rec)
+                      return
+                    }
+                  }
+                  // Custom path — clear any leftover recommendation seed so the
+                  // draw step shows the from-scratch framing, not a stale one.
+                  setRecMode(false)
+                  setPresetName('')
+                  setPresetReason('')
+                  setPolygon([])
+                  setRouteName('')
+                  if (needsName) {
+                    setStep('name')
+                    return
+                  }
+                  setSavedFilterFlow(false)
+                  setStep('draw')
+                }}
               >
                 Continue
               </Button>
