@@ -5,6 +5,7 @@ import { VoterSampleService } from './services/voterSample.service'
 import { VoterQueryService } from './services/voterQuery.service'
 import { VoterDownloadService } from './services/voterDownload.service'
 import { VoterDoorKnockingService } from './services/voterDoorKnocking.service'
+import { VoterPackService } from './services/voterPack.service'
 
 @Module({
   providers: [
@@ -14,6 +15,7 @@ import { VoterDoorKnockingService } from './services/voterDoorKnocking.service'
     VoterQueryService,
     VoterDownloadService,
     VoterDoorKnockingService,
+    VoterPackService,
   ],
   exports: [
     DistrictService,
@@ -22,6 +24,7 @@ import { VoterDoorKnockingService } from './services/voterDoorKnocking.service'
     VoterQueryService,
     VoterDownloadService,
     VoterDoorKnockingService,
+    VoterPackService,
   ],
 })
 export class PeopleQueryModule {}

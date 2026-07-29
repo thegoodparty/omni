@@ -39,6 +39,7 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
     isWinContextReady: true,
     refreshCustomSegments,
     selectList,
+    customSegments: [],
     ...overrides,
   } as ContextValue)
 }

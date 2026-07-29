@@ -1,3 +1,4 @@
+import { type IdOverrides } from '@goodparty_org/contracts'
 import { Prisma } from '../../generated/people-prisma'
 import { FilterData } from '../schemas/filters.schema'
 import { buildVoterWhereSql } from './buildVoterWhereSql.util'
@@ -10,10 +11,25 @@ export const buildAggregatesSql = (args: {
   districtId?: string | null
   filters: FilterData
   fenceLimit?: number
+  idOverrides?: IdOverrides
+  contactsMadeIdOverrides?: IdOverrides
 }): Prisma.Sql => {
-  const { state, districtId, filters, fenceLimit } = args
+  const {
+    state,
+    districtId,
+    filters,
+    fenceLimit,
+    idOverrides,
+    contactsMadeIdOverrides,
+  } = args
 
-  const whereClause = buildVoterWhereSql({ state, districtId, filters })
+  const whereClause = buildVoterWhereSql({
+    state,
+    districtId,
+    filters,
+    idOverrides,
+    contactsMadeIdOverrides,
+  })
   const fromSql = districtId
     ? Prisma.sql`FROM "green"."DistrictVoter" dv
         JOIN "green"."Voter" v

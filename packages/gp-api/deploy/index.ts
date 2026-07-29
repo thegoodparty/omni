@@ -147,6 +147,17 @@ export = async () => {
     environment === 'preview' ? 'dev' : environment
   }`
 
+  // Agent experiment RESULT artifacts. Written by the external agent runner
+  // (gp-ai-projects); gp-api reads them back in
+  // CampaignStrategyService.onExperimentRunCompleted (e.g. the campaign
+  // tracker's dynamic tasks) via s3.getFile. gp-api references by name only;
+  // preview shares the dev bucket. Without the read grant below the SQS
+  // completion handler 403s and requeues forever, so dynamic tracker tasks
+  // never persist.
+  const agentArtifactsBucketName = `gp-agent-artifacts-${
+    environment === 'preview' ? 'dev' : environment
+  }`
+
   // Shared bucket between the external meeting_pipeline (writes briefings)
   // and gp-api TextToSpeechService (caches Polly audio under speech/synth/,
   // then hands the browser presigned GETs). Dev bucket exists out-of-band
@@ -456,6 +467,20 @@ export = async () => {
     (name) => pulumi.interpolate`arn:aws:s3:::${name}/*`,
   )
 
+  // Buckets gp-api only reads (externally written), granted GetObject/ListBucket
+  // but not write/delete. The agent-artifacts bucket is written by the agent
+  // runner (gp-ai-projects); gp-api only reads results in
+  // onExperimentRunCompleted.
+  const taskRoleReadOnlyBucketNames: pulumi.Input<string>[] = [
+    agentArtifactsBucketName,
+  ]
+  const taskRoleReadOnlyObjectArns = taskRoleReadOnlyBucketNames.map(
+    (name) => pulumi.interpolate`arn:aws:s3:::${name}/*`,
+  )
+  const taskRoleReadOnlyBucketArns = taskRoleReadOnlyBucketNames.map(
+    (name) => pulumi.interpolate`arn:aws:s3:::${name}`,
+  )
+
   const campaignPlanInputQueueName = select({
     preview: '',
     dev: 'campaign-plan-input-dev.fifo',
@@ -608,6 +633,16 @@ export = async () => {
         Effect: 'Allow',
         Action: ['s3:ListBucket', 's3:GetBucketLocation'],
         Resource: taskRoleBucketArns,
+      },
+      {
+        Effect: 'Allow',
+        Action: ['s3:GetObject'],
+        Resource: taskRoleReadOnlyObjectArns,
+      },
+      {
+        Effect: 'Allow',
+        Action: ['s3:ListBucket', 's3:GetBucketLocation'],
+        Resource: taskRoleReadOnlyBucketArns,
       },
       {
         Effect: 'Allow',

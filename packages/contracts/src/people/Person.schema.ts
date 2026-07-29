@@ -3,6 +3,7 @@ import {
   SupportStatusRollupSchema as GeneratedSupportStatusRollupSchema,
   type SupportStatusRollup as GeneratedSupportStatusRollup,
 } from '../generated/enums'
+import { VoterLikelihoodSchema } from './ContactStatus.schema'
 
 // Support-status rollup vocabulary shown on the person detail response
 // (ENG-10696). Sourced from the Prisma `SupportStatusRollup` enum (ENG-10700)
@@ -126,6 +127,11 @@ export const PersonSchema = z.object({
   // boolean) so the UI can show recency later without a contract change
   // (ENG-10732).
   optedOutAt: z.string().nullable().optional(),
+  // Effective value (manual override ?? seed mapping from `voterStatus`
+  // above) — override ownership lives in gp-api's ContactStatusService
+  // (ENG-10833). Detail-only, like supportStatus/optedOutAt; omitted for
+  // `eo-` (Serve) orgs, which don't get this status at all.
+  voterLikelihood: VoterLikelihoodSchema.optional(),
 })
 
 export type Person = z.infer<typeof PersonSchema>

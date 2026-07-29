@@ -46,15 +46,6 @@ export type BaseSelectedField = (typeof VOTER_SELECT_COLUMNS)[number]
 
 export type ExtraSelectedField = Exclude<keyof Voter, BaseSelectedField>
 
-// Columns a caller may ask the download COPY to omit from its projection
-// (ENG-10696: the Serve party-visibility rule). `satisfies` pins this to an
-// actual base-select column so a typo can't silently become a no-op filter.
-export const EXCLUDABLE_VOTER_COLUMNS = [
-  'Parties_Description',
-] as const satisfies readonly BaseSelectedField[]
-
-export type ExcludableVoterColumn = (typeof EXCLUDABLE_VOTER_COLUMNS)[number]
-
 export function buildVoterSelectSql(
   extraFields: ExtraSelectedField[] = [],
   computedColumns: Prisma.Sql[] = [],
@@ -82,19 +73,19 @@ export type BaseDbPerson = Pick<Voter, BaseSelectedField> & {
 
 // ENG-10766: the curated ~54-column CSV subset with friendly headers, restored
 // from the pre-ENG-5032 gp-api `headerMapping.const.ts` (deleted at
-// eb198e327). `column` is typed as `keyof Voter` so a rename/typo fails to
-// compile instead of silently dropping a column at download time. Order
-// matches the legacy mapping; five legacy keys no longer exist on the model —
-// `MaritalStatus_Description` is served via `Marital_Status`, and
-// `Languages_Description` / `Mailing_Families_HHCount` /
-// `Mailing_HHParties_Description` / `MilitaryStatus_Description` are dropped
-// (no current equivalent — `Language_Code` is a code, not a description, so
-// it's deliberately not substituted). Election history ships the four most
-// recent General/Primary years instead of the legacy's hardcoded 2016-2022.
-export const DOWNLOAD_COLUMNS: ReadonlyArray<{
-  column: keyof Voter
-  header: string
-}> = [
+// eb198e327). `satisfies` (not a widening annotation) pins `column` to
+// `keyof Voter` so a rename/typo fails to compile, while keeping each entry's
+// literal column name available for `EXCLUDABLE_VOTER_COLUMNS` below — most
+// excludable columns (turnout/vote-history) are download-only and never
+// appear in `VOTER_SELECT_COLUMNS`. Order matches the legacy mapping; five
+// legacy keys no longer exist on the model — `MaritalStatus_Description` is
+// served via `Marital_Status`, and `Languages_Description` /
+// `Mailing_Families_HHCount` / `Mailing_HHParties_Description` /
+// `MilitaryStatus_Description` are dropped (no current equivalent —
+// `Language_Code` is a code, not a description, so it's deliberately not
+// substituted). Election history ships the four most recent General/Primary
+// years instead of the legacy's hardcoded 2016-2022.
+export const DOWNLOAD_COLUMNS = [
   { column: 'LALVOTERID', header: 'Voter ID' },
   { column: 'FirstName', header: 'First Name' },
   { column: 'MiddleName', header: 'Middle Name' },
@@ -185,4 +176,30 @@ export const DOWNLOAD_COLUMNS: ReadonlyArray<{
   { column: 'Primary_2024', header: 'Voted in 2024 Primary' },
   { column: 'Primary_2022', header: 'Voted in 2022 Primary' },
   { column: 'Primary_2020', header: 'Voted in 2020 Primary' },
-]
+] as const satisfies ReadonlyArray<{ column: keyof Voter; header: string }>
+
+export type DownloadColumn = (typeof DOWNLOAD_COLUMNS)[number]['column']
+
+// Columns a caller may ask the download COPY to omit from its projection
+// (ENG-10696: the Serve party-visibility rule; ENG-10830: extended to the
+// remaining party fields, turnout propensity, and vote history). `satisfies`
+// pins this to an actual `DOWNLOAD_COLUMNS` column so a typo can't silently
+// become a no-op filter.
+export const EXCLUDABLE_VOTER_COLUMNS = [
+  'Parties_Description',
+  'Residence_HHParties_Description',
+  'VoterParties_Change_Changed_Party',
+  'VotingPerformanceEvenYearGeneral',
+  'VotingPerformanceEvenYearPrimary',
+  'VotingPerformanceEvenYearGeneralAndPrimary',
+  'General_2026',
+  'General_2024',
+  'General_2022',
+  'General_2020',
+  'Primary_2026',
+  'Primary_2024',
+  'Primary_2022',
+  'Primary_2020',
+] as const satisfies readonly DownloadColumn[]
+
+export type ExcludableVoterColumn = (typeof EXCLUDABLE_VOTER_COLUMNS)[number]

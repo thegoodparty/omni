@@ -1,12 +1,16 @@
 import { Prisma } from '../../generated/people-prisma'
 import {
+  type IdOverrides,
   PeopleAggregatesResponse,
   PeopleAggregatesResponseSchema,
+  PeopleOverlapCountResponse,
+  PeopleOverlapCountResponseSchema,
 } from '@goodparty_org/contracts'
 import {
   AggregatesDTO,
   GetPersonQueryDTO,
   ListPeopleDTO,
+  OverlapCountDTO,
   SamplePeopleDTO,
 } from '../schemas/people.schema'
 import { createPeopleDbBase, PEOPLE_MODELS } from '../peopleDbBase.util'
@@ -29,6 +33,7 @@ import {
   stateEquals,
 } from '../utils/buildVoterWhereSql.util'
 import { buildAggregatesSql } from '../utils/buildAggregatesSql.util'
+import { buildOverlapCountSql } from '../utils/buildOverlapCountSql.utils'
 import { buildHouseholdKeySql } from '../utils/buildHouseholdKeySql.util'
 
 export const DATABASE_SCHEMA = 'green'
@@ -127,6 +132,8 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       districtId: effectiveDistrictId,
       filters,
       search,
+      idOverrides: dto.idOverrides,
+      contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
     })
     const buildData = (skip: number) => {
       const queryArgs = {
@@ -149,6 +156,8 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       filters,
       search,
       groupByHousehold,
+      idOverrides: dto.idOverrides,
+      contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
     }
 
     let totalResults: number
@@ -220,6 +229,8 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       state,
       districtId: effectiveDistrictId,
       filters: dto.filters,
+      idOverrides: dto.idOverrides,
+      contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
     })
     // Same DistrictVoter -> Voter join as rawCountForDistrict, so it shares the
     // same pathological-plan exposure; the fenced fallback trades an exact
@@ -229,6 +240,8 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       districtId: effectiveDistrictId,
       filters: dto.filters,
       fenceLimit: FENCE_LIMIT,
+      idOverrides: dto.idOverrides,
+      contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
     })
     const { rows, fenced } = await this.queryWithTimeoutFence<{
       count: bigint
@@ -251,6 +264,43 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
     })
   }
 
+  // Saved-list overlap count (ENG-10840): how many of the current selection
+  // also belong to at least one of the org's saved lists. Shares the same
+  // pathological-plan exposure as the count/aggregates queries (see
+  // SLOW_QUERY_TIMEOUT_MS), so it runs through the identical
+  // queryWithTimeoutFence guard rather than a bespoke timeout.
+  async getOverlapCount(
+    dto: OverlapCountDTO,
+  ): Promise<PeopleOverlapCountResponse> {
+    const resolved = await resolveDistrict(this.districtService, dto)
+    const { state, useVoterOnlyPath, districtId } = resolved
+    const effectiveDistrictId = useVoterOnlyPath ? null : districtId
+
+    const baseArgs = {
+      state,
+      districtId: effectiveDistrictId,
+      filters: dto.filters,
+      search: dto.search,
+      savedFilterSets: dto.savedFilterSets,
+      idOverrides: dto.idOverrides,
+      contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+    }
+    const sql = buildOverlapCountSql(baseArgs)
+    const fencedSql = buildOverlapCountSql({
+      ...baseArgs,
+      fenceLimit: FENCE_LIMIT,
+    })
+
+    const { rows, fenced } = await this.queryWithTimeoutFence<{
+      overlap_count: bigint
+    }>(sql, fencedSql)
+    const count = Number(rows[0]?.overlap_count ?? 0n)
+
+    // ENG-10775 pattern: the producer validates its own response against the
+    // shared contract so gp-api and people-api can't drift on this shape.
+    return PeopleOverlapCountResponseSchema.parse({ count, fenced })
+  }
+
   async samplePeople(dto: SamplePeopleDTO) {
     return this.sampleService
       .samplePeople(dto)
@@ -263,6 +313,8 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
     filters: FilterData
     search?: string
     groupByHousehold?: boolean
+    idOverrides?: IdOverrides
+    contactsMadeIdOverrides?: IdOverrides
   }): Promise<{ count: number; fenced: boolean }> {
     const { state, districtId, search, groupByHousehold } = args
 
@@ -284,6 +336,8 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       districtId,
       search,
       filters: args.filters,
+      idOverrides: args.idOverrides,
+      contactsMadeIdOverrides: args.contactsMadeIdOverrides,
     })
 
     // COUNT(DISTINCT <household key>) so totalResults/totalPages reflect

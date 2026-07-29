@@ -124,6 +124,53 @@ describe('buildVoterWhereSql name search', () => {
   })
 })
 
+describe('buildVoterWhereSql idOverrides (ENG-10838)', () => {
+  const voterStatusFilters: FilterData = {
+    filters: ['voterStatus'],
+    filterValues: {},
+    filterOperators: {
+      voterStatus: { operator: 'in', values: ['Unlikely'] },
+    },
+  }
+
+  it('is byte-identical to today when idOverrides is omitted', () => {
+    const withArg = buildVoterWhereSql({
+      state: 'CA',
+      districtId: 'district-1',
+      filters: voterStatusFilters,
+    })
+    const withoutArg = buildVoterWhereSql({
+      state: 'CA',
+      districtId: 'district-1',
+      filters: voterStatusFilters,
+      idOverrides: undefined,
+    })
+    expect(withArg.sql).toBe(withoutArg.sql)
+    expect(withArg.values).toEqual(withoutArg.values)
+  })
+
+  it('composes the OR-composite INSIDE the district-join scope, AND-ed with it', () => {
+    const includedId = '22222222-2222-2222-2222-222222222222'
+    const { sql } = buildVoterWhereSql({
+      state: 'CA',
+      districtId: 'district-1',
+      filters: voterStatusFilters,
+      idOverrides: { include: [includedId] },
+    })
+
+    expect(sql).toContain('dv."district_id" = ?')
+    expect(sql).toContain('OR v."id" = ANY(')
+    // The district predicates and the voterStatus/id composite are top-level
+    // AND-joined WHERE clauses — the district scope still bounds an
+    // override-included id (a person the org's own district join wouldn't
+    // otherwise surface can't be pulled in by the OR).
+    const districtIndex = sql.indexOf('dv."district_id"')
+    const orIndex = sql.indexOf('OR v."id" = ANY(')
+    expect(districtIndex).toBeGreaterThan(-1)
+    expect(districtIndex).toBeLessThan(orIndex)
+  })
+})
+
 describe('stateEquals', () => {
   it('inlines State as a literal enum constant, not a bind parameter', () => {
     const { sql, values } = stateEquals('v', 'TX')

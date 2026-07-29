@@ -1,4 +1,12 @@
 import type {
+  CreateDoorKnockingTurf,
+  DoorKnockingKnockRequest,
+  DoorKnockingKnockResponse,
+  DoorKnockingRoutePayload,
+  DoorKnockingTurf,
+  RecordDoorKnockInteraction,
+  RecordDoorKnockInteractionResponse,
+  UpdateDoorKnockingTurf,
   CreateOrdinanceRequest,
   ExperimentVariantsResponse,
   Ordinance,
@@ -52,9 +60,11 @@ import type {
   ContactNote,
   ContactNoteInput,
   ContactNoteListResponse,
+  ContactStatuses,
   LogContactInteractionInput,
   LogContactInteractionResponse,
   SupportStatusRollup,
+  UpdateContactStatusInput,
 } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { ActivityConditionInput } from 'app/dashboard/contacts/crm/shared/activityConditionOptions'
 import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
@@ -657,6 +667,10 @@ export type APIEndpoints = {
     }
     Response: ListContactsResponse
   }
+  'PATCH /v1/contacts/:personId/status': {
+    Request: UpdateContactStatusInput
+    Response: ContactStatuses
+  }
   'GET /v1/contacts/:id': {
     Request: {}
     Response: Person
@@ -668,9 +682,50 @@ export type APIEndpoints = {
     } & Record<string, unknown>
     Response: { count: number; fenced?: boolean }
   }
+  'POST /v1/contacts/overlap-count': {
+    Request: {
+      activityConditions?: ActivityConditionInput[]
+      supportStatus?: SupportStatusRollup[]
+    } & Record<string, unknown>
+    Response: { count: number; fenced: boolean }
+  }
   'GET /v1/contacts/download': {
     Request: { segment?: string }
     Response: Blob
+  }
+  // Binary SoA pack for the door-knocking exploration map — fetched via raw
+  // fetch(...arrayBuffer()), not clientRequest (which is JSON-only).
+  'GET /v1/door-knocking/pack': {
+    Request: undefined
+    Response: ArrayBuffer
+  }
+  'GET /v1/door-knocking/turfs': {
+    Request: { voterFileFilterId?: number }
+    Response: DoorKnockingTurf[]
+  }
+  'POST /v1/door-knocking/turfs': {
+    Request: CreateDoorKnockingTurf
+    Response: DoorKnockingTurf
+  }
+  'PUT /v1/door-knocking/turfs/:id': {
+    Request: UpdateDoorKnockingTurf
+    Response: DoorKnockingTurf
+  }
+  'DELETE /v1/door-knocking/turfs/:id': {
+    Request: {}
+    Response: undefined
+  }
+  'POST /v1/door-knocking/turfs/:id/knock': {
+    Request: DoorKnockingKnockRequest
+    Response: DoorKnockingKnockResponse
+  }
+  'GET /v1/door-knocking/turfs/:id/route': {
+    Request: {}
+    Response: DoorKnockingRoutePayload
+  }
+  'POST /v1/door-knocking/interactions': {
+    Request: RecordDoorKnockInteraction
+    Response: RecordDoorKnockInteractionResponse
   }
   'GET /v1/contacts/list-detail': {
     // Omitted segment = the universe row's detail (ENG-10778): the whole

@@ -158,6 +158,8 @@ export class VoterDownloadService
         effectiveDistrictId,
         state,
         filters: dto.filters,
+        idOverrides: dto.idOverrides,
+        contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
         groupByHousehold: dto.groupByHousehold,
         excludeColumns: dto.excludeColumns,
       })
@@ -242,6 +244,8 @@ export class VoterDownloadService
     effectiveDistrictId: string | null
     state: string
     filters: DownloadPeopleDTO['filters']
+    idOverrides?: DownloadPeopleDTO['idOverrides']
+    contactsMadeIdOverrides?: DownloadPeopleDTO['contactsMadeIdOverrides']
     groupByHousehold?: boolean
     excludeColumns?: ExcludableVoterColumn[]
   }): string {
@@ -250,6 +254,8 @@ export class VoterDownloadService
       effectiveDistrictId,
       state,
       filters,
+      idOverrides,
+      contactsMadeIdOverrides,
       groupByHousehold,
       excludeColumns,
     } = args
@@ -287,6 +293,8 @@ export class VoterDownloadService
       state,
       districtId: effectiveDistrictId,
       filters,
+      idOverrides,
+      contactsMadeIdOverrides,
     })
     const whereClause = inlinePrismaSql(whereSql, client)
 

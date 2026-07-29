@@ -3,6 +3,8 @@ import { ActivityConditionResolutionService } from './services/activityCondition
 import { ContactInteractionDoorKnockService } from './services/contactInteractionDoorKnock.service'
 import { ContactInteractionRobocallService } from './services/contactInteractionRobocall.service'
 import { ContactInteractionTextService } from './services/contactInteractionText.service'
+import { ContactsMadeResolutionService } from './services/contactsMadeResolution.service'
+import { ContactStatusService } from './services/contactStatus.service'
 import { SupportStatusService } from './services/supportStatus.service'
 
 @Module({
@@ -12,6 +14,8 @@ import { SupportStatusService } from './services/supportStatus.service'
     ContactInteractionRobocallService,
     SupportStatusService,
     ActivityConditionResolutionService,
+    ContactStatusService,
+    ContactsMadeResolutionService,
   ],
   exports: [
     ContactInteractionDoorKnockService,
@@ -19,6 +23,8 @@ import { SupportStatusService } from './services/supportStatus.service'
     ContactInteractionRobocallService,
     SupportStatusService,
     ActivityConditionResolutionService,
+    ContactStatusService,
+    ContactsMadeResolutionService,
   ],
 })
 export class ContactInteractionModule {}

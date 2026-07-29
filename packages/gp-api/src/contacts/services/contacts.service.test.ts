@@ -99,6 +99,10 @@ describe('ContactsService', () => {
     let mockSupportStatusService: {
       statusForPeople: ReturnType<typeof vi.fn>
     }
+    let mockContactStatusService: {
+      currentStatusForPeople: ReturnType<typeof vi.fn>
+      changeStatus: ReturnType<typeof vi.fn>
+    }
     let mockContactInteractionTextService: {
       latestOptOutAt: ReturnType<typeof vi.fn>
     }
@@ -116,6 +120,9 @@ describe('ContactsService', () => {
     }
     let mockStatsService: {
       getStats: ReturnType<typeof vi.fn>
+    }
+    let mockContactsMadeResolutionService: {
+      resolveContactsMade: ReturnType<typeof vi.fn>
     }
 
     beforeEach(() => {
@@ -147,6 +154,10 @@ describe('ContactsService', () => {
       mockSupportStatusService = {
         statusForPeople: vi.fn().mockResolvedValue(new Map()),
       }
+      mockContactStatusService = {
+        currentStatusForPeople: vi.fn().mockResolvedValue(new Map()),
+        changeStatus: vi.fn(),
+      }
       mockContactInteractionTextService = {
         latestOptOutAt: vi.fn().mockResolvedValue(null),
       }
@@ -165,6 +176,9 @@ describe('ContactsService', () => {
       mockStatsService = {
         getStats: vi.fn(),
       }
+      mockContactsMadeResolutionService = {
+        resolveContactsMade: vi.fn().mockResolvedValue({ kind: 'none' }),
+      }
 
       service = new ContactsService(
         mockVoterFileFilterService as never,
@@ -173,11 +187,13 @@ describe('ContactsService', () => {
         mockOrganizationsService as never,
         voterFileDownloadAccess,
         mockSupportStatusService as never,
+        mockContactStatusService as never,
         mockContactInteractionTextService as never,
         mockActivityConditionResolutionService as never,
         mockVoterQueryService as never,
         mockVoterDownloadService as never,
         mockStatsService as never,
+        mockContactsMadeResolutionService as never,
         createMockLogger(),
       )
       vi.clearAllMocks()
@@ -919,7 +935,9 @@ describe('ContactsService', () => {
         expect(mockVoterDownloadService.streamPeopleCsv).not.toHaveBeenCalled()
       })
 
-      it('excludes the party column from a Serve (eo-) org CSV download', async () => {
+      // ENG-10830: Serve downloads must omit party, turnout propensity, and
+      // vote history columns entirely (not ship them blank).
+      it('excludes party, turnout propensity, and vote history columns from a Serve (eo-) org CSV download', async () => {
         const org = makeOrganization({
           slug: 'eo-mayor-1',
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
@@ -936,7 +954,24 @@ describe('ContactsService', () => {
         await service.downloadContacts({ segment: 'all' }, res, org)
 
         expect(mockVoterDownloadService.streamPeopleCsv).toHaveBeenCalledWith(
-          expect.objectContaining({ excludeColumns: ['Parties_Description'] }),
+          expect.objectContaining({
+            excludeColumns: [
+              'Parties_Description',
+              'Residence_HHParties_Description',
+              'VoterParties_Change_Changed_Party',
+              'VotingPerformanceEvenYearGeneral',
+              'VotingPerformanceEvenYearPrimary',
+              'VotingPerformanceEvenYearGeneralAndPrimary',
+              'General_2026',
+              'General_2024',
+              'General_2022',
+              'General_2020',
+              'Primary_2026',
+              'Primary_2024',
+              'Primary_2022',
+              'Primary_2020',
+            ],
+          }),
           res,
           expect.any(Object),
         )

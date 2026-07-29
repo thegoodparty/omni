@@ -72,4 +72,37 @@ describe('buildAggregatesSql', () => {
     )
     expect(values).toEqual([[personId]])
   })
+
+  it('threads idOverrides through to the voterStatus clause (ENG-10838)', () => {
+    const includedId = '22222222-2222-2222-2222-222222222222'
+    const filters: FilterData = {
+      filters: ['voterStatus'],
+      filterValues: {},
+      filterOperators: {
+        voterStatus: { operator: 'in', values: ['Unlikely'] },
+      },
+    }
+
+    const { sql } = buildAggregatesSql({
+      state: 'CA',
+      filters,
+      idOverrides: { include: [includedId] },
+    })
+
+    expect(sql).toContain('OR v."id" = ANY(')
+  })
+
+  it('is byte-identical to today when idOverrides is omitted', () => {
+    const withoutOverrides = buildAggregatesSql({
+      state: 'CA',
+      filters: EMPTY_FILTERS,
+    })
+    const withUndefinedOverrides = buildAggregatesSql({
+      state: 'CA',
+      filters: EMPTY_FILTERS,
+      idOverrides: undefined,
+    })
+    expect(withUndefinedOverrides.sql).toBe(withoutOverrides.sql)
+    expect(withUndefinedOverrides.values).toEqual(withoutOverrides.values)
+  })
 })

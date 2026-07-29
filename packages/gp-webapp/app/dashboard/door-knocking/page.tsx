@@ -1,7 +1,7 @@
 import pageMetaData from 'helpers/metadataHelper'
 import candidateAccess from '../shared/candidateAccess'
 import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
-import DoorKnockingPage from './components/DoorKnockingPage'
+import DoorKnockingPageGate from './native/DoorKnockingPageGate'
 import { serverFetch } from 'gpApi/serverFetch'
 import { apiRoutes } from 'gpApi/routes'
 
@@ -44,5 +44,5 @@ export default async function Page(): Promise<React.JSX.Element> {
     summary,
   }
 
-  return <DoorKnockingPage {...childProps} />
+  return <DoorKnockingPageGate {...childProps} />
 }

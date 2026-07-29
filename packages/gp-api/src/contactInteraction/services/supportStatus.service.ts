@@ -1,11 +1,15 @@
 import { Injectable } from '@nestjs/common'
-import { Prisma } from '@/generated/prisma'
+import { ContactStatusField, Prisma } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { SupportStatusRollupSchema } from '@goodparty_org/contracts'
 import {
+  DERIVED_SUPPORT_STATUS_VALUES,
+  DerivedSupportStatusRollup,
   SUPPORT_ANSWER_ROLLUP,
   SUPPORT_STATUS_UNKNOWN,
   SupportStatusRollup,
 } from '../contactInteraction.types'
+import { ContactStatusService } from './contactStatus.service'
 
 const rollupCaseArms = Prisma.join(
   Object.entries(SUPPORT_ANSWER_ROLLUP).map(
@@ -14,10 +18,74 @@ const rollupCaseArms = Prisma.join(
   ' ',
 )
 
+const isDerivedRollup = (
+  rollup: SupportStatusRollup,
+): rollup is DerivedSupportStatusRollup =>
+  (DERIVED_SUPPORT_STATUS_VALUES as readonly SupportStatusRollup[]).includes(
+    rollup,
+  )
+
 @Injectable()
 export class SupportStatusService extends createPrismaBase(
   MODELS.ContactInteractionDoorKnock,
 ) {
+  constructor(private readonly contactStatusService: ContactStatusService) {
+    super()
+  }
+
+  // The single override-aware entry point (ENG-10837): effective status =
+  // override ?? derived. supporter/non_supporter/unknown can come from
+  // either source (override wins per person); undecided/refused exist only
+  // as overrides. Both list filtering (ActivityConditionResolutionService)
+  // and counts must resolve support status through this method rather than
+  // the raw derivation below, so a manually-set contact is never
+  // double-counted under its stale derived bucket.
+  async personIdsByEffectiveStatus(
+    organizationSlug: string,
+    rollups: SupportStatusRollup[],
+  ): Promise<string[]> {
+    if (rollups.length === 0) {
+      return []
+    }
+
+    const matched = new Set(
+      await this.contactStatusService.personIdsByFieldValue(
+        organizationSlug,
+        ContactStatusField.support_status,
+        rollups,
+      ),
+    )
+
+    const derivableRollups = rollups.filter(isDerivedRollup)
+    if (derivableRollups.length === 0) {
+      return [...matched]
+    }
+
+    // Every person with ANY support_status override, regardless of value —
+    // override wins, so a derived match for one of these ids must be
+    // dropped unless the override's own value already put it in `matched`
+    // above.
+    const overriddenPersonIds = new Set(
+      await this.contactStatusService.personIdsByFieldValue(
+        organizationSlug,
+        ContactStatusField.support_status,
+        [...SupportStatusRollupSchema.options],
+      ),
+    )
+
+    const derivedIds = await this.personIdsByStatus(
+      organizationSlug,
+      derivableRollups,
+    )
+    for (const personId of derivedIds) {
+      if (!overriddenPersonIds.has(personId)) {
+        matched.add(personId)
+      }
+    }
+
+    return [...matched]
+  }
+
   async statusForPeople(
     organizationSlug: string,
     personIds: string[],
@@ -42,9 +110,11 @@ export class SupportStatusService extends createPrismaBase(
     )
   }
 
-  // 'unknown' here selects only people with interaction rows — people the
-  // org never contacted are not enumerable from SQL. Filter resolution for
-  // 'unknown' over the full voter universe must NOT-IN the complement.
+  // Pure derivation, no overrides — the building block
+  // personIdsByEffectiveStatus composes with override reads. 'unknown' here
+  // selects only people with interaction rows — people the org never
+  // contacted are not enumerable from SQL. Filter resolution for 'unknown'
+  // over the full voter universe must NOT-IN the complement.
   async personIdsByStatus(
     organizationSlug: string,
     rollups: SupportStatusRollup[],

@@ -2,10 +2,12 @@ import { Injectable } from '@nestjs/common'
 import {
   Bbox,
   DoorKnockingEvaluateResponse,
+  DoorKnockingPackRequest,
   DoorKnockingResidentsResponse,
 } from '@goodparty_org/contracts'
 import { FilterObject } from '@/contacts/utils/voterFileFilter.utils'
 import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
+import { VoterPackService } from '@/peopleDb/services/voterPack.service'
 import {
   DoorKnockingEvaluateDTO,
   DoorKnockingResidentsDTO,
@@ -16,12 +18,16 @@ import {
 // this, so an oversized polygon fails loudly.
 const EVALUATE_MAX_PEOPLE = 20_000
 
-// Adapter from the door-knocking module's evaluate/residents calls to the
-// in-process people-db query service. Kept as its own seam so the callers
-// don't take a direct peopleDb dependency and their call shapes stay stable.
+// Adapter from the door-knocking module's evaluate/residents/pack calls to
+// the in-process people-db query services. Kept as its own seam so the
+// callers don't take a direct peopleDb dependency and their call shapes stay
+// stable.
 @Injectable()
 export class DoorKnockingPeopleApiService {
-  constructor(private readonly voterDoorKnocking: VoterDoorKnockingService) {}
+  constructor(
+    private readonly voterDoorKnocking: VoterDoorKnockingService,
+    private readonly voterPack: VoterPackService,
+  ) {}
 
   evaluate(args: {
     districtId: string
@@ -50,5 +56,9 @@ export class DoorKnockingPeopleApiService {
         targetPersonIds: args.targetPersonIds,
       }),
     )
+  }
+
+  pack(request: DoorKnockingPackRequest): Promise<Buffer> {
+    return this.voterPack.build(request)
   }
 }

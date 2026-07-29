@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common'
 import { PassThrough } from 'stream'
 import { Pool } from 'pg'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DOWNLOAD_COLUMNS } from '../voter.select'
+import { DOWNLOAD_COLUMNS, EXCLUDABLE_VOTER_COLUMNS } from '../voter.select'
 import { VoterDownloadService } from './voterDownload.service'
 
 const mockRelease = vi.fn()
@@ -210,6 +210,46 @@ describe('VoterDownloadService', () => {
       expect(sql).not.toContain('"Registered Party"')
       // Every other base column stays untouched.
       expect(sql).toContain('v."LALVOTERID" AS "Voter ID"')
+    })
+
+    // ENG-10830: completing the party rule (ENG-10696) plus suppressing
+    // turnout propensity and vote history for Serve downloads. An excluded
+    // column must lose both its header and its values in the COPY
+    // projection — a blank column would still leak that the field exists.
+    it('omits every ENG-10830 excludable column (party, turnout propensity, vote history) from the COPY projection', async () => {
+      const { to: copyTo } = await import('pg-copy-streams')
+
+      const { res, raw } = makeRawResponse()
+      const completion = service.streamPeopleCsv(
+        {
+          districtId: DISTRICT_UUID,
+          filters: { filters: [], filterOperators: {} },
+          excludeColumns: [...EXCLUDABLE_VOTER_COLUMNS],
+        } as never,
+        res,
+      )
+
+      copyStream.end()
+      raw.destroy()
+
+      await completion
+
+      const sql = vi.mocked(copyTo).mock.calls[0]?.[0] as string
+      const excludedHeaders = DOWNLOAD_COLUMNS.filter(({ column }) =>
+        (EXCLUDABLE_VOTER_COLUMNS as readonly string[]).includes(column),
+      ).map(({ header }) => header)
+      expect(excludedHeaders).toHaveLength(EXCLUDABLE_VOTER_COLUMNS.length)
+
+      for (const column of EXCLUDABLE_VOTER_COLUMNS) {
+        expect(sql).not.toContain(`"${column}"`)
+      }
+      for (const header of excludedHeaders) {
+        expect(sql).not.toContain(`AS "${header.replace(/"/g, '""')}"`)
+      }
+      // Non-excluded columns stay in the projection.
+      expect(sql).toContain('v."LALVOTERID" AS "Voter ID"')
+      expect(sql).toContain('v."FirstName" AS "First Name"')
+      expect(sql).toContain('v."Residence_Addresses_AddressLine" AS "Address"')
     })
 
     it('keeps the party column when excludeColumns is not provided', async () => {

@@ -1,4 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DoorKnockingPackRequest } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { DoorKnockingPeopleApiService } from '../services/doorKnockingPeopleApi.service'
 import {
@@ -1007,6 +1008,201 @@ describe('door-knocking routes', () => {
       expect(
         targets.find((t) => t.personId === target.personId)?.knockStatus,
       ).toBe('non_supporter')
+    })
+    describe('willVote -> voter_likelihood override events (ENG-10841)', () => {
+      const recordWillVote = async (willVote: string) => {
+        const target = await knockAndGetTarget()
+        const res = await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          willVote,
+        })
+        expect(res.status).toBe(201)
+        return target
+      }
+
+      it('yes writes a likely voter_likelihood event, sourced door_knock with the clientKey and no actor', async () => {
+        const target = await recordWillVote('yes')
+
+        const event = await service.prisma.contactStatusEvent.findFirstOrThrow({
+          where: { organizationSlug: orgSlug, personId: target.personId },
+        })
+        expect(event).toMatchObject({
+          field: 'voter_likelihood',
+          toValue: 'likely',
+          source: 'door_knock',
+          actorUserId: null,
+          sourceId: CLIENT_KEY,
+        })
+
+        const current =
+          await service.prisma.contactCurrentStatus.findFirstOrThrow({
+            where: {
+              organizationSlug: orgSlug,
+              personId: target.personId,
+              field: 'voter_likelihood',
+            },
+          })
+        expect(current.value).toBe('likely')
+      })
+
+      it('no writes an unlikely voter_likelihood event', async () => {
+        const target = await recordWillVote('no')
+
+        const event = await service.prisma.contactStatusEvent.findFirstOrThrow({
+          where: { organizationSlug: orgSlug, personId: target.personId },
+        })
+        expect(event).toMatchObject({
+          toValue: 'unlikely',
+          source: 'door_knock',
+        })
+      })
+
+      it('unsure writes no status event', async () => {
+        const target = await recordWillVote('unsure')
+
+        const events = await service.prisma.contactStatusEvent.findMany({
+          where: { organizationSlug: orgSlug, personId: target.personId },
+        })
+        expect(events).toHaveLength(0)
+        const current = await service.prisma.contactCurrentStatus.findFirst({
+          where: {
+            organizationSlug: orgSlug,
+            personId: target.personId,
+            field: 'voter_likelihood',
+          },
+        })
+        expect(current).toBeNull()
+      })
+
+      // Proves the ContactStatusService no-op (not just the trivial
+      // fromValue===toValue skip): sourceId is keyed to the physical knock,
+      // so even a corrected answer on the same clientKey can't create a
+      // second event — an accepted limitation, not a re-derivation of
+      // "latest wins".
+      it('replaying the same clientKey with a changed answer still writes no duplicate event', async () => {
+        const target = await knockAndGetTarget()
+
+        const first = await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          willVote: 'yes',
+        })
+        const corrected = await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          willVote: 'no',
+        })
+
+        expect(first.status).toBe(201)
+        expect(corrected.status).toBe(201)
+        const events = await service.prisma.contactStatusEvent.findMany({
+          where: { organizationSlug: orgSlug, personId: target.personId },
+        })
+        expect(events).toHaveLength(1)
+        expect(events[0]).toMatchObject({ toValue: 'likely' })
+        const current =
+          await service.prisma.contactCurrentStatus.findFirstOrThrow({
+            where: {
+              organizationSlug: orgSlug,
+              personId: target.personId,
+              field: 'voter_likelihood',
+            },
+          })
+        expect(current.value).toBe('likely')
+      })
+
+      it('does not write a voter_likelihood event for an eo- (Serve) organization', async () => {
+        const suffix = Date.now()
+        const eoSlug = `eo-dk-willvote-${suffix}`
+        await service.prisma.organization.create({
+          data: {
+            slug: eoSlug,
+            ownerId: service.user.id,
+            overrideDistrictId: DISTRICT_ID,
+          },
+        })
+        const eoFilter = await service.prisma.voterFileFilter.create({
+          data: { organizationSlug: eoSlug, name: 'EO willVote audience' },
+        })
+        const turfRes = await service.client.post(
+          '/v1/door-knocking/turfs',
+          {
+            voterFileFilterId: eoFilter.id,
+            name: 'EO willVote turf',
+            color: '#3355ff',
+            geoPoly: GEO_POLY,
+          },
+          { headers: { 'x-organization-slug': eoSlug } },
+        )
+        stubVendors()
+        await service.client.post(
+          `/v1/door-knocking/turfs/${turfRes.data.id}/knock`,
+          { mode: 'walk', loop: false },
+          { headers: { 'x-organization-slug': eoSlug } },
+        )
+        const eoTarget =
+          await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+            orderBy: { id: 'asc' },
+          })
+
+        const res = await service.client.post(
+          '/v1/door-knocking/interactions',
+          {
+            stopTargetId: eoTarget.id,
+            clientKey: CLIENT_KEY,
+            outcome: 'answered',
+            willVote: 'yes',
+          },
+          { headers: { 'x-organization-slug': eoSlug } },
+        )
+
+        expect(res.status).toBe(201)
+        const events = await service.prisma.contactStatusEvent.findMany({
+          where: { organizationSlug: eoSlug },
+        })
+        expect(events).toHaveLength(0)
+      })
+    })
+  })
+  describe('pack', () => {
+    it('proxies the binary and threads org knock statuses', async () => {
+      const personId = '77777777-1111-1111-1111-111111111111'
+      await service.prisma.contactInteractionDoorKnock.create({
+        data: {
+          organizationSlug: orgSlug,
+          personId,
+          occurredAt: new Date('2026-07-10T10:00:00Z'),
+          outcome: 'answered',
+          supportAnswer: 'supporter',
+        },
+      })
+      const packBytes = Buffer.from([1, 2, 3, 4])
+      let packRequest: DoorKnockingPackRequest | undefined
+      vi.spyOn(
+        service.app.get(DoorKnockingPeopleApiService),
+        'pack',
+      ).mockImplementation((request: DoorKnockingPackRequest) => {
+        packRequest = request
+        return Promise.resolve(packBytes)
+      })
+
+      const res = await service.client.get('/v1/door-knocking/pack', {
+        ...orgHeaders(),
+        responseType: 'arraybuffer',
+        validateStatus: () => true,
+      })
+
+      expect(res.status).toBe(200)
+      expect(res.headers['content-type']).toContain('application/octet-stream')
+      expect(Buffer.from(res.data as ArrayBuffer)).toEqual(packBytes)
+      expect(packRequest?.knockStatuses).toEqual([
+        { personId, status: 'supporter' },
+      ])
+      expect(packRequest?.districtId).toBe(DISTRICT_ID)
     })
   })
 })

@@ -1,4 +1,5 @@
 import type { CampaignTaskDefinition } from './CampaignTaskCatalog.schema'
+import { voterContactSendOffsetDays } from './VoterContactSchedule.data'
 
 // Hand-authored task catalog, transcribed from campaign-tasks-master.xlsx
 // (58 tasks). This is the closed list: gp-api materializes the static rows,
@@ -7,6 +8,9 @@ import type { CampaignTaskDefinition } from './CampaignTaskCatalog.schema'
 //
 // The 9 progress milestones from the sheet are intentionally NOT here; they
 // belong to the gamified thermometer, not the task cards.
+//
+// Text/robocall send timing comes from VOTER_CONTACT_SCHEDULE — the canonical
+// contact cadence shared with the plan document — never inline offsets.
 
 export const CAMPAIGN_TASK_CATALOG: CampaignTaskDefinition[] = [
   // ----- Pre-launch -----
@@ -639,7 +643,11 @@ export const CAMPAIGN_TASK_CATALOG: CampaignTaskDefinition[] = [
     title: 'Introduction Robocall',
     description: 'Introduce yourself to voters with an automated call.',
     channel: 'robocall',
-    timing: { kind: 'electionRelative', offset: 4, unit: 'weeks' },
+    timing: {
+      kind: 'electionRelative',
+      offset: voterContactSendOffsetDays('introduction-robocall'),
+      unit: 'days',
+    },
     electionType: 'adapts',
     proRequired: true,
     status: 'live',
@@ -655,7 +663,11 @@ export const CAMPAIGN_TASK_CATALOG: CampaignTaskDefinition[] = [
     title: 'Introduction Text',
     description: 'Introduce yourself to voters with a text.',
     channel: 'text',
-    timing: { kind: 'electionRelative', offset: 4, unit: 'weeks' },
+    timing: {
+      kind: 'electionRelative',
+      offset: voterContactSendOffsetDays('introduction-text'),
+      unit: 'days',
+    },
     electionType: 'adapts',
     proRequired: true,
     status: 'live',
@@ -673,7 +685,11 @@ export const CAMPAIGN_TASK_CATALOG: CampaignTaskDefinition[] = [
     description:
       'Build trust and make your case for why voters should pick you, by automated call.',
     channel: 'robocall',
-    timing: { kind: 'electionRelative', offset: 2, unit: 'weeks' },
+    timing: {
+      kind: 'electionRelative',
+      offset: voterContactSendOffsetDays('persuasion-robocall'),
+      unit: 'days',
+    },
     electionType: 'adapts',
     proRequired: true,
     status: 'live',
@@ -689,7 +705,11 @@ export const CAMPAIGN_TASK_CATALOG: CampaignTaskDefinition[] = [
     title: 'Persuasion Text',
     description: 'Build trust and make your case by text.',
     channel: 'text',
-    timing: { kind: 'electionRelative', offset: 2, unit: 'weeks' },
+    timing: {
+      kind: 'electionRelative',
+      offset: voterContactSendOffsetDays('persuasion-text'),
+      unit: 'days',
+    },
     electionType: 'adapts',
     proRequired: true,
     status: 'live',
@@ -807,7 +827,11 @@ export const CAMPAIGN_TASK_CATALOG: CampaignTaskDefinition[] = [
     title: 'Early Voting Text',
     description: 'Encourage your supporters to vote early.',
     channel: 'text',
-    timing: { kind: 'electionRelative', offset: 2, unit: 'weeks' },
+    timing: {
+      kind: 'electionRelative',
+      offset: voterContactSendOffsetDays('early-voting-text'),
+      unit: 'days',
+    },
     electionType: 'adapts',
     proRequired: true,
     status: 'live',
@@ -825,7 +849,11 @@ export const CAMPAIGN_TASK_CATALOG: CampaignTaskDefinition[] = [
     description:
       'Get out the vote with an automated call on election (or primary) day.',
     channel: 'robocall',
-    timing: { kind: 'electionRelative', offset: 1, unit: 'days' },
+    timing: {
+      kind: 'electionRelative',
+      offset: voterContactSendOffsetDays('election-day-reminder-robocall'),
+      unit: 'days',
+    },
     electionType: 'adapts',
     proRequired: true,
     status: 'live',
@@ -841,7 +869,11 @@ export const CAMPAIGN_TASK_CATALOG: CampaignTaskDefinition[] = [
     title: 'Election Day Reminder Text',
     description: 'Get out the vote with a text on election (or primary) day.',
     channel: 'text',
-    timing: { kind: 'electionRelative', offset: 1, unit: 'days' },
+    timing: {
+      kind: 'electionRelative',
+      offset: voterContactSendOffsetDays('election-day-reminder-text'),
+      unit: 'days',
+    },
     electionType: 'adapts',
     proRequired: true,
     status: 'live',

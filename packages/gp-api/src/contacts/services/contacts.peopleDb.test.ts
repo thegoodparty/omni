@@ -183,6 +183,13 @@ describe('ContactsService — people-db (sole path)', () => {
     mockStatsService = {
       getStats: vi.fn(),
     }
+    const mockContactStatusService = {
+      currentStatusForPeople: vi.fn().mockResolvedValue(new Map()),
+      changeStatus: vi.fn(),
+    }
+    const mockContactsMadeResolutionService = {
+      resolveContactsMade: vi.fn().mockResolvedValue({ kind: 'none' }),
+    }
 
     service = new ContactsService(
       mockVoterFileFilterService as never,
@@ -191,11 +198,13 @@ describe('ContactsService — people-db (sole path)', () => {
       mockOrganizationsService as never,
       voterFileDownloadAccess,
       mockSupportStatusService as never,
+      mockContactStatusService as never,
       mockContactInteractionTextService as never,
       mockActivityConditionResolutionService as never,
       mockVoterQueryService as never,
       mockVoterDownloadService as never,
       mockStatsService as never,
+      mockContactsMadeResolutionService as never,
       createMockLogger(),
     )
   })
@@ -343,7 +352,24 @@ describe('ContactsService — people-db (sole path)', () => {
         expect.objectContaining({
           districtId: OVERRIDE_DISTRICT_ID,
           groupByHousehold: false,
-          excludeColumns: ['Parties_Description'],
+          // Serve (eo-) downloads drop party + turnout propensity + vote
+          // history columns via projection (ENG-10830).
+          excludeColumns: [
+            'Parties_Description',
+            'Residence_HHParties_Description',
+            'VoterParties_Change_Changed_Party',
+            'VotingPerformanceEvenYearGeneral',
+            'VotingPerformanceEvenYearPrimary',
+            'VotingPerformanceEvenYearGeneralAndPrimary',
+            'General_2026',
+            'General_2024',
+            'General_2022',
+            'General_2020',
+            'Primary_2026',
+            'Primary_2024',
+            'Primary_2022',
+            'Primary_2020',
+          ],
         }),
         res,
         expect.objectContaining({
