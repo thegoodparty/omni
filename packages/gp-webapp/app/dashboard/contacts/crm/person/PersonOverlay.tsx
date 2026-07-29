@@ -45,9 +45,10 @@ import {
   DoorKnockActivityRow,
   formatDateTime,
   RobocallActivityRow,
+  StatusChangeActivityRow,
   TextActivityRow,
 } from './ActivityFeedEntry'
-import type { SupportStatusRollup } from '../shared/contacts-types'
+import { SUPPORT_STATUS_ROLLUP_LABELS } from '@goodparty_org/contracts'
 
 export const formatPersonName = (person: Person) =>
   [person.firstName, person.lastName, person.nameSuffix]
@@ -352,6 +353,13 @@ const ActivitiesContent: React.FC = () => {
             return <TextActivityRow key={idx} activity={activity} />
           case 'ROBOCALL':
             return <RobocallActivityRow key={idx} activity={activity} />
+          case 'STATUS_CHANGE':
+            // Belt-and-suspenders: the feed itself never returns this type
+            // for a Serve context (gp-api gates it on electedOfficeId), but
+            // a Serve org must never render it even if that ever changed.
+            return isWinContext ? (
+              <StatusChangeActivityRow key={idx} activity={activity} />
+            ) : null
           default:
             // Exhaustiveness guard: a new ConstituentActivityType added to
             // the contract without a render branch here fails the build
@@ -400,16 +408,6 @@ const getIncomeBucket = (income: number | null) => {
       (bucket) => income >= bucket.min && income <= bucket.max,
     ) ?? null
   )
-}
-
-// Buckets shown read-only in the demographics block (ENG-10698). Status is
-// derived server-side (SupportStatusService) and never set from the UI.
-const SUPPORT_STATUS_LABELS: Record<SupportStatusRollup, string> = {
-  supporter: 'Supporter',
-  non_supporter: 'Non-supporter',
-  unknown: 'Support unknown',
-  undecided: 'Undecided',
-  refused: 'Refused',
 }
 
 const PersonContent: React.FC<{
@@ -526,7 +524,9 @@ const PersonContent: React.FC<{
           {showCrmSurfaces && hidePoliticalParty ? (
             <Field
               label="Support Status"
-              value={SUPPORT_STATUS_LABELS[person.supportStatus ?? 'unknown']}
+              value={
+                SUPPORT_STATUS_ROLLUP_LABELS[person.supportStatus ?? 'unknown']
+              }
             />
           ) : null}
           <Field label="Registered Voter" value={person.registeredVoter} />

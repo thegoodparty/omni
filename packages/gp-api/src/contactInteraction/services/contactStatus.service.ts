@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common'
 import {
+  ContactStatusEvent,
   ContactStatusField,
   ContactStatusSource,
   Prisma,
+  User,
 } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
@@ -33,6 +35,12 @@ export type ChangeStatusInput = {
 // event insert, so a genuine duplicate sourceId (contact_status_event's own
 // unique) still propagates as a real Prisma error instead of being retried.
 class CurrentStatusRaceError extends Error {}
+
+// The activity feed (ContactEngagementService, ENG-10835) always needs the
+// writer's name alongside each event — this is the one shape it reads.
+export type ContactStatusEventWithActor = ContactStatusEvent & {
+  actor: Pick<User, 'firstName' | 'lastName'> | null
+}
 
 @Injectable()
 export class ContactStatusService extends createPrismaBase(
@@ -146,5 +154,19 @@ export class ContactStatusService extends createPrismaBase(
       select: { personId: true },
     })
     return rows.map((row) => row.personId)
+  }
+
+  // This service owns ContactStatusEvent's only writer (attemptChangeStatus
+  // above), so the feed read path lives here too rather than a second
+  // model-bound service. `this.model`/the base class's passthroughs are
+  // bound to ContactCurrentStatus, not ContactStatusEvent — hence the raw
+  // `this.client` call instead of `this.findMany`.
+  async findEventsForFeed(
+    args: Prisma.ContactStatusEventFindManyArgs,
+  ): Promise<ContactStatusEventWithActor[]> {
+    return this.client.contactStatusEvent.findMany({
+      ...args,
+      include: { actor: { select: { firstName: true, lastName: true } } },
+    })
   }
 }

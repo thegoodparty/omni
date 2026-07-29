@@ -97,6 +97,9 @@ export {
   type UpdateContactStatusInput,
   ContactStatusesSchema,
   type ContactStatuses,
+  VOTER_LIKELIHOOD_LABELS,
+  SUPPORT_STATUS_ROLLUP_LABELS,
+  resolveContactStatusLabel,
 } from './people/ContactStatus.schema'
 
 export {
@@ -125,6 +128,8 @@ export {
   type TextConstituentActivity,
   RobocallConstituentActivitySchema,
   type RobocallConstituentActivity,
+  StatusChangeConstituentActivitySchema,
+  type StatusChangeConstituentActivity,
   ConstituentActivitySchema,
   type ConstituentActivity,
   GetIndividualActivitiesResponseSchema,
