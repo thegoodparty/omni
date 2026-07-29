@@ -90,6 +90,7 @@ gating is per-action inside the services (see Access control).
 | `GET /v1/contacts/:id`                                                             | Person detail (+ derived `supportStatus`, `optedOutAt`)                                                                                                    |
 | `GET /v1/contacts/stats`                                                           | District aggregates (stat cards; open to non-Pro)                                                                                                          |
 | `POST /v1/contacts/count`                                                          | Live count for an unsaved filter (wizard running total; assistant `count_contacts` parity)                                                                 |
+| `POST /v1/contacts/overlap-count`                                                  | Saved-list overlap for the wizard's "N (P%) voters already exist in lists you've saved" strip (ENG-10840): the in-progress selection AND'd with the union of the org's saved lists (capped at the 25 most recent, truncation logged). Same in-progress payload and Pro gate as `count`                 |
 | `GET /v1/contacts/list-detail`                                                     | Saved-segment detail (`segment` param): demographics, reachable-by-channel (sms/robocall/phoneBanking/doorKnocking/polls), outreach history. Omitting `segment` returns the universe row's detail instead — the whole unfiltered district, `outreachHistory` always `[]` (ENG-10778). History excludes `doorKnocking` rows (the door-knock tool writes its own interaction rows) and orders null `date`s last with `createdAt` fallback fields (ENG-10776) |
 | `GET /v1/contacts/download`                                                        | CSV COPY stream from people-api: a curated ~54-column subset with friendly headers (`DOWNLOAD_COLUMNS`, ENG-10766), not the raw L2 columns. Serve downloads drop party, turnout propensity, and vote history **columns** entirely via projection (`SERVE_EXCLUDED_DOWNLOAD_COLUMNS`, ENG-10830) since a stream can't be post-processed |
 | `GET/POST /v1/contacts/:personId/notes`, `PATCH/DELETE /v1/contacts/notes/:noteId` | Notes CRUD, org-scoped (cross-org id = 404)                                                                                                                |
@@ -101,9 +102,9 @@ gating is per-action inside the services (see Access control).
 people-api (S2S only, JWT `iss: gp-api` / `aud: people-api`, minted in
 `contacts.service.ts`): `POST /v1/people` (list/count), `GET /v1/people/:id`,
 `POST /v1/people/download`, `GET /v1/people/stats`, `POST /v1/people/aggregates`,
-sample routes. people-api has no user-facing routes and enforces district
-scoping via its district join — the id-list filter can't enumerate outside
-the org's district.
+`POST /v1/people/overlap-count`, sample routes. people-api has no user-facing
+routes and enforces district scoping via its district join — the id-list
+filter can't enumerate outside the org's district.
 
 ## Data model
 

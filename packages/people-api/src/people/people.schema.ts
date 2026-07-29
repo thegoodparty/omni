@@ -1,4 +1,5 @@
 import {
+  MAX_OVERLAP_SAVED_FILTER_SETS,
   MAX_PAGE,
   MAX_PAGINATION_OFFSET,
   MAX_RESULTS_PER_PAGE,
@@ -71,6 +72,20 @@ export const aggregatesSchema = withDistrictInput({
 })
 
 export class AggregatesDTO extends createZodDto(aggregatesSchema) {}
+
+// Saved-list overlap count (ENG-10840): the current in-progress selection
+// AND'd with the union of the org's saved lists. `filtersSchema` already
+// transforms a raw PeopleFilters object into FilterData, so reusing it as an
+// array element schema transforms every saved set the same way `filters`
+// gets transformed — one saved-set-worth of the same pipeline the count path
+// runs.
+export const overlapCountSchema = withDistrictInput({
+  filters: filtersSchema,
+  search: z.string().optional(),
+  savedFilterSets: z.array(filtersSchema).max(MAX_OVERLAP_SAVED_FILTER_SETS),
+})
+
+export class OverlapCountDTO extends createZodDto(overlapCountSchema) {}
 
 export const samplePeopleSchema = withDistrictInput({
   size: z.coerce.number().int().min(1).max(10000).optional().default(500),

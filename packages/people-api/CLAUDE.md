@@ -90,7 +90,8 @@ name-search LIKE pattern does. The fenced count is exact when the query
 completes under the timeout and a `FENCE_LIMIT` floor otherwise; the fenced
 aggregates fallback computes AVG age/income over that same capped subquery, so
 they become a sample rather than an exact figure when the fence binds. Every
-caller of the fence — `getAggregates` and `findPeople`'s `pagination.fenced`
+caller of the fence — `getAggregates`, `getOverlapCount` (ENG-10840, the
+saved-list overlap union), and `findPeople`'s `pagination.fenced`
 (ENG-10804, threaded from `rawCountForDistrict`) — carries the boolean out to
 gp-api so a floored count is never presented as exact. The fenced retry runs
 under its own `SET LOCAL statement_timeout` too (`FENCE_RETRY_TIMEOUT_MS`, 2x

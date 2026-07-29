@@ -676,6 +676,13 @@ export type APIEndpoints = {
     } & Record<string, unknown>
     Response: { count: number; fenced?: boolean }
   }
+  'POST /v1/contacts/overlap-count': {
+    Request: {
+      activityConditions?: ActivityConditionInput[]
+      supportStatus?: SupportStatusRollup[]
+    } & Record<string, unknown>
+    Response: { count: number; fenced: boolean }
+  }
   'GET /v1/contacts/download': {
     Request: { segment?: string }
     Response: Blob
