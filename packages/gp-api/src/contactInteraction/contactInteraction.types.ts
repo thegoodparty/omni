@@ -78,4 +78,21 @@ export const SUPPORT_ANSWER_ROLLUP = {
   [SupportAnswer.unsure]: SUPPORT_STATUS_UNKNOWN,
 } as const satisfies Record<SupportAnswer, SupportStatusRollup>
 
+// The subset of SupportStatusRollup that SupportStatusService can derive
+// from interaction rows. `undecided`/`refused` (ENG-10833) extend the shared
+// rollup vocabulary for manual overrides only — nothing derives them from
+// interaction history, so they're absent here. Shared by
+// filterDimensions.catalog.ts (the assistant's vocabulary, ENG-10837 now
+// advertises all five) and SupportStatusService.personIdsByEffectiveStatus
+// (which needs to know which requested values it can resolve by derivation
+// vs. override-only) so the two can't drift apart.
+export const DERIVED_SUPPORT_STATUS_VALUES = [
+  'supporter',
+  'non_supporter',
+  SUPPORT_STATUS_UNKNOWN,
+] as const satisfies readonly SupportStatusRollup[]
+
+export type DerivedSupportStatusRollup =
+  (typeof DERIVED_SUPPORT_STATUS_VALUES)[number]
+
 export type { SupportStatusRollup }

@@ -73,6 +73,16 @@ describe('buildFilterSummary — demographic-only filters', () => {
     expect(summary).toBe('Support status Supporter or Support Unknown.')
   })
 
+  // ENG-10837: undecided/refused extend the shared vocabulary (override-only
+  // values), matching the profile's 5-value support status.
+  it('renders the undecided and refused support status values', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ supportStatus: ['undecided', 'refused'] }),
+      false,
+    )
+    expect(summary).toBe('Support status Undecided or Refused.')
+  })
+
   it('renders the saved search term', () => {
     const summary = buildFilterSummary(
       baseSegment({ search: 'Main Street' }),
