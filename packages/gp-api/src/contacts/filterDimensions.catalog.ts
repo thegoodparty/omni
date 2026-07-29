@@ -1,6 +1,6 @@
 import {
   type ActivityConditionAction,
-  type SupportStatusRollup,
+  SupportStatusRollupSchema,
 } from '@goodparty_org/contracts'
 import {
   ACTIVITY_CONDITION_CHANNEL_ACTIONS,
@@ -88,26 +88,19 @@ const ACTIVITY_ACTION_LABELS: Record<ActivityConditionAction, string> = {
   no_answer: 'No Answer',
 }
 
-// `undecided`/`refused` (ENG-10833) extend the shared SupportStatusRollup
-// vocabulary for the manual-override current-status table, but the derived
-// (interaction-based) rollup ActivityConditionResolutionService resolves
-// filters against can never produce them — advertising them here would let
-// the wizard/assistant build a supportStatus filter that silently matches
-// zero people. Deliberately excluded until a later ticket teaches filter
-// resolution to read overrides.
-const DERIVED_SUPPORT_STATUS_VALUES = [
-  'supporter',
-  'non_supporter',
-  'unknown',
-] as const satisfies readonly SupportStatusRollup[]
-
+// All five values (ENG-10837): `undecided`/`refused` (ENG-10833) exist only
+// as manual overrides, but SupportStatusService.personIdsByEffectiveStatus
+// now resolves overrides alongside derivation, so advertising them here no
+// longer risks a filter that silently matches zero people.
 const SUPPORT_STATUS_LABELS: Record<
-  (typeof DERIVED_SUPPORT_STATUS_VALUES)[number],
+  (typeof SupportStatusRollupSchema.options)[number],
   string
 > = {
   supporter: 'Supporter',
   non_supporter: 'Non-supporter',
   unknown: 'Support Unknown',
+  undecided: 'Undecided',
+  refused: 'Refused',
 }
 
 // The exhaustive ACTIVITY_CHANNEL_LABELS record breaks the build when a new
@@ -319,7 +312,7 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     label: 'Support Status',
     kind: 'multi-value',
     modes: 'both',
-    values: DERIVED_SUPPORT_STATUS_VALUES.map((value) => ({
+    values: SupportStatusRollupSchema.options.map((value) => ({
       key: value,
       label: SUPPORT_STATUS_LABELS[value],
     })),

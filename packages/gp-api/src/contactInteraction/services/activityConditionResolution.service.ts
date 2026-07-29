@@ -1,13 +1,21 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import { DoorKnockOutcome, Prisma, SupportAnswer } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import type {
-  ActivityConditionAction,
-  SupportStatusRollup,
+import {
+  type ActivityConditionAction,
+  SupportStatusRollupSchema,
+  type SupportStatusRollup,
 } from '@goodparty_org/contracts'
 import type { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
 import { SUPPORT_STATUS_UNKNOWN } from '../contactInteraction.types'
 import { SupportStatusService } from './supportStatus.service'
+
+// Every rollup other than 'unknown' — the "known" statuses the notIn-based
+// unknown resolution below excludes. Includes undecided/refused (ENG-10837,
+// override-only) alongside the two derivable ones.
+const KNOWN_SUPPORT_STATUS_VALUES = SupportStatusRollupSchema.options.filter(
+  (rollup) => rollup !== SUPPORT_STATUS_UNKNOWN,
+)
 
 // Mirrors people-api's MAX_ID_FILTER_VALUES
 // (people-api/src/people/schemas/filters.schema.utils.ts). Enforced again
@@ -74,13 +82,20 @@ const intersect = (a: Set<string>, b: Set<string>): Set<string> =>
 
 // Conditions -> person-id sets, and the final composition with the
 // support-status filter into the single `id` operator people-api accepts.
+// Every supportStatus lookup below goes through
+// SupportStatusService.personIdsByEffectiveStatus (ENG-10837), which is
+// override-aware: supporter/non_supporter/unknown resolve from derivation OR
+// a manual override (override wins), and undecided/refused resolve from
+// overrides only.
 // Decision table (also see the ticket / TDD subproblem 3):
 //   - No conditions, no supportStatus                -> none (no id filter)
 //   - Conditions only                                 -> in = AND-intersection
 //   - supportStatus only, no 'unknown'                -> in = union of statuses
 //   - supportStatus only, includes 'unknown'          -> notIn = complement
-//     (the non-selected KNOWN statuses) — 'unknown' only enumerates people
-//     WITH interaction rows, so it can't be expressed as an `in` list.
+//     (the non-selected KNOWN statuses, i.e. every rollup but 'unknown') —
+//     'unknown' can't be expressed as an `in` list: a person with zero
+//     interaction rows and no override is derived-unknown but never
+//     enumerable from either source.
 //   - Conditions + supportStatus (no 'unknown')       -> in = intersection
 //   - Conditions + supportStatus (incl. 'unknown')    -> in = conditions minus
 //     the notIn-complement (collapses the mixed case to a single `in`,
@@ -126,7 +141,7 @@ export class ActivityConditionResolutionService extends createPrismaBase(
 
     if (!includesUnknown) {
       const supportSet = new Set(
-        await this.supportStatusService.personIdsByStatus(
+        await this.supportStatusService.personIdsByEffectiveStatus(
           organizationSlug,
           supportStatuses,
         ),
@@ -137,11 +152,11 @@ export class ActivityConditionResolutionService extends createPrismaBase(
       return this.finalizeInSet(organizationSlug, finalSet)
     }
 
-    const nonSelectedKnownStatuses = (
-      ['supporter', 'non_supporter'] as const
-    ).filter((rollup) => !supportStatuses.includes(rollup))
+    const nonSelectedKnownStatuses = KNOWN_SUPPORT_STATUS_VALUES.filter(
+      (rollup) => !supportStatuses.includes(rollup),
+    )
     const excludedSet = new Set(
-      await this.supportStatusService.personIdsByStatus(
+      await this.supportStatusService.personIdsByEffectiveStatus(
         organizationSlug,
         nonSelectedKnownStatuses,
       ),
