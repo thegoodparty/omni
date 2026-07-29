@@ -130,22 +130,25 @@ export default function StatusRow({
   const applyOptimisticUpdate = (
     patch: Pick<Person, 'voterLikelihood'> | Pick<Person, 'supportStatus'>,
   ) => {
-    const previousPerson = queryClient.getQueryData<Person>(personQueryKey)
     queryClient.setQueryData<Person>(personQueryKey, (current) =>
       current ? { ...current, ...patch } : current,
     )
-    return previousPerson
   }
 
-  // onSuccess merges the full response (not just the field just changed) —
-  // the response carries both effective statuses, and the sibling field
-  // (server-derived) can have drifted from this component's snapshot between
-  // page load and this click.
+  // Both mutations scope every cache write (optimistic, rollback, and
+  // success-merge) to ONLY the single field they own — never the whole
+  // Person object. The two dropdowns can be changed in quick succession
+  // (voter_likelihood mutation still in flight when support_status is
+  // clicked); a whole-object snapshot/restore or a whole-ContactStatuses
+  // merge would clobber whichever field the OTHER mutation had already
+  // committed in between. `context.fromValue` (captured from this
+  // component's own prop-derived value at click time, not from the cache) is
+  // both the rollback target and the analytics `from`.
   const voterLikelihoodMutation = useMutation<
     ContactStatuses,
     FetchError,
     VoterLikelihood,
-    { previousPerson: Person | undefined; fromValue: VoterLikelihood }
+    { fromValue: VoterLikelihood }
   >({
     mutationFn: (value) =>
       clientRequest('PATCH /v1/contacts/:personId/status', {
@@ -154,18 +157,25 @@ export default function StatusRow({
         value,
       }).then((res) => res.data),
     onMutate: (value) => {
-      const previousPerson = applyOptimisticUpdate({ voterLikelihood: value })
-      return { previousPerson, fromValue: voterLikelihood }
+      const fromValue = voterLikelihood
+      applyOptimisticUpdate({ voterLikelihood: value })
+      return { fromValue }
     },
     onError: (_error, _value, context) => {
-      if (context?.previousPerson) {
-        queryClient.setQueryData(personQueryKey, context.previousPerson)
+      if (context) {
+        queryClient.setQueryData<Person>(personQueryKey, (current) =>
+          current
+            ? { ...current, voterLikelihood: context.fromValue }
+            : current,
+        )
       }
       errorSnackbar("Couldn't update Voter Likelihood. Please try again.")
     },
     onSuccess: (data, value, context) => {
       queryClient.setQueryData<Person>(personQueryKey, (current) =>
-        current ? { ...current, ...data } : current,
+        current
+          ? { ...current, voterLikelihood: data.voterLikelihood }
+          : current,
       )
       queryClient.invalidateQueries({
         queryKey: ['contact-engagement', 'activities'],
@@ -182,7 +192,7 @@ export default function StatusRow({
     ContactStatuses,
     FetchError,
     SupportStatusRollup,
-    { previousPerson: Person | undefined; fromValue: SupportStatusRollup }
+    { fromValue: SupportStatusRollup }
   >({
     mutationFn: (value) =>
       clientRequest('PATCH /v1/contacts/:personId/status', {
@@ -191,18 +201,21 @@ export default function StatusRow({
         value,
       }).then((res) => res.data),
     onMutate: (value) => {
-      const previousPerson = applyOptimisticUpdate({ supportStatus: value })
-      return { previousPerson, fromValue: supportStatus }
+      const fromValue = supportStatus
+      applyOptimisticUpdate({ supportStatus: value })
+      return { fromValue }
     },
     onError: (_error, _value, context) => {
-      if (context?.previousPerson) {
-        queryClient.setQueryData(personQueryKey, context.previousPerson)
+      if (context) {
+        queryClient.setQueryData<Person>(personQueryKey, (current) =>
+          current ? { ...current, supportStatus: context.fromValue } : current,
+        )
       }
       errorSnackbar("Couldn't update Support Status. Please try again.")
     },
     onSuccess: (data, value, context) => {
       queryClient.setQueryData<Person>(personQueryKey, (current) =>
-        current ? { ...current, ...data } : current,
+        current ? { ...current, supportStatus: data.supportStatus } : current,
       )
       queryClient.invalidateQueries({
         queryKey: ['contact-engagement', 'activities'],

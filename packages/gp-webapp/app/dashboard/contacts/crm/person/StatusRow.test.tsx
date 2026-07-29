@@ -269,4 +269,67 @@ describe('<StatusRow>', () => {
       testQueryClient.getQueryData<Person>(['person', ORG_SLUG, PERSON_ID]),
     ).toMatchObject({ voterLikelihood: 'unknown' })
   })
+
+  it('a failed voter_likelihood rollback does not clobber a support_status change that already committed', async () => {
+    const user = userEvent.setup()
+    const person = makePerson({
+      voterLikelihood: 'unknown',
+      supportStatus: 'undecided',
+    })
+
+    // voter_likelihood's PATCH hangs on this gate until released below, then
+    // rejects. support_status's PATCH resolves immediately. This reproduces
+    // the two-quick-changes race: support_status commits first while
+    // voter_likelihood is still in flight, then voter_likelihood's rollback
+    // must not clobber the field it doesn't own.
+    let releaseVoterLikelihoodGate: () => void
+    const voterLikelihoodGate = new Promise<void>((resolve) => {
+      releaseVoterLikelihoodGate = resolve
+    })
+    api.mock('PATCH /v1/contacts/:personId/status', async ({ body }) => {
+      if (body.field === 'voter_likelihood') {
+        await voterLikelihoodGate
+        return { status: 500, data: { message: 'boom' } }
+      }
+      return {
+        status: 200,
+        data: { voterLikelihood: 'unknown', supportStatus: body.value },
+      }
+    })
+
+    render(<Harness initialPerson={person} />)
+
+    // Start the voter_likelihood change — its PATCH hangs on the gate.
+    await user.click(screen.getByRole('combobox', { name: 'Voter Likelihood' }))
+    await user.click(await screen.findByRole('option', { name: 'Super' }))
+    expect(
+      screen.getByRole('combobox', { name: 'Voter Likelihood' }),
+    ).toHaveTextContent('Super')
+
+    // Before it resolves, change support_status — its PATCH resolves and
+    // commits right away.
+    await user.click(screen.getByRole('combobox', { name: 'Support Status' }))
+    await user.click(await screen.findByRole('option', { name: 'Refused' }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('combobox', { name: 'Support Status' }),
+      ).toHaveTextContent('Refused'),
+    )
+
+    // Now let voter_likelihood's PATCH reject.
+    releaseVoterLikelihoodGate!()
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('combobox', { name: 'Voter Likelihood' }),
+      ).toHaveTextContent('Unknown'),
+    )
+    // The already-committed Support Status change must survive the rollback.
+    expect(
+      screen.getByRole('combobox', { name: 'Support Status' }),
+    ).toHaveTextContent('Refused')
+    expect(
+      testQueryClient.getQueryData<Person>(['person', ORG_SLUG, PERSON_ID]),
+    ).toMatchObject({ voterLikelihood: 'unknown', supportStatus: 'refused' })
+  })
 })
