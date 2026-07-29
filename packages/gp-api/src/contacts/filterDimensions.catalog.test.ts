@@ -3,7 +3,6 @@ import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
 import { ACTIVITY_CONDITION_CHANNEL_ACTIONS } from '@/shared/schemas/activityCondition.schema'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { PinoLogger } from 'nestjs-pino'
-import type { HttpService } from '@nestjs/axios'
 import type { Organization } from '../generated/prisma'
 import { FILTER_DIMENSIONS } from './filterDimensions.catalog'
 import { ContactsService } from './services/contacts.service'
@@ -117,7 +116,9 @@ describe('FILTER_DIMENSIONS catalog', () => {
 describe('ContactsService.getFilterDimensions', () => {
   const buildService = () =>
     new ContactsService(
-      { post: () => undefined, get: () => undefined } as unknown as HttpService,
+      {} as never,
+      {} as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

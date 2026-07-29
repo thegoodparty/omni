@@ -1,12 +1,14 @@
 import { useTestService } from '@/test-service'
-import { HttpService } from '@nestjs/axios'
-import { of } from 'rxjs'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
 
 const ORG_SLUG_HEADER = 'X-Organization-Slug'
-const DISTRICT_ID = 'district-opted-out-chip-uuid'
+// The ported people-db services run their DTOs through Zod, whose
+// districtId field is z.guid() — unlike the retired httpService path, a
+// non-UUID placeholder fails validation here.
+const DISTRICT_ID = '22222222-2222-2222-2222-222222222222'
 
 // A full PersonSchema-conformant payload: the controller's GET(:id) route now
 // carries @ResponseSchema(PersonSchema) (ENG-10732), so a route test (unlike
@@ -68,9 +70,10 @@ describe('GET /v1/contacts/:id — Opted In/Out chip (ENG-10732)', () => {
   it('reads optedOutAt null for a person with no text interactions', async () => {
     const slug = `eo-opted-out-none-${Date.now()}`
     await seedEoOrg(slug)
-    vi.spyOn(service.app.get(HttpService), 'get').mockReturnValue(
-      of({ data: mockPersonPayload(PERSON_ID) }) as never,
-    )
+    vi.spyOn(
+      service.app.get(VoterQueryService),
+      'findPerson',
+    ).mockResolvedValue(mockPersonPayload(PERSON_ID) as never)
 
     const result = await service.client.get(`/v1/contacts/${PERSON_ID}`, {
       headers: { [ORG_SLUG_HEADER]: slug },
@@ -83,9 +86,10 @@ describe('GET /v1/contacts/:id — Opted In/Out chip (ENG-10732)', () => {
   it('reads the ISO optedOutAt when a text interaction carries one for this org', async () => {
     const slug = `eo-opted-out-yes-${Date.now()}`
     await seedEoOrg(slug)
-    vi.spyOn(service.app.get(HttpService), 'get').mockReturnValue(
-      of({ data: mockPersonPayload(PERSON_ID) }) as never,
-    )
+    vi.spyOn(
+      service.app.get(VoterQueryService),
+      'findPerson',
+    ).mockResolvedValue(mockPersonPayload(PERSON_ID) as never)
     const optedOutAt = new Date('2026-07-10T12:00:00.000Z')
     await service.prisma.contactInteractionText.create({
       data: {
@@ -110,9 +114,10 @@ describe('GET /v1/contacts/:id — Opted In/Out chip (ENG-10732)', () => {
     const otherSlug = `eo-opted-out-other-${Date.now()}`
     await seedEoOrg(ownSlug)
     await seedEoOrg(otherSlug)
-    vi.spyOn(service.app.get(HttpService), 'get').mockReturnValue(
-      of({ data: mockPersonPayload(PERSON_ID) }) as never,
-    )
+    vi.spyOn(
+      service.app.get(VoterQueryService),
+      'findPerson',
+    ).mockResolvedValue(mockPersonPayload(PERSON_ID) as never)
     await service.prisma.contactInteractionText.create({
       data: {
         organizationSlug: otherSlug,
@@ -134,9 +139,10 @@ describe('GET /v1/contacts/:id — Opted In/Out chip (ENG-10732)', () => {
   it('reads the max optedOutAt when multiple text interactions exist for the person', async () => {
     const slug = `eo-opted-out-max-${Date.now()}`
     await seedEoOrg(slug)
-    vi.spyOn(service.app.get(HttpService), 'get').mockReturnValue(
-      of({ data: mockPersonPayload(PERSON_ID) }) as never,
-    )
+    vi.spyOn(
+      service.app.get(VoterQueryService),
+      'findPerson',
+    ).mockResolvedValue(mockPersonPayload(PERSON_ID) as never)
     const earlier = new Date('2026-06-01T12:00:00.000Z')
     const latest = new Date('2026-07-15T12:00:00.000Z')
     await service.prisma.contactInteractionText.create({

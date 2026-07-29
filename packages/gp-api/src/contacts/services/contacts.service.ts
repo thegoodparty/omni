@@ -1,8 +1,5 @@
-import { HttpService } from '@nestjs/axios'
 import {
-  BadGatewayException,
   BadRequestException,
-  HttpException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
@@ -23,13 +20,9 @@ import {
   ContactStatusSource,
   Organization,
 } from '../../generated/prisma'
-import { isAxiosError } from 'axios'
 import { FastifyReply } from 'fastify'
-import jwt from 'jsonwebtoken'
 import { PinoLogger } from 'nestjs-pino'
 import { randomUUID } from 'node:crypto'
-import { Readable } from 'node:stream'
-import { lastValueFrom } from 'rxjs'
 import type { ZodType } from 'zod'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { SUPPORT_STATUS_UNKNOWN } from 'src/contactInteraction/contactInteraction.types'
@@ -50,6 +43,18 @@ import { ElectionsService } from 'src/elections/services/elections.service'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
+import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
+import { StatsService } from '@/peopleDb/services/stats.service'
+import {
+  AggregatesDTO,
+  DownloadPeopleDTO,
+  GetPersonQueryDTO,
+  ListPeopleDTO,
+  OverlapCountDTO,
+  SamplePeopleDTO,
+  StatsDTO,
+} from '@/peopleDb/schemas/people.schema'
 import {
   PeopleAggregatesResponse,
   StatsResponse,
@@ -76,8 +81,6 @@ import {
   type FilterDimension,
 } from '../filterDimensions.catalog'
 import { buildPreviewContacts } from '../utils/previewContacts.utils'
-
-const { PEOPLE_API_URL, PEOPLE_API_S2S_SECRET } = process.env
 
 // The default, unfiltered view. It (and the district stats) are visible to any
 // Win campaign, pro or not. A non-pro candidate sees the real
@@ -200,13 +203,6 @@ const SERVE_EXCLUDED_DOWNLOAD_COLUMNS = [
   'Primary_2020',
 ]
 
-if (!PEOPLE_API_URL) {
-  throw new Error('Please set PEOPLE_API_URL in your .env')
-}
-if (!PEOPLE_API_S2S_SECRET) {
-  throw new Error('Please set PEOPLE_API_S2S_SECRET in your .env')
-}
-
 // What the shared filter resolution actually consumes: the request DTO, a
 // persisted VoterFileFilter row (nullable columns, relation-shaped activity
 // conditions), or a spread-merge of the two.
@@ -220,10 +216,7 @@ export type ContactsFilterResolutionInput = Partial<
 
 @Injectable()
 export class ContactsService {
-  private cachedToken: string | null = null
-
   constructor(
-    private readonly httpService: HttpService,
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly elections: ElectionsService,
     private readonly campaigns: CampaignsService,
@@ -233,6 +226,9 @@ export class ContactsService {
     private readonly contactStatusService: ContactStatusService,
     private readonly contactInteractionTextService: ContactInteractionTextService,
     private readonly activityConditionResolution: ActivityConditionResolutionService,
+    private readonly voterQueryService: VoterQueryService,
+    private readonly voterDownloadService: VoterDownloadService,
+    private readonly peopleStatsService: StatsService,
     private readonly contactsMadeResolutionService: ContactsMadeResolutionService,
     private readonly logger: PinoLogger,
   ) {
@@ -619,41 +615,26 @@ export class ContactsService {
       )
     }
 
-    const fetchPeople = async (
+    const fetchPeople = (
       districtParams: { districtId: string },
       filters: FilterObject,
       idOverrides: IdOverrides | undefined,
       contactsMadeIdOverrides: IdOverrides | undefined,
       groupByHousehold: boolean,
       peopleSearch: string | undefined,
-    ) => {
-      try {
-        const response = await lastValueFrom(
-          this.httpService.post(
-            `${PEOPLE_API_URL}/v1/people`,
-            {
-              ...districtParams,
-              resultsPerPage,
-              page,
-              filters,
-              idOverrides,
-              contactsMadeIdOverrides,
-              search: peopleSearch,
-              groupByHousehold,
-            },
-            {
-              headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
-            },
-          ),
-        )
-        // People API response is untyped — external API returns unknown response shape
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-        return response.data as PeopleListResponse
-      } catch (error) {
-        this.logger.error({ error }, `Failed to fetch from people API`)
-        throw new BadGatewayException(`Failed to fetch from people API`)
-      }
-    }
+    ): Promise<PeopleListResponse> =>
+      this.voterQueryService.findPeople(
+        ListPeopleDTO.create({
+          ...districtParams,
+          resultsPerPage,
+          page,
+          filters,
+          idOverrides,
+          contactsMadeIdOverrides,
+          search: peopleSearch,
+          groupByHousehold,
+        }),
+      )
 
     const { filters, empty, idOverrides, contactsMadeIdOverrides } =
       await this.segmentToFilters(segment, organization)
@@ -734,36 +715,24 @@ export class ContactsService {
     // number matches the list it would save (ENG-10517/10518).
     const search = filterInput.search || undefined
 
-    const fetchCount = async (districtParams: { districtId: string }) => {
-      try {
-        const response = await lastValueFrom(
-          this.httpService.post(
-            `${PEOPLE_API_URL}/v1/people`,
-            {
-              ...districtParams,
-              resultsPerPage: 1,
-              page: 1,
-              filters,
-              idOverrides,
-              contactsMadeIdOverrides,
-              search,
-              groupByHousehold: false,
-            },
-            {
-              headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
-            },
-          ),
-        )
-        // People API response is untyped — external API returns unknown shape
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-        const { pagination } = response.data as PeopleListResponse
-        return {
-          count: pagination.totalResults,
-          fenced: pagination.fenced ?? false,
-        }
-      } catch (error) {
-        this.logger.error({ error }, 'Failed to count from people API')
-        throw new BadGatewayException('Failed to count from people API')
+    const fetchCount = async (districtParams: {
+      districtId: string
+    }): Promise<{ count: number; fenced: boolean }> => {
+      const response = await this.voterQueryService.findPeople(
+        ListPeopleDTO.create({
+          ...districtParams,
+          resultsPerPage: 1,
+          page: 1,
+          filters,
+          idOverrides,
+          contactsMadeIdOverrides,
+          search,
+          groupByHousehold: false,
+        }),
+      )
+      return {
+        count: response.pagination.totalResults,
+        fenced: response.pagination.fenced ?? false,
       }
     }
 
@@ -808,39 +777,19 @@ export class ContactsService {
       return { count: 0, fenced: false }
     }
 
-    const fetchOverlapCount = async (districtParams: {
+    const fetchOverlapCount = (districtParams: {
       districtId: string
-    }) => {
-      try {
-        const response = await lastValueFrom(
-          this.httpService.post(
-            `${PEOPLE_API_URL}/v1/people/overlap-count`,
-            {
-              ...districtParams,
-              filters,
-              idOverrides,
-              contactsMadeIdOverrides,
-              search,
-              savedFilterSets,
-            },
-            {
-              headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
-            },
-          ),
-        )
-        // People API response is untyped — external API returns unknown shape
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-        return response.data as PeopleOverlapCountResponse
-      } catch (error) {
-        this.logger.error(
-          { error },
-          'Failed to fetch overlap count from people API',
-        )
-        throw new BadGatewayException(
-          'Failed to fetch overlap count from people API',
-        )
-      }
-    }
+    }): Promise<PeopleOverlapCountResponse> =>
+      this.voterQueryService.getOverlapCount(
+        OverlapCountDTO.create({
+          ...districtParams,
+          filters,
+          idOverrides,
+          contactsMadeIdOverrides,
+          search,
+          savedFilterSets,
+        }),
+      )
 
     return this.withOrgDistrictResolution(organization, fetchOverlapCount)
   }
@@ -993,34 +942,21 @@ export class ContactsService {
     const filters = this.mergeIdFilter(baseFilters, idResolution)
     const search = filterInput.search || undefined
 
-    const fetchPeoplePage = async (districtParams: { districtId: string }) => {
-      try {
-        const response = await lastValueFrom(
-          this.httpService.post(
-            `${PEOPLE_API_URL}/v1/people`,
-            {
-              ...districtParams,
-              resultsPerPage: pagination.resultsPerPage,
-              page: pagination.page,
-              filters,
-              idOverrides,
-              contactsMadeIdOverrides,
-              search,
-              groupByHousehold: false,
-            },
-            {
-              headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
-            },
-          ),
-        )
-        // People API response is untyped — external API returns unknown shape
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-        return response.data as PeopleListResponse
-      } catch (error) {
-        this.logger.error({ error }, 'Failed to fetch from people API')
-        throw new BadGatewayException('Failed to fetch from people API')
-      }
-    }
+    const fetchPeoplePage = (districtParams: {
+      districtId: string
+    }): Promise<PeopleListResponse> =>
+      this.voterQueryService.findPeople(
+        ListPeopleDTO.create({
+          ...districtParams,
+          resultsPerPage: pagination.resultsPerPage,
+          page: pagination.page,
+          filters,
+          idOverrides,
+          contactsMadeIdOverrides,
+          search,
+          groupByHousehold: false,
+        }),
+      )
 
     const response = await this.withOrgDistrictResolution(
       organization,
@@ -1107,8 +1043,8 @@ export class ContactsService {
   // caller): one base count plus three channel-restricted counts. The four
   // calls settle independently (ENG-10806) — a saved list's demographics and
   // most reachability tiles shouldn't all flip to "Unavailable" because one
-  // people-api aggregate call failed. Only the base call is load-bearing:
-  // there's nothing to show without it, so its rejection still 502s.
+  // aggregate query failed. Only the base call is load-bearing: there's
+  // nothing to show without it, so its rejection still fails the whole route.
   private async fetchListDetailAggregates(
     organization: Organization,
     baseFilters: FilterObject,
@@ -1191,66 +1127,32 @@ export class ContactsService {
     }
   }
 
-  private async fetchPeopleAggregates(
+  private fetchPeopleAggregates(
     districtParams: { districtId: string },
     filters: FilterObject,
     idOverrides?: IdOverrides,
     contactsMadeIdOverrides?: IdOverrides,
   ): Promise<PeopleAggregatesResponse> {
-    try {
-      const response = await lastValueFrom(
-        this.httpService.post(
-          `${PEOPLE_API_URL}/v1/people/aggregates`,
-          { ...districtParams, filters, idOverrides, contactsMadeIdOverrides },
-          {
-            headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
-          },
-        ),
-      )
-      // People API response is untyped — external API returns unknown shape
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-      return response.data as PeopleAggregatesResponse
-    } catch (error) {
-      this.logger.error({ error }, 'Failed to fetch aggregates from people API')
-      throw new BadGatewayException(
-        'Failed to fetch aggregates from people API',
-      )
-    }
+    return this.voterQueryService.getAggregates(
+      AggregatesDTO.create({
+        ...districtParams,
+        filters,
+        idOverrides,
+        contactsMadeIdOverrides,
+      }),
+    )
   }
 
   async sampleContacts(dto: SampleContacts, organization: Organization) {
-    const fetchSample = async (districtParams: { districtId: string }) => {
-      const body = {
-        ...districtParams,
-        size: String(dto.size ?? 500),
-        hasCellPhone: 'true',
-        excludeIds: (dto.excludeIds ?? []) as string[],
-      }
-
-      try {
-        const token = this.getValidS2SToken()
-        const response = await lastValueFrom(
-          this.httpService.post<PersonOutput[]>(
-            `${PEOPLE_API_URL}/v1/people/sample`,
-            body,
-            {
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-            },
-          ),
-        )
-        return response.data
-      } catch (error) {
-        this.logger.error(
-          { error },
-          'Failed to sample contacts from people API',
-        )
-        throw new BadGatewayException(
-          'Failed to sample contacts from people API',
-        )
-      }
-    }
+    const fetchSample = (districtParams: { districtId: string }) =>
+      this.voterQueryService.samplePeople(
+        SamplePeopleDTO.create({
+          ...districtParams,
+          size: String(dto.size ?? 500),
+          hasCellPhone: 'true',
+          excludeIds: (dto.excludeIds ?? []) as string[],
+        }),
+      )
 
     return this.withOrgDistrictResolution(organization, fetchSample)
   }
@@ -1287,37 +1189,13 @@ export class ContactsService {
       )
     }
 
-    const fetchPerson = async (districtParams: { districtId: string }) => {
-      try {
-        const response = await lastValueFrom(
-          this.httpService.get<PersonOutput>(
-            `${PEOPLE_API_URL}/v1/people/${id}`,
-            {
-              headers: {
-                Authorization: `Bearer ${this.getValidS2SToken()}`,
-              },
-              params: districtParams,
-            },
-          ),
-        )
-
-        return response.data
-      } catch (error) {
-        if (error instanceof HttpException) {
-          throw error
-        }
-        this.logger.error(
-          { data: JSON.stringify(error) },
-          'Failed to fetch person from people API',
-        )
-
-        if (isAxiosError(error) && error.response?.status === 404) {
-          throw new NotFoundException('Person not found')
-        }
-
-        throw new BadGatewayException('Failed to fetch person from people API')
-      }
-    }
+    const fetchPerson = (districtParams: {
+      districtId: string
+    }): Promise<PersonOutput> =>
+      this.voterQueryService.findPerson(
+        id,
+        GetPersonQueryDTO.create(districtParams),
+      )
 
     const person = await this.withOrgDistrictResolution(
       organization,
@@ -1497,7 +1375,7 @@ export class ContactsService {
     )
   }
 
-  private async streamPeopleDownload(
+  private streamPeopleDownload(
     districtParams: { districtId: string },
     filters: FilterObject,
     idOverrides: IdOverrides | undefined,
@@ -1506,94 +1384,24 @@ export class ContactsService {
     excludeColumns: string[] | undefined,
     res: FastifyReply,
   ): Promise<void> {
-    let response: { data: Readable }
-    try {
-      response = await lastValueFrom(
-        this.httpService.post<Readable>(
-          `${PEOPLE_API_URL}/v1/people/download`,
-          {
-            ...districtParams,
-            filters,
-            idOverrides,
-            contactsMadeIdOverrides,
-            groupByHousehold,
-            excludeColumns,
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${this.getValidS2SToken()}`,
-            },
-            responseType: 'stream',
-          },
-        ),
-      )
-    } catch (error) {
-      this.logger.error(
-        { error },
-        'Failed to download contacts from people API',
-      )
-
-      throw new BadGatewayException(
-        'Failed to download contacts from people API',
-      )
-    }
-
-    // Upstream is live. Only now do we commit our own response headers,
-    // because once these are flushed the connection becomes a binary
-    // download that any error response would corrupt (browser would save
-    // the JSON error blob as `contacts.csv`). All earlier failures
-    // (`isProAccess`, district resolution, axios POST) still produce a
-    // structured 4xx/5xx because nothing has been written to the wire yet.
-    this.setDownloadResponseHeaders(res)
-
-    return new Promise<void>((resolve) => {
-      let settled = false
-      const settle = (fn: () => void) => {
-        if (settled) return
-        settled = true
-        fn()
-      }
-      const destroyUpstream = () => {
-        if (!response.data.destroyed) {
-          response.data.destroy()
-        }
-      }
-
-      response.data.pipe(res.raw)
-      response.data.on('end', () => settle(resolve))
-      // Once `flushHeaders()` above committed our HTTP headers to the wire,
-      // a mid-transfer upstream error must NOT propagate as a rejection.
-      // Nest's global exception filter would call
-      // `httpAdapter.reply(res.raw, jsonBody, 500)` on a response whose
-      // headers are already sent, producing either an
-      // `ERR_HTTP_HEADERS_SENT` warning or a corrupt CSV+JSON blob saved as
-      // `contacts.csv`. Instead: log, tear down both ends, and resolve so
-      // the controller's await falls through cleanly. The browser sees a
-      // truncated download and the operator sees the cause in the logs.
-      response.data.on('error', (err: Error) =>
-        settle(() => {
-          this.logger.error(
-            { err },
-            'Upstream stream error after download headers committed',
-          )
-          destroyUpstream()
-          if (!res.raw.destroyed) {
-            res.raw.destroy(err)
-          }
-          resolve()
-        }),
-      )
-      // Browser canceled / network closed mid-download: tear down the
-      // upstream people-api stream so the gp-api → people-api socket and
-      // the underlying pg COPY connection are released promptly instead of
-      // waiting for an idle-timeout.
-      res.raw.on('close', () =>
-        settle(() => {
-          destroyUpstream()
-          resolve()
-        }),
-      )
-    })
+    const gpDownloadCookie =
+      `gp_download=${randomUUID()}; Path=/; Max-Age=30; ` +
+      `SameSite=Lax; Secure`
+    return this.voterDownloadService.streamPeopleCsv(
+      DownloadPeopleDTO.create({
+        ...districtParams,
+        filters,
+        idOverrides,
+        contactsMadeIdOverrides,
+        groupByHousehold,
+        excludeColumns,
+      }),
+      res,
+      {
+        filename: 'contacts.csv',
+        extraHeaders: { 'Set-Cookie': gpDownloadCookie },
+      },
+    )
   }
 
   // The legacy voter-file endpoint (GET /voters/voter-file — task-flow record
@@ -1613,30 +1421,17 @@ export class ContactsService {
 
     return this.withOrgDistrictResolution(
       organization,
-      async (districtParams) => {
-        try {
-          const response = await lastValueFrom(
-            this.httpService.post(
-              `${PEOPLE_API_URL}/v1/people`,
-              {
-                ...districtParams,
-                resultsPerPage: 1,
-                page: 1,
-                filters,
-                groupByHousehold,
-              },
-              {
-                headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
-              },
-            ),
-          )
-          // People API response is untyped — external API returns unknown shape
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-          return (response.data as PeopleListResponse).pagination.totalResults
-        } catch (error) {
-          this.logger.error({ error }, 'Failed to count from people API')
-          throw new BadGatewayException('Failed to count from people API')
-        }
+      async (districtParams): Promise<number> => {
+        const response = await this.voterQueryService.findPeople(
+          ListPeopleDTO.create({
+            ...districtParams,
+            resultsPerPage: 1,
+            page: 1,
+            filters,
+            groupByHousehold,
+          }),
+        )
+        return response.pagination.totalResults
       },
     )
   }
@@ -1718,71 +1513,7 @@ export class ContactsService {
   }
 
   async fetchStatsByDistrictId(districtId: string): Promise<StatsResponse> {
-    const token = this.getValidS2SToken()
-
-    try {
-      const response = await lastValueFrom(
-        this.httpService.get<StatsResponse>(
-          `${PEOPLE_API_URL}/v1/people/stats`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-            params: { districtId },
-          },
-        ),
-      )
-
-      return response.data
-    } catch (error) {
-      this.logger.error(
-        { error },
-        'Failed to fetch district stats from people API',
-      )
-      throw new BadGatewayException(
-        'Failed to fetch district stats from people API',
-      )
-    }
-  }
-
-  private getValidS2SToken(): string {
-    if (this.cachedToken && this.isTokenValid(this.cachedToken)) {
-      return this.cachedToken
-    }
-
-    return this.generateAndCacheS2SToken()
-  }
-
-  private isTokenValid(token: string): boolean {
-    try {
-      // jwt.decode returns string | JwtPayload | null — runtime shape depends on token contents
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-      const decoded = jwt.decode(token) as { exp?: number }
-      if (!decoded || !decoded.exp) {
-        return false
-      }
-
-      const now = Math.floor(Date.now() / 1000)
-      const bufferTime = 60
-
-      return decoded.exp > now + bufferTime
-    } catch {
-      return false
-    }
-  }
-
-  private generateAndCacheS2SToken(): string {
-    const now = Math.floor(Date.now() / 1000)
-
-    const payload = {
-      iss: 'gp-api',
-      // Bind the token to people-api so the verifier can require this audience.
-      aud: 'people-api',
-      iat: now,
-      exp: now + 300,
-    }
-
-    this.cachedToken = jwt.sign(payload, PEOPLE_API_S2S_SECRET!)
-
-    return this.cachedToken
+    return this.peopleStatsService.getStats(StatsDTO.create({ districtId }))
   }
 
   // Built-in segments never carry activity conditions or a support-status

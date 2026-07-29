@@ -44,6 +44,15 @@ Preview services run with `connection_limit=5` (set by `IS_PREVIEW` in `docker-e
 2. Add an RDS Proxy in front of the cluster (multiplexes connections; the proxy endpoint replaces `DB_HOST` for previews).
 3. Lower `connection_limit` further, or raise it if the 5-per-service cap proves too tight for single-preview load.
 
+## People-db connection string (SSM)
+
+The task role is granted `ssm:GetParameter` on
+`people-db-connection-string-<dev|prod>` (`index.ts`, alongside the other
+task-role permissions); `PEOPLE_DB_SSM_PARAM` is passed to the container so
+`PeopleDbUrlProvider` (`src/peopleDb/peopleDbUrl.provider.ts`) reads the exact
+parameter name instead of deriving one from `OTEL_SERVICE_ENVIRONMENT`. qa and
+preview map to the `dev` parameter — no separate qa/preview secret exists.
+
 ## Gotchas
 
 - VPC ID, subnet IDs, security group IDs, and the hosted zone are **hardcoded** in `index.ts`. They reference the existing AWS account and aren't created by Pulumi. Don't try to make them dynamic.

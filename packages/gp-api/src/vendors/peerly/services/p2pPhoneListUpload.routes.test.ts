@@ -1,8 +1,7 @@
-import { HttpService } from '@nestjs/axios'
 import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
-import { of } from 'rxjs'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   OfficeLevel,
@@ -15,7 +14,13 @@ const service = useTestService()
 
 const WIN_SLUG = 'campaign-p2p-phone-list'
 const ORG_SLUG_HEADER = 'X-Organization-Slug'
-const DISTRICT_ID = 'district-p2p-phone-list'
+// districtId and the resolved activity-condition id set both now flow
+// through the real people-db Zod DTOs (ListPeopleDTO etc.), which require
+// GUID-shaped strings — unlike the legacy people-api HTTP path, which just
+// serialized these into a JSON body with no format validation.
+const DISTRICT_ID = '20000000-0000-0000-0000-000000000000'
+const PERSON_NO_RESPONSE = '00000000-0000-0000-0000-000000000001'
+const PERSON_RESPONDED = '00000000-0000-0000-0000-000000000002'
 
 const stubDistrict = () =>
   vi.spyOn(service.app.get(ElectionsService), 'getDistrict').mockResolvedValue({
@@ -73,7 +78,7 @@ const seedCompletedOutreach = (
   })
 
 const personPayload = (overrides: Record<string, unknown> = {}) => ({
-  id: 'p-no-response',
+  id: PERSON_NO_RESPONSE,
   firstName: 'Jane',
   lastName: 'Doe',
   cellPhone: '5551234567',
@@ -81,69 +86,78 @@ const personPayload = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
+// People data resolves through the in-process VoterQueryService now instead
+// of the legacy people-api HTTP client — this suite doesn't run a real
+// people-db, so the local service call is stubbed directly.
 const stubPeopleApi = (people: Record<string, unknown>[]) =>
-  vi.spyOn(service.app.get(HttpService), 'post').mockImplementation(((
-    url: string,
-  ) =>
-    url.includes('/v1/people')
-      ? of({
-          data: {
-            people,
-            pagination: { totalResults: people.length, hasNextPage: false },
-          },
-        })
-      : of({ data: {} })) as never)
+  vi.spyOn(service.app.get(VoterQueryService), 'findPeople').mockResolvedValue({
+    people,
+    pagination: {
+      totalResults: people.length,
+      currentPage: 1,
+      pageSize: people.length,
+      totalPages: 1,
+      hasNextPage: false,
+      hasPreviousPage: false,
+    },
+  } as never)
 
 // A fixed-list stub can't distinguish a real exclusion from an assertion
 // that merely happens to pass — this one applies whatever `id` operator
 // (`in` or `notIn`) the request actually carries against the full candidate
 // pool, so CSV/recipient/count assertions only pass if gp-api genuinely
-// composed and sent the right filter.
+// composed and sent the right filter. The id operator is read off the
+// people-db DTO's transformed FilterData (filterOperators.id).
+const idOperatorOf = (dto: {
+  filters?: {
+    filterOperators?: { id?: { operator: string; values: string[] } }
+  }
+}) => dto.filters?.filterOperators?.id
 const stubPeopleApiHonoringIdFilter = (candidates: Record<string, unknown>[]) =>
-  vi.spyOn(service.app.get(HttpService), 'post').mockImplementation(((
-    url: string,
-    body: { filters?: { id?: { in?: string[]; notIn?: string[] } } },
-  ) => {
-    if (!url.includes('/v1/people')) return of({ data: {} })
-    const idFilter = body.filters?.id
-    const people = candidates.filter((person) => {
-      if (idFilter?.in) return idFilter.in.includes(person.id as string)
-      if (idFilter?.notIn) return !idFilter.notIn.includes(person.id as string)
-      return true
-    })
-    return of({
-      data: {
+  vi
+    .spyOn(service.app.get(VoterQueryService), 'findPeople')
+    .mockImplementation(((dto: {
+      filters?: {
+        filterOperators?: { id?: { operator: string; values: string[] } }
+      }
+    }) => {
+      const idFilter = idOperatorOf(dto)
+      const people = candidates.filter((person) => {
+        if (idFilter?.operator === 'in') {
+          return idFilter.values.includes(person.id as string)
+        }
+        if (idFilter?.operator === 'notIn') {
+          return !idFilter.values.includes(person.id as string)
+        }
+        return true
+      })
+      return Promise.resolve({
         people,
         pagination: { totalResults: people.length, hasNextPage: false },
-      },
-    })
-  }) as never)
+      })
+    }) as never)
 
 const stubPeerlyUpload = (token = 'peerly-upload-token') =>
   vi
     .spyOn(service.app.get(PeerlyPhoneListService), 'uploadPhoneList')
     .mockResolvedValue(token)
 
-// Splits candidates across successive pages by the request body's `page`
-// field, so a dedup Set that doesn't actually span the pagination loop
-// would see each duplicate phone only once and pass by accident.
+// Splits candidates across successive pages by the DTO's `page` field, so a
+// dedup Set that doesn't actually span the pagination loop would see each
+// duplicate phone only once and pass by accident.
 const stubPeopleApiPaginated = (pages: Record<string, unknown>[][]) =>
-  vi.spyOn(service.app.get(HttpService), 'post').mockImplementation(((
-    url: string,
-    body: { page: number },
-  ) => {
-    if (!url.includes('/v1/people')) return of({ data: {} })
-    const people = pages[body.page - 1] ?? []
-    return of({
-      data: {
+  vi
+    .spyOn(service.app.get(VoterQueryService), 'findPeople')
+    .mockImplementation(((dto: { page: number }) => {
+      const people = pages[dto.page - 1] ?? []
+      return Promise.resolve({
         people,
         pagination: {
           totalResults: pages.flat().length,
-          hasNextPage: body.page < pages.length,
+          hasNextPage: dto.page < pages.length,
         },
-      },
-    })
-  }) as never)
+      })
+    }) as never)
 
 describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => {
   beforeEach(() => {
@@ -156,14 +170,14 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
     const texts = service.app.get(ContactInteractionTextService)
     await texts.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-responded',
+      personId: PERSON_RESPONDED,
       occurredAt: new Date(),
       outreachId: outreach.id,
       respondedAt: new Date(),
     })
     await texts.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-no-response',
+      personId: PERSON_NO_RESPONSE,
       occurredAt: new Date(),
       outreachId: outreach.id,
     })
@@ -173,7 +187,7 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
       // null zip: unusable for Peerly geo-targeting, must be skipped from
       // both the CSV and the capture rows
       personPayload({
-        id: 'p-no-zip',
+        id: '00000000-0000-0000-0000-0000000000f1',
         cellPhone: '5559876543',
         address: { city: 'Springfield', state: 'CA', zip: null },
       }),
@@ -198,16 +212,17 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
     expect(result.status).toBe(201)
     expect(result.data).toEqual({ token: 'peerly-upload-token' })
 
-    // The activity condition genuinely reached people-api — only the
-    // non-responder's id, intersected with hasCellPhone, is requested. This
-    // is the exact defect the legacy voter-DB path had (it ignored
+    // The activity condition genuinely reached the people-db query — only
+    // the non-responder's id, intersected with hasCellPhone, is requested.
+    // This is the exact defect the legacy voter-DB path had (it ignored
     // activityConditions entirely).
-    const peopleCall = post.mock.calls.find((call) =>
-      String(call[0]).includes('/v1/people'),
-    )
-    expect(peopleCall?.[1]).toMatchObject({
-      filters: { id: { in: ['p-no-response'] }, hasCellPhone: true },
+    const peopleCall = post.mock.calls[0]
+    const sentFilterOperators = peopleCall?.[0].filters.filterOperators
+    expect(sentFilterOperators).toMatchObject({
+      hasCellPhone: { operator: 'is', value: 'not_null' },
+      id: { operator: 'in', values: [PERSON_NO_RESPONSE] },
     })
+    expect(Object.keys(sentFilterOperators ?? {})).toHaveLength(2)
 
     // The CSV Peerly received has only the header plus the one matching row.
     const uploadArgs = upload.mock.calls[0]?.[0] as { csvBuffer: Buffer }
@@ -232,7 +247,7 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
     })
     expect(recipients).toEqual([
       expect.objectContaining({
-        personId: 'p-no-response',
+        personId: PERSON_NO_RESPONSE,
         phone: '5551234567',
       }),
     ])
@@ -296,15 +311,16 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
     )
 
     expect(result.status).toBe(201)
-    // The persisted segment's criteria drove resolution: the people-api
+    // The persisted segment's criteria drove resolution: the people-db
     // request carries the saved partyDemocrat filter, not just the (empty)
     // inline fields — plus the channel-forced hasCellPhone.
-    const peopleCall = post.mock.calls.find((call) =>
-      String(call[0]).includes('/v1/people'),
-    )
-    expect(peopleCall?.[1]).toMatchObject({
-      filters: { politicalParty: { eq: 'Democratic' }, hasCellPhone: true },
+    const peopleCall = post.mock.calls[0]
+    const sentFilterOperators = peopleCall?.[0].filters.filterOperators
+    expect(sentFilterOperators).toMatchObject({
+      politicalParty: { operator: 'eq', value: 'Democratic' },
+      hasCellPhone: { operator: 'is', value: 'not_null' },
     })
+    expect(Object.keys(sentFilterOperators ?? {})).toHaveLength(2)
     expect(
       await service.prisma.peerlyPhoneList.findUnique({
         where: { token: 'peerly-upload-token' },
@@ -316,7 +332,7 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
     await seedWinCampaign()
     stubPeopleApi([
       personPayload({
-        id: 'p-no-zip',
+        id: '00000000-0000-0000-0000-0000000000f1',
         address: { city: 'Springfield', state: 'CA', zip: null },
       }),
     ])
@@ -367,16 +383,22 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
     const texts = service.app.get(ContactInteractionTextService)
     await texts.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-opted-out',
+      personId: '00000000-0000-0000-0000-0000000000aa',
       occurredAt: new Date(),
       outreachId: outreach.id,
       optedOutAt: new Date(),
     })
 
     const post = stubPeopleApiHonoringIdFilter([
-      personPayload({ id: 'p-match-1' }),
-      personPayload({ id: 'p-match-2', cellPhone: '5559990000' }),
-      personPayload({ id: 'p-opted-out', cellPhone: '5551230000' }),
+      personPayload({ id: '00000000-0000-0000-0000-0000000000d1' }),
+      personPayload({
+        id: '00000000-0000-0000-0000-0000000000d2',
+        cellPhone: '5559990000',
+      }),
+      personPayload({
+        id: '00000000-0000-0000-0000-0000000000aa',
+        cellPhone: '5551230000',
+      }),
     ])
     stubPeerlyUpload()
 
@@ -388,11 +410,13 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
 
     expect(result.status).toBe(201)
 
-    const peopleCall = post.mock.calls.find((call) =>
-      String(call[0]).includes('/v1/people'),
-    )
-    expect(peopleCall?.[1]).toMatchObject({
-      filters: { id: { notIn: ['p-opted-out'] }, hasCellPhone: true },
+    const sentFilterOperators = post.mock.calls[0]?.[0].filters.filterOperators
+    expect(sentFilterOperators).toMatchObject({
+      id: {
+        operator: 'notIn',
+        values: ['00000000-0000-0000-0000-0000000000aa'],
+      },
+      hasCellPhone: { operator: 'is', value: 'not_null' },
     })
 
     const capturedList = await service.prisma.peerlyPhoneList.findUnique({
@@ -403,7 +427,9 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
       where: { peerlyPhoneListId: capturedList?.id },
     })
     expect(recipients).toHaveLength(2)
-    expect(recipients.map((r) => r.personId)).not.toContain('p-opted-out')
+    expect(recipients.map((r) => r.personId)).not.toContain(
+      '00000000-0000-0000-0000-0000000000aa',
+    )
   })
 
   it('shrinks an activity-condition "in" set to the ids that are not opted out', async () => {
@@ -411,32 +437,38 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
     const outreach = await seedCompletedOutreach(campaign.id, OutreachType.text)
     const texts = service.app.get(ContactInteractionTextService)
     // All three match the "no_response" activity condition (respondedAt
-    // null); 'p-opted-out' additionally opted out on the same row — a real
+    // null); '00000000-0000-0000-0000-0000000000aa' additionally opted out on the same row — a real
     // shape, since a "STOP" reply is itself a non-response.
     await texts.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-no-response-1',
+      personId: '00000000-0000-0000-0000-0000000000e1',
       occurredAt: new Date(),
       outreachId: outreach.id,
     })
     await texts.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-opted-out',
+      personId: '00000000-0000-0000-0000-0000000000aa',
       occurredAt: new Date(),
       outreachId: outreach.id,
       optedOutAt: new Date(),
     })
     await texts.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-no-response-2',
+      personId: '00000000-0000-0000-0000-0000000000e2',
       occurredAt: new Date(),
       outreachId: outreach.id,
     })
 
     const post = stubPeopleApiHonoringIdFilter([
-      personPayload({ id: 'p-no-response-1' }),
-      personPayload({ id: 'p-opted-out', cellPhone: '5551230000' }),
-      personPayload({ id: 'p-no-response-2', cellPhone: '5559990000' }),
+      personPayload({ id: '00000000-0000-0000-0000-0000000000e1' }),
+      personPayload({
+        id: '00000000-0000-0000-0000-0000000000aa',
+        cellPhone: '5551230000',
+      }),
+      personPayload({
+        id: '00000000-0000-0000-0000-0000000000e2',
+        cellPhone: '5559990000',
+      }),
     ])
     stubPeerlyUpload()
 
@@ -460,14 +492,15 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
     // The resolved "in" set (3 ids matching the activity condition) shrank
     // to the 2 that aren't opted out, rather than the opt-out riding along
     // as a separate, illegal sibling `notIn` on the same `id` key.
-    const peopleCall = post.mock.calls.find((call) =>
-      String(call[0]).includes('/v1/people'),
-    )
-    const sentFilters = peopleCall?.[1] as {
-      filters: { id: { in: string[] } }
-    }
-    expect(new Set(sentFilters.filters.id.in)).toEqual(
-      new Set(['p-no-response-1', 'p-no-response-2']),
+    const sentFilterOperators = post.mock.calls[0]?.[0].filters.filterOperators
+    expect(sentFilterOperators).toMatchObject({ id: { operator: 'in' } })
+    expect(
+      new Set((sentFilterOperators?.id?.values ?? []).map(String)),
+    ).toEqual(
+      new Set([
+        '00000000-0000-0000-0000-0000000000e1',
+        '00000000-0000-0000-0000-0000000000e2',
+      ]),
     )
 
     const capturedList = await service.prisma.peerlyPhoneList.findUnique({
@@ -478,8 +511,8 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
       where: { peerlyPhoneListId: capturedList?.id },
     })
     expect(recipients.map((r) => r.personId).sort()).toEqual([
-      'p-no-response-1',
-      'p-no-response-2',
+      '00000000-0000-0000-0000-0000000000e1',
+      '00000000-0000-0000-0000-0000000000e2',
     ])
   })
 
@@ -489,22 +522,25 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
     const texts = service.app.get(ContactInteractionTextService)
     await texts.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-all-opted-out-1',
+      personId: '00000000-0000-0000-0000-0000000000a1',
       occurredAt: new Date(),
       outreachId: outreach.id,
       optedOutAt: new Date(),
     })
     await texts.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-all-opted-out-2',
+      personId: '00000000-0000-0000-0000-0000000000a2',
       occurredAt: new Date(),
       outreachId: outreach.id,
       optedOutAt: new Date(),
     })
 
     const post = stubPeopleApiHonoringIdFilter([
-      personPayload({ id: 'p-all-opted-out-1' }),
-      personPayload({ id: 'p-all-opted-out-2', cellPhone: '5559990000' }),
+      personPayload({ id: '00000000-0000-0000-0000-0000000000a1' }),
+      personPayload({
+        id: '00000000-0000-0000-0000-0000000000a2',
+        cellPhone: '5559990000',
+      }),
     ])
     stubPeerlyUpload()
 
@@ -525,12 +561,9 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
 
     // No contacts survive the scrub, so the build 400s rather than uploading
     // an empty list — and it does so via the 'empty' short-circuit, never by
-    // sending people-api an illegal zero-length `in`.
+    // querying people-db with an illegal zero-length `in`.
     expect(result.status).toBe(400)
-    const peopleCall = post.mock.calls.find((call) =>
-      String(call[0]).includes('/v1/people'),
-    )
-    expect(peopleCall).toBeUndefined()
+    expect(post).not.toHaveBeenCalled()
     expect(await service.prisma.peerlyPhoneList.count()).toBe(0)
   })
 
@@ -557,13 +590,15 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
     const texts = service.app.get(ContactInteractionTextService)
     await texts.create({
       organizationSlug: 'other-org-optout-p2p',
-      personId: 'p-shared-across-orgs',
+      personId: '00000000-0000-0000-0000-0000000000ab',
       occurredAt: new Date(),
       outreachId: otherOutreach.id,
       optedOutAt: new Date(),
     })
 
-    const post = stubPeopleApi([personPayload({ id: 'p-shared-across-orgs' })])
+    const post = stubPeopleApi([
+      personPayload({ id: '00000000-0000-0000-0000-0000000000ab' }),
+    ])
     stubPeerlyUpload()
 
     const result = await service.client.post(
@@ -573,13 +608,8 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
     )
 
     expect(result.status).toBe(201)
-    const peopleCall = post.mock.calls.find((call) =>
-      String(call[0]).includes('/v1/people'),
-    )
-    const sentFilters = (
-      peopleCall?.[1] as { filters: Record<string, unknown> }
-    ).filters
-    expect(sentFilters).not.toHaveProperty('id')
+    const sentFilterOperators = post.mock.calls[0]?.[0].filters.filterOperators
+    expect(sentFilterOperators).not.toHaveProperty('id')
 
     const capturedList = await service.prisma.peerlyPhoneList.findUnique({
       where: { token: 'peerly-upload-token' },
@@ -604,13 +634,8 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
     )
 
     expect(result.status).toBe(201)
-    const peopleCall = post.mock.calls.find((call) =>
-      String(call[0]).includes('/v1/people'),
-    )
-    const sentFilters = (
-      peopleCall?.[1] as { filters: Record<string, unknown> }
-    ).filters
-    expect(sentFilters).not.toHaveProperty('id')
+    const sentFilterOperators = post.mock.calls[0]?.[0].filters.filterOperators
+    expect(sentFilterOperators).not.toHaveProperty('id')
 
     const capturedList = await service.prisma.peerlyPhoneList.findUnique({
       where: { token: 'peerly-upload-token' },
@@ -642,13 +667,9 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
       )
 
       expect(result.status).toBe(201)
-      const peopleCall = post.mock.calls.find((call) =>
-        String(call[0]).includes('/v1/people'),
-      )
-      const sentFilters = (
-        peopleCall?.[1] as { filters: Record<string, unknown> }
-      ).filters
-      expect(sentFilters).not.toHaveProperty('id')
+      const sentFilterOperators =
+        post.mock.calls[0]?.[0].filters.filterOperators
+      expect(sentFilterOperators).not.toHaveProperty('id')
 
       const capturedList = await service.prisma.peerlyPhoneList.findUnique({
         where: { token: 'peerly-upload-token' },
@@ -668,14 +689,17 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
       // notIn alone is large, then seed an opt-out set that only pushes the
       // *combination* over the cap (each set stays under the cap on its
       // own, matching the two independent caps this scenario exercises).
+      // person_id now flows through the people-db DTO's z.guid() validation,
+      // so the two sets carry distinguishable GUID prefixes (10.. known,
+      // 20.. opted-out) instead of the old free-form 'known-cap-N' strings.
       await service.prisma.$executeRaw`
         INSERT INTO contact_interaction_door_knock (id, organization_slug, person_id, occurred_at, outcome, support_answer)
-        SELECT gen_random_uuid()::text, ${WIN_SLUG}, 'known-cap-' || gen_series, now(), 'answered', 'supporter'
+        SELECT gen_random_uuid()::text, ${WIN_SLUG}, '10000000-0000-0000-0000-' || lpad(gen_series::text, 12, '0'), now(), 'answered', 'supporter'
         FROM generate_series(1, 60000) AS gen_series
       `
       await service.prisma.$executeRaw`
         INSERT INTO contact_interaction_text (id, organization_slug, person_id, occurred_at, opted_out_at)
-        SELECT gen_random_uuid()::text, ${WIN_SLUG}, 'optout-cap-' || gen_series, now(), now()
+        SELECT gen_random_uuid()::text, ${WIN_SLUG}, '20000000-0000-0000-0000-' || lpad(gen_series::text, 12, '0'), now(), now()
         FROM generate_series(1, 50000) AS gen_series
       `
 
@@ -689,19 +713,14 @@ describe('POST /v1/p2p/phone-list (ENG-10800 opt-out scrub)', () => {
       )
 
       expect(result.status).toBe(201)
-      const peopleCall = post.mock.calls.find((call) =>
-        String(call[0]).includes('/v1/people'),
-      )
       const sentNotIn = (
-        peopleCall?.[1] as {
-          filters: { id: { notIn: string[] } }
-        }
-      ).filters.id.notIn
+        post.mock.calls[0]?.[0].filters.filterOperators.id?.values ?? []
+      ).map(String)
       // The support-status notIn resolution rode through unchanged (60k);
       // the opt-out ids did NOT get unioned in — proof the merge was
       // dropped rather than sent past the cap or blocking the send.
       expect(sentNotIn).toHaveLength(60_000)
-      expect(sentNotIn.some((id) => id.startsWith('optout-cap-'))).toBe(false)
+      expect(sentNotIn.some((id) => id.startsWith('20000000-'))).toBe(false)
     },
   )
 })
@@ -714,8 +733,14 @@ describe('POST /v1/p2p/phone-list (ENG-10801 phone dedup)', () => {
   it('dedupes two people sharing a phone number within one page', async () => {
     await seedWinCampaign()
     stubPeopleApi([
-      personPayload({ id: 'p-first', cellPhone: '5551112222' }),
-      personPayload({ id: 'p-second', cellPhone: '5551112222' }),
+      personPayload({
+        id: '00000000-0000-0000-0000-0000000000c1',
+        cellPhone: '5551112222',
+      }),
+      personPayload({
+        id: '00000000-0000-0000-0000-0000000000c2',
+        cellPhone: '5551112222',
+      }),
     ])
     const upload = stubPeerlyUpload()
 
@@ -743,15 +768,28 @@ describe('POST /v1/p2p/phone-list (ENG-10801 phone dedup)', () => {
       where: { peerlyPhoneListId: capturedList?.id },
     })
     expect(recipients).toEqual([
-      expect.objectContaining({ personId: 'p-first', phone: '5551112222' }),
+      expect.objectContaining({
+        personId: '00000000-0000-0000-0000-0000000000c1',
+        phone: '5551112222',
+      }),
     ])
   })
 
   it('dedupes a phone number shared by two people across pages', async () => {
     await seedWinCampaign()
     stubPeopleApiPaginated([
-      [personPayload({ id: 'p-page1', cellPhone: '5553334444' })],
-      [personPayload({ id: 'p-page2', cellPhone: '5553334444' })],
+      [
+        personPayload({
+          id: '00000000-0000-0000-0000-000000000011',
+          cellPhone: '5553334444',
+        }),
+      ],
+      [
+        personPayload({
+          id: '00000000-0000-0000-0000-000000000012',
+          cellPhone: '5553334444',
+        }),
+      ],
     ])
     stubPeerlyUpload()
 
@@ -771,7 +809,10 @@ describe('POST /v1/p2p/phone-list (ENG-10801 phone dedup)', () => {
       where: { peerlyPhoneListId: capturedList?.id },
     })
     expect(recipients).toEqual([
-      expect.objectContaining({ personId: 'p-page1', phone: '5553334444' }),
+      expect.objectContaining({
+        personId: '00000000-0000-0000-0000-000000000011',
+        phone: '5553334444',
+      }),
     ])
   })
 
@@ -781,18 +822,33 @@ describe('POST /v1/p2p/phone-list (ENG-10801 phone dedup)', () => {
     const texts = service.app.get(ContactInteractionTextService)
     await texts.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-opted-out',
+      personId: '00000000-0000-0000-0000-0000000000aa',
       occurredAt: new Date(),
       outreachId: outreach.id,
       optedOutAt: new Date(),
     })
 
     stubPeopleApiHonoringIdFilter([
-      personPayload({ id: 'p-unique-1', cellPhone: '5551110000' }),
-      personPayload({ id: 'p-unique-2', cellPhone: '5552220000' }),
-      personPayload({ id: 'p-dup-a', cellPhone: '5553330000' }),
-      personPayload({ id: 'p-dup-b', cellPhone: '5553330000' }),
-      personPayload({ id: 'p-opted-out', cellPhone: '5554440000' }),
+      personPayload({
+        id: '00000000-0000-0000-0000-000000000021',
+        cellPhone: '5551110000',
+      }),
+      personPayload({
+        id: '00000000-0000-0000-0000-000000000022',
+        cellPhone: '5552220000',
+      }),
+      personPayload({
+        id: '00000000-0000-0000-0000-0000000000b1',
+        cellPhone: '5553330000',
+      }),
+      personPayload({
+        id: '00000000-0000-0000-0000-0000000000b2',
+        cellPhone: '5553330000',
+      }),
+      personPayload({
+        id: '00000000-0000-0000-0000-0000000000aa',
+        cellPhone: '5554440000',
+      }),
     ])
     stubPeerlyUpload()
 
@@ -813,9 +869,9 @@ describe('POST /v1/p2p/phone-list (ENG-10801 phone dedup)', () => {
       where: { peerlyPhoneListId: capturedList?.id },
     })
     expect(recipients.map((r) => r.personId).sort()).toEqual([
-      'p-dup-a',
-      'p-unique-1',
-      'p-unique-2',
+      '00000000-0000-0000-0000-000000000021',
+      '00000000-0000-0000-0000-000000000022',
+      '00000000-0000-0000-0000-0000000000b1',
     ])
   })
 })

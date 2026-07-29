@@ -1,8 +1,10 @@
+import { randomUUID } from 'node:crypto'
 import { useTestService } from '@/test-service'
 import { ContactStatusField } from '@/generated/prisma'
 import { HttpService } from '@nestjs/axios'
 import { of } from 'rxjs'
 import { describe, expect, it, vi } from 'vitest'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 
 const service = useTestService()
 
@@ -13,22 +15,22 @@ const ORG_SLUG_HEADER = 'X-Organization-Slug'
 // bucket's filter even when their seed voterStatus disagrees, and vice versa.
 // Drives POST /v1/contacts/count through the real HTTP pipeline (auth, org
 // resolution, Pro gate, ContactStatusService reads) with a real Postgres
-// database; only the people-api S2S call itself is stubbed — the actual SQL
-// composition (the OR scoped to voterStatus only) is unit-tested directly in
-// people-api's filters.sql.utils.test.ts.
+// database; only the in-process people-db list query itself is stubbed — the
+// actual SQL composition (the OR scoped to voterStatus only) is unit-tested
+// directly in filters.sql.util.test.ts.
 describe('POST /v1/contacts/count — Voter Likelihood override resolution', () => {
   // Win (non-`eo-`) Pro org. assertVoterDataEligibility resolves the
-  // district via election-api (a real HttpService.get, distinct from the
-  // people-api POST stubbed per-test below) — stub it with L2 data present
-  // so the org is eligible, mirroring
-  // contactsOverlapCount.routes.test.ts's setupWinProOrg.
+  // district via election-api (a real HttpService.get) — stub it with L2 data
+  // present so the org is eligible.
   const setupWinProOrg = async (suffix: string) => {
     const slug = `campaign-likelihood-${suffix}-${Date.now()}`
     await service.prisma.organization.create({
       data: {
         slug,
         ownerId: service.user.id,
-        overrideDistrictId: `district-likelihood-${suffix}`,
+        // The ported people-db DTOs run through Zod, whose districtId is
+        // z.guid() — a non-UUID placeholder fails validation here.
+        overrideDistrictId: randomUUID(),
       },
     })
     await service.prisma.campaign.create({
@@ -59,7 +61,7 @@ describe('POST /v1/contacts/count — Voter Likelihood override resolution', () 
       data: {
         slug,
         ownerId: service.user.id,
-        overrideDistrictId: `district-likelihood-${suffix}`,
+        overrideDistrictId: randomUUID(),
       },
     })
     return slug
@@ -79,32 +81,41 @@ describe('POST /v1/contacts/count — Voter Likelihood override resolution', () 
       },
     })
 
-  const spyOnPeopleApi = () =>
+  // The count route reads response.pagination.totalResults; the idOverrides
+  // and voterStatus filter the route forwards ride the DTO the in-process
+  // VoterQueryService.findPeople receives.
+  const spyOnFindPeople = () =>
     vi
-      .spyOn(service.app.get(HttpService), 'post')
-      .mockReturnValue(
-        of({ data: { pagination: { totalResults: 1 } } }) as never,
-      )
-
-  const requestBody = (postSpy: ReturnType<typeof spyOnPeopleApi>) =>
-    postSpy.mock.calls[0]?.[1] as Record<string, unknown>
+      .spyOn(service.app.get(VoterQueryService), 'findPeople')
+      .mockResolvedValue({
+        pagination: {
+          totalResults: 1,
+          currentPage: 1,
+          pageSize: 1,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+          fenced: false,
+        },
+        people: [],
+      })
 
   it('a Super override matches a Super filter and is excluded from an Unlikely filter', async () => {
     const slug = await setupWinProOrg('super-override')
-    const overriddenPersonId = '11111111-1111-1111-1111-111111111111'
+    const overriddenPersonId = randomUUID()
     await setOverride(slug, overriddenPersonId, 'super')
 
-    const postSpy = spyOnPeopleApi()
+    const findPeopleSpy = spyOnFindPeople()
     await service.client.post(
       '/v1/contacts/count',
       { audienceSuperVoters: true },
       { headers: { [ORG_SLUG_HEADER]: slug } },
     )
-    expect(requestBody(postSpy).idOverrides).toEqual({
+    expect(findPeopleSpy.mock.calls[0]?.[0]?.idOverrides).toEqual({
       include: [overriddenPersonId],
     })
 
-    postSpy.mockClear()
+    findPeopleSpy.mockClear()
     await service.client.post(
       '/v1/contacts/count',
       { audienceUnlikelyVoters: true },
@@ -115,39 +126,39 @@ describe('POST /v1/contacts/count — Voter Likelihood override resolution', () 
     // would not otherwise have matched anyway; the exclude set proves the
     // person is a KNOWN override the seed filter must not silently re-admit
     // via some other codepath.
-    expect(requestBody(postSpy).idOverrides).toEqual({
+    expect(findPeopleSpy.mock.calls[0]?.[0]?.idOverrides).toEqual({
       exclude: [overriddenPersonId],
     })
   })
 
   it('a person overridden to Super still appears in a Super-filtered count, absent from an Unlikely-filtered one — including the seed-Unreliable expansion', async () => {
     const slug = await setupWinProOrg('seed-mismatch')
-    const overriddenPersonId = '22222222-2222-2222-2222-222222222222'
+    const overriddenPersonId = randomUUID()
     await setOverride(slug, overriddenPersonId, 'super')
 
-    const unlikelyPostSpy = spyOnPeopleApi()
+    const findPeopleSpy = spyOnFindPeople()
     await service.client.post(
       '/v1/contacts/count',
       { audienceUnlikelyVoters: true },
       { headers: { [ORG_SLUG_HEADER]: slug } },
     )
-    const unlikelyBody = requestBody(unlikelyPostSpy)
+    const dto = findPeopleSpy.mock.calls[0]?.[0]
     // The seed side of the filter is corrected to include the collapsed
     // Unreliable seed value alongside Unlikely (ENG-10838's fix), and the
     // Super-overridden person is excluded despite never matching either seed
     // value in the first place — proves exclude is populated from the
     // override table, not derived from "would the seed filter have matched".
-    expect(unlikelyBody.filters).toEqual(
-      expect.objectContaining({
-        voterStatus: { in: ['Unlikely', 'Unreliable'] },
-      }),
-    )
-    expect(unlikelyBody.idOverrides).toEqual({ exclude: [overriddenPersonId] })
+    expect(dto?.filters.filterOperators.voterStatus).toEqual({
+      operator: 'in',
+      values: ['Unlikely', 'Unreliable'],
+      includeNull: false,
+    })
+    expect(dto?.idOverrides).toEqual({ exclude: [overriddenPersonId] })
   })
 
   it('a person with no override is unaffected — no idOverrides sent, seed filter still expands Unlikely to include Unreliable', async () => {
     const slug = await setupWinProOrg('no-override')
-    const postSpy = spyOnPeopleApi()
+    const findPeopleSpy = spyOnFindPeople()
 
     await service.client.post(
       '/v1/contacts/count',
@@ -155,18 +166,18 @@ describe('POST /v1/contacts/count — Voter Likelihood override resolution', () 
       { headers: { [ORG_SLUG_HEADER]: slug } },
     )
 
-    const body = requestBody(postSpy)
-    expect(body.filters).toEqual(
-      expect.objectContaining({
-        voterStatus: { in: ['Unlikely', 'Unreliable'] },
-      }),
-    )
-    expect(body.idOverrides).toBeUndefined()
+    const dto = findPeopleSpy.mock.calls[0]?.[0]
+    expect(dto?.filters.filterOperators.voterStatus).toEqual({
+      operator: 'in',
+      values: ['Unlikely', 'Unreliable'],
+      includeNull: false,
+    })
+    expect(dto?.idOverrides).toBeUndefined()
   })
 
   it('orgs with zero overrides send idOverrides as undefined (dropped by JSON serialization, byte-identical wire payload)', async () => {
     const slug = await setupWinProOrg('zero-overrides')
-    const postSpy = spyOnPeopleApi()
+    const findPeopleSpy = spyOnFindPeople()
 
     await service.client.post(
       '/v1/contacts/count',
@@ -174,14 +185,14 @@ describe('POST /v1/contacts/count — Voter Likelihood override resolution', () 
       { headers: { [ORG_SLUG_HEADER]: slug } },
     )
 
-    expect(requestBody(postSpy).idOverrides).toBeUndefined()
+    expect(findPeopleSpy.mock.calls[0]?.[0]?.idOverrides).toBeUndefined()
   })
 
   it('an override-included person still respects other selected filters (gender) — the include set does not bypass them', async () => {
     const slug = await setupWinProOrg('other-filters')
-    const overriddenPersonId = '33333333-3333-3333-3333-333333333333'
+    const overriddenPersonId = randomUUID()
     await setOverride(slug, overriddenPersonId, 'super')
-    const postSpy = spyOnPeopleApi()
+    const findPeopleSpy = spyOnFindPeople()
 
     await service.client.post(
       '/v1/contacts/count',
@@ -189,22 +200,22 @@ describe('POST /v1/contacts/count — Voter Likelihood override resolution', () 
       { headers: { [ORG_SLUG_HEADER]: slug } },
     )
 
-    const body = requestBody(postSpy)
+    const dto = findPeopleSpy.mock.calls[0]?.[0]
     // idOverrides is a request-level sibling of `filters`, never merged into
-    // it — people-api's buildVoterFiltersSql (unit-tested directly) is what
-    // proves the OR composite stays scoped to the voterStatus clause only,
-    // AND-ed with gender at the top level. This asserts gp-api sends both
-    // independently rather than, say, dropping gender once an override
-    // applies.
-    expect(body.idOverrides).toEqual({ include: [overriddenPersonId] })
-    expect(body.filters).toEqual(
-      expect.objectContaining({ gender: { eq: 'F' } }),
-    )
+    // it — buildVoterFiltersSql (unit-tested directly) is what proves the OR
+    // composite stays scoped to the voterStatus clause only, AND-ed with
+    // gender at the top level. This asserts gp-api sends both independently
+    // rather than, say, dropping gender once an override applies.
+    expect(dto?.idOverrides).toEqual({ include: [overriddenPersonId] })
+    expect(dto?.filters.filterOperators.gender).toEqual({
+      operator: 'eq',
+      value: 'F',
+    })
   })
 
   it('does not resolve overrides at all when no likelihood filter is selected', async () => {
     const slug = await setupWinProOrg('no-likelihood-filter')
-    const postSpy = spyOnPeopleApi()
+    const findPeopleSpy = spyOnFindPeople()
 
     await service.client.post(
       '/v1/contacts/count',
@@ -212,20 +223,20 @@ describe('POST /v1/contacts/count — Voter Likelihood override resolution', () 
       { headers: { [ORG_SLUG_HEADER]: slug } },
     )
 
-    const body = requestBody(postSpy)
-    expect(body.idOverrides).toBeUndefined()
-    expect(body.filters).not.toHaveProperty('voterStatus')
+    const dto = findPeopleSpy.mock.calls[0]?.[0]
+    expect(dto?.idOverrides).toBeUndefined()
+    expect(dto?.filters.filterOperators.voterStatus).toBeUndefined()
   })
 
   it('is a no-op for a Serve (eo-) org — no override lookup, even with an override row present', async () => {
     const slug = await setupEoOrg('serve-skip')
-    const personId = '44444444-4444-4444-4444-444444444444'
+    const personId = randomUUID()
     // A voter_likelihood row should never exist for an eo- org in production
     // (the write path 400s for eo- orgs) — seeding one anyway proves the
     // filter path is skipped by construction (hasElectedOfficeAccess), not
     // merely because no row exists.
     await setOverride(slug, personId, 'super')
-    const postSpy = spyOnPeopleApi()
+    const findPeopleSpy = spyOnFindPeople()
 
     await service.client.post(
       '/v1/contacts/count',
@@ -233,10 +244,11 @@ describe('POST /v1/contacts/count — Voter Likelihood override resolution', () 
       { headers: { [ORG_SLUG_HEADER]: slug } },
     )
 
-    const body = requestBody(postSpy)
-    expect(body.idOverrides).toBeUndefined()
-    expect(body.filters).toEqual(
-      expect.objectContaining({ voterStatus: { eq: 'Super' } }),
-    )
+    const dto = findPeopleSpy.mock.calls[0]?.[0]
+    expect(dto?.idOverrides).toBeUndefined()
+    expect(dto?.filters.filterOperators.voterStatus).toEqual({
+      operator: 'eq',
+      value: 'Super',
+    })
   })
 })

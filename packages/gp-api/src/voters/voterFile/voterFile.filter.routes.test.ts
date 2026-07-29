@@ -1,4 +1,3 @@
-import { HttpService } from '@nestjs/axios'
 import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { FeaturesService } from '@/features/services/features.service'
@@ -6,6 +5,9 @@ import { convertVoterFileFilterToFilters } from '@/contacts/utils/voterFileFilte
 import { ContactInteractionDoorKnockService } from '@/contactInteraction/services/contactInteractionDoorKnock.service'
 import { ContactInteractionRobocallService } from '@/contactInteraction/services/contactInteractionRobocall.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
+import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
+import type { FilterData } from '@/peopleDb/schemas/filters.schema'
 import {
   DoorKnockOutcome,
   OutreachStatus,
@@ -13,15 +15,53 @@ import {
   SupportAnswer,
   VoterFileFilter,
 } from '../../generated/prisma'
-import { Readable } from 'node:stream'
-import { of } from 'rxjs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+type ReconstructedFilterValue =
+  | { eq: string | number }
+  | { in: string[] | number[] }
+  | { notIn: string[] }
+  | { is: string }
+
+// Reconstructs the pre-transform wire shape (e.g. `{ id: { in: [...] } }`)
+// from the transformed FilterData a local people-db service call now
+// receives, so assertions read the same as they did against the old
+// outgoing people-api request body.
+const reconstructFilters = (
+  filters: FilterData,
+): Record<string, ReconstructedFilterValue> => {
+  const result: Record<string, ReconstructedFilterValue> = {}
+  for (const key of filters.filters) {
+    const op = filters.filterOperators[key]
+    if (!op) continue
+    if (op.operator === 'eq' && op.value !== undefined) {
+      result[key] = { eq: op.value }
+    } else if (op.operator === 'in' && op.values) {
+      result[key] = { in: op.values }
+    } else if (op.operator === 'notIn' && op.values) {
+      result[key] = { notIn: op.values as string[] }
+    } else if (op.operator === 'is' && op.value !== undefined) {
+      result[key] = { is: String(op.value) }
+    }
+  }
+  return result
+}
 
 const service = useTestService()
 
 const WIN_SLUG = 'campaign-win-segments'
 const ORG_SLUG_HEADER = 'X-Organization-Slug'
-const DISTRICT_ID = 'district-win-segments'
+// districtId and the resolved activity-condition/support-status id set both
+// now flow through the real people-db Zod DTOs (ListPeopleDTO etc.), which
+// require GUID-shaped strings — unlike the legacy people-api HTTP path,
+// which just serialized these into a JSON body with no format validation.
+const DISTRICT_ID = '10000000-0000-0000-0000-000000000000'
+const PERSON_NO_RESPONSE = '00000000-0000-0000-0000-000000000001'
+const PERSON_RESPONDED = '00000000-0000-0000-0000-000000000002'
+const PERSON_BOTH = '00000000-0000-0000-0000-000000000003'
+const PERSON_TEXT_ONLY = '00000000-0000-0000-0000-000000000004'
+const PERSON_SUPPORTER = '00000000-0000-0000-0000-000000000005'
+const PERSON_NON_SUPPORTER = '00000000-0000-0000-0000-000000000006'
 
 const seedWinCampaign = async (isPro = true) => {
   await service.prisma.organization.create({
@@ -522,15 +562,32 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
         projectedTurnout: null,
       })
 
-  const stubPeopleApi = (totalResults = 0) =>
-    vi.spyOn(service.app.get(HttpService), 'post').mockImplementation(((
-      url: string,
-    ) =>
-      url.includes('/download')
-        ? of({ data: Readable.from(['lalVoterId\n']) })
-        : of({
-            data: { people: [], pagination: { totalResults } },
-          })) as never)
+  // People data resolves through the in-process people-db services now
+  // (VoterQueryService for list/count, VoterDownloadService for the CSV
+  // stream) instead of the legacy people-api HTTP client — this suite
+  // doesn't run a real people-db, so both are stubbed.
+  const stubPeopleApi = (totalResults = 0) => {
+    const findPeople = vi
+      .spyOn(service.app.get(VoterQueryService), 'findPeople')
+      .mockResolvedValue({
+        people: [],
+        pagination: {
+          totalResults,
+          currentPage: 1,
+          pageSize: 50,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      } as never)
+    const streamPeopleCsv = vi
+      .spyOn(service.app.get(VoterDownloadService), 'streamPeopleCsv')
+      .mockImplementation(async (_dto, res) => {
+        res.raw.setHeader('Content-Type', 'text/csv')
+        res.raw.end('lalVoterId\n')
+      })
+    return { findPeople, streamPeopleCsv }
+  }
 
   beforeEach(async () => {
     await seedWinCampaign()
@@ -542,13 +599,13 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
   })
 
   const outgoingFiltersFor = (
-    post: ReturnType<typeof stubPeopleApi>,
-    pathSuffix: string,
+    spy:
+      | ReturnType<typeof stubPeopleApi>['findPeople']
+      | ReturnType<typeof stubPeopleApi>['streamPeopleCsv'],
   ) => {
-    const call = post.mock.calls.find((call) =>
-      String(call[0]).endsWith(pathSuffix),
-    )
-    return (call?.[1] as { filters: Record<string, unknown> }).filters
+    const calls = spy.mock.calls
+    const call = calls[calls.length - 1] as [{ filters: FilterData }]
+    return reconstructFilters(call[0].filters)
   }
 
   it('a single condition (text, specific outreach, no_response) resolves the exact seeded people on list/count/download', async () => {
@@ -563,13 +620,13 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
     const texts = service.app.get(ContactInteractionTextService)
     await texts.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-no-response',
+      personId: PERSON_NO_RESPONSE,
       occurredAt: new Date(),
       outreachId: outreach.id,
     })
     await texts.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-responded',
+      personId: PERSON_RESPONDED,
       occurredAt: new Date(),
       outreachId: outreach.id,
       respondedAt: new Date(),
@@ -598,8 +655,8 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
       { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
     )
     expect(list.status).toBe(200)
-    expect(outgoingFiltersFor(post, '/v1/people')).toEqual({
-      id: { in: ['p-no-response'] },
+    expect(outgoingFiltersFor(post.findPeople)).toEqual({
+      id: { in: [PERSON_NO_RESPONSE] },
     })
 
     const count = await service.client.post(
@@ -616,8 +673,8 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
       { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
     )
     expect(count.status).toBe(201)
-    expect(outgoingFiltersFor(post, '/v1/people')).toEqual({
-      id: { in: ['p-no-response'] },
+    expect(outgoingFiltersFor(post.findPeople)).toEqual({
+      id: { in: [PERSON_NO_RESPONSE] },
     })
 
     const download = await service.client.get(
@@ -625,8 +682,8 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
       { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
     )
     expect(download.status).toBe(200)
-    expect(outgoingFiltersFor(post, '/v1/people/download')).toEqual({
-      id: { in: ['p-no-response'] },
+    expect(outgoingFiltersFor(post.streamPeopleCsv)).toEqual({
+      id: { in: [PERSON_NO_RESPONSE] },
     })
   })
 
@@ -649,21 +706,21 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
 
     await texts.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-both',
+      personId: PERSON_BOTH,
       occurredAt: new Date(),
       outreachId: textOutreach.id,
       respondedAt: new Date(),
     })
     await texts.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-text-only',
+      personId: PERSON_TEXT_ONLY,
       occurredAt: new Date(),
       outreachId: textOutreach.id,
       respondedAt: new Date(),
     })
     await robocalls.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-both',
+      personId: PERSON_BOTH,
       occurredAt: new Date(),
       outreachId: robocallOutreach.id,
       answeredAt: new Date(),
@@ -691,8 +748,8 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
     )
 
     expect(count.status).toBe(201)
-    expect(outgoingFiltersFor(post, '/v1/people')).toEqual({
-      id: { in: ['p-both'] },
+    expect(outgoingFiltersFor(post.findPeople)).toEqual({
+      id: { in: [PERSON_BOTH] },
     })
   })
 
@@ -700,7 +757,7 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
     const doorKnocks = service.app.get(ContactInteractionDoorKnockService)
     await doorKnocks.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-supporter',
+      personId: PERSON_SUPPORTER,
       occurredAt: new Date(),
       outcome: DoorKnockOutcome.answered,
       supportAnswer: SupportAnswer.supporter,
@@ -708,7 +765,7 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
     })
     await doorKnocks.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-non-supporter',
+      personId: PERSON_NON_SUPPORTER,
       occurredAt: new Date(),
       outcome: DoorKnockOutcome.answered,
       supportAnswer: SupportAnswer.non_supporter,
@@ -724,8 +781,8 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
     )
 
     expect(count.status).toBe(201)
-    expect(outgoingFiltersFor(post, '/v1/people')).toEqual({
-      id: { in: ['p-supporter'] },
+    expect(outgoingFiltersFor(post.findPeople)).toEqual({
+      id: { in: [PERSON_SUPPORTER] },
     })
   })
 
@@ -733,7 +790,7 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
     const doorKnocks = service.app.get(ContactInteractionDoorKnockService)
     await doorKnocks.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-supporter',
+      personId: PERSON_SUPPORTER,
       occurredAt: new Date(),
       outcome: DoorKnockOutcome.answered,
       supportAnswer: SupportAnswer.supporter,
@@ -741,7 +798,7 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
     })
     await doorKnocks.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-non-supporter',
+      personId: PERSON_NON_SUPPORTER,
       occurredAt: new Date(),
       outcome: DoorKnockOutcome.answered,
       supportAnswer: SupportAnswer.non_supporter,
@@ -757,17 +814,19 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
     )
 
     expect(count.status).toBe(201)
-    const filters = outgoingFiltersFor(post, '/v1/people') as {
-      id: { notIn: string[] }
-    }
-    expect(filters.id.notIn.sort()).toEqual(['p-non-supporter', 'p-supporter'])
+    const filters = outgoingFiltersFor(post.findPeople)
+    const idFilter = filters.id as { notIn: string[] }
+    expect(idFilter.notIn.sort()).toEqual([
+      PERSON_SUPPORTER,
+      PERSON_NON_SUPPORTER,
+    ])
   })
 
   it('composes a support-status filter with a demographic filter (AND) through people-api', async () => {
     const doorKnocks = service.app.get(ContactInteractionDoorKnockService)
     await doorKnocks.create({
       organizationSlug: WIN_SLUG,
-      personId: 'p-supporter',
+      personId: PERSON_SUPPORTER,
       occurredAt: new Date(),
       outcome: DoorKnockOutcome.answered,
       supportAnswer: SupportAnswer.supporter,
@@ -783,9 +842,9 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
     )
 
     expect(count.status).toBe(201)
-    expect(outgoingFiltersFor(post, '/v1/people')).toEqual({
+    expect(outgoingFiltersFor(post.findPeople)).toEqual({
       politicalParty: { eq: 'Democratic' },
-      id: { in: ['p-supporter'] },
+      id: { in: [PERSON_SUPPORTER] },
     })
   })
 
@@ -802,7 +861,7 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
 
     expect(count.status).toBe(201)
     expect(count.data.count).toBe(0)
-    expect(post).not.toHaveBeenCalled()
+    expect(post.findPeople).not.toHaveBeenCalled()
   })
 })
 
@@ -896,14 +955,19 @@ describe('count + download for a saved segment', () => {
       data: { organizationSlug: WIN_SLUG, ...partySegmentBody },
     })
 
-    const post = vi.spyOn(service.app.get(HttpService), 'post').mockReturnValue(
-      of({
-        data: {
-          people: [],
-          pagination: { totalResults: 42, currentPage: 1, totalPages: 1 },
+    const findPeople = vi
+      .spyOn(service.app.get(VoterQueryService), 'findPeople')
+      .mockResolvedValue({
+        people: [],
+        pagination: {
+          totalResults: 42,
+          currentPage: 1,
+          pageSize: 50,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
         },
-      }) as never,
-    )
+      } as never)
 
     const result = await service.client.get(
       `/v1/contacts?segment=${segment.id}`,
@@ -912,23 +976,18 @@ describe('count + download for a saved segment', () => {
 
     expect(result.status).toBe(200)
     expect(result.data.pagination.totalResults).toBe(42)
-    expect(post).toHaveBeenCalledWith(
-      expect.stringContaining('/v1/people'),
-      expect.objectContaining({
-        districtId: DISTRICT_ID,
-        filters: expect.objectContaining({
-          politicalParty: { eq: 'Independent' },
-          gender: { eq: 'F' },
-          voterStatus: { eq: 'Super' },
-        }),
-      }),
-      expect.any(Object),
-    )
+    const dto = findPeople.mock.calls[0]?.[0]
+    expect(dto).toMatchObject({ districtId: DISTRICT_ID })
+    const sentFilters = reconstructFilters(dto!.filters)
+    expect(sentFilters).toMatchObject({
+      politicalParty: { eq: 'Independent' },
+      gender: { eq: 'F' },
+      voterStatus: { eq: 'Super' },
+    })
     // A segment with no activityConditions/supportStatus never sends an `id`
     // key — the resolution engine must be byte-identical to pre-ENG-10704
     // behavior when neither is set.
-    const body = post.mock.calls[0]?.[1] as { filters: Record<string, unknown> }
-    expect(body.filters).not.toHaveProperty('id')
+    expect(sentFilters).not.toHaveProperty('id')
   })
 
   it('downloads a saved segment scoped to the campaign district incl. party', async () => {
@@ -943,14 +1002,12 @@ describe('count + download for a saved segment', () => {
       data: { organizationSlug: WIN_SLUG, ...partySegmentBody },
     })
 
-    const post = vi
-      .spyOn(service.app.get(HttpService), 'post')
-      .mockImplementation(((url: string) =>
-        url.includes('/download')
-          ? of({ data: Readable.from(['lalVoterId\n']) })
-          : of({
-              data: { people: [], pagination: {} },
-            })) as never)
+    const streamPeopleCsv = vi
+      .spyOn(service.app.get(VoterDownloadService), 'streamPeopleCsv')
+      .mockImplementation(async (_dto, res) => {
+        res.raw.setHeader('Content-Type', 'text/csv')
+        res.raw.end('lalVoterId\n')
+      })
 
     const result = await service.client.get(
       `/v1/contacts/download?segment=${segment.id}`,
@@ -958,15 +1015,10 @@ describe('count + download for a saved segment', () => {
     )
 
     expect(result.status).toBe(200)
-    expect(post).toHaveBeenCalledWith(
-      expect.stringContaining('/v1/people/download'),
-      expect.objectContaining({
-        districtId: DISTRICT_ID,
-        filters: expect.objectContaining({
-          politicalParty: { eq: 'Independent' },
-        }),
-      }),
-      expect.objectContaining({ responseType: 'stream' }),
-    )
+    const dto = streamPeopleCsv.mock.calls[0]?.[0]
+    expect(dto).toMatchObject({ districtId: DISTRICT_ID })
+    expect(reconstructFilters(dto!.filters)).toMatchObject({
+      politicalParty: { eq: 'Independent' },
+    })
   })
 })

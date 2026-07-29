@@ -1,7 +1,9 @@
-import { useTestService } from '@/test-service'
+import { randomUUID } from 'node:crypto'
 import { HttpService } from '@nestjs/axios'
 import { of } from 'rxjs'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { useTestService } from '@/test-service'
+import { describe, expect, it, vi } from 'vitest'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 
 const service = useTestService()
 
@@ -19,7 +21,9 @@ const seedWinOrg = async (opts: {
     data: {
       slug: opts.slug,
       ownerId: opts.ownerId,
-      overrideDistrictId: `district-${opts.slug}`,
+      // The ported people-db DTOs run through Zod, whose districtId is
+      // z.guid() — a non-UUID placeholder fails validation here.
+      overrideDistrictId: randomUUID(),
     },
   })
   await service.prisma.campaign.create({
@@ -29,12 +33,24 @@ const seedWinOrg = async (opts: {
       organizationSlug: opts.slug,
       isPro: opts.isPro,
       // findPerson (unlike the notes routes) goes through
-      // withOrgDistrictResolution's voter-data eligibility gate. A
-      // non-federal/state ballotLevel satisfies VoterFileDownloadAccessService
-      // without needing a real L2 district lookup.
+      // withOrgDistrictResolution's voter-data eligibility gate, which
+      // resolves the override district's ballot level via election-api. Stub
+      // it with a non-federal/state ballotLevel so the org is eligible
+      // without a real L2 district lookup.
       details: { ballotLevel: 'CITY' },
     },
   })
+  vi.spyOn(service.app.get(HttpService), 'get').mockReturnValue(
+    of({
+      data: {
+        id: opts.slug,
+        state: 'CA',
+        L2DistrictType: 'City',
+        L2DistrictName: 'Springfield',
+      },
+      status: 200,
+    }) as never,
+  )
 }
 
 const seedEoOrg = (slug: string) =>
@@ -42,13 +58,11 @@ const seedEoOrg = (slug: string) =>
     data: {
       slug,
       ownerId: service.user.id,
-      overrideDistrictId: `district-${slug}`,
+      overrideDistrictId: randomUUID(),
     },
   })
 
 describe('PATCH /v1/contacts/:personId/status', () => {
-  let httpService: HttpService
-
   // Full PersonSchema shape — the detail route validates its response
   // (@ResponseSchema(PersonSchema)), so every required field needs a valid
   // value, not just the ones this suite cares about.
@@ -90,13 +104,14 @@ describe('PATCH /v1/contacts/:personId/status', () => {
     ...overrides,
   })
 
+  // findPerson resolves the person in-process via VoterQueryService — stub
+  // that instead of the retired people-api GET.
   const stubPeopleApi = (person: ReturnType<typeof mockPersonFetch>) => {
-    vi.spyOn(httpService, 'get').mockReturnValue(of({ data: person }) as never)
+    vi.spyOn(
+      service.app.get(VoterQueryService),
+      'findPerson',
+    ).mockResolvedValue(person as never)
   }
-
-  beforeEach(() => {
-    httpService = service.app.get(HttpService)
-  })
 
   const patchStatus = (slug: string, body: { field: string; value: string }) =>
     service.client.patch(`/v1/contacts/${PERSON_ID}/status`, body, {

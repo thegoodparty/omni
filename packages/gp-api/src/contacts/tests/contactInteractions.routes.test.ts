@@ -2,9 +2,8 @@ import { useTestService } from '@/test-service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import type { PersonOutput } from '@/contacts/schemas/person.schema'
 import { SupportStatusService } from '@/contactInteraction/services/supportStatus.service'
-import { HttpService } from '@nestjs/axios'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { NotFoundException } from '@nestjs/common'
-import { of } from 'rxjs'
 import { describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -323,25 +322,26 @@ describe('Contact interactions routes', () => {
 
   describe('eo- org', () => {
     // Unlike the Win happy-path tests above, this exercises the REAL
-    // findPerson -> withOrgDistrictResolution path (only the people-api HTTP
-    // call is mocked, same as contactsPersonDetail.test.ts) so the district
-    // resolution an eo- org actually goes through in production is proven
-    // here, not stubbed away. A prior test's mockPersonFound/mockPersonNotFound
-    // leaves findPerson permanently stubbed (clearMocks only clears call
-    // history, not implementation), so restore it here — mockRestore, never
-    // vi.restoreAllMocks(), which would also unwind the test harness's auth
-    // spy and start returning 401s.
+    // findPerson -> withOrgDistrictResolution path (only the people-db
+    // service call is mocked, same as contactsPersonDetail.test.ts) so the
+    // district resolution an eo- org actually goes through in production is
+    // proven here, not stubbed away. A prior test's
+    // mockPersonFound/mockPersonNotFound leaves findPerson permanently
+    // stubbed (clearMocks only clears call history, not implementation), so
+    // restore it here — mockRestore, never vi.restoreAllMocks(), which would
+    // also unwind the test harness's auth spy and start returning 401s.
     it('accepts a manually logged interaction', async () => {
       findPersonSpy?.mockRestore()
       const slug = `eo-${Date.now()}`
       const personId = 'person-1'
-      await seedEoOrg(slug, 'district-eo-interactions-uuid')
+      // The ported people-db services run their DTOs through Zod, whose
+      // districtId field is z.guid() — unlike the retired httpService path,
+      // a non-UUID placeholder fails validation here.
+      await seedEoOrg(slug, '33333333-3333-3333-3333-333333333333')
       const headers = { [ORG_SLUG_HEADER]: slug }
-      const httpGet = vi
-        .spyOn(service.app.get(HttpService), 'get')
-        .mockReturnValue(
-          of({ data: { id: personId, firstName: 'Jane' } }) as never,
-        )
+      const voterQueryFindPerson = vi
+        .spyOn(service.app.get(VoterQueryService), 'findPerson')
+        .mockResolvedValue({ id: personId, firstName: 'Jane' } as never)
 
       const result = await service.client.post(
         interactionsPath(personId),
@@ -351,9 +351,9 @@ describe('Contact interactions routes', () => {
 
       expect(result.status).toBe(201)
       expect(result.data.channel).toBe('doorKnock')
-      // Proves the real findPerson -> people-api round trip actually ran,
+      // Proves the real findPerson -> people-db round trip actually ran,
       // rather than this test silently passing against a stale stub.
-      expect(httpGet).toHaveBeenCalled()
+      expect(voterQueryFindPerson).toHaveBeenCalled()
     }, 15_000)
   })
 

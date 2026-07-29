@@ -5,7 +5,7 @@
 | Branch    | Environment | Notes                             |
 | --------- | ----------- | --------------------------------- |
 | `develop` | dev         | Integration branch; PRs target it |
-| `qa`      | qa          | people-api has no qa env          |
+| `qa`      | qa          |                                   |
 | `master`  | prod        |                                   |
 
 PRs open against `develop`. Promotion is by merging `develop -> qa -> master`.
@@ -104,8 +104,14 @@ exercises the exact full-stack version proposed in the PR.
 
 ## Backends (Docker + ECR + Pulumi -> ECS Fargate)
 
-gp-api, election-api, and people-api build a production Docker image, push to ECR
+gp-api and election-api build a production Docker image, push to ECR
 (tagged with the commit SHA), and deploy to ECS Fargate via Pulumi.
+
+people-api's repo package and `.github/workflows/people-api.yml` pipeline were
+removed once gp-api absorbed direct people-db access (`packages/gp-api/src/peopleDb/`).
+The people-api ECS service and its Aurora cluster remain deployed as a frozen,
+manually decommissioned service during the `USE_LOCAL_PEOPLE_DB` rollout — see
+`packages/gp-api/src/peopleDb/CLAUDE.md`.
 
 - ECR tags are **immutable**. Deploy jobs check whether the SHA's tag already
   exists and skip the build/push if so — this is what makes re-running a deploy
