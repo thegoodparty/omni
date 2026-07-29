@@ -269,6 +269,48 @@ two legacy voter-file endpoints (`countVoterFilePeople`,
 `downloadVoterFilePeople`) which skip activity/support resolution entirely
 and so skip contacts-made too, by the same existing precedent.
 
+### Door-knock willVote writes a voter_likelihood override (ENG-10841)
+
+The door-knocking tool's `willVote` answer (yes/no/unsure) is the one
+activity signal (besides manual overrides) that writes a `voter_likelihood`
+`ContactStatusService.changeStatus` event today — PO-confirmed mapping:
+`yes` → `likely`, `no` → `unlikely`, `unsure` → no event at all.
+`ContactInteractionDoorKnockService.create`/`recordIdempotent` (both
+`ContactInteractionDoorKnock` write paths — manual/CRM and the door-knocking
+tool's sync) call a shared private hook after persisting the interaction row,
+keyed off the row's `willVote` column; manual logs never carry `willVote`
+(`LogDoorKnockInteractionSchema` has no such field), so the hook is a no-op
+there without a separate manual/sync branch. `source: door_knock`,
+`actorUserId: null` (a canvass answer isn't attributed to a staff user),
+`sourceId` is the interaction's own `sourceId` (the sync's `clientKey`) or its
+row `id` for manual writes. `fallbackFromValue` is `null` — no cheap local
+seed value is available at knock-sync time (unlike the manual status PATCH
+endpoint, which already has a fresh people-api read), and the field is
+advisory-only (decorates the very first override's feed "before" label,
+non-null for every write after the first since the row-locked current-state
+read then supplies the real fromValue).
+
+**Idempotency (re-sync no double-write).** The event table's unique
+`(organizationSlug, field, sourceId)` (ENG-10833) is a different constraint
+from the interaction row's own `(organizationSlug, sourceId)` upsert key.
+`ContactStatusService.attemptChangeStatus` catches a unique-constraint
+violation on the event insert and resolves it to a silent no-op (`null`,
+not a thrown error) whenever `sourceId` is set — a re-synced/replayed
+door-knock must not fail the interaction write. This constraint can only
+fire when `sourceId` is non-null (Postgres treats NULLs as distinct, so
+manual edits never collide on it). One accepted limitation: `sourceId` is
+keyed to the physical knock, not the value, so a *corrected* `willVote` on
+a re-synced clientKey still no-ops rather than recording a second event —
+tested explicitly in `doorKnocking.routes.test.ts`.
+
+**Win-only.** The door-knocking module has no Win/Serve gate of its own
+(no endpoint in `DoorKnockingController` checks `hasElectedOfficeAccess`),
+so an `eo-` org can technically reach these write paths. The hook checks
+`organizationSlug.startsWith('eo-')` and skips itself, mirroring the
+system-wide invariant that Serve never carries `voter_likelihood`
+overrides — a real (if currently UI-unreachable) gap in the shared module,
+not a speculative guard.
+
 ### Saved-filter lifecycle
 
 Create/edit via the wizard (or the assistant's `crud_saved_filters`) →
@@ -439,7 +481,13 @@ over interaction rows with a non-null `support_answer`; a "list" =
   Assistant/UI parity: `chats/general/crm-tools/countContactsParity.routes.test.ts`.
 - Resolution + derivation: `src/contactInteraction/tests/`, including
   `contactsMadeResolution.service.test.ts` (the bucket SQL + the
-  in/notIn/override decision table).
+  in/notIn/override decision table) and `contactStatus.service.test.ts`
+  (the atomic decide-and-write, the sourceId no-op).
+- Door-knock willVote → voter_likelihood: the `willVote ->
+  voter_likelihood override events` describe block in
+  `src/doorKnocking/tests/doorKnocking.routes.test.ts` (mapping,
+  re-sync/correction no-op, eo- skip); the feed rendering in
+  `src/contactEngagement/tests/contactEngagement.routes.test.ts`.
 - people-api SQL builders: `filters.sql.utils.test.ts` pattern (assert
   SQL string + params).
 - Webapp e2e (hard merge gate): `e2e-tests/tests/app/contacts/*.spec.ts`
