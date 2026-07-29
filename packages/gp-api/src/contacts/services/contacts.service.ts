@@ -159,6 +159,18 @@ export class ContactsService {
     }
   }
 
+  // Single predicate backing both the throwing assert below and
+  // resolveSavedFilterSets' per-set drop (ENG-10840) — one place decides
+  // what counts as a party leak for an elected-office organization.
+  private hasPartyFilterForElectedOffice(
+    organization: Organization,
+    filters: FilterObject,
+  ): boolean {
+    return (
+      this.hasElectedOfficeAccess(organization) && 'politicalParty' in filters
+    )
+  }
+
   // Rejects a party filter/segment before the people-api call rather than
   // stripping party rows after the fact — list, count, and download all
   // resolve their request into a FilterObject before calling out, so this one
@@ -167,10 +179,7 @@ export class ContactsService {
     organization: Organization,
     filters: FilterObject,
   ): void {
-    if (
-      this.hasElectedOfficeAccess(organization) &&
-      'politicalParty' in filters
-    ) {
+    if (this.hasPartyFilterForElectedOffice(organization, filters)) {
       throw new BadRequestException(
         'Political party filtering is not available for this organization',
       )
@@ -571,6 +580,25 @@ export class ContactsService {
     const resolved = await Promise.all(
       capped.map(async (savedFilter) => {
         const savedBaseFilters = convertVoterFileFilterToFilters(savedFilter)
+        // Party never reaches Serve (ENG-10696) — the write path doesn't
+        // assert this on every saved-filter create/update, so a legacy or
+        // otherwise-tainted row can still carry `politicalParty`. Every
+        // other caller of convertVoterFileFilterToFilters 400s the whole
+        // request on this; the union here can't do that (one bad saved
+        // list would break the strip for every other list), so it drops
+        // just this set instead.
+        if (
+          this.hasPartyFilterForElectedOffice(organization, savedBaseFilters)
+        ) {
+          this.logger.warn(
+            {
+              organizationSlug: organization.slug,
+              voterFileFilterId: savedFilter.id,
+            },
+            'Saved-list overlap count dropped a saved list carrying a party predicate for an elected-office organization',
+          )
+          return null
+        }
         const savedIdResolution =
           await this.activityConditionResolution.resolveIdFilter(
             organization.slug,

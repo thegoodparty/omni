@@ -36,6 +36,29 @@ describe('POST /v1/contacts/overlap-count', () => {
       data: { organizationSlug, name: 'saved list', ...overrides },
     })
 
+  // A Win (non-`eo-`) Pro org: needs its own Campaign row (isPro) since
+  // hasElectedOfficeAccess only covers `eo-` slugs, plus overrideDistrictId
+  // so district resolution doesn't need real election data.
+  const setupWinProOrg = async (suffix: string) => {
+    const slug = `campaign-overlap-${suffix}-${Date.now()}`
+    await service.prisma.organization.create({
+      data: {
+        slug,
+        ownerId: service.user.id,
+        overrideDistrictId: `district-overlap-${suffix}`,
+      },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: `${slug}-campaign`,
+        organizationSlug: slug,
+        isPro: true,
+      },
+    })
+    return slug
+  }
+
   const spyOnPeopleApi = (data: Record<string, unknown>) =>
     vi
       .spyOn(service.app.get(HttpService), 'post')
@@ -172,5 +195,82 @@ describe('POST /v1/contacts/overlap-count', () => {
       expect.objectContaining({ total: 26, cap: 25 }),
       expect.stringContaining('truncated'),
     )
+  })
+
+  // Security regression (party never reaches Serve, ENG-10696): the
+  // voter-file create/update endpoints don't assert
+  // assertNoPartyFilterForElectedOffice, so a legacy or otherwise-tainted
+  // `eo-` saved list can still carry a party predicate. resolveSavedFilterSets
+  // must drop that one saved set from the union rather than forwarding
+  // `politicalParty` to people-api in savedFilterSets.
+  it('drops a party-tainted saved list from the union for an elected-office org', async () => {
+    const slug = await setupProOrg('party-tainted')
+    await createSavedFilter(slug, { name: 'clean', genderFemale: true })
+    // Simulates a legacy row that predates any write-path party gate — the
+    // create/update endpoints don't reject this today.
+    await createSavedFilter(slug, { name: 'tainted', partyDemocrat: true })
+    const warnSpy = vi.spyOn(PinoLogger.prototype, 'warn')
+    const postSpy = spyOnPeopleApi({ count: 3, fenced: false })
+
+    const response = await service.client.post(
+      '/v1/contacts/overlap-count',
+      { genderMale: true },
+      { headers: { [ORG_SLUG_HEADER]: slug } },
+    )
+
+    expect(response.status).toBe(201)
+    expect(postSpy).toHaveBeenCalledTimes(1)
+    const body = postSpy.mock.calls[0]?.[1] as Record<string, unknown>
+    const savedFilterSets = body.savedFilterSets as Record<string, unknown>[]
+
+    // Only the clean set survives; the tainted one never reaches the S2S
+    // body at all — not stripped down to `{}`, entirely excluded.
+    expect(savedFilterSets).toHaveLength(1)
+    expect(savedFilterSets).toEqual([
+      expect.objectContaining({ gender: { eq: 'F' } }),
+    ])
+    expect(savedFilterSets.some((set) => 'politicalParty' in set)).toBe(false)
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationSlug: slug }),
+      expect.stringContaining('party predicate'),
+    )
+  })
+
+  it('still includes a Win org saved list carrying a party predicate in the union', async () => {
+    const slug = await setupWinProOrg('party-allowed')
+    await createSavedFilter(slug, { name: 'party list', partyDemocrat: true })
+    const postSpy = spyOnPeopleApi({ count: 4, fenced: false })
+    // A non-`eo-` org runs the voter-data-eligibility gate before district
+    // resolution (assertVoterDataEligibility), which fetches the
+    // overrideDistrictId from election-api over the same shared HttpService
+    // — stub it with L2 data present so the Win Pro org is eligible.
+    vi.spyOn(service.app.get(HttpService), 'get').mockReturnValue(
+      of({
+        data: {
+          id: slug,
+          state: 'CA',
+          L2DistrictType: 'City',
+          L2DistrictName: 'Springfield',
+        },
+        status: 200,
+      }) as never,
+    )
+
+    const response = await service.client.post(
+      '/v1/contacts/overlap-count',
+      { genderMale: true },
+      { headers: { [ORG_SLUG_HEADER]: slug } },
+    )
+
+    expect(response.status).toBe(201)
+    expect(postSpy).toHaveBeenCalledTimes(1)
+    const body = postSpy.mock.calls[0]?.[1] as Record<string, unknown>
+    const savedFilterSets = body.savedFilterSets as Record<string, unknown>[]
+
+    expect(savedFilterSets).toEqual([
+      expect.objectContaining({
+        politicalParty: { eq: 'Democratic' },
+      }),
+    ])
   })
 })
