@@ -70,11 +70,33 @@ const ALL_CONTACTS_SEGMENT = 'all'
 export const PRO_FILTERING_REQUIRED_MESSAGE =
   'Filtering voter data is only available for pro campaigns'
 
-// Mirrors people-api's EXCLUDABLE_VOTER_COLUMNS entry for the party column
-// (people.select.ts). The CSV download is a Postgres COPY stream gp-api
-// cannot post-process, so an `eo-` org's download asks people-api to drop
-// this column from the projection instead (ENG-10696).
+// Mirrors people-api's EXCLUDABLE_VOTER_COLUMNS entries (people.select.ts).
+// The CSV download is a Postgres COPY stream gp-api cannot post-process, so
+// an `eo-` org's download asks people-api to drop this column from the
+// projection instead (ENG-10696). downloadVoterFilePeople (the separate
+// outreach/task-flow audience download) still only excludes party — this
+// list is scoped to the CRM download (downloadContacts) below (ENG-10830).
 const PARTY_DOWNLOAD_COLUMN = 'Parties_Description'
+
+// Serve (`eo-`) CRM downloads must omit these columns entirely — a blank
+// column still reveals the field exists (ENG-10830). Party (completing
+// ENG-10696), turnout propensity, and vote history.
+const SERVE_EXCLUDED_DOWNLOAD_COLUMNS = [
+  PARTY_DOWNLOAD_COLUMN,
+  'Residence_HHParties_Description',
+  'VoterParties_Change_Changed_Party',
+  'VotingPerformanceEvenYearGeneral',
+  'VotingPerformanceEvenYearPrimary',
+  'VotingPerformanceEvenYearGeneralAndPrimary',
+  'General_2026',
+  'General_2024',
+  'General_2022',
+  'General_2020',
+  'Primary_2026',
+  'Primary_2024',
+  'Primary_2022',
+  'Primary_2020',
+]
 
 if (!PEOPLE_API_URL) {
   throw new Error('Please set PEOPLE_API_URL in your .env')
@@ -837,7 +859,7 @@ export class ContactsService {
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     const excludeColumns = this.hasElectedOfficeAccess(organization)
-      ? [PARTY_DOWNLOAD_COLUMN]
+      ? SERVE_EXCLUDED_DOWNLOAD_COLUMNS
       : undefined
     return this.withOrgDistrictResolution(organization, (params) =>
       empty
