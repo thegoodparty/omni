@@ -976,6 +976,12 @@ export class ContactsService {
     const override = overrides.get(personId)
     const parsed =
       override === undefined ? undefined : schema.safeParse(override)
+    if (parsed !== undefined && !parsed.success) {
+      this.logger.warn(
+        { organizationSlug, personId, field, override },
+        'contact-status override failed validation; using fallback',
+      )
+    }
     return parsed?.success ? parsed.data : fallback()
   }
 
