@@ -544,6 +544,43 @@ describe('DatabricksSqlProvider', () => {
     expect(sessionClosed).toBe(1)
   })
 
+  it('close() reaps a connect wedged in session setup', async () => {
+    let connClosed = 0
+    let sessionClosed = 0
+    const factory = (): DbsqlClientLike => ({
+      connect: async () => ({
+        openSession: async () => ({
+          executeStatement: async () => ({
+            fetchAll: () => new Promise<unknown[]>(() => undefined),
+            close: async () => noop(),
+          }),
+          close: async () => {
+            sessionClosed++
+          },
+        }),
+        close: async () => {
+          connClosed++
+        },
+      }),
+    })
+    const provider = new DatabricksSqlProvider({
+      ...baseOpts,
+      catalog: 'goodparty_data_catalog',
+      queryTimeoutMs: 500,
+      clientFactory: factory,
+    })
+
+    const wedged = provider.query(SELECT_X)
+    wedged.catch(noop)
+    await tick()
+
+    await provider.close()
+    await tick()
+
+    expect(connClosed).toBe(1)
+    expect(sessionClosed).toBe(1)
+  })
+
   it('recovers after the shared reconnect fails for concurrent callers', async () => {
     const connectError = new Error('connection refused')
     let execCount = 0

@@ -269,9 +269,17 @@ export class DatabricksSqlProvider implements DatabricksProvider {
     this.closed = true
     const session = this.session
     const conn = this.clientConn
+    const pendingSession = this.pendingSession
+    const pendingConn = this.pendingConn
     this.session = undefined
     this.clientConn = undefined
     this.connectPromise = undefined
+    this.pendingSession = undefined
+    this.pendingConn = undefined
+    // Pending handles belong to a possibly-wedged in-flight connect — reap
+    // them fire-and-forget; awaiting a wedged transport would hang shutdown.
+    pendingSession?.close().catch(noop)
+    pendingConn?.close().catch(noop)
     if (session) {
       await session.close().catch(noop)
     }
