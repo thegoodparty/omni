@@ -600,8 +600,9 @@ export class ContactsService {
           return null
         }
         // resolveIdFilter 400s past MAX_RESOLVED_ID_SET_SIZE — correct for
-        // the single-filter endpoints, but here it would abort the whole
-        // union, so the oversized set is dropped like the party case above.
+        // the single-filter endpoints, but here it (or a transient DB
+        // failure) would abort the whole union, so the failing set is
+        // dropped like the party case above.
         let savedIdResolution: IdFilterResolution
         try {
           savedIdResolution =
@@ -613,13 +614,13 @@ export class ContactsService {
               },
             )
         } catch (error) {
-          if (!(error instanceof BadRequestException)) throw error
           this.logger.warn(
             {
               organizationSlug: organization.slug,
               voterFileFilterId: savedFilter.id,
+              error,
             },
-            'Saved-list overlap count dropped a saved list whose resolved id set exceeded the id-filter cap',
+            'Saved-list overlap count dropped a saved list that failed id-filter resolution',
           )
           return null
         }

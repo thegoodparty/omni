@@ -215,7 +215,7 @@ describe('POST /v1/contacts/overlap-count', () => {
     expect((body.savedFilterSets as unknown[]).length).toBe(1)
     expect(warnSpy).toHaveBeenCalledWith(
       expect.objectContaining({ organizationSlug: slug }),
-      expect.stringContaining('id-filter cap'),
+      expect.stringContaining('failed id-filter resolution'),
     )
   })
 
