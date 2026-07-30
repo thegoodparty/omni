@@ -1054,14 +1054,33 @@ export class ContactsService {
     Pick<ListDetailContactsResponse, 'demographics' | 'reachability'>
   > {
     const [base, cellphone, landline, address] =
-      await this.withOrgDistrictResolution(organization, (districtParams) =>
-        Promise.allSettled([
+      await this.withOrgDistrictResolution(organization, async (districtParams) => {
+        // Resolve the load-bearing base tile FIRST, before firing the three
+        // channel scans. All four aggregates run the same DistrictVoter->Voter
+        // membership scan (they differ only by an extra has-phone/has-address
+        // predicate), and only `base` is load-bearing — a rejected base throws
+        // below regardless. Under the people-db statement-timeout incidents a
+        // failing list-detail otherwise launches 4 concurrent scans (x2 with
+        // the fenced retry), 3 of which are pure collateral load the moment
+        // base fails and can't render anything. Gating the channels on base
+        // keeps a failing request to a single scan family instead of amplifying
+        // the exact overload that's tripping the timeout. Healthy path is
+        // unchanged: base resolves fast, then the three channels still settle
+        // INDEPENDENTLY (ENG-10806) so one slow channel can't blank the others.
+        const [baseResult] = await Promise.allSettled([
           this.fetchPeopleAggregates(
             districtParams,
             baseFilters,
             idOverrides,
             contactsMadeIdOverrides,
           ),
+        ])
+        if (baseResult.status === 'rejected') {
+          // Reuse the rejected base as the channel placeholders: the route
+          // throws on base below before any channel value is read.
+          return [baseResult, baseResult, baseResult, baseResult] as const
+        }
+        const channels = await Promise.allSettled([
           this.fetchPeopleAggregates(
             districtParams,
             { ...baseFilters, hasCellPhone: true },
@@ -1084,8 +1103,9 @@ export class ContactsService {
             idOverrides,
             contactsMadeIdOverrides,
           ),
-        ]),
-      )
+        ])
+        return [baseResult, ...channels] as const
+      })
 
     if (base.status === 'rejected') {
       throw base.reason

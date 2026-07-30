@@ -16,10 +16,13 @@ const agg = (count: number, fenced?: boolean): PeopleAggregatesResponse => ({
 })
 
 // ENG-10798/ENG-10805: GET /v1/contacts/list-detail's reachability block is
-// built from four concurrent people-db aggregate queries, resolved in a
-// fixed order (base, cellphone, landline, address) via Promise.allSettled.
-// Each fixture below uses a distinct count per aggregate so a wrong
-// channel<->aggregate mapping fails the test, not just a wrong number.
+// built from people-db aggregate queries in a fixed order (base, cellphone,
+// landline, address). The load-bearing `base` is resolved FIRST and gates the
+// three channel scans (skipped when base fails); the three channels then still
+// settle INDEPENDENTLY via Promise.allSettled (ENG-10806), so one slow channel
+// can't blank the others. Each fixture below uses a distinct count per
+// aggregate so a wrong channel<->aggregate mapping fails the test, not just a
+// wrong number.
 describe('GET /v1/contacts/list-detail reachability', () => {
   const setupOrg = async (suffix: string) => {
     const slug = `eo-list-detail-reach-${suffix}-${Date.now()}`
@@ -151,5 +154,26 @@ describe('GET /v1/contacts/list-detail reachability', () => {
     })
 
     expect(response.status).toBe(500)
+  })
+
+  // Load-shedding: the base tile is resolved first and gates the three channel
+  // scans. When base fails, the route can't render anything anyway, so the
+  // channel aggregates are NOT fired — during a people-db statement-timeout
+  // incident this stops a failing list-detail from launching 3 extra doomed
+  // DistrictVoter->Voter scans (x2 with the fenced retry) that only deepen the
+  // overload. So getAggregates runs exactly once on the base-failure path.
+  it('does not fire the channel aggregates when the base aggregate fails', async () => {
+    const slug = await setupOrg('base-fail-loadshed')
+    const spy = vi
+      .spyOn(service.app.get(VoterQueryService), 'getAggregates')
+      .mockRejectedValueOnce(new Error('base aggregate query failed'))
+      .mockResolvedValue(agg(1))
+
+    const response = await service.client.get('/v1/contacts/list-detail', {
+      headers: { [ORG_SLUG_HEADER]: slug },
+    })
+
+    expect(response.status).toBe(500)
+    expect(spy).toHaveBeenCalledTimes(1)
   })
 })
