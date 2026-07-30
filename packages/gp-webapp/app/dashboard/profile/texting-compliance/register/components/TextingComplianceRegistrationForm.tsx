@@ -89,7 +89,8 @@ export const getValidationMessage = (
     officeLevel: 'Select an option',
     ein: "Enter your campaign's real EIN (XX-XXXXXXX) — placeholder values aren't accepted",
     phone: 'Valid US phone number as it appears on your election filing',
-    address: 'Select a valid address as it appears on your election filing',
+    address:
+      "Select a physical street address from the suggestions (PO Boxes can't be used)",
     website: 'Valid URL',
     email: 'Valid email address as it appears on your election filing',
     fecCommitteeId: 'Must be "C" followed by 8 digits (e.g., C00123456)',
@@ -114,6 +115,17 @@ const getStringValue = (value: FormValue): string =>
 
 const validateAddress = (address: AddressValue | null): boolean =>
   Boolean(address?.formatted_address)
+
+// Google Places autocomplete (`types: ['address']`) never suggests PO Boxes,
+// so a candidate whose filing address is a PO Box gets an empty dropdown and a
+// field that can never validate. Detect the attempt and steer them to a
+// street address instead — the PIN is delivered via the filing email or
+// phone, so the address does not have to match the filing.
+export const isPoBoxAddressInput = (input: string): boolean =>
+  /\b(?:p\.?\s*o\.?|post\s+office)\s*box\b/i.test(input)
+
+export const PO_BOX_ADDRESS_HINT =
+  "PO Boxes can't be used here. Enter a physical street address (home or business) and select it from the suggestions. Your PIN is still sent to your filing email or phone."
 
 const validateFECUrl = (url: string): boolean => {
   if (!url) return false
@@ -335,7 +347,10 @@ const TextingComplianceRegistrationForm = ({
 
   const handleAddressOnChange = (value: string) => {
     setAddressInputValue(value)
-    return !value && handleChange({ address: null })
+    // Also clear on PO Box input: typing never fires onSelect, so without
+    // this a PO Box typed over a previously selected address would submit
+    // the stale valid address silently.
+    if (!value || isPoBoxAddressInput(value)) handleChange({ address: null })
   }
 
   return (
@@ -471,7 +486,12 @@ const TextingComplianceRegistrationForm = ({
             },
             placeholder: 'Filing Address *',
             variant: 'outlined',
-            error: showError('address'),
+            error:
+              showError('address') ||
+              isPoBoxAddressInput(addressInputValue || ''),
+            helperText: isPoBoxAddressInput(addressInputValue || '')
+              ? PO_BOX_ADDRESS_HINT
+              : undefined,
             dropdownClassName: 'texting-compliance-address-dropdown',
           }}
         />
