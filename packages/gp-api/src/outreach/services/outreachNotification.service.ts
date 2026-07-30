@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common'
 import { Campaign, OutreachType, User } from '../../generated/prisma'
+import { ZodValidationException } from 'nestjs-zod'
 import { PinoLogger } from 'nestjs-pino'
+import { ZodError } from 'zod'
 import sanitizeHtml from 'sanitize-html'
 import TurndownService from 'turndown'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
@@ -204,10 +206,22 @@ export class OutreachNotificationService {
 
     const errorMessage =
       error instanceof Error ? error.message : String(error ?? 'Unknown error')
-    const truncatedError =
-      errorMessage.length > 500
-        ? `${errorMessage.slice(0, 500)}…`
+    // nestjs-zod's message is a bare "Validation failed"; without the issue
+    // list the alert can't tell CAS which field was rejected.
+    const zodError =
+      error instanceof ZodValidationException ? error.getZodError() : null
+    const detailedError =
+      zodError instanceof ZodError
+        ? `${errorMessage}: ${zodError.issues
+            .map(
+              (issue) => `${issue.path.join('.') || 'body'}: ${issue.message}`,
+            )
+            .join('; ')}`
         : errorMessage
+    const truncatedError =
+      detailedError.length > 500
+        ? `${detailedError.slice(0, 500)}…`
+        : detailedError
 
     const scriptPreview =
       typeof createOutreachDto?.script === 'string' &&
