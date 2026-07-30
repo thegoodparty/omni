@@ -53,17 +53,12 @@ task-role permissions); `PEOPLE_DB_SSM_PARAM` is passed to the container so
 parameter name instead of deriving one from `OTEL_SERVICE_ENVIRONMENT`. qa and
 preview map to the `dev` parameter — no separate qa/preview secret exists.
 
-**Prod caveat: task-role grants alone are dead letters.** Prod tasks carry
-static `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` env credentials (the
-legacy `gp-api` IAM user), which the SDK's default chain prefers over the
-task role — so every AWS permission prod actually exercises must also exist
-on that user (via the `gp-api` IAM group). Missing this caused the
-2026-07-29 contacts outage. `index.ts` therefore also manages a
-`PeopleDbConnectionStringRead` inline policy on the `gp-api` group
-(prod stack only, so preview teardowns can't delete it). The durable fix —
-dropping the static creds so the task role applies — needs a full audit of
-the user's group permissions vs the task role first. dev/qa tasks have no
-static creds and use the task role.
+All environments authenticate via the ECS task role — no task carries static
+AWS keys. The AWS SDK's default credential chain resolves to the task role in
+every deployed task, so a task-role grant is sufficient on its own. (Prod used
+to carry the legacy `gp-api` IAM user's static creds, which shadowed the task
+role and caused the 2026-07-29 contacts outage; those creds and the user were
+retired.)
 
 ## Gotchas
 
