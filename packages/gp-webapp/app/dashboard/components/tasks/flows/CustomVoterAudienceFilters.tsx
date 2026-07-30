@@ -18,7 +18,7 @@ interface FieldGroup {
 
 const fields: FieldGroup[] = [
   {
-    label: 'AUDIENCE',
+    label: 'Voter Likelihood',
     options: [
       { key: 'audience_superVoters', label: 'Super Voters (75% +)' },
       { key: 'audience_likelyVoters', label: 'Likely Voters (50%-75%)' },
