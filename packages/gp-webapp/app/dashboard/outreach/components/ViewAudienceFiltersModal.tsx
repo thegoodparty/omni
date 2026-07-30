@@ -13,7 +13,6 @@ const VALID_AUDIENCE_FILTER_KEYS: Set<string> = new Set([
   'audience_unreliableVoters',
   'audience_unlikelyVoters',
   'audience_firstTimeVoters',
-  'audience_unknown',
   'party_independent',
   'party_democrat',
   'party_republican',

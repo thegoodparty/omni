@@ -101,3 +101,35 @@ describe('convertVoterFileFilterToFilters age ranges', () => {
     ).toEqual({ ageInt: { gte: 65, _includeNull: true } })
   })
 })
+
+// The people-db ETL stores the middle-propensity cohort as 'Unknown' and
+// never writes 'Unreliable' (see expandUnreliableVoterStatus) — an
+// Unreliable selection that doesn't also match 'Unknown' selects nothing.
+describe('convertVoterFileFilterToFilters voter status', () => {
+  it('expands an Unreliable audience selection to include Unknown', () => {
+    expect(
+      convertVoterFileFilterToFilters({ audienceUnreliableVoters: true }),
+    ).toEqual({ voterStatus: { in: ['Unreliable', 'Unknown'] } })
+  })
+
+  it('does not duplicate Unknown when both buckets are selected', () => {
+    expect(
+      convertVoterFileFilterToFilters({
+        audienceUnreliableVoters: true,
+        audienceUnknown: true,
+      }),
+    ).toEqual({ voterStatus: { in: ['Unreliable', 'Unknown'] } })
+  })
+
+  it('leaves non-Unreliable selections untouched', () => {
+    expect(
+      convertVoterFileFilterToFilters({ audienceSuperVoters: true }),
+    ).toEqual({ voterStatus: { eq: 'Super' } })
+  })
+
+  it('expands a raw voterStatus array containing Unreliable', () => {
+    expect(
+      convertVoterFileFilterToFilters({ voterStatus: ['Unreliable'] }),
+    ).toEqual({ voterStatus: { in: ['Unreliable', 'Unknown'] } })
+  })
+})

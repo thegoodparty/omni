@@ -28,7 +28,6 @@ const fields: FieldGroup[] = [
       },
       { key: 'audience_unlikelyVoters', label: 'Unlikely Voters (0%-25%)' },
       { key: 'audience_firstTimeVoters', label: 'First Time Voters' },
-      { key: 'audience_unknown', label: 'Unknown Voters' },
     ],
   },
   {
@@ -64,7 +63,6 @@ export type AudienceFilterKey =
   | 'audience_unreliableVoters'
   | 'audience_unlikelyVoters'
   | 'audience_firstTimeVoters'
-  | 'audience_unknown'
   | 'party_independent'
   | 'party_democrat'
   | 'party_republican'
@@ -88,7 +86,6 @@ export interface AudienceFiltersState {
   audience_unreliableVoters?: boolean
   audience_unlikelyVoters?: boolean
   audience_firstTimeVoters?: boolean
-  audience_unknown?: boolean
   party_independent?: boolean
   party_democrat?: boolean
   party_republican?: boolean
@@ -142,7 +139,6 @@ const purposeToFilters: PurposeToFiltersMap = {
     audience_unreliableVoters: true,
     audience_unlikelyVoters: true,
     audience_firstTimeVoters: true,
-    audience_unknown: true,
     party_independent: true,
     age_18_25: true,
     age_25_35: true,
@@ -226,7 +222,6 @@ const CustomVoterAudienceFilters = ({
     audience_unreliableVoters: false,
     audience_unlikelyVoters: false,
     audience_firstTimeVoters: false,
-    audience_unknown: false,
     party_independent: false,
     party_democrat: false,
     party_republican: false,
