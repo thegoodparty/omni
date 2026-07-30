@@ -320,7 +320,11 @@ const FilingDetailsForm = ({
               value={addressInput}
               onChange={(value) => {
                 setAddressInput(value)
-                if (!value) handleChange({ address: null })
+                // Also clear on PO Box input: typing never fires onSelect, so
+                // without this a PO Box typed over a previously selected
+                // address would submit the stale valid address silently.
+                if (!value || isPoBoxAddressInput(value))
+                  handleChange({ address: null })
               }}
               onSelect={(place) => {
                 setAddressInput(place.formatted_address || '')

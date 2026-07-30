@@ -377,6 +377,22 @@ describe('FilingDetailsStep', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('clears a previously selected address when a PO Box is typed over it', () => {
+    // Typing never fires onSelect, so without the clear the stale valid
+    // address would submit silently while the field shows the PO Box hint.
+    render(<FilingDetailsStep />)
+    fillValidNonFederalForm()
+
+    fireEvent.change(screen.getByTestId('address-input'), {
+      target: { value: 'PO Box 621' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(mockSubmit).not.toHaveBeenCalled()
+    expect(goToNextStep).not.toHaveBeenCalled()
+    expect(screen.getByText('Filing Address')).toBeInTheDocument()
+  })
+
   it('allows submit once a valid address is selected', async () => {
     render(<FilingDetailsStep />)
     fillValidNonFederalForm()
