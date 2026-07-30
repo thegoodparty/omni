@@ -26,6 +26,16 @@ export class PeopleDbUrlProvider implements OnModuleDestroy {
     if (!this.loadPromise) {
       this.loadPromise = this.load()
     }
+    // Schedule revalidation even when the first load fails: consumers'
+    // onModuleInit is the only guaranteed caller, so without this a failed
+    // boot load would never be retried and the process would serve
+    // "client not initialized" errors until restarted (2026-07-29 prod
+    // contacts outage).
+    if (!this.interval) {
+      this.interval = setInterval(() => {
+        void this.revalidate()
+      }, REVALIDATE_INTERVAL_MS)
+    }
     try {
       this.value = await this.loadPromise
     } catch (err) {
@@ -34,11 +44,6 @@ export class PeopleDbUrlProvider implements OnModuleDestroy {
       throw err
     }
     this.logger.log('Loaded initial database URL')
-    if (!this.interval) {
-      this.interval = setInterval(() => {
-        void this.revalidate()
-      }, REVALIDATE_INTERVAL_MS)
-    }
     return this.value
   }
 

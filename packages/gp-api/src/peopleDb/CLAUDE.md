@@ -27,7 +27,13 @@ before its dependents' within the same module, so an eager read would race.
 Consumers `await ensureLoaded()` themselves. It revalidates SSM every 5
 minutes and notifies subscribers via `onChange()` only when the URL actually
 changes; a transient SSM failure during revalidation logs and keeps serving
-the last-known-good value rather than taking down a healthy process.
+the last-known-good value rather than taking down a healthy process. The
+revalidation interval is scheduled even when the first load **fails** —
+consumers' `onModuleInit` is the only guaranteed caller of `ensureLoaded()`,
+so without that a failed boot load would never be retried and every people-db
+request would 500 until a task restart (the 2026-07-29 prod contacts outage;
+the trigger was a missing IAM grant, see `deploy/CLAUDE.md` § People-db
+connection string).
 
 ## Hot-swap: `PeopleDbService.instance`
 
@@ -36,7 +42,7 @@ the `instance` getter — **never cache the reference**, always read through
 `.instance` (or `createPeopleDbBase`'s `this.model`/`this.client`, below) so
 callers follow the client across a database-URL swap. `onModuleInit` itself
 is fail-soft end to end: `ensureLoaded()` + building the client are wrapped
-in try/catch, logged at `debug`, and left unset on failure — a satellite
+in try/catch, logged at `warn`, and left unset on failure — a satellite
 dependency (people-db) must never take down the whole gp-api monolith at
 boot. `instance` throws a clear error (`people-db client not initialized —
 PEOPLE_DATABASE_URL / SSM parameter is unresolved`) when the client was never
