@@ -5,8 +5,10 @@ import {
   User,
   VoterFileFilter,
 } from '../../generated/prisma'
+import { ZodValidationException } from 'nestjs-zod'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ZodError } from 'zod'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { CampaignTcrComplianceService } from 'src/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
@@ -431,6 +433,30 @@ describe('OutreachNotificationService', () => {
       const blob = JSON.stringify(blocks)
       expect(blob).toContain('x'.repeat(500))
       expect(blob).not.toContain('x'.repeat(501))
+    })
+
+    it('includes zod issue paths and messages for validation failures', async () => {
+      const zodError = new ZodError([
+        {
+          code: 'custom',
+          path: ['script'],
+          message: 'Script cannot exceed 2000 characters for P2P outreach',
+        },
+      ])
+
+      await service.notifyFailure({
+        user: mockUser,
+        campaign: baseCampaign,
+        createOutreachDto: { outreachType: OutreachType.p2p },
+        step: 'validation',
+        error: new ZodValidationException(zodError),
+      })
+
+      const [blocks] = firstOrThrow(mockSlackMessage.mock.calls)
+      const blob = JSON.stringify(blocks)
+      expect(blob).toContain(
+        'script: Script cannot exceed 2000 characters for P2P outreach',
+      )
     })
 
     it('shows "None" when script is missing', async () => {
