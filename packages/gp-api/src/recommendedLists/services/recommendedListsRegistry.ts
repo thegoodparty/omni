@@ -26,15 +26,15 @@ const ALL_OUTREACH_TYPES: readonly RecommendedListOutreachType[] =
 //     persuasionIssueAligned / gotv (the last two already renamed from
 //     partisanAligned / issueAligned). `goal` is a new, coarser product category
 //     several variants can share (both persuasion variants -> 'persuasion').
-//   - priority is now an Overridable<number> (a { default, byPhase } object):
-//     GOTV rises to rank 1 in gotvPhase and the anchor steps to 2. The compute
-//     service resolves it to the flat `priority` number the contract carries.
+//   - priority is now a { default, byPhase } object (type ListPriority): GOTV
+//     rises to rank 1 in gotvPhase and the anchor steps to 2. The compute service
+//     resolves it to the flat `priority` number the contract carries.
 //   - priority order corrected: partisan (2) above issue (3), per the deliberate
 //     demotion of issue-alignment.
 //   - new tags: goal, isActive, geographyOrder, copy (need compute-service wiring).
-//   - geographyOrder is now Overridable<GeographyOrder> keyed byOutreach: doors
-//     lead densest-first for the anchor + persuasion lists, whole-first for GOTV;
-//     every other channel is whole-first (the default).
+//   - geographyOrder is a { default, byOutreach } object (type ListGeographyOrder):
+//     doors lead densest-first for the anchor + persuasion lists, whole-first for
+//     GOTV; every other channel is whole-first (the default).
 //   - outreach vocabulary extended to track the product set (socialMedia, poll
 //     added; https://snuggle-nav-kit.lovable.app/outreach), keeping `phone` (not
 //     phoneBanking) and directMail. Every list allows all channels.
@@ -48,15 +48,19 @@ const ALL_OUTREACH_TYPES: readonly RecommendedListOutreachType[] =
 // densest sub-geography; 'wholeFirst' leads with the whole-district list.
 type GeographyOrder = 'densestFirst' | 'wholeFirst'
 
-// A value that resolves to `default` unless a more specific axis overrides it.
-// Only the axes a field actually varies on need to be listed; everything else
-// falls through to `default`, so we never enumerate every phase/outreach.
-// Resolution precedence, most specific first: byOutreach -> byPhase -> default.
-// NOT YET WIRED — the compute service currently reads a flat value.
-interface Overridable<T> {
-  default: T
-  byPhase?: Partial<Record<RecommendedListPhase, T>>
-  byOutreach?: Partial<Record<RecommendedListOutreachType, T>>
+// Both of these fall through to `default` for any key not listed, so we never
+// enumerate every phase/outreach — only the ones that differ. NOT YET WIRED: the
+// compute service currently reads a flat value.
+//
+// Display order, LOWER = more prominent; `byPhase` overrides `default` per phase.
+type ListPriority = {
+  default: number
+  byPhase?: Partial<Record<RecommendedListPhase, number>>
+}
+// Sub-geography card ordering; `byOutreach` overrides `default` per channel.
+type ListGeographyOrder = {
+  default: GeographyOrder
+  byOutreach?: Partial<Record<RecommendedListOutreachType, GeographyOrder>>
 }
 
 // Candidate-facing card copy for a list: a title and a criteriaSummary — a
@@ -77,14 +81,11 @@ interface RecommendedListRegistryEntry {
   // 'persuasion'.
   goal: RecommendedListGoal
   copy: RecommendedListCopy
-  // Display order, LOWER = more prominent (rank 1 = top card).
-  priority: Overridable<number>
+  priority: ListPriority
   // On/off toggle. false => the list is not emitted at all. NOT YET WIRED —
   // the service currently emits every list unconditionally.
   isActive: boolean
-  // Sub-geography card ordering, varying by outreach channel. NOT YET WIRED —
-  // card order is currently implicit in the query.
-  geographyOrder: Overridable<GeographyOrder>
+  geographyOrder: ListGeographyOrder
   allowedOutreachTypes: readonly RecommendedListOutreachType[]
   allowedPhases: readonly RecommendedListPhase[]
 }
@@ -102,7 +103,7 @@ type RecommendedListVariant =
 // two persuasion lists lead with the densest sub-geography when knocking. Every
 // non-door channel is whole-first, so it is the default and only the door
 // override is listed.
-const DENSEST_DOOR_ELSE_WHOLE: Overridable<GeographyOrder> = {
+const DENSEST_DOOR_ELSE_WHOLE: ListGeographyOrder = {
   default: 'wholeFirst',
   byOutreach: { doorKnocking: 'densestFirst' },
 }
