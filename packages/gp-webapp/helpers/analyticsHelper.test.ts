@@ -1,5 +1,4 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest'
-import cookie from 'js-cookie'
 
 vi.mock('./segmentHelper', () => ({
   segmentTrackEvent: vi.fn().mockResolvedValue(undefined),
@@ -9,9 +8,10 @@ vi.mock('app/shared/utils/analytics', () => ({
   getReadyAnalytics: vi.fn(),
 }))
 
+const mockCookieGet = vi.fn<(name: string) => string | undefined>()
 vi.mock('js-cookie', () => ({
   default: {
-    get: vi.fn(),
+    get: (name: string) => mockCookieGet(name),
     set: vi.fn(),
   },
 }))
@@ -112,11 +112,11 @@ describe('trackEvent', () => {
 
 describe('getMetaClickIds', () => {
   beforeEach(() => {
-    vi.mocked(cookie.get).mockReset()
+    mockCookieGet.mockReset()
   })
 
   it('returns fbc and fbp from cookies when present', () => {
-    vi.mocked(cookie.get).mockImplementation((name: string) => {
+    mockCookieGet.mockImplementation((name: string) => {
       if (name === '_fbc') return 'fb.1.1234567890.test-fbclid'
       if (name === '_fbp') return 'fb.1.1234567890.987654321'
       return undefined
@@ -129,7 +129,7 @@ describe('getMetaClickIds', () => {
   })
 
   it('omits missing Meta cookies', () => {
-    vi.mocked(cookie.get).mockReturnValue(undefined)
+    mockCookieGet.mockReturnValue(undefined)
 
     expect(getMetaClickIds()).toEqual({})
   })
@@ -141,13 +141,13 @@ describe('trackRegistrationCompleted', () => {
     setUserEmail(undefined)
     vi.clearAllMocks()
     sessionStorage.clear()
-    vi.mocked(cookie.get).mockReset()
+    mockCookieGet.mockReset()
   })
 
   it('attaches fbc, fbp, and persisted fbclid to identify and track', async () => {
     sessionStorage.setItem('fbclid_first', 'test-fbclid')
     sessionStorage.setItem('fbclid_last', 'test-fbclid')
-    vi.mocked(cookie.get).mockImplementation((name: string) => {
+    mockCookieGet.mockImplementation((name: string) => {
       if (name === '_fbc') return 'fb.1.1234567890.test-fbclid'
       if (name === '_fbp') return 'fb.1.1234567890.987654321'
       if (name === 'hubspotutk') return 'hutk-value'
@@ -189,7 +189,7 @@ describe('trackRegistrationCompleted', () => {
   it('prefers fbclid_last over fbclid_first', async () => {
     sessionStorage.setItem('fbclid_first', 'first-click')
     sessionStorage.setItem('fbclid_last', 'last-click')
-    vi.mocked(cookie.get).mockReturnValue(undefined)
+    mockCookieGet.mockReturnValue(undefined)
 
     const identify = vi.fn()
     const analytics = Promise.resolve({ identify } as any)
@@ -220,7 +220,7 @@ describe('trackRegistrationCompleted', () => {
           }, 10)
         }),
     )
-    vi.mocked(cookie.get).mockReturnValue(undefined)
+    mockCookieGet.mockReturnValue(undefined)
 
     const analytics = Promise.resolve(null)
 
