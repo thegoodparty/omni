@@ -142,6 +142,7 @@ const purposeToFilters: PurposeToFiltersMap = {
     audience_unreliableVoters: true,
     audience_unlikelyVoters: true,
     audience_firstTimeVoters: true,
+    audience_unknown: true,
     party_independent: true,
     age_18_25: true,
     age_25_35: true,
