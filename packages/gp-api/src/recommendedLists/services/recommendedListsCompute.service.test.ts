@@ -2,6 +2,10 @@ import { Test } from '@nestjs/testing'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { parseISO } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
+import {
+  RECOMMENDED_LIST_OUTREACH_TYPE_VALUES,
+  RecommendedListEnvelope,
+} from '@goodparty_org/contracts'
 import { PrismaService } from '@/prisma/prisma.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
@@ -26,8 +30,11 @@ import {
   subGeoStats,
   votescoreHistogram,
 } from './recommendedListsQueries'
+import { RECOMMENDED_LISTS_REGISTRY } from './recommendedListsRegistry'
 
 type Row = Record<string, unknown>
+
+const ALL_OUTREACH_TYPES = [...RECOMMENDED_LIST_OUTREACH_TYPE_VALUES]
 
 const CAMPAIGN_ID = 42
 const RACE_ID = 'race-1'
@@ -311,11 +318,12 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
       },
       lists: [
         {
-          kind: 'voterSupportId',
+          variant: 'voterSupportId',
+          goal: 'introduction',
           name: 'Candidate Intro & Voter Support ID',
           priority: 1,
-          allowedOutreachTypes: ['doorKnocking'],
-          allowedPhases: ['earlyCampaign', 'midCampaign'],
+          allowedOutreachTypes: ALL_OUTREACH_TYPES,
+          allowedPhases: ['earlyCampaign', 'midCampaign', 'gotvPhase'],
           details: {
             votescoreThreshold: 1,
             voterCount: 100,
@@ -328,37 +336,11 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
           },
         },
         {
-          kind: 'issueAligned',
-          name: 'Voters who lean toward Protecting local water quality',
+          variant: 'persuasionPartisanAligned',
+          goal: 'persuasion',
+          name: 'Voters open to an independent choice',
           priority: 2,
-          allowedOutreachTypes: [
-            'doorKnocking',
-            'phone',
-            'email',
-            'directMail',
-          ],
-          allowedPhases: ['midCampaign'],
-          details: {
-            phrase: 'Protecting local water quality',
-            opponentName: 'Jane Doe',
-            threatTier: 'primary_threat',
-            activeVoters: 200,
-            supporters: 80,
-            opponents: 30,
-            persuadable: 90,
-            supportersPlausible: 50,
-          },
-        },
-        {
-          kind: 'partisanAligned',
-          name: 'Partisanship-Aligned Voters',
-          priority: 3,
-          allowedOutreachTypes: [
-            'doorKnocking',
-            'phone',
-            'email',
-            'directMail',
-          ],
+          allowedOutreachTypes: ALL_OUTREACH_TYPES,
           allowedPhases: ['midCampaign'],
           details: {
             shape: 'P4',
@@ -385,10 +367,29 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
           },
         },
         {
-          kind: 'gotv',
+          variant: 'persuasionIssueAligned',
+          goal: 'persuasion',
+          name: 'Voters who lean toward Protecting local water quality',
+          priority: 3,
+          allowedOutreachTypes: ALL_OUTREACH_TYPES,
+          allowedPhases: ['midCampaign'],
+          details: {
+            phrase: 'Protecting local water quality',
+            opponentName: 'Jane Doe',
+            threatTier: 'primary_threat',
+            activeVoters: 200,
+            supporters: 80,
+            opponents: 30,
+            persuadable: 90,
+            supportersPlausible: 50,
+          },
+        },
+        {
+          variant: 'gotv',
+          goal: 'gotv',
           name: 'Get Out The Vote',
-          priority: 4,
-          allowedOutreachTypes: ['doorKnocking', 'phone', 'robocall', 'email'],
+          priority: 3,
+          allowedOutreachTypes: ALL_OUTREACH_TYPES,
           allowedPhases: ['gotvPhase'],
           details: {
             dropoffX: 4200,
@@ -397,6 +398,13 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
         },
       ],
     })
+
+    const envelopes = data.payload.lists as RecommendedListEnvelope[]
+    for (const envelope of envelopes) {
+      expect(envelope.goal).toBe(
+        RECOMMENDED_LISTS_REGISTRY[envelope.variant].goal,
+      )
+    }
   })
 
   it('drops an issue card whose active cell count is below the floor', async () => {
@@ -422,10 +430,10 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
       attempt: 1,
     })
 
-    const kinds = payloadOf(update).payload.lists.map(
-      (envelope: { kind: string }) => envelope.kind,
+    const variants = payloadOf(update).payload.lists.map(
+      (envelope: { variant: string }) => envelope.variant,
     )
-    expect(kinds).not.toContain('issueAligned')
+    expect(variants).not.toContain('persuasionIssueAligned')
   })
 
   it('produces an NP1 card with null add-ons when no major-party opponent runs', async () => {
@@ -458,7 +466,8 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
     })
 
     const envelope = payloadOf(update).payload.lists.find(
-      (list: { kind: string }) => list.kind === 'partisanAligned',
+      (list: { variant: string }) =>
+        list.variant === 'persuasionPartisanAligned',
     )
     const partisan = envelope.details
     expect(partisan.shape).toBe('NP1')
@@ -492,7 +501,7 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
     const data = payloadOf(update)
     expect(data.status).toBe('ready')
     const anchor = data.payload.lists.find(
-      (list: { kind: string }) => list.kind === 'voterSupportId',
+      (list: { variant: string }) => list.variant === 'voterSupportId',
     )
     expect(anchor.details).toEqual({
       votescoreThreshold: null,

@@ -35,7 +35,8 @@ const VALID_LISTS: RecommendedLists = {
   },
   lists: [
     {
-      kind: 'voterSupportId',
+      variant: 'voterSupportId',
+      goal: 'introduction',
       name: 'Candidate Intro & Voter Support ID',
       priority: 1,
       allowedOutreachTypes: ['doorKnocking'],
@@ -46,6 +47,29 @@ const VALID_LISTS: RecommendedLists = {
         doorCount: 11470,
         estimatedHours: 764.7,
         turfs: [{ area: 'SHAKOPEE', voterCount: 7200 }],
+      },
+    },
+  ],
+}
+
+const LEGACY_KIND_LISTS = {
+  meta: VALID_LISTS.meta,
+  lists: [
+    {
+      kind: 'issueAligned',
+      name: 'Voters who lean toward Protecting local water quality',
+      priority: 2,
+      allowedOutreachTypes: ['doorKnocking', 'phone', 'email', 'directMail'],
+      allowedPhases: ['midCampaign'],
+      details: {
+        phrase: 'Protecting local water quality',
+        opponentName: 'Jane Doe',
+        threatTier: 'high',
+        activeVoters: 30500,
+        supporters: 12000,
+        opponents: 4000,
+        persuadable: 14500,
+        supportersPlausible: 8000,
       },
     },
   ],
@@ -191,6 +215,29 @@ describe('RecommendedListsService.getForCampaign', () => {
         raceId: RACE_ID,
         computedAt: new Date(),
         payload: { meta: 'not a valid lists payload' },
+      },
+    })
+
+    const result = await service.getForCampaign(makeCampaign())
+
+    expect(result).toEqual({ status: 'pending' })
+    expect(snapshotDelegate.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { campaignId: CAMPAIGN_ID },
+        data: expect.objectContaining({ status: 'pending', attempts: 1 }),
+      }),
+    )
+    expect(sendMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it('resets a ready snapshot carrying a legacy kind-shaped payload to pending', async () => {
+    const { service, snapshotDelegate, sendMessage } = await setup({
+      snapshot: {
+        campaignId: CAMPAIGN_ID,
+        status: 'ready',
+        raceId: RACE_ID,
+        computedAt: new Date(),
+        payload: LEGACY_KIND_LISTS,
       },
     })
 

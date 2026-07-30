@@ -22,7 +22,8 @@ const lists: RecommendedLists = {
   },
   lists: [
     {
-      kind: 'voterSupportId',
+      variant: 'voterSupportId',
+      goal: 'introduction',
       name: 'Candidate Intro & Voter Support ID',
       priority: 1,
       allowedOutreachTypes: ['doorKnocking'],
@@ -39,7 +40,8 @@ const lists: RecommendedLists = {
       },
     },
     {
-      kind: 'issueAligned',
+      variant: 'persuasionIssueAligned',
+      goal: 'persuasion',
       name: 'Voters who lean toward Protecting local water quality',
       priority: 2,
       allowedOutreachTypes: ['doorKnocking', 'phone', 'email', 'directMail'],
@@ -56,8 +58,9 @@ const lists: RecommendedLists = {
       },
     },
     {
-      kind: 'partisanAligned',
-      name: 'Partisanship-Aligned Voters',
+      variant: 'persuasionPartisanAligned',
+      goal: 'persuasion',
+      name: 'Voters open to an independent choice',
       priority: 3,
       allowedOutreachTypes: ['doorKnocking', 'phone', 'email', 'directMail'],
       allowedPhases: ['midCampaign'],
@@ -86,7 +89,8 @@ const lists: RecommendedLists = {
       },
     },
     {
-      kind: 'gotv',
+      variant: 'gotv',
+      goal: 'gotv',
       name: 'Get Out The Vote',
       priority: 4,
       allowedOutreachTypes: ['doorKnocking', 'phone', 'robocall', 'email'],
@@ -109,18 +113,18 @@ describe('RecommendedListsSchema', () => {
   it('parses a full ready lists payload of ordered envelopes', () => {
     const parsed = RecommendedListsSchema.parse(lists)
     expect(parsed.meta.electionCode).toBe('General')
-    expect(parsed.lists.map((l) => l.kind)).toEqual([
+    expect(parsed.lists.map((l) => l.variant)).toEqual([
       'voterSupportId',
-      'issueAligned',
-      'partisanAligned',
+      'persuasionIssueAligned',
+      'persuasionPartisanAligned',
       'gotv',
     ])
-    const anchor = parsed.lists.find((l) => l.kind === 'voterSupportId')
-    if (anchor?.kind === 'voterSupportId') {
+    const anchor = parsed.lists.find((l) => l.variant === 'voterSupportId')
+    if (anchor?.variant === 'voterSupportId') {
       expect(anchor.details.turfs).toHaveLength(2)
     }
-    const gotv = parsed.lists.find((l) => l.kind === 'gotv')
-    if (gotv?.kind === 'gotv') {
+    const gotv = parsed.lists.find((l) => l.variant === 'gotv')
+    if (gotv?.variant === 'gotv') {
       expect(gotv.details.exponentA).toBe(0.79)
     }
   })
@@ -128,17 +132,34 @@ describe('RecommendedListsSchema', () => {
   it('accepts a payload without a partisan-aligned envelope', () => {
     const withoutPartisan = {
       ...lists,
-      lists: lists.lists.filter((l) => l.kind !== 'partisanAligned'),
+      lists: lists.lists.filter(
+        (l) => l.variant !== 'persuasionPartisanAligned',
+      ),
     }
     const parsed = RecommendedListsSchema.parse(withoutPartisan)
-    expect(parsed.lists.some((l) => l.kind === 'partisanAligned')).toBe(false)
+    expect(
+      parsed.lists.some((l) => l.variant === 'persuasionPartisanAligned'),
+    ).toBe(false)
   })
 
-  it('rejects an envelope with an unknown kind', () => {
+  it('rejects an envelope with an unknown variant', () => {
     const bad = {
       ...lists,
-      lists: [...lists.lists, { ...lists.lists[0], kind: 'mysteryList' }],
+      lists: [...lists.lists, { ...lists.lists[0], variant: 'mysteryList' }],
     }
+    expect(RecommendedListsSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects a legacy kind-discriminated envelope', () => {
+    const { variant, ...anchor } = lists.lists[0]
+    const bad = { ...lists, lists: [{ ...anchor, kind: variant }] }
+    expect(RecommendedListsSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects an envelope missing its goal', () => {
+    const { goal, ...anchorSansGoal } = lists.lists[0]
+    expect(goal).toBeDefined()
+    const bad = { ...lists, lists: [anchorSansGoal] }
     expect(RecommendedListsSchema.safeParse(bad).success).toBe(false)
   })
 
@@ -155,7 +176,7 @@ describe('RecommendedListsSchema', () => {
     const bad = {
       ...lists,
       lists: lists.lists.map((l) =>
-        l.kind === 'gotv' ? { ...l, details: { dropoffX: 4200 } } : l,
+        l.variant === 'gotv' ? { ...l, details: { dropoffX: 4200 } } : l,
       ),
     }
     expect(RecommendedListsSchema.safeParse(bad).success).toBe(false)

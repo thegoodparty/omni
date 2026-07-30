@@ -166,7 +166,8 @@ export const RECOMMENDED_LISTS_REGISTRY = {
       title: 'Get out the vote',
       // {dropoffClause} = ', plus likely voters who do not usually vote down
       // to the {office} line' for offices with ballot drop-off, else ''.
-      criteriaSummary: 'Sporadic-turnout voters who support you{dropoffClause}.',
+      criteriaSummary:
+        'Sporadic-turnout voters who support you{dropoffClause}.',
     },
     priority: { default: 3, byPhase: { gotvPhase: 1 } },
     isActive: true,
@@ -174,7 +175,10 @@ export const RECOMMENDED_LISTS_REGISTRY = {
     allowedOutreachTypes: ALL_OUTREACH_TYPES,
     allowedPhases: ['gotvPhase'],
   },
-} as const satisfies Record<RecommendedListVariant, RecommendedListRegistryEntry>
+} as const satisfies Record<
+  RecommendedListVariant,
+  RecommendedListRegistryEntry
+>
 
 // Channel throughput: contacts reachable per hour on a given outreach channel. A
 // property of the channel itself, not of any list. Only doorKnocking is
