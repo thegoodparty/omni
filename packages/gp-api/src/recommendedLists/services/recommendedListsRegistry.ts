@@ -1,5 +1,6 @@
 import {
   RECOMMENDED_LIST_OUTREACH_TYPE_VALUES,
+  RecommendedListEnvelope,
   RecommendedListGoal,
   RecommendedListOutreachType,
   RecommendedListPhase,
@@ -31,7 +32,9 @@ const ALL_OUTREACH_TYPES: readonly RecommendedListOutreachType[] =
 //     resolves it to the flat `priority` number the contract carries.
 //   - priority order corrected: partisan (2) above issue (3), per the deliberate
 //     demotion of issue-alignment.
-//   - new tags: goal, isActive, geographyOrder, copy (need compute-service wiring).
+//   - new tags: goal and isActive are wired into the compute service; copy,
+//     geographyOrder, priority byPhase, and the capacity maps below still need
+//     compute-service wiring.
 //   - geographyOrder is a { default, byOutreach } object (type ListGeographyOrder):
 //     doors lead densest-first for the anchor + persuasion lists, whole-first for
 //     GOTV; every other channel is whole-first (the default).
@@ -49,8 +52,9 @@ const ALL_OUTREACH_TYPES: readonly RecommendedListOutreachType[] =
 type GeographyOrder = 'densestFirst' | 'wholeFirst'
 
 // Both of these fall through to `default` for any key not listed, so we never
-// enumerate every phase/outreach — only the ones that differ. NOT YET WIRED: the
-// compute service currently reads a flat value.
+// enumerate every phase/outreach — only the ones that differ. The compute
+// service emits priority.default; byPhase resolution is not yet wired (it
+// needs a phase-aware read path).
 //
 // Display order, LOWER = more prominent; `byPhase` overrides `default` per phase.
 type ListPriority = {
@@ -82,22 +86,18 @@ interface RecommendedListRegistryEntry {
   goal: RecommendedListGoal
   copy: RecommendedListCopy
   priority: ListPriority
-  // On/off toggle. false => the list is not emitted at all. NOT YET WIRED —
-  // the service currently emits every list unconditionally.
+  // On/off toggle: false => the compute service skips the list entirely.
   isActive: boolean
   geographyOrder: ListGeographyOrder
   allowedOutreachTypes: readonly RecommendedListOutreachType[]
   allowedPhases: readonly RecommendedListPhase[]
 }
 
-// The unique per-list recipe id — the contract's discriminated-union discriminant
-// (`variant`). Reuses the values Collin previously had on `kind`; renaming any of
-// them (e.g. voterSupportId -> likelyVoters) is a later value-rename.
-type RecommendedListVariant =
-  | 'voterSupportId'
-  | 'persuasionPartisanAligned'
-  | 'persuasionIssueAligned'
-  | 'gotv'
+// The unique per-list recipe id — the contract's discriminated-union
+// discriminant (`variant`), derived from the contract so the `satisfies`
+// exhaustiveness check below tracks it. Renaming a value (e.g. voterSupportId
+// -> likelyVoters) is a later value-rename.
+type RecommendedListVariant = RecommendedListEnvelope['variant']
 
 // Doors (and GOTV over doors) lead whole-first only for GOTV; the anchor and the
 // two persuasion lists lead with the densest sub-geography when knocking. Every

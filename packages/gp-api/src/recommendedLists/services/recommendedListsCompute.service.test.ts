@@ -4,7 +4,7 @@ import { parseISO } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import {
   RECOMMENDED_LIST_OUTREACH_TYPE_VALUES,
-  RecommendedListEnvelope,
+  RecommendedListsSchema,
 } from '@goodparty_org/contracts'
 import { PrismaService } from '@/prisma/prisma.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -30,7 +30,6 @@ import {
   subGeoStats,
   votescoreHistogram,
 } from './recommendedListsQueries'
-import { RECOMMENDED_LISTS_REGISTRY } from './recommendedListsRegistry'
 
 type Row = Record<string, unknown>
 
@@ -43,6 +42,7 @@ const STATE = 'MN'
 const DTYPE = 'County_Commissioner_District'
 const DNAME = 'SCOTT CNTY COMM DIST 5'
 const HS_COL = 'hs_trump_vs_harris_double_dislike'
+const HS_COL_2 = 'hs_abortion_pro_choice'
 const SUB_COLS = ['County', 'City', 'Precinct'] as const
 
 const allowedHs = new Set(
@@ -301,7 +301,7 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
     expect(data.computedAt).toBeInstanceOf(Date)
 
     const a = exponentA(officeR('COUNTY', DTYPE, true))
-    expect(data.payload).toEqual({
+    expect(RecommendedListsSchema.parse(data.payload)).toEqual({
       meta: {
         officeName: 'County Commissioner District 5',
         state: 'MN',
@@ -398,13 +398,81 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
         },
       ],
     })
+  })
 
-    const envelopes = data.payload.lists as RecommendedListEnvelope[]
-    for (const envelope of envelopes) {
-      expect(envelope.goal).toBe(
-        RECOMMENDED_LISTS_REGISTRY[envelope.variant].goal,
-      )
-    }
+  it('keeps tied-priority envelopes in assembly order and names both issue-card directions', async () => {
+    const routes = routesFor({
+      sstar: 1,
+      hasDem: true,
+      hasGop: false,
+      isPartisan: true,
+      officeLevel: 'COUNTY',
+    })
+    routes.set(issueUniverse(DF, HS_COL_2, 'low', 1, allowedHs), [ISSUE_ROW])
+    const { service, update } = await setup({
+      routes,
+      standoutRows: [
+        standoutRow(),
+        standoutRow({
+          hsColumn: HS_COL_2,
+          positionDir: 'low',
+          positionPhrase: 'Expanding the county sales tax',
+          issue: 'Taxes',
+          order: 1,
+        }),
+      ],
+      summaryRows: [summaryRow()],
+    })
+
+    await service.handleRecompute({
+      campaignId: CAMPAIGN_ID,
+      raceId: RACE_ID,
+      attempt: 1,
+    })
+
+    const lists = RecommendedListsSchema.parse(payloadOf(update).payload).lists
+    expect(lists.map((envelope) => [envelope.variant, envelope.name])).toEqual([
+      ['voterSupportId', 'Candidate Intro & Voter Support ID'],
+      ['persuasionPartisanAligned', 'Voters open to an independent choice'],
+      [
+        'persuasionIssueAligned',
+        'Voters who lean toward Protecting local water quality',
+      ],
+      [
+        'persuasionIssueAligned',
+        'Voters who lean away from Expanding the county sales tax',
+      ],
+      ['gotv', 'Get Out The Vote'],
+    ])
+  })
+
+  it('omits the gotv envelope when turnout drop-off does not apply', async () => {
+    const routes = routesFor({
+      sstar: 1,
+      hasDem: true,
+      hasGop: false,
+      isPartisan: true,
+      officeLevel: 'FEDERAL',
+    })
+    const { service, update } = await setup({
+      routes,
+      context: strategyContext({ office_level: 'FEDERAL' }),
+      standoutRows: [standoutRow()],
+      summaryRows: [summaryRow()],
+    })
+
+    await service.handleRecompute({
+      campaignId: CAMPAIGN_ID,
+      raceId: RACE_ID,
+      attempt: 1,
+    })
+
+    const lists = RecommendedListsSchema.parse(payloadOf(update).payload).lists
+    expect(lists.map((envelope) => envelope.variant)).toEqual([
+      'voterSupportId',
+      'persuasionPartisanAligned',
+      'persuasionIssueAligned',
+    ])
   })
 
   it('drops an issue card whose active cell count is below the floor', async () => {

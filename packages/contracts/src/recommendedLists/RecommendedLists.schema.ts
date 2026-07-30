@@ -169,10 +169,10 @@ export const RecommendedListPhaseSchema = z.enum(RECOMMENDED_LIST_PHASE_VALUES)
 export type RecommendedListPhase = z.infer<typeof RecommendedListPhaseSchema>
 
 // Product-facing outreach goal a list serves. This is a coarser, candidate-facing
-// categorization than `kind` (the machine discriminant that types `details`):
-// multiple kinds can share a goal (both persuasion kinds -> 'persuasion'), and
-// some goals have no list yet (eventInvite / earlyVote / custom). Value set (and
-// casing) tracks the product's outreach vocabulary:
+// categorization than `variant` (the machine discriminant that types `details`):
+// multiple variants can share a goal (both persuasion variants -> 'persuasion'),
+// and some goals have no list yet (eventInvite / earlyVote / custom). Value set
+// (and casing) tracks the product's outreach vocabulary:
 // https://snuggle-nav-kit.lovable.app/outreach
 export const RECOMMENDED_LIST_GOAL_VALUES = [
   'introduction',

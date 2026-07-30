@@ -4,6 +4,7 @@ import { ForbiddenException } from '@nestjs/common'
 import { subMinutes } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { RecommendedLists } from '@goodparty_org/contracts'
+import { Prisma } from '@/generated/prisma'
 import { PrismaService } from '@/prisma/prisma.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { FeaturesService } from '@/features/services/features.service'
@@ -221,12 +222,18 @@ describe('RecommendedListsService.getForCampaign', () => {
     const result = await service.getForCampaign(makeCampaign())
 
     expect(result).toEqual({ status: 'pending' })
-    expect(snapshotDelegate.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { campaignId: CAMPAIGN_ID },
-        data: expect.objectContaining({ status: 'pending', attempts: 1 }),
-      }),
-    )
+    expect(snapshotDelegate.update).toHaveBeenCalledWith({
+      where: { campaignId: CAMPAIGN_ID },
+      data: {
+        status: 'pending',
+        raceId: RACE_ID,
+        attempts: 1,
+        startedAt: expect.any(Date),
+        payload: Prisma.DbNull,
+        computedAt: null,
+        error: null,
+      },
+    })
     expect(sendMessage).toHaveBeenCalledTimes(1)
   })
 
@@ -244,12 +251,18 @@ describe('RecommendedListsService.getForCampaign', () => {
     const result = await service.getForCampaign(makeCampaign())
 
     expect(result).toEqual({ status: 'pending' })
-    expect(snapshotDelegate.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { campaignId: CAMPAIGN_ID },
-        data: expect.objectContaining({ status: 'pending', attempts: 1 }),
-      }),
-    )
+    expect(snapshotDelegate.update).toHaveBeenCalledWith({
+      where: { campaignId: CAMPAIGN_ID },
+      data: {
+        status: 'pending',
+        raceId: RACE_ID,
+        attempts: 1,
+        startedAt: expect.any(Date),
+        payload: Prisma.DbNull,
+        computedAt: null,
+        error: null,
+      },
+    })
     expect(sendMessage).toHaveBeenCalledTimes(1)
   })
 
