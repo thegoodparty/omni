@@ -24,6 +24,7 @@ const CUSTOM_FILTER_TO_FIELD: Record<
   audience_unreliableVoters: 'audienceUnreliableVoters',
   audience_unlikelyVoters: 'audienceUnlikelyVoters',
   audience_firstTimeVoters: 'audienceFirstTimeVoters',
+  audience_unknown: 'audienceUnknown',
   party_independent: 'partyIndependent',
   party_democrat: 'partyDemocrat',
   party_republican: 'partyRepublican',

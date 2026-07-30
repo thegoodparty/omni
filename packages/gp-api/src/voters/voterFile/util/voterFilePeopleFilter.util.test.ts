@@ -27,6 +27,17 @@ describe('buildVoterFilePeopleFilter', () => {
     expect(groupByHousehold).toBe(false)
   })
 
+  it('maps audience_unknown to audienceUnknown', () => {
+    const { filterInput } = buildVoterFilePeopleFilter(VoterFileType.sms, {
+      filters: ['audience_unknown'],
+    })
+
+    expect(filterInput).toEqual({
+      audienceUnknown: true,
+      hasCellPhone: true,
+    })
+  })
+
   it('ignores the audience_request UI sentinel', () => {
     const { filterInput } = buildVoterFilePeopleFilter(VoterFileType.custom, {
       filters: ['audience_request'],

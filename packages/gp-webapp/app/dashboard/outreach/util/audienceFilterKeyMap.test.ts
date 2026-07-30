@@ -18,6 +18,7 @@ const EXPECTED_SNAKE_TO_CAMEL: Record<string, string> = {
   audience_unreliableVoters: 'audienceUnreliableVoters',
   audience_unlikelyVoters: 'audienceUnlikelyVoters',
   audience_firstTimeVoters: 'audienceFirstTimeVoters',
+  audience_unknown: 'audienceUnknown',
   party_independent: 'partyIndependent',
   party_democrat: 'partyDemocrat',
   party_republican: 'partyRepublican',
@@ -57,8 +58,8 @@ describe('audienceFilterKeyMap', () => {
     expect(AUDIENCE_FILTER_CAMEL_KEYS).toEqual(
       Object.values(EXPECTED_SNAKE_TO_CAMEL),
     )
-    expect(AUDIENCE_FILTER_SNAKE_KEYS).toHaveLength(20)
-    expect(AUDIENCE_FILTER_CAMEL_KEYS).toHaveLength(20)
+    expect(AUDIENCE_FILTER_SNAKE_KEYS).toHaveLength(21)
+    expect(AUDIENCE_FILTER_CAMEL_KEYS).toHaveLength(21)
   })
 
   it('round-trips every key snake -> camel -> snake', () => {

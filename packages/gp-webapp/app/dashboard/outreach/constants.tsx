@@ -72,6 +72,7 @@ export const AUDIENCE_LABELS_MAPPING: Record<AudienceLabelKey, string> = {
   audienceUnreliableVoters: 'Unreliable',
   audienceUnlikelyVoters: 'Unlikely',
   audienceFirstTimeVoters: 'First Time',
+  audienceUnknown: 'Unknown',
   partyIndependent: 'Independent',
   partyDemocrat: 'Democrat',
   partyRepublican: 'Republican',
