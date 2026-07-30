@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import type { PeopleAggregatesResponse } from '../contacts.types'
@@ -38,6 +38,16 @@ describe('GET /v1/contacts/list-detail reachability', () => {
     })
     return slug
   }
+
+  // vitest.config sets clearMocks:true, which clears CALL state before each
+  // test but does NOT reset queued mock*Once IMPLEMENTATIONS. With
+  // load-shedding a base-failure test consumes only the base mock (the 3
+  // channel scans are skipped), so its unconsumed channel mockResolvedValueOnce
+  // would otherwise bleed into the next test's getAggregates queue. Reset the
+  // spy's implementation queue after every test so each test is order-independent.
+  afterEach(() => {
+    vi.spyOn(service.app.get(VoterQueryService), 'getAggregates').mockReset()
+  })
 
   // getAggregates runs once per channel in a fixed order — base, cellphone,
   // landline, address — so the mock returns them in that order.
@@ -142,12 +152,13 @@ describe('GET /v1/contacts/list-detail reachability', () => {
     // The base (first) query fails; there's nothing to render without it, so
     // the route surfaces the error rather than a partial tile set. An
     // in-process query failure propagates as a 500 — there is no external
-    // gateway to attribute a 502 to.
-    vi.spyOn(service.app.get(VoterQueryService), 'getAggregates')
-      .mockRejectedValueOnce(new Error('base aggregate query failed'))
-      .mockResolvedValueOnce(agg(1))
-      .mockResolvedValueOnce(agg(1))
-      .mockResolvedValueOnce(agg(1))
+    // gateway to attribute a 502 to. Only the base mock is queued: load-shedding
+    // means the three channel scans are never fired on the base-failure path
+    // (asserted directly in the next test).
+    vi.spyOn(
+      service.app.get(VoterQueryService),
+      'getAggregates',
+    ).mockRejectedValueOnce(new Error('base aggregate query failed'))
 
     const response = await service.client.get('/v1/contacts/list-detail', {
       headers: { [ORG_SLUG_HEADER]: slug },
