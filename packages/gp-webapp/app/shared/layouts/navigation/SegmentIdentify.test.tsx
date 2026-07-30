@@ -159,7 +159,7 @@ describe('SegmentIdentify', () => {
   it('lets live URL CLIDs override persisted CLIDs for the same key', async () => {
     mockUser = fullUser
     vi.mocked(getPersistedClids).mockReturnValue({
-      fbclid_last: 'from-session',
+      fbclid: 'from-session',
     })
     vi.mocked(extractClids).mockReturnValue({
       fbclid: 'from-url',
@@ -170,7 +170,6 @@ describe('SegmentIdentify', () => {
     await vi.waitFor(() => {
       expect(identifyUser).toHaveBeenCalledWith(42, {
         ...fullUserTraits,
-        fbclid_last: 'from-session',
         fbclid: 'from-url',
       })
     })

@@ -781,7 +781,7 @@ export const trackRegistrationCompleted = async ({
         await analyticsInstance.ready()
       }
       const hutk = cookie.get('hubspotutk')
-      analyticsInstance.identify(userId, {
+      await analyticsInstance.identify(userId, {
         signUpDate,
         signUpMethod,
         ...(email ? { email } : {}),
