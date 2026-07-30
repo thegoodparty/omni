@@ -173,9 +173,11 @@ describe('RecommendedListsComputeService isActive gate', () => {
           provide: ElectionsService,
           useValue: {
             fetchCampaignStrategyContext: vi.fn().mockResolvedValue({
-              projected_turnout: 100,
+              // Anchor sizes to 3 x win_number_effective (the vote goal); 3 x 33 =
+              // 99 lands in the VOTESCORE >= 1 band of HISTOGRAM, keeping SSTAR = 1.
+              projected_turnout: 65,
               registered_voters: 41230,
-              win_number_effective: 9201,
+              win_number_effective: 33,
               office_level: 'COUNTY',
               official_office_name: 'County Commissioner District 5',
               relevant_election_date: '2026-11-03',

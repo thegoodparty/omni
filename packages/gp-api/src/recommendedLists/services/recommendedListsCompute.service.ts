@@ -25,6 +25,7 @@ import {
   cardSubtitle,
   electionCode,
   exponentA,
+  LIKELY_VOTER_UNIVERSE_MULTIPLIER,
   officeR,
   partisanUnionPredicate,
   pickSubGeo,
@@ -202,7 +203,13 @@ export class RecommendedListsComputeService extends createPrismaBase(
       score: toInt(row.s),
       n: toInt(row.n),
     }))
-    const sstar = votescoreThreshold(histogram, projectedTurnout)
+    // Size the plausible-turnout electorate (List type 1) to the VOTE GOAL, not to
+    // projected turnout: cumulative-count band down to
+    // LIKELY_VOTER_UNIVERSE_MULTIPLIER x votesNeededToWin (a contact buffer above
+    // the win number; self-caps at the whole file). See the multiplier's citations.
+    const universeTarget =
+      votesNeeded === null ? null : LIKELY_VOTER_UNIVERSE_MULTIPLIER * votesNeeded
+    const sstar = votescoreThreshold(histogram, universeTarget)
     const sub = pickSubGeo(
       SUB_GEO_COLUMNS.map((col) => ({
         col,

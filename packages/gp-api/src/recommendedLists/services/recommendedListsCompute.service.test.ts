@@ -107,10 +107,15 @@ const subFor = (districtType: string): 'County' | 'City' | 'Precinct' =>
     districtType,
   )
 
+// Anchor sizing keys off the VOTE GOAL, not projected turnout: sstar is the
+// VOTESCORE band whose cumulative count reaches 3 x win_number_effective
+// (LIKELY_VOTER_UNIVERSE_MULTIPLIER). 3 x 33 = 99 lands in the VOTESCORE >= 1 band
+// of HISTOGRAM (cum 100), so sstar stays 1. (The old rule used projected_turnout,
+// which would give sstar = 3 here — the divergence is why the fixture is tuned.)
 const strategyContext = (overrides: Record<string, unknown> = {}) => ({
-  projected_turnout: 100,
+  projected_turnout: 65,
   registered_voters: 41230,
-  win_number_effective: 9201,
+  win_number_effective: 33,
   office_level: 'COUNTY',
   official_office_name: 'County Commissioner District 5',
   relevant_election_date: '2026-11-03',
@@ -309,8 +314,8 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
         districtName: DNAME,
         districtLabel: 'SCOTT CNTY COMM DIST 5, MN',
         registeredVoters: 41230,
-        projectedTurnout: 100,
-        votesNeeded: 9201,
+        projectedTurnout: 65,
+        votesNeeded: 33,
         electionCode: electionCode(parseISO('2026-11-03'), STATE),
         electionDate: '2026-11-03',
         subGeoLabel: 'counties',
@@ -544,7 +549,7 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
     expect(partisan.signals.registrationAddOn).toBeNull()
   })
 
-  it('degrades the anchor to nulls when projected turnout is missing', async () => {
+  it('degrades the anchor to nulls when the vote goal is missing', async () => {
     const routes = routesFor({
       sstar: null,
       hasDem: true,
@@ -554,7 +559,9 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
     })
     const { service, update } = await setup({
       routes,
-      context: strategyContext({ projected_turnout: null }),
+      // Anchor now sizes off the vote goal, so a null win number (not a null
+      // projected turnout) is what collapses sstar and the anchor details.
+      context: strategyContext({ win_number_effective: null }),
       standoutRows: [standoutRow()],
       summaryRows: [summaryRow()],
     })
@@ -578,7 +585,7 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
       estimatedHours: null,
       turfs: [],
     })
-    expect(data.payload.meta.projectedTurnout).toBeNull()
+    expect(data.payload.meta.votesNeeded).toBeNull()
   })
 
   it('ack-drops a recompute for a snapshot that is no longer pending', async () => {
