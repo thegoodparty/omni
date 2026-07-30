@@ -1,14 +1,17 @@
 'use client'
 
 import { useUser } from '@shared/hooks/useUser'
-import { persistUtmsOnce } from 'helpers/analyticsHelper'
+import {
+  persistUtmsOnce,
+  getPersistedUtms,
+  getPersistedClids,
+  extractClids,
+  setUserEmail,
+} from 'helpers/analyticsHelper'
 import { useSearchParams } from 'next/navigation'
-import { getPersistedUtms } from 'helpers/analyticsHelper'
-import { extractClids } from 'helpers/analyticsHelper'
 import { useEffect } from 'react'
 import { identifyUser } from '@shared/utils/analytics'
 import { buildUserTraits } from 'helpers/buildUserTraits'
-import { setUserEmail } from 'helpers/analyticsHelper'
 import { User } from 'helpers/types'
 
 const identify = async (
@@ -18,8 +21,13 @@ const identify = async (
   persistUtmsOnce()
   setUserEmail(user?.email)
 
+  const persistedClids = Object.fromEntries(
+    Object.entries(getPersistedClids()).filter(([, value]) => value !== null),
+  ) as Record<string, string>
+
   const traits = {
     ...getPersistedUtms(),
+    ...persistedClids,
     ...(searchParams ? extractClids(searchParams) : {}),
   }
 

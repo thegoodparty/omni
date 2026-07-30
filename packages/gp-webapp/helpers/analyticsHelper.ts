@@ -743,6 +743,15 @@ export const extractClids = (
   return clids
 }
 
+// Raw, unhashed Meta click cookies for Segment's Facebook Conversions API
+// destination (server-side CAPI has no cookie access). Do not reconstruct or
+// re-timestamp `_fbc` when the cookie is already present.
+export const getMetaClickIds = (): { fbc?: string; fbp?: string } => {
+  const fbc = cookie.get('_fbc')
+  const fbp = cookie.get('_fbp')
+  return { ...(fbc ? { fbc } : {}), ...(fbp ? { fbp } : {}) }
+}
+
 interface TrackRegistrationParams {
   analytics: Promise<Analytics | null>
   userId: string
@@ -757,6 +766,13 @@ export const trackRegistrationCompleted = async ({
   signUpMethod = 'email',
 }: TrackRegistrationParams): Promise<void> => {
   const signUpDate = new Date().toISOString()
+  const metaClickIds = getMetaClickIds()
+  const clids = getPersistedClids()
+  const fbclid = clids.fbclid_last ?? clids.fbclid_first ?? undefined
+  const attributionTraits = {
+    ...metaClickIds,
+    ...(fbclid ? { fbclid } : {}),
+  }
 
   try {
     const analyticsInstance = await analytics
@@ -770,15 +786,17 @@ export const trackRegistrationCompleted = async ({
         signUpMethod,
         ...(email ? { email } : {}),
         ...(hutk ? { hutk } : {}),
+        ...attributionTraits,
       })
     }
   } catch (error) {
     console.error('Error identifying user for registration:', error)
   }
 
-  trackEvent(EVENTS.Onboarding.RegistrationCompleted, {
+  await trackEvent(EVENTS.Onboarding.RegistrationCompleted, {
     signUpDate,
     signUpMethod,
+    ...attributionTraits,
   })
 }
 

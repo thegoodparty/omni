@@ -5,6 +5,7 @@ import { identifyUser } from '@shared/utils/analytics'
 import {
   persistUtmsOnce,
   getPersistedUtms,
+  getPersistedClids,
   extractClids,
   setUserEmail,
 } from 'helpers/analyticsHelper'
@@ -29,6 +30,7 @@ vi.mock('@shared/utils/analytics', () => ({
 vi.mock('helpers/analyticsHelper', () => ({
   persistUtmsOnce: vi.fn(),
   getPersistedUtms: vi.fn(() => ({})),
+  getPersistedClids: vi.fn(() => ({})),
   extractClids: vi.fn(() => ({})),
   setUserEmail: vi.fn(),
 }))
@@ -65,6 +67,7 @@ beforeEach(() => {
   vi.mocked(identifyUser).mockReset().mockResolvedValue(true)
   vi.mocked(persistUtmsOnce).mockReset()
   vi.mocked(getPersistedUtms).mockReset().mockReturnValue({})
+  vi.mocked(getPersistedClids).mockReset().mockReturnValue({})
   vi.mocked(extractClids).mockReset().mockReturnValue({})
   vi.mocked(buildUserTraits).mockReset().mockReturnValue(fullUserTraits)
   vi.mocked(setUserEmail).mockReset()
@@ -112,6 +115,63 @@ describe('SegmentIdentify', () => {
         ...fullUserTraits,
         utm_source_first: 'twitter',
         gclid: 'abc123',
+      })
+    })
+  })
+
+  it('merges persisted CLIDs so fbclid survives post-auth redirect without URL params', async () => {
+    mockUser = fullUser
+    mockSearchParamsValue = new URLSearchParams('source=signup')
+    vi.mocked(getPersistedClids).mockReturnValue({
+      fbclid_first: 'test-fbclid',
+      fbclid_last: 'test-fbclid',
+    })
+    vi.mocked(extractClids).mockReturnValue({})
+
+    render(<SegmentIdentify />)
+
+    await vi.waitFor(() => {
+      expect(identifyUser).toHaveBeenCalledWith(42, {
+        ...fullUserTraits,
+        fbclid_first: 'test-fbclid',
+        fbclid_last: 'test-fbclid',
+      })
+    })
+  })
+
+  it('drops null persisted CLID values', async () => {
+    mockUser = fullUser
+    vi.mocked(getPersistedClids).mockReturnValue({
+      fbclid_first: 'keep-me',
+      gclid_last: null,
+    })
+
+    render(<SegmentIdentify />)
+
+    await vi.waitFor(() => {
+      expect(identifyUser).toHaveBeenCalledWith(42, {
+        ...fullUserTraits,
+        fbclid_first: 'keep-me',
+      })
+    })
+  })
+
+  it('lets live URL CLIDs override persisted CLIDs for the same key', async () => {
+    mockUser = fullUser
+    vi.mocked(getPersistedClids).mockReturnValue({
+      fbclid_last: 'from-session',
+    })
+    vi.mocked(extractClids).mockReturnValue({
+      fbclid: 'from-url',
+    })
+
+    render(<SegmentIdentify />)
+
+    await vi.waitFor(() => {
+      expect(identifyUser).toHaveBeenCalledWith(42, {
+        ...fullUserTraits,
+        fbclid_last: 'from-session',
+        fbclid: 'from-url',
       })
     })
   })
