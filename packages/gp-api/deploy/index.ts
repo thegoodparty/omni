@@ -432,6 +432,32 @@ export = async () => {
   const peopleDbParameterName = `people-db-connection-string-${peopleDbEnv}`
   const peopleDbParameterArn = `arn:aws:ssm:${region}:${accountId}:parameter/${peopleDbParameterName}`
 
+  // Prod tasks carry static AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY env
+  // credentials (the legacy `gp-api` IAM user), which the SDK's default
+  // chain prefers over the task role — so in prod, task-role grants alone
+  // are dead letters and the IAM user's group needs the grant too. Missing
+  // this caused the 2026-07-29 contacts outage (AccessDenied reading the
+  // people-db parameter at boot). Prod-gated so ephemeral preview stack
+  // teardowns can never delete the shared group policy.
+  if (environment === 'prod') {
+    new aws.iam.GroupPolicy('peopleDbConnectionStringRead', {
+      group: 'gp-api',
+      name: 'PeopleDbConnectionStringRead',
+      policy: JSON.stringify({
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Action: ['ssm:GetParameter'],
+            Resource: [
+              `arn:aws:ssm:${region}:${accountId}:parameter/people-db-connection-string-*`,
+            ],
+          },
+        ],
+      }),
+    })
+  }
+
   const serveAnalysisBucketName = `serve-analyze-data-${
     environment === 'preview' ? 'dev' : environment
   }`

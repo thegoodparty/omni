@@ -49,9 +49,10 @@ export class PeopleDbService implements OnModuleInit, OnModuleDestroy {
       const url = await this.peopleDbUrl.ensureLoaded()
       this.activeClient = await this.buildClient(url)
     } catch (err) {
-      this.logger.debug(
+      this.logger.warn(
         { err },
-        'people-db not initialized at boot; will retry lazily on first query',
+        'people-db not initialized at boot; will retry via the periodic ' +
+          'SSM refresh',
       )
     }
     // Subscribe OUTSIDE the try/catch: if the initial load failed, the
