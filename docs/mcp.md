@@ -39,8 +39,12 @@ Entry point:
 
 https://goodparty.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-81493
 
-Most design docs are subdocs of a larger "Eng Docs" doc; you may need to open the
-parent to find a linked subdoc.
+That link is the "Technical Design Docs" page, one top-level section of a larger
+"Eng Docs" doc, which is now organized into sections (Technical Design Docs, How We
+Build, Incident Docs, Serve Docs, Win Docs, Misc Docs). Most design docs are subpages
+under one of those sections, so you may need to open the parent to find a linked one.
+The "Eng Docs" _folder_ also holds a few standalone docs alongside the Eng Docs doc,
+so a linked doc can be a sibling of that doc rather than a subpage of it.
 
 **ClickUp is read-only by default.** Don't run a mutating ClickUp tool (create/update/
 delete) without explicit user permission.
