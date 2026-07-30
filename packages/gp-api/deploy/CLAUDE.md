@@ -53,6 +53,13 @@ task-role permissions); `PEOPLE_DB_SSM_PARAM` is passed to the container so
 parameter name instead of deriving one from `OTEL_SERVICE_ENVIRONMENT`. qa and
 preview map to the `dev` parameter — no separate qa/preview secret exists.
 
+All environments authenticate via the ECS task role — no task carries static
+AWS keys. The AWS SDK's default credential chain resolves to the task role in
+every deployed task, so a task-role grant is sufficient on its own. (Prod used
+to carry the legacy `gp-api` IAM user's static creds, which shadowed the task
+role and caused the 2026-07-29 contacts outage; those creds and the user were
+retired.)
+
 ## Gotchas
 
 - VPC ID, subnet IDs, security group IDs, and the hosted zone are **hardcoded** in `index.ts`. They reference the existing AWS account and aren't created by Pulumi. Don't try to make them dynamic.

@@ -93,6 +93,30 @@ describe('PeopleDbUrlProvider', () => {
     expect(await provider.ensureLoaded()).toBe('postgres://ok')
   })
 
+  it('schedules revalidation after a failed initial load and recovers', async () => {
+    vi.useFakeTimers()
+    try {
+      process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
+      mockSend.mockRejectedValueOnce(new Error('AccessDeniedException'))
+      await expect(provider.ensureLoaded()).rejects.toThrow(
+        /AccessDeniedException/,
+      )
+
+      const listener = vi.fn()
+      provider.onChange(listener)
+
+      mockSend.mockResolvedValueOnce({
+        Parameter: { Value: 'postgres://recovered' },
+      })
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+
+      expect(listener).toHaveBeenCalledWith('postgres://recovered')
+      expect(await provider.ensureLoaded()).toBe('postgres://recovered')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('notifies subscribers when the value changes on revalidation', async () => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
     mockSend.mockResolvedValueOnce({ Parameter: { Value: 'postgres://one' } })

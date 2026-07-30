@@ -45,9 +45,10 @@ export class VoterDownloadService
     try {
       this.pool = this.buildPool(await this.peopleDbUrl.ensureLoaded())
     } catch (err) {
-      this.logger.debug(
+      this.logger.warn(
         { err },
-        'people-db download pool not initialized at boot; will retry lazily on first download',
+        'people-db download pool not initialized at boot; will retry via ' +
+          'the periodic SSM refresh',
       )
     }
     this.unsubscribe = this.peopleDbUrl.onChange((url) => {

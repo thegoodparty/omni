@@ -96,6 +96,63 @@ describe('PersonsService', () => {
     expect(result).toEqual({ id: 'p1' })
   })
 
+  describe('getPersonBySlug', () => {
+    it('resolves by the 8-hex id suffix via an indexed range scan (not the slug column)', async () => {
+      findMany.mockResolvedValueOnce([{ id: 'a1b2c3d4-...', slug: 'jane-doe' }])
+
+      const result = await service.getPersonBySlug('jane-doe-a1b2c3d4')
+
+      const args = findMany.mock.calls[0]?.[0]
+      // Range on the id PK, never a where: { slug }.
+      expect(args.where).toEqual({
+        id: {
+          gte: 'a1b2c3d4-0000-0000-0000-000000000000',
+          lt: 'a1b2c3d5-0000-0000-0000-000000000000',
+        },
+      })
+      expect(args.omit).toEqual({ email: true, phone: true })
+      expect(result).toEqual({ id: 'a1b2c3d4-...', slug: 'jane-doe' })
+    })
+
+    it('uses an inclusive max-UUID bound for the all-Fs prefix (no successor)', async () => {
+      findMany.mockResolvedValueOnce([{ id: 'ffffffff-...', slug: 'zoe-zed' }])
+
+      await service.getPersonBySlug('zoe-zed-ffffffff')
+
+      expect(findMany.mock.calls[0]?.[0].where).toEqual({
+        id: {
+          gte: 'ffffffff-0000-0000-0000-000000000000',
+          lte: 'ffffffff-ffff-ffff-ffff-ffffffffffff',
+        },
+      })
+    })
+
+    it('breaks a shared-prefix tie by matching the base slug', async () => {
+      findMany.mockResolvedValueOnce([
+        { id: 'a1b2c3d4-1', slug: 'john-smith' },
+        { id: 'a1b2c3d4-2', slug: 'jane-doe' },
+      ])
+
+      const result = await service.getPersonBySlug('jane-doe-a1b2c3d4')
+      expect(result).toEqual({ id: 'a1b2c3d4-2', slug: 'jane-doe' })
+    })
+
+    it('throws NotFound when the slug has no 8-hex id suffix', async () => {
+      await expect(service.getPersonBySlug('jane-doe')).rejects.toBeInstanceOf(
+        NotFoundException,
+      )
+      // Never touches the DB for an unparseable slug.
+      expect(findMany).not.toHaveBeenCalled()
+    })
+
+    it('throws NotFound when the id prefix matches no person', async () => {
+      findMany.mockResolvedValueOnce([])
+      await expect(
+        service.getPersonBySlug('nobody-deadbeef'),
+      ).rejects.toBeInstanceOf(NotFoundException)
+    })
+  })
+
   describe('getVoterDistrict', () => {
     it('throws NotFound when the person is unknown', async () => {
       findUnique.mockResolvedValueOnce(null)
