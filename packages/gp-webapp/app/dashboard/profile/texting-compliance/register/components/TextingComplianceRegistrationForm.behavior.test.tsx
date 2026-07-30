@@ -198,6 +198,22 @@ describe('TextingComplianceRegistrationForm — submit behavior', () => {
     expect(screen.queryByText(/form submission failed/i)).toBeNull()
   })
 
+  it('steers a PO Box filer to a street address while they type', async () => {
+    // Google Places never suggests PO Boxes, so a PO Box filer would otherwise
+    // hit an empty dropdown and a field that can never validate.
+    const user = userEvent.setup()
+    renderForm(
+      validInitialState({ address: { formatted_address: '', place_id: '' } }),
+    )
+
+    await user.type(
+      screen.getByPlaceholderText('Filing Address *'),
+      'P.O. Box 621',
+    )
+
+    expect(screen.getByText(/PO Boxes can't be used here/i)).toBeInTheDocument()
+  })
+
   it('does not double-submit on two rapid clicks', async () => {
     const user = userEvent.setup()
     const onSubmit = renderForm(validInitialState(), undefined, true)
