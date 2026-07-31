@@ -228,11 +228,12 @@ export const OutreachTable = ({
       },
       {
         header: 'Voters',
-        // The count of voters this campaign actually sent to (Peerly
-        // leads_loaded / billable). Robocall and other channels carry no
-        // send-count, so they render n/a.
+        // Voters reached = total texts sent (textCount). billableTextCount is
+        // the billing unit after the free-texts discount — it can be 0 while
+        // the real reach is thousands — so it's only a fallback. Robocall and
+        // other channels carry no send count, so they render n/a.
         cell: ({ row }: { row: OutreachRow }) => {
-          const sent = row.billableTextCount ?? row.textCount
+          const sent = row.textCount ?? row.billableTextCount
           return typeof sent === 'number' ? (
             sent.toLocaleString()
           ) : (

@@ -117,6 +117,15 @@ describe('OutreachTable — status column (ENG-10769)', () => {
     expect(screen.queryByText('n/a')).not.toBeInTheDocument()
   })
 
+  it('shows total reach (textCount), not the discounted billable count, in Voters', () => {
+    // Free-texts offer: billableTextCount is 0 after the discount, but the
+    // campaign still reached textCount voters — the column must show reach.
+    renderTable([{ ...p2pRow, textCount: 3000, billableTextCount: 0 }])
+
+    expect(screen.getByText('3,000')).toBeInTheDocument()
+    expect(screen.queryByText('0')).not.toBeInTheDocument()
+  })
+
   it('still renders n/a when the outreach has no status at all', () => {
     renderTable([statuslessRow])
 
