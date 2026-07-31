@@ -228,10 +228,17 @@ export const OutreachTable = ({
       },
       {
         header: 'Voters',
-        // The per-outreach send count is not carried on the outreach row (the
-        // stored voterFileFilter.voterCount is going away), so there's no
-        // trustworthy value to show here yet.
-        cell: () => <NotApplicableLabel />,
+        // The count of voters this campaign actually sent to (Peerly
+        // leads_loaded / billable). Robocall and other channels carry no
+        // send-count, so they render n/a.
+        cell: ({ row }: { row: OutreachRow }) => {
+          const sent = row.billableTextCount ?? row.textCount
+          return typeof sent === 'number' ? (
+            sent.toLocaleString()
+          ) : (
+            <NotApplicableLabel />
+          )
+        },
       },
       ...(p2pUxEnabled ? [STATUS_COLUMN] : []),
     ],
