@@ -103,4 +103,22 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     // Pushes segmentation over flat district-wide averages.
     expect(prompt).toContain('segment by the demographics you have')
   })
+
+  it('instructs against over-refusing borderline in-scope requests', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain("don't decline it")
+    expect(prompt).toContain('never decline outright')
+  })
+
+  it('guards score-vs-share framing and null-group handling', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ['query_constituent_data', 'describe_constituent_data'],
+    })
+    expect(prompt).toContain('average score, not')
+    expect(prompt).toContain('exclude unknowns')
+  })
 })
