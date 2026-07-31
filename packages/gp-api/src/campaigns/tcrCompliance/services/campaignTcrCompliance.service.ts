@@ -40,7 +40,10 @@ import {
   PEERLY_USECASE,
 } from '../../../vendors/peerly/services/peerly.const'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
-import { WebsitesService } from '../../../websites/services/websites.service'
+import {
+  WebsitesService,
+  wouldBePublishableAfterFallbacks,
+} from '../../../websites/services/websites.service'
 import {
   CreateAgenticTcrCompliancePayload,
   CreateTcrCompliancePayload,
@@ -174,7 +177,12 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         campaign: { isPro: true },
       },
       include: {
-        campaign: { include: { user: true } },
+        campaign: {
+          include: {
+            user: true,
+            campaignPositions: { include: { topIssue: true } },
+          },
+        },
       },
     })
 
@@ -182,21 +190,43 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       return
     }
 
-    this.logger.warn(
-      { count: stranded.length, cutoff: cutoff.toISOString() },
-      `[TCR Compliance] Sweeping ${stranded.length} stranded agentic kickoff(s)`,
-    )
-
+    // Split deferred records (profile can't pass the publish gate — see
+    // claimAndEnqueueKickoff) from genuinely stranded ones. Deferred records
+    // are skipped every cycle at no cost; the moment the candidate completes
+    // their profile the next sweep dispatches automatically, which is the
+    // deferral loop's self-heal path.
+    const dispatchable: {
+      record: (typeof stranded)[number]
+      clerkUserId: string
+    }[] = []
     for (const record of stranded) {
-      const clerkUserId = record.campaign?.user?.clerkId
-      if (!clerkUserId) {
+      const user = record.campaign?.user
+      if (!user?.clerkId) {
         this.logger.error(
           { tcrComplianceId: record.id, campaignId: record.campaignId },
           '[TCR Compliance] Stranded agentic record has no Clerk user; skipping',
         )
         continue
       }
+      const content = await this.websitesService.getContentForCampaign(
+        record.campaignId,
+      )
+      if (!wouldBePublishableAfterFallbacks(content, user, record.campaign)) {
+        continue
+      }
+      dispatchable.push({ record, clerkUserId: user.clerkId })
+    }
 
+    if (!dispatchable.length) {
+      return
+    }
+
+    this.logger.warn(
+      { count: dispatchable.length, cutoff: cutoff.toISOString() },
+      `[TCR Compliance] Sweeping ${dispatchable.length} stranded agentic kickoff(s)`,
+    )
+
+    for (const { record, clerkUserId } of dispatchable) {
       try {
         await this.queueService.sendMessage(
           {
@@ -1431,6 +1461,41 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     record: TcrCompliance,
     clerkUserId: string,
   ) {
+    // Dispatch gate: a run kicked off for a profile that can't pass the
+    // publish gate fails terminally at publish_website (profile_incomplete),
+    // burning a paid run and stranding the record (nothing retries once
+    // kickoffSentAt is stamped). Returning here without claiming leaves
+    // kickoffSentAt null — the deferral mechanism: the record stays in the
+    // stranded-kickoff sweep's candidate set and dispatches automatically
+    // once the candidate authors a genuine bio + policy issue.
+    const campaign = await this.campaignsService.findUnique({
+      where: { id: record.campaignId },
+      include: {
+        user: true,
+        campaignPositions: { include: { topIssue: true } },
+      },
+    })
+    if (!campaign?.user) {
+      this.logger.error(
+        { campaignId: record.campaignId, tcrComplianceId: record.id },
+        '[TCR Compliance] Cannot enqueue agentic kickoff: campaign or its ' +
+          'user is missing',
+      )
+      return
+    }
+    const content = await this.websitesService.getContentForCampaign(
+      record.campaignId,
+    )
+    if (!wouldBePublishableAfterFallbacks(content, campaign.user, campaign)) {
+      this.logger.info(
+        { campaignId: record.campaignId, tcrComplianceId: record.id },
+        '[TCR Compliance] Deferring agentic kickoff: candidate profile ' +
+          'incomplete (no genuine bio/policy issue); the stranded-kickoff ' +
+          'sweep dispatches once the profile is completed',
+      )
+      return
+    }
+
     // Claim before the send so concurrent callers can't both enqueue. Only the
     // caller that flips kickoffSentAt from null wins the claim.
     const claimTimestamp = new Date()
@@ -1559,6 +1624,43 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       campaign.user,
       campaign,
     )
+
+    // Defense-in-depth behind the producer-side gate in
+    // claimAndEnqueueKickoff: messages enqueued before that gate shipped (or
+    // by a path that skips it) can still arrive for a profile the fallbacks
+    // above couldn't complete — they never invent a bio or an issue. Without
+    // this re-check the run dispatches and fails terminally at
+    // publish_website (profile_incomplete). Roll the kickoff claim back to
+    // null instead so the record re-enters the deferral loop and the
+    // stranded-kickoff sweep dispatches once the profile is completed. The
+    // rollback is scoped to the claim timestamp this message was enqueued
+    // under (and to no run having been dispatched) so a newer claim isn't
+    // cleared. First-pass records only (`agenticRunId` null): a record with
+    // a prior run must fall through to the FAILED/SUPERSEDED retake logic
+    // below — deferring it here would no-op the rollback (its agenticRunId
+    // is set) and strand it with kickoffSentAt stamped, invisible to the
+    // sweep.
+    if (!record.agenticRunId) {
+      const persistedContent =
+        await this.websitesService.getContentForCampaign(campaignId)
+      if (isGenericComplianceContent(persistedContent)) {
+        this.logger.info(
+          { campaignId, tcrComplianceId },
+          '[TCR Compliance] Deferring dispatch at kickoff: candidate ' +
+            'profile incomplete after publish fallbacks; kickoff claim ' +
+            'rolled back',
+        )
+        await this.model.updateMany({
+          where: {
+            id: tcrComplianceId,
+            agenticRunId: null,
+            kickoffSentAt: record.kickoffSentAt,
+          },
+          data: { kickoffSentAt: null },
+        })
+        return
+      }
+    }
 
     // Atomic claim before dispatchRun to prevent duplicate dispatches under
     // at-least-once SQS delivery (consumer crashes, redelivery, concurrent

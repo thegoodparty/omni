@@ -34,7 +34,8 @@ vi.mock('timers/promises', () => ({
 type WhereClause = {
   status?: TcrComplianceStatus | { in: TcrComplianceStatus[] }
   peerlyIdentityId?: null | { not: null }
-  kickoffSentAt?: { lt: Date }
+  kickoffSentAt?: null | { lt: Date }
+  createdAt?: { lt: Date }
   peerlyBillingBlockedAt?: { gte: Date }
   peerlyCvStatus?: string | null | { not: null; notIn: string[] }
   peerlyProfileStatus?: string | null
@@ -74,11 +75,14 @@ const proRecord = (
   ...overrides,
 })
 
-// Queues the exact 10 sequential model.findMany results handleNightlyReport
-// makes, in call order: poll candidates, stuckSubmissions, errorRecords,
-// rejectedRecords, billingBlocked, agingAwaitingPin, neverReachedCv (case 1),
-// profileStalled (case 3a), inReviewStalled (case 2), waitingToFinalizeStalled
-// (case 3b).
+// Queues the first 10 of the 11 sequential model.findMany results
+// handleNightlyReport makes, in call order: poll candidates,
+// stuckSubmissions, errorRecords, rejectedRecords, billingBlocked,
+// agingAwaitingPin, neverReachedCv (case 1), profileStalled (case 3a),
+// inReviewStalled (case 2), waitingToFinalizeStalled (case 3b). The 11th
+// (deferredDispatchCandidates) falls through to the beforeEach [] default —
+// tests exercising it use a mockImplementation keyed on its
+// `kickoffSentAt: null` filter instead.
 const queueFindManyResults = (
   mockFindMany: ReturnType<typeof vi.fn>,
   results: [
@@ -431,6 +435,80 @@ describe('Nightly10DlcReportService', () => {
           expect(sectionText.length).toBeLessThan(3000)
         }
       }
+    })
+
+    it('lists dispatch-deferred records as a nudge and excludes publishable ones', async () => {
+      // ENG-10859: the dispatch gate leaves kickoffSentAt null for a profile
+      // that can't pass the publish gate. Deferred rows are candidate-action
+      // nudges (author bio/issues), never counted as stuck; a record whose
+      // profile already passes is the sweep's to dispatch and must not be
+      // listed.
+      const deferredFixture = (
+        slug: string,
+        campaignId: number,
+        content: object,
+      ) =>
+        proRecord(`tcr-${slug}`, slug, campaignId, {
+          kickoffSentAt: null,
+          createdAt: subHours(new Date(), 48),
+          campaign: {
+            id: campaignId,
+            slug,
+            isPro: true,
+            user: {
+              firstName: 'Sam',
+              lastName: 'Fixture',
+              email: 'sam@example.com',
+            },
+            campaignPositions: [],
+            website: { content },
+          },
+        })
+      mockModel.findMany.mockImplementation(
+        ({ where }: { where: WhereClause }) =>
+          Promise.resolve(
+            'kickoffSentAt' in where && where.kickoffSentAt === null
+              ? [
+                  deferredFixture('deferred-camp', 777, {}),
+                  deferredFixture('profile-done-camp', 778, {
+                    about: {
+                      bio: `<p>${'a'.repeat(250)}</p>`,
+                      issues: [{ title: 'Roads', description: 'Fix them' }],
+                    },
+                  }),
+                ]
+              : [],
+          ),
+      )
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+        { blocks: SlackMessageBlock[] },
+      ]
+      const text = blocksText(blocks)
+      expect(text).toContain('Dispatch deferred: candidate profile incomplete')
+      expect(text).toContain('deferred-camp (campaign 777)')
+      expect(text).not.toContain('profile-done-camp')
+      // Deferred rows must not inflate the stuck header.
+      expect(text).toContain('no campaigns stuck')
+    })
+
+    it('fetches deferred-dispatch candidates only past the 24h age floor', async () => {
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      const deferredCall = mockModel.findMany.mock.calls
+        .map((call) => (call as [{ where: WhereClause }])[0])
+        .find(
+          (arg) =>
+            'kickoffSentAt' in arg.where && arg.where.kickoffSentAt === null,
+        )
+      expect(deferredCall?.where).toMatchObject({
+        status: TcrComplianceStatus.submitted,
+        peerlyIdentityId: null,
+        kickoffSentAt: null,
+        createdAt: { lt: expect.any(Date) },
+      })
     })
 
     it('returns false when the Slack post fails so SQS redelivers', async () => {

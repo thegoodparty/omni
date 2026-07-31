@@ -40,6 +40,7 @@ import {
   PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE,
 } from '../../../vendors/peerly/services/peerly.const'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
+import { wouldBePublishableAfterFallbacks } from '../../../websites/services/websites.service'
 import { PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES } from './campaignTcrCompliance.service'
 import { REGISTRANT_STAMPING_UNIVERSAL_FROM } from './complianceState.service'
 // Internal staff/test records would page as real incidents — exclude them.
@@ -240,6 +241,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
       profileStalled,
       inReviewStalled,
       waitingToFinalizeStalled,
+      deferredDispatchCandidates,
     ] = await Promise.all([
       this.model.findMany({
         where: {
@@ -416,6 +418,31 @@ export class Nightly10DlcReportService extends createPrismaBase(
         },
         include: { campaign: true },
       }),
+      // Dispatch deferred (ENG-10859): the kickoff gate leaves kickoffSentAt
+      // null when the candidate profile can't pass the publish gate, so
+      // these records match no other section (the stuck-submission filter's
+      // `kickoffSentAt: { lt: ... }` never matches null). Whether the
+      // profile is still incomplete is decided in code below — content
+      // lives on the website relation, not in a Prisma-filterable column.
+      this.model.findMany({
+        where: {
+          ...proOnly,
+          status: TcrComplianceStatus.submitted,
+          peerlyIdentityId: null,
+          kickoffSentAt: null,
+          createdAt: { lt: subHours(now, STUCK_SUBMISSION_MIN_AGE_HOURS) },
+        },
+        include: {
+          campaign: {
+            include: {
+              user: true,
+              campaignPositions: { include: { topIssue: true } },
+              website: true,
+            },
+          },
+        },
+        orderBy: { createdAt: Prisma.SortOrder.asc },
+      }),
     ])
 
     // Business-day floor applied in code (see comment above) — restricted to
@@ -570,13 +597,42 @@ export class Nightly10DlcReportService extends createPrismaBase(
       ),
     }
 
+    // A record whose user is missing can't be evaluated (or dispatched) — it
+    // stays listed rather than silently vanishing. Publishable-but-unclaimed
+    // records are excluded: those are the sweep's to dispatch within its next
+    // cycle, not a candidate-side stall.
+    const deferredDispatch = deferredDispatchCandidates.filter(
+      (record) =>
+        !record.campaign.user ||
+        !wouldBePublishableAfterFallbacks(
+          record.campaign.website?.content,
+          record.campaign.user,
+          record.campaign,
+        ),
+    )
+    // Nudge-style, not counted as stuck: after the dispatch gate shipped this
+    // is a candidate-action item (author bio/issues), and the sweep dispatches
+    // automatically the moment they do.
+    const deferredDispatchSection: ReportSection = {
+      title:
+        '⏳ Dispatch deferred: candidate profile incomplete (candidate nudge)',
+      lines: deferredDispatch.map(
+        (record) =>
+          `${campaignRef(record)} — submitted ` +
+          `${differenceInCalendarDays(now, record.createdAt)}d ago, waiting ` +
+          'on a genuine bio/policy issue',
+      ),
+    }
+
     const stuckCount = failureSections.reduce(
       (sum, section) => sum + section.lines.length,
       0,
     )
-    const populated = [...failureSections, nudgeSection].filter(
-      (section) => section.lines.length > 0,
-    )
+    const populated = [
+      ...failureSections,
+      deferredDispatchSection,
+      nudgeSection,
+    ].filter((section) => section.lines.length > 0)
 
     const blocks: SlackMessageBlock[] = [
       {
@@ -630,7 +686,12 @@ export class Nightly10DlcReportService extends createPrismaBase(
     await this.escalateWaitingToFinalizeStalls(waitingToFinalizeToEscalate, now)
 
     this.logger.info(
-      { reportDate, stuckCount, awaitingPin: agingAwaitingPin.length },
+      {
+        reportDate,
+        stuckCount,
+        awaitingPin: agingAwaitingPin.length,
+        deferredDispatch: deferredDispatch.length,
+      },
       '[10DLC nightly report] Posted',
     )
     return true
