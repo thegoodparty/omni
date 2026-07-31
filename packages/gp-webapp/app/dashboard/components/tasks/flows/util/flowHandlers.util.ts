@@ -30,6 +30,7 @@ export interface AudienceState {
   party_independent?: boolean
   party_democrat?: boolean
   party_republican?: boolean
+  party_other?: boolean
   age_18_25?: boolean
   age_25_35?: boolean
   age_35_50?: boolean
