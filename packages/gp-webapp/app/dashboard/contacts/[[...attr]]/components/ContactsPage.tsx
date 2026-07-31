@@ -24,7 +24,6 @@ export default function ContactsPage() {
     isCustomSegment,
     searchTerm,
     totalSegmentContacts,
-    pagination,
     isVoterDataUnavailable,
     isWinContext,
     isWinContextReady,
