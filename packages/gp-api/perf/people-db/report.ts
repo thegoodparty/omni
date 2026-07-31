@@ -20,7 +20,7 @@ export const artifactPath = (meta: {
 
 export const buildArtifact = (
   meta: { env: string; mode: string; gitSha: string; startedAt: string },
-  results: CaseResult[],
+  results: unknown[],
 ): object => ({ ...meta, results })
 
 const ms = (n: number): string => `${Math.round(n)}ms`

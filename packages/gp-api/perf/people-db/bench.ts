@@ -3,6 +3,7 @@ import { execSync } from 'node:child_process'
 import { createHarness } from './harness'
 import { buildLatencyCases } from './cases'
 import { runLatency } from './runLatency'
+import { runLoad } from './runLoad'
 
 export const parseArgs = (
   argv: string[],
@@ -21,6 +22,7 @@ export const parseArgs = (
 
 const main = async (): Promise<void> => {
   const args = parseArgs(process.argv.slice(2))
+  if (args.mode === 'load') console.log(`load mode target env=${args.env}`)
   const harness = await createHarness()
   try {
     if (args.smoke) {
@@ -36,8 +38,11 @@ const main = async (): Promise<void> => {
       await runLatency(harness, { env: args.env, gitSha })
       return
     }
-    // load runner wired in a later task
-    console.log(`mode=${args.mode} env=${args.env} (runner not wired yet)`)
+    if (args.mode === 'load') {
+      const { ok } = await runLoad(harness, { env: args.env, gitSha })
+      if (!ok) process.exitCode = 1
+      return
+    }
   } finally {
     await harness.close()
   }
