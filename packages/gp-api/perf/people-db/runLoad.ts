@@ -4,6 +4,7 @@ import type { Harness } from './harness'
 import { LOAD_SCENARIOS, scenarioCase } from './loadScenarios'
 import { summarize, errorRate } from './stats'
 import { artifactPath, buildArtifact } from './report'
+import { COHORTS } from './cohorts'
 
 type LevelResult = {
   concurrency: number
@@ -22,6 +23,22 @@ export const runLoad = async (
 ): Promise<{ ok: boolean }> => {
   const scenarios: ScenarioResult[] = []
   let ok = true
+
+  const bands = new Set(LOAD_SCENARIOS.map((s) => s.band))
+  for (const band of bands) {
+    const cohort = COHORTS.find((c) => c.band === band)
+    if (!cohort) continue
+    try {
+      const actual = await harness.totalConstituents(cohort.districtId)
+      if (actual === 0) {
+        console.warn(
+          `WARN ${band}: 0 constituents — load result may be meaningless`,
+        )
+      }
+    } catch (err) {
+      console.warn(`liveness check failed for ${band}: ${err}`)
+    }
+  }
 
   for (const s of LOAD_SCENARIOS) {
     const bench = scenarioCase(s)

@@ -81,6 +81,9 @@ export const createHarness = async (): Promise<Harness> => {
         const dto = downloadPeopleSchema.parse({ districtId, filters })
         await download.streamPeopleCsv(dto, sink.reply)
         await sink.finished
+        if (sink.rows() === 0) {
+          throw new Error(`csv produced no rows for ${districtId}`)
+        }
         return
       }
     }

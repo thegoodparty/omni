@@ -17,9 +17,13 @@ export const runLatency = async (
 ): Promise<CaseResult[]> => {
   // Drift guard: warn (do not fail) if a pinned district has left its band.
   for (const cohort of COHORTS) {
-    const actual = await harness.totalConstituents(cohort.districtId)
-    const drift = checkDrift(cohort, actual)
-    if (!drift.ok) console.warn(`WARN ${drift.message}`)
+    try {
+      const actual = await harness.totalConstituents(cohort.districtId)
+      const drift = checkDrift(cohort, actual)
+      if (!drift.ok) console.warn(`WARN ${drift.message}`)
+    } catch (err) {
+      console.warn(`drift check failed for ${cohort.band}: ${err}`)
+    }
   }
 
   const cases = buildLatencyCases()
