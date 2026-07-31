@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { describe, expect, it } from 'vitest'
 import { CommitteeType, OfficeLevel } from '../../../generated/prisma'
 import {
+  formatManualFilingAddress,
+  ManualFilingAddressSchema,
   tcrComplianceBaseShape,
   tcrComplianceSuperRefine,
 } from './tcrComplianceBase.schema'
@@ -13,18 +15,28 @@ const schema = (options?: { requireFecCommitteeId?: boolean }) =>
       fecCommitteeId: z.string().optional(),
       committeeType: z.nativeEnum(CommitteeType).optional(),
       filingUrl: z.string(),
+      placeId: z.string().optional(),
+      formattedAddress: z.string().optional(),
+      manualAddress: ManualFilingAddressSchema.optional(),
     })
     .superRefine((data, ctx) => tcrComplianceSuperRefine(data, ctx, options))
+
+const resolvedAddress = {
+  placeId: 'ChIJYTIMy9dP1oAR_sLgDF5Xg04',
+  formattedAddress: '525 Montano Dr, San Luis, AZ 85349',
+}
 
 const federalBase = {
   officeLevel: OfficeLevel.federal,
   committeeType: CommitteeType.HOUSE,
   filingUrl: 'https://www.fec.gov/data/committee/C00936328/',
+  ...resolvedAddress,
 }
 
 const localBase = {
   officeLevel: OfficeLevel.local,
   filingUrl: 'https://sos.example.gov/candidates/jane',
+  ...resolvedAddress,
 }
 
 describe('tcrComplianceBaseShape.fecCommitteeId', () => {
@@ -82,6 +94,122 @@ describe('tcrComplianceBaseShape address fields', () => {
     expect(
       tcrComplianceBaseShape.committeeName.safeParse('Friends of Jane').success,
     ).toBe(true)
+  })
+})
+
+describe('ManualFilingAddressSchema', () => {
+  const manual = {
+    addressLine1: 'PO Box 621',
+    city: 'Toledo',
+    state: 'wa',
+    zip: '98591',
+  }
+
+  it('accepts a PO Box street line and uppercases the state', () => {
+    const result = ManualFilingAddressSchema.parse(manual)
+    expect(result.addressLine1).toBe('PO Box 621')
+    expect(result.state).toBe('WA')
+  })
+
+  it('normalizes an empty addressLine2 to undefined', () => {
+    expect(
+      ManualFilingAddressSchema.parse({ ...manual, addressLine2: '' })
+        .addressLine2,
+    ).toBeUndefined()
+  })
+
+  it('rejects a non-state code', () => {
+    expect(
+      ManualFilingAddressSchema.safeParse({ ...manual, state: 'ZZ' }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a malformed ZIP and accepts ZIP+4', () => {
+    expect(
+      ManualFilingAddressSchema.safeParse({ ...manual, zip: '9859' }).success,
+    ).toBe(false)
+    expect(
+      ManualFilingAddressSchema.safeParse({ ...manual, zip: '98591-1234' })
+        .success,
+    ).toBe(true)
+  })
+
+  it('rejects blank required components', () => {
+    expect(
+      ManualFilingAddressSchema.safeParse({ ...manual, addressLine1: '  ' })
+        .success,
+    ).toBe(false)
+    expect(
+      ManualFilingAddressSchema.safeParse({ ...manual, city: '' }).success,
+    ).toBe(false)
+  })
+})
+
+describe('formatManualFilingAddress', () => {
+  it('composes line1, city, state, and zip', () => {
+    expect(
+      formatManualFilingAddress({
+        addressLine1: 'PO Box 621',
+        city: 'Toledo',
+        state: 'WA',
+        zip: '98591',
+      }),
+    ).toBe('PO Box 621, Toledo, WA 98591')
+  })
+
+  it('includes line2 when present', () => {
+    expect(
+      formatManualFilingAddress({
+        addressLine1: '1931 State Route 505',
+        addressLine2: 'Unit B',
+        city: 'Toledo',
+        state: 'WA',
+        zip: '98591',
+      }),
+    ).toBe('1931 State Route 505, Unit B, Toledo, WA 98591')
+  })
+})
+
+describe('tcrComplianceSuperRefine — address one-of', () => {
+  const withoutAddress = ({
+    placeId: _p,
+    formattedAddress: _f,
+    ...rest
+  }: typeof localBase) => rest
+
+  it('rejects a payload with neither a resolved nor a manual address', () => {
+    const result = schema().safeParse(withoutAddress(localBase))
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues.some((i) => i.path[0] === 'placeId')).toBe(
+        true,
+      )
+    }
+  })
+
+  it('rejects a placeId without its formattedAddress pair', () => {
+    const result = schema().safeParse({
+      ...withoutAddress(localBase),
+      placeId: resolvedAddress.placeId,
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts a manual address with no placeId', () => {
+    const result = schema().safeParse({
+      ...withoutAddress(localBase),
+      manualAddress: {
+        addressLine1: 'PO Box 621',
+        city: 'Toledo',
+        state: 'WA',
+        zip: '98591',
+      },
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts a resolved placeId + formattedAddress pair', () => {
+    expect(schema().safeParse(localBase).success).toBe(true)
   })
 })
 

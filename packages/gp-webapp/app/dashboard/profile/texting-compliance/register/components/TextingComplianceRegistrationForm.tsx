@@ -32,6 +32,7 @@ import TextingComplianceFooter from 'app/dashboard/profile/texting-compliance/sh
 import { Button } from '@styleguide'
 
 import { urlIncludesPath } from 'helpers/urlIncludesPath'
+import { flatStates, isStateAbbreviation } from 'helpers/statesHelper'
 import Body2 from '@shared/typography/Body2'
 import { StyledAlert } from '@shared/alerts/StyledAlert'
 import type { FormDataState } from '@shared/hooks/useFormData'
@@ -90,7 +91,7 @@ export const getValidationMessage = (
     ein: "Enter your campaign's real EIN (XX-XXXXXXX) — placeholder values aren't accepted",
     phone: 'Valid US phone number as it appears on your election filing',
     address:
-      "Select a physical street address from the suggestions (PO Boxes can't be used)",
+      'Select an address from the suggestions, or enter it manually (street, city, state, and ZIP are required)',
     website: 'Valid URL',
     email: 'Valid email address as it appears on your election filing',
     fecCommitteeId: 'Must be "C" followed by 8 digits (e.g., C00123456)',
@@ -117,15 +118,127 @@ const validateAddress = (address: AddressValue | null): boolean =>
   Boolean(address?.formatted_address)
 
 // Google Places autocomplete (`types: ['address']`) never suggests PO Boxes,
-// so a candidate whose filing address is a PO Box gets an empty dropdown and a
-// field that can never validate. Detect the attempt and steer them to a
-// street address instead — the PIN is delivered via the filing email or
-// phone, so the address does not have to match the filing.
+// which election filings commonly use, and it misses some rural addresses —
+// so the autocomplete is a helper, never a gate. Manual entry captures the
+// structured components the backend needs for the Peerly registration.
 export const isPoBoxAddressInput = (input: string): boolean =>
   /\b(?:p\.?\s*o\.?|post\s+office)\s*box\b/i.test(input)
 
 export const PO_BOX_ADDRESS_HINT =
-  "PO Boxes can't be used here. Enter a physical street address (home or business) and select it from the suggestions. Your PIN is still sent to your filing email or phone."
+  'Address search can\'t find PO Boxes. Use "Enter address manually" below to type it in exactly as it appears on your filing.'
+
+export interface ManualAddressValue {
+  addressLine1: string
+  addressLine2?: string
+  city: string
+  state: string
+  zip: string
+}
+
+export const EMPTY_MANUAL_ADDRESS: ManualAddressValue = {
+  addressLine1: '',
+  addressLine2: '',
+  city: '',
+  state: '',
+  zip: '',
+}
+
+export const isManualAddressValue = (
+  value: FormValue,
+): value is ManualAddressValue =>
+  Boolean(
+    value &&
+    typeof value === 'object' &&
+    'addressLine1' in value &&
+    'city' in value &&
+    'state' in value &&
+    'zip' in value,
+  )
+
+export const validateManualAddress = (
+  manualAddress: ManualAddressValue | null,
+): boolean =>
+  Boolean(
+    manualAddress &&
+    isFilled(manualAddress.addressLine1) &&
+    isFilled(manualAddress.city) &&
+    isStateAbbreviation(manualAddress.state.trim().toUpperCase()) &&
+    /^\d{5}(-\d{4})?$/.test(manualAddress.zip.trim()),
+  )
+
+// Shared manual-entry fields for the filing address, used by both the
+// standalone register form and the pro-upgrade wizard's filing-details step
+// (anti-drift rule: one source for the fields and their validation).
+export const ManualFilingAddressFields = ({
+  value,
+  onChange,
+  showError,
+}: {
+  value: ManualAddressValue
+  onChange: (value: ManualAddressValue) => void
+  showError: boolean
+}): React.JSX.Element => (
+  <div className="flex flex-col gap-4">
+    <TextField
+      label="Street address or PO Box"
+      placeholder="PO Box 123"
+      fullWidth
+      required
+      error={showError && !isFilled(value.addressLine1)}
+      value={value.addressLine1}
+      onChange={(e) => onChange({ ...value, addressLine1: e.target.value })}
+    />
+    <TextField
+      label="Apt, suite, unit (optional)"
+      fullWidth
+      value={value.addressLine2 || ''}
+      onChange={(e) => onChange({ ...value, addressLine2: e.target.value })}
+    />
+    <div className="flex flex-col gap-4 sm:flex-row">
+      <TextField
+        label="City"
+        fullWidth
+        required
+        error={showError && !isFilled(value.city)}
+        value={value.city}
+        onChange={(e) => onChange({ ...value, city: e.target.value })}
+      />
+      <div className="flex w-full flex-col gap-1.5 sm:max-w-28">
+        <Label>State *</Label>
+        <Select
+          value={value.state}
+          onValueChange={(state) => onChange({ ...value, state })}
+        >
+          <SelectTrigger
+            className="w-full"
+            aria-invalid={
+              (showError && !isStateAbbreviation(value.state)) || undefined
+            }
+          >
+            <SelectValue placeholder="State" />
+          </SelectTrigger>
+          <SelectContent>
+            {flatStates.map((state) => (
+              <SelectItem key={state} value={state}>
+                {state}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <TextField
+        label="ZIP"
+        placeholder="12345"
+        fullWidth
+        required
+        className="sm:max-w-36"
+        error={showError && !/^\d{5}(-\d{4})?$/.test(value.zip.trim())}
+        value={value.zip}
+        onChange={(e) => onChange({ ...value, zip: e.target.value })}
+      />
+    </div>
+  </div>
+)
 
 const validateFECUrl = (url: string): boolean => {
   if (!url) return false
@@ -174,6 +287,7 @@ export const validateRegistrationForm = (
     ein,
     phone,
     address,
+    manualAddress,
     website,
     email,
     fecCommitteeId,
@@ -186,6 +300,9 @@ export const validateRegistrationForm = (
   const einValue = getStringValue(ein)
   const phoneValue = getStringValue(phone)
   const addressValue = isAddressValue(address) ? address : null
+  const manualAddressValue = isManualAddressValue(manualAddress)
+    ? manualAddress
+    : null
   const websiteValue = getStringValue(website)
   const emailValue = getStringValue(email)
   const fecCommitteeIdValue = getStringValue(fecCommitteeId)
@@ -210,7 +327,14 @@ export const validateRegistrationForm = (
     // TODO: We should do idiomatic "recommended address" validation flow here,
     //  and elsewhere, to have higher degree of confidence that the address
     //  entered is valid
-    address: addressRequired ? validateAddress(addressValue) : true,
+    // A present manualAddress means the form is in manual-entry mode and its
+    // structured components are what will be submitted, so they are what get
+    // validated — not the (cleared) autocomplete selection.
+    address: addressRequired
+      ? manualAddressValue
+        ? validateManualAddress(manualAddressValue)
+        : validateAddress(addressValue)
+      : true,
     website: requireWebsite
       ? isFilled(websiteValue) && isURL(websiteValue)
       : !isFilled(websiteValue) || isURL(websiteValue),
@@ -299,6 +423,9 @@ const TextingComplianceRegistrationForm = ({
   }, [loading])
 
   const addressValue = isAddressValue(address) ? address : null
+  const manualAddress = isManualAddressValue(formData.manualAddress)
+    ? formData.manualAddress
+    : null
   const [addressInputValue, setAddressInputValue] = useState<
     string | undefined
   >(addressValue?.formatted_address || '')
@@ -475,26 +602,62 @@ const TextingComplianceRegistrationForm = ({
           value={getStringValue(electionFilingLink)}
           onChange={(e) => handleChange({ electionFilingLink: e.target.value })}
         />
-        <AddressAutocomplete
-          {...{
-            value: addressInputValue,
-            onChange: handleAddressOnChange,
-            onSelect: async (address) => {
-              setAddressInputValue(address.formatted_address)
+        {manualAddress ? (
+          <div className="flex flex-col gap-1.5">
+            <ManualFilingAddressFields
+              value={manualAddress}
+              onChange={(value) => handleChange({ manualAddress: value })}
+              showError={showError('address')}
+            />
+            <Button
+              variant="link"
+              size="small"
+              className="self-start px-0"
+              onClick={() => handleChange({ manualAddress: null })}
+            >
+              Search for your address instead
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <AddressAutocomplete
+              {...{
+                value: addressInputValue,
+                onChange: handleAddressOnChange,
+                onSelect: async (address) => {
+                  setAddressInputValue(address.formatted_address)
 
-              return handleChange({ address })
-            },
-            placeholder: 'Filing Address *',
-            variant: 'outlined',
-            error:
-              showError('address') ||
-              isPoBoxAddressInput(addressInputValue || ''),
-            helperText: isPoBoxAddressInput(addressInputValue || '')
-              ? PO_BOX_ADDRESS_HINT
-              : undefined,
-            dropdownClassName: 'texting-compliance-address-dropdown',
-          }}
-        />
+                  return handleChange({ address })
+                },
+                placeholder: 'Filing Address *',
+                variant: 'outlined',
+                error:
+                  showError('address') ||
+                  isPoBoxAddressInput(addressInputValue || ''),
+                helperText: isPoBoxAddressInput(addressInputValue || '')
+                  ? PO_BOX_ADDRESS_HINT
+                  : undefined,
+                dropdownClassName: 'texting-compliance-address-dropdown',
+              }}
+            />
+            <Button
+              variant="link"
+              size="small"
+              className="self-start px-0"
+              onClick={() =>
+                handleChange({
+                  address: null,
+                  manualAddress: {
+                    ...EMPTY_MANUAL_ADDRESS,
+                    addressLine1: addressInputValue || '',
+                  },
+                })
+              }
+            >
+              Enter address manually
+            </Button>
+          </div>
+        )}
         <TextField
           label="Filing Email"
           placeholder="jane@gmail.com"

@@ -366,14 +366,16 @@ describe('FilingDetailsStep', () => {
     fireEvent.change(screen.getByTestId('address-input'), {
       target: { value: 'PO Box 621' },
     })
-    expect(screen.getByText(/PO Boxes can't be used here/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/Address search can't find PO Boxes/i),
+    ).toBeInTheDocument()
 
     // A street address clears the hint.
     fireEvent.change(screen.getByTestId('address-input'), {
       target: { value: '123 Main St' },
     })
     expect(
-      screen.queryByText(/PO Boxes can't be used here/i),
+      screen.queryByText(/Address search can't find PO Boxes/i),
     ).not.toBeInTheDocument()
   })
 
@@ -386,6 +388,106 @@ describe('FilingDetailsStep', () => {
     fireEvent.change(screen.getByTestId('address-input'), {
       target: { value: 'PO Box 621' },
     })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(mockSubmit).not.toHaveBeenCalled()
+    expect(goToNextStep).not.toHaveBeenCalled()
+    expect(screen.getByText('Filing Address')).toBeInTheDocument()
+  })
+
+  it('switches to manual entry with the typed input prefilled as line 1', () => {
+    render(<FilingDetailsStep />)
+
+    fireEvent.change(screen.getByTestId('address-input'), {
+      target: { value: 'PO Box 621' },
+    })
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Enter address manually' }),
+    )
+
+    expect(screen.getByLabelText('Street address or PO Box')).toHaveValue(
+      'PO Box 621',
+    )
+    // The autocomplete is replaced by the manual fields until switched back.
+    expect(screen.queryByTestId('address-input')).not.toBeInTheDocument()
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Search for your address instead' }),
+    )
+    expect(screen.getByTestId('address-input')).toBeInTheDocument()
+  })
+
+  it('submits a manually entered address (PO Box) as structured components', async () => {
+    render(<FilingDetailsStep />)
+    fireEvent.change(screen.getByLabelText('Campaign committee name'), {
+      target: { value: 'Friends of Jane' },
+    })
+    fireEvent.change(screen.getByLabelText('Campaign filing link'), {
+      target: { value: 'https://example.com/filing' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('jane@gmail.com'), {
+      target: { value: 'jane@example.com' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('(555) 555-5555'), {
+      target: { value: '4155551234' },
+    })
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Enter address manually' }),
+    )
+    fireEvent.change(screen.getByLabelText('Street address or PO Box'), {
+      target: { value: 'PO Box 621' },
+    })
+    fireEvent.change(screen.getByLabelText('City'), {
+      target: { value: 'Toledo' },
+    })
+    // The state Select is the only combobox on a non-federal form.
+    fireEvent.click(screen.getByRole('combobox'))
+    fireEvent.click(screen.getByRole('option', { name: 'WA' }))
+    fireEvent.change(screen.getByLabelText('ZIP'), {
+      target: { value: '98591' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalledTimes(1))
+    const [, payload] = mockSubmit.mock.calls[0]!
+    expect(payload).toEqual(
+      expect.objectContaining({
+        manualAddress: {
+          addressLine1: 'PO Box 621',
+          addressLine2: '',
+          city: 'Toledo',
+          state: 'WA',
+          zip: '98591',
+        },
+      }),
+    )
+    await waitFor(() => expect(goToNextStep).toHaveBeenCalledTimes(1))
+  })
+
+  it('blocks submit when the manual address is incomplete', () => {
+    render(<FilingDetailsStep />)
+    fireEvent.change(screen.getByLabelText('Campaign committee name'), {
+      target: { value: 'Friends of Jane' },
+    })
+    fireEvent.change(screen.getByLabelText('Campaign filing link'), {
+      target: { value: 'https://example.com/filing' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('jane@gmail.com'), {
+      target: { value: 'jane@example.com' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('(555) 555-5555'), {
+      target: { value: '4155551234' },
+    })
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Enter address manually' }),
+    )
+    // Street only — city/state/zip missing, so the address must stay invalid.
+    fireEvent.change(screen.getByLabelText('Street address or PO Box'), {
+      target: { value: 'PO Box 621' },
+    })
+
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(mockSubmit).not.toHaveBeenCalled()

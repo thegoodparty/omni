@@ -141,15 +141,19 @@ rerouting** are in `app/dashboard/components/campaignManager/` and the shared
   advance on success; a failed write shows an error snackbar and does NOT navigate, so
   there's never a stranded un-persisted answer.
 - **Scroll reset** on step change is handled by the shell (dashboard convention).
-- **PO Box filing addresses can never validate.** Google Places autocomplete
-  (`types: ['address']`) doesn't index PO Boxes and the backend requires a
-  `placeId`, so a candidate whose filing address is a PO Box gets an empty
-  dropdown and a stuck filing-details step (this blocked real Pro upgrades).
-  The shared form module exports `isPoBoxAddressInput` + `PO_BOX_ADDRESS_HINT`;
-  both filing-address inputs (this wizard and the standalone register form)
-  show the hint steering the candidate to a home/business street address — the
-  PIN is delivered via filing email/phone, so the address need not match the
-  filing. Don't remove the hint without solving PO Box resolution end-to-end.
+- **Address autocomplete is a helper, not a gate.** Google Places
+  (`types: ['address']`) doesn't index PO Boxes — which election filings
+  commonly use — and misses some rural addresses, so a Google match cannot be
+  required (that dead-end blocked real Pro upgrades). Both filing-address
+  inputs (this wizard and the standalone register form) offer an "Enter
+  address manually" fallback: the shared module's `ManualFilingAddressFields`
+  collects structured components (`ManualAddressValue`), validated by
+  `validateManualAddress`, submitted as `manualAddress` in place of
+  `placeId`/`formattedAddress` (the API requires exactly one source; see
+  `packages/gp-api/src/campaigns/tcrCompliance/CLAUDE.md`). A typed PO Box in
+  the autocomplete shows `PO_BOX_ADDRESS_HINT` pointing at manual entry, and
+  clears any previously selected place so a stale address can't submit
+  silently.
 
 ## Debugging the flow
 

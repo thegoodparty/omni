@@ -17,9 +17,18 @@ interface PostalAddress {
   streetLines: string[]
 }
 
+export interface ManualAddress {
+  addressLine1: string
+  addressLine2?: string
+  city: string
+  state: string
+  zip: string
+}
+
 interface FormData {
   ein: string
   address: Address
+  manualAddress?: ManualAddress
   campaignCommitteeName: string
   website: string
   electionFilingLink: string
@@ -32,8 +41,9 @@ interface FormData {
 
 interface MappedFormData {
   ein: string
-  placeId: string
-  formattedAddress: string
+  placeId?: string
+  formattedAddress?: string
+  manualAddress?: ManualAddress
   committeeName: string
   websiteDomain?: string
   filingUrl: string
@@ -85,6 +95,7 @@ export const extractPostalAddress = (address: Address): PostalAddress => {
 export const mapFormData = ({
   ein,
   address: { place_id, formatted_address },
+  manualAddress,
   campaignCommitteeName,
   website,
   electionFilingLink,
@@ -95,8 +106,12 @@ export const mapFormData = ({
   committeeType,
 }: FormData): MappedFormData => ({
   ein,
-  placeId: place_id,
-  formattedAddress: formatted_address,
+  // The API requires exactly one address source: a manually entered address
+  // omits placeId/formattedAddress (empty strings fail its trim().min(1)
+  // validators) and rides in structured components instead.
+  ...(manualAddress
+    ? { manualAddress }
+    : { placeId: place_id, formattedAddress: formatted_address }),
   committeeName: campaignCommitteeName,
   websiteDomain: website || undefined,
   filingUrl: electionFilingLink,

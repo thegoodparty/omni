@@ -32,10 +32,13 @@ import {
 } from 'app/dashboard/profile/texting-compliance/util/registrationFormData.util'
 import { StyledAlert } from '@shared/alerts/StyledAlert'
 import {
+  EMPTY_MANUAL_ADDRESS,
   fieldDisplayNames,
   getFailingFields,
   getValidationMessage,
+  isManualAddressValue,
   isPoBoxAddressInput,
+  ManualFilingAddressFields,
   PO_BOX_ADDRESS_HINT,
   validateRegistrationForm,
   type ValidationField,
@@ -158,6 +161,9 @@ const FilingDetailsForm = ({
       ? (addressValue as { formatted_address: string }).formatted_address
       : ''
   const [addressInput, setAddressInput] = useState(initialAddress)
+  const manualAddress = isManualAddressValue(formData.manualAddress)
+    ? formData.manualAddress
+    : null
 
   const [validFecCommitteeId, setValidFecCommitteeId] = useState(
     getFecCommitteeIdValidation(getStringValue(formData.fecCommitteeId)),
@@ -293,9 +299,9 @@ const FilingDetailsForm = ({
           <Body2 className="text-base-muted-foreground mt-1 mb-4">
             Enter the email and phone that appear on your campaign filing — your
             PIN is sent to one of these to verify your campaign. Your filing
-            address is required to register for texting and must be a physical
-            street address. If you filed with a PO Box, use your home or
-            business street address instead.
+            address is required to register for texting. If it doesn&apos;t
+            appear in the search suggestions (PO Boxes won&apos;t), enter it
+            manually.
           </Body2>
           <div className="flex flex-col gap-6">
             <TextField
@@ -316,35 +322,74 @@ const FilingDetailsForm = ({
               value={getStringValue(phone)}
               onChange={(e) => handleChange({ phone: e.target.value })}
             />
-            <AddressAutocomplete
-              value={addressInput}
-              onChange={(value) => {
-                setAddressInput(value)
-                // Also clear on PO Box input: typing never fires onSelect, so
-                // without this a PO Box typed over a previously selected
-                // address would submit the stale valid address silently.
-                if (!value || isPoBoxAddressInput(value))
-                  handleChange({ address: null })
-              }}
-              onSelect={(place) => {
-                setAddressInput(place.formatted_address || '')
-                handleChange({
-                  address: {
-                    formatted_address: place.formatted_address || '',
-                    place_id: place.place_id || '',
-                  },
-                })
-              }}
-              placeholder="Address"
-              variant="outlined"
-              error={showError('address') || isPoBoxAddressInput(addressInput)}
-              helperText={
-                isPoBoxAddressInput(addressInput)
-                  ? PO_BOX_ADDRESS_HINT
-                  : undefined
-              }
-              dropdownClassName="texting-compliance-address-dropdown"
-            />
+            {manualAddress ? (
+              <div className="flex flex-col gap-1.5">
+                <ManualFilingAddressFields
+                  value={manualAddress}
+                  onChange={(value) => handleChange({ manualAddress: value })}
+                  showError={showError('address')}
+                />
+                <Button
+                  variant="link"
+                  size="small"
+                  className="self-start px-0"
+                  onClick={() => handleChange({ manualAddress: null })}
+                >
+                  Search for your address instead
+                </Button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                <AddressAutocomplete
+                  value={addressInput}
+                  onChange={(value) => {
+                    setAddressInput(value)
+                    // Also clear on PO Box input: typing never fires
+                    // onSelect, so without this a PO Box typed over a
+                    // previously selected address would submit the stale
+                    // valid address silently.
+                    if (!value || isPoBoxAddressInput(value))
+                      handleChange({ address: null })
+                  }}
+                  onSelect={(place) => {
+                    setAddressInput(place.formatted_address || '')
+                    handleChange({
+                      address: {
+                        formatted_address: place.formatted_address || '',
+                        place_id: place.place_id || '',
+                      },
+                    })
+                  }}
+                  placeholder="Address"
+                  variant="outlined"
+                  error={
+                    showError('address') || isPoBoxAddressInput(addressInput)
+                  }
+                  helperText={
+                    isPoBoxAddressInput(addressInput)
+                      ? PO_BOX_ADDRESS_HINT
+                      : undefined
+                  }
+                  dropdownClassName="texting-compliance-address-dropdown"
+                />
+                <Button
+                  variant="link"
+                  size="small"
+                  className="self-start px-0"
+                  onClick={() =>
+                    handleChange({
+                      address: null,
+                      manualAddress: {
+                        ...EMPTY_MANUAL_ADDRESS,
+                        addressLine1: addressInput,
+                      },
+                    })
+                  }
+                >
+                  Enter address manually
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -49,7 +49,11 @@ import { CampaignsService } from '../../services/campaigns.service'
 import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import { ComplianceStateService } from './complianceState.service'
 import { submitToPeerlyFilingSchema } from '../schemas/submitToPeerlyDto.schema'
-import { FEC_COMMITTEE_ID_PATTERN } from '../schemas/tcrComplianceBase.schema'
+import {
+  FEC_COMMITTEE_ID_PATTERN,
+  formatManualFilingAddress,
+  ManualFilingAddress,
+} from '../schemas/tcrComplianceBase.schema'
 import {
   ComplianceStage,
   MIN_BIO_LENGTH,
@@ -110,6 +114,19 @@ const AGENTIC_DISPATCH_CLAIM_TTL_MINUTES = 5
 export const PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES = 6 * 60
 
 const YYYY_MM_DD = /^\d{4}-\d{2}-\d{2}$/
+
+const manualFilingAddressColumns = (
+  manualAddress: ManualFilingAddress | undefined,
+) =>
+  manualAddress
+    ? {
+        filingAddressLine1: manualAddress.addressLine1,
+        filingAddressLine2: manualAddress.addressLine2 ?? null,
+        filingCity: manualAddress.city,
+        filingState: manualAddress.state,
+        filingZip: manualAddress.zip,
+      }
+    : {}
 
 const NON_PROD_BYPASS_CV_TOKEN = 'non-prod-bypass-cv-token'
 
@@ -680,9 +697,13 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       domain.name,
     )
 
+    const { manualAddress, ...persistablePayload } = tcrComplianceCreatePayload
     const newTcrCompliance = {
-      ...tcrComplianceCreatePayload,
-      postalAddress: campaign.formattedAddress!,
+      ...persistablePayload,
+      postalAddress: manualAddress
+        ? formatManualFilingAddress(manualAddress)
+        : campaign.formattedAddress!,
+      ...manualFilingAddressColumns(manualAddress),
       campaignId: campaign.id,
       peerlyIdentityId: peerlyResult.peerlyIdentityId,
       peerlyIdentityProfileLink: peerlyResult.peerlyIdentityProfileLink,
@@ -722,19 +743,22 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       officeLevel,
       fecCommitteeId,
       committeeType,
+      manualAddress,
     } = tcrComplianceCreatePayload
 
-    // Peerly's identity/brand calls resolve the candidate's postal address from
+    // Peerly's identity/brand calls resolve the candidate's postal address
+    // from a manually entered structured address or, failing that, from
     // campaign.placeId via Google Places (peerlyIdentity.service
-    // getAddressByPlaceId). Without a placeId that lookup 502s, which the
+    // getAddressByPlaceId). With neither, that lookup 502s, which the
     // compliance agent treats as transient and retries forever (campaign
     // 325553). A 10DLC brand can't be registered without an address, so fail
     // fast with a non-recoverable 4xx that names the real cause instead.
-    if (!campaign.placeId?.trim()) {
+    if (!manualAddress && !campaign.placeId?.trim()) {
       throw new BadRequestException(
         'Cannot submit TCR registration to Peerly: the campaign has no ' +
-          'address on file (placeId missing). The candidate must add their ' +
-          'address before TCR registration can proceed.',
+          'address on file (no placeId and no manually entered address). ' +
+          'The candidate must add their address before TCR registration ' +
+          'can proceed.',
       )
     }
 
@@ -895,6 +919,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
             officeLevel,
             fecCommitteeId: fecCommitteeId ?? null,
             committeeType: committeeType,
+            ...manualFilingAddressColumns(manualAddress),
           },
           user,
           campaign,
@@ -1073,6 +1098,22 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       fecCommitteeId,
       committeeType: existing.committeeType,
       websiteDomain: hostname,
+      // A record created from a manual address entry carries its structured
+      // components; passing them through makes the Peerly submits read them
+      // instead of resolving campaign.placeId.
+      manualAddress:
+        existing.filingAddressLine1 &&
+        existing.filingCity &&
+        existing.filingState &&
+        existing.filingZip
+          ? {
+              addressLine1: existing.filingAddressLine1,
+              addressLine2: existing.filingAddressLine2 ?? undefined,
+              city: existing.filingCity,
+              state: existing.filingState,
+              zip: existing.filingZip,
+            }
+          : undefined,
     }
 
     let peerlyResult: PeerlySubmissionResult
@@ -1159,9 +1200,13 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       data: {
         // Every Peerly field was already sourced from this record; only the
         // canonical website host, postal address, and the Peerly result need
-        // persisting back.
+        // persisting back. A manual-address record keeps its composed postal
+        // address — campaign.formattedAddress may hold an unrelated address
+        // from another flow.
         websiteDomain: hostname,
-        postalAddress: campaign.formattedAddress ?? existing.postalAddress,
+        postalAddress: existing.filingAddressLine1
+          ? existing.postalAddress
+          : (campaign.formattedAddress ?? existing.postalAddress),
         peerlyIdentityId: peerlyResult.peerlyIdentityId,
         peerlyIdentityProfileLink: peerlyResult.peerlyIdentityProfileLink,
         peerly10DLCBrandSubmissionKey:
@@ -1237,6 +1282,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       websiteDomain,
       placeId,
       formattedAddress,
+      manualAddress,
       ...rest
     } = payload
 
@@ -1244,6 +1290,10 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     try {
       record = await this.client.$transaction(
         async (tx) => {
+          // Manual entry leaves campaign.placeId/formattedAddress untouched:
+          // they may carry an address from another flow (e.g. onboarding)
+          // that other features read, and the compliance address lives on
+          // the TcrCompliance columns in that case.
           const updatedCampaign = await this.campaignsService.updateJsonFields(
             campaign.id,
             {
@@ -1275,7 +1325,10 @@ export class CampaignTcrComplianceService extends createPrismaBase(
               ein,
               committeeName,
               websiteDomain: websiteDomain ?? '',
-              postalAddress: updatedCampaign.formattedAddress ?? '',
+              postalAddress: manualAddress
+                ? formatManualFilingAddress(manualAddress)
+                : (updatedCampaign.formattedAddress ?? ''),
+              ...manualFilingAddressColumns(manualAddress),
               campaignId: campaign.id,
             },
           })
@@ -1474,17 +1527,20 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       return
     }
 
-    // Peerly TCR submission resolves the postal address from campaign.placeId
-    // (peerlyIdentity.service getAddressByPlaceId). Without it the run publishes
-    // a site, reaches website_verified_live, then can't submit — and the agent
-    // reports `partial`, so the resume sweep re-dispatches a full paid run every
-    // few minutes until it gives up (~$10 burned per stuck candidate). Reject at
-    // kickoff so the candidate is told to add their address instead of looping.
-    if (!campaign.placeId?.trim()) {
+    // Peerly TCR submission resolves the postal address from the record's
+    // manual filing-address columns or from campaign.placeId
+    // (peerlyIdentity.service resolveFilingAddress). With neither, the run
+    // publishes a site, reaches website_verified_live, then can't submit —
+    // and the agent reports `partial`, so the resume sweep re-dispatches a
+    // full paid run every few minutes until it gives up (~$10 burned per
+    // stuck candidate). Reject at kickoff so the candidate is told to add
+    // their address instead of looping.
+    if (!campaign.placeId?.trim() && !record.filingAddressLine1) {
       this.logger.error(
         { campaignId, tcrComplianceId },
         '[TCR Compliance] Cannot dispatch compliance_setup: ' +
-          'campaign.placeId is missing; Peerly requires a postal address',
+          'campaign.placeId is missing and the record has no manual ' +
+          'filing address; Peerly requires a postal address',
       )
       await this.model.updateMany({
         where: { id: tcrComplianceId, agenticRunId: null },

@@ -177,6 +177,50 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
     expect(mockCrm.trackCampaign).toHaveBeenCalledWith(campaign.id)
   })
 
+  it('persists a manual filing address on the record without touching the campaign address', async () => {
+    const {
+      placeId: _placeId,
+      formattedAddress: _formatted,
+      ...rest
+    } = basePayload
+    await service.createAgentic(user, campaign, {
+      ...rest,
+      manualAddress: {
+        addressLine1: 'PO Box 621',
+        city: 'Toledo',
+        state: 'WA',
+        zip: '98591',
+      },
+    })
+
+    // campaign.placeId/formattedAddress stay untouched (undefined is skipped
+    // by updateJsonFields): they may carry an address other features read.
+    expect(mockCampaigns.updateJsonFields).toHaveBeenCalledWith(
+      campaign.id,
+      {
+        details: {
+          einNumber: basePayload.ein,
+          campaignCommittee: basePayload.committeeName,
+        },
+        placeId: undefined,
+        formattedAddress: undefined,
+      },
+      false,
+      undefined,
+      mockPrisma,
+    )
+    expect(mockModel.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        postalAddress: 'PO Box 621, Toledo, WA 98591',
+        filingAddressLine1: 'PO Box 621',
+        filingAddressLine2: null,
+        filingCity: 'Toledo',
+        filingState: 'WA',
+        filingZip: '98591',
+      }),
+    })
+  })
+
   it('does not call CRM tracking if the transaction throws', async () => {
     mockCampaigns.updateJsonFields.mockResolvedValueOnce(null)
 
@@ -1270,6 +1314,56 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     }).compile()
 
     service = module.get(CampaignTcrComplianceService)
+  })
+
+  it('forwards a persisted manual filing address to both Peerly submits and keeps the composed postal address', async () => {
+    const manualRecord = {
+      ...existingRecord,
+      postalAddress: 'PO Box 621, Toledo, WA 98591',
+      filingAddressLine1: 'PO Box 621',
+      filingAddressLine2: null,
+      filingCity: 'Toledo',
+      filingState: 'WA',
+      filingZip: '98591',
+    }
+    mockTcrModel.findUnique.mockResolvedValue(manualRecord)
+
+    await service.submitToPeerlyForAgent(user, campaign)
+
+    expect(mockPeerly.submit10DlcBrand).toHaveBeenCalledWith(
+      'peerly-id-1',
+      expect.objectContaining({
+        manualAddress: {
+          addressLine1: 'PO Box 621',
+          addressLine2: undefined,
+          city: 'Toledo',
+          state: 'WA',
+          zip: '98591',
+        },
+      }),
+      campaign,
+      'janedoe.com',
+    )
+    expect(mockPeerly.submitCampaignVerifyRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filingAddressLine1: 'PO Box 621',
+        filingCity: 'Toledo',
+        filingState: 'WA',
+        filingZip: '98591',
+      }),
+      user,
+      campaign,
+      'janedoe.com',
+    )
+    // The write-back must not clobber the composed manual postal address
+    // with campaign.formattedAddress (which can hold an unrelated address).
+    expect(mockTcrModel.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          postalAddress: 'PO Box 621, Toledo, WA 98591',
+        }),
+      }),
+    )
   })
 
   it('throws NotFoundException when no TcrCompliance exists', async () => {
