@@ -152,37 +152,6 @@ describe('useListWizardCount — stale response sequencing', () => {
   })
 })
 
-describe('useListWizardCount — fenced (ENG-10804)', () => {
-  it('surfaces the fenced flag from the count response', async () => {
-    api.mock('POST /v1/contacts/count', {
-      status: 200,
-      data: { count: 10000, fenced: true },
-    })
-
-    const qc = newClient()
-    const { result } = renderHook(
-      () => useListWizardCount({ genderMale: true }, true),
-      { wrapper: wrapper(qc) },
-    )
-
-    await waitFor(() => expect(result.current.count).toBe(10000))
-    expect(result.current.fenced).toBe(true)
-  })
-
-  it('reads fenced as undefined when the response omits it', async () => {
-    api.mock('POST /v1/contacts/count', { status: 200, data: { count: 42 } })
-
-    const qc = newClient()
-    const { result } = renderHook(
-      () => useListWizardCount({ genderMale: true }, true),
-      { wrapper: wrapper(qc) },
-    )
-
-    await waitFor(() => expect(result.current.count).toBe(42))
-    expect(result.current.fenced).toBeUndefined()
-  })
-})
-
 describe('useListWizardCount — cap-error mapping', () => {
   beforeEach(() => {
     api.reset()

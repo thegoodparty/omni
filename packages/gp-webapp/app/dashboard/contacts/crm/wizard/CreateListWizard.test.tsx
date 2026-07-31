@@ -299,7 +299,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
-  it('persists the live count as voterCount on create (ENG-10769)', async () => {
+  it('does not persist a voterCount on create', async () => {
     const user = userEvent.setup()
     let sentBody: Record<string, unknown> | null = null
     api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
@@ -317,8 +317,6 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(pillForOption('Female'))
 
-    // Wait for the debounced live count to land in the build button so the
-    // submit below can't race the count fetch and silently omit voterCount.
     await user.click(
       await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
@@ -326,47 +324,9 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     await clickSaveList(user)
 
     await vi.waitFor(() => expect(sentBody).not.toBeNull())
-    expect(sentBody).toMatchObject({
-      name: 'Counted list',
-      voterCount: 250,
-    })
-  })
-
-  it('renders a fenced count as "10,000+" and omits voterCount on create (ENG-10804)', async () => {
-    const user = userEvent.setup()
-    api.mock('POST /v1/contacts/count', {
-      status: 200,
-      data: { count: 10000, fenced: true },
-    })
-    let sentBody: Record<string, unknown> | null = null
-    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
-      sentBody = body as Record<string, unknown>
-      return { status: 200, data: { id: 103, name: 'Fenced list' } }
-    })
-
-    render(<CreateListWizard open onOpenChange={vi.fn()} />)
-
-    await user.click(
-      screen.getByRole('radio', {
-        name: /build a list using voter demographics and data/i,
-      }),
-    )
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await user.click(pillForOption('Female'))
-
-    // A fence floor never reads as an exact figure — "10,000+", not "10,000".
-    await user.click(
-      await screen.findByRole('button', {
-        name: /build your list \(10,000\+\)/i,
-      }),
-    )
-    await user.type(screen.getByLabelText(/list name/i), 'Fenced list')
-    await clickSaveList(user)
-
-    await vi.waitFor(() => expect(sentBody).not.toBeNull())
-    expect(sentBody).toMatchObject({ name: 'Fenced list' })
-    // Persisting a fenced count as an exact voterCount would display a
-    // permanently wrong number — omitted like an unsettled count.
+    expect(sentBody).toMatchObject({ name: 'Counted list' })
+    // The stored voterCount was retired — the outreach send count is the
+    // authoritative number now, so the wizard never persists a filter count.
     expect(sentBody).not.toHaveProperty('voterCount')
   })
 

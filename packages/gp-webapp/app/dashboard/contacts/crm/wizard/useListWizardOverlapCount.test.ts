@@ -32,7 +32,7 @@ describe('useListWizardOverlapCount — debounce', () => {
     const bodies: Array<Record<string, unknown>> = []
     api.mock('POST /v1/contacts/overlap-count', ({ body }) => {
       bodies.push(body as Record<string, unknown>)
-      return { status: 200, data: { count: 12, fenced: false } }
+      return { status: 200, data: { count: 12 } }
     })
 
     const qc = newClient()
@@ -63,7 +63,7 @@ describe('useListWizardOverlapCount — debounce', () => {
     const overlapRequest = vi.fn()
     api.mock('POST /v1/contacts/overlap-count', () => {
       overlapRequest()
-      return { status: 200, data: { count: 1, fenced: false } }
+      return { status: 200, data: { count: 1 } }
     })
 
     const qc = newClient()
@@ -80,7 +80,7 @@ describe('useListWizardOverlapCount — isStale', () => {
   it('flags a payload change as stale until the debounce settles', async () => {
     api.mock('POST /v1/contacts/overlap-count', {
       status: 200,
-      data: { count: 7, fenced: false },
+      data: { count: 7 },
     })
 
     const qc = newClient()
@@ -100,24 +100,6 @@ describe('useListWizardOverlapCount — isStale', () => {
     expect(result.current.isStale).toBe(true)
 
     await waitFor(() => expect(result.current.isStale).toBe(false))
-  })
-})
-
-describe('useListWizardOverlapCount — fenced', () => {
-  it('surfaces the fenced flag from the overlap-count response', async () => {
-    api.mock('POST /v1/contacts/overlap-count', {
-      status: 200,
-      data: { count: 10000, fenced: true },
-    })
-
-    const qc = newClient()
-    const { result } = renderHook(
-      () => useListWizardOverlapCount({ genderMale: true }, true),
-      { wrapper: wrapper(qc) },
-    )
-
-    await waitFor(() => expect(result.current.count).toBe(10000))
-    expect(result.current.fenced).toBe(true)
   })
 })
 

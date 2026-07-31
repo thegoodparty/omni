@@ -1394,7 +1394,7 @@ describe('ContactsService', () => {
 
         const result = await service.countContacts({ partyDemocrat: true }, org)
 
-        expect(result).toEqual({ count: 1234, fenced: false })
+        expect(result).toEqual({ count: 1234 })
         // The translated filter set reaches the people-db query, and only
         // one row is requested so no real voter rows are loaded just to read
         // the total.
@@ -1547,12 +1547,10 @@ describe('ContactsService', () => {
         count: number,
         avgAge: number | null = null,
         avgIncome: number | null = null,
-        fenced?: boolean,
       ) => ({
         count,
         avgAge,
         avgIncome,
-        ...(fenced !== undefined ? { fenced } : {}),
       })
 
       it('throws when the organization is not pro, before looking up the list', async () => {
@@ -1622,7 +1620,6 @@ describe('ContactsService', () => {
           people: 0,
           avgAge: null,
           avgIncome: null,
-          fenced: false,
         })
         expect(result.reachability).toEqual({
           sms: 0,
@@ -1672,7 +1669,6 @@ describe('ContactsService', () => {
           people: 100,
           avgAge: 42,
           avgIncome: 55000,
-          fenced: false,
         })
         expect(result.reachability).toEqual({
           sms: 60,
@@ -1686,13 +1682,6 @@ describe('ContactsService', () => {
           doorKnocking: 30,
           // Polls are delivered by text, so they mirror the sms count.
           polls: 60,
-          fenced: {
-            sms: undefined,
-            robocall: undefined,
-            phoneBanking: undefined,
-            doorKnocking: undefined,
-            polls: undefined,
-          },
         })
 
         expect(mockVoterQueryService.getAggregates).toHaveBeenCalledTimes(4)
@@ -1703,34 +1692,6 @@ describe('ContactsService', () => {
         expect(filtersByCall[1]).toEqual({ hasCellPhone: true })
         expect(filtersByCall[2]).toEqual({ hasLandline: true })
         expect(filtersByCall[3]).toEqual({ hasAddress: true })
-      })
-
-      it('marks demographics as fenced when the base aggregates call reports fenced: true (ENG-10775)', async () => {
-        const org = makeOrganization({
-          slug: 'campaign-1',
-          overrideDistrictId: OVERRIDE_DISTRICT_ID,
-        })
-        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
-        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
-          savedFilter,
-        )
-        mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
-          { kind: 'none' },
-        )
-        mockVoterQueryService.getAggregates
-          .mockResolvedValueOnce(aggregatesResponse(10000, 41, 48000, true))
-          .mockResolvedValueOnce(aggregatesResponse(6000))
-          .mockResolvedValueOnce(aggregatesResponse(4500))
-          .mockResolvedValueOnce(aggregatesResponse(3000))
-
-        const result = await service.getListDetail({ segment: 42 }, org)
-
-        expect(result.demographics).toEqual({
-          people: 10000,
-          avgAge: 41,
-          avgIncome: 48000,
-          fenced: true,
-        })
       })
 
       it('merges a resolved activity-condition id filter into every outgoing aggregate call', async () => {
@@ -1820,7 +1781,6 @@ describe('ContactsService', () => {
             people: 85696,
             avgAge: 47,
             avgIncome: 61000,
-            fenced: false,
           })
           expect(result.reachability).toEqual({
             sms: 60000,
@@ -1830,13 +1790,6 @@ describe('ContactsService', () => {
             phoneBanking: 45000,
             doorKnocking: 30000,
             polls: 60000,
-            fenced: {
-              sms: undefined,
-              robocall: undefined,
-              phoneBanking: undefined,
-              doorKnocking: undefined,
-              polls: undefined,
-            },
           })
           expect(result.outreachHistory).toEqual([])
 
@@ -1940,7 +1893,7 @@ describe('ContactsService', () => {
           org,
         )
 
-        expect(result).toEqual({ count: 0, fenced: false })
+        expect(result).toEqual({ count: 0 })
         expect(mockVoterQueryService.findPeople).not.toHaveBeenCalled()
       })
 
@@ -1964,7 +1917,7 @@ describe('ContactsService', () => {
           org,
         )
 
-        expect(result).toEqual({ count: 7, fenced: false })
+        expect(result).toEqual({ count: 7 })
         expect(createSpy).toHaveBeenCalledWith(
           expect.objectContaining({
             filters: { id: { notIn: [PERSON_ID_3] } },

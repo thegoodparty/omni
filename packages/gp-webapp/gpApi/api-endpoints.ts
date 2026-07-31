@@ -687,14 +687,14 @@ export type APIEndpoints = {
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
     } & Record<string, unknown>
-    Response: { count: number; fenced?: boolean }
+    Response: { count: number }
   }
   'POST /v1/contacts/overlap-count': {
     Request: {
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
     } & Record<string, unknown>
-    Response: { count: number; fenced: boolean }
+    Response: { count: number }
   }
   'GET /v1/contacts/download': {
     Request: { segment?: string }

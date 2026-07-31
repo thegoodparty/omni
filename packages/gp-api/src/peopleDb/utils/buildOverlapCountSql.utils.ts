@@ -20,7 +20,6 @@ export const buildOverlapCountSql = (args: {
   filters: FilterData
   search?: string
   savedFilterSets: FilterData[]
-  fenceLimit?: number
   // ENG-10838: threaded through the current in-progress selection only —
   // it goes through the identical convertVoterFileFilterToFilters/resolution
   // path as the live count. Saved sets are deliberately NOT override-aware
@@ -39,7 +38,6 @@ export const buildOverlapCountSql = (args: {
     filters,
     search,
     savedFilterSets,
-    fenceLimit,
     idOverrides,
     contactsMadeIdOverrides,
   } = args
@@ -67,15 +65,8 @@ export const buildOverlapCountSql = (args: {
           ON v."State" = dv."State" AND v."id" = dv."voter_id"`
     : Prisma.sql`FROM "green"."Voter" v`
 
-  // Same DistrictVoter -> Voter join as the count/aggregates paths, so an
-  // OR-of-saved-sets is prone to the same pathological plan (see
-  // SLOW_QUERY_TIMEOUT_MS in people.service.ts). Fenced: cap the row set
-  // before evaluating the saved-set OR, trading an exact overlap for a floor.
-  const rowSource = fenceLimit
-    ? Prisma.sql`FROM (SELECT v.* ${fromSql} ${whereClause} ${savedSetsClause} LIMIT ${fenceLimit}) v`
-    : Prisma.sql`${fromSql}
+  return Prisma.sql`SELECT COUNT(*)::bigint AS overlap_count
+    ${fromSql}
     ${whereClause}
     ${savedSetsClause}`
-
-  return Prisma.sql`SELECT COUNT(*)::bigint AS overlap_count ${rowSource}`
 }

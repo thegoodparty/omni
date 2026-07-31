@@ -27,8 +27,11 @@ type TableRow = Outreach & {
   voterFileFilter?: { age50Plus: boolean; voterCount: number }
 }
 
-// Rows carry a filter + date so the Date/Audience/Voters cells render real
-// values — any "n/a" in these rows can only come from the Status cell.
+// Rows carry a filter + date so the Date/Audience cells render real values.
+// The Voters column always renders "n/a" now (the stored filter voterCount
+// was retired and no per-outreach send count is carried on the row), so each
+// row contributes exactly one Voters-column "n/a" on top of whatever the
+// Status cell shows.
 const linkedFilter = { age50Plus: true, voterCount: 1668 }
 
 const robocallRow: TableRow = {
@@ -90,11 +93,12 @@ beforeEach(() => {
 })
 
 describe('OutreachTable — status column (ENG-10769)', () => {
-  it('shows "In review" for a scheduled robocall instead of n/a', () => {
+  it('shows "In review" for a scheduled robocall in the status cell', () => {
     renderTable([robocallRow])
 
     expect(screen.getByText('In review')).toBeInTheDocument()
-    expect(screen.queryByText('n/a')).not.toBeInTheDocument()
+    // The only n/a is the always-n/a Voters column, never the Status cell.
+    expect(screen.getAllByText('n/a')).toHaveLength(1)
   })
 
   it('keeps the p2p job-status mapping for rows with a phone list', () => {
@@ -107,7 +111,8 @@ describe('OutreachTable — status column (ENG-10769)', () => {
   it('still renders n/a when the outreach has no status at all', () => {
     renderTable([statuslessRow])
 
-    expect(screen.getByText('n/a')).toBeInTheDocument()
+    // Status cell n/a + the always-n/a Voters column.
+    expect(screen.getAllByText('n/a')).toHaveLength(2)
     STATUS_LABELS.forEach((label) => {
       expect(screen.queryByText(label)).not.toBeInTheDocument()
     })
@@ -118,13 +123,15 @@ describe('OutreachTable — status column (ENG-10769)', () => {
 
     expect(screen.getByText('Denied')).toBeInTheDocument()
     expect(screen.queryByText('In review')).not.toBeInTheDocument()
-    expect(screen.queryByText('n/a')).not.toBeInTheDocument()
+    // The only n/a is the always-n/a Voters column, never the Status cell.
+    expect(screen.getAllByText('n/a')).toHaveLength(1)
   })
 
   it('renders n/a for a phone-list row whose p2p job is missing', () => {
     renderTable([{ ...p2pRow, p2pJob: undefined }])
 
-    expect(screen.getByText('n/a')).toBeInTheDocument()
+    // Status cell n/a + the always-n/a Voters column.
+    expect(screen.getAllByText('n/a')).toHaveLength(2)
     STATUS_LABELS.forEach((label) => {
       expect(screen.queryByText(label)).not.toBeInTheDocument()
     })

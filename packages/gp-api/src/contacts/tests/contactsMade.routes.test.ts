@@ -107,7 +107,6 @@ describe('POST /v1/contacts/count — contacts-made filter', () => {
           totalPages: 1,
           hasNextPage: false,
           hasPreviousPage: false,
-          fenced: false,
         },
         people: [],
       })

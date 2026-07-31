@@ -180,13 +180,6 @@ export const OutreachTable = ({
     )
   }
 
-  const formatVoterCount = (
-    count: number | null | undefined,
-  ): string | null => {
-    if (count == null) return null
-    return Number(count).toLocaleString()
-  }
-
   const columns = useMemo(
     () => [
       {
@@ -235,12 +228,10 @@ export const OutreachTable = ({
       },
       {
         header: 'Voters',
-        cell: ({ row }: { row: OutreachRow }) => {
-          const formattedCount = formatVoterCount(
-            row.voterFileFilter?.voterCount,
-          )
-          return formattedCount ? formattedCount : <NotApplicableLabel />
-        },
+        // The per-outreach send count is not carried on the outreach row (the
+        // stored voterFileFilter.voterCount is going away), so there's no
+        // trustworthy value to show here yet.
+        cell: () => <NotApplicableLabel />,
       },
       ...(p2pUxEnabled ? [STATUS_COLUMN] : []),
     ],

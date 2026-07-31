@@ -777,20 +777,26 @@ describe('POST /v1/p2p/phone-list (ENG-10801 phone dedup)', () => {
 
   it('dedupes a phone number shared by two people across pages', async () => {
     await seedWinCampaign()
-    stubPeopleApiPaginated([
-      [
+    const SHARED_PHONE = '5553334444'
+    const SHARED_PERSON_PAGE_1 = '00000000-0000-0000-0000-000000000011'
+    const SHARED_PERSON_PAGE_2 = '00000000-0000-0000-0000-000000000012'
+    // The loop now pages until a SHORT page (people.length < SEGMENT_PAGE_SIZE),
+    // not on pagination.hasNextPage — so a full first page (1000 rows) is what
+    // makes it fetch a second page at all. The shared phone appears once per
+    // page, so the dedup Set must survive the page boundary.
+    const firstPage = [
+      personPayload({ id: SHARED_PERSON_PAGE_1, cellPhone: SHARED_PHONE }),
+      ...Array.from({ length: 999 }, (_, i) =>
         personPayload({
-          id: '00000000-0000-0000-0000-000000000011',
-          cellPhone: '5553334444',
+          id: `00000000-0000-0000-0001-${String(i + 1).padStart(12, '0')}`,
+          cellPhone: `55500${String(i + 1).padStart(5, '0')}`,
         }),
-      ],
-      [
-        personPayload({
-          id: '00000000-0000-0000-0000-000000000012',
-          cellPhone: '5553334444',
-        }),
-      ],
-    ])
+      ),
+    ]
+    const secondPage = [
+      personPayload({ id: SHARED_PERSON_PAGE_2, cellPhone: SHARED_PHONE }),
+    ]
+    stubPeopleApiPaginated([firstPage, secondPage])
     stubPeerlyUpload()
 
     const result = await service.client.post(
@@ -804,16 +810,24 @@ describe('POST /v1/p2p/phone-list (ENG-10801 phone dedup)', () => {
     const capturedList = await service.prisma.peerlyPhoneList.findUnique({
       where: { token: 'peerly-upload-token' },
     })
+    // The page-2 occurrence of the shared phone is dropped; the first-seen
+    // occurrence on page 1 is kept.
     expect(capturedList?.excludedDuplicatePhoneCount).toBe(1)
     const recipients = await service.prisma.peerlyPhoneListRecipient.findMany({
       where: { peerlyPhoneListId: capturedList?.id },
     })
-    expect(recipients).toEqual([
+    // Every unique phone on the full first page is captured; only the page-2
+    // duplicate is excluded.
+    expect(recipients).toHaveLength(firstPage.length)
+    expect(recipients).toContainEqual(
       expect.objectContaining({
-        personId: '00000000-0000-0000-0000-000000000011',
-        phone: '5553334444',
+        personId: SHARED_PERSON_PAGE_1,
+        phone: SHARED_PHONE,
       }),
-    ])
+    )
+    expect(recipients.some((r) => r.personId === SHARED_PERSON_PAGE_2)).toBe(
+      false,
+    )
   })
 
   it('leaves distinct numbers unaffected and composes with the opt-out scrub', async () => {
