@@ -211,7 +211,9 @@ describe('TextingComplianceRegistrationForm — submit behavior', () => {
       'P.O. Box 621',
     )
 
-    expect(screen.getByText(/PO Boxes can't be used here/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/Address search can't find PO Boxes/i),
+    ).toBeInTheDocument()
   })
 
   it('blocks submit when a PO Box is typed over a selected address', async () => {
@@ -227,8 +229,92 @@ describe('TextingComplianceRegistrationForm — submit behavior', () => {
 
     expect(onSubmit).not.toHaveBeenCalled()
     expect(
-      screen.getByText(/select a physical street address/i),
+      screen.getByText(/select an address from the suggestions/i),
     ).toBeInTheDocument()
+  })
+
+  it('submits a manual address in place of an autocomplete selection', async () => {
+    const user = userEvent.setup()
+    // manualAddress present = the form is in manual-entry mode; the cleared
+    // autocomplete selection must not be required.
+    const onSubmit = renderForm(
+      validInitialState({
+        address: { formatted_address: '', place_id: '' },
+        manualAddress: {
+          addressLine1: 'PO Box 621',
+          addressLine2: '',
+          city: 'Toledo',
+          state: 'WA',
+          zip: '98591',
+        },
+      }),
+      undefined,
+      true,
+    )
+
+    await user.click(screen.getByRole('button', { name: /^submit$/i }))
+
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        manualAddress: expect.objectContaining({
+          addressLine1: 'PO Box 621',
+          city: 'Toledo',
+          state: 'WA',
+          zip: '98591',
+        }),
+      }),
+    )
+  })
+
+  it('blocks submit while the manual address is incomplete', async () => {
+    const user = userEvent.setup()
+    const onSubmit = renderForm(
+      validInitialState({
+        address: { formatted_address: '', place_id: '' },
+        manualAddress: {
+          addressLine1: 'PO Box 621',
+          addressLine2: '',
+          city: '',
+          state: 'WA',
+          zip: '98591',
+        },
+      }),
+      undefined,
+      true,
+    )
+
+    await user.click(screen.getByRole('button', { name: /^submit$/i }))
+
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(
+      screen.getByText(/select an address from the suggestions/i),
+    ).toBeInTheDocument()
+  })
+
+  it('toggles into manual mode with the typed input prefilled', async () => {
+    const user = userEvent.setup()
+    renderForm(
+      validInitialState({ address: { formatted_address: '', place_id: '' } }),
+    )
+
+    await user.type(
+      screen.getByPlaceholderText('Filing Address *'),
+      'PO Box 621',
+    )
+    await user.click(
+      screen.getByRole('button', { name: /enter address manually/i }),
+    )
+
+    expect(screen.getByLabelText('Street address or PO Box')).toHaveValue(
+      'PO Box 621',
+    )
+    expect(screen.queryByPlaceholderText('Filing Address *')).toBeNull()
+
+    await user.click(
+      screen.getByRole('button', { name: /search for your address instead/i }),
+    )
+    expect(screen.getByPlaceholderText('Filing Address *')).toBeInTheDocument()
   })
 
   it('does not double-submit on two rapid clicks', async () => {

@@ -483,6 +483,87 @@ describe('PeerlyIdentityService', () => {
       expect(placesService.getAddressByPlaceId).not.toHaveBeenCalled()
     })
 
+    it('uses the manual filing address without a Places lookup when the record carries one', async () => {
+      const placesService = module.get(GooglePlacesService)
+      const campaign = createMockCampaign({
+        placeId: null,
+        details: {
+          electionDate: '2024-11-05',
+          ballotLevel: BallotReadyPositionLevel.COUNTY,
+        },
+      })
+
+      await service.submitCampaignVerifyRequest(
+        {
+          email: 'candidate@example.com',
+          ein: '12-3456789',
+          phone: '15551234567',
+          peerlyIdentityId: 'peerly-123',
+          filingUrl: 'https://example.gov/elections',
+          officeLevel: OfficeLevel.local,
+          fecCommitteeId: null,
+          committeeType: CommitteeType.CANDIDATE,
+          filingAddressLine1: 'PO Box 621',
+          filingAddressLine2: null,
+          filingCity: 'Toledo',
+          filingState: 'WA',
+          filingZip: '98591',
+        },
+        baseUser,
+        campaign,
+        baseDomainName,
+      )
+
+      expect(placesService.getAddressByPlaceId).not.toHaveBeenCalled()
+      expect(lastSubmittedData.filing_address_line1).toBe('PO Box 621')
+      expect(lastSubmittedData).not.toHaveProperty('filing_address_line2')
+      expect(lastSubmittedData.filing_city).toBe('Toledo')
+      expect(lastSubmittedData.filing_state).toBe('WA')
+      expect(lastSubmittedData.filing_zip).toBe('98591')
+      // Manual entry carries no county component; county-level offices fall
+      // back to the entered city.
+      expect(lastSubmittedData.city_county).toBe('Toledo')
+    })
+
+    it('prefers the manual filing address over a present placeId', async () => {
+      const placesService = module.get(GooglePlacesService)
+      const campaign = createMockCampaign({
+        placeId: 'stale-place-id',
+        details: {
+          electionDate: '2024-11-05',
+          ballotLevel: BallotReadyPositionLevel.STATE,
+        },
+      })
+
+      await service.submitCampaignVerifyRequest(
+        {
+          email: 'candidate@example.com',
+          ein: '12-3456789',
+          phone: '15551234567',
+          peerlyIdentityId: 'peerly-123',
+          filingUrl: 'https://state.gov/filing/123',
+          officeLevel: OfficeLevel.state,
+          fecCommitteeId: null,
+          committeeType: CommitteeType.CANDIDATE,
+          filingAddressLine1: '1931 State Route 505',
+          filingAddressLine2: 'Unit B',
+          filingCity: 'Toledo',
+          filingState: 'WA',
+          filingZip: '98591',
+        },
+        baseUser,
+        campaign,
+        baseDomainName,
+      )
+
+      expect(placesService.getAddressByPlaceId).not.toHaveBeenCalled()
+      expect(lastSubmittedData.filing_address_line1).toBe(
+        '1931 State Route 505',
+      )
+      expect(lastSubmittedData.filing_address_line2).toBe('Unit B')
+      expect(lastSubmittedData.state).toBe('WA')
+    })
+
     it('includes verification_method, filing_phone_number, filing_phone_type, and filing_url_instructions when calling Peerly', async () => {
       const campaign = createMockCampaign({
         details: {
@@ -809,6 +890,61 @@ describe('PeerlyIdentityService', () => {
         didState: string
       }>
       expect(jobAreas[0]?.didState).toBe('IL')
+    })
+
+    it('uses a manual filing address without a Places lookup and joins line2 into street', async () => {
+      const placesService = module.get(GooglePlacesService)
+      const areaCodeService = module.get(AreaCodeFromZipService)
+      vi.mocked(areaCodeService.getAreaCodeFromZip).mockResolvedValue([])
+
+      const campaign = createMockCampaign({
+        placeId: null,
+        details: { campaignCommittee: 'Stickley for Coroner' },
+      })
+
+      await service.submit10DlcBrand(
+        'peerly-123',
+        {
+          ...baseTcrPayload,
+          manualAddress: {
+            addressLine1: 'PO Box 621',
+            addressLine2: 'Rear unit',
+            city: 'Toledo',
+            state: 'WA',
+            zip: '98591',
+          },
+        } as never,
+        campaign,
+        baseDomainName,
+      )
+
+      expect(placesService.getAddressByPlaceId).not.toHaveBeenCalled()
+      expect(lastSubmittedData.street).toBe('PO Box 621, Rear unit')
+      expect(lastSubmittedData.city).toBe('Toledo')
+      expect(lastSubmittedData.state).toBe('WA')
+      expect(lastSubmittedData.postalCode).toBe('98591')
+      const jobAreas = lastSubmittedData.jobAreas as Array<{
+        didState: string
+      }>
+      expect(jobAreas[0]?.didState).toBe('WA')
+    })
+
+    it('throws BadRequestException when there is neither a manual address nor a placeId', async () => {
+      const placesService = module.get(GooglePlacesService)
+      const campaign = createMockCampaign({
+        placeId: null,
+        details: { campaignCommittee: 'Jane for Springfield' },
+      })
+
+      await expect(
+        service.submit10DlcBrand(
+          'peerly-123',
+          baseTcrPayload as never,
+          campaign,
+          baseDomainName,
+        ),
+      ).rejects.toThrow(BadRequestException)
+      expect(placesService.getAddressByPlaceId).not.toHaveBeenCalled()
     })
 
     it('omits jobAreas when geography falls back to USA default', async () => {

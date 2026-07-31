@@ -18,7 +18,7 @@ calls; the wizard calls the same controller methods over HTTP.
 
 | Route | Method | Caller(s) | Purpose |
 |-------|--------|-----------|---------|
-| `POST /campaigns/tcr-compliance/agentic` | `createAgentic` | Wizard (filing-details step) | Persist EIN + committee + filing details, create the `TcrCompliance` row, and **conditionally** dispatch the agent. |
+| `POST /campaigns/tcr-compliance/agentic` | `createAgentic` | Wizard (filing-details step) | Persist EIN + committee + filing details, create the `TcrCompliance` row, and **conditionally** dispatch the agent. Address one-of: a Google-resolved `placeId`+`formattedAddress` pair (persisted onto the campaign) or a structured `manualAddress` (persisted onto the record's `filing_address_*` columns with a composed `postalAddress`; the campaign address is left untouched). |
 | `GET /campaigns/tcr-compliance/mine/compliance-state` | `findStateForCampaign` (`@McpTool`) | Agent | Canonical pipeline state across Campaign/Website/Domain/TcrCompliance. Agent calls this first each run to decide which steps to skip. |
 | `POST /campaigns/tcr-compliance/submit-to-peerly` | `submitToPeerlyForAgent` (`@McpTool`) | Agent | Submit the registration to Peerly (Identity → Profile → 10DLC Brand → CV Request). Stage-gated on `awaiting_pin`. |
 | `POST /campaigns/tcr-compliance` | `create` | Legacy non-agentic | Synchronous full Peerly submission (older flow). |
@@ -63,10 +63,17 @@ order it:
 1. **Validates `campaign.details.electionDate`** is a real `YYYY-MM-DD` (the agent
    expands it into domain-name placeholders; a bad value would poison generation).
    Missing/invalid → mark record `error`, no dispatch.
-2. **Requires `campaign.placeId`.** Peerly resolves the postal address from `placeId`
-   via Google Places; without it the run publishes a site, can't submit, reports
-   `partial`, and the resume sweep re-dispatches a ~$10 paid run every few minutes until
-   it gives up. So reject at kickoff (status `error`, no dispatch) rather than loop.
+2. **Requires an address source.** Peerly resolves the postal address from the
+   record's manual filing-address columns (`filingAddressLine1/City/State/Zip`,
+   set when the candidate entered the address manually — PO Boxes and
+   addresses Google Places can't suggest) or, failing that, from
+   `campaign.placeId` via Google Places. With neither, the run publishes a
+   site, can't submit, reports `partial`, and the resume sweep re-dispatches a
+   ~$10 paid run every few minutes until it gives up. So reject at kickoff
+   (status `error`, no dispatch) rather than loop. Manual wins over `placeId`
+   when both exist — `campaign.placeId` can carry a stale onboarding address,
+   while the manual components were entered for this registration
+   (`peerlyIdentity.service.ts` `resolveFilingAddress`).
 3. **`ensureCompliancePublishableWebsite`** (`websites.service.ts`) — the agent buys a
    domain and publishes the site but can't *create* one or author missing copy.
    Legacy-Pro candidates skip the wizard's profile step, so guarantee a publishable site
