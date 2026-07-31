@@ -141,6 +141,15 @@ rerouting** are in `app/dashboard/components/campaignManager/` and the shared
   advance on success; a failed write shows an error snackbar and does NOT navigate, so
   there's never a stranded un-persisted answer.
 - **Scroll reset** on step change is handled by the shell (dashboard convention).
+- **PO Box filing addresses can never validate.** Google Places autocomplete
+  (`types: ['address']`) doesn't index PO Boxes and the backend requires a
+  `placeId`, so a candidate whose filing address is a PO Box gets an empty
+  dropdown and a stuck filing-details step (this blocked real Pro upgrades).
+  The shared form module exports `isPoBoxAddressInput` + `PO_BOX_ADDRESS_HINT`;
+  both filing-address inputs (this wizard and the standalone register form)
+  show the hint steering the candidate to a home/business street address — the
+  PIN is delivered via filing email/phone, so the address need not match the
+  filing. Don't remove the hint without solving PO Box resolution end-to-end.
 
 ## Debugging the flow
 

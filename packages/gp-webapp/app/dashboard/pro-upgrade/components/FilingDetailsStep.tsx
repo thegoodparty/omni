@@ -35,6 +35,8 @@ import {
   fieldDisplayNames,
   getFailingFields,
   getValidationMessage,
+  isPoBoxAddressInput,
+  PO_BOX_ADDRESS_HINT,
   validateRegistrationForm,
   type ValidationField,
 } from 'app/dashboard/profile/texting-compliance/register/components/TextingComplianceRegistrationForm'
@@ -291,7 +293,9 @@ const FilingDetailsForm = ({
           <Body2 className="text-base-muted-foreground mt-1 mb-4">
             Enter the email and phone that appear on your campaign filing — your
             PIN is sent to one of these to verify your campaign. Your filing
-            address is required to register for texting.
+            address is required to register for texting and must be a physical
+            street address. If you filed with a PO Box, use your home or
+            business street address instead.
           </Body2>
           <div className="flex flex-col gap-6">
             <TextField
@@ -316,7 +320,11 @@ const FilingDetailsForm = ({
               value={addressInput}
               onChange={(value) => {
                 setAddressInput(value)
-                if (!value) handleChange({ address: null })
+                // Also clear on PO Box input: typing never fires onSelect, so
+                // without this a PO Box typed over a previously selected
+                // address would submit the stale valid address silently.
+                if (!value || isPoBoxAddressInput(value))
+                  handleChange({ address: null })
               }}
               onSelect={(place) => {
                 setAddressInput(place.formatted_address || '')
@@ -329,6 +337,12 @@ const FilingDetailsForm = ({
               }}
               placeholder="Address"
               variant="outlined"
+              error={showError('address') || isPoBoxAddressInput(addressInput)}
+              helperText={
+                isPoBoxAddressInput(addressInput)
+                  ? PO_BOX_ADDRESS_HINT
+                  : undefined
+              }
               dropdownClassName="texting-compliance-address-dropdown"
             />
           </div>

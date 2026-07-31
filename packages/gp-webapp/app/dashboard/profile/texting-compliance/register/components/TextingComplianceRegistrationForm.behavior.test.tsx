@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { FormDataProvider, type FormDataState } from '@shared/hooks/useFormData'
@@ -196,6 +196,39 @@ describe('TextingComplianceRegistrationForm — submit behavior', () => {
     )
 
     expect(screen.queryByText(/form submission failed/i)).toBeNull()
+  })
+
+  it('steers a PO Box filer to a street address while they type', async () => {
+    // Google Places never suggests PO Boxes, so a PO Box filer would otherwise
+    // hit an empty dropdown and a field that can never validate.
+    const user = userEvent.setup()
+    renderForm(
+      validInitialState({ address: { formatted_address: '', place_id: '' } }),
+    )
+
+    await user.type(
+      screen.getByPlaceholderText('Filing Address *'),
+      'P.O. Box 621',
+    )
+
+    expect(screen.getByText(/PO Boxes can't be used here/i)).toBeInTheDocument()
+  })
+
+  it('blocks submit when a PO Box is typed over a selected address', async () => {
+    // Typing never fires onSelect, so without the clear-on-PO-Box the stale
+    // valid address would submit silently while the field shows the hint.
+    const user = userEvent.setup()
+    const onSubmit = renderForm(validInitialState(), undefined, true)
+
+    fireEvent.change(screen.getByPlaceholderText('Filing Address *'), {
+      target: { value: 'PO Box 621' },
+    })
+    await user.click(screen.getByRole('button', { name: /submit/i }))
+
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(
+      screen.getByText(/select a physical street address/i),
+    ).toBeInTheDocument()
   })
 
   it('does not double-submit on two rapid clicks', async () => {

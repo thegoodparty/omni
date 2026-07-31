@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { ReactNode } from 'react'
 import { screen, fireEvent, waitFor } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
@@ -39,23 +40,39 @@ vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({ errorSnackbar }),
 }))
 
-// AddressAutocomplete pulls in the Google Places widget; stub it with a button
-// that fires onSelect so a test can supply a valid filing address.
+// AddressAutocomplete pulls in the Google Places widget; stub it with an input
+// that fires onChange (typed text, e.g. a PO Box attempt), a button that fires
+// onSelect so a test can supply a valid filing address, and the helperText so
+// hint copy can be asserted.
 vi.mock('@shared/AddressAutocomplete', () => ({
   default: ({
+    value,
+    onChange,
     onSelect,
+    helperText,
   }: {
+    value?: string
+    onChange?: (value: string) => void
     onSelect: (place: { formatted_address: string; place_id: string }) => void
+    helperText?: ReactNode
   }) => (
-    <button
-      type="button"
-      data-testid="select-address"
-      onClick={() =>
-        onSelect({ formatted_address: '123 Main St', place_id: 'place-123' })
-      }
-    >
-      select address
-    </button>
+    <div>
+      <input
+        data-testid="address-input"
+        value={value}
+        onChange={(e) => onChange?.(e.target.value)}
+      />
+      <button
+        type="button"
+        data-testid="select-address"
+        onClick={() =>
+          onSelect({ formatted_address: '123 Main St', place_id: 'place-123' })
+        }
+      >
+        select address
+      </button>
+      {helperText ? <div>{helperText}</div> : null}
+    </div>
   ),
 }))
 
@@ -333,6 +350,42 @@ describe('FilingDetailsStep', () => {
       target: { value: '4155551234' },
     })
 
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(mockSubmit).not.toHaveBeenCalled()
+    expect(goToNextStep).not.toHaveBeenCalled()
+    expect(screen.getByText('Filing Address')).toBeInTheDocument()
+  })
+
+  it('steers a PO Box filer to a street address while they type', () => {
+    // Google Places never suggests PO Boxes, so without this hint a PO Box
+    // filer sees an empty dropdown and a field that can never validate — the
+    // exact dead-end that blocked real Pro upgrades from the sales channel.
+    render(<FilingDetailsStep />)
+
+    fireEvent.change(screen.getByTestId('address-input'), {
+      target: { value: 'PO Box 621' },
+    })
+    expect(screen.getByText(/PO Boxes can't be used here/i)).toBeInTheDocument()
+
+    // A street address clears the hint.
+    fireEvent.change(screen.getByTestId('address-input'), {
+      target: { value: '123 Main St' },
+    })
+    expect(
+      screen.queryByText(/PO Boxes can't be used here/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('clears a previously selected address when a PO Box is typed over it', () => {
+    // Typing never fires onSelect, so without the clear the stale valid
+    // address would submit silently while the field shows the PO Box hint.
+    render(<FilingDetailsStep />)
+    fillValidNonFederalForm()
+
+    fireEvent.change(screen.getByTestId('address-input'), {
+      target: { value: 'PO Box 621' },
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(mockSubmit).not.toHaveBeenCalled()
