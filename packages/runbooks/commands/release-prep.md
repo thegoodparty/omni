@@ -1,4 +1,4 @@
-<!-- v6 — 2026-06-29 -->
+<!-- v7 — 2026-07-31 -->
 # /release-prep
 
 Open each release repo's `develop → qa` PR with auto-merge enabled, wait for it to merge, then open the `qa → production` PR — the pending production release. Compile and print one `#devs-only` message that lists every included PR (across all repos), grouped per repo and then by author, so the team can confirm before the actual release.
@@ -367,28 +367,28 @@ Run steps 9–13 **per contributing repo**, accumulating results keyed by repo, 
     Do **not** call `clickup_api.py` here — message 1 shows the PR title plus the ticket link, not the ticket's ClickUp title. (Fetching the ticket title is `/release`'s job for the `#product-releases` notes in message 2.) These links are paste-safe: pasted into Slack as raw URLs they auto-link.
 
 13. **Group the repo's PRs by author** using the map loaded in step 2:
-    - `author.login` → Slack display name via the JSON map
-    - Unmapped logins → use the raw login as-is, surface in the final report
+    - `author.login` → display name via the JSON map, first letter uppercased
+    - Unmapped logins → use the raw GitHub username as-is, surface in the final report
 
 14. **Format the single combined message** to match the layout used in `$RELEASE_DEVS_CHANNEL` — one shared header, then a per-repo section (only for contributing repos), and author groups within each repo:
 
     ```
     Here are the changes that are included in today's pending production release.
 
-    If you're tagged in this message, please confirm that your changes are ready to go to prod by leaving a :white_check_mark: reaction on this message.
-
     *omni*
-    @<Slack name>:
+    <Name>:
       •  #<pr_number>: <pr_title> <ticket_link> [<ticket_link2> ...]
       •  ...
 
-    @<Slack name>:
+    <Name>:
       •  ...
 
     *gp-ai-projects*
-    @<Slack name>:
+    <Name>:
       •  ...
     ```
+
+    `<Name>` is the person's plain name — no `@` mention. Use the mapped name from `$RELEASE_AUTHOR_MAP` with the first letter uppercased (or fix the mapping if its value isn't capitalized). If the author isn't in the map, use their GitHub username as-is.
 
     Each PR line ends with the ClickUp ticket link(s) from step 12 — one per tag, space-separated. A PR with no ticket tag (chore/refactor) gets no link, just the title. Example lines:
 
@@ -425,7 +425,7 @@ Run steps 9–13 **per contributing repo**, accumulating results keyed by repo, 
     - Any unmapped GitHub authors that fell back to raw logins (suggest adding them to `$RELEASE_AUTHOR_MAP`)
     - Any PRs with no ticket tag found in title/body/branch/commits (rendered with no ticket link) — flag so the user can add a ticket reference if one was expected
     - Any commits with no PR backing them (no `(#<n>)` suffix and `gh api .../commits/<hash>/pulls` returned `[]`) — these appeared in the message with a commit-hash placeholder
-    - Suggested next step (only if at least one `qa → $TIP` PR was opened this run): "After the team has confirmed (:white_check_mark: reactions in `$RELEASE_DEVS_CHANNEL`), run `/release` to merge the qa → production PR(s) and post the release notes."
+    - Suggested next step (only if at least one `qa → $TIP` PR was opened this run): "After the team has confirmed in `$RELEASE_DEVS_CHANNEL`, run `/release` to merge the qa → production PR(s) and post the release notes."
 
 ## Important Notes
 
