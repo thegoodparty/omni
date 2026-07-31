@@ -86,7 +86,6 @@ const FIXTURE_AGGREGATES = {
   count: 10,
   avgAge: 45,
   avgIncome: 60000,
-  fenced: false,
 }
 
 // The actual on-wire shape from this service's local StatsService.getStats
@@ -240,7 +239,6 @@ describe('ContactsService — people-db (sole path)', () => {
 
       expect(result).toEqual({
         count: FIXTURE_PAGE.pagination.totalResults,
-        fenced: false,
       })
       expect(mockVoterQueryService.findPeople).toHaveBeenCalledWith(
         expect.objectContaining({

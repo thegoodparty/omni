@@ -195,25 +195,24 @@ export class P2pPhoneListUploadService {
     let excludedDuplicatePhoneCount = 0
 
     let page = 1
-    let hasNextPage = true
-    while (hasNextPage) {
-      // The people response is a cast, not a parse — a buggy hasNextPage
-      // that never clears must not loop forever. One page past the cap is
-      // the most a valid list can need.
+    while (true) {
+      // Guard against a runaway loop; the recipient cap below is the real
+      // bound. One page past the cap is the most a valid list can need.
       if (page > MAX_PHONE_LIST_PAGES) {
         throw new BadRequestException(
           `Pagination exceeded ${MAX_PHONE_LIST_PAGES} pages — aborting`,
         )
       }
-      const { people, pagination } =
-        await this.contactsService.findContactsForFilter(
-          // SMS reachability belongs to the channel, not the shared filter
-          // resolution — force it here regardless of what the request asked.
-          { ...filterInput, hasCellPhone: true },
-          { resultsPerPage: SEGMENT_PAGE_SIZE, page },
-          organization,
-          excludePersonIds,
-        )
+      const { people } = await this.contactsService.findContactsForFilter(
+        // SMS reachability belongs to the channel, not the shared filter
+        // resolution — force it here regardless of what the request asked.
+        { ...filterInput, hasCellPhone: true },
+        // Page off the rows returned, never a count: the count no longer
+        // bounds the audience, and skipCount avoids a full-scan COUNT per page.
+        { resultsPerPage: SEGMENT_PAGE_SIZE, page, skipCount: true },
+        organization,
+        excludePersonIds,
+      )
 
       for (const person of people) {
         // hasCellPhone: true is forced above; cellPhone is nullable on the
@@ -261,7 +260,10 @@ export class P2pPhoneListUploadService {
         )
       }
 
-      hasNextPage = pagination.hasNextPage
+      // A short (or empty) page is the last one — replaces the old
+      // pagination.hasNextPage check, which came from the total count and
+      // truncated the send whenever that count was floored.
+      if (people.length < SEGMENT_PAGE_SIZE) break
       page += 1
     }
 

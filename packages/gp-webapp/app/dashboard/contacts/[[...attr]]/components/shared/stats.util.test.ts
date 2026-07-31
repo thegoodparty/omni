@@ -16,20 +16,11 @@ const baseStats: ContactsStats = {
   },
 }
 
-describe('getContactStatsRendered — fenced total (ENG-10804)', () => {
-  it('renders an exact total and a precise percent when not fenced', () => {
-    const result = getContactStatsRendered(baseStats, 10000, false)
+describe('getContactStatsRendered — total', () => {
+  it('renders an exact total and a precise percent', () => {
+    const result = getContactStatsRendered(baseStats, 10000)
 
     expect(result.totalConstituents).toBe('10,000')
     expect(result.visibleContactsPercent).toBe('50.00%')
-  })
-
-  it('renders a "+" total and suppresses the percent when fenced', () => {
-    const result = getContactStatsRendered(baseStats, 10000, true)
-
-    expect(result.totalConstituents).toBe('10,000+')
-    // A fenced count is a floor, not the true membership — a precise
-    // percent computed from it would contradict the "+" on the total card.
-    expect(result.visibleContactsPercent).toBe('--')
   })
 })

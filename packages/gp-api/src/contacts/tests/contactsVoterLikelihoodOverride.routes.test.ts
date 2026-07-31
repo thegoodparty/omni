@@ -95,7 +95,6 @@ describe('POST /v1/contacts/count — Voter Likelihood override resolution', () 
           totalPages: 1,
           hasNextPage: false,
           hasPreviousPage: false,
-          fenced: false,
         },
         people: [],
       })

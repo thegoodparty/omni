@@ -211,7 +211,7 @@ export const handleCreatePhoneList =
 export const handleCreateVoterFileFilter =
   ({
     type,
-    state: { audience, voterCount },
+    state: { audience },
     errorSnackbar = noop,
     now = new Date(),
   }: CreateVoterFileFilterParams) =>
@@ -221,7 +221,6 @@ export const handleCreateVoterFileFilter =
     const voterFileFilter = await createVoterFileFilter({
       name: buildAutoVoterFileFilterName(type, now),
       ...chosenAudiences,
-      voterCount,
     })
 
     if (!voterFileFilter) {

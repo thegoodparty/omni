@@ -6,11 +6,7 @@ import {
 } from '@styleguide'
 import type { ListDetailReachability } from './contacts-types'
 
-// `fenced` is a sibling map of per-channel flags, not a channel itself.
-export type ReachabilityChannelKey = Exclude<
-  keyof ListDetailReachability,
-  'fenced'
->
+export type ReachabilityChannelKey = keyof ListDetailReachability
 
 // The five reachable-by-channel tiles on the list-detail sheet (locked
 // design, ENG-10706/ENG-10707/ENG-10725; email/metaAds dropped in

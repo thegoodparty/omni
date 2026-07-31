@@ -34,7 +34,6 @@ import { useOrganization } from '@shared/organization-picker'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { dateUsHelper } from 'helpers/dateHelper'
 import { getContactsLabels } from '../../../shared/contactsLabels'
-import { formatFencedCount } from '../shared/formatFencedCount.util'
 import { ALL_SEGMENTS } from '../shared/constants'
 import { findCustomSegment } from '../shared/segments.util'
 import { useContactsDownload } from '../shared/useContactsDownload'
@@ -358,10 +357,7 @@ export default function ListDetailSheet({
                 label="People"
                 value={statValue(
                   demographics
-                    ? formatFencedCount(
-                        demographics.people,
-                        demographics.fenced,
-                      )
+                    ? demographics.people.toLocaleString()
                     : undefined,
                 )}
               />

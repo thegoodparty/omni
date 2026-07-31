@@ -101,7 +101,6 @@ export default function ContactsPage() {
                 <div className="mt-6">
                   <ContactsStatsSection
                     totalVisibleContacts={totalSegmentContacts}
-                    totalVisibleContactsFenced={pagination?.fenced}
                     onlyTotalVisibleContacts={isCustomSegment || !!searchTerm}
                   />
                 </div>

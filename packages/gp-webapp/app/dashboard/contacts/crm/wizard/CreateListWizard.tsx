@@ -29,7 +29,6 @@ import NameStep from './NameStep'
 import { useListWizardCount } from './useListWizardCount'
 import { useListWizardOverlapCount } from './useListWizardOverlapCount'
 import OverlapBar from './OverlapBar'
-import { formatFencedCount } from '../shared/formatFencedCount.util'
 
 type WizardStepName = 'branch' | 'conditions' | 'name'
 
@@ -166,19 +165,12 @@ export default function CreateListWizard({
   // unfiltered and the cached total would render on the build button. The
   // voter-file count deliberately fires with zero selections (ENG-10751):
   // the disabled build button still shows the live unfiltered total.
-  const {
-    count,
-    fenced,
-    isLoading,
-    isStale,
-    isError,
-    isCapError,
-    errorMessage,
-  } = useListWizardCount(
-    backendPayload,
-    activeBranch === 'voterFile' ||
-      (activeBranch === 'activity' && isConditionsStepValid),
-  )
+  const { count, isLoading, isStale, isError, isCapError, errorMessage } =
+    useListWizardCount(
+      backendPayload,
+      activeBranch === 'voterFile' ||
+        (activeBranch === 'activity' && isConditionsStepValid),
+    )
 
   // ENG-10781: a selection that RESOLVES to zero matches must not advance —
   // it can't build anything. Gated on !isLoading && !isStale so a payload
@@ -197,7 +189,6 @@ export default function CreateListWizard({
   const hasSavedLists = customSegments.length > 0
   const {
     count: overlapCount,
-    fenced: overlapFenced,
     isLoading: isOverlapLoading,
     isStale: isOverlapStale,
     isError: isOverlapError,
@@ -225,9 +216,7 @@ export default function CreateListWizard({
     count !== undefined
       ? {
           overlapCount,
-          overlapFenced,
           liveCount: count,
-          liveFenced: fenced,
         }
       : null
 
@@ -356,17 +345,9 @@ export default function CreateListWizard({
 
   const handleSubmit = () => {
     if (!canSubmit) return
-    // ENG-10769: persist the live count — the server defaults voterCount to
-    // 0, and the outreach page's Voters column reads the stored value, so a
-    // list saved without it shows every campaign as reaching 0 voters. A
-    // still-loading/error count is omitted rather than persisted wrong.
-    // ENG-10804: a fenced count is a FENCE_LIMIT floor, not the true
-    // membership size — persisting it as voterCount would display a
-    // permanently wrong exact number, so it's omitted like an unsettled one.
     createMutation.mutate({
       name: trimmedName,
       ...backendPayload,
-      ...(typeof count === 'number' && !fenced ? { voterCount: count } : {}),
     })
   }
 
@@ -387,14 +368,14 @@ export default function CreateListWizard({
 
   // The label hides the number whenever there's no trustworthy CURRENT
   // count — mid-fetch, still debouncing, or never resolved (including a
-  // terminal error, since formatFencedCount can't format undefined either
-  // way). isLoading/isStale always hide it regardless of isError: a
-  // refetch of a previously-errored query can have isFetching and isError
-  // both true at once, and that's still a real in-flight fetch.
+  // terminal error, since we can't format undefined either way).
+  // isLoading/isStale always hide it regardless of isError: a refetch of a
+  // previously-errored query can have isFetching and isError both true at
+  // once, and that's still a real in-flight fetch.
   const buildLabel =
     isLoading || isStale || count === undefined
       ? 'Build your list'
-      : `Build your list (${formatFencedCount(count, fenced)})`
+      : `Build your list (${count.toLocaleString()})`
   // isZeroMatch above excludes isError because a failed refetch's count is
   // unknown, not a real value — the same discipline applies here: without
   // `&& !isError`, a query that errors on its very first fetch (no prior
@@ -490,7 +471,6 @@ export default function CreateListWizard({
           name={name}
           onNameChange={setName}
           count={count}
-          fenced={fenced}
           // isStale too: while a filter change is still debouncing the count
           // is stale for the current selection and Save is gated off, so the
           // sentence must read "Counting…" rather than assert a stale total.

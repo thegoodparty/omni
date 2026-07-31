@@ -28,12 +28,8 @@ export type PeopleOverlapCountRequest = z.infer<
   typeof PeopleOverlapCountRequestSchema
 >
 
-// `fenced` mirrors the count/aggregates paths: true when people-api's
-// statement-timeout guard floored `count` at FENCE_LIMIT rather than
-// completing the exact overlap.
 export const PeopleOverlapCountResponseSchema = z.object({
   count: z.number().int().min(0),
-  fenced: z.boolean(),
 })
 export type PeopleOverlapCountResponse = z.infer<
   typeof PeopleOverlapCountResponseSchema
