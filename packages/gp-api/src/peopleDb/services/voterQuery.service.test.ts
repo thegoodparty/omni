@@ -233,13 +233,12 @@ describe('VoterQueryService', () => {
       expect(mockStatsService.getTotalCounts).not.toHaveBeenCalled()
       expect(mockClient.$queryRaw).toHaveBeenCalledTimes(2)
       expect(result.pagination.totalResults).toBe(7)
-      // A broad/low-selectivity filter (not just name-search) can trip the same
-      // pathological plan, so this count runs through the same guard: exactly
-      // one transaction carrying the SET LOCAL statement_timeout + the count.
-      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
-      expect(mockClient.$executeRaw).toHaveBeenCalledTimes(1)
-      // The data query itself is not name-search, so it stays a plain query
-      // outside the transaction (the MATERIALIZED CTE is name-search-only).
+      // Both the count and the list data query run under the 25s statement
+      // timeout now — one transaction each (SET LOCAL + the query).
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(2)
+      expect(mockClient.$executeRaw).toHaveBeenCalledTimes(2)
+      // The data query is not name-search, so it keeps the plain shape (no
+      // MATERIALIZED CTE) even though it now runs inside the timeout guard.
       const dataSql = (
         mockClient.$queryRaw.mock.calls[1]?.[0] as { sql?: string }
       )?.sql
@@ -359,10 +358,10 @@ describe('VoterQueryService', () => {
       const result = await service.findPeople(searchDto())
 
       expect(result.people).toHaveLength(1)
-      // Only the count runs in a transaction (SET LOCAL statement_timeout +
-      // the count). The name-search data query is a plain query wrapped in a
-      // MATERIALIZED CTE — no transaction, no fenced retry.
-      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
+      // Both the count and the name-search data query run under the 25s
+      // statement timeout — one transaction each (SET LOCAL + the query), no
+      // fenced retry. The data query additionally uses a MATERIALIZED CTE.
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(2)
       expect(mockClient.$transaction.mock.calls[0]?.[0]).toHaveLength(2)
       expect(sqlOf(mockClient.$executeRaw.mock.calls[0]?.[0])).toBe(
         "SET LOCAL statement_timeout = '25000ms'",
@@ -428,30 +427,33 @@ describe('VoterQueryService', () => {
       await expect(service.findPeople(searchDto())).rejects.toThrow('40001')
     })
 
-    it('guards the count but leaves the phone-search data query as a plain query', async () => {
+    it('guards the phone-search data query under the timeout without the trigram CTE', async () => {
       mockClient.$queryRaw
         .mockResolvedValueOnce([{ voter_count: 1n }])
         .mockResolvedValueOnce([makeDbPerson()])
 
       await service.findPeople(searchDto({ search: '4155551234' }))
 
-      // The count is guarded like every other count; a phone search is not a
-      // name search, so its data query keeps the plain, non-CTE shape.
-      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
-      expect(mockClient.$executeRaw).toHaveBeenCalledTimes(1)
+      // Count + data query each run under the statement timeout (a transaction
+      // apiece). A phone search is not a name search, so its data query keeps
+      // the plain, non-CTE shape even though it is now guarded.
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(2)
+      expect(mockClient.$executeRaw).toHaveBeenCalledTimes(2)
       const dataSql = sqlOf(mockClient.$queryRaw.mock.calls[1]?.[0])
       expect(dataSql).toContain('VoterTelephones_CellPhoneFormatted')
       expect(dataSql).not.toContain('WITH matched AS MATERIALIZED')
       expect(dataSql).toMatch(/FROM "green"\."Voter" v\s+JOIN/)
     })
 
-    it('does not guard or force the trigram plan for searchless lists (SQL unchanged)', async () => {
+    it('guards the searchless-list data query but does not force the trigram plan', async () => {
       mockClient.$queryRaw.mockResolvedValueOnce([makeDbPerson()])
 
       await service.findPeople(searchDto({ search: undefined }))
 
-      expect(mockClient.$transaction).not.toHaveBeenCalled()
-      expect(mockClient.$executeRaw).not.toHaveBeenCalled()
+      // The count takes the O(1) stats shortcut (no transaction), but the data
+      // query still runs under the 25s statement timeout — one transaction.
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
+      expect(mockClient.$executeRaw).toHaveBeenCalledTimes(1)
       const dataSql = sqlOf(mockClient.$queryRaw.mock.calls[0]?.[0])
       expect(dataSql).not.toContain('WITH matched AS MATERIALIZED')
       expect(dataSql).toMatch(/FROM "green"\."Voter" v\s+JOIN/)

@@ -131,7 +131,7 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
     })
     const buildData = (skip: number) =>
-      this.client.$queryRaw<Array<BaseDbPerson>>(
+      this.runUnderStatementTimeout<BaseDbPerson>(
         this.buildRawPeopleQuery({
           districtId: effectiveDistrictId,
           whereClause,
