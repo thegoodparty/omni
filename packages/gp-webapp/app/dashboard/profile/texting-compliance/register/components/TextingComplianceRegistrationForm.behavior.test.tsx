@@ -86,9 +86,12 @@ describe('TextingComplianceRegistrationForm — submit behavior', () => {
     }
     // Field-specific guidance (only rendered in the error banner) is shown.
     expect(screen.getByText(/select an option/i)).toBeInTheDocument()
-    // The invalid Office Level select (the only combobox in this state) is
-    // marked with an error state.
-    expect(screen.getByRole('combobox')).toHaveAttribute('aria-invalid', 'true')
+    // The invalid Office Level select (identified by its placeholder — the
+    // State select is a second combobox now) is marked with an error state.
+    const officeLevelTrigger = screen
+      .getAllByRole('combobox')
+      .find((el) => el.textContent?.includes('Select an office level'))
+    expect(officeLevelTrigger).toHaveAttribute('aria-invalid', 'true')
   })
 
   it('submits the (non-federal) form when it is valid', async () => {
@@ -198,38 +201,85 @@ describe('TextingComplianceRegistrationForm — submit behavior', () => {
     expect(screen.queryByText(/form submission failed/i)).toBeNull()
   })
 
-  it('steers a PO Box filer to a street address while they type', async () => {
-    // Google Places never suggests PO Boxes, so a PO Box filer would otherwise
-    // hit an empty dropdown and a field that can never validate.
-    const user = userEvent.setup()
+  it('renders the full address field set with autocomplete on the street input', () => {
     renderForm(
       validInitialState({ address: { formatted_address: '', place_id: '' } }),
     )
 
-    await user.type(
-      screen.getByPlaceholderText('Filing Address *'),
-      'P.O. Box 621',
-    )
-
     expect(
-      screen.getByText(/Address search can't find PO Boxes/i),
+      screen.getByPlaceholderText(
+        'Start typing to search, or enter it yourself',
+      ),
     ).toBeInTheDocument()
+    expect(
+      screen.getByLabelText('Apt, suite, unit (optional)'),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('City')).toBeInTheDocument()
+    expect(screen.getByText('State *')).toBeInTheDocument()
+    expect(screen.getByLabelText('ZIP')).toBeInTheDocument()
   })
 
-  it('blocks submit when a PO Box is typed over a selected address', async () => {
-    // Typing never fires onSelect, so without the clear-on-PO-Box the stale
-    // valid address would submit silently while the field shows the hint.
+  it('submits a PO Box typed straight into the address fields', async () => {
+    // No suggestion ever fires for a PO Box — the same fields just get
+    // filled in by hand, no mode switch involved.
+    const user = userEvent.setup()
+    const onSubmit = renderForm(
+      validInitialState({ address: { formatted_address: '', place_id: '' } }),
+      undefined,
+      true,
+    )
+
+    fireEvent.change(
+      screen.getByPlaceholderText(
+        'Start typing to search, or enter it yourself',
+      ),
+      { target: { value: 'PO Box 621' } },
+    )
+    fireEvent.change(screen.getByLabelText('City'), {
+      target: { value: 'Toledo' },
+    })
+    const stateTrigger = screen
+      .getAllByRole('combobox')
+      .find((el) => el.textContent === 'State')
+    fireEvent.click(stateTrigger!)
+    fireEvent.click(screen.getByRole('option', { name: 'WA' }))
+    fireEvent.change(screen.getByLabelText('ZIP'), {
+      target: { value: '98591' },
+    })
+
+    await user.click(screen.getByRole('button', { name: /^submit$/i }))
+
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        manualAddress: expect.objectContaining({
+          addressLine1: 'PO Box 621',
+          city: 'Toledo',
+          state: 'WA',
+          zip: '98591',
+        }),
+      }),
+    )
+  })
+
+  it('drops a selected address and requires the components when the street is edited', async () => {
+    // A placeId submission is resolved from Google server-side, so an edited
+    // street must invalidate the selection; the remaining components (empty
+    // here) then gate the submit.
     const user = userEvent.setup()
     const onSubmit = renderForm(validInitialState(), undefined, true)
 
-    fireEvent.change(screen.getByPlaceholderText('Filing Address *'), {
-      target: { value: 'PO Box 621' },
-    })
+    fireEvent.change(
+      screen.getByPlaceholderText(
+        'Start typing to search, or enter it yourself',
+      ),
+      { target: { value: 'PO Box 621' } },
+    )
     await user.click(screen.getByRole('button', { name: /submit/i }))
 
     expect(onSubmit).not.toHaveBeenCalled()
     expect(
-      screen.getByText(/select an address from the suggestions/i),
+      screen.getByText(/city, state, and zip are required/i),
     ).toBeInTheDocument()
   })
 
@@ -288,33 +338,8 @@ describe('TextingComplianceRegistrationForm — submit behavior', () => {
 
     expect(onSubmit).not.toHaveBeenCalled()
     expect(
-      screen.getByText(/select an address from the suggestions/i),
+      screen.getByText(/city, state, and zip are required/i),
     ).toBeInTheDocument()
-  })
-
-  it('toggles into manual mode with the typed input prefilled', async () => {
-    const user = userEvent.setup()
-    renderForm(
-      validInitialState({ address: { formatted_address: '', place_id: '' } }),
-    )
-
-    await user.type(
-      screen.getByPlaceholderText('Filing Address *'),
-      'PO Box 621',
-    )
-    await user.click(
-      screen.getByRole('button', { name: /enter address manually/i }),
-    )
-
-    expect(screen.getByLabelText('Street address or PO Box')).toHaveValue(
-      'PO Box 621',
-    )
-    expect(screen.queryByPlaceholderText('Filing Address *')).toBeNull()
-
-    await user.click(
-      screen.getByRole('button', { name: /search for your address instead/i }),
-    )
-    expect(screen.getByPlaceholderText('Filing Address *')).toBeInTheDocument()
   })
 
   it('does not double-submit on two rapid clicks', async () => {
