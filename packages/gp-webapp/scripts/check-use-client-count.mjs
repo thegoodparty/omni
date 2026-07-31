@@ -150,7 +150,10 @@ import { dirname, join, relative } from 'node:path'
 // needs client hooks (useMutation/useQueryClient for the PATCH + optimistic
 // update, useCrmEnabled for self-gating, Radix Select interactivity), so it
 // can't render as a server component.
-const BASELINE = 558
+// ENG-10858: +1 for campaignManager/TextingSetupBanner.tsx — self-gates on
+// useCampaign and fires a view event in an effect, like its sibling
+// ProUpgradeBanner.
+const BASELINE = 559
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
