@@ -775,6 +775,38 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
       })
     })
 
+    it('continues past a record whose content fetch fails', async () => {
+      const broken = {
+        id: 'tcr-broken',
+        campaignId: 11,
+        status: TcrComplianceStatus.submitted,
+        peerlyIdentityId: null,
+        kickoffSentAt: null,
+        campaign: { user: { clerkId: 'clerk_x' }, campaignPositions: [] },
+      }
+      const healthy = {
+        id: 'tcr-healthy',
+        campaignId: 12,
+        status: TcrComplianceStatus.submitted,
+        peerlyIdentityId: null,
+        kickoffSentAt: null,
+        campaign: { user: { clerkId: 'clerk_y' }, campaignPositions: [] },
+      }
+      mockModel.findMany.mockResolvedValueOnce([broken, healthy])
+      mockWebsites.getContentForCampaign.mockImplementation(
+        (campaignId: number) =>
+          campaignId === 11
+            ? Promise.reject(new Error('db hiccup'))
+            : Promise.resolve(publishableContent),
+      )
+
+      await sweep(service)
+
+      expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
+      const [message] = firstOrThrow(mockQueue.sendMessage.mock.calls)
+      expect(message.data.tcrComplianceId).toBe('tcr-healthy')
+    })
+
     it('only sweeps Pro campaigns so pre-payment submissions are not dispatched', async () => {
       mockModel.findMany.mockResolvedValueOnce([])
 

@@ -208,9 +208,21 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         )
         continue
       }
-      const content = await this.websitesService.getContentForCampaign(
-        record.campaignId,
-      )
+      let content: PrismaJson.WebsiteContent | null
+      try {
+        content = await this.websitesService.getContentForCampaign(
+          record.campaignId,
+        )
+      } catch (err) {
+        // Isolate per record (matching the other sweeps): one record's fetch
+        // failure must not abandon the rest of this tick's candidates.
+        this.logger.error(
+          { err, tcrComplianceId: record.id, campaignId: record.campaignId },
+          '[TCR Compliance] Failed to fetch website content for stranded ' +
+            'record; skipping',
+        )
+        continue
+      }
       if (!wouldBePublishableAfterFallbacks(content, user, record.campaign)) {
         continue
       }
