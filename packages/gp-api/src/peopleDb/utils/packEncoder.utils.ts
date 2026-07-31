@@ -177,11 +177,9 @@ export class PackEncoder {
         bytes: new GrowableU8(),
       }
     })
-    // Party classifies by the shared substring-precedence rules (not an
-    // invertible value map): the bucket must match exactly the rows the
-    // canonical-party list filter selects. Display-'Other' rows (non-blank,
-    // rule-less) land in byte 0 alongside null/blank, same as before the
-    // politicalParty.rules refactor.
+    // Party classifies by the shared exact-value rules: the bucket must match
+    // exactly the rows the canonical-party list filter selects. Display-'Other'
+    // rows (non-blank, unknown value) land in byte 0 alongside null/blank.
     const partyValues = [UNKNOWN, ...RULED_POLITICAL_PARTIES]
     const partyBytes = new Map(partyValues.map((value, i) => [value, i]))
     const party: DimPlane = {

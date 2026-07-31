@@ -63,12 +63,7 @@ export const PEOPLE_FILTER_VALUE_ENUMS = {
     'First Time',
     'Unknown',
   ] as const,
-  politicalParty: [
-    'Independent',
-    'Democratic',
-    'Republican',
-    'Unknown',
-  ] as const,
+  politicalParty: ['Independent', 'Democratic', 'Republican', 'Other'] as const,
   maritalStatus: [
     'Inferred Married',
     'Inferred Single',
