@@ -82,6 +82,19 @@ shared building blocks**, they do not reimplement validators/mappers/submit:
 If you change a validator or submit path, change it in the shared module — both chromes
 consume it, so a fork drifts silently.
 
+The standalone election-filing form (`election-filing/components/ElectionFiling.tsx`)
+is a **third** consumer of the candidate-profile blocks (ENG-10857): when
+`isCandidateProfileComplete(website)` is false it renders
+`CandidateProfileFields` inline above the registration form and persists the
+profile **before** calling `createAgentic` (which dispatches the compliance
+agent inline for already-Pro campaigns — submitting first would burn a
+`profile_incomplete` run). The hook's `handleSubmit` returns a boolean for
+this chaining; gp-api independently gates dispatch on the same publishability
+bar (see `packages/gp-api/src/campaigns/tcrCompliance/CLAUDE.md`). The
+Pro-only dashboard entry into that form is `TextingSetupBanner`
+(`app/dashboard/components/campaignManager/`, ENG-10858), shown when no TCR
+record exists or the record is in `error`.
+
 ## Same endpoints as the agent (carried from Phase 1)
 
 The wizard's forms call the **same gp-api endpoints the `compliance_setup` agent uses

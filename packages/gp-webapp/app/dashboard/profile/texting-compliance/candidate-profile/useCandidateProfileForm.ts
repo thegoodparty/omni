@@ -30,7 +30,10 @@ export interface CandidateProfileForm {
   attemptedSubmit: boolean
   bioError: string | null
   prioritiesError: string | null
-  handleSubmit: () => Promise<void>
+  // Resolves true only when the profile validated and saved (after onSaved).
+  // Lets a composing surface (election-filing) chain its own submit behind a
+  // successful save without forking the form.
+  handleSubmit: () => Promise<boolean>
 }
 
 interface UseCandidateProfileFormArgs {
@@ -111,11 +114,11 @@ export const useCandidateProfileForm = ({
   const bioError = getBioError(bioPlainLength, bio)
   const prioritiesError = getPolicyPrioritiesError(issues)
 
-  const handleSubmit = async (): Promise<void> => {
-    if (submitting) return
+  const handleSubmit = async (): Promise<boolean> => {
+    if (submitting) return false
     if (bioError || prioritiesError) {
       setAttemptedSubmit(true)
-      return
+      return false
     }
     trackEvent(EVENTS.Profile.CandidateProfile.ClickSubmit)
     setSubmitting(true)
@@ -124,7 +127,7 @@ export const useCandidateProfileForm = ({
       trackEvent(EVENTS.Profile.CandidateProfile.SubmitError)
       errorSnackbar('Failed to save candidate profile. Please try again.')
       setSubmitting(false)
-      return
+      return false
     }
     trackEvent(EVENTS.Profile.CandidateProfile.SubmitSuccess)
     // Re-derive completeness on both surfaces: the standalone profile reads the
@@ -133,6 +136,7 @@ export const useCandidateProfileForm = ({
     // navigating so the consumer reads fresh data.
     await queryClient.invalidateQueries({ queryKey: USER_WEBSITE_QUERY_KEY })
     await onSaved()
+    return true
   }
 
   return {

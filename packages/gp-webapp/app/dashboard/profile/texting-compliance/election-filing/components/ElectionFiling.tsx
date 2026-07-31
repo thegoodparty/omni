@@ -3,19 +3,26 @@ import { ChevronLeft } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { FormDataProvider, FormDataState } from '@shared/hooks/useFormData'
 import { useUser } from '@shared/hooks/useUser'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { apiRoutes } from 'gpApi/routes'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { Website } from 'helpers/types'
 import { TCR_COMPLIANCE_QUERY_KEY } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import {
   submitTcrCompliance,
   toRegistrationFormData,
 } from 'app/dashboard/profile/texting-compliance/util/registrationFormData.util'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
-import { USER_WEBSITE_QUERY_KEY } from 'app/dashboard/website/util/website.util'
+import {
+  getUserWebsite,
+  USER_WEBSITE_QUERY_KEY,
+} from 'app/dashboard/website/util/website.util'
+import { isCandidateProfileComplete } from 'app/dashboard/profile/texting-compliance/candidate-profile/candidateProfile.utils'
+import { useCandidateProfileForm } from 'app/dashboard/profile/texting-compliance/candidate-profile/useCandidateProfileForm'
+import CandidateProfileFields from 'app/dashboard/profile/texting-compliance/candidate-profile/components/CandidateProfileFields'
 import TextingComplianceRegistrationForm, {
   validateRegistrationForm,
 } from 'app/dashboard/profile/texting-compliance/register/components/TextingComplianceRegistrationForm'
@@ -33,7 +40,27 @@ export default function ElectionFiling(): React.JSX.Element {
   const [loading, setLoading] = useState(false)
   const [hasSubmissionError, setHasSubmissionError] = useState(false)
 
-  const ready = !userLoading && Boolean(user) && Boolean(campaign)
+  const { data: website, isSuccess: websiteLoaded } = useQuery<Website | null>({
+    queryKey: USER_WEBSITE_QUERY_KEY,
+    queryFn: getUserWebsite,
+  })
+  // Captured once when the website query settles, not derived live: the
+  // profile save invalidates the website query, and a live derivation would
+  // unmount the half-submitted section mid-flight on the refetch. `null`
+  // means "not settled yet" and gates `ready` below.
+  const [needsProfile, setNeedsProfile] = useState<boolean | null>(null)
+  useEffect(() => {
+    if (needsProfile !== null || !websiteLoaded) return
+    setNeedsProfile(!isCandidateProfileComplete(website))
+  }, [needsProfile, websiteLoaded, website])
+
+  // onSaved is a no-op: the save is chained inside handleFormSubmit (via the
+  // boolean handleSubmit result), not followed by navigation like the other
+  // consumers.
+  const profileForm = useCandidateProfileForm({ onSaved: () => undefined })
+
+  const ready =
+    !userLoading && Boolean(user) && Boolean(campaign) && needsProfile !== null
 
   // Funnel "viewed" event for the agentic compliance flow (ENG-10294). Fire
   // only once the form is actually shown — the form is gated behind `ready`, so
@@ -51,6 +78,29 @@ export default function ElectionFiling(): React.JSX.Element {
     setLoading(true)
     setHasSubmissionError(false)
     try {
+      if (needsProfile) {
+        // Persist the profile before createAgentic: for already-Pro campaigns
+        // that call dispatches the compliance agent inline, and a run kicked
+        // off without a genuine bio/issues fails terminally
+        // (profile_incomplete). The hook surfaces its own errors (validation
+        // alert / snackbar) and resolves false, which blocks the filing
+        // submit.
+        const profileSaved = await profileForm.handleSubmit()
+        if (!profileSaved) {
+          if (profileForm.bioError || profileForm.prioritiesError) {
+            // The validation alert renders at the top of the profile section,
+            // likely above the fold when the user submits from the bottom of
+            // the registration form.
+            window.scrollTo({ top: 0, behavior: 'smooth' })
+          }
+          return
+        }
+        // The profile is persisted; hide the section so a retry after a
+        // filing-submit failure goes straight to the filing (the hook latches
+        // `submitting` after a successful save, so re-invoking it would
+        // early-return false and dead-end the retry).
+        setNeedsProfile(false)
+      }
       await submitTcrCompliance(
         apiRoutes.campaign.tcrCompliance.createAgentic,
         toRegistrationFormData(formData),
@@ -96,17 +146,32 @@ export default function ElectionFiling(): React.JSX.Element {
 
         <div className="mt-10">
           {ready ? (
-            <FormDataProvider
-              initialState={getInitialFormState(campaign)}
-              validator={validateAgenticForm}
-            >
-              <TextingComplianceRegistrationForm
-                onSubmit={handleFormSubmit}
-                loading={loading}
-                hasSubmissionError={hasSubmissionError}
-                requireWebsite={false}
-              />
-            </FormDataProvider>
+            <>
+              {needsProfile && (
+                <div className="mb-10">
+                  <h2 className="text-lg font-medium">
+                    Tell voters about yourself
+                  </h2>
+                  <p className="mt-1 mb-6 text-sm text-muted-foreground">
+                    We need your candidate profile to register your campaign for
+                    texting. Please be as descriptive as possible to ensure your
+                    registration is approved.
+                  </p>
+                  <CandidateProfileFields form={profileForm} />
+                </div>
+              )}
+              <FormDataProvider
+                initialState={getInitialFormState(campaign)}
+                validator={validateAgenticForm}
+              >
+                <TextingComplianceRegistrationForm
+                  onSubmit={handleFormSubmit}
+                  loading={loading}
+                  hasSubmissionError={hasSubmissionError}
+                  requireWebsite={false}
+                />
+              </FormDataProvider>
+            </>
           ) : (
             <div className="text-sm text-muted-foreground">Loading…</div>
           )}
