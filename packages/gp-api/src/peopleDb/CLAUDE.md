@@ -123,3 +123,13 @@ Keep new tests in this module to that pattern — don't reach for
 | `utils/buildAggregatesSql.util.ts`      | Aggregate/stats SQL builders                                          |
 | `utils/resolveDistrict.util.ts`         | District join/resolution helper                                       |
 | `util/hash.util.ts`                     | `personId` hash derivation (stable hash of `LALVOTERID`)              |
+
+## Benchmarks
+
+Query performance here is benchmarked by the in-process suite in
+`perf/people-db/` (latency matrix + concurrency load mode against a real
+people-db). If you add or change a query method on one of the services above,
+add or adjust a case so it stays covered: a new query type needs a branch in
+`perf/people-db/harness.ts`'s `invoke` and cases in `perf/people-db/cases.ts`;
+a new filter shape worth measuring is a `FilterVariant` in
+`perf/people-db/filterVariants.ts`. See `perf/people-db/CLAUDE.md`.
