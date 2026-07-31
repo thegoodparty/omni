@@ -54,6 +54,21 @@ exactly once. On send failure the rollback is **scoped to the exact claim timest
 a concurrent re-claimant's live claim isn't cleared, and `kickoffSentAt` returns to null
 so the stranded-kickoff sweep can retry.
 
+**Profile dispatch gate (ENG-10859).** Before the claim, the method checks
+`wouldBePublishableAfterFallbacks(content, user, campaign)`
+(`websites.service.ts`: apply `applyCompliancePublishFallbacks`, then
+`isGenericComplianceContent` on the result — so position-seeded issues count,
+but a missing/template bio never does). Not publishable → log info and return
+**without claiming**. `kickoffSentAt` staying null IS the deferral state (do
+NOT use status `error` — that means kickoff-rejected and triggers
+`createAgentic`'s delete-and-recreate retry): the record stays in the
+stranded-kickoff sweep's candidate set, and the sweep applies the same
+predicate per record, so the cycle after the candidate authors a genuine
+bio + policy issue (election-filing inline collection or campaign-story) it
+dispatches automatically. Wizard users always pass — their profile step
+precedes payment. Deferred records >24h old surface in the nightly report's
+"Dispatch deferred" nudge section.
+
 ## Kickoff handling (SQS consumer → agent dispatch)
 
 `handleAgenticKickoff(message)` runs in the queue consumer
@@ -78,7 +93,15 @@ order it:
    domain and publishes the site but can't *create* one or author missing copy.
    Legacy-Pro candidates skip the wizard's profile step, so guarantee a publishable site
    before dispatch.
-4. **Atomic dispatch claim** on `agenticRunId IS NULL` (+ TTL on
+4. **Profile re-check (defense behind the producer gate).** After the
+   fallbacks persist, re-reads the content and, if
+   `isGenericComplianceContent` still holds (the fallbacks never invent a
+   bio/issue), does **not** dispatch: rolls `kickoffSentAt` back to null —
+   scoped to the value read at handler start plus `agenticRunId IS NULL` so a
+   newer claim isn't cleared — and returns, putting the record back in the
+   deferral loop. Catches messages enqueued before the producer-side gate and
+   any path that skips it.
+5. **Atomic dispatch claim** on `agenticRunId IS NULL` (+ TTL on
    `agenticDispatchAttemptedAt`) → `experimentRunsService.dispatchRun({ type:
    'compliance_setup', ... })`. Stamps `agenticRunId` scoped to the claim timestamp.
 
@@ -95,7 +118,7 @@ kickoff path must not race it.
 
 | Sweep | What it heals |
 |-------|---------------|
-| `sweepStrandedAgenticKickoffs` | Records `submitted` + no Peerly identity + `kickoffSentAt` null past staleness — re-enqueues the kickoff. **Only sweeps `campaign.isPro` records** so the agent never runs before payment. |
+| `sweepStrandedAgenticKickoffs` | Records `submitted` + no Peerly identity + `kickoffSentAt` null past staleness — re-enqueues the kickoff. **Only sweeps `campaign.isPro` records** so the agent never runs before payment. Applies the profile dispatch gate per record (`wouldBePublishableAfterFallbacks`, website content fetched per candidate): profile-incomplete records are skipped every cycle at no cost — this is the deferral self-heal loop. |
 | `sweepUnsubmittedUsecases` | Records whose Peerly Campaign Verify is `VERIFIED` but whose POLITICAL usecase was never submitted (the in-app approve threw) — submits the usecase so the identity doesn't strand "loading". **Acts only on `VERIFIED`, never `APPROVED`** — `APPROVED` can precede the candidate's PIN entry, so advancing it would skip them past the PIN screen. |
 | `sweepPinDeliveryDetection` (ENG-10658) | Records `submitted`/`pending`/`approved` + Peerly identity + no `pinDeliveryMethod` yet — reads the enriched `retrieve_cv` and, **only when the live CV status is `APPROVED` or `VERIFIED`** (Peerly echoes back the `verification_method`/`filing_email` we submit from day one, so method presence alone is not proof a PIN went out — ENG-10785 false-nudge bug), records the channel + destination Peerly sent the PIN to on the record, fires the `CompliancePinSent` Segment event **once** (carrying `pin_delivery_method`, `pin_delivery_destination`, and `pin_sent_at` — the destination was originally withheld as PII but is synced since PR #777 so the nudge can name the exact inbox, e.g. a treasurer's contact from the state filing), then runs the CRM company sync so the `n10_dlc_pin_*` company properties are stamped directly by gp-api — the Segment→HubSpot event-property path silently drops properties missing from the destination's mapping, so the company sync is the guaranteed carrier and the event is only the workflow trigger. Candidate-facing reads still mask the destination. The same `retrieve_cv` read also detects a CV that flipped to `REJECTED` — or `WITHDRAWN`, which maps to the same terminal `rejected` status since `TcrComplianceStatus` has no withdrawn value — after submission: the sweep persists `status = rejected` via an atomic transition claim (removing the record from the sweep set, which would otherwise poll it forever) and fires the `ComplianceRejected` Segment event once (`rejection_source: cv_status_check`); the synchronous twin fires from `submitToPeerlyForAgent` when CV rejects at submit (`cv_submit`, via `PeerlyCvRejectionException`, which also stamps `status = rejected` in the rollback transaction). The `pinDeliveryMethod IS NULL` filter shrinks the set as PINs are detected (not a growing bulk loop). Once-only via an atomic `pinSentDetectedAt IS NULL` claim; if the event fire fails the claim is rolled back (scoped to its timestamp, and the rollback is itself try/caught so its failure can't mask the original error) so the next sweep retries. **Includes `pending` + `approved`** (not just `submitted`) because the in-app PIN entry / VERIFIED usecase sweep advance a record to `pending` then `approved` the moment the candidate acts — which can beat the hourly sweep — and pre-existing records were already `pending`/`approved` when this shipped; all three states imply the PIN went out, so this never fires for a never-sent record (`rejected`/`error` are failure states, excluded). |
 | `bootstrapTcrComplianceCheck` | Re-queues `pending` records for status checking. |
@@ -136,7 +159,15 @@ single-class `sweepStuckPeerlySubmissions` hourly digest (and its
     a thrown Peerly error logs + skips that record (keeping its stored
     values) without stopping the rest of the poll or the report post. A
     genuine null return (no CV request exists) *is* persisted.
-- **Ten sections**, all scoped to `campaign.isPro` (pre-payment records
+- **A "Dispatch deferred" nudge section (ENG-10859):** `submitted` + no
+  identity + `kickoffSentAt` null + >24h old + profile-incomplete (the
+  publishability filter runs in code — content lives on the website
+  relation). These are the dispatch gate's deferrals; without this section
+  they'd match nothing (the stuck-submission filter's `kickoffSentAt: { lt }`
+  never matches null). Nudge-style like awaiting-PIN, not counted as stuck —
+  the fix is candidate action, and the sweep dispatches automatically once
+  the profile is completed.
+- **Ten failure sections**, all scoped to `campaign.isPro` (pre-payment records
   intentionally sit idle) and excluding internal accounts (user email
   ending `@goodparty.org` / `@test.goodparty.org` — staff walk this flow
   in prod and their stuck records are noise): submission never completed (>24h after kickoff,
