@@ -21,6 +21,9 @@ export type BenchCase = {
 export const DEFAULT_ITERATIONS = 5
 
 const NONE = FILTER_VARIANTS.find((v) => v.name === 'none') as FilterVariant
+const NARROW_HIGHSELECTIVITY = FILTER_VARIANTS.find(
+  (v) => v.name === 'narrow-highselectivity',
+) as FilterVariant
 
 // Heavy statewide cells hold a connection for seconds; run them fewer times so
 // a full latency pass stays bounded.
@@ -59,7 +62,12 @@ export const buildLatencyCases = (
     push('search', cohort, NONE)
     push('sample', cohort, NONE)
     push('overlap', cohort, NONE)
-    push('csv', cohort, NONE)
+    // Statewide csv with no filter would stream ~23M rows; narrow it down.
+    push(
+      'csv',
+      cohort,
+      cohort.band === 'statewide' ? NARROW_HIGHSELECTIVITY : NONE,
+    )
     push('stats', cohort, NONE)
   }
   return cases
