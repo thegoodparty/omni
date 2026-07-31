@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { ReactNode } from 'react'
 import { screen, fireEvent, waitFor } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
@@ -41,20 +40,26 @@ vi.mock('helpers/useSnackbar', () => ({
 }))
 
 // AddressAutocomplete pulls in the Google Places widget; stub it with an input
-// that fires onChange (typed text, e.g. a PO Box attempt), a button that fires
-// onSelect so a test can supply a valid filing address, and the helperText so
-// hint copy can be asserted.
+// that fires onChange (typed text, e.g. a PO Box) and a button that fires
+// onSelect with address_components so a test can exercise the suggestion
+// autofill.
 vi.mock('@shared/AddressAutocomplete', () => ({
   default: ({
     value,
     onChange,
     onSelect,
-    helperText,
   }: {
     value?: string
     onChange?: (value: string) => void
-    onSelect: (place: { formatted_address: string; place_id: string }) => void
-    helperText?: ReactNode
+    onSelect: (place: {
+      formatted_address: string
+      place_id: string
+      address_components: {
+        types: string[]
+        long_name: string
+        short_name: string
+      }[]
+    }) => void
   }) => (
     <div>
       <input
@@ -66,12 +71,37 @@ vi.mock('@shared/AddressAutocomplete', () => ({
         type="button"
         data-testid="select-address"
         onClick={() =>
-          onSelect({ formatted_address: '123 Main St', place_id: 'place-123' })
+          onSelect({
+            formatted_address: '123 Main St',
+            place_id: 'place-123',
+            address_components: [
+              { types: ['street_number'], long_name: '123', short_name: '123' },
+              {
+                types: ['route'],
+                long_name: 'Main St',
+                short_name: 'Main St',
+              },
+              {
+                types: ['locality'],
+                long_name: 'Springfield',
+                short_name: 'Springfield',
+              },
+              {
+                types: ['administrative_area_level_1'],
+                long_name: 'Illinois',
+                short_name: 'IL',
+              },
+              {
+                types: ['postal_code'],
+                long_name: '62704',
+                short_name: '62704',
+              },
+            ],
+          })
         }
       >
         select address
       </button>
-      {helperText ? <div>{helperText}</div> : null}
     </div>
   ),
 }))
@@ -357,63 +387,16 @@ describe('FilingDetailsStep', () => {
     expect(screen.getByText('Filing Address')).toBeInTheDocument()
   })
 
-  it('steers a PO Box filer to a street address while they type', () => {
-    // Google Places never suggests PO Boxes, so without this hint a PO Box
-    // filer sees an empty dropdown and a field that can never validate — the
-    // exact dead-end that blocked real Pro upgrades from the sales channel.
+  it('autofills city, state, and ZIP when a suggestion is picked', () => {
     render(<FilingDetailsStep />)
 
-    fireEvent.change(screen.getByTestId('address-input'), {
-      target: { value: 'PO Box 621' },
-    })
-    expect(
-      screen.getByText(/Address search can't find PO Boxes/i),
-    ).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('select-address'))
 
-    // A street address clears the hint.
-    fireEvent.change(screen.getByTestId('address-input'), {
-      target: { value: '123 Main St' },
-    })
-    expect(
-      screen.queryByText(/Address search can't find PO Boxes/i),
-    ).not.toBeInTheDocument()
-  })
-
-  it('clears a previously selected address when a PO Box is typed over it', () => {
-    // Typing never fires onSelect, so without the clear the stale valid
-    // address would submit silently while the field shows the PO Box hint.
-    render(<FilingDetailsStep />)
-    fillValidNonFederalForm()
-
-    fireEvent.change(screen.getByTestId('address-input'), {
-      target: { value: 'PO Box 621' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-
-    expect(mockSubmit).not.toHaveBeenCalled()
-    expect(goToNextStep).not.toHaveBeenCalled()
-    expect(screen.getByText('Filing Address')).toBeInTheDocument()
-  })
-
-  it('switches to manual entry with the typed input prefilled as line 1', () => {
-    render(<FilingDetailsStep />)
-
-    fireEvent.change(screen.getByTestId('address-input'), {
-      target: { value: 'PO Box 621' },
-    })
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Enter address manually' }),
-    )
-
-    expect(screen.getByLabelText('Street address or PO Box')).toHaveValue(
-      'PO Box 621',
-    )
-    // The autocomplete is replaced by the manual fields until switched back.
-    expect(screen.queryByTestId('address-input')).not.toBeInTheDocument()
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Search for your address instead' }),
-    )
-    expect(screen.getByTestId('address-input')).toBeInTheDocument()
+    expect(screen.getByTestId('address-input')).toHaveValue('123 Main St')
+    expect(screen.getByLabelText('City')).toHaveValue('Springfield')
+    expect(screen.getByLabelText('ZIP')).toHaveValue('62704')
+    // The state Select is the only combobox on a non-federal form.
+    expect(screen.getByRole('combobox')).toHaveTextContent('IL')
   })
 
   it('submits a manually entered address (PO Box) as structured components', async () => {
@@ -431,10 +414,9 @@ describe('FilingDetailsStep', () => {
       target: { value: '4155551234' },
     })
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Enter address manually' }),
-    )
-    fireEvent.change(screen.getByLabelText('Street address or PO Box'), {
+    // No suggestion ever fires for a PO Box — the same fields just get
+    // filled in by hand.
+    fireEvent.change(screen.getByTestId('address-input'), {
       target: { value: 'PO Box 621' },
     })
     fireEvent.change(screen.getByLabelText('City'), {
@@ -465,6 +447,36 @@ describe('FilingDetailsStep', () => {
     await waitFor(() => expect(goToNextStep).toHaveBeenCalledTimes(1))
   })
 
+  it('drops the selected place and submits components when a field is edited after selection', async () => {
+    // A placeId submission is resolved from Google server-side, so an edit
+    // to any field (here: the street) must switch the submission to the
+    // structured components — otherwise the edit would be silently ignored.
+    render(<FilingDetailsStep />)
+    fillValidNonFederalForm()
+
+    fireEvent.change(screen.getByTestId('address-input'), {
+      target: { value: '125 Main St' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalledTimes(1))
+    const [, payload] = mockSubmit.mock.calls[0]!
+    expect(payload).toEqual(
+      expect.objectContaining({
+        // The place selection is cleared...
+        address: { formatted_address: '', place_id: '' },
+        // ...and the autofilled + edited components carry the submission.
+        manualAddress: expect.objectContaining({
+          addressLine1: '125 Main St',
+          city: 'Springfield',
+          state: 'IL',
+          zip: '62704',
+        }),
+      }),
+    )
+  })
+
   it('blocks submit when the manual address is incomplete', () => {
     render(<FilingDetailsStep />)
     fireEvent.change(screen.getByLabelText('Campaign committee name'), {
@@ -480,11 +492,8 @@ describe('FilingDetailsStep', () => {
       target: { value: '4155551234' },
     })
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Enter address manually' }),
-    )
     // Street only — city/state/zip missing, so the address must stay invalid.
-    fireEvent.change(screen.getByLabelText('Street address or PO Box'), {
+    fireEvent.change(screen.getByTestId('address-input'), {
       target: { value: 'PO Box 621' },
     })
 
@@ -586,8 +595,12 @@ describe('FilingDetailsStep', () => {
     })
     // The filing address is required regardless of office level.
     fireEvent.click(screen.getByTestId('select-address'))
-    // Committee type is the only Radix Select rendered (office level is hidden).
-    fireEvent.click(screen.getByRole('combobox'))
+    // Two Radix Selects render here (state + committee type); target the
+    // committee-type trigger by its placeholder text.
+    const committeeTypeTrigger = screen
+      .getAllByRole('combobox')
+      .find((el) => el.textContent?.includes('Select committee type'))
+    fireEvent.click(committeeTypeTrigger!)
     fireEvent.click(screen.getByRole('option', { name: 'House' }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))

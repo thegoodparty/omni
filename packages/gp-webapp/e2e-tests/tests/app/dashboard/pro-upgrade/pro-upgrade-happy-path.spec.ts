@@ -111,7 +111,9 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   // Places suggestion is selected. Type a known address, wait for Google's
   // `.pac-item` dropdown (appended to <body>), and pick the first suggestion —
   // ArrowDown+Enter so react-google-autocomplete fires onPlaceSelected.
-  const addressInput = page.getByPlaceholder('Address')
+  const addressInput = page.getByPlaceholder(
+    'Start typing to search, or enter it yourself',
+  )
   await addressInput.click()
   await addressInput.pressSequentially('1700 Pennsylvania Ave NW, Washington', {
     delay: 80,

@@ -145,15 +145,17 @@ rerouting** are in `app/dashboard/components/campaignManager/` and the shared
   (`types: ['address']`) doesn't index PO Boxes — which election filings
   commonly use — and misses some rural addresses, so a Google match cannot be
   required (that dead-end blocked real Pro upgrades). Both filing-address
-  inputs (this wizard and the standalone register form) offer an "Enter
-  address manually" fallback: the shared module's `ManualFilingAddressFields`
-  collects structured components (`ManualAddressValue`), validated by
-  `validateManualAddress`, submitted as `manualAddress` in place of
-  `placeId`/`formattedAddress` (the API requires exactly one source; see
-  `packages/gp-api/src/campaigns/tcrCompliance/CLAUDE.md`). A typed PO Box in
-  the autocomplete shows `PO_BOX_ADDRESS_HINT` pointing at manual entry, and
-  clears any previously selected place so a stale address can't submit
-  silently.
+  surfaces (this wizard and the standalone register form) render the shared
+  `FilingAddressFields`: always-visible structured fields (street/PO Box,
+  unit, city, state, ZIP) with autocomplete attached to the street input.
+  Picking a suggestion auto-fills the components (via `extractPostalAddress`)
+  and keeps the resolved place authoritative — submission rides the
+  `placeId`/`formattedAddress` pair. Any hand edit to any field drops the
+  place (a placeId submission is resolved from Google server-side, so the
+  edit would otherwise be silently ignored) and the submission switches to
+  `manualAddress` structured components, validated by `validateManualAddress`
+  (the API requires exactly one source; see
+  `packages/gp-api/src/campaigns/tcrCompliance/CLAUDE.md`).
 
 ## Debugging the flow
 

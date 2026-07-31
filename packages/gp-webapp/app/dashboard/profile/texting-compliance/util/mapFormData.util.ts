@@ -57,7 +57,9 @@ interface MappedFormData {
 // TODO: refactor the API to accept the entire Google Places address object so
 //  that we don't have to extract the postal address here, we can just pass it
 //  along
-export const extractPostalAddress = (address: Address): PostalAddress => {
+export const extractPostalAddress = (address: {
+  address_components?: AddressComponent[]
+}): PostalAddress => {
   if (!address || !address.address_components) {
     return {
       postalCode: '',
@@ -106,12 +108,15 @@ export const mapFormData = ({
   committeeType,
 }: FormData): MappedFormData => ({
   ein,
-  // The API requires exactly one address source: a manually entered address
-  // omits placeId/formattedAddress (empty strings fail its trim().min(1)
-  // validators) and rides in structured components instead.
-  ...(manualAddress
-    ? { manualAddress }
-    : { placeId: place_id, formattedAddress: formatted_address }),
+  // The API requires exactly one address source. An intact autocomplete
+  // selection (place_id present) wins — the form clears it the moment any
+  // address field is hand-edited, so its presence means the selection is
+  // authoritative. Otherwise the structured fields ride as manualAddress
+  // (placeId/formattedAddress omitted: empty strings fail the API's
+  // trim().min(1) validators).
+  ...(place_id
+    ? { placeId: place_id, formattedAddress: formatted_address }
+    : { manualAddress }),
   committeeName: campaignCommitteeName,
   websiteDomain: website || undefined,
   filingUrl: electionFilingLink,
