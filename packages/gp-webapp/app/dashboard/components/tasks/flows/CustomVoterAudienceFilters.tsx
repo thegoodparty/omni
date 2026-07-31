@@ -228,6 +228,7 @@ const CustomVoterAudienceFilters = ({
     party_independent: false,
     party_democrat: false,
     party_republican: false,
+    party_other: false,
     age_18_25: false,
     age_25_35: false,
     age_35_50: false,
