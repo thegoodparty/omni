@@ -529,6 +529,21 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
     expect(mockQueue.sendMessage).not.toHaveBeenCalled()
   })
 
+  it('leaves the record submitted and unclaimed when the gate fetch fails', async () => {
+    // A transient DB failure while evaluating the gate must defer (sweep
+    // retries next cycle), not propagate — createAgentic's catch would mark
+    // the record `error`, removing it from the sweep's `submitted` set with
+    // kickoffSentAt still null.
+    mockWebsites.getContentForCampaign.mockRejectedValue(new Error('db down'))
+
+    const result = await service.createAgentic(user, campaign, basePayload)
+
+    expect(result.created).toBe(true)
+    expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    expect(mockModel.updateMany).not.toHaveBeenCalled()
+    expect(mockModel.update).not.toHaveBeenCalled()
+  })
+
   it('does not defer a profile publishable only via position-seeded issues', async () => {
     // Genuine bio but no website issues; the campaign has real positions the
     // kickoff's fallbacks will seed — the gate must honor that seeding.

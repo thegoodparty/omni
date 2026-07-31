@@ -1480,25 +1480,45 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // kickoffSentAt null — the deferral mechanism: the record stays in the
     // stranded-kickoff sweep's candidate set and dispatches automatically
     // once the candidate authors a genuine bio + policy issue.
-    const campaign = await this.campaignsService.findUnique({
-      where: { id: record.campaignId },
-      include: {
-        user: true,
-        campaignPositions: { include: { topIssue: true } },
-      },
-    })
-    if (!campaign?.user) {
+    let publishable: boolean
+    try {
+      const campaign = await this.campaignsService.findUnique({
+        where: { id: record.campaignId },
+        include: {
+          user: true,
+          campaignPositions: { include: { topIssue: true } },
+        },
+      })
+      if (!campaign?.user) {
+        this.logger.error(
+          { campaignId: record.campaignId, tcrComplianceId: record.id },
+          '[TCR Compliance] Cannot enqueue agentic kickoff: campaign or ' +
+            'its user is missing',
+        )
+        return
+      }
+      const content = await this.websitesService.getContentForCampaign(
+        record.campaignId,
+      )
+      publishable = wouldBePublishableAfterFallbacks(
+        content,
+        campaign.user,
+        campaign,
+      )
+    } catch (err) {
+      // A transient fetch failure must not propagate: createAgentic's catch
+      // would mark the record `error`, which removes it from the sweep's
+      // `submitted` candidate set — stranding it with kickoffSentAt null.
+      // Returning without claiming leaves it deferred; the sweep re-evaluates
+      // the gate next cycle.
       this.logger.error(
-        { campaignId: record.campaignId, tcrComplianceId: record.id },
-        '[TCR Compliance] Cannot enqueue agentic kickoff: campaign or its ' +
-          'user is missing',
+        { err, campaignId: record.campaignId, tcrComplianceId: record.id },
+        '[TCR Compliance] Failed to evaluate the kickoff dispatch gate; ' +
+          'leaving kickoffSentAt null so the stranded-kickoff sweep retries',
       )
       return
     }
-    const content = await this.websitesService.getContentForCampaign(
-      record.campaignId,
-    )
-    if (!wouldBePublishableAfterFallbacks(content, campaign.user, campaign)) {
+    if (!publishable) {
       this.logger.info(
         { campaignId: record.campaignId, tcrComplianceId: record.id },
         '[TCR Compliance] Deferring agentic kickoff: candidate profile ' +
