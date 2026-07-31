@@ -28,10 +28,10 @@ type TableRow = Outreach & {
 }
 
 // Rows carry a filter + date so the Date/Audience cells render real values.
-// The Voters column always renders "n/a" now (the stored filter voterCount
-// was retired and no per-outreach send count is carried on the row), so each
-// row contributes exactly one Voters-column "n/a" on top of whatever the
-// Status cell shows.
+// The Voters column shows the outreach's own send count (billableTextCount ??
+// textCount) when set, else "n/a". These fixtures set neither, so each row
+// contributes exactly one Voters-column "n/a" on top of whatever the Status
+// cell shows. (The stored filter voterCount was retired.)
 const linkedFilter = { age50Plus: true, voterCount: 1668 }
 
 const robocallRow: TableRow = {
@@ -97,7 +97,7 @@ describe('OutreachTable — status column (ENG-10769)', () => {
     renderTable([robocallRow])
 
     expect(screen.getByText('In review')).toBeInTheDocument()
-    // The only n/a is the always-n/a Voters column, never the Status cell.
+    // The only n/a is the send-count-less Voters column, never the Status cell.
     expect(screen.getAllByText('n/a')).toHaveLength(1)
   })
 
@@ -108,10 +108,28 @@ describe('OutreachTable — status column (ENG-10769)', () => {
     expect(screen.getByText('Sent')).toBeInTheDocument()
   })
 
+  it('renders the send count in the Voters column when the outreach carries one', () => {
+    renderTable([{ ...p2pRow, billableTextCount: 4380 }])
+
+    expect(screen.getByText('4,380')).toBeInTheDocument()
+    // active p2p job → "Sent", and the Voters column shows the count, so this
+    // row renders no n/a anywhere.
+    expect(screen.queryByText('n/a')).not.toBeInTheDocument()
+  })
+
+  it('shows total reach (textCount), not the discounted billable count, in Voters', () => {
+    // Free-texts offer: billableTextCount is 0 after the discount, but the
+    // campaign still reached textCount voters — the column must show reach.
+    renderTable([{ ...p2pRow, textCount: 3000, billableTextCount: 0 }])
+
+    expect(screen.getByText('3,000')).toBeInTheDocument()
+    expect(screen.queryByText('0')).not.toBeInTheDocument()
+  })
+
   it('still renders n/a when the outreach has no status at all', () => {
     renderTable([statuslessRow])
 
-    // Status cell n/a + the always-n/a Voters column.
+    // Status cell n/a + the send-count-less Voters column.
     expect(screen.getAllByText('n/a')).toHaveLength(2)
     STATUS_LABELS.forEach((label) => {
       expect(screen.queryByText(label)).not.toBeInTheDocument()
@@ -123,14 +141,14 @@ describe('OutreachTable — status column (ENG-10769)', () => {
 
     expect(screen.getByText('Denied')).toBeInTheDocument()
     expect(screen.queryByText('In review')).not.toBeInTheDocument()
-    // The only n/a is the always-n/a Voters column, never the Status cell.
+    // The only n/a is the send-count-less Voters column, never the Status cell.
     expect(screen.getAllByText('n/a')).toHaveLength(1)
   })
 
   it('renders n/a for a phone-list row whose p2p job is missing', () => {
     renderTable([{ ...p2pRow, p2pJob: undefined }])
 
-    // Status cell n/a + the always-n/a Voters column.
+    // Status cell n/a + the send-count-less Voters column.
     expect(screen.getAllByText('n/a')).toHaveLength(2)
     STATUS_LABELS.forEach((label) => {
       expect(screen.queryByText(label)).not.toBeInTheDocument()

@@ -228,10 +228,18 @@ export const OutreachTable = ({
       },
       {
         header: 'Voters',
-        // The per-outreach send count is not carried on the outreach row (the
-        // stored voterFileFilter.voterCount is going away), so there's no
-        // trustworthy value to show here yet.
-        cell: () => <NotApplicableLabel />,
+        // Voters reached = total texts sent (textCount). billableTextCount is
+        // the billing unit after the free-texts discount — it can be 0 while
+        // the real reach is thousands — so it's only a fallback. Robocall and
+        // other channels carry no send count, so they render n/a.
+        cell: ({ row }: { row: OutreachRow }) => {
+          const sent = row.textCount ?? row.billableTextCount
+          return typeof sent === 'number' ? (
+            sent.toLocaleString()
+          ) : (
+            <NotApplicableLabel />
+          )
+        },
       },
       ...(p2pUxEnabled ? [STATUS_COLUMN] : []),
     ],
