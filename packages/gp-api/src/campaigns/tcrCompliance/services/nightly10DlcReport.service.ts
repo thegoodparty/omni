@@ -619,8 +619,13 @@ export class Nightly10DlcReportService extends createPrismaBase(
       lines: deferredDispatch.map(
         (record) =>
           `${campaignRef(record)} — submitted ` +
-          `${differenceInCalendarDays(now, record.createdAt)}d ago, waiting ` +
-          'on a genuine bio/policy issue',
+          `${differenceInCalendarDays(now, record.createdAt)}d ago, ` +
+          // A missing user is a data-integrity problem, not a candidate
+          // action item — label it so staff repair the record instead of
+          // chasing the candidate for content.
+          (record.campaign.user
+            ? 'waiting on a genuine bio/policy issue'
+            : 'missing user association (data repair needed)'),
       ),
     }
 
