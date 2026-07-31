@@ -46,6 +46,15 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain('Jordan Lee')
   })
 
+  it('always includes the professional advice disclaimer rules', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [],
+    })
+    expect(prompt).toContain('PROFESSIONAL ADVICE')
+    expect(prompt).toContain('a substitute for professional counsel')
+  })
+
   it('treats tool/context data as data, not instructions', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
