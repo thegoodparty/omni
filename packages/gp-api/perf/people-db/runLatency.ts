@@ -31,7 +31,7 @@ export const runLatency = async (
 
   for (const c of cases) {
     const durations: number[] = []
-    let failures = 0
+    const errors: string[] = []
     let cold = 0
     for (let i = 0; i < c.iterations; i += 1) {
       const t = performance.now()
@@ -40,8 +40,8 @@ export const runLatency = async (
         const elapsed = performance.now() - t
         if (i === 0) cold = elapsed
         else durations.push(elapsed)
-      } catch {
-        failures += 1
+      } catch (err) {
+        errors.push(err instanceof Error ? err.message : String(err))
       }
     }
     // When iterations === 1 there is no warm sample; fall back to the cold hit.
@@ -54,7 +54,8 @@ export const runLatency = async (
       band: c.cohort.band,
       variant: c.variant.name,
       iterations: c.iterations,
-      failures,
+      failures: errors.length,
+      errors,
       cold,
       warm,
     })
@@ -64,6 +65,16 @@ export const runLatency = async (
   }
 
   console.log('\n' + formatTable(results))
+
+  const failed = results.filter((r) => r.failures > 0)
+  if (failed.length > 0) {
+    console.log('\nfailures:')
+    for (const r of failed) {
+      for (const msg of [...new Set(r.errors)]) {
+        console.log(`  ${r.id}: ${msg}`)
+      }
+    }
+  }
 
   const path = artifactPath({
     env: opts.env,

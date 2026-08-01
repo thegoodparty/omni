@@ -13,6 +13,7 @@ type LevelResult = {
   max: number
   errorRate: number
   throughputPerSec: number
+  errors: string[]
 }
 
 type ScenarioResult = { id: string; levels: LevelResult[]; passed: boolean }
@@ -52,15 +53,19 @@ export const runLoad = async (
           const t = performance.now()
           try {
             await harness.invoke(bench)
-            return { ms: performance.now() - t, failed: false }
-          } catch {
-            return { ms: performance.now() - t, failed: true }
+            return { ms: performance.now() - t, failed: false, error: '' }
+          } catch (err) {
+            const error = err instanceof Error ? err.message : String(err)
+            return { ms: performance.now() - t, failed: true, error }
           }
         }),
       )
       const wallSec = (performance.now() - start) / 1000
       const durations = outcomes.filter((o) => !o.failed).map((o) => o.ms)
       const failures = outcomes.filter((o) => o.failed).length
+      const errors = [
+        ...new Set(outcomes.filter((o) => o.failed).map((o) => o.error)),
+      ]
       const summary = summarize(durations)
       const rate = errorRate(outcomes.length, failures)
       levels.push({
@@ -70,6 +75,7 @@ export const runLoad = async (
         max: summary.max,
         errorRate: rate,
         throughputPerSec: wallSec > 0 ? concurrency / wallSec : 0,
+        errors,
       })
       if (concurrency === s.targetConcurrency && rate > s.maxErrorRate) {
         passed = false
@@ -81,6 +87,7 @@ export const runLoad = async (
       console.log(
         `  c=${String(l.concurrency).padStart(3)}  p50=${Math.round(l.p50)}ms  p95=${Math.round(l.p95)}ms  err=${(l.errorRate * 100).toFixed(0)}%  tput=${l.throughputPerSec.toFixed(1)}/s`,
       )
+      for (const msg of l.errors) console.log(`       error: ${msg}`)
     }
     console.log(
       `  -> ${passed ? 'PASS' : 'FAIL'} at target concurrency ${s.targetConcurrency}`,

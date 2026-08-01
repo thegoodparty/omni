@@ -13,6 +13,7 @@ const result: CaseResult = {
   variant: 'none',
   iterations: 5,
   failures: 0,
+  errors: [],
   cold: 120,
   warm: { count: 4, min: 30, max: 45, mean: 38, p50: 38, p95: 45 },
 }

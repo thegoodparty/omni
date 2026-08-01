@@ -7,6 +7,7 @@ export type CaseResult = {
   variant: string
   iterations: number
   failures: number
+  errors: string[]
   cold: number
   warm: Summary
 }
