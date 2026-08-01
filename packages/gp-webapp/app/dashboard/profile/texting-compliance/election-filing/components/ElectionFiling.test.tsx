@@ -71,28 +71,52 @@ vi.mock(
   }),
 )
 
-// Stub the heavy registration form with just a submit trigger — these tests
-// verify ElectionFiling's orchestration (profile section gating + submit
-// sequencing), not the form's internals. Both the default export and the named
-// `validateRegistrationForm` (used at module load) must be provided or the
-// import of ElectionFiling throws.
+// Stub the heavy registration form — these tests verify ElectionFiling's
+// orchestration (profile section gating + submit sequencing), not the form's
+// internals. The stub mirrors the real form's composition contract: it
+// renders `topSection`, lists `extraErrors` (label and message in separate
+// nodes so tests can match the message text), and its submit trigger runs
+// `onValidateExtra` before `onSubmit`, exactly like the real submit handler.
+// Both the default export and the named `validateRegistrationForm` (used at
+// module load) must be provided or the import of ElectionFiling throws.
 vi.mock(
   'app/dashboard/profile/texting-compliance/register/components/TextingComplianceRegistrationForm',
   () => ({
     default: ({
       onSubmit,
       loading,
+      topSection,
+      onValidateExtra,
+      extraErrors = [],
     }: {
       onSubmit: (formData: Record<string, unknown>) => void
       loading: boolean
+      topSection?: React.ReactNode
+      onValidateExtra?: () => boolean
+      extraErrors?: { label: string; message: string }[]
     }) => (
-      <button
-        data-testid="filing-submit"
-        disabled={loading}
-        onClick={() => onSubmit({ email: 'filed@example.com' })}
-      >
-        Submit filing
-      </button>
+      <div>
+        <ul data-testid="extra-errors">
+          {extraErrors.map(({ label, message }) => (
+            <li key={label}>
+              <span>{label}</span>
+              <span>{message}</span>
+            </li>
+          ))}
+        </ul>
+        {topSection}
+        <button
+          data-testid="filing-submit"
+          disabled={loading}
+          onClick={() => {
+            const extraValid = onValidateExtra ? onValidateExtra() : true
+            if (!extraValid) return
+            onSubmit({ email: 'filed@example.com' })
+          }}
+        >
+          Submit filing
+        </button>
+      </div>
     ),
     validateRegistrationForm: () => ({}),
   }),

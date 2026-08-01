@@ -30,6 +30,10 @@ export interface CandidateProfileForm {
   attemptedSubmit: boolean
   bioError: string | null
   prioritiesError: string | null
+  // Flags the fields (attemptedSubmit) and reports validity without saving.
+  // Lets a composing surface (election-filing) surface profile errors on a
+  // submit attempt that other sections already block.
+  validate: () => boolean
   // Resolves true only when the profile validated and saved (after onSaved).
   // Lets a composing surface (election-filing) chain its own submit behind a
   // successful save without forking the form.
@@ -114,6 +118,11 @@ export const useCandidateProfileForm = ({
   const bioError = getBioError(bioPlainLength, bio)
   const prioritiesError = getPolicyPrioritiesError(issues)
 
+  const validate = (): boolean => {
+    setAttemptedSubmit(true)
+    return !bioError && !prioritiesError
+  }
+
   const handleSubmit = async (): Promise<boolean> => {
     if (submitting) return false
     if (bioError || prioritiesError) {
@@ -151,6 +160,7 @@ export const useCandidateProfileForm = ({
     attemptedSubmit,
     bioError,
     prioritiesError,
+    validate,
     handleSubmit,
   }
 }

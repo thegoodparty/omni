@@ -405,11 +405,31 @@ export const validateRegistrationForm = (
   }
 }
 
+// An extra error line for the validation alert, contributed by a composing
+// surface (election-filing's inline candidate profile). Rendered in the same
+// list as the form's own failing fields so every blocker appears in one
+// alert at the top of the page.
+export interface ExtraValidationError {
+  label: string
+  message: string
+}
+
 interface TextingComplianceRegistrationFormProps {
   onSubmit?: (formData: FormDataState) => void
   loading?: boolean
   hasSubmissionError?: boolean
   requireWebsite?: boolean
+  // Rendered between the validation alert and the form fields. Lets a
+  // composing surface (election-filing's candidate-profile section) sit
+  // above the filing fields while the alert stays at the very top of the
+  // page.
+  topSection?: React.ReactNode
+  // Called on every submit attempt, before the validity gate, so the
+  // composing surface can flag its own fields even when the filing fields
+  // are also invalid. Returning false blocks submission exactly like a
+  // failing filing field.
+  onValidateExtra?: () => boolean
+  extraErrors?: ExtraValidationError[]
 }
 
 const TextingComplianceRegistrationForm = ({
@@ -417,6 +437,9 @@ const TextingComplianceRegistrationForm = ({
   loading = false,
   hasSubmissionError = false,
   requireWebsite = true,
+  topSection,
+  onValidateExtra,
+  extraErrors = [],
 }: TextingComplianceRegistrationFormProps): React.JSX.Element => {
   const { formData, handleChange } = useFormData()
   const {
@@ -484,10 +507,15 @@ const TextingComplianceRegistrationForm = ({
   }
 
   const handleOnSubmit = () => {
+    // Validate the composed section on every attempt (not just when the
+    // filing fields pass) so its errors surface alongside the field errors —
+    // otherwise a user with an empty bio and an invalid filing field would
+    // never learn the bio is required until the filing fields were fixed.
+    const extraValid = onValidateExtra ? onValidateExtra() : true
     // Always-enabled button: block submission of an invalid form and reveal the
     // guiding errors instead. The footer is fixed at the bottom of a long form,
     // so scroll the error banner (rendered at the top) into view.
-    if (!isValid) {
+    if (!isValid || !extraValid) {
       setAttemptedSubmit(true)
       window.scrollTo({ top: 0, behavior: 'smooth' })
       return
@@ -518,13 +546,22 @@ const TextingComplianceRegistrationForm = ({
             </Body2>
           </StyledAlert>
         )}
-        {attemptedSubmit && !isValid && (
+        {attemptedSubmit && (!isValid || extraErrors.length > 0) && (
           <StyledAlert severity="error">
             <Body2 className="w-full min-w-0 break-words">
               <span className="font-medium">
                 Please fix the following fields:
               </span>
               <ul className="mt-1 list-disc pl-5">
+                {/* Extras first: the section they belong to renders above
+                    the filing fields, so the list reads top-to-bottom. */}
+                {extraErrors.map(({ label, message }) => (
+                  <li key={label} className="list-item">
+                    <span className="font-medium">{label}</span>
+                    {' — '}
+                    {message}
+                  </li>
+                ))}
                 {failingFields.map((field) => (
                   // `list-item` overrides the global `[data-slot] ul li` rule
                   // (globals.css) that forces `display: flex` for sidebar
@@ -543,6 +580,7 @@ const TextingComplianceRegistrationForm = ({
             </Body2>
           </StyledAlert>
         )}
+        {topSection}
         <div className="flex flex-col gap-1.5 w-full">
           <Label>Office Level *</Label>
           <Select
