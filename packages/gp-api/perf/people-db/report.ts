@@ -8,7 +8,7 @@ export type CaseResult = {
   iterations: number
   failures: number
   errors: string[]
-  cold: number
+  cold: number | null
   warm: Summary
 }
 
@@ -34,7 +34,7 @@ export const formatTable = (results: CaseResult[]): string => {
     [
       r.id.padEnd(34),
       String(r.iterations),
-      ms(r.cold),
+      r.cold !== null ? ms(r.cold) : 'ERR',
       ms(r.warm.p50),
       ms(r.warm.p95),
       r.failures > 0 ? `${r.failures}/${r.iterations}` : '0',

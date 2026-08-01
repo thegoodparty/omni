@@ -32,7 +32,9 @@ export const runLatency = async (
   for (const c of cases) {
     const durations: number[] = []
     const errors: string[] = []
-    let cold = 0
+    // null (not 0) is the unset sentinel: performance.now() deltas are always
+    // positive, so a failed cold iteration must not masquerade as a fast 0ms.
+    let cold: number | null = null
     for (let i = 0; i < c.iterations; i += 1) {
       const t = performance.now()
       try {
@@ -46,7 +48,7 @@ export const runLatency = async (
     }
     // When iterations === 1 there is no warm sample; fall back to the cold hit.
     const warm = summarize(
-      durations.length > 0 ? durations : cold ? [cold] : [],
+      durations.length > 0 ? durations : cold !== null ? [cold] : [],
     )
     results.push({
       id: c.id,
@@ -59,8 +61,9 @@ export const runLatency = async (
       cold,
       warm,
     })
+    const coldLabel = cold !== null ? `${Math.round(cold)}ms` : 'ERR'
     console.log(
-      `done ${c.id} (cold ${Math.round(cold)}ms, warm p95 ${Math.round(warm.p95)}ms)`,
+      `done ${c.id} (cold ${coldLabel}, warm p95 ${Math.round(warm.p95)}ms)`,
     )
   }
 
