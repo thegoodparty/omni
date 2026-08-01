@@ -7,7 +7,7 @@ Shipped as Phase 3 (+ Phase 4 banner) of the Pro Upgrade → 10DLC Compliance re
 
 ## Why this exists (the core behavioral change)
 
-Before this flow, a candidate **paid first** (`/dashboard/pro-sign-up/*`) and was *then*
+Before this flow, a candidate **paid first** (`/dashboard/pro-sign-up/*`) and was _then_
 asked to assemble their EIN, filing details, and candidate profile in a separate
 post-payment "Texting Compliance" card. Only ~0.86% of Pro candidates ever finished
 10DLC compliance. This wizard collapses both experiences into **one pre-payment flow:
@@ -38,30 +38,30 @@ wins; already-Pro short-circuits to the post-payment `SUCCESS` surface.
 
 ## Route tree & key files
 
-| File | Role |
-|------|------|
-| `page.tsx` → `components/ProUpgradeEntry.tsx` | Wizard **index**. Reads the canonical-state queries, calls `deriveProUpgradeStep`, `router.replace`s to the resume step. Shows a recoverable error (not a mis-route) if any query fails. |
+| File                                             | Role                                                                                                                                                                                               |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `page.tsx` → `components/ProUpgradeEntry.tsx`    | Wizard **index**. Reads the canonical-state queries, calls `deriveProUpgradeStep`, `router.replace`s to the resume step. Shows a recoverable error (not a mis-route) if any query fails.           |
 | `layout.tsx` → `components/ProUpgradeWizard.tsx` | Wizard **shell**. Renders the chrome (Exit link, desktop vertical `Stepper`, the 640px card), provides `useProUpgradeWizard()` (`currentStep` / `goToStep` / `goToNextStep` / `goToPreviousStep`). |
-| `proUpgradeStep.ts` | Pure step-derivation router + `PRO_UPGRADE_STEP`, `PRO_UPGRADE_STEP_ORDER`, `filingStatusFromDetails`. Single source for step identity and linear order. |
-| `<step>/page.tsx` | One route per step; each renders its component from `components/`. |
-| `components/*Step.tsx` | The screen for each step. |
+| `proUpgradeStep.ts`                              | Pure step-derivation router + `PRO_UPGRADE_STEP`, `PRO_UPGRADE_STEP_ORDER`, `filingStatusFromDetails`. Single source for step identity and linear order.                                           |
+| `<step>/page.tsx`                                | One route per step; each renders its component from `components/`.                                                                                                                                 |
+| `components/*Step.tsx`                           | The screen for each step.                                                                                                                                                                          |
 
 ### Steps, routes, and runtime order
 
 Linear order: **value-prop → status → (filing-instructions dead-end | guidance) → ein
 → filing-details → candidate-profile → payment → success**.
 
-| Step | Route | Component | Notes |
-|------|-------|-----------|-------|
-| Value prop / paywall | `value-prop` | `ValuePropStep` | "76% of candidates who use Pro win", Free-vs-Pro, "Get Pro". |
-| Filing status branch | `status` | `FilingStatusStep` | "Have you already filed?" Writes `campaign.details.hasFiledForRace` (tri-state). |
-| Filing instructions | `filing-instructions` | `FilingInstructionsStep` | **Dead-end** for not-yet-filed candidates (window/fee/requirements/office + "email this to me"). Only "Continue to dashboard". |
-| Guidance interstitial | `guidance` | `GuidanceStep` | "what we'll gather" list. Presentational. |
-| EIN | `ein` | `EinStep` | Front-end EIN collection + sanity check only (no IRS/backend verification — Peerly is the backstop). |
-| Filing details | `filing-details` | `FilingDetailsStep` | Committee name, filing link, PIN contact methods. **Submits to the agentic endpoint** (see below). |
-| Candidate profile | `candidate-profile` | `CandidateProfileStep` | Bio + policy priorities via `PUT /websites/mine`. |
-| Payment | `payment` | `PaymentStep` | Embedded Stripe Custom Checkout (`ui_mode: 'custom'`) + order summary. No redirect. |
-| Success | `success` | `SuccessStep` | Stripe `return_url` landing. Polls until `isPro` flips (see seam below). |
+| Step                  | Route                 | Component                | Notes                                                                                                                          |
+| --------------------- | --------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| Value prop / paywall  | `value-prop`          | `ValuePropStep`          | "76% of candidates who use Pro win", Free-vs-Pro, "Get Pro".                                                                   |
+| Filing status branch  | `status`              | `FilingStatusStep`       | "Have you already filed?" Writes `campaign.details.hasFiledForRace` (tri-state).                                               |
+| Filing instructions   | `filing-instructions` | `FilingInstructionsStep` | **Dead-end** for not-yet-filed candidates (window/fee/requirements/office + "email this to me"). Only "Continue to dashboard". |
+| Guidance interstitial | `guidance`            | `GuidanceStep`           | "what we'll gather" list. Presentational.                                                                                      |
+| EIN                   | `ein`                 | `EinStep`                | Front-end EIN collection + sanity check only (no IRS/backend verification — Peerly is the backstop).                           |
+| Filing details        | `filing-details`      | `FilingDetailsStep`      | Committee name, filing link, PIN contact methods. **Submits to the agentic endpoint** (see below).                             |
+| Candidate profile     | `candidate-profile`   | `CandidateProfileStep`   | Bio + policy priorities via `PUT /websites/mine`.                                                                              |
+| Payment               | `payment`             | `PaymentStep`            | Embedded Stripe Custom Checkout (`ui_mode: 'custom'`) + order summary. No redirect.                                            |
+| Success               | `success`             | `SuccessStep`            | Stripe `return_url` landing. Polls until `isPro` flips (see seam below).                                                       |
 
 **Two steps are intentionally NOT in `PRO_UPGRADE_STEP_ORDER`** (`filing-instructions`,
 `guidance`): they are off-order branches reached only by explicit nav from `status`,
@@ -81,6 +81,51 @@ shared building blocks**, they do not reimplement validators/mappers/submit:
 
 If you change a validator or submit path, change it in the shared module — both chromes
 consume it, so a fork drifts silently.
+
+## Existing-Pro users skip this wizard — the election-filing path (ENG-10856)
+
+Candidates who were already Pro before the wizard shipped never walk the
+pre-payment EIN/profile steps, so nothing has collected their bio or policy
+issues. Their 10DLC entry is the **standalone election-filing form**
+(`app/dashboard/profile/texting-compliance/election-filing/components/ElectionFiling.tsx`),
+where `createAgentic` dispatches the compliance agent **inline** (the
+campaign is already Pro). Before ENG-10856 that dispatch burned a
+`profile_incomplete` run whenever the profile was missing; the flow now
+closes that at three layers:
+
+- **Entry points.** `TextingSetupBanner`
+  (`app/dashboard/components/campaignManager/`, ENG-10858) prompts Pro
+  candidates with no TCR record (or a retryable `error` record) and links to
+  election-filing; post-start statuses keep their dedicated
+  `ProUpgrade3Compliance` surfaces. **`/dashboard` has TWO homes** —
+  `DashboardContent` branches on the campaign-story flag between the legacy
+  `CampaignManager` and `CampaignManagerHome` — and the banner (like any
+  dashboard-home widget) must render in **both**; it reads the
+  server-fetched `tcrCompliance` that `DashboardContent` passes down.
+  `ProUpgrade3Compliance`'s "Set up texting compliance" fallthrough card and
+  the outreach ComplianceModal also land on election-filing (the double
+  surface with the banner is a deliberate product decision).
+- **Inline profile collection (ENG-10857).** When
+  `isCandidateProfileComplete(website)` is false, `ElectionFiling` renders
+  the shared `CandidateProfileFields` **inside** the registration form via
+  its composition props: `topSection` (the section sits below the alert, so
+  the single combined alert stays at the very top of the page),
+  `extraErrors` (profile errors join the form's alert list; the section's
+  own alert is suppressed via `hideValidationAlert`), and `onValidateExtra`
+  (the hook's `validate()` runs on **every** submit attempt — the form only
+  calls `onSubmit` after its own fields pass, so hooking the submit handler
+  alone would leave the profile silently optional whenever a filing field is
+  also invalid). On a valid submit the profile PUT
+  (`useCandidateProfileForm.handleSubmit`, now `Promise<boolean>` for the
+  chaining) must resolve **before** `createAgentic`, or the inline dispatch
+  still burns the run. After a successful save the section flips off so a
+  retry after a filing failure goes straight to the filing (the hook latches
+  `submitting` post-save). Complete profiles see the form exactly as before.
+- **Server backstop (ENG-10859).** gp-api independently refuses to dispatch
+  for a profile that can't pass the publish gate and defers instead
+  (self-healing via the stranded-kickoff sweep) — see
+  `packages/gp-api/src/campaigns/tcrCompliance/CLAUDE.md`. The frontend
+  collection is the happy path; the gate is the invariant.
 
 ## Same endpoints as the agent (carried from Phase 1)
 
@@ -129,7 +174,7 @@ rerouting** are in `app/dashboard/components/campaignManager/` and the shared
 - **"Not filed" is a branch point, not progress** (ENG-10372/10355). A persisted
   `not-filed` answer must NOT count as progress and the router must NOT derive
   `filing-instructions` — otherwise a returning not-filed candidate is stranded on the
-  dead-end on every "Get Pro" click. `has-filed` *does* count as progress (resume at
+  dead-end on every "Get Pro" click. `has-filed` _does_ count as progress (resume at
   EIN). See the `hasProgress` logic in `deriveProUpgradeStep`.
 - **EIN presence is not enough.** Older surfaces persisted shape-valid placeholder EINs.
   `ProUpgradeEntry` derives `hasEin` via `checkEinSanity(...).valid`, not mere presence,
@@ -141,20 +186,26 @@ rerouting** are in `app/dashboard/components/campaignManager/` and the shared
   advance on success; a failed write shows an error snackbar and does NOT navigate, so
   there's never a stranded un-persisted answer.
 - **Scroll reset** on step change is handled by the shell (dashboard convention).
-- **PO Box filing addresses can never validate.** Google Places autocomplete
-  (`types: ['address']`) doesn't index PO Boxes and the backend requires a
-  `placeId`, so a candidate whose filing address is a PO Box gets an empty
-  dropdown and a stuck filing-details step (this blocked real Pro upgrades).
-  The shared form module exports `isPoBoxAddressInput` + `PO_BOX_ADDRESS_HINT`;
-  both filing-address inputs (this wizard and the standalone register form)
-  show the hint steering the candidate to a home/business street address — the
-  PIN is delivered via filing email/phone, so the address need not match the
-  filing. Don't remove the hint without solving PO Box resolution end-to-end.
+- **Address autocomplete is a helper, not a gate.** Google Places
+  (`types: ['address']`) doesn't index PO Boxes — which election filings
+  commonly use — and misses some rural addresses, so a Google match cannot be
+  required (that dead-end blocked real Pro upgrades). Both filing-address
+  surfaces (this wizard and the standalone register form) render the shared
+  `FilingAddressFields`: always-visible structured fields (street/PO Box,
+  unit, city, state, ZIP) with autocomplete attached to the street input.
+  Picking a suggestion auto-fills the components (via `extractPostalAddress`)
+  and keeps the resolved place authoritative — submission rides the
+  `placeId`/`formattedAddress` pair. Any hand edit to any field drops the
+  place (a placeId submission is resolved from Google server-side, so the
+  edit would otherwise be silently ignored) and the submission switches to
+  `manualAddress` structured components, validated by `validateManualAddress`
+  (the API requires exactly one source; see
+  `packages/gp-api/src/campaigns/tcrCompliance/CLAUDE.md`).
 
 ## Debugging the flow
 
 **"Purchase Error [POST] /payments/purchase/checkout-session: 400"** — the payment
-step surfaces a *generic* error for every non-2xx, so read the response body/logs
+step surfaces a _generic_ error for every non-2xx, so read the response body/logs
 before touching this dir. The common codes come from gp-api guards, not from wizard
 bugs:
 
@@ -170,7 +221,7 @@ bugs:
   Known deferred UX gap: the wizard shows the same generic error for all of these.
 
 **Manual test recipe (dev.goodparty.org)**: `/dashboard/pro-upgrade` → "Yes, I'm
-already filed" → EIN must look *real* (`12-3456789` is rejected as a placeholder;
+already filed" → EIN must look _real_ (`12-3456789` is rejected as a placeholder;
 `84-3917265` passes) → filing details → candidate profile (500-char bio + ≥1 policy
 priority) → Stripe test card `4242 4242 4242 4242`, any future expiry/CVC/ZIP —
 **uncheck "Save my information"** or the Link phone prompt blocks "Complete upgrade".

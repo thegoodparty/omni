@@ -102,11 +102,9 @@ const mapVeteranStatus = (
   return null
 }
 
-// Case-insensitive substring classification with fixed precedence. The rules
-// live in ./politicalParty.rules so the SQL filter (filters.sql.utils.ts) can
-// select exactly the rows that classify here — see that file for the
-// reconciled filter. Behavior is byte-for-byte identical to the previous
-// inline if-chain.
+// Exact-value classification. The value sets live in ./politicalParty.rules so
+// the SQL filter (filters.sql.util.ts) selects exactly the rows that classify
+// here — see that file for the reconciled filter.
 export const mapPoliticalParty = (
   value: string | null | undefined,
 ): PersonOutputFormat['politicalParty'] => classifyPoliticalParty(value)

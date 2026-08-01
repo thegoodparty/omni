@@ -136,7 +136,6 @@ export const convertVoterFileFilterToFilters = (
     'updatedAt',
     'name',
     'search',
-    'voterCount',
     'campaignId',
     'campaign',
     'outreaches',
@@ -164,7 +163,7 @@ export const convertVoterFileFilterToFilters = (
     'partyIndependent',
     'partyDemocrat',
     'partyRepublican',
-    'partyUnknown',
+    'partyOther',
     'genderMale',
     'genderFemale',
     'genderUnknown',
@@ -266,7 +265,7 @@ export const convertVoterFileFilterToFilters = (
   if (segment.partyIndependent) politicalPartyValues.push('Independent')
   if (segment.partyDemocrat) politicalPartyValues.push('Democratic')
   if (segment.partyRepublican) politicalPartyValues.push('Republican')
-  if (segment.partyUnknown) politicalPartyValues.push('Unknown')
+  if (segment.partyOther) politicalPartyValues.push('Other')
   if (politicalPartyValues.length > 0) {
     filters['politicalParty'] =
       politicalPartyValues.length === 1

@@ -94,20 +94,6 @@ describe('buildOverlapCountSql', () => {
     expect(sqlTextOf(sql)).not.toContain('DistrictVoter')
   })
 
-  it('wraps the fenced shape in an unordered, LIMIT-capped subquery evaluated before the count', () => {
-    const sql = buildOverlapCountSql({
-      state: 'CA',
-      filters: EMPTY_FILTERS,
-      savedFilterSets: [hasCellPhoneFilter()],
-      fenceLimit: 10000,
-    })
-    const text = sqlTextOf(sql)
-
-    expect(text).toContain('FROM (SELECT v.* FROM')
-    expect(text).toContain('LIMIT')
-    expect(sql.values.flat(Infinity)).toContain(10000)
-  })
-
   it('applies a free-text search on the current selection only', () => {
     const sql = buildOverlapCountSql({
       state: 'CA',

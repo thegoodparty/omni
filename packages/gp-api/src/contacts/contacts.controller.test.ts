@@ -136,7 +136,7 @@ describe('GET /v1/contacts authz', () => {
     })
     const countContacts = vi
       .spyOn(service.app.get(ContactsService), 'countContacts')
-      .mockResolvedValue({ count: 742, fenced: false })
+      .mockResolvedValue({ count: 742 })
 
     const result = await service.client.post(
       '/v1/contacts/count',
@@ -145,7 +145,7 @@ describe('GET /v1/contacts authz', () => {
     )
 
     expect(result.status).toBe(201)
-    expect(result.data).toEqual({ count: 742, fenced: false })
+    expect(result.data).toEqual({ count: 742 })
     expect(countContacts).toHaveBeenCalledWith(
       expect.objectContaining({ partyDemocrat: true }),
       expect.objectContaining({ slug: WIN_SLUG }),

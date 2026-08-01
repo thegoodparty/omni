@@ -362,11 +362,6 @@ test.describe('Contacts activity filters', () => {
             actions: ['not_home', 'answered'],
           },
         ],
-        // ENG-10769: the wizard persists its resolved live count (the
-        // stubbed 3 above — the real org would resolve 0, which ENG-10781
-        // now blocks from saving) so the outreach page's Voters column
-        // stops defaulting to 0 for real lists.
-        voterCount: 3,
       })
     })
 

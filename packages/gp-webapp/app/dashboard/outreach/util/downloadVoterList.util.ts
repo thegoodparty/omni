@@ -1,5 +1,4 @@
 import { noop } from '@shared/utils/noop'
-import { voterFileDownload } from 'helpers/voterFileDownload'
 import { VoterFileFilters } from 'helpers/types'
 import { AudienceState } from 'app/dashboard/components/tasks/flows/util/flowHandlers.util'
 import {
@@ -117,7 +116,31 @@ export const downloadVoterList = async (
       )
 
   try {
-    await voterFileDownload(outreachType, { filters: selectedAudience })
+    // Stream directly via a top-level navigation (same cookie handshake as the
+    // savedListId branch above) instead of buffering the whole CSV into a JS
+    // Blob through voterFileDownload — a statewide export can be hundreds of MB
+    // and the buffered fetch times out mid-download. Mirrors the
+    // GET /voters/voter-file request voterFileDownload built (type +
+    // customFilters JSON), as a direct /api/v1 navigation so auth and the
+    // x-organization-slug header are added automatically by the Next.js
+    // request-rewrite middleware.
+    const cookieBeforeClick = readDownloadCookie()
+
+    const query = new URLSearchParams({ type: outreachType })
+    query.set('customFilters', JSON.stringify({ filters: selectedAudience }))
+
+    const link = document.createElement('a')
+    link.href = `/api/v1/voters/voter-file?${query.toString()}`
+    link.setAttribute(
+      'download',
+      `${outreachType}-${dateUsHelper(new Date()).replace(/ /g, '_')}.csv`,
+    )
+    link.rel = 'noopener'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+
+    await awaitDownloadStarted(cookieBeforeClick)
   } catch {
     errorSnackbar('Error downloading voter file')
   }

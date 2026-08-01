@@ -25,7 +25,7 @@ type SurfaceProps = React.ComponentProps<
 const renderHome = () =>
   render(
     <CampaignManagerChatProvider>
-      <CampaignManagerHome />
+      <CampaignManagerHome tcrCompliance={null} />
     </CampaignManagerChatProvider>,
   )
 
@@ -95,6 +95,20 @@ vi.mock(
 // composition, so stub them out.
 vi.mock('../components/campaignManager/ProUpgradeBanner', () => ({
   default: () => null,
+}))
+// Echo the prop so the composition test can assert the home passes the
+// server-fetched record through (the banner's own gating has its own tests).
+vi.mock('../components/campaignManager/TextingSetupBanner', () => ({
+  default: ({
+    tcrCompliance,
+  }: {
+    tcrCompliance: { status: string } | null
+  }) => (
+    <div
+      data-testid="texting-setup-banner"
+      data-tcr-status={tcrCompliance?.status ?? 'none'}
+    />
+  ),
 }))
 vi.mock('../components/campaignManager/ProgressSection', () => ({
   default: () => null,
@@ -436,11 +450,22 @@ describe('CampaignManagerHome story auto-launch', () => {
     // A later re-render (e.g. a sibling state update) must not refire it.
     rerender(
       <CampaignManagerChatProvider>
-        <CampaignManagerHome />
+        <CampaignManagerHome tcrCompliance={null} />
       </CampaignManagerChatProvider>,
     )
     expect(createMock).toHaveBeenCalledTimes(1)
     expect(streamMessageMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders the texting-setup banner with the server-fetched record (ENG-10858)', () => {
+    renderHome()
+
+    // The story-cohort home must include the banner (the legacy CampaignManager
+    // home renders it too); tcrCompliance={null} flows through untouched.
+    expect(screen.getByTestId('texting-setup-banner')).toHaveAttribute(
+      'data-tcr-status',
+      'none',
+    )
   })
 
   it('does not auto-launch the story flow without the personalize deep link', () => {

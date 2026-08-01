@@ -32,6 +32,8 @@ import TextingComplianceFooter from 'app/dashboard/profile/texting-compliance/sh
 import { Button } from '@styleguide'
 
 import { urlIncludesPath } from 'helpers/urlIncludesPath'
+import { flatStates, isStateAbbreviation } from 'helpers/statesHelper'
+import { extractPostalAddress } from 'app/dashboard/profile/texting-compliance/util/mapFormData.util'
 import Body2 from '@shared/typography/Body2'
 import { StyledAlert } from '@shared/alerts/StyledAlert'
 import type { FormDataState } from '@shared/hooks/useFormData'
@@ -90,7 +92,7 @@ export const getValidationMessage = (
     ein: "Enter your campaign's real EIN (XX-XXXXXXX) — placeholder values aren't accepted",
     phone: 'Valid US phone number as it appears on your election filing',
     address:
-      "Select a physical street address from the suggestions (PO Boxes can't be used)",
+      'Street (or PO Box), city, state, and ZIP are required — pick a suggestion or fill them in',
     website: 'Valid URL',
     email: 'Valid email address as it appears on your election filing',
     fecCommitteeId: 'Must be "C" followed by 8 digits (e.g., C00123456)',
@@ -116,16 +118,160 @@ const getStringValue = (value: FormValue): string =>
 const validateAddress = (address: AddressValue | null): boolean =>
   Boolean(address?.formatted_address)
 
-// Google Places autocomplete (`types: ['address']`) never suggests PO Boxes,
-// so a candidate whose filing address is a PO Box gets an empty dropdown and a
-// field that can never validate. Detect the attempt and steer them to a
-// street address instead — the PIN is delivered via the filing email or
-// phone, so the address does not have to match the filing.
-export const isPoBoxAddressInput = (input: string): boolean =>
-  /\b(?:p\.?\s*o\.?|post\s+office)\s*box\b/i.test(input)
+export interface ManualAddressValue {
+  addressLine1: string
+  addressLine2?: string
+  city: string
+  state: string
+  zip: string
+}
 
-export const PO_BOX_ADDRESS_HINT =
-  "PO Boxes can't be used here. Enter a physical street address (home or business) and select it from the suggestions. Your PIN is still sent to your filing email or phone."
+export const EMPTY_MANUAL_ADDRESS: ManualAddressValue = {
+  addressLine1: '',
+  addressLine2: '',
+  city: '',
+  state: '',
+  zip: '',
+}
+
+export const isManualAddressValue = (
+  value: FormValue,
+): value is ManualAddressValue =>
+  Boolean(
+    value &&
+    typeof value === 'object' &&
+    'addressLine1' in value &&
+    'city' in value &&
+    'state' in value &&
+    'zip' in value,
+  )
+
+export const validateManualAddress = (
+  manualAddress: ManualAddressValue | null,
+): boolean =>
+  Boolean(
+    manualAddress &&
+    isFilled(manualAddress.addressLine1) &&
+    isFilled(manualAddress.city) &&
+    isStateAbbreviation(manualAddress.state.trim().toUpperCase()) &&
+    /^\d{5}(-\d{4})?$/.test(manualAddress.zip.trim()),
+  )
+
+// Shared filing-address fields, used by both the standalone register form
+// and the pro-upgrade wizard's filing-details step (anti-drift rule: one
+// source for the fields and their validation). The street input carries
+// Google Places autocomplete as a helper, never a gate: picking a suggestion
+// auto-fills city/state/ZIP and keeps the resolved place authoritative, while
+// anything typed by hand (PO Boxes, rural addresses Google can't suggest)
+// submits as structured components.
+export const FilingAddressFields = ({
+  address,
+  manualAddress,
+  onChange,
+  showError,
+}: {
+  address: AddressValue | null
+  manualAddress: ManualAddressValue
+  onChange: (patch: {
+    address: AddressValue | null
+    manualAddress: ManualAddressValue
+  }) => void
+  showError: boolean
+}): React.JSX.Element => {
+  // Any hand edit drops the selected place: a placeId submission is resolved
+  // from Google server-side, so an edited component (even the unit line)
+  // would otherwise be silently ignored. Without a place, the structured
+  // fields are what get submitted — and validated.
+  const edit = (patch: Partial<ManualAddressValue>) =>
+    onChange({ address: null, manualAddress: { ...manualAddress, ...patch } })
+
+  const fieldErrors = showError && !validateAddress(address)
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex w-full flex-col gap-1.5">
+        <Label>Street address or PO Box *</Label>
+        <AddressAutocomplete
+          value={manualAddress.addressLine1}
+          onChange={(value) => edit({ addressLine1: value })}
+          onSelect={(place) => {
+            const components = extractPostalAddress(place)
+            onChange({
+              address: {
+                formatted_address: place.formatted_address || '',
+                place_id: place.place_id || '',
+              },
+              manualAddress: {
+                addressLine1:
+                  components.streetLines[0] || place.formatted_address || '',
+                addressLine2: manualAddress.addressLine2,
+                city: components.city,
+                state: components.state,
+                zip: components.postalCode,
+              },
+            })
+          }}
+          placeholder="Start typing to search, or enter it yourself"
+          variant="outlined"
+          error={fieldErrors && !isFilled(manualAddress.addressLine1)}
+          dropdownClassName="texting-compliance-address-dropdown"
+        />
+      </div>
+      <TextField
+        label="Apt, suite, unit (optional)"
+        fullWidth
+        value={manualAddress.addressLine2 || ''}
+        onChange={(e) => edit({ addressLine2: e.target.value })}
+      />
+      <div className="flex flex-col gap-4 sm:flex-row">
+        <TextField
+          label="City"
+          fullWidth
+          required
+          error={fieldErrors && !isFilled(manualAddress.city)}
+          value={manualAddress.city}
+          onChange={(e) => edit({ city: e.target.value })}
+        />
+        <div className="flex w-full flex-col gap-1.5 sm:max-w-28">
+          <Label>State *</Label>
+          <Select
+            value={manualAddress.state}
+            onValueChange={(state) => edit({ state })}
+          >
+            <SelectTrigger
+              className="w-full"
+              aria-invalid={
+                (fieldErrors && !isStateAbbreviation(manualAddress.state)) ||
+                undefined
+              }
+            >
+              <SelectValue placeholder="State" />
+            </SelectTrigger>
+            <SelectContent>
+              {flatStates.map((state) => (
+                <SelectItem key={state} value={state}>
+                  {state}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <TextField
+          label="ZIP"
+          placeholder="12345"
+          fullWidth
+          required
+          className="sm:max-w-36"
+          error={
+            fieldErrors && !/^\d{5}(-\d{4})?$/.test(manualAddress.zip.trim())
+          }
+          value={manualAddress.zip}
+          onChange={(e) => edit({ zip: e.target.value })}
+        />
+      </div>
+    </div>
+  )
+}
 
 const validateFECUrl = (url: string): boolean => {
   if (!url) return false
@@ -174,6 +320,7 @@ export const validateRegistrationForm = (
     ein,
     phone,
     address,
+    manualAddress,
     website,
     email,
     fecCommitteeId,
@@ -186,6 +333,9 @@ export const validateRegistrationForm = (
   const einValue = getStringValue(ein)
   const phoneValue = getStringValue(phone)
   const addressValue = isAddressValue(address) ? address : null
+  const manualAddressValue = isManualAddressValue(manualAddress)
+    ? manualAddress
+    : null
   const websiteValue = getStringValue(website)
   const emailValue = getStringValue(email)
   const fecCommitteeIdValue = getStringValue(fecCommitteeId)
@@ -210,7 +360,13 @@ export const validateRegistrationForm = (
     // TODO: We should do idiomatic "recommended address" validation flow here,
     //  and elsewhere, to have higher degree of confidence that the address
     //  entered is valid
-    address: addressRequired ? validateAddress(addressValue) : true,
+    // An intact autocomplete selection is authoritative (the form clears it
+    // on any hand edit); otherwise the structured components must be
+    // complete, since they are what will be submitted.
+    address: addressRequired
+      ? validateAddress(addressValue) ||
+        validateManualAddress(manualAddressValue)
+      : true,
     website: requireWebsite
       ? isFilled(websiteValue) && isURL(websiteValue)
       : !isFilled(websiteValue) || isURL(websiteValue),
@@ -249,11 +405,31 @@ export const validateRegistrationForm = (
   }
 }
 
+// An extra error line for the validation alert, contributed by a composing
+// surface (election-filing's inline candidate profile). Rendered in the same
+// list as the form's own failing fields so every blocker appears in one
+// alert at the top of the page.
+export interface ExtraValidationError {
+  label: string
+  message: string
+}
+
 interface TextingComplianceRegistrationFormProps {
   onSubmit?: (formData: FormDataState) => void
   loading?: boolean
   hasSubmissionError?: boolean
   requireWebsite?: boolean
+  // Rendered between the validation alert and the form fields. Lets a
+  // composing surface (election-filing's candidate-profile section) sit
+  // above the filing fields while the alert stays at the very top of the
+  // page.
+  topSection?: React.ReactNode
+  // Called on every submit attempt, before the validity gate, so the
+  // composing surface can flag its own fields even when the filing fields
+  // are also invalid. Returning false blocks submission exactly like a
+  // failing filing field.
+  onValidateExtra?: () => boolean
+  extraErrors?: ExtraValidationError[]
 }
 
 const TextingComplianceRegistrationForm = ({
@@ -261,6 +437,9 @@ const TextingComplianceRegistrationForm = ({
   loading = false,
   hasSubmissionError = false,
   requireWebsite = true,
+  topSection,
+  onValidateExtra,
+  extraErrors = [],
 }: TextingComplianceRegistrationFormProps): React.JSX.Element => {
   const { formData, handleChange } = useFormData()
   const {
@@ -299,9 +478,15 @@ const TextingComplianceRegistrationForm = ({
   }, [loading])
 
   const addressValue = isAddressValue(address) ? address : null
-  const [addressInputValue, setAddressInputValue] = useState<
-    string | undefined
-  >(addressValue?.formatted_address || '')
+  // A pre-existing selection (resumed form) has no stored components, so the
+  // street field falls back to displaying its formatted address; the intact
+  // place keeps validation and submission on the placeId path until edited.
+  const manualAddress = isManualAddressValue(formData.manualAddress)
+    ? formData.manualAddress
+    : {
+        ...EMPTY_MANUAL_ADDRESS,
+        addressLine1: addressValue?.formatted_address || '',
+      }
 
   // TODO: Move this redundant logic into EinCheckInput and refactor consumer
   //  components to support signature change
@@ -322,10 +507,15 @@ const TextingComplianceRegistrationForm = ({
   }
 
   const handleOnSubmit = () => {
+    // Validate the composed section on every attempt (not just when the
+    // filing fields pass) so its errors surface alongside the field errors —
+    // otherwise a user with an empty bio and an invalid filing field would
+    // never learn the bio is required until the filing fields were fixed.
+    const extraValid = onValidateExtra ? onValidateExtra() : true
     // Always-enabled button: block submission of an invalid form and reveal the
     // guiding errors instead. The footer is fixed at the bottom of a long form,
     // so scroll the error banner (rendered at the top) into view.
-    if (!isValid) {
+    if (!isValid || !extraValid) {
       setAttemptedSubmit(true)
       window.scrollTo({ top: 0, behavior: 'smooth' })
       return
@@ -345,14 +535,6 @@ const TextingComplianceRegistrationForm = ({
     return onSubmit(submitData)
   }
 
-  const handleAddressOnChange = (value: string) => {
-    setAddressInputValue(value)
-    // Also clear on PO Box input: typing never fires onSelect, so without
-    // this a PO Box typed over a previously selected address would submit
-    // the stale valid address silently.
-    if (!value || isPoBoxAddressInput(value)) handleChange({ address: null })
-  }
-
   return (
     <>
       <TextingComplianceForm>
@@ -364,13 +546,22 @@ const TextingComplianceRegistrationForm = ({
             </Body2>
           </StyledAlert>
         )}
-        {attemptedSubmit && !isValid && (
+        {attemptedSubmit && (!isValid || extraErrors.length > 0) && (
           <StyledAlert severity="error">
             <Body2 className="w-full min-w-0 break-words">
               <span className="font-medium">
                 Please fix the following fields:
               </span>
               <ul className="mt-1 list-disc pl-5">
+                {/* Extras first: the section they belong to renders above
+                    the filing fields, so the list reads top-to-bottom. */}
+                {extraErrors.map(({ label, message }) => (
+                  <li key={label} className="list-item">
+                    <span className="font-medium">{label}</span>
+                    {' — '}
+                    {message}
+                  </li>
+                ))}
                 {failingFields.map((field) => (
                   // `list-item` overrides the global `[data-slot] ul li` rule
                   // (globals.css) that forces `display: flex` for sidebar
@@ -389,6 +580,7 @@ const TextingComplianceRegistrationForm = ({
             </Body2>
           </StyledAlert>
         )}
+        {topSection}
         <div className="flex flex-col gap-1.5 w-full">
           <Label>Office Level *</Label>
           <Select
@@ -475,25 +667,11 @@ const TextingComplianceRegistrationForm = ({
           value={getStringValue(electionFilingLink)}
           onChange={(e) => handleChange({ electionFilingLink: e.target.value })}
         />
-        <AddressAutocomplete
-          {...{
-            value: addressInputValue,
-            onChange: handleAddressOnChange,
-            onSelect: async (address) => {
-              setAddressInputValue(address.formatted_address)
-
-              return handleChange({ address })
-            },
-            placeholder: 'Filing Address *',
-            variant: 'outlined',
-            error:
-              showError('address') ||
-              isPoBoxAddressInput(addressInputValue || ''),
-            helperText: isPoBoxAddressInput(addressInputValue || '')
-              ? PO_BOX_ADDRESS_HINT
-              : undefined,
-            dropdownClassName: 'texting-compliance-address-dropdown',
-          }}
+        <FilingAddressFields
+          address={addressValue}
+          manualAddress={manualAddress}
+          onChange={(patch) => handleChange(patch)}
+          showError={showError('address')}
         />
         <TextField
           label="Filing Email"

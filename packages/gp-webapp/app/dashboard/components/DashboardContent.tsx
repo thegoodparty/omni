@@ -32,7 +32,7 @@ export default function DashboardContent({
         wrapperClassName="!p-0"
       >
         <WebsiteSunsetModalController eligible={sunsetEligible} />
-        <CampaignManagerHome />
+        <CampaignManagerHome tcrCompliance={tcrCompliance} />
       </DashboardLayout>
     )
   }

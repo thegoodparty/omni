@@ -692,7 +692,7 @@ export class ContactsService {
   async countContacts(
     filterInput: CountContactsDTO,
     organization: Organization,
-  ): Promise<{ count: number; fenced: boolean }> {
+  ): Promise<{ count: number }> {
     if (!(await this.isProAccess(organization))) {
       throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
@@ -707,7 +707,6 @@ export class ContactsService {
     if (idResolution.kind === 'empty') {
       return this.withOrgDistrictResolution(organization, async () => ({
         count: 0,
-        fenced: false,
       }))
     }
     const filters = this.mergeIdFilter(baseFilters, idResolution)
@@ -717,7 +716,7 @@ export class ContactsService {
 
     const fetchCount = async (districtParams: {
       districtId: string
-    }): Promise<{ count: number; fenced: boolean }> => {
+    }): Promise<{ count: number }> => {
       const response = await this.voterQueryService.findPeople(
         ListPeopleDTO.create({
           ...districtParams,
@@ -730,10 +729,7 @@ export class ContactsService {
           groupByHousehold: false,
         }),
       )
-      return {
-        count: response.pagination.totalResults,
-        fenced: response.pagination.fenced ?? false,
-      }
+      return { count: response.pagination.totalResults }
     }
 
     return this.withOrgDistrictResolution(organization, fetchCount)
@@ -748,7 +744,7 @@ export class ContactsService {
   async overlapCount(
     filterInput: CountContactsDTO,
     organization: Organization,
-  ): Promise<{ count: number; fenced: boolean }> {
+  ): Promise<{ count: number }> {
     if (!(await this.isProAccess(organization))) {
       throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
@@ -764,7 +760,7 @@ export class ContactsService {
     // this mirrors countContacts' own empty-resolution short circuit rather
     // than paying a people-api round trip for a guaranteed zero.
     if (idResolution.kind === 'empty') {
-      return { count: 0, fenced: false }
+      return { count: 0 }
     }
     const filters = this.mergeIdFilter(baseFilters, idResolution)
     const search = filterInput.search || undefined
@@ -774,7 +770,7 @@ export class ContactsService {
     // empty, so this skips the people-api call entirely (also covers "the
     // org has no saved lists at all").
     if (savedFilterSets.length === 0) {
-      return { count: 0, fenced: false }
+      return { count: 0 }
     }
 
     const fetchOverlapCount = (districtParams: {
@@ -914,7 +910,7 @@ export class ContactsService {
   // merge of the two (nullable row columns, relation-shaped conditions).
   async findContactsForFilter(
     filterInput: ContactsFilterResolutionInput,
-    pagination: { resultsPerPage: number; page: number },
+    pagination: { resultsPerPage: number; page: number; skipCount?: boolean },
     organization: Organization,
     excludePersonIds?: Set<string>,
   ): Promise<PeopleListResponse> {
@@ -955,6 +951,7 @@ export class ContactsService {
           contactsMadeIdOverrides,
           search,
           groupByHousehold: false,
+          skipCount: pagination.skipCount ?? false,
         }),
       )
 
@@ -1015,7 +1012,6 @@ export class ContactsService {
           people: 0,
           avgAge: null,
           avgIncome: null,
-          fenced: false,
         },
         reachability: {
           sms: 0,
@@ -1124,10 +1120,6 @@ export class ContactsService {
         people: base.value.count,
         avgAge: base.value.avgAge,
         avgIncome: base.value.avgIncome,
-        // ENG-10775: the base (unfiltered-by-channel) aggregates call backs
-        // the People/avg-age/avg-income tiles the webapp renders as
-        // "10,000+".
-        fenced: base.value.fenced ?? false,
       },
       reachability: {
         sms: cellphoneValue?.count ?? null,
@@ -1138,14 +1130,6 @@ export class ContactsService {
         doorKnocking: addressValue?.count ?? null,
         // Polls are delivered by text, so reachability mirrors sms 1:1.
         polls: cellphoneValue?.count ?? null,
-        fenced: {
-          sms: cellphoneValue?.fenced,
-          robocall: landlineValue?.fenced,
-          phoneBanking: landlineValue?.fenced,
-          doorKnocking: addressValue?.fenced,
-          // Polls mirrors sms 1:1, so its fenced-ness does too.
-          polls: cellphoneValue?.fenced,
-        },
       },
     }
   }

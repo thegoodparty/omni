@@ -344,6 +344,9 @@ export const EVENTS = {
     Compliance: {
       BannerViewed: 'Pro Upgrade - Banner Viewed',
       BannerGetPro: 'Pro Upgrade - Banner: Click Get Pro',
+      TextingSetupBannerViewed: 'Pro Upgrade - Texting Setup Banner Viewed',
+      TextingSetupBannerStart:
+        'Pro Upgrade - Texting Setup Banner: Click Start',
       LockedItemClicked: 'Pro Upgrade - Locked Item: Click',
       ValuePropViewed: 'Pro Upgrade - Value Prop Viewed',
       ValuePropGetPro: 'Pro Upgrade - Value Prop: Click Get Pro',

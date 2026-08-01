@@ -229,21 +229,80 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     return result
   }
 
+  // The filing address reaches Peerly from one of two sources: a manually
+  // entered structured address (PO Boxes and unindexed addresses — Google
+  // Places never suggests those), or campaign.placeId resolved via Google.
+  // Manual wins when present: campaign.placeId can carry a stale address
+  // from onboarding while the manual components were entered specifically
+  // for this registration.
+  private async resolveFilingAddress(
+    campaign: Campaign,
+    manual: {
+      line1: string
+      line2?: string | null
+      city: string
+      state: string
+      zip: string
+    } | null,
+    context: string,
+  ): Promise<{
+    street: string
+    line1: string
+    line2?: string
+    city?: string
+    state?: string
+    zip?: string
+    county?: string
+  }> {
+    if (manual) {
+      return {
+        street: [manual.line1, manual.line2].filter(Boolean).join(', '),
+        line1: manual.line1,
+        line2: manual.line2 ?? undefined,
+        city: manual.city,
+        state: manual.state,
+        zip: manual.zip,
+      }
+    }
+    if (!campaign.placeId) {
+      throw new BadRequestException(
+        `Campaign placeId is required to ${context}`,
+      )
+    }
+    const { street, city, state, postalCode, county } =
+      extractAddressComponents(
+        await this.placesService.getAddressByPlaceId(campaign.placeId),
+      )
+    return {
+      street,
+      line1: street,
+      city: city?.long_name,
+      state: state?.short_name,
+      zip: postalCode?.long_name,
+      county: county?.long_name,
+    }
+  }
+
   async submit10DlcBrand(
     peerlyIdentityId: string,
     tcrCompliancePayload: CreateTcrCompliancePayload,
     campaign: Campaign,
     domainName: string,
   ) {
-    const { details: campaignDetails, placeId } = campaign
-    const { phone, websiteDomain, ein } = tcrCompliancePayload
-    if (!placeId) {
-      throw new BadRequestException(
-        'Campaign placeId is required to submit 10DLC brand',
-      )
-    }
-    const { street, city, state, postalCode } = extractAddressComponents(
-      await this.placesService.getAddressByPlaceId(placeId),
+    const { details: campaignDetails } = campaign
+    const { phone, websiteDomain, ein, manualAddress } = tcrCompliancePayload
+    const filingAddress = await this.resolveFilingAddress(
+      campaign,
+      manualAddress
+        ? {
+            line1: manualAddress.addressLine1,
+            line2: manualAddress.addressLine2,
+            city: manualAddress.city,
+            state: manualAddress.state,
+            zip: manualAddress.zip,
+          }
+        : null,
+      'submit 10DLC brand',
     )
     const { campaignCommittee } = campaignDetails
     if (!campaignCommittee) {
@@ -257,8 +316,8 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
 
     const geography = await resolveJobGeographyFromAddress(
       {
-        stateCode: state?.short_name?.trim(),
-        postalCodeValue: postalCode?.long_name ?? '',
+        stateCode: filingAddress.state?.trim(),
+        postalCodeValue: filingAddress.zip ?? '',
       },
       { areaCodeFromZipService: this.areaCodeFromZipService },
     )
@@ -271,10 +330,10 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       companyName: campaignCommitteeName,
       ein,
       phone: parsePhoneNumberWithError(phone, 'US').number,
-      street: street?.substring(0, 100), // Limit to 100 characters per Peerly API docs
-      city: city?.long_name?.substring(0, 100), // Limit to 100 characters per Peerly API docs
-      state: state?.short_name,
-      postalCode: postalCode?.long_name,
+      street: filingAddress.street?.substring(0, 100), // Limit to 100 characters per Peerly API docs
+      city: filingAddress.city?.substring(0, 100), // Limit to 100 characters per Peerly API docs
+      state: filingAddress.state,
+      postalCode: filingAddress.zip,
       website: websiteDomain.substring(0, 100), // Limit to 100 characters per Peerly API docs
       email: `info@${domainName}`.substring(0, 100), // Limit to 100 characters per Peerly API docs
       ...(geography.didState !== P2P_JOB_DEFAULTS.DID_STATE
@@ -497,6 +556,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       officeLevel,
       fecCommitteeId,
       committeeType,
+      filingAddressLine1,
+      filingAddressLine2,
+      filingCity,
+      filingState,
+      filingZip,
     }: Pick<
       TcrCompliance,
       | 'ein'
@@ -507,12 +571,22 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       | 'officeLevel'
       | 'fecCommitteeId'
       | 'committeeType'
-    >,
+    > &
+      Partial<
+        Pick<
+          TcrCompliance,
+          | 'filingAddressLine1'
+          | 'filingAddressLine2'
+          | 'filingCity'
+          | 'filingState'
+          | 'filingZip'
+        >
+      >,
     user: User,
     campaign: Campaign,
     domainName: string,
   ): Promise<PeerlySubmitCVResponseBody | null> {
-    const { details: campaignDetails, placeId } = campaign
+    const { details: campaignDetails } = campaign
     const { electionDate, ballotLevel } = campaignDetails
 
     if (!electionDate) {
@@ -521,20 +595,18 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       )
     }
 
-    if (!placeId) {
-      throw new BadRequestException(
-        'Campaign placeId is required to submit CV request',
-      )
-    }
-
-    const {
-      street: filingAddressLine1,
-      city,
-      state,
-      county,
-      postalCode,
-    } = extractAddressComponents(
-      await this.placesService.getAddressByPlaceId(placeId),
+    const filingAddress = await this.resolveFilingAddress(
+      campaign,
+      filingAddressLine1 && filingCity && filingState && filingZip
+        ? {
+            line1: filingAddressLine1,
+            line2: filingAddressLine2,
+            city: filingCity,
+            state: filingState,
+            zip: filingZip,
+          }
+        : null,
+      'submit CV request',
     )
 
     // Map officeLevel to Peerly locality
@@ -564,19 +636,21 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     let cityCounty: string | undefined
     if (isLocal) {
       cityCounty =
-        // If it's a county, let's try to use the county name, else, use the city name.
+        // If it's a county, let's try to use the county name, else, use the
+        // city name. A manual address carries no county component, so county
+        // offices fall back to the entered city.
         ballotLevel === BallotReadyPositionLevel.COUNTY
-          ? (county?.long_name ?? city?.long_name)
-          : city?.long_name
+          ? (filingAddress.county ?? filingAddress.city)
+          : filingAddress.city
 
       if (!cityCounty) {
         this.logger.error(
-          `[Campaign Verify] Missing city_county for local submission (campaignId=${campaign.id}, placeId=${placeId}). ` +
-            `ballotLevel=${ballotLevel}, city=${city?.long_name}, county=${county?.long_name}. ` +
+          `[Campaign Verify] Missing city_county for local submission (campaignId=${campaign.id}, placeId=${campaign.placeId}). ` +
+            `ballotLevel=${ballotLevel}, city=${filingAddress.city}, county=${filingAddress.county}. ` +
             `This field is required by Peerly when locality is 'local'.`,
         )
         throw new BadRequestException(
-          `City or county name is required for local candidates but not present for placeId=${placeId}.`,
+          `City or county name is required for local candidates but not present on the filing address.`,
         )
       }
     }
@@ -592,10 +666,13 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       committee_type: getPeerlyCommitteeType(committeeType),
       committee_ein: ein,
       election_date: formatDate(new Date(electionDate), DateFormats.isoDate),
-      filing_address_line1: filingAddressLine1,
-      filing_city: city?.long_name,
-      filing_state: state?.short_name,
-      filing_zip: postalCode?.long_name,
+      filing_address_line1: filingAddress.line1,
+      ...(filingAddress.line2
+        ? { filing_address_line2: filingAddress.line2 }
+        : {}),
+      filing_city: filingAddress.city,
+      filing_state: filingAddress.state,
+      filing_zip: filingAddress.zip,
       filing_email: email,
       verification_method: 'email',
       filing_url_instructions:
@@ -605,7 +682,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       // James from Peerly recommended we send this to cell to have a chance of text messages going through.
       filing_phone_type: 'cell',
       filing_phone_number: phone,
-      state: state?.short_name,
+      state: filingAddress.state,
       campaign_website: domainName ? `https://${domainName}` : undefined,
       // Federal-specific fields
       ...(isFederal

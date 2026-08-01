@@ -82,7 +82,7 @@ describe('count_contacts tool ↔ POST /v1/contacts/count parity', () => {
       { headers: { [ORG_SLUG_HEADER]: slug } },
     )
     expect(routeResponse.status).toBe(201)
-    expect(routeResponse.data).toEqual({ count: 7, fenced: false })
+    expect(routeResponse.data).toEqual({ count: 7 })
 
     const organization = await service.prisma.organization.findUniqueOrThrow({
       where: { slug },
@@ -100,49 +100,5 @@ describe('count_contacts tool ↔ POST /v1/contacts/count parity', () => {
     expect(postSpy).toHaveBeenCalledTimes(2)
     const [routeCall, toolCall] = postSpy.mock.calls
     expect(routeCall?.[0]).toEqual(toolCall?.[0])
-  })
-
-  // ENG-10804: when the people-db statement-timeout guard floors the count at
-  // FENCE_LIMIT, both the UI count route and the assistant tool must agree
-  // it's a floor, not an exact figure — same shared service call, so a
-  // divergence here would mean one path lost the flag on the way out.
-  it('returns fenced:true parity when the people-db count is fenced', async () => {
-    const slug = `eo-crm-parity-fenced-${Date.now()}`
-    await service.prisma.organization.create({
-      data: {
-        slug,
-        ownerId: service.user.id,
-        overrideDistrictId: DISTRICT_ID,
-      },
-    })
-
-    const findPeopleSpy = vi
-      .spyOn(service.app.get(VoterQueryService), 'findPeople')
-      .mockResolvedValue({
-        people: [],
-        pagination: { totalResults: 10000, fenced: true },
-      } as never)
-
-    const filter = { hasCellPhone: true }
-
-    const routeResponse = await service.client.post(
-      '/v1/contacts/count',
-      filter,
-      { headers: { [ORG_SLUG_HEADER]: slug } },
-    )
-    expect(routeResponse.status).toBe(201)
-    expect(routeResponse.data).toEqual({ count: 10000, fenced: true })
-
-    const organization = await service.prisma.organization.findUniqueOrThrow({
-      where: { slug },
-    })
-    const tool = buildCountContactsTool({
-      contacts: service.app.get(ContactsService),
-      organization,
-    })
-    const toolResult = await tool.execute(tool.inputSchema.parse(filter))
-
-    expect(toolResult).toEqual(routeResponse.data)
-    expect(findPeopleSpy).toHaveBeenCalledTimes(2)
   })
 })

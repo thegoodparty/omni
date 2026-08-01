@@ -75,6 +75,7 @@ export const AUDIENCE_LABELS_MAPPING: Record<AudienceLabelKey, string> = {
   partyIndependent: 'Independent',
   partyDemocrat: 'Democrat',
   partyRepublican: 'Republican',
+  partyOther: 'Other',
   age18_25: '18-25',
   age25_35: '25-35',
   age35_50: '35-50',

@@ -63,7 +63,7 @@ describe('POST /v1/contacts/overlap-count', () => {
     return slug
   }
 
-  const spyOnOverlapCount = (data: { count: number; fenced: boolean }) =>
+  const spyOnOverlapCount = (data: { count: number }) =>
     vi
       .spyOn(service.app.get(VoterQueryService), 'getOverlapCount')
       .mockResolvedValue(data)
@@ -73,7 +73,7 @@ describe('POST /v1/contacts/overlap-count', () => {
     await service.prisma.organization.create({
       data: { slug, ownerId: service.user.id },
     })
-    const overlapSpy = spyOnOverlapCount({ count: 0, fenced: false })
+    const overlapSpy = spyOnOverlapCount({ count: 0 })
 
     const response = await service.client.post(
       '/v1/contacts/overlap-count',
@@ -87,7 +87,7 @@ describe('POST /v1/contacts/overlap-count', () => {
 
   it('returns zero without querying people-db when the org has no saved lists', async () => {
     const slug = await setupProOrg('no-lists')
-    const overlapSpy = spyOnOverlapCount({ count: 5, fenced: false })
+    const overlapSpy = spyOnOverlapCount({ count: 5 })
 
     const response = await service.client.post(
       '/v1/contacts/overlap-count',
@@ -96,14 +96,14 @@ describe('POST /v1/contacts/overlap-count', () => {
     )
 
     expect(response.status).toBe(201)
-    expect(response.data).toEqual({ count: 0, fenced: false })
+    expect(response.data).toEqual({ count: 0 })
     expect(overlapSpy).not.toHaveBeenCalled()
   })
 
   it('returns zero without querying people-db when the current selection resolves to nobody', async () => {
     const slug = await setupProOrg('empty-selection')
     await createSavedFilter(slug, { genderFemale: true })
-    const overlapSpy = spyOnOverlapCount({ count: 5, fenced: false })
+    const overlapSpy = spyOnOverlapCount({ count: 5 })
 
     // No ContactInteractionDoorKnock rows exist for a fresh org, so this
     // activity condition resolves to the empty person-id set.
@@ -114,7 +114,7 @@ describe('POST /v1/contacts/overlap-count', () => {
     )
 
     expect(response.status).toBe(201)
-    expect(response.data).toEqual({ count: 0, fenced: false })
+    expect(response.data).toEqual({ count: 0 })
     expect(overlapSpy).not.toHaveBeenCalled()
   })
 
@@ -122,7 +122,7 @@ describe('POST /v1/contacts/overlap-count', () => {
     const slug = await setupProOrg('resolves')
     await createSavedFilter(slug, { name: 'A', genderFemale: true })
     await createSavedFilter(slug, { name: 'B', genderMale: true })
-    const overlapSpy = spyOnOverlapCount({ count: 7, fenced: false })
+    const overlapSpy = spyOnOverlapCount({ count: 7 })
 
     const response = await service.client.post(
       '/v1/contacts/overlap-count',
@@ -131,7 +131,7 @@ describe('POST /v1/contacts/overlap-count', () => {
     )
 
     expect(response.status).toBe(201)
-    expect(response.data).toEqual({ count: 7, fenced: false })
+    expect(response.data).toEqual({ count: 7 })
     expect(overlapSpy).toHaveBeenCalledTimes(1)
 
     const dto = overlapSpy.mock.calls[0]?.[0]
@@ -162,7 +162,7 @@ describe('POST /v1/contacts/overlap-count', () => {
         create: { outreachType: 'doorKnocking', actions: [] },
       },
     })
-    const overlapSpy = spyOnOverlapCount({ count: 1, fenced: false })
+    const overlapSpy = spyOnOverlapCount({ count: 1 })
 
     const response = await service.client.post(
       '/v1/contacts/overlap-count',
@@ -200,7 +200,7 @@ describe('POST /v1/contacts/overlap-count', () => {
           : realResolve(organizationSlug, input),
     )
     const warnSpy = vi.spyOn(PinoLogger.prototype, 'warn')
-    const overlapSpy = spyOnOverlapCount({ count: 6, fenced: false })
+    const overlapSpy = spyOnOverlapCount({ count: 6 })
 
     const response = await service.client.post(
       '/v1/contacts/overlap-count',
@@ -209,7 +209,7 @@ describe('POST /v1/contacts/overlap-count', () => {
     )
 
     expect(response.status).toBe(201)
-    expect(response.data).toEqual({ count: 6, fenced: false })
+    expect(response.data).toEqual({ count: 6 })
     expect(overlapSpy).toHaveBeenCalledTimes(1)
     expect(overlapSpy.mock.calls[0]?.[0]?.savedFilterSets).toHaveLength(1)
     expect(warnSpy).toHaveBeenCalledWith(
@@ -224,7 +224,7 @@ describe('POST /v1/contacts/overlap-count', () => {
     for (let i = 0; i < 26; i++) {
       await createSavedFilter(slug, { name: `list-${i}`, genderFemale: true })
     }
-    const overlapSpy = spyOnOverlapCount({ count: 2, fenced: false })
+    const overlapSpy = spyOnOverlapCount({ count: 2 })
 
     const response = await service.client.post(
       '/v1/contacts/overlap-count',
@@ -254,7 +254,7 @@ describe('POST /v1/contacts/overlap-count', () => {
     // create/update endpoints don't reject this today.
     await createSavedFilter(slug, { name: 'tainted', partyDemocrat: true })
     const warnSpy = vi.spyOn(PinoLogger.prototype, 'warn')
-    const overlapSpy = spyOnOverlapCount({ count: 3, fenced: false })
+    const overlapSpy = spyOnOverlapCount({ count: 3 })
 
     const response = await service.client.post(
       '/v1/contacts/overlap-count',
@@ -285,7 +285,7 @@ describe('POST /v1/contacts/overlap-count', () => {
   it('still includes a Win org saved list carrying a party predicate in the union', async () => {
     const slug = await setupWinProOrg('party-allowed')
     await createSavedFilter(slug, { name: 'party list', partyDemocrat: true })
-    const overlapSpy = spyOnOverlapCount({ count: 4, fenced: false })
+    const overlapSpy = spyOnOverlapCount({ count: 4 })
     // A non-`eo-` org runs the voter-data-eligibility gate before district
     // resolution (assertVoterDataEligibility), which fetches the
     // overrideDistrictId from election-api over the shared HttpService — stub

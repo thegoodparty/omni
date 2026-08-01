@@ -16,7 +16,11 @@ import {
 import { createPeopleDbBase, PEOPLE_MODELS } from '../peopleDbBase.util'
 import { VoterSampleService } from './voterSample.service'
 
-import { Injectable, NotFoundException } from '@nestjs/common'
+import {
+  GatewayTimeoutException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
 import { DistrictService } from './district.service'
 import { transformToPersonOutput } from '../utils/transformToPersonOutput.util'
 import { FilterData } from '../schemas/filters.schema'
@@ -41,33 +45,13 @@ export const DATABASE_SCHEMA = 'green'
 const VOTER_TABLENAME = 'Voter'
 const DISTRICTVOTER_TABLENAME = 'DistrictVoter'
 
-// Two distinct query shapes can trip a pathological plan: a near-zero-match
-// name-search LIKE pattern ('%zzq%') where Postgres floors LIKE selectivity
-// estimates at ~2000 rows, so the planner walks the ordering index and scans
-// the entire state partition (30+ seconds on large states) instead of using
-// the trigram indexes — and, separately, a broad/low-selectivity filter (e.g.
-// gender/education not_null) on a large district, which forces a full
-// DistrictVoter -> Voter nested loop. Both resolve in well under a second
-// when the plan is sane, so only runaway plans trip this timeout.
-const SLOW_QUERY_TIMEOUT_MS = 2500
-// The fallback wraps the same WHERE in an UNORDERED subquery capped at this
-// many rows, which frees the planner to pick an indexed scan instead of the
-// pathological plan. For the voter LIST (queryPeopleWithTimeoutGuard), fencing
-// is only safe for name-search: it's gated to patterns that already proved
-// slow, i.e. patterns matching far fewer rows than this cap, so the fence
-// never truncates the ordered, paginated result — fencing a broad filter's
-// list would silently drop rows from the page. A COUNT has no ordering to
-// preserve, so every count (rawCountForDistrict) can always run through the
-// fence: exact when it completes under the timeout, floored at this limit
-// when it would be slow.
-const FENCE_LIMIT = 10000
-// queryWithTimeoutFence's retry still runs a live query (an unordered,
-// LIMIT-capped subquery, but a query nonetheless) — it can hit the same
-// pathological plan under enough load, so it needs its own bound instead of
-// running unfenced and holding a connection open indefinitely. Double the
-// primary timeout: the retry already paid the cost of the first attempt, so
-// give it real room before giving up.
-const FENCE_RETRY_TIMEOUT_MS = SLOW_QUERY_TIMEOUT_MS * 2
+// A hard ceiling on any people-db query run through the Prisma client. An
+// honest statewide filtered count is a full-partition scan that lands around
+// 3-4 seconds (the largest legitimate case); anything past this ceiling is a
+// pathological plan we want to fail loudly and alert on, not silently degrade
+// into a wrong answer. Streaming CSV downloads run on a separate pool and set
+// their own timeout, so this does not bound them.
+const STATEMENT_TIMEOUT_MS = 25_000
 
 type RawPeopleQueryArgs = {
   districtId: string | null
@@ -76,7 +60,11 @@ type RawPeopleQueryArgs = {
   skip: number
   extraFields?: ExtraSelectedField[]
   groupByHousehold?: boolean
-  fenceLimit?: number
+  // Name-search only: wrap the match set in a MATERIALIZED CTE so the planner
+  // resolves the trigram LIKE via the GIN index first, instead of walking the
+  // id-ordering index across the whole partition to satisfy ORDER BY + LIMIT
+  // (the ~30s pathological plan for a rare pattern). Does not truncate.
+  forceTrigramPlan?: boolean
 }
 
 const isStatementTimeoutError = (error: unknown): boolean =>
@@ -124,7 +112,14 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   async findPeople(dto: ListPeopleDTO) {
     const resolved = await resolveDistrict(this.districtService, dto)
     const { state, useVoterOnlyPath, districtId } = resolved
-    const { filters, search, resultsPerPage, page, groupByHousehold } = dto
+    const {
+      filters,
+      search,
+      resultsPerPage,
+      page,
+      groupByHousehold,
+      skipCount,
+    } = dto
     const effectiveDistrictId = useVoterOnlyPath ? null : districtId
 
     const whereClause = buildVoterWhereSql({
@@ -135,20 +130,17 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       idOverrides: dto.idOverrides,
       contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
     })
-    const buildData = (skip: number) => {
-      const queryArgs = {
-        districtId: effectiveDistrictId,
-        whereClause,
-        take: resultsPerPage,
-        skip,
-        groupByHousehold,
-      }
-      return isNameSearch(search)
-        ? this.queryPeopleWithTimeoutGuard(queryArgs)
-        : this.client.$queryRaw<Array<BaseDbPerson>>(
-            this.buildRawPeopleQuery(queryArgs),
-          )
-    }
+    const buildData = (skip: number) =>
+      this.runUnderStatementTimeout<BaseDbPerson>(
+        this.buildRawPeopleQuery({
+          districtId: effectiveDistrictId,
+          whereClause,
+          take: resultsPerPage,
+          skip,
+          groupByHousehold,
+          forceTrigramPlan: isNameSearch(search),
+        }),
+      )
 
     const countArgs = {
       state,
@@ -161,7 +153,6 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
     }
 
     let totalResults: number
-    let fenced: boolean
     let people: Array<BaseDbPerson>
     let currentPage: number
 
@@ -172,8 +163,7 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       // behavior: a client paging in from the (much longer) voter list lands on
       // the last household page instead of an empty one (no caller clamps
       // `page`), and currentPage matches the rows returned.
-      ;({ count: totalResults, fenced } =
-        await this.rawCountForDistrict(countArgs))
+      totalResults = await this.rawCountForDistrict(countArgs)
       const householdPages = Math.max(
         1,
         Math.ceil(totalResults / resultsPerPage),
@@ -192,12 +182,19 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       // page. Metadata never claims a page whose rows we didn't return (the old
       // divergence: clamped currentPage but empty rows). totalPages still tells
       // the client the valid range, and the webapp clamps navigation to it.
-      const [countResult, peopleResult] = await Promise.all([
-        this.rawCountForDistrict(countArgs),
-        buildData((page - 1) * resultsPerPage),
-      ])
-      ;({ count: totalResults, fenced } = countResult)
-      people = peopleResult
+      if (skipCount) {
+        // Phone-list build: page the audience to completion off the rows
+        // returned, never the count. totalResults is unused by that caller.
+        people = await buildData((page - 1) * resultsPerPage)
+        totalResults = 0
+      } else {
+        const [countResult, peopleResult] = await Promise.all([
+          this.rawCountForDistrict(countArgs),
+          buildData((page - 1) * resultsPerPage),
+        ])
+        totalResults = countResult
+        people = peopleResult
+      }
       currentPage = Math.max(1, page)
     }
 
@@ -211,7 +208,6 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
         totalPages,
         hasNextPage: currentPage < totalPages,
         hasPreviousPage: currentPage > 1,
-        fenced,
       },
       people: people.map(transformToPersonOutput),
     }
@@ -232,22 +228,11 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       idOverrides: dto.idOverrides,
       contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
     })
-    // Same DistrictVoter -> Voter join as rawCountForDistrict, so it shares the
-    // same pathological-plan exposure; the fenced fallback trades an exact
-    // AVG for a sampled one over the capped row set (see buildAggregatesSql).
-    const fencedSql = buildAggregatesSql({
-      state,
-      districtId: effectiveDistrictId,
-      filters: dto.filters,
-      fenceLimit: FENCE_LIMIT,
-      idOverrides: dto.idOverrides,
-      contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
-    })
-    const { rows, fenced } = await this.queryWithTimeoutFence<{
+    const rows = await this.runUnderStatementTimeout<{
       count: bigint
       avgAge: number | null
       avgIncome: number | null
-    }>(sql, fencedSql)
+    }>(sql)
     const row = rows[0]
     const count = Number(row?.count ?? 0n)
     if (count === 0 && effectiveDistrictId) {
@@ -260,15 +245,12 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       count,
       avgAge: row?.avgAge ?? null,
       avgIncome: row?.avgIncome ?? null,
-      fenced,
     })
   }
 
   // Saved-list overlap count (ENG-10840): how many of the current selection
-  // also belong to at least one of the org's saved lists. Shares the same
-  // pathological-plan exposure as the count/aggregates queries (see
-  // SLOW_QUERY_TIMEOUT_MS), so it runs through the identical
-  // queryWithTimeoutFence guard rather than a bespoke timeout.
+  // also belong to at least one of the org's saved lists. Runs through the
+  // same statement-timeout guard as the count/aggregates queries.
   async getOverlapCount(
     dto: OverlapCountDTO,
   ): Promise<PeopleOverlapCountResponse> {
@@ -285,20 +267,14 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       idOverrides: dto.idOverrides,
       contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
     }
-    const sql = buildOverlapCountSql(baseArgs)
-    const fencedSql = buildOverlapCountSql({
-      ...baseArgs,
-      fenceLimit: FENCE_LIMIT,
-    })
-
-    const { rows, fenced } = await this.queryWithTimeoutFence<{
+    const rows = await this.runUnderStatementTimeout<{
       overlap_count: bigint
-    }>(sql, fencedSql)
+    }>(buildOverlapCountSql(baseArgs))
     const count = Number(rows[0]?.overlap_count ?? 0n)
 
     // ENG-10775 pattern: the producer validates its own response against the
     // shared contract so gp-api and people-api can't drift on this shape.
-    return PeopleOverlapCountResponseSchema.parse({ count, fenced })
+    return PeopleOverlapCountResponseSchema.parse({ count })
   }
 
   async samplePeople(dto: SamplePeopleDTO) {
@@ -315,7 +291,7 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
     groupByHousehold?: boolean
     idOverrides?: IdOverrides
     contactsMadeIdOverrides?: IdOverrides
-  }): Promise<{ count: number; fenced: boolean }> {
+  }): Promise<number> {
     const { state, districtId, search, groupByHousehold } = args
 
     // The pre-computed stats shortcut counts voters; it does not know household
@@ -332,7 +308,7 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
     ) {
       const { totalConstituents } =
         await this.statsService.getTotalCounts(districtId)
-      return { count: totalConstituents, fenced: false }
+      return totalConstituents
     }
 
     const whereClause = buildVoterWhereSql({
@@ -361,27 +337,19 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       ${fromSql}
       ${whereClause}`
 
-    // Any broad/low-selectivity filter (not just a name-search LIKE pattern)
-    // can trip the same pathological DistrictVoter -> Voter nested-loop plan,
-    // so every count runs through the timeout guard, not just name-search.
-    // Exact when the query completes under the timeout; otherwise a floor in
-    // the count's own unit: FENCE_LIMIT voters for the plain COUNT(*), or
-    // FENCE_LIMIT distinct households for the grouped path. Capping raw voters
-    // then COUNT(DISTINCT household) would floor well below FENCE_LIMIT.
-    const fencedCountSql = groupByHousehold
-      ? Prisma.sql`SELECT COUNT(*)::bigint AS voter_count
-      FROM (SELECT DISTINCT ${buildHouseholdKeySql('v')} ${fromSql} ${whereClause} LIMIT ${FENCE_LIMIT}) distinct_hh`
-      : Prisma.sql`SELECT ${countExpr} AS voter_count
-      FROM (SELECT v.* ${fromSql} ${whereClause} LIMIT ${FENCE_LIMIT}) v`
-    const { rows, fenced } = await this.queryWithTimeoutFence<{
+    // A broad/low-selectivity filter on a large district can be a genuine
+    // multi-second full scan; we return the true count and only fail if it
+    // exceeds the hard statement timeout (a pathological plan, not a big
+    // audience). No floor — an honest number or a loud 504.
+    const rows = await this.runUnderStatementTimeout<{
       voter_count: bigint
-    }>(countSql, fencedCountSql)
+    }>(countSql)
 
     const count = Number(rows[0]?.voter_count ?? 0n)
     if (count === 0 && districtId) {
       await this.warnIfStatsButNoVoterRows(districtId, state)
     }
-    return { count, fenced }
+    return count
   }
 
   // Partial voter data (dev by construction, or a prod ETL regression) leaves
@@ -413,94 +381,39 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
     )
   }
 
-  // Shared by every guarded raw query (the count and the aggregates): attempt
-  // primarySql under a statement timeout; if Postgres cancels it (SQLSTATE
-  // 57014), retry once with fencedSql under its own (longer) statement
-  // timeout — a fenced retry that also times out fails cleanly instead of
-  // running unbounded. SET LOCAL only holds for the transaction it runs in,
-  // and Prisma batch transactions execute on a single connection, so each
-  // timeout scopes to exactly the query it wraps.
-  private async queryWithTimeoutFence<T>(
-    primarySql: Prisma.Sql,
-    fencedSql: Prisma.Sql,
-  ): Promise<{ rows: T[]; fenced: boolean }> {
+  // Every count/aggregate/list/overlap query runs under a hard statement
+  // timeout so a pathological plan fails loudly (a classified 504 we can alert
+  // on) instead of holding a connection open or silently degrading into a
+  // wrong answer. No retry and no fenced fallback: a slow query is either a
+  // genuine large scan (well under the ceiling) or a bug we want surfaced.
+  // SET LOCAL only holds for the transaction it runs in, and Prisma batch
+  // transactions execute on a single connection, so the timeout scopes to
+  // exactly this query.
+  private async runUnderStatementTimeout<T>(sql: Prisma.Sql): Promise<T[]> {
     const startedAt = Date.now()
     try {
+      // SET does not accept bind parameters; the interval is a compile-time
+      // constant, so Prisma.raw is safe here.
       const [, rows] = await this.client.$transaction([
         this.client.$executeRaw(
           Prisma.raw(
-            `SET LOCAL statement_timeout = '${SLOW_QUERY_TIMEOUT_MS}ms'`,
+            `SET LOCAL statement_timeout = '${STATEMENT_TIMEOUT_MS}ms'`,
           ),
         ),
-        this.client.$queryRaw<T[]>(primarySql),
+        this.client.$queryRaw<T[]>(sql),
       ])
-      return { rows, fenced: false }
+      return rows
     } catch (error) {
       if (!isStatementTimeoutError(error)) {
         throw error
       }
-      this.logger.warn(
-        { elapsedMs: Date.now() - startedAt },
-        'Query hit the statement timeout; retrying with fenced subquery',
+      this.logger.error(
+        { err: error, elapsedMs: Date.now() - startedAt },
+        'people-db query exceeded the statement timeout',
       )
-      const [, rows] = await this.client.$transaction([
-        this.client.$executeRaw(
-          Prisma.raw(
-            `SET LOCAL statement_timeout = '${FENCE_RETRY_TIMEOUT_MS}ms'`,
-          ),
-        ),
-        this.client.$queryRaw<T[]>(fencedSql),
-      ])
-      return { rows, fenced: true }
-    }
-  }
-
-  // Name-search LIKE patterns can trigger a pathological full-partition plan
-  // (see SLOW_QUERY_TIMEOUT_MS). Attempt the normal query under a statement
-  // timeout; if Postgres cancels it (SQLSTATE 57014), retry once with the
-  // trigram-fenced shape. SET LOCAL only holds for the transaction it runs
-  // in, and Prisma batch transactions execute on a single connection, so the
-  // timeout scopes to exactly this query.
-  private async queryPeopleWithTimeoutGuard(
-    args: RawPeopleQueryArgs,
-  ): Promise<Array<BaseDbPerson>> {
-    const startedAt = Date.now()
-    try {
-      const [, people] = await this.client.$transaction([
-        // SET does not accept bind parameters; the interval is a
-        // compile-time constant, so Prisma.raw is safe here.
-        this.client.$executeRaw(
-          Prisma.raw(
-            `SET LOCAL statement_timeout = '${SLOW_QUERY_TIMEOUT_MS}ms'`,
-          ),
-        ),
-        this.client.$queryRaw<Array<BaseDbPerson>>(
-          this.buildRawPeopleQuery(args),
-        ),
-      ])
-      return people
-    } catch (error) {
-      if (!isStatementTimeoutError(error)) {
-        throw error
-      }
-      this.logger.warn(
-        { elapsedMs: Date.now() - startedAt },
-        'Name-search voter query hit the statement timeout; retrying with trigram-fenced subquery',
+      throw new GatewayTimeoutException(
+        'The voter query took too long to run. Narrow the audience and try again.',
       )
-      const [, people] = await this.client.$transaction([
-        this.client.$executeRaw(
-          Prisma.raw(
-            `SET LOCAL statement_timeout = '${FENCE_RETRY_TIMEOUT_MS}ms'`,
-          ),
-        ),
-        this.client.$queryRaw<Array<BaseDbPerson>>(
-          this.buildRawPeopleQuery({
-            ...args,
-            fenceLimit: FENCE_LIMIT,
-          }),
-        ),
-      ])
-      return people
     }
   }
 
@@ -544,22 +457,28 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
             ON v."State" = dv."State" AND v."id" = dv."voter_id"`
       : Prisma.empty
 
-    // Fenced shape: the inner subquery has no ORDER BY, so the planner is
-    // free to serve rare LIKE patterns from the trigram bitmap indexes
-    // instead of walking the ordering index across the whole partition.
-    // `SELECT v.*` re-exposes every voter column under the same alias, so
-    // the outer SELECT / DISTINCT ON / window / ORDER BY run unchanged
-    // against the fenced rows.
-    const rowSource = args.fenceLimit
-      ? Prisma.sql`(SELECT v.* FROM ${voterTable} v
+    // Name-search forces the trigram plan: a MATERIALIZED CTE resolves the
+    // LIKE match set up front via the trigram GIN index, so the planner can't
+    // instead walk the id-ordering index across the whole partition to satisfy
+    // the outer ORDER BY + LIMIT (the ~30s plan for a rare pattern). `SELECT
+    // v.*` re-exposes every voter column under the same alias, so the outer
+    // SELECT / DISTINCT ON / window / ORDER BY run unchanged. Unlike a plain
+    // subquery MATERIALIZED is not inlined, and there is no LIMIT, so it never
+    // truncates the result.
+    const matchedCte = args.forceTrigramPlan
+      ? Prisma.sql`WITH matched AS MATERIALIZED (
+          SELECT v.* FROM ${voterTable} v
           ${joinClause}
           ${whereClause}
-          LIMIT ${args.fenceLimit}) v`
+        ) `
+      : Prisma.empty
+    const rowSource = args.forceTrigramPlan
+      ? Prisma.sql`matched v`
       : Prisma.sql`${voterTable} v
           ${joinClause}
           ${whereClause}`
 
-    return Prisma.sql`${selectSql.sql}
+    return Prisma.sql`${matchedCte}${selectSql.sql}
           FROM ${rowSource}
           ${orderByClause}
           LIMIT ${take} OFFSET ${skip}`

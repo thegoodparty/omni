@@ -12,24 +12,6 @@ const reachability: ListDetailReachability = {
   polls: 120,
 }
 
-// ENG-10805: sms/polls fenced (mirroring each other, per gp-api), the other
-// three channels unfenced with distinct counts — so a channel rendering the
-// wrong fenced-ness or the wrong count fails independently of the others.
-const partiallyFencedReachability: ListDetailReachability = {
-  sms: 10000,
-  robocall: 300,
-  phoneBanking: 450,
-  doorKnocking: 50,
-  polls: 10000,
-  fenced: {
-    sms: true,
-    robocall: false,
-    phoneBanking: false,
-    doorKnocking: false,
-    polls: true,
-  },
-}
-
 // ENG-10806: one failed people-api aggregate call (landline) nulls only the
 // channels it backs — the rest of the reachability block still renders real
 // numbers, and the route itself stays a 200.
@@ -103,21 +85,5 @@ describe('ReachabilityGrid', () => {
     expect(screen.getAllByText('Unavailable')).toHaveLength(2)
     expect(screen.getAllByText('777')).toHaveLength(2)
     expect(screen.getByText('111')).toBeInTheDocument()
-  })
-
-  it('renders a fenced channel as "10,000+" while unfenced channels stay exact', () => {
-    render(
-      <ReachabilityGrid
-        reachability={partiallyFencedReachability}
-        isLoading={false}
-        isError={false}
-      />,
-    )
-
-    expect(screen.getAllByText('10,000+')).toHaveLength(2)
-    expect(screen.queryByText('10,000')).not.toBeInTheDocument()
-    expect(screen.getByText('300')).toBeInTheDocument()
-    expect(screen.getByText('450')).toBeInTheDocument()
-    expect(screen.getByText('50')).toBeInTheDocument()
   })
 })

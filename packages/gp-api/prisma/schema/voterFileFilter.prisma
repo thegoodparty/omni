@@ -13,7 +13,7 @@ model VoterFileFilter {
   partyIndependent           Boolean?                           @default(false) @map("party_independent")
   partyDemocrat              Boolean?                           @default(false) @map("party_democrat")
   partyRepublican            Boolean?                           @default(false) @map("party_republican")
-  partyUnknown               Boolean?                           @default(false) @map("party_unknown")
+  partyOther                 Boolean?                           @default(false) @map("party_other")
   age18_25                   Boolean?                           @default(false) @map("age_18_25")
   age25_35                   Boolean?                           @default(false) @map("age_25_35")
   age35_50                   Boolean?                           @default(false) @map("age_35_50")
@@ -71,7 +71,6 @@ model VoterFileFilter {
   contactsMade3              Boolean?                           @default(false) @map("contacts_made_3")
   contactsMade4              Boolean?                           @default(false) @map("contacts_made_4")
   contactsMade5Plus          Boolean?                           @default(false) @map("contacts_made_5_plus")
-  voterCount                 Int?                               @map("voter_count")
   outreaches                 Outreach[]
   doorKnockingTurfs          DoorKnockingTurf[]
   organizationSlug           String                             @map("organization_slug")

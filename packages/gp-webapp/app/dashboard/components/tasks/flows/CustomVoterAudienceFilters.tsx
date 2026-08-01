@@ -36,6 +36,7 @@ const fields: FieldGroup[] = [
       { key: 'party_independent', label: 'Independent / Non-Partisan' },
       { key: 'party_democrat', label: 'Democrat' },
       { key: 'party_republican', label: 'Republican' },
+      { key: 'party_other', label: 'Other' },
     ],
   },
   {
@@ -66,6 +67,7 @@ export type AudienceFilterKey =
   | 'party_independent'
   | 'party_democrat'
   | 'party_republican'
+  | 'party_other'
   | 'age_18_25'
   | 'age_25_35'
   | 'age_35_50'
@@ -89,6 +91,7 @@ export interface AudienceFiltersState {
   party_independent?: boolean
   party_democrat?: boolean
   party_republican?: boolean
+  party_other?: boolean
   age_18_25?: boolean
   age_25_35?: boolean
   age_35_50?: boolean
@@ -225,6 +228,7 @@ const CustomVoterAudienceFilters = ({
     party_independent: false,
     party_democrat: false,
     party_republican: false,
+    party_other: false,
     age_18_25: false,
     age_25_35: false,
     age_35_50: false,

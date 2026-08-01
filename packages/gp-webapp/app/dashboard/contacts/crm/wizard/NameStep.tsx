@@ -3,13 +3,11 @@
 import { Input, Label } from '@styleguide'
 import Body2 from '@shared/typography/Body2'
 import { MAX_SEGMENT_NAME_LENGTH } from '../shared/segments.util'
-import { formatFencedCount } from '../shared/formatFencedCount.util'
 
 interface NameStepProps {
   name: string
   onNameChange: (name: string) => void
   count: number | undefined
-  fenced: boolean | undefined
   isCounting: boolean
   isCapError: boolean
   countErrorMessage: string | undefined
@@ -26,7 +24,6 @@ export default function NameStep({
   name,
   onNameChange,
   count,
-  fenced,
   isCounting,
   isCapError,
   countErrorMessage,
@@ -37,7 +34,7 @@ export default function NameStep({
     : isCounting
       ? 'Counting…'
       : count !== undefined
-        ? `${formatFencedCount(count, fenced)} ${peopleNoun} match. Give this list a name so you can find it later.`
+        ? `${count.toLocaleString()} ${peopleNoun} match. Give this list a name so you can find it later.`
         : null
 
   const trimmedName = name.trim()

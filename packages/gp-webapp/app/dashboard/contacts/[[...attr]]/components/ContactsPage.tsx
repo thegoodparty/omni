@@ -24,7 +24,6 @@ export default function ContactsPage() {
     isCustomSegment,
     searchTerm,
     totalSegmentContacts,
-    pagination,
     isVoterDataUnavailable,
     isWinContext,
     isWinContextReady,
@@ -101,7 +100,6 @@ export default function ContactsPage() {
                 <div className="mt-6">
                   <ContactsStatsSection
                     totalVisibleContacts={totalSegmentContacts}
-                    totalVisibleContactsFenced={pagination?.fenced}
                     onlyTotalVisibleContacts={isCustomSegment || !!searchTerm}
                   />
                 </div>

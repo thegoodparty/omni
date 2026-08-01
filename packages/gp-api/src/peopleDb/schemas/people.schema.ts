@@ -48,6 +48,10 @@ export const listPeopleSchema = withDistrictInput({
   // residence-address composite (see buildHouseholdKeySql). Off → one row per
   // voter (the legacy behavior every other channel uses).
   groupByHousehold: z.coerce.boolean().optional().default(false),
+  // The phone-list build pages the full audience to completion and never
+  // reads totalResults, so skip the per-page COUNT — otherwise a large send
+  // runs one full-scan count per page. Only honored on the ungrouped path.
+  skipCount: z.coerce.boolean().optional().default(false),
 })
   // Cap the effective SQL OFFSET ((page - 1) * resultsPerPage): the per-field
   // caps alone still permit a multi-hundred-million-row OFFSET.

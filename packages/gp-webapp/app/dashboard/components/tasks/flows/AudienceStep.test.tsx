@@ -130,7 +130,7 @@ describe('AudienceStep saved-list selector', () => {
   // ENG-10799: text now fetches its own reachability leaf (sms), same as the
   // other three saved-list flows, instead of leaving count at 0 — so every
   // test that selects a saved list needs a real list-detail response.
-  const mockTextListDetail = (sms: number, smsFenced = false) => ({
+  const mockTextListDetail = (sms: number) => ({
     demographics: { people: sms + 5000, avgAge: null, avgIncome: null },
     reachability: {
       sms,
@@ -138,7 +138,6 @@ describe('AudienceStep saved-list selector', () => {
       phoneBanking: 0,
       doorKnocking: 0,
       polls: sms,
-      ...(smsFenced ? { fenced: { sms: true } } : {}),
     },
     outreachHistory: [],
   })
@@ -643,35 +642,6 @@ describe('AudienceStep saved-list selector', () => {
     expect(onChangeCallback).toHaveBeenCalledWith('voterCount', 3200)
   })
 
-  // ENG-10799: a fenced count (ENG-10775/10805 — the aggregates query hit
-  // its statement-timeout guard and floored the number) must render with a
-  // trailing "+" instead of reading as exact. No other test in this file
-  // sets reachability.fenced, so this is the only coverage of the
-  // setCountFenced → formatFencedCount wiring for the sms leaf.
-  it('renders a fenced sms count with a trailing "+"', async () => {
-    const savedList = { id: 42, name: 'My Super Voters' }
-    mockClientRequest.mockImplementation((route: string) => {
-      if (route === 'GET /v1/contacts/list-detail') {
-        return Promise.resolve({ data: mockTextListDetail(10000, true) })
-      }
-      return Promise.resolve({ data: [savedList] })
-    })
-
-    render(
-      <AudienceStep
-        type="text"
-        audience={{}}
-        onChangeCallback={vi.fn()}
-        nextCallback={vi.fn()}
-        backCallback={vi.fn()}
-        preselectedListId={42}
-      />,
-    )
-
-    await screen.findByText(/Using your saved list/)
-    expect(await screen.findByText('10,000+')).toBeInTheDocument()
-  })
-
   it('blocks Next when a selected saved list has zero sms-eligible members', async () => {
     const savedList = { id: 42, name: 'My Super Voters' }
     mockClientRequest.mockImplementation((route: string) => {
@@ -713,7 +683,7 @@ describe('AudienceStep robocall saved-list selector', () => {
   // raw list size — demographics.people is deliberately larger so a
   // regression back to reading it (instead of reachability.robocall) fails
   // these tests immediately.
-  const mockListDetail = (people: number, robocallFenced = false) => ({
+  const mockListDetail = (people: number) => ({
     demographics: { people: people + 5000, avgAge: null, avgIncome: null },
     reachability: {
       sms: 0,
@@ -721,7 +691,6 @@ describe('AudienceStep robocall saved-list selector', () => {
       phoneBanking: 0,
       doorKnocking: 0,
       polls: 0,
-      ...(robocallFenced ? { fenced: { robocall: true } } : {}),
     },
     outreachHistory: [],
   })
@@ -982,34 +951,6 @@ describe('AudienceStep robocall saved-list selector', () => {
     // pricing off the raw 6,607-member list would show $264.28 instead.
     expect(screen.getByText('$64.28')).toBeInTheDocument()
     expect(onChangeCallback).toHaveBeenCalledWith('voterCount', 1607)
-  })
-
-  // ENG-10799: a second channel's fenced coverage (alongside text's), so a
-  // per-channel indexing bug in the fenced lookup (e.g. always reading
-  // fenced?.sms regardless of the active channel) can't hide behind a
-  // single-channel test.
-  it('renders a fenced robocall count with a trailing "+"', async () => {
-    const savedList = { id: 42, name: 'Big Robocall List' }
-    mockClientRequest.mockImplementation((route: string) => {
-      if (route === 'GET /v1/contacts/list-detail') {
-        return Promise.resolve({ data: mockListDetail(5000, true) })
-      }
-      return Promise.resolve({ data: [savedList] })
-    })
-
-    render(
-      <AudienceStep
-        type="robocall"
-        audience={{}}
-        onChangeCallback={vi.fn()}
-        nextCallback={vi.fn()}
-        backCallback={vi.fn()}
-        preselectedListId={42}
-      />,
-    )
-
-    await screen.findByText(/Using your saved list/)
-    expect(await screen.findByText('5,000+')).toBeInTheDocument()
   })
 
   it('shows the voicemail-adjusted cost for a selected saved list', async () => {
@@ -1690,103 +1631,6 @@ describe('AudienceStep list-size vs eligible-count breakdown', () => {
     await screen.findByText(/Using your saved list/)
     await waitFor(() => expect(screen.getByText('500')).toBeInTheDocument())
     expect(screen.queryByText(/people in this list/)).not.toBeInTheDocument()
-  })
-
-  // Delegate finding: two independently fenced values can coincidentally
-  // equal each other at the shared FENCE_LIMIT cap (both queries hit their
-  // statement-timeout guard and floored) without the true, uncapped
-  // numbers actually matching — e.g. a 15,000-person list where only
-  // 12,000 are SMS-eligible both render "10,000+". Collapsing the
-  // breakdown here would hide that gap entirely.
-  it('still shows the breakdown when both sides are fenced to the same displayed value', async () => {
-    const savedList = { id: 42, name: 'Huge Robocall List' }
-    mockClientRequest.mockImplementation((route: string) => {
-      if (route === 'GET /v1/contacts/list-detail') {
-        return Promise.resolve({
-          data: {
-            demographics: {
-              people: 10000,
-              avgAge: null,
-              avgIncome: null,
-              fenced: true,
-            },
-            reachability: {
-              sms: 0,
-              robocall: 10000,
-              phoneBanking: 0,
-              doorKnocking: 0,
-              polls: 0,
-              fenced: { robocall: true },
-            },
-            outreachHistory: [],
-          },
-        })
-      }
-      return Promise.resolve({ data: [savedList] })
-    })
-
-    render(
-      <AudienceStep
-        type="robocall"
-        audience={{}}
-        onChangeCallback={vi.fn()}
-        nextCallback={vi.fn()}
-        backCallback={vi.fn()}
-        preselectedListId={42}
-      />,
-    )
-
-    await screen.findByText(/Using your saved list/)
-    expect(
-      await screen.findByText(/10,000\+ people in this list/),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(/10,000\+ reachable by robocall/),
-    ).toBeInTheDocument()
-  })
-
-  it('renders a fenced list size with a trailing "+" in the breakdown', async () => {
-    const savedList = { id: 42, name: 'Huge List' }
-    mockClientRequest.mockImplementation((route: string) => {
-      if (route === 'GET /v1/contacts/list-detail') {
-        return Promise.resolve({
-          data: {
-            demographics: {
-              people: 10000,
-              avgAge: null,
-              avgIncome: null,
-              fenced: true,
-            },
-            reachability: {
-              sms: 0,
-              robocall: 3000,
-              phoneBanking: 0,
-              doorKnocking: 0,
-              polls: 0,
-            },
-            outreachHistory: [],
-          },
-        })
-      }
-      return Promise.resolve({ data: [savedList] })
-    })
-
-    render(
-      <AudienceStep
-        type="robocall"
-        audience={{}}
-        onChangeCallback={vi.fn()}
-        nextCallback={vi.fn()}
-        backCallback={vi.fn()}
-        preselectedListId={42}
-      />,
-    )
-
-    await screen.findByText(/Using your saved list/)
-    expect(
-      await screen.findByText(/10,000\+ people in this list/),
-    ).toBeInTheDocument()
-    expect(screen.getByText(/3,000 reachable by robocall/)).toBeInTheDocument()
   })
 
   it('shows the reachable-by-text breakdown for the text flow', async () => {

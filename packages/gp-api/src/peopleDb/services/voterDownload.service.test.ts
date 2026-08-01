@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common'
 import { PassThrough } from 'stream'
+import { gunzipSync } from 'node:zlib'
 import { Pool } from 'pg'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DOWNLOAD_COLUMNS, EXCLUDABLE_VOTER_COLUMNS } from '../voter.select'
@@ -394,7 +395,10 @@ describe('VoterDownloadService', () => {
 
       // pipe.end propagates to raw, which fires `finish` then `close`.
       await completion
-      const out = Buffer.concat(chunks).toString('utf-8')
+      // The stream is gzip-compressed on the wire (Content-Encoding: gzip),
+      // so decompress before asserting on the CSV payload.
+      expect(res.raw.setHeader).toHaveBeenCalledWith('Content-Encoding', 'gzip')
+      const out = gunzipSync(Buffer.concat(chunks)).toString('utf-8')
       expect(out).toContain('id,first_name')
       expect(out).toContain('"abc","Jane"')
     })

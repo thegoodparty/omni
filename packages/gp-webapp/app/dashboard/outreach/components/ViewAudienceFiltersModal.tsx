@@ -16,6 +16,7 @@ const VALID_AUDIENCE_FILTER_KEYS: Set<string> = new Set([
   'party_independent',
   'party_democrat',
   'party_republican',
+  'party_other',
   'age_18_25',
   'age_25_35',
   'age_35_50',

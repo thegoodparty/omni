@@ -8,11 +8,10 @@ const service = useTestService()
 
 const ORG_SLUG_HEADER = 'X-Organization-Slug'
 
-const agg = (count: number, fenced?: boolean): PeopleAggregatesResponse => ({
+const agg = (count: number): PeopleAggregatesResponse => ({
   count,
   avgAge: null,
   avgIncome: null,
-  ...(fenced === undefined ? {} : { fenced }),
 })
 
 // ENG-10798/ENG-10805: GET /v1/contacts/list-detail's reachability block is
@@ -92,31 +91,6 @@ describe('GET /v1/contacts/list-detail reachability', () => {
     )
   })
 
-  it('surfaces each channel fenced flag from its own aggregate', async () => {
-    const slug = await setupOrg('fenced')
-    mockAggregates({
-      base: agg(500, false),
-      cellphone: agg(400, true),
-      landline: agg(300, false),
-      address: agg(200, false),
-    })
-
-    const response = await service.client.get('/v1/contacts/list-detail', {
-      headers: { [ORG_SLUG_HEADER]: slug },
-    })
-
-    expect(response.status).toBe(200)
-    expect(response.data.demographics.fenced).toBe(false)
-    expect(response.data.reachability.fenced).toEqual({
-      sms: true,
-      robocall: false,
-      phoneBanking: false,
-      doorKnocking: false,
-      // Polls mirrors sms's count, so it mirrors sms's fenced-ness too.
-      polls: true,
-    })
-  })
-
   // ENG-10806: the tester's "counts = unavailable" bug — one failed
   // aggregate query used to fail the whole route, flipping every tile to
   // "Unavailable" at once. The four queries now settle independently.
@@ -171,8 +145,8 @@ describe('GET /v1/contacts/list-detail reachability', () => {
   // scans. When base fails, the route can't render anything anyway, so the
   // channel aggregates are NOT fired — during a people-db statement-timeout
   // incident this stops a failing list-detail from launching 3 extra doomed
-  // DistrictVoter->Voter scans (x2 with the fenced retry) that only deepen the
-  // overload. So getAggregates runs exactly once on the base-failure path.
+  // DistrictVoter->Voter scans that only deepen the overload. So getAggregates
+  // runs exactly once on the base-failure path.
   it('does not fire the channel aggregates when the base aggregate fails', async () => {
     const slug = await setupOrg('base-fail-loadshed')
     const spy = vi

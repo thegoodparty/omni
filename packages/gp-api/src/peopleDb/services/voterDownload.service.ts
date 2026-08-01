@@ -9,6 +9,7 @@ import {
 import type { FastifyReply } from 'fastify'
 import { Pool, PoolClient } from 'pg'
 import { CopyToStreamQuery, to as copyTo } from 'pg-copy-streams'
+import { createGzip } from 'node:zlib'
 import { PeopleDbUrlProvider } from '../peopleDbUrl.provider'
 import { DistrictService } from './district.service'
 import { DownloadPeopleDTO } from '../schemas/people.schema'
@@ -181,6 +182,10 @@ export class VoterDownloadService
     // handler below destroys the socket on failure, which is the correct
     // behavior for an in-flight streaming response.
     res.raw.setHeader('Content-Type', 'text/csv')
+    // gzip on the wire: a statewide export is millions of wide rows and CSV
+    // compresses ~8-10x, which is what keeps the transfer under an upstream
+    // idle timeout. The browser decompresses transparently.
+    res.raw.setHeader('Content-Encoding', 'gzip')
     res.raw.setHeader(
       'Content-Disposition',
       `attachment; filename="${responseOptions?.filename ?? 'people.csv'}"`,
@@ -194,6 +199,8 @@ export class VoterDownloadService
       res.raw.flushHeaders()
     }
 
+    const gzip = createGzip()
+
     let released = false
     const release = () => {
       if (released) return
@@ -205,29 +212,32 @@ export class VoterDownloadService
       release()
     })
 
-    copyStream.on('error', (err: Error) => {
-      this.logger.error({ err }, 'COPY stream error')
+    // Any failure in the COPY source or the gzip transform: release the pg
+    // client and tear down both streams + the socket. Headers are already
+    // sent for a streaming response, so we cannot deliver a structured error
+    // (the client sees a truncated response; we have logged the cause).
+    const abort = (err: Error) => {
+      this.logger.error({ err }, 'COPY/gzip stream error')
       release()
+      if (!copyStream.destroyed) copyStream.destroy()
+      if (!gzip.destroyed) gzip.destroy()
       if (!res.raw.headersSent) {
         res.raw.statusCode = 500
       }
-      // Headers have likely already been sent for a streaming response, so we
-      // cannot deliver a structured error. Terminate the underlying socket
-      // without propagating the error event (the client will see a truncated
-      // response and we have logged the cause).
       if (!res.raw.destroyed) {
         res.raw.destroy()
       }
-    })
+    }
+    copyStream.on('error', abort)
+    gzip.on('error', abort)
 
     res.raw.on('close', () => {
-      if (!copyStream.destroyed) {
-        copyStream.destroy()
-      }
+      if (!copyStream.destroyed) copyStream.destroy()
+      if (!gzip.destroyed) gzip.destroy()
       release()
     })
 
-    copyStream.pipe(res.raw)
+    copyStream.pipe(gzip).pipe(res.raw)
 
     // Keep the Nest request alive until the response has fully flushed to the
     // client. Real HTTP responses fire `close` once the socket is done; in
