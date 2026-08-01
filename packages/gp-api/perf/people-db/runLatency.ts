@@ -46,10 +46,16 @@ export const runLatency = async (
         errors.push(err instanceof Error ? err.message : String(err))
       }
     }
-    // When iterations === 1 there is no warm sample; fall back to the cold hit.
-    const warm = summarize(
-      durations.length > 0 ? durations : cold !== null ? [cold] : [],
-    )
+    // When iterations === 1 there is no warm sample; fall back to the cold
+    // hit. With iterations > 1 and every warm run failed, keep the all-zeros
+    // sentinel so warm stats are never silently derived from the cold hit.
+    const warmSamples =
+      durations.length > 0
+        ? durations
+        : c.iterations === 1 && cold !== null
+          ? [cold]
+          : []
+    const warm = summarize(warmSamples)
     results.push({
       id: c.id,
       queryType: c.queryType,

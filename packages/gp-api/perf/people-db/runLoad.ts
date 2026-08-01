@@ -74,7 +74,7 @@ export const runLoad = async (
         p95: summary.p95,
         max: summary.max,
         errorRate: rate,
-        throughputPerSec: wallSec > 0 ? concurrency / wallSec : 0,
+        throughputPerSec: wallSec > 0 ? durations.length / wallSec : 0,
         errors,
       })
       if (concurrency === s.targetConcurrency && rate > s.maxErrorRate) {
