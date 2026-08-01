@@ -5,36 +5,17 @@ import {
 } from './transformToPersonOutput.util'
 import {
   classifyPoliticalParty,
-  POLITICAL_PARTY_RULES,
+  POLITICAL_PARTY_EXACT_VALUES,
   RULED_POLITICAL_PARTIES,
 } from './politicalParty.rules'
 
-// Verbatim copy of the ORIGINAL inline mapPoliticalParty if-chain (pre-shared-
-// table refactor). The refactored classifier must stay byte-for-byte identical
-// to this oracle for every input, so display output cannot drift.
-const legacyMapPoliticalParty = (
-  value: string | null | undefined,
-): string | undefined => {
-  if (!value) return 'Other'
-  const v = value.toLowerCase()
-  if (v.includes('democratic') || v.includes('democrat')) return 'Democratic'
-  if (v.includes('republican')) return 'Republican'
-  if (
-    v.includes('independent') ||
-    v.includes('declined to state') ||
-    v.includes('non-partisan')
-  )
-    return 'Independent'
-  return 'Other'
-}
-
-// Real Parties_Description values (knownValues.utils.ts) plus the substring /
-// precedence edge cases called out in the reconciliation work, plus null/blank.
+// Real Parties_Description values plus edge cases: exact matches, the minor-
+// party / substring tail that now classifies as Other, and null/blank.
 const PARTY_SAMPLE_VALUES: Array<string | null | undefined> = [
   null,
   undefined,
   '',
-  '   ', // whitespace-only is truthy -> falls through to 'Other'
+  '   ',
   'Democratic',
   'Republican',
   'Non-Partisan',
@@ -42,46 +23,35 @@ const PARTY_SAMPLE_VALUES: Array<string | null | undefined> = [
   'American Independent',
   'Registered Independent',
   'Harold Washington Democrat',
-  'Harold Washington Republican',
-  'Social Democrat',
   'Citizens Republican',
   'Independent Democrat',
-  'Independent Republican',
   'Independence',
   'Green',
   'Libertarian',
   'Working Family Party',
-  'Unknown',
-  // Explicit precedence probes (value carrying two competing tokens).
-  'Independent Democratic Coalition',
-  'REPUBLICAN democrat', // uppercase to prove case-insensitivity + precedence
-  'independent republican party',
+  'democratic', // lowercase — exact match is case-sensitive
 ]
 
 describe('mapPoliticalParty', () => {
-  it('is byte-for-byte identical to the legacy classifier for every sample', () => {
-    for (const value of PARTY_SAMPLE_VALUES) {
-      expect(mapPoliticalParty(value)).toBe(legacyMapPoliticalParty(value))
-    }
-  })
-
   it('delegates to the shared classifyPoliticalParty', () => {
     for (const value of PARTY_SAMPLE_VALUES) {
       expect(mapPoliticalParty(value)).toBe(classifyPoliticalParty(value))
     }
   })
 
-  it('classifies via case-insensitive substring with fixed precedence', () => {
-    expect(mapPoliticalParty('Harold Washington Democrat')).toBe('Democratic')
-    expect(mapPoliticalParty('Citizens Republican')).toBe('Republican')
+  it('classifies the exact major-party values', () => {
+    expect(mapPoliticalParty('Democratic')).toBe('Democratic')
+    expect(mapPoliticalParty('Republican')).toBe('Republican')
+    expect(mapPoliticalParty('Non-Partisan')).toBe('Independent')
     expect(mapPoliticalParty('American Independent')).toBe('Independent')
+    expect(mapPoliticalParty('Registered Independent')).toBe('Independent')
     expect(mapPoliticalParty('Declined to State')).toBe('Independent')
-    expect(mapPoliticalParty('Social Democrat')).toBe('Democratic')
-    // Democrat precedes both Republican and Independent.
-    expect(mapPoliticalParty('Independent Democrat')).toBe('Democratic')
-    expect(mapPoliticalParty('REPUBLICAN democrat')).toBe('Democratic')
-    // Republican precedes Independent.
-    expect(mapPoliticalParty('Independent Republican')).toBe('Republican')
+  })
+
+  it('is case- and spelling-exact (so the SQL filter can use the btree)', () => {
+    expect(mapPoliticalParty('democratic')).toBe('Other')
+    expect(mapPoliticalParty('DEMOCRATIC')).toBe('Other')
+    expect(mapPoliticalParty('Non Partisan')).toBe('Other')
   })
 
   it('maps null, undefined and empty string to Other', () => {
@@ -90,15 +60,19 @@ describe('mapPoliticalParty', () => {
     expect(mapPoliticalParty('')).toBe('Other')
   })
 
-  it('maps unrecognized non-empty values to Other', () => {
+  it('maps minor parties and substring near-matches to Other', () => {
     expect(mapPoliticalParty('Green')).toBe('Other')
     expect(mapPoliticalParty('Libertarian')).toBe('Other')
-    expect(mapPoliticalParty('Independence')).toBe('Other') // no 'independent' token
+    expect(mapPoliticalParty('Independence')).toBe('Other')
+    // No longer substring-matched into a major party.
+    expect(mapPoliticalParty('Harold Washington Democrat')).toBe('Other')
+    expect(mapPoliticalParty('Citizens Republican')).toBe('Other')
+    expect(mapPoliticalParty('Independent Democrat')).toBe('Other')
   })
 })
 
 describe('politicalParty.rules table', () => {
-  it('encodes the historical precedence order exactly', () => {
+  it('lists the ruled parties in a stable order', () => {
     expect(RULED_POLITICAL_PARTIES).toEqual([
       'Democratic',
       'Republican',
@@ -106,15 +80,17 @@ describe('politicalParty.rules table', () => {
     ])
   })
 
-  it('encodes the historical substring tokens exactly', () => {
-    expect(POLITICAL_PARTY_RULES).toEqual([
-      { party: 'Democratic', substrings: ['democratic', 'democrat'] },
-      { party: 'Republican', substrings: ['republican'] },
-      {
-        party: 'Independent',
-        substrings: ['independent', 'declined to state', 'non-partisan'],
-      },
-    ])
+  it('encodes the exact-match value sets', () => {
+    expect(POLITICAL_PARTY_EXACT_VALUES).toEqual({
+      Democratic: ['Democratic'],
+      Republican: ['Republican'],
+      Independent: [
+        'Non-Partisan',
+        'American Independent',
+        'Registered Independent',
+        'Declined to State',
+      ],
+    })
   })
 })
 

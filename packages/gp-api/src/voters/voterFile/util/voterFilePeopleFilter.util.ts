@@ -27,6 +27,7 @@ const CUSTOM_FILTER_TO_FIELD: Record<
   party_independent: 'partyIndependent',
   party_democrat: 'partyDemocrat',
   party_republican: 'partyRepublican',
+  party_other: 'partyOther',
   age_18_25: 'age18_25',
   age_25_35: 'age25_35',
   age_35_50: 'age35_50',

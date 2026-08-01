@@ -262,6 +262,7 @@ export class VoterFileFilterService extends createPrismaBase(
       partyIndependent,
       partyDemocrat,
       partyRepublican,
+      partyOther,
       age18_25,
       age25_35,
       age35_50,
@@ -303,6 +304,7 @@ export class VoterFileFilterService extends createPrismaBase(
       ...(partyRepublican === true
         ? { party_republican: partyRepublican }
         : {}),
+      ...(partyOther === true ? { party_other: partyOther } : {}),
       ...(age18_25 === true ? { age_18_25: age18_25 } : {}),
       ...(age25_35 === true ? { age_25_35: age25_35 } : {}),
       ...(age35_50 === true ? { age_35_50: age35_50 } : {}),

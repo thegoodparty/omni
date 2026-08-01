@@ -3,8 +3,9 @@ import { Prisma } from '../../generated/people-prisma'
 import { buildVoterFiltersSql } from './filters.sql.util'
 import { FilterData } from '../schemas/filters.schema'
 import {
+  ALL_KNOWN_PARTY_VALUES,
   classifyPoliticalParty,
-  POLITICAL_PARTY_RULES,
+  POLITICAL_PARTY_EXACT_VALUES,
   RULED_POLITICAL_PARTIES,
 } from './politicalParty.rules'
 
@@ -26,26 +27,18 @@ const partyFilter = (values: string[]): FilterData => ({
 
 // JS reference implementation of the SQL predicate the builder emits, used to
 // prove the FILTER selects exactly the rows the DISPLAY classifier
-// (classifyPoliticalParty) would label with the same party. ILIKE '%token%'
-// <=> value.toLowerCase().includes(token); tokens are already lowercase.
-const ilikeMatch = (value: string | null, token: string): boolean =>
-  value !== null && value.toLowerCase().includes(token)
-
-const matchesRule = (
-  value: string | null,
-  substrings: readonly string[],
-): boolean => substrings.some((token) => ilikeMatch(value, token))
-
+// (classifyPoliticalParty) would label with the same party. `IN (...)` <=>
+// exact membership; 'Other' <=> null OR not in any exact set.
 const selectedByFilter = (value: string | null, party: string): boolean => {
-  if (party === 'Unknown') return value === null || value === ''
-  const index = POLITICAL_PARTY_RULES.findIndex((rule) => rule.party === party)
-  const rule = POLITICAL_PARTY_RULES[index]
-  if (!rule) return false
-  const own = matchesRule(value, rule.substrings)
-  const noHigher = POLITICAL_PARTY_RULES.slice(0, index).every(
-    (higher) => !matchesRule(value, higher.substrings),
+  if (party === 'Other') {
+    return value === null || !ALL_KNOWN_PARTY_VALUES.includes(value)
+  }
+  const ruled = RULED_POLITICAL_PARTIES.find((p) => p === party)
+  if (!ruled) return false
+  return (
+    value !== null &&
+    POLITICAL_PARTY_EXACT_VALUES[ruled].some((known) => known === value)
   )
-  return own && noHigher
 }
 
 describe('buildVoterFiltersSql', () => {
@@ -323,53 +316,46 @@ describe('buildVoterFiltersSql', () => {
   })
 
   describe('politicalParty filter (reconciled with display classifier)', () => {
-    it('matches Democratic via case-insensitive substrings (not exact equality)', () => {
+    it('matches Democratic via an exact-value IN, not ILIKE', () => {
       const result = buildVoterFiltersSql(partyFilter(['Democratic']))
       const sqlStr = sqlToString(result)
 
       expect(sqlStr).toContain('Parties_Description')
-      expect(sqlStr).toContain('ILIKE')
-      // Highest precedence: no exclusion of any other party.
+      expect(sqlStr).toContain('IN (')
+      expect(sqlStr).not.toContain('ILIKE')
       expect(sqlStr).not.toContain('NOT')
-      expect(flatValues(result)).toEqual(['%democratic%', '%democrat%'])
+      expect(flatValues(result)).toEqual(['Democratic'])
     })
 
-    it('excludes higher-precedence parties when matching Republican', () => {
+    it('matches Republican with no precedence exclusions', () => {
       const result = buildVoterFiltersSql(partyFilter(['Republican']))
       const sqlStr = sqlToString(result)
 
-      expect(sqlStr).toContain('ILIKE')
-      // Republican rows must NOT also match the Democratic rule.
-      expect(sqlStr).toContain('NOT')
-      expect(flatValues(result)).toEqual([
-        '%republican%',
-        '%democratic%',
-        '%democrat%',
-      ])
+      expect(sqlStr).toContain('IN (')
+      expect(sqlStr).not.toContain('NOT')
+      expect(flatValues(result)).toEqual(['Republican'])
     })
 
-    it('excludes both Democratic and Republican when matching Independent', () => {
+    it('matches every exact Independent value', () => {
       const result = buildVoterFiltersSql(partyFilter(['Independent']))
 
       expect(flatValues(result)).toEqual([
-        '%independent%',
-        '%declined to state%',
-        '%non-partisan%',
-        // higher precedence exclusions, in order
-        '%democratic%',
-        '%democrat%',
-        '%republican%',
+        'Non-Partisan',
+        'American Independent',
+        'Registered Independent',
+        'Declined to State',
       ])
     })
 
-    it('maps Unknown to (IS NULL OR blank), never a literal string match', () => {
-      const result = buildVoterFiltersSql(partyFilter(['Unknown']))
+    it('maps Other to (IS NULL OR NOT IN <known values>)', () => {
+      const result = buildVoterFiltersSql(partyFilter(['Other']))
       const sqlStr = sqlToString(result)
 
       expect(sqlStr).toContain('Parties_Description')
       expect(sqlStr).toContain('IS NULL')
-      expect(sqlStr).toContain("= ''")
-      expect(flatValues(result)).not.toContain('Unknown')
+      expect(sqlStr).toContain('NOT IN (')
+      // The negation binds every known ruled-party value.
+      expect(flatValues(result)).toEqual([...ALL_KNOWN_PARTY_VALUES])
     })
 
     it('ORs per-party predicates together for a multi-select', () => {
@@ -378,29 +364,20 @@ describe('buildVoterFiltersSql', () => {
       )
       const sqlStr = sqlToString(result)
 
+      // Two single-value IN predicates joined by one OR.
       const orCount = (sqlStr.match(/ OR /g) || []).length
-      // Democratic (1 internal OR) + Republican (1 internal OR) + 1 joining OR.
-      expect(orCount).toBe(3)
-      expect(flatValues(result)).toEqual([
-        '%democratic%',
-        '%democrat%',
-        '%republican%',
-        '%democratic%',
-        '%democrat%',
-      ])
+      expect(orCount).toBe(1)
+      expect(flatValues(result)).toEqual(['Democratic', 'Republican'])
     })
 
-    it('combines a party selection with Unknown (party predicate OR null/blank)', () => {
-      const result = buildVoterFiltersSql(
-        partyFilter(['Independent', 'Unknown']),
-      )
+    it('combines a party selection with Other (IN OR null/not-in)', () => {
+      const result = buildVoterFiltersSql(partyFilter(['Independent', 'Other']))
       const sqlStr = sqlToString(result)
 
-      expect(sqlStr).toContain('ILIKE')
+      expect(sqlStr).toContain('IN (')
       expect(sqlStr).toContain('IS NULL')
-      expect(sqlStr).toContain("= ''")
-      expect(flatValues(result)).toContain('%independent%')
-      expect(flatValues(result)).not.toContain('Non-Partisan')
+      expect(sqlStr).toContain('NOT IN (')
+      expect(flatValues(result)).toContain('Non-Partisan')
     })
 
     it('supports the eq operator', () => {
@@ -412,28 +389,23 @@ describe('buildVoterFiltersSql', () => {
         },
       })
 
-      expect(sqlToString(result)).toContain('ILIKE')
-      expect(flatValues(result)).toEqual([
-        '%republican%',
-        '%democratic%',
-        '%democrat%',
-      ])
+      expect(sqlToString(result)).toContain('IN (')
+      expect(flatValues(result)).toEqual(['Republican'])
     })
 
     it('uses only parameterized values — no user input interpolated into SQL', () => {
       const result = buildVoterFiltersSql(partyFilter(['Democratic']))
-      // Every dynamic token is a bound `%rule%` param; the static SQL text
-      // carries no party names.
-      expect(sqlToString(result)).not.toContain('democrat')
+      // The exact value is a bound param; the static SQL text carries no
+      // party names.
+      expect(sqlToString(result)).not.toContain('Democratic')
       for (const value of flatValues(result)) {
         expect(typeof value).toBe('string')
-        expect(String(value).startsWith('%')).toBe(true)
       }
     })
 
     // The core correctness guarantee: for every real Parties_Description value,
     // the filter selects a row for party P iff the display classifier labels it
-    // P. Emulates the emitted ILIKE/precedence SQL (see selectedByFilter).
+    // P. Emulates the emitted exact-match SQL (see selectedByFilter).
     describe('filter selection agrees with display classification', () => {
       const DB_VALUES: Array<string | null> = [
         null,
@@ -445,17 +417,12 @@ describe('buildVoterFiltersSql', () => {
         'American Independent',
         'Registered Independent',
         'Harold Washington Democrat',
-        'Harold Washington Republican',
-        'Social Democrat',
         'Citizens Republican',
         'Independent Democrat',
-        'Independent Republican',
         'Independence',
         'Green',
         'Libertarian',
         'Working Family Party',
-        'Independent Democratic Coalition',
-        'REPUBLICAN democrat',
       ]
 
       for (const party of RULED_POLITICAL_PARTIES) {
@@ -467,23 +434,19 @@ describe('buildVoterFiltersSql', () => {
         })
       }
 
-      it('Unknown selects exactly the null/blank rows (subset of display Other)', () => {
+      it('Other selects exactly the rows that display as Other', () => {
         for (const value of DB_VALUES) {
-          const expected = value === null || value === ''
-          expect(selectedByFilter(value, 'Unknown')).toBe(expected)
-          if (expected) {
-            expect(classifyPoliticalParty(value)).toBe('Other')
-          }
+          const displayed = classifyPoliticalParty(value) === 'Other'
+          expect(selectedByFilter(value, 'Other')).toBe(displayed)
         }
       })
 
-      it('assigns each non-null value to at most one ruled party (precedence is exclusive)', () => {
+      it('assigns each value to exactly one canonical bucket', () => {
         for (const value of DB_VALUES) {
-          if (value === null) continue
-          const hits = RULED_POLITICAL_PARTIES.filter((party) =>
+          const hits = [...RULED_POLITICAL_PARTIES, 'Other'].filter((party) =>
             selectedByFilter(value, party),
           )
-          expect(hits.length).toBeLessThanOrEqual(1)
+          expect(hits.length).toBe(1)
         }
       })
     })

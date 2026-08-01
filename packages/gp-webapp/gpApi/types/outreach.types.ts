@@ -53,7 +53,7 @@ export interface VoterFileFilterInOutreach {
   partyIndependent: boolean | null
   partyDemocrat: boolean | null
   partyRepublican: boolean | null
-  partyUnknown: boolean | null
+  partyOther: boolean | null
   age18_25: boolean | null
   age25_35: boolean | null
   age35_50: boolean | null
