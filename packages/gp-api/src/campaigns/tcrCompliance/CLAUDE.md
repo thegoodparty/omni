@@ -12,20 +12,20 @@ Frontend counterpart (the pre-payment wizard that calls these endpoints):
 ## Two callers, same endpoints (the Phase 1 contract)
 
 Both the candidate-facing **Pro upgrade wizard** and the **`compliance_setup` agent**
-(running in gp-ai-projects, reaching gp-api through the broker) hit the *same* routes —
+(running in gp-ai-projects, reaching gp-api through the broker) hit the _same_ routes —
 there are no agent-only endpoints. The `@McpTool`-decorated methods are what the agent
 calls; the wizard calls the same controller methods over HTTP.
 
-| Route | Method | Caller(s) | Purpose |
-|-------|--------|-----------|---------|
-| `POST /campaigns/tcr-compliance/agentic` | `createAgentic` | Wizard (filing-details step) | Persist EIN + committee + filing details, create the `TcrCompliance` row, and **conditionally** dispatch the agent. Address one-of: a Google-resolved `placeId`+`formattedAddress` pair (persisted onto the campaign) or a structured `manualAddress` (persisted onto the record's `filing_address_*` columns with a composed `postalAddress`; the campaign address is left untouched). |
-| `GET /campaigns/tcr-compliance/mine/compliance-state` | `findStateForCampaign` (`@McpTool`) | Agent | Canonical pipeline state across Campaign/Website/Domain/TcrCompliance. Agent calls this first each run to decide which steps to skip. |
-| `POST /campaigns/tcr-compliance/submit-to-peerly` | `submitToPeerlyForAgent` (`@McpTool`) | Agent | Submit the registration to Peerly (Identity → Profile → 10DLC Brand → CV Request). Stage-gated on `awaiting_pin`. |
-| `POST /campaigns/tcr-compliance` | `create` | Legacy non-agentic | Synchronous full Peerly submission (older flow). |
-| `POST /campaigns/tcr-compliance/:id/submit-cv-pin` | — | Wizard / agent | PIN entry → CV token → approve 10DLC brand. |
-| `GET /campaigns/tcr-compliance/admin/:campaignId/compliance-state` | `getComplianceStateForCampaign` | gp-admin (M2M) | Same payload as `mine/compliance-state` for any campaign (`AdminOrM2MGuard`). Backs the user-page 10DLC status/PIN widget. |
-| `POST /campaigns/tcr-compliance/admin/:campaignId/resend-cv-pin` | `resendCampaignVerifyPinForCampaign` | gp-admin (M2M) | Staff-triggered CV PIN resend (Peerly `resend_pin`, ENG-10689). Gated on the **live** CV status being `APPROVED`: 409 once `VERIFIED` (PIN already consumed), 422 before a PIN was issued or before any Peerly identity exists. Non-prod short-circuits to success without calling Peerly. Returns 204. Every accepted resend (incl. the non-prod bypass) fires the `CompliancePinResent` Segment event (`triggered_by: 'admin'`) so HubSpot can surface staff resend activity; failures fire nothing. |
-| `POST` / `DELETE /campaigns/tcr-compliance/admin/:campaignId/internal-testing-approval` | `grantInternalTestingApproval` / `revokeInternalTestingApproval` | gp-admin (M2M) | Staff checkbox "treat as 10DLC approved (internal testing)". Grant creates a `TcrCompliance` row with `status: approved` + `internalTestingApprovedAt` and placeholder business fields — **no Peerly identity is ever minted**, so every UI gate passes while the P2P send gate (`requirePeerlyIdentityId`) keeps real sends blocked with a testing-specific 400. Works in all envs, prod included. Only for campaign owners with `@goodparty.org` / `@test.goodparty.org` emails (400 otherwise, enforced server-side); grant 409s if a real compliance row exists, revoke 409s rather than delete one, and both are idempotent. `deriveComplianceStage` short-circuits marker rows to `tcr_approved` (no domain/website footprint). Sweeps ignore marker rows (no `submitted`/`pending` status, no Peerly identity). Returns 204. |
+| Route                                                                                   | Method                                                           | Caller(s)                    | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /campaigns/tcr-compliance/agentic`                                                | `createAgentic`                                                  | Wizard (filing-details step) | Persist EIN + committee + filing details, create the `TcrCompliance` row, and **conditionally** dispatch the agent. Address one-of: a Google-resolved `placeId`+`formattedAddress` pair (persisted onto the campaign) or a structured `manualAddress` (persisted onto the record's `filing_address_*` columns with a composed `postalAddress`; the campaign address is left untouched).                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `GET /campaigns/tcr-compliance/mine/compliance-state`                                   | `findStateForCampaign` (`@McpTool`)                              | Agent                        | Canonical pipeline state across Campaign/Website/Domain/TcrCompliance. Agent calls this first each run to decide which steps to skip.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `POST /campaigns/tcr-compliance/submit-to-peerly`                                       | `submitToPeerlyForAgent` (`@McpTool`)                            | Agent                        | Submit the registration to Peerly (Identity → Profile → 10DLC Brand → CV Request). Stage-gated on `awaiting_pin`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `POST /campaigns/tcr-compliance`                                                        | `create`                                                         | Legacy non-agentic           | Synchronous full Peerly submission (older flow).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `POST /campaigns/tcr-compliance/:id/submit-cv-pin`                                      | —                                                                | Wizard / agent               | PIN entry → CV token → approve 10DLC brand.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `GET /campaigns/tcr-compliance/admin/:campaignId/compliance-state`                      | `getComplianceStateForCampaign`                                  | gp-admin (M2M)               | Same payload as `mine/compliance-state` for any campaign (`AdminOrM2MGuard`). Backs the user-page 10DLC status/PIN widget.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `POST /campaigns/tcr-compliance/admin/:campaignId/resend-cv-pin`                        | `resendCampaignVerifyPinForCampaign`                             | gp-admin (M2M)               | Staff-triggered CV PIN resend (Peerly `resend_pin`, ENG-10689). Gated on the **live** CV status being `APPROVED`: 409 once `VERIFIED` (PIN already consumed), 422 before a PIN was issued or before any Peerly identity exists. Non-prod short-circuits to success without calling Peerly. Returns 204. Every accepted resend (incl. the non-prod bypass) fires the `CompliancePinResent` Segment event (`triggered_by: 'admin'`) so HubSpot can surface staff resend activity; failures fire nothing.                                                                                                                                                                                                                                                                                                                              |
+| `POST` / `DELETE /campaigns/tcr-compliance/admin/:campaignId/internal-testing-approval` | `grantInternalTestingApproval` / `revokeInternalTestingApproval` | gp-admin (M2M)               | Staff checkbox "treat as 10DLC approved (internal testing)". Grant creates a `TcrCompliance` row with `status: approved` + `internalTestingApprovedAt` and placeholder business fields — **no Peerly identity is ever minted**, so every UI gate passes while the P2P send gate (`requirePeerlyIdentityId`) keeps real sends blocked with a testing-specific 400. Works in all envs, prod included. Only for campaign owners with `@goodparty.org` / `@test.goodparty.org` emails (400 otherwise, enforced server-side); grant 409s if a real compliance row exists, revoke 409s rather than delete one, and both are idempotent. `deriveComplianceStage` short-circuits marker rows to `tcr_approved` (no domain/website footprint). Sweeps ignore marker rows (no `submitted`/`pending` status, no Peerly identity). Returns 204. |
 
 ## The key correctness change: dispatch decoupled from submission
 
@@ -43,12 +43,48 @@ on submit would provision a domain + website for an unpaid candidate. The fix:
 
 So: **`isPro` is the dispatch gate.** Don't move dispatch back onto submit.
 
+## Existing-Pro users: profile-before-dispatch (ENG-10856)
+
+Candidates who were Pro **before** the wizard shipped never walk its
+pre-payment EIN/candidate-profile steps. They start 10DLC from the standalone
+election-filing form, and because their campaign is already Pro,
+`createAgentic` dispatches the agent **inline** — which used to burn a ~$1
+run that failed terminally at `publish_website` (`profile_incomplete`, no
+genuine bio/issues) and strand the record (nothing retries once
+`kickoffSentAt` is stamped; three manual prod-repair batches in July 2026).
+The class is closed at three layers:
+
+1. **Frontend collects (happy path).** The election-filing form renders the
+   shared candidate-profile fields inline when the profile is incomplete and
+   persists them before calling `createAgentic`; a dashboard banner
+   (`TextingSetupBanner`, in both dashboard homes) prompts Pro candidates who
+   never started. Detail:
+   `packages/gp-webapp/app/dashboard/pro-upgrade/CLAUDE.md` § Existing-Pro
+   users.
+2. **Dispatch gate (the invariant).** Every producer path refuses to launch
+   a run for a profile that can't pass the publish gate — see the profile
+   dispatch gate under "Idempotent dispatch" below. Deferral state is
+   `kickoffSentAt IS NULL` with status `submitted` (never `error`); anything
+   that goes wrong while _evaluating_ the gate also defers rather than
+   erroring, or the record would leave the sweep's candidate set.
+3. **Self-heal + visibility.** The stranded-kickoff sweep re-applies the
+   gate per record every cycle, so authoring a genuine bio + policy issue
+   (via election-filing or campaign-story) dispatches automatically with no
+   staff action; the kickoff consumer re-checks first-pass records as
+   defense-in-depth; deferred records >24h old surface in the nightly
+   report's "Dispatch deferred" nudge section.
+
+Repairing a pre-ENG-10856 stuck record is now just
+`UPDATE tcr_compliance SET kickoff_sent_at = NULL` — the gate holds it
+deferred until the candidate authors content, then the sweep dispatches. No
+more hand-authoring website content in prod.
+
 ## Idempotent dispatch (don't double-launch the agent)
 
 `claimAndEnqueueKickoff(record, clerkUserId)` is the single source of the kickoff SQS
 message shape, shared by `createAgentic` (already-Pro) and the webhook. Its idempotency
 guard is an **atomic claim on `TcrCompliance.kickoffSentAt`**
-(`updateMany WHERE kickoffSentAt IS NULL`) *before* the SQS send. A webhook replay or a
+(`updateMany WHERE kickoffSentAt IS NULL`) _before_ the SQS send. A webhook replay or a
 submit→pay→resubmit race finds it already set and short-circuits → agent dispatched
 exactly once. On send failure the rollback is **scoped to the exact claim timestamp** so
 a concurrent re-claimant's live claim isn't cleared, and `kickoffSentAt` returns to null
@@ -90,7 +126,7 @@ order it:
    while the manual components were entered for this registration
    (`peerlyIdentity.service.ts` `resolveFilingAddress`).
 3. **`ensureCompliancePublishableWebsite`** (`websites.service.ts`) — the agent buys a
-   domain and publishes the site but can't *create* one or author missing copy.
+   domain and publishes the site but can't _create_ one or author missing copy.
    Legacy-Pro candidates skip the wizard's profile step, so guarantee a publishable site
    before dispatch.
 4. **Profile re-check (defense behind the producer gate).** After the
@@ -103,7 +139,7 @@ order it:
    any path that skips it.
 5. **Atomic dispatch claim** on `agenticRunId IS NULL` (+ TTL on
    `agenticDispatchAttemptedAt`) → `experimentRunsService.dispatchRun({ type:
-   'compliance_setup', ... })`. Stamps `agenticRunId` scoped to the claim timestamp.
+'compliance_setup', ... })`. Stamps `agenticRunId` scoped to the claim timestamp.
 
 **FAILED and SUPERSEDED runs stay re-dispatchable** — the idempotency skip path
 intentionally excludes both (a re-claim clears `agenticRunId` and re-dispatches with
@@ -111,17 +147,17 @@ intentionally excludes both (a re-claim clears `agenticRunId` and re-dispatches 
 skip set. `SUPERSEDED` matters because `agenticRunId` is never repointed to the resume
 successor, so it keeps pointing at the superseded predecessor; if that successor later
 `FAILED`, the record would strand here unless `SUPERSEDED` can fall through to the
-retake. `AWAITING_RESUME` *is* in the skip set — the resume sweep owns those, so the
+retake. `AWAITING_RESUME` _is_ in the skip set — the resume sweep owns those, so the
 kickoff path must not race it.
 
 ## Background sweeps (`@Interval`)
 
-| Sweep | What it heals |
-|-------|---------------|
-| `sweepStrandedAgenticKickoffs` | Records `submitted` + no Peerly identity + `kickoffSentAt` null past staleness — re-enqueues the kickoff. **Only sweeps `campaign.isPro` records** so the agent never runs before payment. Applies the profile dispatch gate per record (`wouldBePublishableAfterFallbacks`, website content fetched per candidate): profile-incomplete records are skipped every cycle at no cost — this is the deferral self-heal loop. |
-| `sweepUnsubmittedUsecases` | Records whose Peerly Campaign Verify is `VERIFIED` but whose POLITICAL usecase was never submitted (the in-app approve threw) — submits the usecase so the identity doesn't strand "loading". **Acts only on `VERIFIED`, never `APPROVED`** — `APPROVED` can precede the candidate's PIN entry, so advancing it would skip them past the PIN screen. |
+| Sweep                                   | What it heals                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sweepStrandedAgenticKickoffs`          | Records `submitted` + no Peerly identity + `kickoffSentAt` null past staleness — re-enqueues the kickoff. **Only sweeps `campaign.isPro` records** so the agent never runs before payment. Applies the profile dispatch gate per record (`wouldBePublishableAfterFallbacks`, website content fetched per candidate): profile-incomplete records are skipped every cycle at no cost — this is the deferral self-heal loop.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `sweepUnsubmittedUsecases`              | Records whose Peerly Campaign Verify is `VERIFIED` but whose POLITICAL usecase was never submitted (the in-app approve threw) — submits the usecase so the identity doesn't strand "loading". **Acts only on `VERIFIED`, never `APPROVED`** — `APPROVED` can precede the candidate's PIN entry, so advancing it would skip them past the PIN screen.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `sweepPinDeliveryDetection` (ENG-10658) | Records `submitted`/`pending`/`approved` + Peerly identity + no `pinDeliveryMethod` yet — reads the enriched `retrieve_cv` and, **only when the live CV status is `APPROVED` or `VERIFIED`** (Peerly echoes back the `verification_method`/`filing_email` we submit from day one, so method presence alone is not proof a PIN went out — ENG-10785 false-nudge bug), records the channel + destination Peerly sent the PIN to on the record, fires the `CompliancePinSent` Segment event **once** (carrying `pin_delivery_method`, `pin_delivery_destination`, and `pin_sent_at` — the destination was originally withheld as PII but is synced since PR #777 so the nudge can name the exact inbox, e.g. a treasurer's contact from the state filing), then runs the CRM company sync so the `n10_dlc_pin_*` company properties are stamped directly by gp-api — the Segment→HubSpot event-property path silently drops properties missing from the destination's mapping, so the company sync is the guaranteed carrier and the event is only the workflow trigger. Candidate-facing reads still mask the destination. The same `retrieve_cv` read also detects a CV that flipped to `REJECTED` — or `WITHDRAWN`, which maps to the same terminal `rejected` status since `TcrComplianceStatus` has no withdrawn value — after submission: the sweep persists `status = rejected` via an atomic transition claim (removing the record from the sweep set, which would otherwise poll it forever) and fires the `ComplianceRejected` Segment event once (`rejection_source: cv_status_check`); the synchronous twin fires from `submitToPeerlyForAgent` when CV rejects at submit (`cv_submit`, via `PeerlyCvRejectionException`, which also stamps `status = rejected` in the rollback transaction). The `pinDeliveryMethod IS NULL` filter shrinks the set as PINs are detected (not a growing bulk loop). Once-only via an atomic `pinSentDetectedAt IS NULL` claim; if the event fire fails the claim is rolled back (scoped to its timestamp, and the rollback is itself try/caught so its failure can't mask the original error) so the next sweep retries. **Includes `pending` + `approved`** (not just `submitted`) because the in-app PIN entry / VERIFIED usecase sweep advance a record to `pending` then `approved` the moment the candidate acts — which can beat the hourly sweep — and pre-existing records were already `pending`/`approved` when this shipped; all three states imply the PIN went out, so this never fires for a never-sent record (`rejected`/`error` are failure states, excluded). |
-| `bootstrapTcrComplianceCheck` | Re-queues `pending` records for status checking. |
+| `bootstrapTcrComplianceCheck`           | Re-queues `pending` records for status checking.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 ## Nightly 10DLC health report (ENG-10667)
 
@@ -141,7 +177,7 @@ single-class `sweepStuckPeerlySubmissions` hourly digest (and its
   post fails (SlackService swallows errors and resolves `undefined`), so SQS
   redelivers rather than silently skipping a night.
 - **Always posts** — a zero-stuck night gets an explicit ✅ all-clear with
-  in-flight pipeline counts, so a *missing* report is itself a signal.
+  in-flight pipeline counts, so a _missing_ report is itself a signal.
 - **Peerly poll runs first (ENG-10793).** Before any section query,
   `handleNightlyReport` fetches every Pro/non-internal record with a Peerly
   identity in `submitted`/`pending` and polls its live state, so the sections
@@ -158,7 +194,7 @@ single-class `sweepStuckPeerlySubmissions` hourly digest (and its
     `sweepPinDeliveryDetection`. Each record's poll is wrapped individually —
     a thrown Peerly error logs + skips that record (keeping its stored
     values) without stopping the rest of the poll or the report post. A
-    genuine null return (no CV request exists) *is* persisted.
+    genuine null return (no CV request exists) _is_ persisted.
 - **A "Dispatch deferred" nudge section (ENG-10859):** `submitted` + no
   identity + `kickoffSentAt` null + >24h old + profile-incomplete (the
   publishability filter runs in code — content lives on the website
@@ -183,8 +219,8 @@ single-class `sweepStuckPeerlySubmissions` hourly digest (and its
   out records still mid-PIN-flow; the floor sits under 24h because `now` is
   captured before the poll stamps the column), the two vendor-escalation
   mirror sections (ENG-10796 cases 2 and 3b — see below), and an awaiting-PIN
-  >7d nudge section that is reported but not counted as stuck. Sections cap
-  at 25 rows with an explicit `…and N more`.
+  > 7d nudge section that is reported but not counted as stuck. Sections cap
+  > at 25 rows with an explicit `…and N more`.
 
 ### Vendor escalation into the shared Peerly channel (ENG-10796)
 
@@ -208,16 +244,16 @@ code.
 
 **Once-only per stall**, mirroring the `pinSentDetectedAt` claim/rollback
 pattern: an atomic `updateMany WHERE cvInReviewEscalatedAt IS NULL` (resp.
-`finalizeStalledEscalatedAt`) claims the record *before* the Slack post; only
+`finalizeStalledEscalatedAt`) claims the record _before_ the Slack post; only
 a claim count of 1 posts. `SlackService.message` swallows delivery errors
 and resolves `undefined` — a failed post rolls the claim back (scoped to the
 exact timestamp written) so the next nightly run retries. Escalation runs
-*after* the internal report posts, so a first-night detection can render as
+_after_ the internal report posts, so a first-night detection can render as
 "escalation pending" in the mirror section before the claim lands.
 
 **Reset on progress:** the same poll write (`pollRecordStatus`) that
 advances `peerlyCvStatus`/`peerlyProfileStatus` also clears the matching
-escalation column, but only when the *previous* stored value was the
+escalation column, but only when the _previous_ stored value was the
 escalatable one (`IN_REVIEW` / `waiting_to_finalize`) — i.e. only when the
 record is actually leaving that state. A later re-stall is a new incident
 and re-escalates.
@@ -296,8 +332,8 @@ header's stuck total.
   `addNonFederalFecFilingUrlIssue`) any `fec.gov`-hosted URL for **non-federal**
   records — CampaignVerify rejects those outright with
   `"FEC filing URLs are not allowed."` (federal is the opposite: the create schema
-  *requires* an FEC.gov link). The **submit**
-  path no longer has a request DTO, so it re-applies those same guards to the *persisted*
+  _requires_ an FEC.gov link). The **submit**
+  path no longer has a request DTO, so it re-applies those same guards to the _persisted_
   `filingUrl` at submit time via `submitToPeerlyFilingSchema`
   (`submitToPeerlyDto.schema.ts`) — which takes the persisted `officeLevel` for the
   non-federal FEC check — plus an own-site check against the registered domain
@@ -311,13 +347,13 @@ header's stuck total.
   closed alongside: `getUrlProtocol` matches any scheme (so `ftp://goodparty.org/x`
   is not re-prefixed into `https://ftp://…`, which would parse host `ftp`), and
   `urlHasCredentials` rejects any URL with userinfo (so `https://goodparty.org@sos.gov`
-  can't hide the guarded host before an `@`). The filing-URL *instructions*
+  can't hide the guarded host before an `@`). The filing-URL _instructions_
   Peerly asked about (`filing_url_instructions` in `peerlyIdentity.service.ts`) are a
   separate, still-sent field — the mismatch was the URL value, not the instructions.
 
 ## Peerly 10DLC finalization — always token-backed
 
-The PIN flow ends by *finalizing* the 10DLC brand so it reaches the carrier (MNO)
+The PIN flow ends by _finalizing_ the 10DLC brand so it reaches the carrier (MNO)
 review queue. The one invariant that matters: **a brand must never be finalized
 without a submitted Campaign Verify (CV) token.** A token-less finalization strands
 the identity in Peerly's MNO queue and they have to clear it out by hand.
@@ -342,7 +378,7 @@ the original ENG-7508 bug (the old sweep finalized brands with `campaign_verify_
 ''`). Do not reintroduce an empty-token default.
 
 **Never call `GET /finalize` directly on a brand** (e.g. during manual recovery)
-unless you have *just* attached a token via `/approve`/`/submit` — a bare finalize is
+unless you have _just_ attached a token via `/approve`/`/submit` — a bare finalize is
 exactly the token-less finalization that pages Peerly. `verification_status: VERIFIED`
 alone does **not** mean the brand has the token; the brand can sit at
 `waiting_to_finalize` from an old empty-token `/approve` with no token attached.
@@ -370,7 +406,7 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
   `deriveComplianceStage` still returns `awaiting_pin` from the DB `status` alone (a
   `submitted` record with a live site) — that stage value is unchanged because
   `submitToPeerlyForAgent`'s gate depends on it. What changed is that
-  `findStateForCampaign` now also resolves the *live* CV status into
+  `findStateForCampaign` now also resolves the _live_ CV status into
   `ComplianceStateOutput.peerlyCvStatus`, and only at the `awaiting_pin` stage (so the
   extra Peerly `retrieve_cv` read stays off the other stages the agent polls). The FE
   (`ProUpgrade3Compliance.tsx`) shows the PIN-entry box only when `peerlyCvStatus` is
@@ -400,7 +436,7 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
   a bypass token — so testers can walk the flow without a real Peerly PIN. Status
   advancement guards on this so a non-prod record isn't promoted for a usecase that
   doesn't exist.
-- **Process-crash gap:** a crash *between* the `kickoffSentAt` claim and the SQS send
+- **Process-crash gap:** a crash _between_ the `kickoffSentAt` claim and the SQS send
   leaves `kickoffSentAt` set with no message sent (not swept) — same narrow risk profile
   as the other claim patterns; accepted.
 - This is a sub-feature dir wired into `CampaignsModule`, not its own Nest module (see
