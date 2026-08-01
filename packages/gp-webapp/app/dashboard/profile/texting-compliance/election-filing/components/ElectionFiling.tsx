@@ -82,17 +82,11 @@ export default function ElectionFiling(): React.JSX.Element {
         // Persist the profile before createAgentic: for already-Pro campaigns
         // that call dispatches the compliance agent inline, and a run kicked
         // off without a genuine bio/issues fails terminally
-        // (profile_incomplete). The hook surfaces its own errors (validation
-        // alert / snackbar) and resolves false, which blocks the filing
-        // submit.
+        // (profile_incomplete). Validation already passed (the form gates
+        // submission on onValidateExtra), so a false here is a save failure —
+        // the hook shows its snackbar, and the filing is blocked.
         const profileSaved = await profileForm.handleSubmit()
         if (!profileSaved) {
-          if (profileForm.bioError || profileForm.prioritiesError) {
-            // The validation alert renders at the top of the profile section,
-            // likely above the fold when the user submits from the bottom of
-            // the registration form.
-            window.scrollTo({ top: 0, behavior: 'smooth' })
-          }
           return
         }
         // The profile is persisted; hide the section so a retry after a
@@ -146,32 +140,65 @@ export default function ElectionFiling(): React.JSX.Element {
 
         <div className="mt-10">
           {ready ? (
-            <>
-              {needsProfile && (
-                <div className="mb-10">
-                  <h2 className="text-lg font-medium">
-                    Tell voters about yourself
-                  </h2>
-                  <p className="mt-1 mb-6 text-sm text-muted-foreground">
-                    We need your candidate profile to register your campaign for
-                    texting. Please be as descriptive as possible to ensure your
-                    registration is approved.
-                  </p>
-                  <CandidateProfileFields form={profileForm} />
-                </div>
-              )}
-              <FormDataProvider
-                initialState={getInitialFormState(campaign)}
-                validator={validateAgenticForm}
-              >
-                <TextingComplianceRegistrationForm
-                  onSubmit={handleFormSubmit}
-                  loading={loading}
-                  hasSubmissionError={hasSubmissionError}
-                  requireWebsite={false}
-                />
-              </FormDataProvider>
-            </>
+            <FormDataProvider
+              initialState={getInitialFormState(campaign)}
+              validator={validateAgenticForm}
+            >
+              <TextingComplianceRegistrationForm
+                onSubmit={handleFormSubmit}
+                loading={loading}
+                hasSubmissionError={hasSubmissionError}
+                requireWebsite={false}
+                // The profile section rides inside the form so the combined
+                // validation alert stays at the very top of the page, above
+                // it. Its errors join that alert via extraErrors (the
+                // section's own alert is suppressed) and block submission via
+                // onValidateExtra.
+                topSection={
+                  needsProfile ? (
+                    <div className="mb-4">
+                      <h2 className="text-lg font-medium">
+                        Tell voters about yourself
+                      </h2>
+                      <p className="mt-1 mb-6 text-sm text-muted-foreground">
+                        We need your candidate profile to register your campaign
+                        for texting. Please be as descriptive as possible to
+                        ensure your registration is approved.
+                      </p>
+                      <CandidateProfileFields
+                        form={profileForm}
+                        hideValidationAlert
+                      />
+                    </div>
+                  ) : undefined
+                }
+                onValidateExtra={
+                  needsProfile ? profileForm.validate : undefined
+                }
+                extraErrors={
+                  needsProfile
+                    ? [
+                        ...(profileForm.bioError
+                          ? [
+                              {
+                                label: 'Your why',
+                                message: profileForm.bioError,
+                              },
+                            ]
+                          : []),
+                        ...(profileForm.prioritiesError
+                          ? [
+                              {
+                                label: 'Your policy priorities',
+                                message: profileForm.prioritiesError,
+                              },
+                            ]
+                          : []),
+                      ]
+                    : []
+                }
+              />
+            </FormDataProvider>
           ) : (
             <div className="text-sm text-muted-foreground">Loading…</div>
           )}

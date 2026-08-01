@@ -355,3 +355,82 @@ describe('TextingComplianceRegistrationForm — submit behavior', () => {
     expect(onSubmit).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('TextingComplianceRegistrationForm — composed section (ENG-10857)', () => {
+  const renderComposed = ({
+    extraValid,
+    initialState = validInitialState(),
+  }: {
+    extraValid: boolean
+    initialState?: FormDataState
+  }) => {
+    const onSubmit = vi.fn<(formData: FormDataState) => void>()
+    const onValidateExtra = vi.fn(() => extraValid)
+    render(
+      <FormDataProvider
+        initialState={initialState}
+        validator={(d) =>
+          validateRegistrationForm(d, { requireWebsite: false })
+        }
+      >
+        <TextingComplianceRegistrationForm
+          onSubmit={onSubmit}
+          requireWebsite={false}
+          topSection={<div data-testid="composed-top-section" />}
+          onValidateExtra={onValidateExtra}
+          extraErrors={
+            extraValid
+              ? []
+              : [{ label: 'Your why', message: 'Please add your bio' }]
+          }
+        />
+      </FormDataProvider>,
+    )
+    return { onSubmit, onValidateExtra }
+  }
+
+  it('renders the top section between the alert slot and the fields', () => {
+    renderComposed({ extraValid: true })
+    expect(screen.getByTestId('composed-top-section')).toBeInTheDocument()
+  })
+
+  it('blocks submission and lists extra errors even when its own fields are valid', async () => {
+    const user = userEvent.setup()
+    const { onSubmit, onValidateExtra } = renderComposed({ extraValid: false })
+
+    await user.click(screen.getByRole('button', { name: /submit/i }))
+
+    expect(onValidateExtra).toHaveBeenCalledTimes(1)
+    expect(onSubmit).not.toHaveBeenCalled()
+    // The PIN-notice warning alert also carries role="alert", so scope to the
+    // validation alert via its heading.
+    const validationAlert = screen
+      .getByText(/please fix the following fields/i)
+      .closest('[role="alert"]')
+    expect(validationAlert).toHaveTextContent('Your why — Please add your bio')
+    expect(window.scrollTo).toHaveBeenCalled()
+  })
+
+  it('runs the extra validation even when its own fields are invalid', async () => {
+    const user = userEvent.setup()
+    const { onSubmit, onValidateExtra } = renderComposed({
+      extraValid: false,
+      initialState: {} as FormDataState,
+    })
+
+    await user.click(screen.getByRole('button', { name: /submit/i }))
+
+    expect(onValidateExtra).toHaveBeenCalledTimes(1)
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('submits when both its own fields and the extra validation pass', async () => {
+    const user = userEvent.setup()
+    const { onSubmit, onValidateExtra } = renderComposed({ extraValid: true })
+
+    await user.click(screen.getByRole('button', { name: /submit/i }))
+
+    expect(onValidateExtra).toHaveBeenCalledTimes(1)
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+  })
+})
