@@ -117,7 +117,15 @@
 
 - id: B06
   title: Saved list creation flow
-  prompt: Create a list called "Housing outreach" of constituents interested in housing.
+  prompts:
+    - Create a list called "Housing outreach" of constituents interested in housing.
+    - Yes, go ahead and create it.
+  turn_expectations:
+    - Runs count_contacts and reports the size, asking the user to confirm
+      BEFORE any create call; no crud_saved_filters mutation on this turn.
+    - Creates the list via crud_saved_filters and reports back what was
+      created (id/name/count); no claim that individual records can be shown
+      in chat.
   expected_route: crud_saved_filters
   expected_intent:
     flow: count_contacts first, confirm size with user, then create
@@ -132,6 +140,8 @@
   oracle: constraint
   runs: 1
   severity_if_failed: high
+  notes: multi-turn; needs turn.py. Write case; dev account, sequenced last,
+    with cleanup.
 
 - id: B07
   title: Ambiguous segment definition
