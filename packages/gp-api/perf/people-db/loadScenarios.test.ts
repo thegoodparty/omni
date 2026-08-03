@@ -2,12 +2,15 @@ import { describe, it, expect } from 'vitest'
 import { LOAD_SCENARIOS, scenarioCase } from './loadScenarios'
 
 describe('LOAD_SCENARIOS', () => {
-  it('targets the pool ceiling with a 25-level and a zero error budget', () => {
+  it('targets the pool ceiling (50) with a zero error budget and sweeps past it', () => {
     expect(LOAD_SCENARIOS.length).toBeGreaterThan(0)
     for (const s of LOAD_SCENARIOS) {
-      expect(s.concurrencyLevels).toContain(25)
-      expect(s.targetConcurrency).toBe(25)
+      expect(s.targetConcurrency).toBe(50)
       expect(s.maxErrorRate).toBe(0)
+      // a level above the pool so the over-saturation cliff stays visible
+      expect(s.concurrencyLevels.some((c) => c > s.targetConcurrency)).toBe(
+        true,
+      )
     }
   })
 

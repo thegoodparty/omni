@@ -66,6 +66,18 @@ describe('report', () => {
     expect(matrix).toContain('1500/1600')
   })
 
+  it('matrix appends * when a cell has fewer than 4 warm samples', () => {
+    const base = mk({}).warm
+    const marked = formatMatrix([
+      mk({ band: 'small', warm: { ...base, count: 2, p50: 38, p95: 45 } }),
+    ])
+    expect(marked).toContain('38/45*')
+    const unmarked = formatMatrix([
+      mk({ band: 'small', warm: { ...base, count: 4, p50: 38, p95: 45 } }),
+    ])
+    expect(unmarked).not.toContain('*')
+  })
+
   it('matrix marks all-failed cells FAIL and missing cells with a dash', () => {
     // two bands present, but each row only has one — the other cell is a gap
     const matrix = formatMatrix([
