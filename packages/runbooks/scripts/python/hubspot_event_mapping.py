@@ -87,10 +87,10 @@ def create_event_definition(payload_path: str) -> None:
     with open(payload_path) as f:
         payload = json.load(f)
     request('POST', '/events/v3/event-definitions', payload)
-    name = payload['name']
-    data = request('GET', '/events/v3/event-definitions?limit=100')
-    created = [d for d in data.get('results', []) if d.get('name') == name]
-    print(json.dumps(created, indent=2))
+    # the POST 201 body is empty, so fetch by exact name to hand the caller
+    # the fullyQualifiedName + objectTypeId the later steps need
+    data = request('GET', f"/events/v3/event-definitions/{payload['name']}")
+    print(json.dumps(data, indent=2))
 
 
 def fetch_all_contact_properties() -> list[dict[str, Any]]:

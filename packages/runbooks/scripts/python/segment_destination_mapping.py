@@ -136,6 +136,9 @@ def update_subscription(
 ) -> None:
     with open(payload_path) as f:
         payload = json.load(f)
+    # enabling is reserved for enable-subscription so a payload file can
+    # never silently activate a live production subscription
+    payload.pop('enabled', None)
     data = request(
         'PATCH',
         f'/destinations/{destination_id}/subscriptions/{subscription_id}',
