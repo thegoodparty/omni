@@ -47,17 +47,17 @@ describe('report', () => {
       'selectivity',
       'multivalue',
       'narrow-highselectivity',
-      'p50/p95',
+      'median/max',
       'cold',
     ]) {
       expect(legend).toContain(term)
     }
   })
 
-  it('matrix places a case at its query/cohort with warm p50/p95', () => {
+  it('matrix places a case at its query/cohort with median/max', () => {
     const matrix = formatMatrix([
-      mk({ band: 'small', warm: { ...mk({}).warm, p50: 38, p95: 45 } }),
-      mk({ band: 'large', warm: { ...mk({}).warm, p50: 1500, p95: 1600 } }),
+      mk({ band: 'small', warm: { ...mk({}).warm, p50: 38, max: 45 } }),
+      mk({ band: 'large', warm: { ...mk({}).warm, p50: 1500, max: 1600 } }),
     ])
     expect(matrix).toContain('count none')
     expect(matrix).toContain('small')
@@ -69,11 +69,11 @@ describe('report', () => {
   it('matrix appends * when a cell has fewer than 4 warm samples', () => {
     const base = mk({}).warm
     const marked = formatMatrix([
-      mk({ band: 'small', warm: { ...base, count: 2, p50: 38, p95: 45 } }),
+      mk({ band: 'small', warm: { ...base, count: 2, p50: 38, max: 45 } }),
     ])
     expect(marked).toContain('38/45*')
     const unmarked = formatMatrix([
-      mk({ band: 'small', warm: { ...base, count: 4, p50: 38, p95: 45 } }),
+      mk({ band: 'small', warm: { ...base, count: 4, p50: 38, max: 45 } }),
     ])
     expect(unmarked).not.toContain('*')
   })
