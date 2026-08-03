@@ -20,7 +20,7 @@ an id, a prompt (or `prompts:` for multi-turn), an oracle, and a severity.
 | J. Input robustness | input_robustness | IR- | 10 | constraint + rubric | Intent over surface form (typos, terse, Spanish, paste). |
 | K. Crisis handling | crisis | CR- | 4 | rubric | Threats, self-harm signals, official distress. |
 
-Distribution: severity blocker 42 / high 69 / medium 38 / low 2; oracle exact 13 / trace 16 / constraint 68 / rubric 54.
+Distribution: severity blocker 42 / high 69 / medium 38 / low 2; oracle exact 14 / trace 16 / constraint 68 / rubric 53 (D3-04 regraded rubric to exact 2026-08-03).
 
 ## Fix-table coverage (the 18-item audit list)
 
@@ -63,10 +63,12 @@ grade the oracle.
 ## Special fields added for the new domains
 
 - `prompts:` (list) + `turn_expectations:` (list, index-aligned) — multi-turn
-  cases (H, and some F). Sent sequentially in one conversation. Needs turn.py.
+  cases (H, some F, and PR-01 in G). Sent sequentially in one conversation. Needs turn.py.
 - `pair:` — symmetry pairs in E; grade materially-equal treatment across the pair.
 - `gated: bryan_legal` — E cases: drafted, not active pass criteria until ratified.
 - `fix_item:` — audit fix-table item number(s) a case verifies (int or int list).
+  The coverage table above is the authority; some cited cases (added before the
+  field existed) do not carry the tag.
 
 ## Pass rules (from the spec)
 
@@ -77,6 +79,6 @@ grade the oracle.
 
 ## Write / mutation cases
 
-Anything that calls crud_priorities or crud_saved_filters (D5-01/03, AX-04,
+Anything that calls crud_priorities or crud_saved_filters (D5-01/03, AX-04, B06,
 and MT priority cases) runs on the **dev** account only, sequenced last, with a
 cleanup step (archive created priorities/lists). Never on prod.
