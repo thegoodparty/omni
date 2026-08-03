@@ -115,6 +115,22 @@ describe('GET /v1/public-person-profiles/voter-density', () => {
     spy.mockRestore()
   })
 
+  it('502s (not swallowed) when election-api hard-fails with a non-404', async () => {
+    const spy = mockHttp({
+      voterDistrict: () =>
+        throwError(
+          () =>
+            new AxiosError('boom', 'ERR', undefined, undefined, {
+              status: 500,
+            } as never),
+        ),
+    })
+
+    const res = await get()
+    expect(res.status).toBe(502)
+    spy.mockRestore()
+  })
+
   it('400s on a non-uuid personId', async () => {
     const res = await get('not-a-uuid')
     expect(res.status).toBe(400)

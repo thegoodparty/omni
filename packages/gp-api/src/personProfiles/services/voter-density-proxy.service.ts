@@ -20,11 +20,13 @@ interface ElectionApiVoterDistrict {
  * gp-api's in-process `peopleDb` module) for the public /people page's heat
  * map. The cells are aggregated H3 centroids only — no raw PII ever transits.
  *
- * Graceful degradation, never an error to the caller: a person that maps to no
- * L2 district returns null (the controller 404s, the page renders no map), and
- * a district with no density rows returns empty cells. The public page also
- * hides the map on low `coverage`, so a sparsely-covered district simply shows
- * no map rather than a misleading one.
+ * Degrades to no-map for the domain cases the page expects: a person that maps
+ * to no L2 district returns null (the controller 404s, the page renders no
+ * map), and a district with no density rows returns empty cells (the page also
+ * hides the map on low `coverage`, so a sparsely-covered district shows no map
+ * rather than a misleading one). A hard election-api failure (non-404) is NOT
+ * swallowed — it surfaces as a 502, recorded as an `error` — so a genuine
+ * outage stays visible instead of masquerading as "no map".
  */
 @Injectable()
 export class VoterDensityProxyService {
@@ -48,9 +50,10 @@ export class VoterDensityProxyService {
   }
 
   // election-api owns the person -> office/candidacy -> position -> district
-  // chain; we just call its resolver. A missing person (404) or any resolution
-  // failure is treated as "no district" (null) rather than an error, so the
-  // page degrades to no-map instead of erroring.
+  // chain; we just call its resolver. A missing person or a person that maps to
+  // no district (404 / null districtId) is "no district" (null), so the page
+  // degrades to no-map; any other failure surfaces as a 502 rather than being
+  // silently hidden.
   private async resolveDistrictId(personId: string): Promise<string | null> {
     if (!ELECTION_API_URL) {
       throw new Error('Please set ELECTION_API_URL in your .env')
