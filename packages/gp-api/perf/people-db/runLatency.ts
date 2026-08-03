@@ -7,7 +7,8 @@ import { COHORTS, checkDrift } from './cohorts'
 import {
   artifactPath,
   buildArtifact,
-  formatTable,
+  buildLegend,
+  formatMatrix,
   type CaseResult,
 } from './report'
 
@@ -73,7 +74,8 @@ export const runLatency = async (
     )
   }
 
-  console.log('\n' + formatTable(results))
+  console.log('\n' + buildLegend())
+  console.log('\n' + formatMatrix(results))
 
   const failed = results.filter((r) => r.failures > 0)
   if (failed.length > 0) {

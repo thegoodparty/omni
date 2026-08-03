@@ -52,7 +52,7 @@ client, atomically repoints `instance` to it, and fire-and-forgets
 `$disconnect()` on the old client (drains in-flight queries; a failed
 teardown of the old client must never disturb the new one) — this is also
 what recovers a never-initialized client once the URL becomes resolvable.
-Each built client sets `connection_limit=25`, `pool_timeout=5`,
+Each built client sets `connection_limit=50`, `pool_timeout=5`,
 `connect_timeout=5`, `socket_timeout=60` on the connection URL. Initial
 `$connect()` within `buildClient` is separately fail-soft: a broken
 `PEOPLE_DATABASE_URL` logs and moves on rather than throwing, so Prisma can

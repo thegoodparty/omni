@@ -131,7 +131,7 @@ describe('PeopleDbService', () => {
     await service.onModuleInit()
 
     const url = builtUrl(0)
-    expect(url.searchParams.get('connection_limit')).toBe('25')
+    expect(url.searchParams.get('connection_limit')).toBe('50')
     expect(url.searchParams.get('pool_timeout')).toBe('5')
     expect(url.searchParams.get('connect_timeout')).toBe('5')
     expect(url.searchParams.get('socket_timeout')).toBe('60')
