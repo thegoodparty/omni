@@ -83,8 +83,9 @@ Output: a field table — name, type, nullable, example, PII flag.
    <destinationId>` on the `HubSpot Backend` destination (gp-api source;
    find ids with `list-destinations`). Check whether the event already has a
    subscription and which fields the catch-all Firehose already forwards.
-2. HubSpot side: `hubspot_event_mapping.py list-event-definitions` (does a
-   definition exist?) and `similar-properties <field> ...` (rapidfuzz match
+2. HubSpot side: `hubspot_event_mapping.py list-event-definitions --search
+   <event-name>` (does a definition exist? — search server-side, the list is
+   capped at 100) and `similar-properties <field> ...` (rapidfuzz match
    over all contact properties — surface reuse candidates per field).
 
 Output: a mapping proposal table, one row per field: create event property /

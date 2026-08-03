@@ -24,6 +24,7 @@ import json
 import os
 import sys
 from typing import Any
+from urllib.parse import quote_plus
 
 import requests
 from dotenv import load_dotenv
@@ -64,7 +65,7 @@ def request(
 
 
 def list_event_definitions(search: str | None) -> None:
-    query = f'&searchString={search}' if search else ''
+    query = f'&searchString={quote_plus(search)}' if search else ''
     data = request('GET', f'/events/v3/event-definitions?limit=100{query}')
     rows = [
         {
@@ -94,8 +95,17 @@ def create_event_definition(payload_path: str) -> None:
 
 
 def fetch_all_contact_properties() -> list[dict[str, Any]]:
-    data = request('GET', '/crm/v3/properties/contacts')
-    return data.get('results', [])
+    results: list[dict[str, Any]] = []
+    after: str | None = None
+    while True:
+        path = '/crm/v3/properties/contacts'
+        if after:
+            path += f'?after={quote_plus(after)}'
+        data = request('GET', path)
+        results.extend(data.get('results', []))
+        after = ((data.get('paging') or {}).get('next') or {}).get('after')
+        if not after:
+            return results
 
 
 def similar_properties(fields: list[str], limit: int) -> None:
