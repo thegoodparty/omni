@@ -121,4 +121,21 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain('average score, not')
     expect(prompt).toContain('exclude unknowns')
   })
+
+  it('routes platform tasks to support instead of the decline line', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain('platform tasks you cannot do from chat')
+    expect(prompt).toContain('GoodParty support')
+  })
+
+  it('does not endorse electoral vote-prediction asks as in scope', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: TOOLS,
+    })
+    expect(prompt).not.toContain('who will definitely vote for me')
+  })
 })
