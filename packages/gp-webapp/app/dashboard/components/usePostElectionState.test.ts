@@ -83,31 +83,42 @@ describe('usePostElectionState', () => {
     expect(result.current.electionInPast).toBe(false)
   })
 
-  it('does not open the modal for a partisan primary (does not apply to non-partisan candidates)', () => {
-    setCampaign({
-      electionDate: daysFromNow(60),
-      primaryElectionDate: daysFromNow(-10),
-      partisanType: 'partisan',
-    })
+  it.each([
+    'partisan',
+    'partisan for primary only',
+    'Partisan For Primary Only',
+    '  partisan  ',
+  ])(
+    'does not open the modal for a partisan primary (partisanType=%j does not apply to non-partisan candidates)',
+    (partisanType) => {
+      setCampaign({
+        electionDate: daysFromNow(60),
+        primaryElectionDate: daysFromNow(-10),
+        partisanType,
+      })
 
-    const { result } = renderHook(() => usePostElectionState())
+      const { result } = renderHook(() => usePostElectionState())
 
-    expect(result.current.primaryResultModalOpen).toBe(false)
-    expect(result.current.primaryLost).toBe(false)
-    expect(result.current.electionInPast).toBe(false)
-  })
+      expect(result.current.primaryResultModalOpen).toBe(false)
+      expect(result.current.primaryLost).toBe(false)
+      expect(result.current.electionInPast).toBe(false)
+    },
+  )
 
-  it('opens the modal for a nonpartisan primary that has passed', () => {
-    setCampaign({
-      electionDate: daysFromNow(60),
-      primaryElectionDate: daysFromNow(-10),
-      partisanType: 'nonpartisan',
-    })
+  it.each(['nonpartisan', 'non-partisan', undefined])(
+    'opens the modal for a passed primary that is not partisan (partisanType=%j)',
+    (partisanType) => {
+      setCampaign({
+        electionDate: daysFromNow(60),
+        primaryElectionDate: daysFromNow(-10),
+        partisanType,
+      })
 
-    const { result } = renderHook(() => usePostElectionState())
+      const { result } = renderHook(() => usePostElectionState())
 
-    expect(result.current.primaryResultModalOpen).toBe(true)
-  })
+      expect(result.current.primaryResultModalOpen).toBe(true)
+    },
+  )
 
   it('does not open the modal when the primary date is in the future', () => {
     setCampaign({

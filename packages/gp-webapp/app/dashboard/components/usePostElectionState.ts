@@ -59,7 +59,12 @@ export function usePostElectionState(): PostElectionState {
   // they pick "lost", which marks the campaign inactive and blocks Pro upgrade.
   // Skip the modal entirely for partisan primaries so they advance to the
   // general without being asked (leaving primaryResult null / active).
-  const primaryIsPartisan = partisanType === 'partisan'
+  // partisanType is a raw BallotReady string with several partisan variants
+  // (e.g. 'partisan', 'partisan for primary only'), so match on the prefix
+  // after normalizing case/whitespace — 'nonpartisan'/'non-partisan' never
+  // start with 'partisan', so they are correctly excluded.
+  const primaryIsPartisan =
+    partisanType?.trim().toLowerCase().startsWith('partisan') ?? false
 
   // Suppress the primary-result modal once the general election has also
   // ended — at that point the race is over and we render ElectionOver
