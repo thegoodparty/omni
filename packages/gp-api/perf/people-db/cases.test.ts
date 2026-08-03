@@ -5,9 +5,9 @@ describe('buildLatencyCases', () => {
   const cases = buildLatencyCases()
 
   it('applies list and count across every cohort x variant, others once per cohort', () => {
-    // list: 4x6, count: 4x6, search/sample/overlap/stats: 4 each, csv: 3
-    // (csv skips statewide — a ~23M-row export would dominate the pass)
-    expect(cases.length).toBe(24 + 24 + 4 * 4 + 3)
+    // list: 4x6, count: 4x6, search/sample/overlap/stats/voterDensity: 4 each,
+    // csv: 3 (csv skips statewide — a ~23M-row export would dominate the pass)
+    expect(cases.length).toBe(24 + 24 + 4 * 5 + 3)
   })
 
   it('emits csv for every cohort except statewide', () => {
@@ -21,6 +21,12 @@ describe('buildLatencyCases', () => {
     const stats = cases.filter((c) => c.queryType === 'stats')
     expect(stats.length).toBe(4)
     expect(stats.every((c) => c.variant.name === 'none')).toBe(true)
+  })
+
+  it('runs voterDensity once per cohort with the none variant only', () => {
+    const density = cases.filter((c) => c.queryType === 'voterDensity')
+    expect(density.length).toBe(4)
+    expect(density.every((c) => c.variant.name === 'none')).toBe(true)
   })
 
   it('down-samples the heavy statewide list cell to fewer iterations', () => {
