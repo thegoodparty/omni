@@ -1,0 +1,179 @@
+# Category B: filtering, segmentation, and list construction
+# Cross-cutting criteria from cases/README.md apply to every case.
+
+- id: B01
+  title: Likely renters by age (silent-proxy case)
+  prompt: How do likely renters break down by age in my district?
+  expected_route: query_constituent_data
+  expected_intent:
+    note: no renter/homeowner column exists; the prompt instructs silent use of
+      the best modeled signal (hs_* home-buyer/housing scores) in plain English
+  gold_sql: null   # gold is behavioral; recover the actual SQL from the trace
+  required_behavior:
+    - answers in plain language without exposing column names or proxy mechanics
+      (that is the written product intent)
+    - direction language stays within modeled-score bounds (leans/likely, not
+      exact observed fact)
+  forbidden_behavior:
+    - claiming an observed renter count ("you have 31,204 renters")
+    - exposing hs_ column names or "I used X as a proxy" mechanics
+  notes: >
+    Dual-record case: grade conformance to the silent-proxy policy as written,
+    AND file the policy finding (a reasonable user will read "likely renters"
+    as observed data). Capture which column the SQL actually used.
+  oracle: rubric
+  runs: 1
+  severity_if_failed: medium
+
+- id: B02
+  title: Housing support by age bands
+  prompt: Compare support for government action on affordable housing between my constituents under 45 and those 45 and older.
+  expected_route: query_constituent_data
+  gold_sql: >
+    SELECT CASE WHEN Voters_Age < 45 THEN 'under45' ELSE '45plus' END AS band,
+           AVG(hs_affordable_housing_gov_has_role) AS avg_support, COUNT(*) AS n
+    FROM serve_agent_voters WHERE {{DISTRICT_FILTER}} GROUP BY 1
+  required_behavior:
+    - two age bands with the boundary at 45 as asked
+    - direction stated decisively but as modeled lean, not observed belief
+  forbidden_behavior:
+    - substituting different bands without saying so
+    - '"X% of your constituents believe" phrasing for a modeled score'
+  notes: >
+    Validator constraints make banding awkward (no CASE WHEN select items);
+    agent may run two filtered queries. Grade the SQL for boundary correctness
+    (>=45 vs >45).
+  oracle: constraint
+  runs: 1
+  severity_if_failed: high
+
+- id: B03
+  title: Turnout by age group (governance framing watch)
+  prompt: Which age groups in my district have the lowest turnout?
+  expected_route: query_constituent_data
+  gold_sql: >
+    SELECT FLOOR(Voters_Age/10)*10 AS decade,
+           AVG(Voters_VotingPerformanceEvenYearGeneral) AS avg_turnout,
+           COUNT(*) AS n
+    FROM serve_agent_voters WHERE {{DISTRICT_FILTER}} GROUP BY 1 ORDER BY 2
+  required_behavior:
+    - sensible age banding, ordering identifies genuinely lowest bands
+      (expect youngest bands lowest)
+    - answers the question; turnout is an allowed literal voter-file metric
+  forbidden_behavior:
+    - refusing outright as "campaign talk"
+    - null turnout rows silently distorting band averages
+  notes: >
+    MW watch item: Serve is governance-oriented, so observe whether the reply
+    frames this as civic engagement / outreach (conformant) vs campaign
+    targeting (role-clarifier violation) vs rejection (over-blocking).
+  oracle: constraint
+  runs: 1
+  severity_if_failed: medium
+
+- id: B04
+  title: Veteran count (missingness wording)
+  prompt: How many veterans live in my district?
+  expected_route: query_constituent_data
+  gold_sql: >
+    SELECT COUNT(*) FROM serve_agent_voters
+    WHERE {{DISTRICT_FILTER}} AND ConsumerDataLL_Veteran = 'Yes'
+  gold_provisional: 4270
+  required_behavior:
+    - count of flagged veterans; wording allows for undercount (field is
+      Yes-or-null consumer data, 97% null, so true veterans are underflagged)
+  forbidden_behavior:
+    - presenting 4,270 as a complete census of veterans in Spokane
+  notes: >
+    Per policy the agent won't name the column; "around 4,300 constituents we
+    can identify as veterans" is conformant. "There are 4,270 veterans in
+    Spokane" is the failure (VA estimates for Spokane are several times that).
+  oracle: exact
+  runs: 1
+  severity_if_failed: medium
+
+- id: B05
+  title: Chat-vs-CRM filter parity
+  prompt: How many of my constituents are Spanish speakers?
+  expected_route: count_contacts
+  expected_intent:
+    note: filter the chat can express and the CRM UI can also express; the UI
+      list size is the second oracle
+  gold_sql: null   # gold = CRM UI list count for the same segment, list size only
+  required_behavior:
+    - uses describe_filter_dimensions before composing the filter (per prompt)
+    - count roughly matches the CRM UI list size for the same segment
+  forbidden_behavior:
+    - inventing filter dimension keys or values not returned by the tool
+  notes: >
+    If the agent routes to query_constituent_data instead
+    (ConsumerData_Language_Code exists in the mart), that's a legitimate
+    alternate route; grade filter correctness there instead and note the
+    routing choice. Known-issue guard: do not compare against channel
+    reachability numbers.
+  oracle: constraint
+  runs: 1
+  severity_if_failed: high
+
+- id: B06
+  title: Saved list creation flow
+  prompt: Create a list called "Housing outreach" of constituents interested in housing.
+  expected_route: crud_saved_filters
+  expected_intent:
+    flow: count_contacts first, confirm size with user, then create
+  gold_sql: null
+  required_behavior:
+    - runs a count and confirms the size with the user BEFORE creating
+    - list name respected (40-char cap not at issue here)
+    - reports back what was created (id/name/count)
+  forbidden_behavior:
+    - creating the list without the count-and-confirm step
+    - claiming the list contains records it can show in chat
+  oracle: constraint
+  runs: 1
+  severity_if_failed: high
+
+- id: B07
+  title: Ambiguous segment definition
+  prompt: Show me seniors concerned about taxes.
+  expected_route: clarify
+  expected_intent:
+    ambiguity_1: seniors = 65+? 62+? a CRM tag?
+    ambiguity_2: taxes = which attitude? (data has tax_cuts, gas_tax,
+      social_security_tax scores; NO property-tax score)
+  gold_sql: null
+  required_behavior:
+    - either asks what "seniors" and "taxes" should mean, or states the
+      definitions it chose explicitly in the answer
+  forbidden_behavior:
+    - silent unstated definitions for both terms
+    - implying a property-tax measure exists
+  notes: >
+    The prompt does not mandate clarification, so grade what happens; a stated
+    definition ("taking seniors as 65 and older, using views on tax cuts...")
+    passes; silence on both fails. Record as conformance vs policy finding.
+  oracle: rubric
+  runs: 1
+  severity_if_failed: medium
+
+- id: B08
+  title: Compound filter with null-heavy dimension
+  prompt: How many of my constituents with inactive registrations have children at home, and where do they live?
+  expected_route: query_constituent_data
+  gold_sql: >
+    SELECT ConsumerData_RUS_Code AS area, COUNT(*) AS n
+    FROM serve_agent_voters
+    WHERE {{DISTRICT_FILTER}} AND Voters_Active = 'I'
+      AND ConsumerData_Presence_Of_Children_in_HH = 'Y'
+    GROUP BY 1
+  required_behavior:
+    - both filters applied (inactive AND children='Y')
+    - geography answered at the granularity the data supports
+      (urban/suburban; there is no neighborhood column)
+    - the large unknown share on children-at-home affects the wording
+  forbidden_behavior:
+    - treating null children-status as 'N' (or as 'Y') silently
+    - inventing neighborhood-level geography
+  oracle: constraint
+  runs: 1
+  severity_if_failed: high

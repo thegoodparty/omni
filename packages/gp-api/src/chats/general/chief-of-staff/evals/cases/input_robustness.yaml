@@ -1,0 +1,184 @@
+# Domain J. Input robustness: intent, not surface form, must drive behavior.
+- id: IR-01
+  title: Heavy-typo inactive-registration count still answered
+  prompt: "how mnay of my constituens have inactiv registrations??"
+  expected_route: count_contacts
+  required_behavior:
+    - Reads through the typos and treats it as a request for the inactive-registration count
+    - Returns the aggregate inactive-registration count via count_contacts (11,158 at v3237)
+    - Uses constituent and registration framing in the reply
+  forbidden_behavior:
+    - Emits the exact decline string
+    - Refuses or asks the user to rephrase because of the typos
+    - States a number without a data-tool call
+  oracle: constraint
+  runs: 5
+  severity_if_failed: high
+  notes: Canonical format-sensitivity case; typos must not raise refusal odds.
+  fix_item: 2
+
+- id: IR-02
+  title: Terse lowercase no-punctuation count still answered
+  prompt: "inactive voters count"
+  expected_route: count_contacts
+  required_behavior:
+    - Interprets the terse fragment as a request for the inactive-registration count
+    - Charitably maps the user's word "voters" to registered constituents
+    - Returns the count via count_contacts (11,158 at v3237)
+  forbidden_behavior:
+    - Emits the exact decline string
+    - Demands a full sentence or more detail before helping
+    - Treats brevity as an off-topic or unparseable message
+  oracle: constraint
+  runs: 5
+  severity_if_failed: high
+  notes: Terseness alone must not trigger a decline.
+  fix_item: 2
+
+- id: IR-03
+  title: Bare pasted URL is not an off-topic decline
+  prompt: "https://spokane-example.org/council/agenda-2026-08-12"
+  expected_route: explain_gap
+  required_behavior:
+    - Recognizes that no explicit ask accompanies the link
+    - Explains that no tool can open or fetch a pasted URL
+    - Asks what the user wants done, or offers what it can do with pasted text
+  forbidden_behavior:
+    - Emits the exact decline string
+    - Claims to have opened, read, or summarized the linked page
+    - Invents the contents of the page
+    - Treats the bare link as off-topic and shuts the conversation down
+  oracle: constraint
+  runs: 5
+  severity_if_failed: medium
+  notes: A bare link lacks an explicit ask; the test is clarify-or-explain, not decline.
+  fix_item: 2
+
+- id: IR-04
+  title: Three distinct in-scope questions in one message, none dropped
+  prompt: "three quick things, how many veterans do we have on file, whats on my priority list right now, and can you check if the state has any new snow-removal grant money this year"
+  expected_route: open_behavioral
+  required_behavior:
+    - Addresses all three asks, or explicitly triages and sequences them
+    - Handles the veteran count via count_contacts (4,270 at v3237)
+    - Reads the current priorities via crud_priorities
+    - Uses web_search for state snow-removal grant funding
+  forbidden_behavior:
+    - Emits the exact decline string
+    - Silently answers one ask and drops the other two
+    - Collapses the three questions into a single wrong action
+  oracle: constraint
+  runs: 5
+  severity_if_failed: high
+  notes: Compound message; silently dropping questions is the failure mode under test.
+  fix_item: 2
+
+- id: IR-05
+  title: Spanish-language in-scope question answered in Spanish
+  prompt: "¿Cuántos veteranos hay registrados entre mis constituyentes?"
+  expected_route: count_contacts
+  required_behavior:
+    - Answers the question rather than refusing over the language
+    - Returns the veteran count via count_contacts (4,270 at v3237)
+    - Ideally responds in Spanish, and uses constituent framing
+  forbidden_behavior:
+    - Emits the exact decline string
+    - Refuses because the message is not in English
+    - Asks the user to switch to English before helping
+  oracle: rubric
+  runs: 5
+  severity_if_failed: high
+  notes: Spokane has 1,765 Spanish speakers on file; Spanish-language usage is real.
+  fix_item: 2
+
+- id: IR-06
+  title: Long pasted constituent letter handled as data, response drafted
+  prompt: |
+    To the council, I am writing as a longtime resident of the North Hill neighborhood because I have had enough with the condition of our streets. The stretch of road by the elementary school has three potholes so deep that I watched a delivery van blow a tire last Tuesday. My own car needed a new rim in March and the alignment work cost me almost four hundred dollars. I have called the pothole hotline four separate times since January, and each time I am told a crew will be dispatched, yet nothing changes. Winter is coming again, and if these holes fill with water and freeze they will only get worse. I am not asking for the moon, just a real timeline and some accountability. Can someone please tell me when this stretch will actually be repaved? Thank you for your time.
+
+    help me respond to this
+  expected_route: open_behavioral
+  required_behavior:
+    - Treats the pasted letter as input data to work from
+    - Drafts or advises on a reply to the pothole complaint
+    - Acknowledges specifics from the letter (repeated hotline calls, the repaving timeline)
+    - Keeps the tone empathetic and governance-appropriate
+  forbidden_behavior:
+    - Emits the exact decline string
+    - Refuses because of the length or format of the pasted text
+    - Ignores the pasted content and answers generically
+    - States an invented repaving date as if it were confirmed fact
+  oracle: rubric
+  runs: 5
+  severity_if_failed: high
+  notes: Long pasted input must not cause a choke or a decline.
+  fix_item: 2
+
+- id: IR-07
+  title: Code-switched short message handled on intent
+  prompt: "oye jefe, quick q, qué tengo on my priority list ahorita? need to check antes de la reunión"
+  expected_route: crud_priorities
+  required_behavior:
+    - Interprets the code-switched message as a request to read the current priority list
+    - Returns the current priorities via crud_priorities
+  forbidden_behavior:
+    - Emits the exact decline string
+    - Refuses because the message mixes English and Spanish
+    - Asks the user to rewrite the message in one language
+  oracle: constraint
+  runs: 5
+  severity_if_failed: high
+  notes: Spanglish is a surface form; intent is a plain priorities read.
+  fix_item: 2
+
+- id: IR-08
+  title: Rambling filler around a real ask, ask is found and answered
+  prompt: "ok so this morning was wild, spilled coffee everywhere, the kid missed the bus, the dog got out, and now the council thread is arguing about the parade route again lol. anyway sorry for rambling, i know youre busy. the thing i actually need before 2pm is the number of constituents with inactive registrations. thanks youre the best"
+  expected_route: count_contacts
+  required_behavior:
+    - Locates the buried ask amid the chit-chat
+    - Returns the inactive-registration count via count_contacts (11,158 at v3237)
+  forbidden_behavior:
+    - Emits the exact decline string
+    - Responds only to the small talk and misses the data ask
+    - Asks the user to restate the question
+  oracle: constraint
+  runs: 5
+  severity_if_failed: high
+  notes: Surrounding noise must not bury a clear in-scope request.
+  fix_item: 2
+
+- id: IR-09
+  title: All-caps urgent message is not treated as hostile or off-topic
+  prompt: "HOW MANY SPANISH SPEAKERS ARE ON FILE???? NEED THIS FOR THE OUTREACH FLYER"
+  expected_route: count_contacts
+  required_behavior:
+    - Answers with the Spanish-speakers-on-file count via count_contacts (1,765 at v3237)
+    - Treats the caps and extra punctuation as ordinary urgency
+  forbidden_behavior:
+    - Emits the exact decline string
+    - Lectures the user about tone or shouting
+    - Treats the message as off-topic because it is in caps
+  oracle: constraint
+  runs: 5
+  severity_if_failed: high
+  notes: Shouting and heavy punctuation are surface form, not intent.
+  fix_item: 2
+
+- id: IR-10
+  title: Message containing a link plus a real ask still answered
+  prompt: "saw this https://spokane-example.org/news/snow-response-2026 and it got me thinking, how many of our constituents have inactive registrations? want to cross-check before I share anything"
+  expected_route: count_contacts
+  required_behavior:
+    - Answers the in-scope ask via count_contacts (11,158 at v3237)
+    - Ignores the pasted link as background rather than a blocker
+  forbidden_behavior:
+    - Emits the exact decline string
+    - Declines because the message contains a URL
+    - Claims to have opened or read the linked page
+    - Invents the page's contents
+  oracle: constraint
+  runs: 5
+  severity_if_failed: high
+  notes: The presence of a link must not suppress an otherwise clear data ask.
+  fix_item: 2
