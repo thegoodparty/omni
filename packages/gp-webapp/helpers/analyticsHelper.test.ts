@@ -21,6 +21,7 @@ import {
   setImpersonating,
   setUserEmail,
   getMetaClickIds,
+  getPersistedClids,
   trackRegistrationCompleted,
   EVENTS,
 } from './analyticsHelper'
@@ -132,6 +133,32 @@ describe('getMetaClickIds', () => {
     mockCookieGet.mockReturnValue(undefined)
 
     expect(getMetaClickIds()).toEqual({})
+  })
+})
+
+describe('getPersistedClids', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+  })
+
+  it('returns allowlisted CLID first/last keys', () => {
+    sessionStorage.setItem('fbclid_first', 'fb-first')
+    sessionStorage.setItem('fbclid_last', 'fb-last')
+    sessionStorage.setItem('gclid_last', 'g-last')
+
+    expect(getPersistedClids()).toEqual({
+      fbclid_first: 'fb-first',
+      fbclid_last: 'fb-last',
+      gclid_last: 'g-last',
+    })
+  })
+
+  it('ignores non-allowlisted clid params so arbitrary keys cannot become traits', () => {
+    sessionStorage.setItem('fbclid_last', 'fb-last')
+    sessionStorage.setItem('evilclid_last', 'payload')
+    sessionStorage.setItem('evilclid_first', 'payload')
+
+    expect(getPersistedClids()).toEqual({ fbclid_last: 'fb-last' })
   })
 })
 

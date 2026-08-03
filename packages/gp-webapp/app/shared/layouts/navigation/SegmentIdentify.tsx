@@ -21,6 +21,9 @@ const identify = async (
   persistUtmsOnce()
   setUserEmail(user?.email)
 
+  // fbclid_first/_last are intentional here: first/last-touch attribution, same
+  // shape as the persisted UTMs above. Registration additionally emits a single
+  // canonical `fbclid` (see trackRegistrationCompleted) for Meta CAPI matching.
   const persistedClids = Object.fromEntries(
     Object.entries(getPersistedClids()).filter(([, value]) => value !== null),
   ) as Record<string, string>

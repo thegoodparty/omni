@@ -23,6 +23,15 @@ const UTM_KEYS = [
 
 const CLID_SUFFIX = 'clid'
 
+const CLID_KEYS = [
+  'fbclid',
+  'gclid',
+  'ttclid',
+  'msclkid',
+  'twclid',
+  'li_fat_id',
+] as const
+
 export const EVENTS = {
   CampaignStory: {
     RewriteRequested: 'Campaign Story - Rewrite Requested',
@@ -874,15 +883,12 @@ export const getPersistedClids = (): Record<string, string | null> => {
   const clids: Record<string, string | null> = {}
 
   try {
-    for (let i = 0; i < window.sessionStorage.length; i++) {
-      const key = window.sessionStorage.key(i)
-      if (
-        key &&
-        (key.toLowerCase().endsWith(`${CLID_SUFFIX}_first`) ||
-          key.toLowerCase().endsWith(`${CLID_SUFFIX}_last`))
-      ) {
-        clids[key] = window.sessionStorage.getItem(key)
-      }
+    for (const key of CLID_KEYS) {
+      const first = window.sessionStorage.getItem(`${key}_first`)
+      const last = window.sessionStorage.getItem(`${key}_last`)
+
+      if (first) clids[`${key}_first`] = first
+      if (last) clids[`${key}_last`] = last
     }
   } catch {
     return {}
