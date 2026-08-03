@@ -21,8 +21,6 @@ const UTM_KEYS = [
   'utm_term',
 ] as const
 
-const CLID_SUFFIX = 'clid'
-
 const CLID_KEYS = [
   'fbclid',
   'gclid',
@@ -745,7 +743,7 @@ export const extractClids = (
   const clids: Record<string, string> = {}
 
   for (const [key, value] of searchParams.entries()) {
-    if (key.toLowerCase().endsWith('clid')) {
+    if ((CLID_KEYS as readonly string[]).includes(key.toLowerCase()) && value) {
       clids[key] = value
     }
   }
@@ -834,8 +832,9 @@ export const persistClidsOnce = (): void => {
 
   const params = new URLSearchParams(window.location.search)
 
-  for (const [key, value] of params.entries()) {
-    if (!key.toLowerCase().endsWith(CLID_SUFFIX) || !value) continue
+  for (const key of CLID_KEYS) {
+    const value = params.get(key)
+    if (!value) continue
 
     const firstKey = `${key}_first`
     const lastKey = `${key}_last`

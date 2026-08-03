@@ -22,6 +22,7 @@ import {
   setUserEmail,
   getMetaClickIds,
   getPersistedClids,
+  extractClids,
   trackRegistrationCompleted,
   EVENTS,
 } from './analyticsHelper'
@@ -159,6 +160,27 @@ describe('getPersistedClids', () => {
     sessionStorage.setItem('evilclid_first', 'payload')
 
     expect(getPersistedClids()).toEqual({ fbclid_last: 'fb-last' })
+  })
+})
+
+describe('extractClids', () => {
+  it('returns allowlisted CLIDs from live URL params', () => {
+    const params = new URLSearchParams(
+      'fbclid=fb&gclid=g&msclkid=ms&li_fat_id=li&source=ad',
+    )
+
+    expect(extractClids(params)).toEqual({
+      fbclid: 'fb',
+      gclid: 'g',
+      msclkid: 'ms',
+      li_fat_id: 'li',
+    })
+  })
+
+  it('ignores non-allowlisted clid-like params', () => {
+    const params = new URLSearchParams('fbclid=fb&evilclid=payload')
+
+    expect(extractClids(params)).toEqual({ fbclid: 'fb' })
   })
 })
 
