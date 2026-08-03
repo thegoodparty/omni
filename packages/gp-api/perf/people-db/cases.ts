@@ -18,12 +18,15 @@ export type BenchCase = {
   iterations: number
 }
 
-export const DEFAULT_ITERATIONS = 5
+// 1 cold + 7 warm: enough warm samples that p50/p95 mean something (a 4-warm
+// p95 was essentially the max).
+export const DEFAULT_ITERATIONS = 8
+
+// Heavy statewide cells run fewer times to bound the pass, but never below
+// 1 cold + 2 warm so every reported number is still an aggregate.
+const HEAVY_ITERATIONS = 3
 
 const NONE = FILTER_VARIANTS.find((v) => v.name === 'none') as FilterVariant
-const NARROW_HIGHSELECTIVITY = FILTER_VARIANTS.find(
-  (v) => v.name === 'narrow-highselectivity',
-) as FilterVariant
 
 // Heavy statewide cells hold a connection for seconds; run them fewer times so
 // a full latency pass stays bounded.
@@ -33,8 +36,9 @@ const iterationsFor = (
   variant: FilterVariant,
 ): number => {
   if (cohort.band !== 'statewide') return DEFAULT_ITERATIONS
-  if (queryType === 'csv') return 2
-  if (queryType === 'list' && variant.name === 'broad-lowselectivity') return 2
+  if (queryType === 'list' && variant.name === 'broad-lowselectivity') {
+    return HEAVY_ITERATIONS
+  }
   return DEFAULT_ITERATIONS
 }
 
@@ -62,12 +66,10 @@ export const buildLatencyCases = (
     push('search', cohort, NONE)
     push('sample', cohort, NONE)
     push('overlap', cohort, NONE)
-    // Statewide csv with no filter would stream ~23M rows; narrow it down.
-    push(
-      'csv',
-      cohort,
-      cohort.band === 'statewide' ? NARROW_HIGHSELECTIVITY : NONE,
-    )
+    // CSV is a full unfiltered export. Skip statewide: a ~23M-row COPY runs for
+    // minutes and CSV time is ~linear in row count (see small/medium/large), so
+    // statewide adds no insight and would dominate the pass.
+    if (cohort.band !== 'statewide') push('csv', cohort, NONE)
     push('stats', cohort, NONE)
   }
   return cases

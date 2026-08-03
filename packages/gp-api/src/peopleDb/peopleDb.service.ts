@@ -96,7 +96,13 @@ export class PeopleDbService implements OnModuleInit, OnModuleDestroy {
     databaseUrl: string,
   ): Promise<PeopleDbPrismaClient> {
     const url = new URL(databaseUrl)
-    url.searchParams.set('connection_limit', '25')
+    // 50, not 25: a slow statewide query holds its connection for seconds, so
+    // ~25 concurrent ones saturate the pool and the rest fail with a pool
+    // timeout. The Aurora writer's max_connections is 5000 with a few dozen in
+    // use, so this headroom is safe; it stays a bulkhead (not 500) so a burst
+    // of heavy scans can't overrun the 16-vCPU instance. Real fix is making
+    // those queries cheap (see peopleDb/CLAUDE.md § Benchmarks).
+    url.searchParams.set('connection_limit', '50')
     url.searchParams.set('pool_timeout', '5')
     url.searchParams.set('connect_timeout', '5')
     // Queries that take longer than 60 seconds will be cancelled.

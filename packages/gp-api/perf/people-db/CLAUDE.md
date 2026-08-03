@@ -24,7 +24,7 @@ Results print as a table and are written to `scripts/output/people-db-bench-<env
 
 `load` mode adds real pool contention; run against prod (`--env=prod`) only
 off-peak. It exits non-zero if any scenario's error rate at the target
-concurrency (25, the `connection_limit`) is above its budget.
+concurrency (50, the `connection_limit`) is above its budget.
 
 ## Add a benchmark when you add a query
 
