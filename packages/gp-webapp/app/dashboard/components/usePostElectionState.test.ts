@@ -22,6 +22,7 @@ const setCampaign = (overrides: {
   primaryElectionDate?: string
   primaryResult?: 'won' | 'lost' | null
   goalsElectionDate?: string
+  partisanType?: string
 }) => {
   mockUseCampaign.mockReturnValue([
     {
@@ -30,6 +31,7 @@ const setCampaign = (overrides: {
       details: {
         electionDate: overrides.electionDate,
         primaryElectionDate: overrides.primaryElectionDate,
+        partisanType: overrides.partisanType,
       },
       goals: overrides.goalsElectionDate
         ? { electionDate: overrides.goalsElectionDate }
@@ -79,6 +81,32 @@ describe('usePostElectionState', () => {
 
     expect(result.current.primaryResultModalOpen).toBe(true)
     expect(result.current.electionInPast).toBe(false)
+  })
+
+  it('does not open the modal for a partisan primary (does not apply to non-partisan candidates)', () => {
+    setCampaign({
+      electionDate: daysFromNow(60),
+      primaryElectionDate: daysFromNow(-10),
+      partisanType: 'partisan',
+    })
+
+    const { result } = renderHook(() => usePostElectionState())
+
+    expect(result.current.primaryResultModalOpen).toBe(false)
+    expect(result.current.primaryLost).toBe(false)
+    expect(result.current.electionInPast).toBe(false)
+  })
+
+  it('opens the modal for a nonpartisan primary that has passed', () => {
+    setCampaign({
+      electionDate: daysFromNow(60),
+      primaryElectionDate: daysFromNow(-10),
+      partisanType: 'nonpartisan',
+    })
+
+    const { result } = renderHook(() => usePostElectionState())
+
+    expect(result.current.primaryResultModalOpen).toBe(true)
   })
 
   it('does not open the modal when the primary date is in the future', () => {
