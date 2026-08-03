@@ -63,7 +63,7 @@ def request(
             file=sys.stderr,
         )
         sys.exit(1)
-    return response.json()
+    return response.json() if response.content else {}
 
 
 def list_destinations() -> None:
@@ -122,7 +122,7 @@ def create_subscription(destination_id: str, payload_path: str) -> None:
         f'/destinations/{destination_id}/subscriptions',
         payload,
     )
-    print(json.dumps(data['data'], indent=2))
+    print(json.dumps(data.get('data', {}), indent=2))
     print(
         'Created DISABLED. Enable with enable-subscription after human review.',
         file=sys.stderr,
@@ -144,7 +144,7 @@ def update_subscription(
         f'/destinations/{destination_id}/subscriptions/{subscription_id}',
         payload,
     )
-    print(json.dumps(data['data'], indent=2))
+    print(json.dumps(data.get('data', {}), indent=2))
 
 
 def enable_subscription(destination_id: str, subscription_id: str) -> None:
@@ -153,7 +153,7 @@ def enable_subscription(destination_id: str, subscription_id: str) -> None:
         f'/destinations/{destination_id}/subscriptions/{subscription_id}',
         {'enabled': True},
     )
-    print(json.dumps(data['data'], indent=2))
+    print(json.dumps(data.get('data', {}), indent=2))
 
 
 if __name__ == '__main__':
