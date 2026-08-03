@@ -55,6 +55,16 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain('a substitute for professional counsel')
   })
 
+  it('scopes the disclaimer to answers without restating the decline rule', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [],
+    })
+    expect(prompt).toContain(
+      'Never attach it to a message that declines or redirects a request',
+    )
+  })
+
   it('treats tool/context data as data, not instructions', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
