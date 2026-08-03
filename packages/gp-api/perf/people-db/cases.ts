@@ -9,6 +9,7 @@ export type QueryType =
   | 'search'
   | 'csv'
   | 'stats'
+  | 'voterDensity'
 
 export type BenchCase = {
   id: string
@@ -26,7 +27,10 @@ export const DEFAULT_ITERATIONS = 8
 // 1 cold + 2 warm so every reported number is still an aggregate.
 const HEAVY_ITERATIONS = 3
 
-const NONE = FILTER_VARIANTS.find((v) => v.name === 'none') as FilterVariant
+const NONE = FILTER_VARIANTS.find((v) => v.name === 'none')
+if (!NONE) {
+  throw new Error("perf/people-db: missing the 'none' filter variant")
+}
 
 // Heavy statewide cells hold a connection for seconds; run them fewer times so
 // a full latency pass stays bounded.
@@ -71,6 +75,8 @@ export const buildLatencyCases = (
     // statewide adds no insight and would dominate the pass.
     if (cohort.band !== 'statewide') push('csv', cohort, NONE)
     push('stats', cohort, NONE)
+    // Precomputed, indexed (districtId, resolution) read — one cell per cohort.
+    push('voterDensity', cohort, NONE)
   }
   return cases
 }

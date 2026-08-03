@@ -5,6 +5,7 @@ import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
 import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
+import { VoterDensityService } from '@/peopleDb/services/voterDensity.service'
 import {
   listPeopleSchema,
   aggregatesSchema,
@@ -39,6 +40,7 @@ export const createHarness = async (): Promise<Harness> => {
   const voterQuery = app.get(VoterQueryService)
   const stats = app.get(StatsService)
   const download = app.get(VoterDownloadService)
+  const voterDensity = app.get(VoterDensityService)
 
   const invoke = async (c: BenchCase): Promise<void> => {
     const districtId = c.cohort.districtId
@@ -73,8 +75,13 @@ export const createHarness = async (): Promise<Harness> => {
           samplePeopleSchema.parse({ districtId, size: 1000 }),
         )
         return
-      case 'stats':
-        await stats.getStats({ districtId } as unknown as StatsDTO)
+      case 'stats': {
+        const statsDto: StatsDTO = { districtId }
+        await stats.getStats(statsDto)
+        return
+      }
+      case 'voterDensity':
+        await voterDensity.getVoterDensity(districtId)
         return
       case 'csv': {
         const sink = createNullSink()
