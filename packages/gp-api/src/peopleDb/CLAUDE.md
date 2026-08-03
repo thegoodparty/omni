@@ -52,7 +52,7 @@ client, atomically repoints `instance` to it, and fire-and-forgets
 `$disconnect()` on the old client (drains in-flight queries; a failed
 teardown of the old client must never disturb the new one) — this is also
 what recovers a never-initialized client once the URL becomes resolvable.
-Each built client sets `connection_limit=25`, `pool_timeout=5`,
+Each built client sets `connection_limit=50`, `pool_timeout=5`,
 `connect_timeout=5`, `socket_timeout=60` on the connection URL. Initial
 `$connect()` within `buildClient` is separately fail-soft: a broken
 `PEOPLE_DATABASE_URL` logs and moves on rather than throwing, so Prisma can
@@ -123,3 +123,13 @@ Keep new tests in this module to that pattern — don't reach for
 | `utils/buildAggregatesSql.util.ts`      | Aggregate/stats SQL builders                                          |
 | `utils/resolveDistrict.util.ts`         | District join/resolution helper                                       |
 | `util/hash.util.ts`                     | `personId` hash derivation (stable hash of `LALVOTERID`)              |
+
+## Benchmarks
+
+Query performance here is benchmarked by the in-process suite in
+`perf/people-db/` (latency matrix + concurrency load mode against a real
+people-db). If you add or change a query method on one of the services above,
+add or adjust a case so it stays covered: a new query type needs a branch in
+`perf/people-db/harness.ts`'s `invoke` and cases in `perf/people-db/cases.ts`;
+a new filter shape worth measuring is a `FilterVariant` in
+`perf/people-db/filterVariants.ts`. See `perf/people-db/CLAUDE.md`.
