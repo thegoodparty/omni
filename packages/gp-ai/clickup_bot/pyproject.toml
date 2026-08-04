@@ -1,0 +1,12 @@
+[project]
+name = "gp-clickup-bot"
+version = "0.1.0"
+description = "ClickUp webhook handler - triggers engineer_agent on gpbot-analyze tag"
+requires-python = ">=3.11"
+dependencies = []
+
+# No [build-system]: like the other Lambda members (pmf_engine, broker,
+# engineer_agent), clickup_bot is a virtual workspace member — its code ships in
+# a Docker/zip artifact, not an installed wheel, and its tests import the handler
+# via tests/conftest.py (sys.path). Declaring hatchling here makes `uv run` try
+# to build a wheel and fail ("no directory matches gp_clickup_bot").
