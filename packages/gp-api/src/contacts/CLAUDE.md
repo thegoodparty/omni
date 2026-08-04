@@ -170,19 +170,25 @@ PK — a `::uuid[]` SQL builder in `src/peopleDb`'s filter pipeline
 fallback). A condition naming a specific `outreachId` only accepts
 **completed** outreaches.
 
-### The Unreliable/Unknown seed mislabel (ENG-10851)
+### The Voter_Status propensity vocabulary
 
-The people-db ETL's `Voter_Status` CASE (gp-data-platform,
-`m_people_api__voter.sql`) never writes `'Unreliable'` — the
-middle-propensity cohort (voted exactly 1 of the last 3 tracked elections)
-falls into its `else` branch and is stored as `'Unknown'`, usually the
-largest bucket in a district. Until the ETL fix + cluster rebuild land,
-`convertVoterFileFilterToFilters` expands any Unreliable selection
-(`audienceUnreliableVoters` or a raw `voterStatus` array) to
-`IN ('Unreliable', 'Unknown')` (`expandUnreliableVoterStatus`) so it matches
-the real cohort in both the pre- and post-fix data. The wizard's separate
-"Unknown" option overlaps Unreliable meanwhile — the vocabulary re-model is
-a ticketed follow-up (see ENG-10851's sibling ticket).
+`Voter_Status` is a turnout-propensity bucket for the 2026 General, derived
+from the in-house model probability: `Unlikely` (<0.25), `Unreliable` (<0.50),
+`Likely` (<0.75), `Super` (>=0.75), `Unknown` (no score). All five are real,
+populated values.
+
+This replaced an older participation-count CASE on 2026-07-31 (gp-data-platform
+#725 / DATA-2209), which reached production at the 2026-08-04 14:32 cutover to
+`gp-people-db-20260727-prod`. The old vocabulary had a `First Time` value and no
+`Unreliable`; both facts are now false, and the `expandUnreliableVoterStatus`
+workaround that compensated for them has been removed. `First Time` matches zero
+rows and is no longer offered anywhere.
+
+The model is scoped to a specific election cycle and will be re-cut. If
+`Voter_Status` stops matching the five values above, every likelihood filter in
+the product is silently wrong — check the live vocabulary against the
+SSM-resolved cluster (`people-db-connection-string-prod`) before trusting any
+filter-related bug report.
 
 ### Override-aware Voter Likelihood filtering (ENG-10838)
 
