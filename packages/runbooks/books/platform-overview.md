@@ -807,18 +807,18 @@ Every workflow's concurrency group uses `cancel-in-progress: false`. Canceling a
 
 ### Dependency updates (Dependabot)
 
-**Security updates only** — version bumps disabled (`open-pull-requests-limit: 0`). Security PRs target `develop` and self-merge via `dependabot-merge.yml` (sweeps every 30 min; merges approved, green PRs whose last commit is ≥24h old) authenticating as the `omni-automation` GitHub App. Auto-merge stops at `develop`; qa/prod go through normal promotion.
+**Security updates only** — version bumps disabled (`open-pull-requests-limit: 0`). Security PRs target `main` and self-merge via `dependabot-merge.yml` (sweeps every 30 min; merges approved, green PRs whose last commit is ≥24h old) authenticating as the `omni-automation` GitHub App. Merging to `main` deploys dev; prod follows automatically once those checks go green, via the promote-on-green workflow — there is no separate promotion step to reach prod.
 
 ### Branch → Environment Mapping
 
-| Branch    | Environment | Notes                                                                                                           |
-| --------- | ----------- | --------------------------------------------------------------------------------------------------------------- |
-| `develop` | Dev         | Integration branch; PRs target it. `*-dev.goodparty.org` / `dev.goodparty.org`                                  |
-| `qa`      | QA          | `*-qa.goodparty.org`. The legacy people-api service has no qa env and is no longer branch-driven from this repo |
-| `master`  | Prod        | `*.goodparty.org` / `api.goodparty.org`                                                                         |
-| `pr-<N>`  | Preview     | Backend: `https://pr-<N>.preview.goodparty.org`; frontend: deterministic Vercel alias                           |
+Single trunk: `main` is the one long-lived branch and the default branch; all PRs target it.
 
-PR-triggered workflows skip PRs targeting `qa`/`master` (`branches-ignore`) — promotion PRs don't re-run PR CI.
+| Branch   | Environment | Notes                                                                                                                                           |
+| -------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `main`   | Dev         | The trunk; PRs target it. A push deploys dev (`*-dev.goodparty.org` / `dev.goodparty.org`) and runs full CI incl. the post-merge Playwright E2E |
+| `pr-<N>` | Preview     | Backend: `https://pr-<N>.preview.goodparty.org`; frontend: deterministic Vercel alias                                                           |
+
+Prod (`*.goodparty.org` / `api.goodparty.org`) is reached only by automated promotion: `promote.yml` rides `push: main`, waits for that commit's checks to go green on dev, then deploys the same commit to prod. It runs as the `omni-automation` GitHub App, is freeze-switch gated, and has a manual `workflow_dispatch` fallback. Forward-only — the ECS circuit breaker auto-reverts a crash-on-boot; there is no manual rollback and no manual `develop → qa → master` promotion. The `qa` and `master` branches are gone (qa is dropped from CI; the qa infrastructure teardown is a separate later task).
 
 ### VPC Details
 

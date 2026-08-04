@@ -65,7 +65,7 @@ of one structural difference:
 
 - The experiment-run queue consumer looks up an **existing** `ExperimentRun` by
   `runId` and bails if it is missing ("Experiment run not found"). The SQS
-  message *updates* a run; it does not create one. The poll path works because
+  message _updates_ a run; it does not create one. The poll path works because
   the poll row already exists from the UI flow the test drove.
 - The only API that creates a briefing run is `POST /meetings/briefings/dispatch`
   (`dispatchManual` -> `dispatchBriefing`). But it requires a resolvable meeting
@@ -106,14 +106,13 @@ and thorough — we did not duplicate it:
 - `dashboardCards.controller.test.ts` — all four buckets
   (active/skipped/missed/this_week), `PUT :id/dismiss`, office scoping, expiry.
 - `onboardingCards.controller.test.ts` — onboarding list + skip.
-- `priorities.controller.test.ts` — create/list/update/archive + missing-header
-  404.
+- `priorities.controller.test.ts` — create/list/update/archive + missing-header 404.
 - `general-chats.controller.integration.test.ts` — CoS chat create / history /
   replay / soft-delete / SSE / anchor, with the LLM stream mocked.
 
 ### The one gap we added: generation -> read bridge
 
-Nothing connected card *generation* to the *HTTP read* — the sync test asserts
+Nothing connected card _generation_ to the _HTTP read_ — the sync test asserts
 via Prisma and the controller test seeds rows via Prisma, so a generated card
 whose shape fails the read DTO would slip through. Added
 `packages/gp-api/src/dashboardCards/tests/cardsFromBriefing.test.ts`:
@@ -130,7 +129,7 @@ of when the suite runs. Both tests pass; lint + prettier clean.
 
 These run against a deployed environment, depend on live feature flags and the
 real model, and are nondeterministic, so they are tagged `@dev-only` and are
-grepped out of per-PR runs (they run on the post-merge `develop` run and on
+grepped out of per-PR runs (they run on the post-merge `main` run and on
 demand). See the `@dev-only` convention in `e2e-tests/CLAUDE.md`.
 
 ### gp-webapp e2e: CoS page + chat (`@dev-only`) — BUILT
@@ -200,7 +199,7 @@ Cost is mostly controlled by test placement, not by the model:
 
 - Integration tests (Layer 1) do not call a real model. Zero cost.
 - The real-LLM chat specs are `@dev-only`, so they are excluded from per-PR CI
-  and only run on the post-merge `develop` run. So PR CI cost is zero.
+  and only run on the post-merge `main` run. So PR CI cost is zero.
 
 If we still want to cut the post-merge and local cost, the lever is to pin
 dev/CI to a cheaper Claude model (Haiku 4.5). Constraints and trade-offs:
@@ -252,4 +251,4 @@ we do.
 
 Definition of done: `npm run verify` green for the gp-api integration tests
 (the bridge test passes); the `@dev-only` gp-webapp spec verified on the
-post-merge develop run once the dev flag audience is confirmed.
+post-merge main run once the dev flag audience is confirmed.

@@ -2,9 +2,8 @@ name: styleguide
 
 on:
   pull_request:
-    branches-ignore: [qa, master]
   push:
-    branches: [develop, qa, master]
+    branches: [main]
 
 permissions:
   contents: read

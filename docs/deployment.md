@@ -2,16 +2,18 @@
 
 ## Branch -> environment model
 
-| Branch    | Environment | Notes                             |
-| --------- | ----------- | --------------------------------- |
-| `develop` | dev         | Integration branch; PRs target it |
-| `qa`      | qa          |                                   |
-| `master`  | prod        |                                   |
+Single trunk. One long-lived branch, `main` (the default branch).
 
-PRs open against `develop`. Promotion is by merging `develop -> qa -> master`.
-PR-triggered workflows (validation and preview deploys) skip PRs targeting `qa`
-or `master` (`branches-ignore`) — promotion PRs don't re-run PR CI; those branches
-are covered by their push-triggered deploys.
+| Branch | Environment | Notes                                                      |
+| ------ | ----------- | ---------------------------------------------------------- |
+| `main` | dev         | Every PR targets it; each push deploys dev and runs CI     |
+| `main` | prod        | Same commit, promoted to prod automatically once dev green |
+
+All PRs open against `main`. A push to `main` deploys the dev environment and runs
+full CI (including the post-merge Playwright E2E against the dev deploy). Prod is
+never pushed to directly; it is reached only by automated promotion of the same
+commit once its dev checks pass. See [Automated promotion](#automated-promotion-promoteyml)
+below. There is no `qa` or `master` branch and no manual promotion PR.
 
 ### Concurrency: never `cancel-in-progress: true`
 
@@ -30,14 +32,15 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
 `.github/actions/vercel-deploy` composite action.
 
 - Each app is its own Vercel project; the build uses `rootDirectory=packages/<app>`.
-- Env deploys (develop/qa) hit Vercel's **preview** target with branch-scoped env
-  vars, then alias the result to a stable domain (e.g. `dev.goodparty.org`).
+- The dev deploy (on push to `main`) hits Vercel's **preview** target with
+  environment-scoped env vars, then aliases the result to `dev.goodparty.org`.
 - PR previews get a **deterministic alias** (e.g. `gp-ui-pr-123-...vercel.app`) so
   the URL is predictable per PR.
-- `prod` deploys to the production target.
+- The prod deploy runs the same way but targets the production target; it is driven
+  by automated promotion of the same commit (see below), not a push to a prod branch.
 - The **Storybook styleguide** (`packages/gp-webapp/styleguide`) is its own Vercel
   project (`VERCEL_PROJECT_ID_STYLEGUIDE`), served at `style.goodparty.org`. The
-  `deploy-styleguide` job in `gp-webapp.yml` deploys it on merges to `develop`
+  `deploy-styleguide` job in `gp-webapp.yml` deploys it on merges to `main`
   only (single-environment site): `vercel build` runs the project's configured
   `build-storybook` (`rootDirectory=packages/gp-webapp`,
   `outputDirectory=storybook-static`) on the runner, then deploys `--prebuilt` to
@@ -47,7 +50,7 @@ Vercel CLI (no git integration), driven by GitHub Actions and the shared
   (`VERCEL_PROJECT_ID_PROTOTYPES`, `rootDirectory=packages/prototypes`), served at
   `prototypes.goodparty.org`. It is a single-environment, fully public Next.js app
   with no backend coupling (no gp-api, no election-api, no e2e). The
-  `prototypes.yml` workflow deploys it: on merges to `develop` it deploys to the
+  `prototypes.yml` workflow deploys it: on merges to `main` it deploys to the
   **production** target; on PRs it deploys a preview with a deterministic alias
   (`prototypes-pr-<N>-good-party.vercel.app`). The deploy job is guarded by
   `vars.VERCEL_PROJECT_ID_PROTOTYPES != ''` and no-ops until that variable is set.
@@ -98,14 +101,18 @@ exercises the exact full-stack version proposed in the PR.
   summary job merges the per-shard blob reports into one HTML report +
   `results.json`, publishes to S3, comments on the PR, and is the single required
   status check (red iff any shard failed). `E2E` keeps that exact name because the
-  `develop` ruleset gates on it.
+  `main` ruleset gates on it, and automated promotion waits on the same check
+  before shipping the commit to prod.
 - election-api is not part of this yet (the webapp does not call it directly and it
   has no preview stack).
 
 ## Backends (Docker + ECR + Pulumi -> ECS Fargate)
 
 gp-api and election-api build a production Docker image, push to ECR
-(tagged with the commit SHA), and deploy to ECS Fargate via Pulumi.
+(tagged with the commit SHA), and deploy to ECS Fargate via Pulumi. A push to
+`main` deploys the dev environment; the prod deploy of the same image is driven by
+automated promotion (`promote.yml`, see below), not by a push to a prod branch.
+Both paths call the same composite deploy action, only with different env inputs.
 
 people-api's repo package and `.github/workflows/people-api.yml` pipeline were
 removed once gp-api absorbed direct people-db access (`packages/gp-api/src/peopleDb/`).
@@ -124,6 +131,31 @@ manually decommissioned service during the `USE_LOCAL_PEOPLE_DB` rollout — see
 - Infra detail and the `npm run infra <diff|deploy> <env>` wrapper:
   `packages/gp-api/deploy/CLAUDE.md`.
 
+## Automated promotion (promote.yml)
+
+Prod is reached only by promotion, never by a direct push. The `promote.yml`
+workflow rides the `push: main` event and promotes commits that are proven good on
+dev:
+
+1. It waits for that commit's full set of required checks (E2E plus every deploy) to
+   go green on dev.
+2. It confirms the commit is actually serving on dev via `GET /v1/version`
+   (`{ commit }`), so promotion follows real deployed state, not just check status.
+3. It then deploys the **same** commit to prod by calling the existing composite
+   deploy actions with prod inputs (same images, same SHA, prod env).
+
+Details worth knowing:
+
+- **Runs as the `omni-automation` GitHub App** (`AUTOMATION_APP_ID` var +
+  `AUTOMATION_APP_PRIVATE_KEY` secret), the same identity Dependabot auto-merge uses.
+- **Freeze switch.** A repo variable gates promotion; flip it to hold prod while
+  still landing work on `main` and deploying dev.
+- **Manual trigger.** `workflow_dispatch` can promote on demand (e.g. after
+  unfreezing, or to re-run a promotion).
+- **Forward-only.** There is no manual rollback. A crash-on-boot image is reverted
+  automatically by the ECS deployment circuit breaker; to move forward, land a fix
+  on `main` and let it promote.
+
 ## CI layout
 
 Workflows live in `.github/workflows/`, one per package; every package's
@@ -137,7 +169,7 @@ vercel-deploy, pulumi-deploy).
 Policy: **security updates only** — no version-bump PRs. Version updates are
 disabled in `.github/dependabot.yml` (`open-pull-requests-limit: 0`); security
 PRs are driven by Dependabot alerts (enabled in repo settings) and target
-`develop`.
+`main` (`--base main`).
 
 Security PRs merge themselves: the `dependabot-merge.yml` workflow sweeps every
 30 minutes and squash-merges any Dependabot PR that is approved (delegate
@@ -146,4 +178,5 @@ hours old. A commit pushed by anyone other than Dependabot disqualifies the PR
 from auto-merge. Merges authenticate as the `omni-automation` GitHub App
 (`AUTOMATION_APP_ID` var + `AUTOMATION_APP_PRIVATE_KEY` secret) so the merge
 push triggers the dev deploy workflows like any other merge. Auto-merge stops
-at `develop`; security fixes reach qa/prod through the normal promotion flow.
+at `main`; from there a security fix reaches prod through automated promotion
+like any other commit.
