@@ -897,6 +897,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"wrote review artifact for {today.isoformat()} to {args.review_artifact}", file=sys.stderr)
         return 0
 
+    if args.load_seed and args.load_review:
+        print(
+            "gap-sweep: --load-seed and --load-review are mutually exclusive; "
+            "pass only one.",
+            file=sys.stderr,
+        )
+        return 1
     load_path = args.load_seed or args.load_review
     if load_path:
         # Dedicated round-trip branch: no scan, no judgment — just apply a reviewer's

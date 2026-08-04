@@ -916,6 +916,18 @@ def test_main_load_seed_missing_file_is_graceful(tmp_path, capsys):
     assert str(missing) in err
 
 
+def test_main_load_seed_and_load_review_are_mutually_exclusive(tmp_path, capsys):
+    seed = tmp_path / "seed.md"
+    seed.write_text("# seed\n")
+    review = tmp_path / "review.md"
+    review.write_text("# review\n")
+
+    rc = ig.main(["--load-seed", str(seed), "--load-review", str(review)])
+
+    assert rc == 1
+    assert "mutually exclusive" in capsys.readouterr().err
+
+
 def test_new_this_run_filters_by_disposition_and_first_seen():
     state = {
         "a": {"id": "a", "disposition": "new", "first_seen": "2026-08-03", "rank": 2},
