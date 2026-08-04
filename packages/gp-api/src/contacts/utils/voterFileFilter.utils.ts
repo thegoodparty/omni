@@ -79,7 +79,6 @@ export const AUDIENCE_VOTER_STATUS_VALUES = [
   { field: 'audienceLikelyVoters', value: 'Likely' },
   { field: 'audienceUnreliableVoters', value: 'Unreliable' },
   { field: 'audienceUnlikelyVoters', value: 'Unlikely' },
-  { field: 'audienceFirstTimeVoters', value: 'First Time' },
   { field: 'audienceUnknown', value: 'Unknown' },
 ] as const
 
@@ -146,7 +145,6 @@ export const convertVoterFileFilterToFilters = (
     'audienceLikelyVoters',
     'audienceUnreliableVoters',
     'audienceUnlikelyVoters',
-    'audienceFirstTimeVoters',
     'audienceUnknown',
     'partyIndependent',
     'partyDemocrat',
