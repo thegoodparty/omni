@@ -47,6 +47,9 @@ _HEADLINES = {
 # Cap how many transitions the digest parent spells out before summarizing (the first
 # run flags everything, which would otherwise dump the whole catalog into the channel).
 TRANSITION_CAP = 15
+# Cap the parent's yellow tier; red is uncapped (small by construction) and fyi is a count.
+YELLOW_CAP = 10
+MENTION_ENV = "SLACK_EVENT_ALERT_MENTION"
 
 
 def sheet_url() -> str | None:
@@ -198,13 +201,17 @@ def build_gap_thread_blocks(gap: dict) -> list[dict]:
 
 
 def should_post(
-    result: dict, changes: dict, prior_anomalous: set[str] | None = None, gap: dict | None = None
+    result: dict,
+    changes: dict,
+    prior_anomalous: set[str] | None = None,
+    gap: dict | None = None,
+    red_open: bool = False,
 ) -> bool:
-    """Quiet gate: post only when something changed. True if any event was newly flagged,
-    escalated (status changed), or resolved, or if any flagged event carries an anomaly it
-    did not have last run, or if the gap sweep (Task 4) found new instrumentation gaps.
-    ``still_open`` alone (same flags, same status, same anomaly state as last run) is not
-    news."""
+    """Quiet gate: post only when something changed — or when a red (OKR-anchored) item
+    is open. ``red_open`` (DATA-2174) keeps a broken OKR anchor posting every run until
+    it resolves; everything else is change-driven and ``still_open`` alone is not news."""
+    if red_open:
+        return True
     if any(changes.get(k) for k in ("new", "escalated", "resolved")):
         return True
     if _new_anomalies(result, prior_anomalous):
@@ -232,12 +239,68 @@ def _pct(current: float, baseline: float) -> str:
     return f"{change:+d}%"
 
 
+def _pr_label(pr_url: str) -> str:
+    number = pr_url.rstrip("/").rsplit("/", 1)[-1]
+    return f"<{pr_url}|PR #{number}>" if number.isdigit() else f"<{pr_url}|PR>"
+
+
+def _tier_items(triage: dict, tier: str) -> list[dict]:
+    return [i for i in (triage.get("items") or []) if i.get("tier") == tier]
+
+
+def _red_lines(items: list[dict]) -> str:
+    lines = []
+    for i in items:
+        head = f"• `{i['event_type']}`"
+        if i.get("okr"):
+            head += f" — OKR: {i['okr']}"
+        detail = f"  {i.get('headline') or ''}"
+        if i.get("action"):
+            detail += f" → {i['action']}"
+        lines.append(f"{head}\n{detail}")
+    return "\n".join(lines)
+
+
+def _yellow_lines(items: list[dict]) -> str:
+    shown = items[:YELLOW_CAP]
+    body = "\n".join(f"• `{i['event_type']}`  {i.get('headline') or ''}" for i in shown)
+    if len(items) > YELLOW_CAP:
+        body += f"\n…and {len(items) - YELLOW_CAP} more (see the sheet)"
+    return body
+
+
+def _fyi_thread_lines(fyi: list[dict]) -> list[str]:
+    """FYI transition detail for the thread. Newly instrumented events group under the
+    PR that shipped them (provenance instrumented_pr — DATA-2174); everything else keeps
+    the one-line-per-event transition format."""
+    new = [i for i in fyi if i.get("change") == "new"]
+    rest = [i for i in fyi if i.get("change") != "new"]
+    lines: list[str] = []
+    by_pr: dict[str, list[dict]] = {}
+    for i in new:
+        by_pr.setdefault(i.get("instrumented_pr") or "", []).append(i)
+    for pr_url, group in sorted(by_pr.items(), reverse=True):
+        names = " · ".join(f"`{i['event_type']}`" for i in group)
+        if pr_url:
+            n = len(group)
+            lines.append(f"• {_pr_label(pr_url)} — {n} new event{'' if n == 1 else 's'}: {names}")
+        else:
+            lines.append(f"• newly flagged: {names}")
+    for i in rest:
+        if i.get("change") == "resolved":
+            lines.append(f"• `{i['event_type']}`  resolved")
+        else:
+            lines.append(f"• `{i['event_type']}`  {i.get('headline') or ''}")
+    return lines
+
+
 def build_digest_blocks(
     result: dict,
     changes: dict,
     prior_state: dict | None,
     prior_anomalous: set[str] | None = None,
     gap: dict | None = None,
+    triage: dict | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Return ``(parent_blocks, thread_blocks)`` for a Source B health-digest post.
 
@@ -251,7 +314,12 @@ def build_digest_blocks(
     sweep — ``None`` (the digest's only caller today) leaves this byte-identical to the
     health-only digest; when present, its one-line summary is appended to the parent and
     its ranked detail to the thread, so the two sweeps read as one post.
+    ``triage`` (DATA-2174) switches the parent to the tiered needs-action / worth-watching
+    / FYI layout; ``None`` keeps this byte-identical to the legacy delta-led digest.
     """
+    if triage is not None:
+        return _build_tiered_blocks(result, changes, prior_anomalous, gap, triage)
+
     n_changes = sum(len(changes.get(k, [])) for k in ("new", "escalated", "resolved"))
     anomalies = _new_anomalies(result, prior_anomalous)
     proposals = result.get("proposals") or []
@@ -316,6 +384,81 @@ def build_digest_blocks(
     return parent, thread
 
 
+def _build_tiered_blocks(
+    result: dict,
+    changes: dict,
+    prior_anomalous: set[str] | None,
+    gap: dict | None,
+    triage: dict,
+) -> tuple[list[dict], list[dict]]:
+    red = _tier_items(triage, "red")
+    yellow = _tier_items(triage, "yellow")
+    fyi = _tier_items(triage, "fyi")
+    proposals = result.get("proposals") or []
+    link = sheet_url()
+
+    parent: list[dict] = [_header(f"📊 Analytics event health — {result.get('run_date')}")]
+    if red:
+        mention = os.environ.get(MENTION_ENV) or "<!here>"
+        parent.append(_section(f"*🔴 Needs action ({len(red)})*\n{_red_lines(red)}"))
+        parent.append(_context(f"{mention} — OKR-anchored instrumentation needs attention"))
+    if yellow:
+        parent.append(_section(f"*🟡 Worth watching ({len(yellow)})*\n{_yellow_lines(yellow)}"))
+    if not red and not yellow:
+        parent.append(_section("Nothing needs action."))
+
+    fyi_bits = []
+    if fyi:
+        fyi_bits.append(f"{len(fyi)} informational change{'' if len(fyi) == 1 else 's'}")
+    if proposals:
+        fyi_bits.append(f"{len(proposals)} watchlist proposal{'' if len(proposals) == 1 else 's'}")
+    if gap_has_news(gap):
+        n = gap.get("new_count", 0)
+        fyi_bits.append(f"{n} new gap{'' if n == 1 else 's'}")
+    if fyi_bits:
+        parent.append(_context(f"ℹ️ {' · '.join(fyi_bits)} — details in 🧵"))
+    status = triage.get("status", "ok")
+    if status not in ("ok", "no-items"):
+        parent.append(_context("⚙️ triage judgment unavailable this run (rules-tier fallback)"))
+    if gap is not None and not gap_has_news(gap):
+        parent.append(_context(build_gap_summary_line(gap)))
+    if link:
+        parent.append(_context(f"<{link}|🔗 Full event-state sheet> · 🧵 details in thread"))
+    else:
+        parent.append(_context("🧵 details in thread"))
+
+    # --- thread: the detail that used to be the parent wall ---
+    thread: list[dict] = []
+    fyi_lines = _fyi_thread_lines(fyi)
+    if fyi_lines:
+        thread.append(_section("*Informational changes*\n" + "\n".join(fyi_lines)))
+    firing = [r for r in result.get("flagged", []) if r.get("anomaly")]
+    if firing:
+        rows = "\n".join(
+            f"• `{r['event_type']}`  {_pct(r['anomaly']['current'], r['anomaly']['baseline'])} WoW "
+            f"({r['anomaly']['baseline']:,.0f} → {r['anomaly']['current']:,})"
+            for r in firing
+        )
+        thread.append(_section(f"*Firing anomalies*\n{rows}"))
+    if proposals:
+        rows = "\n".join(
+            f"• `{p['event_type']}`  family: {p.get('family') or '—'}" for p in proposals[:TRANSITION_CAP]
+        )
+        if len(proposals) > TRANSITION_CAP:
+            rows += f"\n…and {len(proposals) - TRANSITION_CAP} more (see the sheet)"
+        thread.append(_section(f"*Watchlist proposals*\n{rows}"))
+    sc = result.get("status_counts") or {}
+    if sc:
+        breakdown = " · ".join(f"{k} {v}" for k, v in sorted(sc.items(), key=lambda x: -x[1]))
+        thread.append(_section(
+            f"*Status breakdown*\n{breakdown}  ({result.get('total_events', sum(sc.values()))} total)"))
+    if not thread:
+        thread.append(_section("No additional detail."))
+    if gap is not None:
+        thread.extend(build_gap_thread_blocks(gap))
+    return parent, thread
+
+
 # --- poster (IO; injectable transport) ---------------------------------------
 
 
@@ -364,15 +507,20 @@ def post_digest(
     transport: Callable[..., Any] | None = None,
     prior_anomalous: set[str] | None = None,
     gap: dict | None = None,
+    triage: dict | None = None,
 ) -> str | None:
     """Post the health digest: parent message, then the detail as a threaded reply.
     No-op (returns None) when the quiet gate says nothing changed. ``gap`` (Task 4's
     instrumentation-gap run-data dict) threads through to both the quiet gate and the
     block builder, so new gaps alone are enough to post even when the health side is
-    quiet."""
-    if not should_post(result, changes, prior_anomalous, gap):
+    quiet. ``triage`` switches to the tiered layout and lets an open red item post even
+    on an otherwise quiet run."""
+    red_open = bool(triage) and any(
+        i.get("tier") == "red" for i in triage.get("items") or [])
+    if not should_post(result, changes, prior_anomalous, gap, red_open=red_open):
         return None
-    parent, thread = build_digest_blocks(result, changes, prior_state, prior_anomalous, gap)
+    parent, thread = build_digest_blocks(result, changes, prior_state, prior_anomalous,
+                                         gap, triage)
     ts = post_message(parent, token=token, channel=channel,
                       text=f"Analytics event health & instrumentation gaps — {result.get('run_date')}",
                       transport=transport)

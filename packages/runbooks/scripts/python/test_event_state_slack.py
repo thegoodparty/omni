@@ -458,3 +458,115 @@ def test_main_notify_metadata_is_nonfatal_on_slack_error(monkeypatch, capsys):
     rc = slk.main(["notify-metadata", "--event", "X", "--change", "created", "--status", "active"])
     assert rc == 0
     assert "failed" in capsys.readouterr().err.lower()
+
+
+# --- tiered digest (DATA-2174) -------------------------------------------------
+
+
+def _triage(items, status="ok"):
+    return {"status": status, "items": items}
+
+
+def _titem(event, tier, *, headline="h", action="", okr=None, change="new",
+           prior_status=None, status="dormant", pr=None):
+    return {"id": event, "event_type": event, "tier": tier, "rules_tier": tier,
+            "headline": headline, "action": action, "okr": okr, "change": change,
+            "prior_status": prior_status, "status": status, "instrumented_pr": pr}
+
+
+def _tiered_result(**kw):
+    base = {"run_date": "2026-08-04", "flagged": [], "proposals": [],
+            "status_counts": {"active": 300}, "total_events": 300}
+    base.update(kw)
+    return base
+
+
+NOCHG = {"new": [], "escalated": [], "resolved": [], "still_open": []}
+
+
+def test_should_post_true_on_red_open_alone():
+    assert slk.should_post(_tiered_result(), NOCHG, set(), None, red_open=True)
+    assert not slk.should_post(_tiered_result(), NOCHG, set(), None, red_open=False)
+
+
+def test_tiered_parent_orders_red_yellow_fyi():
+    triage = _triage([
+        _titem("OkrEvent", "red", headline="went quiet", action="check PR #1124",
+               okr="Active Candidates"),
+        _titem("WatchEvent", "yellow", headline="newly dormant"),
+        _titem("PlainEvent", "fyi"),
+    ])
+    changes = {"new": ["OkrEvent", "WatchEvent", "PlainEvent"], "escalated": [],
+               "resolved": [], "still_open": []}
+    parent, thread = slk.build_digest_blocks(
+        _tiered_result(), changes, {}, set(), gap=None, triage=triage)
+    text = _flatten_text(parent)
+    assert "🔴 Needs action (1)" in text
+    assert "OKR: Active Candidates" in text
+    assert "went quiet" in text and "→ check PR #1124" in text
+    assert "🟡 Worth watching (1)" in text
+    assert text.index("🔴") < text.index("🟡") < text.index("ℹ️")
+    assert "1 informational change" in text
+    # fyi detail lives in the thread, not the parent
+    assert "PlainEvent" not in text
+    assert "PlainEvent" in _flatten_text(thread)
+
+
+def test_tiered_parent_mentions_only_when_red(monkeypatch):
+    monkeypatch.delenv("SLACK_EVENT_ALERT_MENTION", raising=False)
+    red = _triage([_titem("E", "red", okr="Signups")])
+    changes = {"new": ["E"], "escalated": [], "resolved": [], "still_open": []}
+    parent, _ = slk.build_digest_blocks(_tiered_result(), changes, {}, set(), triage=red)
+    assert "<!here>" in _flatten_text(parent)
+
+    yellow = _triage([_titem("E", "yellow")])
+    parent, _ = slk.build_digest_blocks(_tiered_result(), changes, {}, set(), triage=yellow)
+    assert "<!here>" not in _flatten_text(parent)
+
+
+def test_tiered_parent_mention_env_override(monkeypatch):
+    monkeypatch.setenv("SLACK_EVENT_ALERT_MENTION", "<!subteam^S123>")
+    red = _triage([_titem("E", "red", okr="Signups")])
+    changes = {"new": ["E"], "escalated": [], "resolved": [], "still_open": []}
+    parent, _ = slk.build_digest_blocks(_tiered_result(), changes, {}, set(), triage=red)
+    text = _flatten_text(parent)
+    assert "<!subteam^S123>" in text and "<!here>" not in text
+
+
+def test_tiered_yellow_caps_with_overflow():
+    items = [_titem(f"E{i}", "yellow") for i in range(12)]
+    changes = {"new": [i["id"] for i in items], "escalated": [], "resolved": [],
+               "still_open": []}
+    parent, _ = slk.build_digest_blocks(
+        _tiered_result(), changes, {}, set(), triage=_triage(items))
+    text = _flatten_text(parent)
+    assert "🟡 Worth watching (12)" in text and "…and 2 more" in text
+
+
+def test_tiered_triage_failure_shows_fallback_note():
+    triage = _triage([_titem("E", "yellow")], status="failed: api down")
+    changes = {"new": ["E"], "escalated": [], "resolved": [], "still_open": []}
+    parent, _ = slk.build_digest_blocks(_tiered_result(), changes, {}, set(), triage=triage)
+    assert "triage judgment unavailable" in _flatten_text(parent)
+
+
+def test_thread_groups_new_events_by_pr():
+    triage = _triage([
+        _titem("A", "fyi", pr="https://github.com/thegoodparty/omni/pull/1049"),
+        _titem("B", "fyi", pr="https://github.com/thegoodparty/omni/pull/1049"),
+        _titem("C", "fyi", pr=None),
+    ])
+    changes = {"new": ["A", "B", "C"], "escalated": [], "resolved": [], "still_open": []}
+    _, thread = slk.build_digest_blocks(_tiered_result(), changes, {}, set(), triage=triage)
+    text = _flatten_text(thread)
+    assert "<https://github.com/thegoodparty/omni/pull/1049|PR #1049> — 2 new events" in text
+    assert "`C`" in text
+
+
+def test_legacy_layout_unchanged_when_triage_none():
+    result = _tiered_result()
+    changes = {"new": ["X"], "escalated": [], "resolved": [], "still_open": []}
+    legacy = slk.build_digest_blocks(result, changes, {}, set(), gap=None)
+    explicit = slk.build_digest_blocks(result, changes, {}, set(), gap=None, triage=None)
+    assert legacy == explicit
+    assert "Needs action" not in _flatten_text(legacy[0])
