@@ -33,7 +33,7 @@ the dry-run numbers, and get an explicit go before the real dispatch.
 
 - Prod DB password + prod Clerk keys: AWS Secrets Manager secret `GP_API_PROD`.
 - Prod DB host: `gp-api-db-prod.cluster-cmb1uukjsfbe.us-west-2.rds.amazonaws.com`, db `gpdb`, user `gpuser`. Reachable directly (no tunnel) as of 2026-06.
-- The M2M **caller** secret `GP_PROD_MACHINE_SECRET` is gp-admin's, NOT gp-api's. It lives in the `gp-admin-web` Vercel project (`prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT`, production target). Pull it via the Vercel API using `VERCEL_TOKEN` + `VERCEL_TEAM_ID` from `GP_API_PROD` (no `vercel login` needed). Minting with gp-api's own `GP_WEBAPP_MACHINE_SECRET` fails with 401.
+- The M2M **caller** secret `GP_PROD_MACHINE_SECRET` is gp-admin's, NOT gp-api's. It lives in the `gp-admin-web` Vercel project (`prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT`, production target). Pull it via the Vercel API using `VERCEL_TOKEN` + `VERCEL_TEAM_ID` from `GP_API_PROD` (no `vercel login` needed). Minting with gp-api's own `GP_API_MACHINE_SECRET` fails with 401.
 - Artifacts (schedule + briefing JSON) live in S3 bucket `gp-agent-artifacts-prod`, keys `meeting_briefing/<runId>/artifact.json` and the schedule equivalent.
 
 ### Gotchas

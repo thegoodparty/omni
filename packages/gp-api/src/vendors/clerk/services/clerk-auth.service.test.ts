@@ -166,7 +166,7 @@ describe('ClerkAuthService', () => {
       })
       expect(m2mVerify).toHaveBeenCalledWith({
         token: 'mt_token',
-        machineSecretKey: process.env.GP_WEBAPP_MACHINE_SECRET,
+        machineSecretKey: process.env.GP_API_MACHINE_SECRET,
       })
     })
 
