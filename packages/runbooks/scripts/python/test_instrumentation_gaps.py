@@ -955,3 +955,26 @@ def test_cli_list_new_outputs_this_run(tmp_path, capsys):
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
     assert [e["id"] for e in payload] == ["a"]
+
+
+def test_stamp_gap_and_is_actioned():
+    state = {"a": {"id": "a", "disposition": "accepted"}}
+    ig.stamp_gap(state, "a", ticket_url="https://clickup.com/t/DATA-9999", actioned_at="2026-08-03")
+    assert state["a"]["ticket_url"].endswith("DATA-9999")
+    assert state["a"]["actioned_at"] == "2026-08-03"
+    assert ig.is_actioned(state["a"]) is True
+    assert ig.is_actioned({"id": "b", "disposition": "accepted"}) is False
+
+
+def test_merge_preserves_ticket_stamp():
+    prior = {"a": {"id": "a", "surface_type": "route", "location": "app/x/page.tsx",
+                   "disposition": "accepted", "reason": "", "first_seen": "2026-08-03",
+                   "last_seen": "2026-08-03", "ticket_url": "https://clickup.com/t/DATA-1",
+                   "actioned_at": "2026-08-03", "rank": 1}}
+    verdicts = {"a": {"is_gap": True, "rubric_rule": "flow", "dashboard_question": "q",
+                      "reason": "still a gap", "rank": 1}}
+    cand = {"a": {"id": "a", "surface_type": "route", "location": "app/x/page.tsx"}}
+    out = ig.merge_judged_state(prior, verdicts, cand, date(2026, 8, 10))
+    assert out["a"]["ticket_url"].endswith("DATA-1")
+    assert out["a"]["actioned_at"] == "2026-08-03"
+    assert out["a"]["disposition"] == "accepted"

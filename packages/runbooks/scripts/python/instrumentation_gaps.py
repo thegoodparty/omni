@@ -445,6 +445,27 @@ def coverage_stats(state: Mapping[str, dict]) -> dict:
     return {"tracked_gaps": len(state), **counts}
 
 
+def is_actioned(entry: Mapping) -> bool:
+    """An accepted gap that already produced a ticket or was instrumented in-session. The
+    triage skill uses this so a re-run never double-files or re-offers it."""
+    return bool(entry.get("ticket_url") or entry.get("actioned_at"))
+
+
+def stamp_gap(
+    state: dict[str, dict], gap_id: str, *, ticket_url: str | None = None,
+    actioned_at: str | None = None,
+) -> dict[str, dict]:
+    """Record that an accepted gap was acted on. Idempotent: only sets provided fields."""
+    entry = state.get(gap_id)
+    if entry is None:
+        return state
+    if ticket_url is not None:
+        entry["ticket_url"] = ticket_url
+    if actioned_at is not None:
+        entry["actioned_at"] = actioned_at
+    return state
+
+
 # --- digest rendering ---------------------------------------------------------
 
 
