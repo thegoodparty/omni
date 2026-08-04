@@ -97,7 +97,7 @@ describe('VoterFileStep — Voter Likelihood section position', () => {
       name: 'Voter Likelihood',
     })
     expect(voterLikelihoodGroup).toBeInTheDocument()
-    ;['Unknown', 'First Time', 'Unlikely', 'Likely', 'Super'].forEach(
+    ;['Unknown', 'Unlikely', 'Unreliable', 'Likely', 'Super'].forEach(
       (label) => {
         expect(
           within(voterLikelihoodGroup).getByRole('button', { name: label }),
