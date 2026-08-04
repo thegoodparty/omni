@@ -189,6 +189,11 @@ def build_gap_thread_blocks(gap: dict) -> list[dict]:
     ) if b]
     if links:
         blocks.append(_context(" · ".join(links)))
+    # run_date is omitted only for older payloads that predate the field, so triage
+    # still works untargeted (defaults to the latest run) rather than erroring.
+    run_date = gap.get("run_date")
+    triage = f"🛠 Triage: `/triage-instrumentation-gaps{(' ' + run_date) if run_date else ''}`"
+    blocks.append(_context(triage))
     return blocks
 
 
