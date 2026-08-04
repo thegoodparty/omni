@@ -84,3 +84,13 @@ events:
   - {event: "Polls - Create Poll Clicked",              product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Polls - Poll Question Completed",          product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Poll - Results Synthesis Complete",        product: serve, family: serve, floor: null, owner: TBD}
+
+# Proposals a human reviewed and rejected (DATA-2152). The self-healing proposal queue
+# skips these permanently — a dismissed event never re-proposes (it would otherwise keep
+# surfacing every run while it is still inside the 90-day first-seen proposal window). Set
+# via the /triage-instrumentation-gaps skill; hand-editable. The `date` is informational
+# (an audit note); dismissal is not time-bounded.
+#   event:  exact Amplitude event_type
+#   reason: why it was dismissed (e.g. "UI micro-interaction, not a funnel milestone")
+#   date:   YYYY-MM-DD the decision was made
+dismissed: []
