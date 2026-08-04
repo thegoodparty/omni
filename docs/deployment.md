@@ -164,6 +164,22 @@ The primary validate job is named **"Validate"** across all
 packages. Shared steps are factored into `.github/actions/` (setup-node-workspace,
 vercel-deploy, pulumi-deploy).
 
+### Dependency caching
+
+`setup-node-workspace` caches the root workspace install under a single
+app-independent key (`workspace-node-modules-v3-...`). Do not scope that key per
+app: `npm ci` at the root installs every workspace, so the tree is identical for
+every caller, and the per-app copies we used to write were ~890MB each. GitHub
+caps a repo at 10GB and evicts LRU, so nine duplicates plus per-PR scopes kept
+the base-branch entries evicted and left most jobs doing a cold 2m install. The
+same reasoning applies to the Prisma clients and package `dist/` output the
+cache incidentally picks up: the steps that produce them run unconditionally, so
+they are never load-bearing on a hit.
+
+`~/.npm` is cached separately, and only saved by a job that actually ran
+`npm ci`. Cache keys are immutable, so a job that saves an empty `~/.npm` poisons
+that lockfile hash until the lockfile changes.
+
 ## Dependency updates (Dependabot)
 
 Policy: **security updates only** — no version-bump PRs. Version updates are
