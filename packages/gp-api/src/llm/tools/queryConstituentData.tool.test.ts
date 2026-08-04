@@ -512,6 +512,17 @@ describe('buildDescribeConstituentDataTool', () => {
   })
 })
 
+describe('tool description — score semantics', () => {
+  const provider = new InMemoryDatabricksProvider(new Map())
+
+  it('states the percentile-rank basis so score averages are never read as absolute shares', () => {
+    const tool = buildQueryConstituentDataTool({ provider, scope })
+    expect(tool.description).toMatch(/percentile rank/i)
+    expect(tool.description).toMatch(/deviation from 50/i)
+    expect(tool.description).not.toContain('likelihood')
+  })
+})
+
 describe('tool description — partisan guidance follows the scope', () => {
   const provider = new InMemoryDatabricksProvider(new Map())
 

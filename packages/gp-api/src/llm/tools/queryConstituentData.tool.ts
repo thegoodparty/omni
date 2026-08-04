@@ -6,6 +6,7 @@ import {
   SqlRejected,
   validateInsightsSql,
 } from './districtInsights.tool'
+import { HS_SCORE_SEMANTICS } from './hsScoreSemantics'
 import type { DatabricksProvider } from './queryDatabricks.tool'
 import { isRecord } from './util/isRecord.util'
 import { parseSingleSelect } from './util/sqlAst.util'
@@ -369,7 +370,9 @@ Write ONE SELECT against this exact table — you MUST include the FROM clause:
 
 The WHERE clause is your district scope — copy it verbatim, AND-combined with any extra filters. The GROUP BY is optional; omit it for a single district-wide total.
 
-Breakdown dimensions: call describe_constituent_data first to see the recommended dimensions and what each one means. Most are modeled issue-support scores (columns named hs_*, each a 0-100 likelihood where a higher score means more aligned with the named position — report them as approximate shares/averages, never as exact head counts), plus age and urbanicity. Break down or filter by those. Do NOT group by a district or geography column: your district scope above already pins every row to one district, so a district breakdown just returns one meaningless row.
+Breakdown dimensions: call describe_constituent_data first to see the recommended dimensions and what each one means. Most are modeled issue-support scores (columns named hs_*), plus age and urbanicity. Break down or filter by those. Do NOT group by a district or geography column: your district scope above already pins every row to one district, so a district breakdown just returns one meaningless row.
+
+${HS_SCORE_SEMANTICS}
 
 RULES:
   - Single SELECT, and it MUST contain "FROM ${table}".
@@ -379,7 +382,7 @@ RULES:
   - To bucket a numeric column (e.g. age ranges) or build a custom breakdown, do NOT use CASE in GROUP BY — use conditional aggregates in the SELECT instead, e.g.:
       SUM(CASE WHEN Voters_Age < 35 THEN 1 ELSE 0 END) AS age_under_35,
       SUM(CASE WHEN Voters_Age BETWEEN 35 AND 64 THEN 1 ELSE 0 END) AS age_35_64
-  - Each select item must be ONE bare aggregate — do NOT wrap an aggregate in arithmetic (no AVG(...) * 100, no SUM(a) / SUM(b)). For a share/percentage, return the raw aggregate, e.g. AVG(CASE WHEN <col> = '<value>' THEN 1.0 ELSE 0.0 END) AS support_rate (a 0–1 share), and state the percentage or ratio in your written answer. Categorical flag columns hold string values (e.g. 'support', 'oppose'), not 1/0.
+  - Each select item must be ONE bare aggregate — do NOT wrap an aggregate in arithmetic (no AVG(...) * 100, no SUM(a) / SUM(b)). For a share/percentage, return the raw aggregate, e.g. AVG(CASE WHEN <col> = '<value>' THEN 1.0 ELSE 0.0 END) AS support_rate (a 0–1 share), and state the percentage or ratio in your written answer. Categorical columns hold string values, never 1/0, and the tokens vary by column — filter with the exact values stated in each dimension's describe_constituent_data entry; a guessed token ('Y' vs 'Yes' vs 'true') silently matches zero rows. Null means unknown, not 'No' — count it as its own segment (see SCORE SEMANTICS) rather than dropping it.
   - No SELECT *, no DISTINCT, no window functions, no subqueries, no UNION.
 ${
   scope.partisanQueriesAllowed
