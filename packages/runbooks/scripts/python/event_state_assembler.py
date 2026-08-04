@@ -24,7 +24,7 @@ select event_type, govern_display_name, family, first_seen_date, last_seen_date,
 from {CATALOG_TABLE}
 """
 
-# 19 columns, render order. See the design doc for the rationale behind the set.
+# 20 columns, render order. See the design doc for the rationale behind the set.
 COLUMNS = [
     "event",
     "status",
@@ -45,6 +45,7 @@ COLUMNS = [
     "retired_date",
     "retired_author_email",
     "watchlist_status",
+    "okr",
 ]
 
 
@@ -115,6 +116,7 @@ def build_rows(
                 "retired_date": _blank(prov.get("retired_date")),
                 "retired_author_email": _blank(prov.get("retired_author_email")),
                 "watchlist_status": rec.get("watchlist_status", "—"),
+                "okr": _blank(rec.get("okr")),
                 "_sort_date": prov.get("last_code_change_date") or "",
             }
         )

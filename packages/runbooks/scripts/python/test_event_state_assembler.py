@@ -26,13 +26,13 @@ def test_event_state_sql_reads_mart_analytics_catalog():
     assert "dbt." not in esa.EVENT_STATE_SQL
 
 
-def test_columns_are_the_nineteen_in_order():
+def test_columns_are_the_twenty_in_order():
     assert esa.COLUMNS == [
         "event", "status", "declared_intent", "intent_date", "supersession",
         "family", "first_seen_date",
         "last_seen_date", "event_count_30d", "event_count", "description", "tags",
         "instrumented_pr", "instrumented_date", "instrumented_author_email",
-        "retired_pr", "retired_date", "retired_author_email", "watchlist_status",
+        "retired_pr", "retired_date", "retired_author_email", "watchlist_status", "okr",
     ]
 
 
@@ -375,3 +375,22 @@ def test_assembled_rows_carry_watchlist_status(monkeypatch, tmp_path):
     out = esa.assemble(date(2026, 8, 3), run_query=fake_query, code_csv=code_csv)
     assert "watchlist_status" in esa.COLUMNS
     assert out["rows"][0]["watchlist_status"] == "tracked"
+
+
+def test_build_rows_carries_okr_column():
+    records = [{
+        "event_type": "Dashboard - Candidate Dashboard Viewed", "status": "active",
+        "family": "win_dashboard", "event_count_30d": 5, "gpmeta": None,
+        "watchlist_status": "tracked", "okr": "Active Candidates",
+    }]
+    rows = esa.build_rows(records, catalog_by_type={}, code_map={})
+    assert esa.COLUMNS[-1] == "okr"
+    assert rows[0]["okr"] == "Active Candidates"
+
+
+def test_build_rows_okr_blank_when_unset():
+    records = [{
+        "event_type": "Sign Up Clicked", "status": "active", "family": "win_onboarding",
+        "event_count_30d": 5, "gpmeta": None, "watchlist_status": "—",
+    }]
+    assert esa.build_rows(records, catalog_by_type={}, code_map={})[0]["okr"] == ""
