@@ -123,3 +123,103 @@ def test_sanitize_strips_newlines_and_caps():
     assert dt._sanitize("a\nb\r\nc") == "a b c"
     assert len(dt._sanitize("x" * 500)) == 200
     assert dt._sanitize(None) == ""
+
+
+# --- judge --------------------------------------------------------------------
+
+class _FakeBlock:
+    type = "tool_use"
+
+    def __init__(self, results):
+        self.input = {"results": results}
+
+
+class _FakeResp:
+    def __init__(self, results):
+        self.content = [_FakeBlock(results)]
+
+
+class _FakeMessages:
+    def __init__(self, results):
+        self._results = results
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return _FakeResp(self._results)
+
+
+class _FakeClient:
+    def __init__(self, results):
+        self.messages = _FakeMessages(results)
+
+
+def _verdict(id, tier, headline="h", action="a", reason="r"):
+    return {"id": id, "tier": tier, "headline": headline, "action": action, "reason": reason}
+
+
+def _okr_item():
+    return dt.build_items(
+        _result([_rec("D", status="dormant", rank=6, okr="Active Candidates",
+                      on_watchlist=True, elevated=True, cnt=0)]),
+        {"new": ["D"], "escalated": [], "resolved": [], "still_open": []},
+        prior_state={}, prior_anomalous=set())
+
+
+def test_clamp_tier_one_step_and_red_floor():
+    assert dt.clamp_tier("fyi", "red", red_floor=False) == "yellow"   # two-step promote clamped
+    assert dt.clamp_tier("yellow", "fyi", red_floor=False) == "fyi"   # one step ok
+    assert dt.clamp_tier("red", "yellow", red_floor=True) == "red"    # okr floor holds
+    assert dt.clamp_tier("red", "fyi", red_floor=False) == "yellow"   # non-okr demote clamps to one
+    assert dt.clamp_tier("yellow", "yellow", red_floor=False) == "yellow"
+
+
+def test_run_triage_applies_verdicts():
+    items = _okr_item()
+    client = _FakeClient([_verdict("D", "red", headline="quiet 6d; OKR reads zero",
+                                   action="check PR #1124")])
+    out = dt.run_triage(items, api_key="k", client_factory=lambda key: client)
+    assert out["status"] == "ok"
+    item = out["items"][0]
+    assert item["tier"] == "red" and item["rules_tier"] == "red"
+    assert item["headline"] == "quiet 6d; OKR reads zero"
+    assert item["action"] == "check PR #1124"
+
+
+def test_run_triage_red_floor_blocks_demotion():
+    items = _okr_item()
+    client = _FakeClient([_verdict("D", "fyi")])
+    out = dt.run_triage(items, api_key="k", client_factory=lambda key: client)
+    assert out["items"][0]["tier"] == "red"
+
+
+def test_run_triage_drops_hallucinated_ids():
+    items = _okr_item()
+    client = _FakeClient([_verdict("NotARealEvent", "fyi"), _verdict("D", "red")])
+    out = dt.run_triage(items, api_key="k", client_factory=lambda key: client)
+    assert out["status"] == "ok" and len(out["items"]) == 1
+
+
+def test_run_triage_missing_key_falls_back_to_rules():
+    items = _okr_item()
+    out = dt.run_triage(items, api_key=None)
+    assert out["status"] == "skipped: ANTHROPIC_API_KEY unset"
+    assert out["items"][0]["tier"] == "red"
+    assert out["items"][0]["headline"] == "newly flagged (dormant)"
+
+
+def test_run_triage_api_error_falls_back(tmp_path):
+    def boom(key):
+        raise RuntimeError("api down")
+    out = dt.run_triage(_okr_item(), api_key="k", client_factory=boom)
+    assert out["status"].startswith("failed:")
+    assert out["items"][0]["tier"] == "red"
+
+
+def test_run_triage_no_items():
+    assert dt.run_triage([], api_key="k") == {"status": "no-items", "items": []}
+
+
+def test_has_red_uses_rules_tier():
+    assert dt.has_red(_okr_item()) is True
+    assert dt.has_red([]) is False
