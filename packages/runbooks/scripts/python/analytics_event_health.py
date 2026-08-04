@@ -404,12 +404,14 @@ def reconcile(
     today: date,
     watchlist_events: Iterable[str] = (),
     watched_families: Iterable[str] = (),
+    dismissed_events: Iterable[str] = (),
 ) -> dict:
     """Reconcile the three axes into per-event records, status counts, a ranked flag list,
     and the self-healing watchlist proposal queue."""
     current_monday = today - timedelta(days=today.weekday())
     series = weekly_series(weekly_rows, current_monday)
     watchlist_events = set(watchlist_events)
+    dismissed_events = set(dismissed_events)
     seen_in_catalog = {row["event_type"] for row in catalog}
     records: list[dict] = []
 
@@ -502,7 +504,25 @@ def reconcile(
         "other_missing_count": sum(1 for r in scored if not r["has_description"] and not r["elevated"]),
     }
 
-    proposals = propose_watchlist_additions(catalog, code, watched_families, watchlist_events, today)
+    proposals = propose_watchlist_additions(
+        catalog, code, watched_families, watchlist_events, today,
+        dismissed_events=dismissed_events,
+    )
+
+    # Stamp each record with the watchlist axis's verdict (DATA-2152): tracked (already
+    # curated) beats dismissed (human rejected) beats proposed (self-healing candidate);
+    # everything else is untouched by the watchlist.
+    proposed_types = {p["event_type"] for p in proposals}
+    for record in records:
+        et = record["event_type"]
+        if record["on_watchlist"]:
+            record["watchlist_status"] = "tracked"
+        elif et in dismissed_events:
+            record["watchlist_status"] = "dismissed"
+        elif et in proposed_types:
+            record["watchlist_status"] = "proposed"
+        else:
+            record["watchlist_status"] = "—"
 
     return {
         "run_date": today,
@@ -754,8 +774,11 @@ def run_monitor(
     catalog = fetch_catalog(run_query)
     weekly = fetch_weekly(run_query)
     code = load_code_axis(csv_path)
-    watched_families, watchlist_events, _dismissed_events = load_watchlist(watchlist_path)
-    result = reconcile(catalog, weekly, code, today, watchlist_events, watched_families)
+    watched_families, watchlist_events, dismissed_events = load_watchlist(watchlist_path)
+    result = reconcile(
+        catalog, weekly, code, today, watchlist_events, watched_families,
+        dismissed_events=dismissed_events,
+    )
     changes = diff_flagged(result["flagged"], load_prior_state(state_path))
     return result, changes
 
