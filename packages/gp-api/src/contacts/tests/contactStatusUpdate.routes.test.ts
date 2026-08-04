@@ -127,7 +127,7 @@ describe('PATCH /v1/contacts/:personId/status', () => {
     it('overrides voter_likelihood and reads it back on findPerson', async () => {
       const slug = `win-pro-${Date.now()}-vl`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
-      stubPeopleApi(mockPersonFetch({ voterStatus: 'First Time' }))
+      stubPeopleApi(mockPersonFetch({ voterStatus: 'Unreliable' }))
 
       const patched = await patchStatus(slug, {
         field: 'voter_likelihood',
@@ -216,10 +216,10 @@ describe('PATCH /v1/contacts/:personId/status', () => {
     it('reads the seed mapping before any override, then the override after, with the correct fromValue', async () => {
       const slug = `win-pro-${Date.now()}-seed`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
-      stubPeopleApi(mockPersonFetch({ voterStatus: 'First Time' }))
+      stubPeopleApi(mockPersonFetch({ voterStatus: 'Unreliable' }))
 
       const before = await getDetail(slug)
-      expect(before.data.voterLikelihood).toBe('first_time')
+      expect(before.data.voterLikelihood).toBe('unreliable')
 
       await patchStatus(slug, { field: 'voter_likelihood', value: 'super' })
 
@@ -231,7 +231,7 @@ describe('PATCH /v1/contacts/:personId/status', () => {
       })
       expect(events).toHaveLength(1)
       expect(events[0]).toMatchObject({
-        fromValue: 'first_time',
+        fromValue: 'unreliable',
         toValue: 'super',
       })
     })
