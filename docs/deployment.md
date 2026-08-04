@@ -19,11 +19,33 @@ below. There is no `qa` or `master` branch and no manual promotion PR.
 
 Every workflow's concurrency group uses `cancel-in-progress: false`. Canceling a
 started run can kill `pulumi up` mid-deploy, which orphans the stack's S3 state
-lock and permanently fails every later deploy of that stack until someone runs
-`pulumi cancel` by hand. Queued (not yet started) runs are still superseded by
-newer ones within a concurrency group, so rapid pushes don't pile up — the
-trade-off is only that an in-flight stale run finishes before the newest one
-starts.
+lock and leaves the update half-applied. Queued (not yet started) runs are still
+superseded by newer ones within a concurrency group, so rapid pushes don't pile
+up — the trade-off is only that an in-flight stale run finishes before the newest
+one starts.
+
+### Stale state locks are cleared automatically
+
+Both backend deploy paths run `pulumi cancel` immediately before `pulumi up`
+when `CI=true` (`packages/election-api/deploy/deploy.sh` and the `deploy` command
+in `packages/gp-api/deploy/infra-cli.ts`), matching what
+`.github/actions/destroy-preview-stack` already does before each destroy. A
+runner that dies mid-deploy — the runner is lost, so no post-steps run and no
+logs upload — otherwise strands the lock and every later deploy of that stack
+fails in seconds with `the stack is currently locked by 1 lock(s)`. This
+stranded election-api dev deploys for four days (2026-07-31 through 2026-08-04)
+before anyone traced it.
+
+This is safe because CI serializes every Pulumi operation on a given stack
+through the concurrency groups, so a lock still held when a deploy starts is
+always an orphan. It is deliberately CI-only: locally the lock may be a live
+operation. It is also scoped to `pulumi up`, never to `infra diff` or
+`pulumi preview`, so the infra-diffs workflow never clears a lock.
+
+A killed deploy can still leave *pending operations* in state, which the cancel
+does not resolve. If a deploy fails oddly right after one of these recoveries,
+run `npm run infra refresh <env>` (gp-api) or `pulumi refresh` in the stack's
+deploy directory and read the diff before deploying again.
 
 ## Frontends (Vercel)
 

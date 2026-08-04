@@ -35,6 +35,13 @@ pulumi config set --path aws:defaultTags.tags.Environment "$env"
 pulumi config set --path aws:defaultTags.tags.Project election-api
 
 if [ "$CI" = "true" ]; then
+  # A runner killed mid-`pulumi up` leaves its S3 state lock behind, and every
+  # later deploy of the stack then fails in seconds until someone clears it by
+  # hand — this stranded election-api dev deploys for four days (2026-07-31).
+  # CI serializes every Pulumi operation on a stack through the deploy job's
+  # concurrency group, so a lock still held at this point is always an orphan.
+  # Locally it may be a live operation, hence CI-only.
+  pulumi cancel --yes || true
   pulumi up --diff --yes
 else
   pulumi preview --diff

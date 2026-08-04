@@ -28,6 +28,7 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 - **Pulumi config secrets** come from SSM via `infra-cli.ts` (`PULUMI_CONFIG_PASSPHRASE`, `GRAFANA_AUTH`, `GRAFANA_SM_ACCESS_TOKEN`). The CLI fetches them per-run; nothing is committed.
 - **Docker image is tagged with `imageUri`** passed in from CI; `index.ts` reads it via `pulumi.Config()`. Local builds aren't deployable — push through the workflow.
 - **`npm run infra deploy <env>` is invoked by CI, not by hand.** A push to `main` runs `infra deploy dev`; `infra deploy prod` runs only from the `promote.yml` promote-on-green workflow (as the `omni-automation` GitHub App, freeze-switch gated, with a manual `workflow_dispatch` fallback) once the commit's dev checks are green — never from a branch push. `npm run infra diff <env>` stays useful locally for previewing a change.
+- **`infra deploy` clears a stale state lock when `CI=true`**, running `pulumi cancel` before `pulumi up` for the same reason `destroy-preview-stack` does. Concurrency groups serialize Pulumi per stack, so a lock held at that point belongs to a dead runner. Deliberately not done locally (the lock may be live) and not for `infra diff`, whose output the infra-diffs workflow parses as JSON.
 - **Observability lives here, not just in app code.** Grafana dashboards/alerts are defined in `components/grafana.ts` and `components/alerting/`. App-side metric naming must line up with these.
 
 ## Shared preview cluster (`components/preview-shared-cluster.ts`)

@@ -803,7 +803,7 @@ Every PR deploys a per-PR gp-api preview stack and per-PR gp-webapp preview, the
 
 ### Concurrency: never `cancel-in-progress: true`
 
-Every workflow's concurrency group uses `cancel-in-progress: false`. Canceling a started run can kill `pulumi up` mid-deploy, orphaning the stack's S3 state lock and permanently failing every later deploy of that stack until someone runs `pulumi cancel` by hand.
+Every workflow's concurrency group uses `cancel-in-progress: false`. Canceling a started run can kill `pulumi up` mid-deploy, orphaning the stack's S3 state lock and leaving the update half-applied. Both backend deploy paths now run `pulumi cancel` before `pulumi up` in CI, so an orphaned lock no longer strands the stack — detail in `omni/docs/deployment.md`. A killed deploy can still leave pending operations in state, so a `pulumi refresh` is worth reading after one.
 
 ### Dependency updates (Dependabot)
 

@@ -214,6 +214,13 @@ yargs(hideBin(process.argv))
     async (argv) => {
       await setupStack(argv.environment)
       if (process.env.CI) {
+        // A runner killed mid-`pulumi up` leaves its S3 state lock behind, and
+        // every later deploy of the stack then fails in seconds until someone
+        // clears it by hand. CI serializes every Pulumi operation on a stack
+        // through the workflow concurrency groups, so a lock still held at this
+        // point is always an orphan. Locally it may be a live operation, hence
+        // CI-only. Non-zero is expected and ignored when there is no lock.
+        run('pulumi cancel --yes', { silentOnFailure: true })
         run('pulumi up --diff --yes')
       } else {
         run('pulumi up --diff')
