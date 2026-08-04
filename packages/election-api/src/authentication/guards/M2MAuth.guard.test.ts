@@ -102,6 +102,16 @@ describe('M2MAuthGuard', () => {
     expect(logger.warn).toHaveBeenCalled()
   })
 
+  it('allows (observe-only) a missing machine secret when enforcement is off', async () => {
+    process.env.ELECTION_API_AUTH_ENFORCED = 'false'
+    delete process.env.ELECTION_API_MACHINE_SECRET
+    const { guard, logger } = makeGuard({})
+    await expect(
+      guard.canActivate(makeContext({ authorization: 'Bearer eyJhbGci.abc' })),
+    ).resolves.toBe(true)
+    expect(logger.warn).toHaveBeenCalled()
+  })
+
   it('rejects when the machine secret is not configured (enforced)', async () => {
     process.env.ELECTION_API_AUTH_ENFORCED = 'true'
     delete process.env.ELECTION_API_MACHINE_SECRET
