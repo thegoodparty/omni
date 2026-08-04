@@ -90,7 +90,6 @@ Commands are markdown procedures in `commands/` that _also_ register as Claude C
 - When adding a new command, no `install.sh` change is required — it picks up `commands/*.md` automatically
 - Commands header convention: start the file with `<!-- v<N> — <YYYY-MM-DD> -->` so reviewers can spot major revisions in the file itself
 - The "Where this runs" / `$RUNBOOKS_DIR` resolution block is duplicated by design (slash commands run with only their own file in context, so a shared helper file would create a chicken-and-egg dependency). Each copy is wrapped in `<!-- BEGIN: resolve-runbooks-dir -->` … `<!-- END: resolve-runbooks-dir -->` markers so future bulk-edits across `commands/*.md` are mechanical — keep them in sync
-- Commands that operate on the release repo (`release-prep.md`, `release.md`) additionally include a second resolution block, wrapped in `<!-- BEGIN: resolve-release-repos -->` … `<!-- END: resolve-release-repos -->`, that resolves gp-ai-projects (via `$RELEASE_AI_DIR`, production tip `prod`), with fallbacks. (omni now releases automatically via promote-on-green off `main`, so it is no longer a manual release repo.) Duplicated by design for the same reason — keep it in sync across any command that operates on the release repo
 
 ### Agents
 

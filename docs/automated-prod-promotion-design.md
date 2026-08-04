@@ -6,7 +6,7 @@ Date: 2026-08-03
 
 ## Goal
 
-Get to fully automated prod promotion. A merge to `develop` that passes its
+Get to fully automated prod promotion. A merge to `main` that passes its
 post-merge checks on dev should reach prod with no human action, on every
 service, including the AI services currently living in `gp-ai-projects`.
 
@@ -20,17 +20,18 @@ automated promotion of the rest of the platform.
 
 ## Target end state
 
-Single trunk. One long-lived branch, `develop`. `qa` and `master` branches are
-gone, along with the `qa` environment entirely. "What is in prod" stops being a
+Single trunk. One long-lived branch, `main` (renamed from `develop` during team
+review). `qa` and `master` branches are gone, along with the `qa` environment
+entirely. "What is in prod" stops being a
 branch and becomes an outcome of the promotion workflow.
 
 The path from merge to prod:
 
-1. PR merges to `develop`. Existing dev CI runs: each package's `Validate`, the
+1. PR merges to `main`. Existing dev CI runs: each package's `Validate`, the
    per-service dev deploys, and the full Playwright `E2E` suite against the real
-   dev deploy (this already runs post-merge on `develop`, keyed to the commit's
+   dev deploy (this already runs post-merge on `main`, keyed to the commit's
    gp-api deploy, tested through the `dev.goodparty.org` alias).
-2. A single new workflow, `promote.yml`, rides the same `push: develop` event.
+2. A single new workflow, `promote.yml`, rides the same `push: main` event.
    It waits for that commit's full required-check set to go green, confirms the
    commit is actually serving on dev, then deploys that exact SHA to prod by
    calling the deploy primitives that already exist, with prod inputs.
@@ -40,12 +41,12 @@ No `qa`, no `master`, no promotion PR, no release runbook.
 ### Why the gate is the post-merge dev E2E, not the per-PR E2E
 
 Per-PR previews test each PR in isolation against its own full-stack preview
-stack. The merged state on `develop` is a combination that no individual preview
+stack. The merged state on `main` is a combination that no individual preview
 run exercised, so PR convergence can introduce bugs that only appear post-merge.
 The authoritative promotion gate is therefore the E2E that runs against the
-merged `develop` state on the dev deploy, which already exists.
+merged `main` state on the dev deploy, which already exists.
 
-Because the E2E already runs on every `develop` push, the marginal cost of
+Because the E2E already runs on every `main` push, the marginal cost of
 promoting on green is near zero. The expensive part (spinning up the suite,
 Clerk test users) is already paid by dev CI. That is why continuous,
 promote-on-green is correct and batching / scheduled trains were solving a cost
@@ -56,7 +57,7 @@ problem that does not exist here.
 ### The promotion mechanism: one workflow, option A
 
 `promote.yml` is the entire prod mechanism. It is triggered by the same
-`push: develop` event as the rest of CI (not by `workflow_run` off another
+`push: main` event as the rest of CI (not by `workflow_run` off another
 workflow, which disconnects the promotion from the commit and has silent
 non-fire failure modes). It also accepts `workflow_dispatch` for manual
 promotion with an optional SHA input.
@@ -70,7 +71,7 @@ Its jobs:
    `E2E`, plus every prod-bound service's dev deploy for the SHA. This is the
    existing `e2e-wait` polling pattern generalized from "wait for gp-api deploy"
    to "wait for the full set." Reuse its **superseded detection**: if a newer
-   `develop` commit has already replaced this one on the dev stack, bail cleanly
+   `main` commit has already replaced this one on the dev stack, bail cleanly
    and let the newer commit's promote run handle promotion. Confirm the SHA is
    live on dev via `GET /v1/version` before proceeding.
 3. **Deploy to prod.** One small job per service that calls the existing
@@ -133,7 +134,7 @@ toggle the freeze variable.
 - **Fully unattended, all hours.** With no `master` buffer, the dev gate is the
   only thing between a merge and prod, at 2am and on weekends. This raises the
   stakes on gate quality and on the discipline below.
-- **`develop` is always releasable, non-negotiable.** Incomplete work rides
+- **`main` is always releasable, non-negotiable.** Incomplete work rides
   behind feature flags. This was implied by continuous promotion; removing
   `master` makes it load-bearing.
 
@@ -150,6 +151,10 @@ toggle the freeze variable.
   manual rollback path is built.
 - **No unifying `gp-ai` onto Pulumi.** Its Terraform stays Terraform (see
   Phase 3). Converting IaC tools is out of scope.
+- **The release-notes Slack post is not automated here.** The manual release
+  flow posts a `#product-releases` summary of what shipped; automated promotion
+  removes that human step, so a daily automation that posts the prod release
+  summary to `#product-releases` is a deferred follow-up.
 
 ## Phases
 
@@ -175,13 +180,13 @@ Build `promote.yml` for the TypeScript services and cut prod over to it.
 - Add `promote.yml` as specified above, covering the services that currently
   deploy to prod: gp-api, election-api, gp-webapp, candidate-sites (confirm
   gp-admin's env model, which is Clerk-org-switch based, during planning).
-  Single-environment sites that already deploy only from `develop` (styleguide,
+  Single-environment sites that already deploy only from `main` (styleguide,
   prototypes) do not participate in promotion.
 - Move each service's prod deploy trigger off `push: master` and onto being
   invoked by `promote.yml` with the promoted SHA.
 - Add the freeze variable and wire the check.
 - Cut over, verify a real merge auto-promotes end to end, then delete the
-  `master` branch and update branch protection so `develop` is the protected
+  `master` branch and update branch protection so `main` is the protected
   trunk.
 
 ### Phase 3: fold gp-ai-projects into omni
@@ -198,7 +203,7 @@ Move the AI services in and extend the train to them.
   the promote mechanism.
 - Automate its Terraform. Today `infrastructure/deploy.sh` is run by hand. Add
   `terraform plan` on PRs touching `packages/gp-ai/infrastructure` (posted to
-  the PR), `terraform apply` for dev on merge to `develop`, and `terraform
+  the PR), `terraform apply` for dev on merge to `main`, and `terraform
 apply` for prod inside `promote.yml`. Apply automation needs guardrails: plan
   visible on the PR, apply gated on merge, and destroy operations never
   automatic.
@@ -211,9 +216,9 @@ apply` for prod inside `promote.yml`. Apply automation needs guardrails: plan
 
 ## Success criteria
 
-- A merge to `develop` that passes dev checks results in an automatic prod
+- A merge to `main` that passes dev checks results in an automatic prod
   deploy of the affected services with no human action.
-- Exactly one long-lived branch (`develop`); no `qa` or `master`; no qa env.
+- Exactly one long-lived branch (`main`); no `qa` or `master`; no qa env.
 - gp-ai services deploy automatically (code and Terraform), dev on merge, prod
   via promotion, from within omni.
 - The freeze switch halts promotion; `workflow_dispatch` performs a manual

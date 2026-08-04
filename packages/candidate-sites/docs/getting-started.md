@@ -115,7 +115,7 @@ npm run format:fix   # prettier --write .; mutates files — stage first
 
 ## Deployment
 
-This repo deploys to Vercel. There's nothing to do here — Vercel watches `master` (or whichever branch is configured as the production branch). Make sure each Vercel environment has the right `NEXT_PUBLIC_API_BASE` pointed at the corresponding `gp-api` environment.
+This repo deploys to Vercel via its GitHub Actions workflow (Vercel CLI, no git integration). A push to `main` deploys the dev/preview target; production is deployed by automated promotion (`promote.yml`), not by Vercel watching a branch. Make sure each Vercel environment has the right `NEXT_PUBLIC_API_BASE` pointed at the corresponding `gp-api` environment.
 
 There are **no tests** wired into CI. If you add tests, add the framework and the CI step in the same change.
 

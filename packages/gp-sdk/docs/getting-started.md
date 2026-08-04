@@ -96,7 +96,7 @@ npm run format:check    # prettier --check
 npm run build           # tsup
 ```
 
-CI (`.github/workflows/ci.yml`) runs exactly these four on every push to a non-master branch — if they all pass locally, CI will pass.
+CI (`.github/workflows/ci.yml`) runs exactly these four on every push to a non-main branch — if they all pass locally, CI will pass.
 
 ## Linting / formatting
 

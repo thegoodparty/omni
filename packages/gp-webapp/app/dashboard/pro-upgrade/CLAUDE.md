@@ -230,7 +230,7 @@ dev, but the 10DLC "under review" state stays until the registration is APPROVED
 
 **E2E specs** live in `e2e-tests/tests/app/dashboard/pro-upgrade/` (entry,
 happy-path, not-filed, step-resume, validation). Traps learned fixing the
-permanently-red develop gate (PR #1009):
+permanently-red main gate (PR #1009):
 
 - The happy-path spec is `@dev-only` and needs `BASE_URL=https://dev.goodparty.org`
   (the alias, not the raw Vercel deploy URL) — the referer-restricted Google Maps key
