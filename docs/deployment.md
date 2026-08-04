@@ -143,12 +143,10 @@ dev:
    (`{ commit }`), so promotion follows real deployed state, not just check status.
 3. It then deploys the **same** commit to prod by calling the existing composite
    deploy actions with prod inputs (same images, same SHA, prod env).
-4. A final job enters the `production` GitHub Environment, which auto-creates a
-   **Deployment** for the promoted SHA once every deploy job has succeeded. That
-   deployment history is the source of truth for "what is in prod" and is what the
-   daily release summary (`post_release_summary.py`) reads. The `production`
-   environment must have **no** required reviewers or wait timer, or every
-   promotion would pause for approval.
+4. A final job records a GitHub **Deployment** (environment `production`) at the
+   promoted SHA, once every deploy job has succeeded. That deployment history is
+   the source of truth for "what is in prod" and is what the daily release summary
+   (`post_release_summary.py`) reads.
 
 Details worth knowing:
 

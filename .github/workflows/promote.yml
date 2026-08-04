@@ -4,8 +4,8 @@ name: promote
 # rest of CI, waits for THIS commit's required dev checks (E2E + every prod-bound
 # service deploy) to go green on dev, confirms dev is actually serving the commit,
 # then deploys the SAME commit to prod by reusing the composite deploy actions
-# with prod inputs. A final job enters the `production` GitHub Environment, which
-# records a Deployment for the promoted SHA — the source of truth for what shipped.
+# with prod inputs. A final job records a GitHub Deployment (environment
+# `production`) at the promoted SHA — the source of truth for what shipped.
 # There is no qa and no master. Break glass: workflow_dispatch with force=true
 # skips the gate and freeze and promotes anyway (see docs/deployment.md).
 #
@@ -369,12 +369,14 @@ jobs:
         working-directory: packages/runbooks/scripts/python
         run: uv run python publish_experiments.py --env=prod
 
-  # Records the promotion. Entering the `production` GitHub Environment makes
-  # GitHub auto-create a Deployment for this run's SHA and mark it success on
-  # this job's success. `needs` every deploy job, so a Deployment is recorded
-  # only when the whole promotion succeeded — this is the source of truth for
-  # "what shipped to prod" (post_release_summary.py reads it). The `production`
-  # environment must have NO required reviewers / wait timer, or promotion pauses.
+  # Records the promotion as a GitHub Deployment in the `production` environment,
+  # at the PROMOTED SHA (needs.gate.outputs.sha) — not github.sha, which differs on
+  # a workflow_dispatch that passes a custom sha (incl. force). We create it via the
+  # API rather than a job-level `environment:` for two reasons the auto-create can't
+  # satisfy: it must record the promoted sha, and the auto-create needs the same
+  # deployments:write anyway. `needs` every deploy job, so a Deployment is recorded
+  # only when the whole promotion succeeded — the source of truth for what shipped
+  # (post_release_summary.py reads it).
   finalize:
     name: Record prod deployment
     needs:
@@ -389,8 +391,24 @@ jobs:
       ]
     if: needs.gate.outputs.promote == 'true'
     runs-on: ubuntu-latest
-    environment:
-      name: production
+    permissions:
+      contents: read
+      deployments: write
     steps:
-      - name: Recorded
-        run: echo "Promoted ${{ needs.gate.outputs.sha }} to production."
+      - name: Record production deployment for the promoted SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ needs.gate.outputs.sha }}
+        run: |
+          dep_id=$(jq -n --arg ref "$SHA" '{
+              ref: $ref,
+              environment: "production",
+              production_environment: true,
+              auto_merge: false,
+              required_contexts: [],
+              description: "Automated promotion"
+            }' | gh api "repos/$REPO/deployments" --input - --jq '.id')
+          gh api "repos/$REPO/deployments/$dep_id/statuses" \
+            -f state=success -f environment=production \
+            -f description="Promoted to prod"
