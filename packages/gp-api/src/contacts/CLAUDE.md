@@ -199,9 +199,9 @@ overrides (`ContactStatusService`, ENG-10833) rather than only the seed
 after `convertVoterFileFilterToFilters` on every read-path consumer (list,
 count, overlap-count's current selection, `findContactsForFilter`, list-detail
 aggregates, download): it maps the selected override-vocabulary values back to
-their full seed-value set (`unlikely` → `['Unlikely', 'Unreliable']`, fixing a
-gap where selecting just "Unlikely" missed real Unreliable-seed rows), then
-resolves `include` (overridden TO one of the selected values) and `exclude`
+their seed value (one-to-one since `Unreliable` gained its own member — see
+the propensity vocabulary section above), then resolves `include` (overridden
+TO one of the selected values) and `exclude`
 (overridden to something else) person-id sets via two
 `ContactStatusService.personIdsByFieldValue` calls. Both travel to people-api
 as a new top-level `idOverrides: { include?, exclude? }` sibling of `filters`

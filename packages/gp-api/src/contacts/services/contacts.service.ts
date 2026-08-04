@@ -353,9 +353,9 @@ export class ContactsService {
       return { filters }
     }
 
-    // Expand the selection back out to every seed value it collapses (the
-    // 'unlikely' -> [Unlikely, Unreliable] fix) so the seed side of the
+    // Map the selection back to its seed value(s) so the seed side of the
     // filter agrees with what a no-override person's own record displays.
+    // One-to-one since Unreliable gained its own member.
     const expandedSeedValues = [...selected].flatMap(
       (value) => VOTER_LIKELIHOOD_TO_SEED_VALUES[value],
     )
