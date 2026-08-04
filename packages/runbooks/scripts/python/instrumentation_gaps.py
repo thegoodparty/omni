@@ -495,11 +495,7 @@ def build_slack_payload(
     gap breaks the quiet gate, but an un-triaged backlog never re-nags the channel weekly.
     The full untriaged set stays browsable in the gaps sheet tab / committed log. new_gaps
     is that this-run set, sorted by (rank, id), capped at top_n."""
-    visible = sorted(
-        (e for e in state.values() if is_visible(e)),
-        key=lambda e: (e.get("rank", 5), e["id"]),
-    )
-    new_this_run = [e for e in visible if e.get("first_seen") == run_date]
+    new_gaps_this_run = new_this_run(state, run_date)
     new_gaps = [
         {
             "rank": e.get("rank", 5),
@@ -509,12 +505,12 @@ def build_slack_payload(
             "dashboard_question": e.get("dashboard_question", ""),
             "location": e["location"],
         }
-        for e in new_this_run[:top_n]
+        for e in new_gaps_this_run[:top_n]
     ]
     return {
         "status": judgment_status,
         "run_date": run_date,
-        "new_count": len(new_this_run),
+        "new_count": len(new_gaps_this_run),
         "pending_count": pending_count,
         "new_gaps": new_gaps,
         "browse_url": browse_url,
@@ -873,14 +869,30 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.list_new:
         # Read-only: never scans or judges.
-        state = load_state(args.state)
+        try:
+            state = load_state(args.state)
+        except CorruptStateError as exc:
+            print(
+                f"gap-sweep: state file unreadable ({exc}); skipping this run, "
+                "state left untouched.",
+                file=sys.stderr,
+            )
+            return 0
         json.dump(new_this_run(state, today.isoformat()), sys.stdout, indent=2, default=str)
         sys.stdout.write("\n")
         return 0
 
     if args.review_artifact:
         # Read-only: never scans or judges.
-        state = load_state(args.state)
+        try:
+            state = load_state(args.state)
+        except CorruptStateError as exc:
+            print(
+                f"gap-sweep: state file unreadable ({exc}); skipping this run, "
+                "state left untouched.",
+                file=sys.stderr,
+            )
+            return 0
         _atomic_write(args.review_artifact, render_review_artifact(state, today.isoformat()))
         print(f"wrote review artifact for {today.isoformat()} to {args.review_artifact}", file=sys.stderr)
         return 0
@@ -898,11 +910,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 0
+        flag = "--load-seed" if args.load_seed else "--load-review"
         try:
             seed_text = load_path.read_text()
         except OSError as exc:
             print(
-                f"gap-sweep: --load-seed file unreadable ({exc}); skipping this run, "
+                f"gap-sweep: {flag} file unreadable ({exc}); skipping this run, "
                 "state left untouched.",
                 file=sys.stderr,
             )

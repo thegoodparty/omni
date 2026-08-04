@@ -957,6 +957,19 @@ def test_cli_list_new_outputs_this_run(tmp_path, capsys):
     assert [e["id"] for e in payload] == ["a"]
 
 
+def test_cli_list_new_skips_on_corrupt_state(tmp_path, capsys):
+    state_path = tmp_path / "gaps.json"
+    state_path.write_text("{ not valid json")
+    before = state_path.read_text()
+
+    rc = ig.main(["--state", str(state_path), "--today", "2026-08-03", "--list-new"])
+
+    assert rc == 0
+    assert state_path.read_text() == before
+    err = capsys.readouterr().err
+    assert "unreadable" in err or "corrupt" in err.lower()
+
+
 def test_stamp_gap_and_is_actioned():
     state = {"a": {"id": "a", "disposition": "accepted"}}
     ig.stamp_gap(state, "a", ticket_url="https://clickup.com/t/DATA-9999", actioned_at="2026-08-03")
