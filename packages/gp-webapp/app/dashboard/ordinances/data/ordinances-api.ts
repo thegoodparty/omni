@@ -42,10 +42,11 @@ export async function downloadOrdinanceExport(
   document.body.appendChild(anchor)
   anchor.click()
   anchor.remove()
-  // Defer the revoke: the browser's download manager reads the blob URL
-  // asynchronously, and revoking on the same tick can abort the download on
-  // Safari / older Chromium (matches the other download helpers here).
-  setTimeout(() => URL.revokeObjectURL(url), 100)
+  // Free the object URL only after the browser has had time to read the blob.
+  // Revoking too soon after click() cancels the download in current Chrome and
+  // surfaces as a spurious network error, worse for these larger PDF/Word blobs
+  // than for a small CSV. Matches the poll download fix (ENG-10860).
+  setTimeout(() => URL.revokeObjectURL(url), 10000)
 }
 
 export async function fetchOrdinanceBySlug(slug: string): Promise<Ordinance> {
