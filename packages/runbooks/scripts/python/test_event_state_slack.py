@@ -550,6 +550,37 @@ def test_tiered_triage_failure_shows_fallback_note():
     assert "triage judgment unavailable" in _flatten_text(parent)
 
 
+def test_tiered_yellow_section_chunks_under_slack_text_cap():
+    items = [_titem(f"Very Long Yellow Event Name Number {i:02d} With Extra Padding", "yellow",
+                    headline="h" * 200) for i in range(12)]
+    changes = {"new": [i["id"] for i in items], "escalated": [], "resolved": [],
+               "still_open": []}
+    parent, _ = slk.build_digest_blocks(
+        _tiered_result(), changes, {}, set(), triage=_triage(items))
+    yellow_sections = [b for b in parent
+                       if b["type"] == "section" and "🟡" in b["text"]["text"]]
+    text = _flatten_text(parent)
+    assert "🟡 Worth watching (12)" in text and "…and 2 more" in text
+    all_yellow = [b for b in parent if b["type"] == "section"
+                  and ("🟡" in b["text"]["text"] or "Yellow Event Name" in b["text"]["text"])]
+    assert len(all_yellow) > 1
+    assert all(len(b["text"]["text"]) <= 3000 for b in all_yellow)
+    assert len(yellow_sections) == 1
+
+
+def test_thread_groups_new_events_by_pr_numeric_order():
+    triage = _triage([
+        _titem("A", "fyi", pr="https://github.com/thegoodparty/omni/pull/99"),
+        _titem("B", "fyi", pr="https://github.com/thegoodparty/omni/pull/1124"),
+        _titem("C", "fyi", pr=None),
+    ])
+    changes = {"new": ["A", "B", "C"], "escalated": [], "resolved": [], "still_open": []}
+    _, thread = slk.build_digest_blocks(_tiered_result(), changes, {}, set(), triage=triage)
+    text = _flatten_text(thread)
+    assert text.index("PR #1124") < text.index("PR #99")
+    assert text.index("PR #99") < text.index("newly flagged")
+
+
 def test_thread_groups_new_events_by_pr():
     triage = _triage([
         _titem("A", "fyi", pr="https://github.com/thegoodparty/omni/pull/1049"),

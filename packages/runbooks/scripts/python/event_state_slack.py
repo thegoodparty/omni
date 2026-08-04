@@ -55,6 +55,8 @@ MENTION_ENV = "SLACK_EVENT_ALERT_MENTION"
 # one section; chunk into multiple section blocks — blocks are cheap, the limit is per
 # text object, not per message.
 RED_CHUNK_SIZE = 5
+# Yellow lines are single-line (event + capped headline), so more fit per block.
+YELLOW_CHUNK_SIZE = 8
 
 
 def sheet_url() -> str | None:
@@ -244,6 +246,11 @@ def _pct(current: float, baseline: float) -> str:
     return f"{change:+d}%"
 
 
+def _pr_number(pr_url: str) -> int:
+    number = pr_url.rstrip("/").rsplit("/", 1)[-1]
+    return int(number) if number.isdigit() else -1
+
+
 def _pr_label(pr_url: str) -> str:
     number = pr_url.rstrip("/").rsplit("/", 1)[-1]
     return f"<{pr_url}|PR #{number}>" if number.isdigit() else f"<{pr_url}|PR>"
@@ -280,12 +287,22 @@ def _red_section_blocks(items: list[dict]) -> list[dict]:
     return blocks
 
 
-def _yellow_lines(items: list[dict]) -> str:
+def _yellow_section_blocks(items: list[dict]) -> list[dict]:
+    """Chunk yellow items into ``YELLOW_CHUNK_SIZE``-sized section blocks — same 3000-char
+    guard as ``_red_section_blocks`` (a 200-char judge headline per line adds up). The first
+    chunk carries the ``*🟡 Worth watching (N)*`` heading; the item cap's overflow line
+    rides the last chunk."""
     shown = items[:YELLOW_CAP]
-    body = "\n".join(f"• `{i['event_type']}`  {i.get('headline') or ''}" for i in shown)
+    lines = [f"• `{i['event_type']}`  {i.get('headline') or ''}" for i in shown]
     if len(items) > YELLOW_CAP:
-        body += f"\n…and {len(items) - YELLOW_CAP} more (see the sheet)"
-    return body
+        lines.append(f"…and {len(items) - YELLOW_CAP} more (see the sheet)")
+    blocks = []
+    for start in range(0, len(lines), YELLOW_CHUNK_SIZE):
+        body = "\n".join(lines[start:start + YELLOW_CHUNK_SIZE])
+        if start == 0:
+            body = f"*🟡 Worth watching ({len(items)})*\n{body}"
+        blocks.append(_section(body))
+    return blocks
 
 
 def _fyi_thread_lines(fyi: list[dict]) -> list[str]:
@@ -298,7 +315,9 @@ def _fyi_thread_lines(fyi: list[dict]) -> list[str]:
     by_pr: dict[str, list[dict]] = {}
     for i in new:
         by_pr.setdefault(i.get("instrumented_pr") or "", []).append(i)
-    for pr_url, group in sorted(by_pr.items(), reverse=True):
+    # Numeric PR order (newest first); lexicographic URL order misplaces shorter PR
+    # numbers ("pull/99" > "pull/1124"). The no-PR bucket sorts last.
+    for pr_url, group in sorted(by_pr.items(), key=lambda kv: _pr_number(kv[0]), reverse=True):
         names = " · ".join(f"`{i['event_type']}`" for i in group)
         if pr_url:
             n = len(group)
@@ -429,7 +448,7 @@ def _build_tiered_blocks(
         parent.extend(_red_section_blocks(red))
         parent.append(_context(f"{mention} — key instrumentation needs attention"))
     if yellow:
-        parent.append(_section(f"*🟡 Worth watching ({len(yellow)})*\n{_yellow_lines(yellow)}"))
+        parent.extend(_yellow_section_blocks(yellow))
     if not red and not yellow:
         parent.append(_section("Nothing needs action."))
 
