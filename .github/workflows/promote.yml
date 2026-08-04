@@ -4,7 +4,10 @@ name: promote
 # rest of CI, waits for THIS commit's required dev checks (E2E + every prod-bound
 # service deploy) to go green on dev, confirms dev is actually serving the commit,
 # then deploys the SAME commit to prod by reusing the composite deploy actions
-# with prod inputs. There is no qa, no master, no manual promotion.
+# with prod inputs. A final job enters the `production` GitHub Environment, which
+# records a Deployment for the promoted SHA — the source of truth for what shipped.
+# There is no qa and no master. Break glass: workflow_dispatch with force=true
+# skips the gate and freeze and promotes anyway (see docs/deployment.md).
 #
 # Safety: freeze-switch gated (vars.PROMOTION_FROZEN), forward-only (ECS
 # deployment circuit breaker auto-reverts a crash-on-boot image; no rollback
@@ -19,6 +22,11 @@ on:
       sha:
         description: Commit SHA to promote (defaults to the current main tip)
         required: false
+      force:
+        description: Break glass — skip the dev-green gate, serving check, and freeze
+        required: false
+        type: boolean
+        default: false
 
 # Only one promotion at a time. A burst of merges queues here; the superseded
 # check in the gate lets the older ones bail so prod converges to the newest
@@ -44,12 +52,24 @@ jobs:
       promote: ${{ steps.decide.outputs.promote }}
       sha: ${{ steps.resolve.outputs.sha }}
     steps:
+      - name: Resolve break-glass force flag
+        id: force
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.force }}" = "true" ]; then
+            echo "::warning::FORCE promotion: bypassing the dev-green gate, serving check, and freeze switch."
+            echo "force=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "force=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Check freeze switch
         id: freeze
         env:
           FROZEN: ${{ vars.PROMOTION_FROZEN }}
         run: |
-          if [ "$FROZEN" = "true" ]; then
+          if [ "${{ steps.force.outputs.force }}" = "true" ]; then
+            echo "frozen=false" >> "$GITHUB_OUTPUT"
+          elif [ "$FROZEN" = "true" ]; then
             echo "::notice::Promotion is frozen (vars.PROMOTION_FROZEN=true). Skipping."
             echo "frozen=true" >> "$GITHUB_OUTPUT"
           else
@@ -74,7 +94,7 @@ jobs:
 
       - name: Wait for dev checks to go green (bail if superseded)
         id: wait
-        if: steps.freeze.outputs.frozen != 'true'
+        if: steps.freeze.outputs.frozen != 'true' && steps.force.outputs.force != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -147,7 +167,7 @@ jobs:
 
       - name: Confirm dev is serving this commit
         id: serving
-        if: steps.freeze.outputs.frozen != 'true' && steps.wait.outputs.superseded != 'true'
+        if: steps.freeze.outputs.frozen != 'true' && steps.wait.outputs.superseded != 'true' && steps.force.outputs.force != 'true'
         env:
           SHA: ${{ steps.resolve.outputs.sha }}
         run: |
@@ -162,7 +182,9 @@ jobs:
       - name: Decide
         id: decide
         run: |
-          if [ "${{ steps.freeze.outputs.frozen }}" = "true" ]; then
+          if [ "${{ steps.force.outputs.force }}" = "true" ]; then
+            echo "promote=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.freeze.outputs.frozen }}" = "true" ]; then
             echo "promote=false" >> "$GITHUB_OUTPUT"
           elif [ "${{ steps.wait.outputs.superseded }}" = "true" ]; then
             echo "promote=false" >> "$GITHUB_OUTPUT"
@@ -346,3 +368,29 @@ jobs:
       - name: Publish manifests to S3
         working-directory: packages/runbooks/scripts/python
         run: uv run python publish_experiments.py --env=prod
+
+  # Records the promotion. Entering the `production` GitHub Environment makes
+  # GitHub auto-create a Deployment for this run's SHA and mark it success on
+  # this job's success. `needs` every deploy job, so a Deployment is recorded
+  # only when the whole promotion succeeded — this is the source of truth for
+  # "what shipped to prod" (post_release_summary.py reads it). The `production`
+  # environment must have NO required reviewers / wait timer, or promotion pauses.
+  finalize:
+    name: Record prod deployment
+    needs:
+      [
+        gate,
+        gp-api,
+        election-api,
+        gp-webapp,
+        gp-admin,
+        candidate-sites,
+        publish-experiments,
+      ]
+    if: needs.gate.outputs.promote == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - name: Recorded
+        run: echo "Promoted ${{ needs.gate.outputs.sha }} to production."

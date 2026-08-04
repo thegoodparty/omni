@@ -143,6 +143,12 @@ dev:
    (`{ commit }`), so promotion follows real deployed state, not just check status.
 3. It then deploys the **same** commit to prod by calling the existing composite
    deploy actions with prod inputs (same images, same SHA, prod env).
+4. A final job enters the `production` GitHub Environment, which auto-creates a
+   **Deployment** for the promoted SHA once every deploy job has succeeded. That
+   deployment history is the source of truth for "what is in prod" and is what the
+   daily release summary (`post_release_summary.py`) reads. The `production`
+   environment must have **no** required reviewers or wait timer, or every
+   promotion would pause for approval.
 
 Details worth knowing:
 
@@ -151,7 +157,15 @@ Details worth knowing:
 - **Freeze switch.** A repo variable gates promotion; flip it to hold prod while
   still landing work on `main` and deploying dev.
 - **Manual trigger.** `workflow_dispatch` can promote on demand (e.g. after
-  unfreezing, or to re-run a promotion).
+  unfreezing, or to re-run a promotion); an optional `sha` input targets a
+  specific commit.
+- **Break glass (`force`).** `workflow_dispatch` with `force=true` skips the
+  dev-green gate, the serving check, **and** the freeze switch, and promotes the
+  target SHA anyway (loud warning in the run; write access required). Use it when
+  the gate itself is broken or a hotfix can't wait. It only works if the SHA's
+  images were already built on dev — if the dev _build_ failed there is nothing to
+  promote, so that case is fix-forward. First resort for a flaky gate is to re-run
+  the failed dev check, not force.
 - **Forward-only.** There is no manual rollback. A crash-on-boot image is reverted
   automatically by the ECS deployment circuit breaker; to move forward, land a fix
   on `main` and let it promote.

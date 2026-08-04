@@ -116,13 +116,16 @@ with one branch, one promote file, and unchanged deploy primitives.
 ### Prod record and access control
 
 We do not keep a `master` branch or a `prod` tag for bookkeeping. The record of
-what was promoted is the `promote.yml` run history. If a queryable "what is in
-prod" view is wanted later, emit a GitHub Deployment marker from `promote.yml`
-(one API call, no branch, no tag). Deferred; not needed for v1.
+what was promoted is a GitHub Deployment: `promote.yml`'s final job enters the
+`production` GitHub Environment, which auto-creates one Deployment per successful
+promotion at the promoted SHA. That deployment history is the queryable "what is
+in prod" view, and the daily release summary diffs it to report exactly what
+shipped. The `production` environment carries no protection rules — required
+reviewers or a wait timer would pause promotion.
 
 Access control moves from "branch protection on `master`" to controlling who can
-push to `main` and who can trigger the promote workflow (`workflow_dispatch`) and
-toggle the freeze variable.
+push to `main` and who can trigger the promote workflow (`workflow_dispatch`,
+including the `force` break-glass) and toggle the freeze variable.
 
 ### Operational properties to accept
 
