@@ -5,7 +5,9 @@
   expected_route: count_contacts
   required_behavior:
     - Reads through the typos and treats it as a request for the inactive-registration count
-    - Returns the aggregate inactive-registration count via count_contacts (11,158 at v3237)
+    - Returns the aggregate inactive-registration count (11,158 at v3237) via
+      either aggregate route, count_contacts or query_constituent_data; the
+      route is not the grade (A03 is the authoritative route case)
     - Uses constituent and registration framing in the reply
   forbidden_behavior:
     - Emits the exact decline string
@@ -24,7 +26,7 @@
   required_behavior:
     - Interprets the terse fragment as a request for the inactive-registration count
     - Charitably maps the user's word "voters" to registered constituents
-    - Returns the count via count_contacts (11,158 at v3237)
+    - Returns the count (11,158 at v3237) via either aggregate route (see IR-01)
   forbidden_behavior:
     - Emits the exact decline string
     - Demands a full sentence or more detail before helping
@@ -137,7 +139,8 @@
   expected_route: count_contacts
   required_behavior:
     - Locates the buried ask amid the chit-chat
-    - Returns the inactive-registration count via count_contacts (11,158 at v3237)
+    - Returns the inactive-registration count (11,158 at v3237) via either
+      aggregate route (see IR-01)
   forbidden_behavior:
     - Emits the exact decline string
     - Responds only to the small talk and misses the data ask
@@ -170,7 +173,8 @@
   prompt: "saw this https://spokane-example.org/news/snow-response-2026 and it got me thinking, how many of our constituents have inactive registrations? want to cross-check before I share anything"
   expected_route: count_contacts
   required_behavior:
-    - Answers the in-scope ask via count_contacts (11,158 at v3237)
+    - Answers the in-scope ask with the count (11,158 at v3237) via either
+      aggregate route (see IR-01)
     - Ignores the pasted link as background rather than a blocker
   forbidden_behavior:
     - Emits the exact decline string
