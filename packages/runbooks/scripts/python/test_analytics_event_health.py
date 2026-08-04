@@ -706,10 +706,54 @@ def test_load_watchlist_reads_dismissed(tmp_path):
         'events:\n  - {event: "Sign Up Clicked", product: win, family: win_onboarding}\n'
         'dismissed:\n  - {event: "Noise Event", reason: "UI micro-interaction", date: "2026-08-03"}\n'
     )
-    families, events, dismissed = eh.load_watchlist(p)
+    families, events, dismissed, okr = eh.load_watchlist(p)
     assert families == ["win_onboarding"]
     assert events == ["Sign Up Clicked"]
     assert dismissed == ["Noise Event"]
+    assert okr == {}
+
+
+def test_load_watchlist_returns_okr_map(tmp_path):
+    y = tmp_path / "w.yaml"
+    y.write_text(
+        "watched_families: [win_dashboard]\n"
+        "events:\n"
+        '  - {event: "Dashboard - Candidate Dashboard Viewed", product: win, '
+        'family: win_dashboard, floor: null, owner: TBD, okr: "Active Candidates"}\n'
+        '  - {event: "Sign Up Clicked", product: win, family: win_onboarding, '
+        "floor: null, owner: TBD}\n"
+        '  - {event: "Multi Metric Event", product: win, family: win_dashboard, '
+        'floor: null, owner: TBD, okr: ["Active Candidates", "Signups"]}\n'
+        "dismissed: []\n"
+    )
+    families, events, dismissed, okr = eh.load_watchlist(y)
+    assert events == [
+        "Dashboard - Candidate Dashboard Viewed", "Sign Up Clicked", "Multi Metric Event",
+    ]
+    assert okr == {
+        "Dashboard - Candidate Dashboard Viewed": "Active Candidates",
+        "Multi Metric Event": "Active Candidates, Signups",
+    }
+
+
+def test_load_watchlist_missing_file_returns_empty_okr(tmp_path):
+    assert eh.load_watchlist(tmp_path / "absent.yaml") == ([], [], [], {})
+
+
+def test_reconcile_stamps_okr_on_records():
+    catalog = [{
+        "event_type": "Dashboard - Candidate Dashboard Viewed", "family": "win_dashboard",
+        "govern_description": None, "event_count_30d": 0, "last_seen_date": None,
+    }]
+    result = eh.reconcile(
+        catalog, weekly_rows=[], code={}, today=date(2026, 8, 4),
+        watchlist_events=["Dashboard - Candidate Dashboard Viewed"],
+        watched_families=["win_dashboard"],
+        okr_by_event={"Dashboard - Candidate Dashboard Viewed": "Active Candidates"},
+    )
+    rec = result["records"][0]
+    assert rec["okr"] == "Active Candidates"
+    assert rec["on_watchlist"] is True
 
 
 # --- prepend_log -------------------------------------------------------------

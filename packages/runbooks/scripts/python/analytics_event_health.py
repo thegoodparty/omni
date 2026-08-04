@@ -405,6 +405,7 @@ def reconcile(
     watchlist_events: Iterable[str] = (),
     watched_families: Iterable[str] = (),
     dismissed_events: Iterable[str] = (),
+    okr_by_event: Mapping[str, str] | None = None,
 ) -> dict:
     """Reconcile the three axes into per-event records, status counts, a ranked flag list,
     and the self-healing watchlist proposal queue."""
@@ -412,6 +413,7 @@ def reconcile(
     series = weekly_series(weekly_rows, current_monday)
     watchlist_events = set(watchlist_events)
     dismissed_events = set(dismissed_events)
+    okr_by_event = dict(okr_by_event or {})
     seen_in_catalog = {row["event_type"] for row in catalog}
     records: list[dict] = []
 
@@ -446,6 +448,7 @@ def reconcile(
                 "status": status,
                 "elevated": is_elevated(family, event_type, description, on_watchlist=on_watchlist),
                 "on_watchlist": on_watchlist,
+                "okr": okr_by_event.get(event_type),
                 "event_count_30d": cnt30,
                 "last_seen_date": last_seen,
                 "anomaly": anomaly,
@@ -468,6 +471,7 @@ def reconcile(
                     "status": "instrumented_never_observed",
                     "elevated": is_elevated(None, event_type, None),
                     "on_watchlist": event_type in watchlist_events,
+                    "okr": okr_by_event.get(event_type),
                     "event_count_30d": 0,
                     "last_seen_date": None,
                     "anomaly": None,
@@ -695,18 +699,27 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
 # --- IO + CLI -----------------------------------------------------------------
 
 
-def load_watchlist(path: Path = WATCHLIST) -> tuple[list[str], list[str], list[str]]:
+def load_watchlist(
+    path: Path = WATCHLIST,
+) -> tuple[list[str], list[str], list[str], dict[str, str]]:
     """Read ``monitored_events.yaml`` -> ``(watched_families, watchlist_event_names,
-    dismissed_event_names)``. ``dismissed`` are proposals a human rejected (DATA-2152);
-    the proposal queue skips them permanently so a rejected event never re-proposes (the
-    per-row ``date`` is an informational audit note, not a suppression expiry)."""
+    dismissed_event_names, okr_by_event)``. ``dismissed`` are proposals a human rejected
+    (DATA-2152); the proposal queue skips them permanently. ``okr_by_event`` (DATA-2174)
+    maps watchlist events to the OKR metric(s) anchored on them — the digest's top-tier
+    signal; list values render as one comma-joined display string."""
     if not path.exists():
-        return [], [], []
+        return [], [], [], {}
     doc = yaml.safe_load(path.read_text()) or {}
     families = doc.get("watched_families", []) or []
-    events = [row["event"] for row in (doc.get("events", []) or []) if row.get("event")]
+    rows = [row for row in (doc.get("events", []) or []) if row.get("event")]
+    events = [row["event"] for row in rows]
     dismissed = [row["event"] for row in (doc.get("dismissed", []) or []) if row.get("event")]
-    return families, events, dismissed
+    okr_by_event = {
+        row["event"]: (", ".join(str(v) for v in row["okr"])
+                       if isinstance(row["okr"], list) else str(row["okr"]))
+        for row in rows if row.get("okr")
+    }
+    return families, events, dismissed, okr_by_event
 
 
 def load_code_axis(csv_path: Path = CODE_CSV) -> dict[str, dict]:
@@ -775,10 +788,12 @@ def run_monitor(
     catalog = fetch_catalog(run_query)
     weekly = fetch_weekly(run_query)
     code = load_code_axis(csv_path)
-    watched_families, watchlist_events, dismissed_events = load_watchlist(watchlist_path)
+    watched_families, watchlist_events, dismissed_events, okr_by_event = load_watchlist(
+        watchlist_path
+    )
     result = reconcile(
         catalog, weekly, code, today, watchlist_events, watched_families,
-        dismissed_events=dismissed_events,
+        dismissed_events=dismissed_events, okr_by_event=okr_by_event,
     )
     changes = diff_flagged(result["flagged"], load_prior_state(state_path))
     return result, changes

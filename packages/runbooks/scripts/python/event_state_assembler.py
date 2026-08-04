@@ -186,11 +186,11 @@ def assemble(
     code_map = aeh.load_code_axis(code_csv) if code_csv else aeh.load_code_axis()
     # aeh.WATCHLIST looked up by attribute (not as reconcile's own default) so tests can
     # monkeypatch it (DATA-2152).
-    families, watchlist_events, dismissed_events = aeh.load_watchlist(aeh.WATCHLIST)
+    families, watchlist_events, dismissed_events, okr_by_event = aeh.load_watchlist(aeh.WATCHLIST)
     reconciled = aeh.reconcile(
         catalog, weekly_rows=[], code=code_map, today=today,
         watchlist_events=watchlist_events, watched_families=families,
-        dismissed_events=dismissed_events,
+        dismissed_events=dismissed_events, okr_by_event=okr_by_event,
     )
     catalog_by_type = {row["event_type"]: row for row in catalog}
     rows = build_rows(reconciled["records"], catalog_by_type, code_map)

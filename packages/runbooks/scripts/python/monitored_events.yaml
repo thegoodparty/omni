@@ -15,6 +15,9 @@
 #   family:      taxonomy family the event belongs to
 #   floor:       optional absolute daily floor; null = use only zero + median checks
 #   owner:       team/person, TBD until assigned
+#   okr:         optional OKR metric name(s) anchored on this event (string or list).
+#                Marks the event as top-tier for the governance digest (DATA-2174):
+#                a breaking signal on an okr: row renders as 🔴 needs-action.
 
 # Families the monitor treats as "in scope" for coverage-drift / new-event detection.
 watched_families:
