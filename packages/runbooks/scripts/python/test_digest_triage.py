@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 
 import digest_triage as dt
@@ -223,3 +224,34 @@ def test_run_triage_no_items():
 def test_has_red_uses_rules_tier():
     assert dt.has_red(_okr_item()) is True
     assert dt.has_red([]) is False
+
+
+# --- judge chunking (finding 3: mass-flag runs must not exceed max_tokens in one call) ---
+
+class _PerChunkClient:
+    """Returns a verdict for exactly the ids present in the request, so a chunked call
+    sees only its own chunk's ids (mirrors instrumentation_gaps.py's judge_all test)."""
+
+    def __init__(self):
+        self.messages = self
+        self.calls = 0
+
+    def create(self, **kwargs):
+        self.calls += 1
+        content = kwargs["messages"][0]["content"]
+        ids = [i["id"] for i in json.loads(content.split("\n\n", 1)[1])]
+        return _FakeResp([_verdict(i, "fyi") for i in ids])
+
+
+def test_run_triage_chunks_judge_calls_and_merges_verdicts():
+    items = [
+        {"id": f"E{i}", "event_type": f"E{i}", "rank": 99, "okr": None,
+         "change": "new", "status": "dormant"}
+        for i in range(30)
+    ]
+    client = _PerChunkClient()
+    out = dt.run_triage(items, api_key="k", client_factory=lambda key: client)
+    assert client.calls == 2  # 25 + 5
+    assert out["status"] == "ok"
+    assert {i["id"] for i in out["items"]} == {f"E{i}" for i in range(30)}
+    assert all(i["tier"] == "fyi" for i in out["items"])

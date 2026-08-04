@@ -50,6 +50,11 @@ TRANSITION_CAP = 15
 # Cap the parent's yellow tier; red is uncapped (small by construction) and fyi is a count.
 YELLOW_CAP = 10
 MENTION_ENV = "SLACK_EVENT_ALERT_MENTION"
+# Slack caps a single block's text object at 3000 chars. Red items render at ~10 lines
+# apiece (event, OKR, headline, action), so a handful of them can approach that limit in
+# one section; chunk into multiple section blocks — blocks are cheap, the limit is per
+# text object, not per message.
+RED_CHUNK_SIZE = 5
 
 
 def sheet_url() -> str | None:
@@ -261,6 +266,20 @@ def _red_lines(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _red_section_blocks(items: list[dict]) -> list[dict]:
+    """Chunk red items into ``RED_CHUNK_SIZE``-sized section blocks so no single block's
+    text can hit Slack's 3000-char cap on a mass-breakage run. The first chunk carries the
+    ``*🔴 Needs action (N)*`` heading; the rest are plain continuation sections."""
+    blocks = []
+    for start in range(0, len(items), RED_CHUNK_SIZE):
+        chunk = items[start:start + RED_CHUNK_SIZE]
+        body = _red_lines(chunk)
+        if start == 0:
+            body = f"*🔴 Needs action ({len(items)})*\n{body}"
+        blocks.append(_section(body))
+    return blocks
+
+
 def _yellow_lines(items: list[dict]) -> str:
     shown = items[:YELLOW_CAP]
     body = "\n".join(f"• `{i['event_type']}`  {i.get('headline') or ''}" for i in shown)
@@ -291,6 +310,13 @@ def _fyi_thread_lines(fyi: list[dict]) -> list[str]:
             lines.append(f"• `{i['event_type']}`  resolved")
         else:
             lines.append(f"• `{i['event_type']}`  {i.get('headline') or ''}")
+    # Cap by LINES, not chars — a state-loss run can flag everything, and an uncapped
+    # "Informational changes" section can exceed Slack's 3000-char block cap and kill the
+    # threaded reply. A PR-grouped line above still counts as just one line here.
+    if len(lines) > TRANSITION_CAP:
+        overflow = len(lines) - TRANSITION_CAP
+        lines = lines[:TRANSITION_CAP]
+        lines.append(f"…and {overflow} more (see the sheet)")
     return lines
 
 
@@ -400,8 +426,8 @@ def _build_tiered_blocks(
     parent: list[dict] = [_header(f"📊 Analytics event health — {result.get('run_date')}")]
     if red:
         mention = os.environ.get(MENTION_ENV) or "<!here>"
-        parent.append(_section(f"*🔴 Needs action ({len(red)})*\n{_red_lines(red)}"))
-        parent.append(_context(f"{mention} — OKR-anchored instrumentation needs attention"))
+        parent.extend(_red_section_blocks(red))
+        parent.append(_context(f"{mention} — key instrumentation needs attention"))
     if yellow:
         parent.append(_section(f"*🟡 Worth watching ({len(yellow)})*\n{_yellow_lines(yellow)}"))
     if not red and not yellow:
@@ -521,8 +547,14 @@ def post_digest(
         return None
     parent, thread = build_digest_blocks(result, changes, prior_state, prior_anomalous,
                                          gap, triage)
-    ts = post_message(parent, token=token, channel=channel,
-                      text=f"Analytics event health & instrumentation gaps — {result.get('run_date')}",
+    # Fallback text mirrors whichever header the parent actually rendered — the tiered
+    # layout dropped "& instrumentation gaps" from its header (Task 5 folded gaps into a
+    # context line, not the title), so the legacy string is stale once triage is present.
+    fallback_text = (
+        f"📊 Analytics event health — {result.get('run_date')}" if triage is not None
+        else f"Analytics event health & instrumentation gaps — {result.get('run_date')}"
+    )
+    ts = post_message(parent, token=token, channel=channel, text=fallback_text,
                       transport=transport)
     # The parent is meaningful on its own and already advertises "details in thread", so a
     # failed reply is a partial success, not a whole-digest failure: log it and still return

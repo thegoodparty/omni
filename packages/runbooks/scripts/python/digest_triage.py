@@ -218,6 +218,19 @@ def _judge_items(items: Sequence[dict], rubric: str, *, client, model: str,
     return {v.id: v.model_dump() for v in batch.results if v.id in allowed}
 
 
+def judge_all(
+    items: Sequence[dict], rubric: str, *, client, model: str, chunk_size: int = 25
+) -> dict[str, dict]:
+    """Judge items in bounded chunks, merging verdicts. Mirrors instrumentation_gaps.py's
+    judge_all: one call per chunk keeps each request within the response max_tokens budget
+    on a mass-flag run; the common case (<=25 items) is exactly one chunk."""
+    out: dict[str, dict] = {}
+    for i in range(0, len(items), chunk_size):
+        chunk = items[i : i + chunk_size]
+        out.update(_judge_items(chunk, rubric, client=client, model=model))
+    return out
+
+
 def run_triage(
     items: list[dict],
     *,
@@ -240,11 +253,13 @@ def run_triage(
         return {"status": "skipped: ANTHROPIC_API_KEY unset", "items": items}
     try:
         rubric = rubric_path.read_text()
-    except OSError:
+    except (OSError, ValueError):
+        # ValueError covers UnicodeDecodeError (a ValueError subclass) on a corrupt/
+        # mis-encoded rubric file — the never-raise contract must hold for that too.
         return {"status": "skipped: rubric unavailable", "items": items}
     try:
         client = client_factory(api_key)
-        verdicts = _judge_items(items, rubric, client=client, model=model)
+        verdicts = judge_all(items, rubric, client=client, model=model)
     except Exception as exc:  # noqa: BLE001 — triage must never break the governance run
         return {"status": f"failed: {exc}", "items": items}
     for item in items:

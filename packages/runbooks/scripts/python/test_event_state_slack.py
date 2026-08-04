@@ -563,6 +563,49 @@ def test_thread_groups_new_events_by_pr():
     assert "`C`" in text
 
 
+def test_tiered_red_section_chunks_and_stays_under_slack_text_cap():
+    # 12 red items would render one giant section without chunking; Slack caps a section's
+    # text at 3000 chars, and chat.postMessage rejects the whole payload if any block
+    # exceeds it — silently dropping the digest on a mass-breakage run.
+    items = [_titem(f"Red{i}", "red", headline=f"broke at ts {i}" * 10, okr="OKR")
+             for i in range(12)]
+    changes = {"new": [i["id"] for i in items], "escalated": [], "resolved": [],
+               "still_open": []}
+    parent, _ = slk.build_digest_blocks(
+        _tiered_result(), changes, {}, set(), triage=_triage(items))
+    text = _flatten_text(parent)
+    assert "🔴 Needs action (12)" in text
+    red_sections = [
+        b for b in parent
+        if b["type"] == "section" and any(f"Red{i}" in b["text"]["text"] for i in range(12))
+    ]
+    assert len(red_sections) > 1
+    assert all(len(b["text"]["text"]) <= 3000 for b in red_sections)
+    for item in items:
+        assert item["id"] in text
+
+
+def test_fyi_thread_lines_capped_with_overflow():
+    fyi = [_titem(f"E{i}", "fyi", change="escalated", pr=None) for i in range(20)]
+    lines = slk._fyi_thread_lines(fyi)
+    assert len(lines) == slk.TRANSITION_CAP + 1
+    assert lines[-1] == "…and 5 more (see the sheet)"
+    joined = "\n".join(lines[:-1])
+    assert "E0" in joined and "E14" in joined
+    assert "E19" not in joined
+
+
+def test_post_digest_posts_on_quiet_run_with_open_red_item():
+    # otherwise-quiet run (no changes, no anomalies, no gap news) but triage carries a red
+    # item -> the red-persistence override must still post.
+    tx = _FakeTransport()
+    red_triage = _triage([_titem("RedEvt", "red", okr="Signups")])
+    ts = slk.post_digest(_tiered_result(), NOCHG, {}, token="xoxb-t", channel="C0BECEK0603",
+                         transport=tx, prior_anomalous=set(), gap=None, triage=red_triage)
+    assert ts == "1111.1"
+    assert len(tx.calls) == 2
+
+
 def test_legacy_layout_unchanged_when_triage_none():
     result = _tiered_result()
     changes = {"new": ["X"], "escalated": [], "resolved": [], "still_open": []}
