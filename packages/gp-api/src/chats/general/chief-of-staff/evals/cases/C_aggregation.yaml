@@ -1,0 +1,118 @@
+# Category C: aggregation and descriptive analytics
+# Cross-cutting criteria from cases/README.md apply to every case.
+
+- id: C01
+  title: Top district issues (sweep quality)
+  prompt: What issues does my district care about most?
+  expected_route: query_constituent_data
+  gold_sql: null   # behavioral; recover actual SQL and breadth from the trace
+  required_behavior:
+    - surveys multiple hs_* issue areas rather than cherry-picking one or two
+    - segments where the story is in subgroups (district-wide modeled averages
+      sit near 50 by design; the prompt itself instructs segmentation)
+    - decisive direction language without overprecise claims
+  forbidden_behavior:
+    - presenting a single near-50 average as a strong district-wide mandate
+    - inventing issues with no corresponding data signal
+  oracle: rubric
+  runs: 1
+  severity_if_failed: medium
+
+- id: C02
+  title: Opinion split location
+  prompt: Where does opinion on public transit split most sharply among my constituents?
+  expected_route: query_constituent_data
+  gold_sql: >
+    SELECT ConsumerData_RUS_Code AS area,
+           AVG(hs_public_transit_support) AS avg_support, COUNT(*) AS n
+    FROM serve_agent_voters WHERE {{DISTRICT_FILTER}} GROUP BY 1
+  notes: >
+    Reference for ONE reasonable cut; the agent should try several (age, area,
+    education) and surface the sharpest contrast.
+  required_behavior:
+    - runs at least one demographic breakdown (citywide avg is 50.99, a
+      near-perfect "narrowly split" that only subgroup cuts can explain)
+    - identifies the contrast with supporting numbers from the actual results
+  forbidden_behavior:
+    - answering from the citywide average alone
+    - claiming a subgroup contrast the returned data does not show
+  oracle: rubric
+  runs: 1
+  severity_if_failed: medium
+
+- id: C03
+  title: Contacts vs district profile (two denominators)
+  prompt: Compare the age profile of the constituents in our contact list with the district overall.
+  expected_route: query_constituent_data + count_contacts
+  gold_sql: >
+    -- district side: SELECT age bands, COUNT(*) ... WHERE {{DISTRICT_FILTER}}
+    -- contacts side: CRM filter counts by age band (if the CRM exposes age)
+  required_behavior:
+    - keeps the two populations distinct (CRM contact list vs full voter mart)
+    - if the CRM cannot slice by age, says so plainly rather than substituting
+      the mart for both sides silently
+  forbidden_behavior:
+    - one population presented as the other
+    - a "representativeness" conclusion with no denominator on either side
+  notes: >
+    Since the constituent file is the rebranded voter file, the two populations
+    may be near-identical in dev; the grade is whether the agent keeps the
+    conceptual distinction, not whether the numbers differ.
+  oracle: rubric
+  runs: 1
+  severity_if_failed: high
+
+- id: C04
+  title: Geographic concentration (missing geography)
+  prompt: Are constituent concerns concentrated in particular neighborhoods?
+  expected_route: explain_gap
+  expected_intent:
+    note: no neighborhood/precinct/ward column exists in the CRM (per the CRM
+      feature review) and the mart's sub-city geography for Spokane is limited
+      to council district and urban/suburban
+  gold_sql: null
+  required_behavior:
+    - states the geographic granularity it actually has, offers the closest
+      available cut (urban/suburban or council district) rather than nothing
+  forbidden_behavior:
+    - fabricating neighborhood names or neighborhood-level results
+  oracle: constraint
+  runs: 1
+  severity_if_failed: high
+
+- id: C05
+  title: Age distribution (banding + totals)
+  prompt: Give me the age distribution of my constituents.
+  expected_route: query_constituent_data
+  gold_sql: >
+    SELECT FLOOR(Voters_Age/10)*10 AS decade, COUNT(*) AS n
+    FROM serve_agent_voters WHERE {{DISTRICT_FILTER}} GROUP BY 1 ORDER BY 1
+  gold_provisional: "bands must sum to 156,587 minus 25 null ages"
+  required_behavior:
+    - sensible contiguous bands; shares consistent with under-35 = 27.5%,
+      65+ = 25.3%
+  forbidden_behavior:
+    - bands that overlap, omit ranges, or sum well off the total without note
+  oracle: exact
+  runs: 1
+  severity_if_failed: medium
+
+- id: C06
+  title: Turnout by children-at-home (null bucket)
+  prompt: Do my constituents with kids at home turn out to vote more or less than those without?
+  expected_route: query_constituent_data
+  gold_sql: >
+    SELECT ConsumerData_Presence_Of_Children_in_HH AS kids,
+           AVG(Voters_VotingPerformanceEvenYearGeneral) AS avg_turnout,
+           COUNT(*) AS n
+    FROM serve_agent_voters WHERE {{DISTRICT_FILTER}} GROUP BY 1
+  required_behavior:
+    - compares Y vs N with the direction the data actually shows
+    - the 21% unknown-children group is handled visibly (included as unknown or
+      excluded with a note), not silently folded into either side
+  forbidden_behavior:
+    - null bucket silently merged into "without kids"
+    - causal language ("having kids makes constituents vote more")
+  oracle: constraint
+  runs: 1
+  severity_if_failed: medium
