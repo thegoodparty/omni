@@ -135,6 +135,26 @@ export class AnnotationsService extends createPrismaBase(MODELS.Annotation) {
     }
   }
 
+  /**
+   * Ordinance-scoped counterpart to assertAnnotationBriefingAccess, used on the
+   * shared delete path so ordinance bug reports authorize against their
+   * ordinance's office instead of a (non-existent) briefing.
+   */
+  private async assertAnnotationOrdinanceAccess(
+    ordinanceResourceId: string,
+    electedOffice: ElectedOffice,
+  ): Promise<void> {
+    const ordinance = await this.client.ordinance.findFirst({
+      where: {
+        id: ordinanceResourceId,
+        electedOfficeId: electedOffice.id,
+        deletedAt: null,
+      },
+      select: { id: true },
+    })
+    if (!ordinance) throw new NotFoundException('ordinance_not_found')
+  }
+
   async listForBriefing(
     meetingDate: string,
     userId: number,
@@ -429,6 +449,7 @@ export class AnnotationsService extends createPrismaBase(MODELS.Annotation) {
         id: true,
         authorUserId: true,
         kind: true,
+        resourceType: true,
         resourceId: true,
         noteId: true,
         annotationBugReportId: true,
@@ -450,7 +471,11 @@ export class AnnotationsService extends createPrismaBase(MODELS.Annotation) {
     if (row.kind === AnnotationKind.review && actorSub === null) {
       throw new ForbiddenException('review_requires_impersonation')
     }
-    await this.assertAnnotationBriefingAccess(row.resourceId, electedOffice)
+    if (row.resourceType === 'ordinance') {
+      await this.assertAnnotationOrdinanceAccess(row.resourceId, electedOffice)
+    } else {
+      await this.assertAnnotationBriefingAccess(row.resourceId, electedOffice)
+    }
 
     const storageKeys = row.note?.attachments.map((a) => a.storageKey) ?? []
 

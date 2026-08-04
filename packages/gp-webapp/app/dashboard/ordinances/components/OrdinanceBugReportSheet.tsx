@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Button,
   Drawer,
@@ -42,11 +42,17 @@ export default function OrdinanceBugReportSheet({
   const [description, setDescription] = useState('')
   const [saving, setSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  // Bumped on every (re)open so a submit that resolves after the user closed and
+  // reopened the sheet can't touch the fresh session (close the new sheet, show
+  // a stale error, or leave Submit wedged).
+  const openSeq = useRef(0)
 
   // Reset the form each time the sheet opens so a prior draft doesn't linger.
   useEffect(() => {
     if (open) {
+      openSeq.current += 1
       setDescription('')
+      setSaving(false)
       setErrorMessage(null)
     }
   }, [open])
@@ -55,19 +61,22 @@ export default function OrdinanceBugReportSheet({
 
   async function handleSubmit() {
     if (!canSubmit) return
+    const seq = openSeq.current
     setSaving(true)
     setErrorMessage(null)
     try {
       await onSubmit(description.trim())
-      onClose()
+      if (openSeq.current === seq) onClose()
     } catch (err) {
       reportErrorToSentry(err, {
         surface: 'ordinance-annotations',
         op: 'createBugReport',
       })
-      setErrorMessage("Couldn't submit. Please try again.")
+      if (openSeq.current === seq) {
+        setErrorMessage("Couldn't submit. Please try again.")
+      }
     } finally {
-      setSaving(false)
+      if (openSeq.current === seq) setSaving(false)
     }
   }
 

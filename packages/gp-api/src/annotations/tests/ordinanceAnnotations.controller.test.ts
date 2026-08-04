@@ -204,3 +204,76 @@ describe('GET /v1/ordinances/:slug/annotations', () => {
     expect(result.status).toBe(404)
   })
 })
+
+// The delete route is the shared /v1/annotations/:id path; these assert it
+// authorizes ordinance bug reports against their ordinance's office rather than
+// a briefing (the resource-type branch in deleteOne).
+describe('DELETE /v1/annotations/:annotationId — ordinance bug reports', () => {
+  it('lets the author delete their ordinance bug report', async () => {
+    const orgSlug = 'ord-del'
+    const eo = await seedElectedOffice(orgSlug)
+    const ordinance = await seedOrdinance(eo.id)
+    const annotation = await service.prisma.annotation.create({
+      data: {
+        author: { connect: { id: service.user.id } },
+        kind: 'bug_report',
+        resourceType: 'ordinance',
+        resourceId: ordinance.id,
+        bugReport: { create: { description: 'delete me', excerpt: 'x' } },
+      },
+      include: { bugReport: true },
+    })
+
+    const result = await service.client.delete(
+      `/v1/annotations/${annotation.id}`,
+      orgHeader(orgSlug),
+    )
+
+    expect(result.status).toBe(204)
+    expect(
+      await service.prisma.annotation.findUnique({
+        where: { id: annotation.id },
+      }),
+    ).toBeNull()
+    expect(
+      await service.prisma.annotationBugReport.findUnique({
+        where: { id: annotation.bugReport!.id },
+      }),
+    ).toBeNull()
+  })
+
+  it('rejects deleting an ordinance bug report scoped to another office', async () => {
+    const ownOrg = 'ord-del-own'
+    await seedElectedOffice(ownOrg)
+
+    const otherUser = await service.prisma.user.create({
+      data: {
+        clerkId: 'ord_del_other',
+        email: 'ord-del-other@goodparty.org',
+        firstName: 'Other',
+        lastName: 'Office',
+      },
+    })
+    const otherEo = await seedElectedOffice(
+      'ord-del-other-office',
+      otherUser.id,
+    )
+    const otherOrdinance = await seedOrdinance(otherEo.id)
+    const annotation = await service.prisma.annotation.create({
+      data: {
+        author: { connect: { id: service.user.id } },
+        kind: 'bug_report',
+        resourceType: 'ordinance',
+        resourceId: otherOrdinance.id,
+        bugReport: { create: { description: 'theirs' } },
+      },
+    })
+
+    const result = await service.client.delete(
+      `/v1/annotations/${annotation.id}`,
+      orgHeader(ownOrg),
+    )
+
+    expect(result.status).toBe(404)
+  })
+})
