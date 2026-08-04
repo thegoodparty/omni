@@ -48,7 +48,6 @@ export interface VoterFileFilterInOutreach {
   audienceLikelyVoters: boolean | null
   audienceUnreliableVoters: boolean | null
   audienceUnlikelyVoters: boolean | null
-  audienceFirstTimeVoters: boolean | null
   audienceUnknown: boolean | null
   partyIndependent: boolean | null
   partyDemocrat: boolean | null
