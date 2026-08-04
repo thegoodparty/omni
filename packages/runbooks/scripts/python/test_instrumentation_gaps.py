@@ -914,3 +914,44 @@ def test_main_load_seed_missing_file_is_graceful(tmp_path, capsys):
     assert json.loads(state.read_text()) == prior  # untouched
     err = capsys.readouterr().err
     assert str(missing) in err
+
+
+def test_new_this_run_filters_by_disposition_and_first_seen():
+    state = {
+        "a": {"id": "a", "disposition": "new", "first_seen": "2026-08-03", "rank": 2},
+        "b": {"id": "b", "disposition": "new", "first_seen": "2026-07-27", "rank": 1},
+        "c": {"id": "c", "disposition": "dismissed", "first_seen": "2026-08-03", "rank": 0},
+        "d": {"id": "d", "disposition": "new", "first_seen": "2026-08-03", "rank": 1},
+    }
+    out = ig.new_this_run(state, "2026-08-03")
+    assert [e["id"] for e in out] == ["d", "a"]  # rank asc, then id; b (old) and c (dismissed) excluded
+
+
+def test_weekly_review_artifact_round_trips(tmp_path):
+    state = {
+        "a": {"id": "a", "disposition": "new", "first_seen": "2026-08-03", "rank": 1,
+              "surface_type": "route", "location": "app/x/page.tsx", "rubric_rule": "flow",
+              "dashboard_question": "q", "judge_reason": "jr"},
+        "old": {"id": "old", "disposition": "new", "first_seen": "2026-07-01", "rank": 1},
+    }
+    art = ig.render_review_artifact(state, "2026-08-03")
+    assert "## a" in art and "## old" not in art  # only this run's batch
+    filled = art.replace("- disposition:", "- disposition: dismissed", 1) \
+                .replace("- reason:", "- reason: not a funnel step", 1)
+    parsed = ig.parse_seed_artifact(filled)
+    new_state, applied = ig.apply_seed_dispositions(state, parsed, date(2026, 8, 3))
+    assert applied == 1
+    assert new_state["a"]["disposition"] == "dismissed"
+    assert new_state["a"]["reason"] == "not a funnel step"
+
+
+def test_cli_list_new_outputs_this_run(tmp_path, capsys):
+    state_path = tmp_path / "gaps.json"
+    state_path.write_text(json.dumps({
+        "a": {"id": "a", "disposition": "new", "first_seen": "2026-08-03", "rank": 1},
+        "old": {"id": "old", "disposition": "new", "first_seen": "2026-07-01", "rank": 1},
+    }))
+    rc = ig.main(["--state", str(state_path), "--today", "2026-08-03", "--list-new"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert [e["id"] for e in payload] == ["a"]
