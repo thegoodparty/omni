@@ -12,7 +12,7 @@ import { M2M_TOKEN_PREFIX } from '@/vendors/clerk/clerk.consts'
 
 const {
   CLERK_SECRET_KEY,
-  GP_WEBAPP_MACHINE_SECRET,
+  GP_API_MACHINE_SECRET,
   CLERK_AUTHORIZED_PARTIES,
   AGENT_MCP_TOKEN_SECRET,
 } = process.env
@@ -21,9 +21,9 @@ if (!CLERK_SECRET_KEY) {
   throw new Error('CLERK_SECRET_KEY is required for application startup')
 }
 
-if (!GP_WEBAPP_MACHINE_SECRET) {
+if (!GP_API_MACHINE_SECRET) {
   throw new Error(
-    'GP_WEBAPP_MACHINE_SECRET must be set in the environment variables',
+    'GP_API_MACHINE_SECRET must be set in the environment variables',
   )
 }
 
@@ -112,7 +112,7 @@ export class ClerkAuthService implements AuthProvider {
     try {
       const { id, subject } = await this.clerkClient.m2m.verify({
         token,
-        machineSecretKey: GP_WEBAPP_MACHINE_SECRET,
+        machineSecretKey: GP_API_MACHINE_SECRET,
       })
       return { id, subject }
     } catch {

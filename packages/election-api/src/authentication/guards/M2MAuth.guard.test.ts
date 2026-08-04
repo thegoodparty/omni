@@ -52,15 +52,15 @@ describe('M2MAuthGuard', () => {
     expect(verify).not.toHaveBeenCalled()
   })
 
-  it('verifies a valid mt_ token and tags the request', async () => {
+  it('verifies a valid JWT token and tags the request', async () => {
     process.env.ELECTION_API_AUTH_ENFORCED = 'true'
     const verify = vi.fn().mockResolvedValue({ id: 'm', subject: 's' })
     const { guard } = makeGuard({ verify })
     await expect(
-      guard.canActivate(makeContext({ authorization: 'Bearer mt_abc' })),
+      guard.canActivate(makeContext({ authorization: 'Bearer eyJhbGci.abc' })),
     ).resolves.toBe(true)
     expect(verify).toHaveBeenCalledWith({
-      token: 'mt_abc',
+      token: 'eyJhbGci.abc',
       machineSecretKey: 'ak_test',
     })
   })
@@ -73,11 +73,12 @@ describe('M2MAuthGuard', () => {
     )
   })
 
-  it('rejects a non-M2M token when enforcement is on', async () => {
+  it('rejects a token that fails verification when enforcement is on', async () => {
     process.env.ELECTION_API_AUTH_ENFORCED = 'true'
-    const { guard } = makeGuard({})
+    const verify = vi.fn().mockRejectedValue(new Error('invalid token'))
+    const { guard } = makeGuard({ verify })
     await expect(
-      guard.canActivate(makeContext({ authorization: 'Bearer sk_live_x' })),
+      guard.canActivate(makeContext({ authorization: 'Bearer not-a-jwt' })),
     ).rejects.toBeInstanceOf(UnauthorizedException)
   })
 
@@ -93,7 +94,7 @@ describe('M2MAuthGuard', () => {
     delete process.env.ELECTION_API_MACHINE_SECRET
     const { guard } = makeGuard({})
     await expect(
-      guard.canActivate(makeContext({ authorization: 'Bearer mt_abc' })),
+      guard.canActivate(makeContext({ authorization: 'Bearer eyJhbGci.abc' })),
     ).rejects.toBeInstanceOf(UnauthorizedException)
   })
 })

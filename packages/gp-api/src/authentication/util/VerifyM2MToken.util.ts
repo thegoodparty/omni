@@ -1,11 +1,11 @@
 import { UnauthorizedException } from '@nestjs/common'
 import { ClerkClient } from '@clerk/backend'
 
-const { GP_WEBAPP_MACHINE_SECRET } = process.env
+const { GP_API_MACHINE_SECRET } = process.env
 
-if (!GP_WEBAPP_MACHINE_SECRET)
+if (!GP_API_MACHINE_SECRET)
   throw new Error(
-    'GP_WEBAPP_MACHINE_SECRET must be set in the environment variables',
+    'GP_API_MACHINE_SECRET must be set in the environment variables',
   )
 
 export const verifyM2MToken = async (
@@ -15,7 +15,7 @@ export const verifyM2MToken = async (
   try {
     return await clerkClient.m2m.verify({
       token,
-      machineSecretKey: GP_WEBAPP_MACHINE_SECRET,
+      machineSecretKey: GP_API_MACHINE_SECRET,
     })
   } catch {
     throw new UnauthorizedException('M2M token verification failed')

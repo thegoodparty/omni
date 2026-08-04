@@ -2,6 +2,15 @@
 
 Status: accepted
 
+> Update (JWT-format M2M tokens): callers now mint **JWT-format** Clerk M2M tokens
+> (`tokenFormat: 'jwt'`) instead of opaque `mt_*` tokens, so election-api verifies
+> them **networkless** (locally, via the instance's public key) with no per-request
+> Clerk API call. gp-api's caller secret was renamed `GP_WEBAPP_MACHINE_SECRET` ->
+> `GP_API_MACHINE_SECRET` to match the renamed `gp-api` machine. The guard no longer
+> gates on a token prefix (JWTs start with `eyJ`); `clerkClient.m2m.verify` rejects
+> anything that isn't a valid M2M token for this machine. Everything else below
+> (default-deny, `@PublicAccess()`, observe-only rollout) is unchanged.
+
 ## Context
 
 election-api runs behind an internet-facing ALB (`internal: false`, public subnets,
@@ -25,14 +34,15 @@ authentication on every route except the health check.
 Secure election-api by default with Clerk Machine-to-Machine (M2M) tokens, matching
 the pattern gp-api already uses as a recipient (see gp-api ADR 0004).
 
-- A global `M2MAuthGuard` (`APP_GUARD`) is default-deny: it verifies an `mt_*` bearer
-  token against `ELECTION_API_MACHINE_SECRET` via `@clerk/backend`
-  (`clerkClient.m2m.verify`). Routes opt out with `@PublicAccess()` — only the health
-  check does.
+- A global `M2MAuthGuard` (`APP_GUARD`) is default-deny: it verifies a JWT-format M2M
+  bearer token against `ELECTION_API_MACHINE_SECRET` via `@clerk/backend`
+  (`clerkClient.m2m.verify`, networkless for JWTs). Routes opt out with
+  `@PublicAccess()` — only the health check does.
 - Callers mint tokens with their **own** machine secret (gp-api:
-  `GP_WEBAPP_MACHINE_SECRET`, gp-marketing: `GP_MARKETING_MACHINE_SECRET`), cached and
-  renewed before expiry, and send `Authorization: Bearer mt_...`. Each caller machine
-  is connected to the election-api machine in the Clerk dashboard.
+  `GP_API_MACHINE_SECRET`, gp-marketing: `GP_MARKETING_MACHINE_SECRET`) using
+  `tokenFormat: 'jwt'`, cached and renewed before expiry, and send
+  `Authorization: Bearer eyJ...`. Each caller machine is connected to the election-api
+  machine in the Clerk dashboard.
 - Enforcement is gated by `ELECTION_API_AUTH_ENFORCED`. While it is not `'true'` the
   guard runs in **observe-only** mode: it verifies and logs what it would reject but
   lets the request through. This lets us deploy consumers (sending tokens) and the

@@ -11,14 +11,16 @@ import { PinoLogger } from 'nestjs-pino'
 import { FastifyRequest } from 'fastify'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '../providers/clerk-client.provider'
 import { IS_PUBLIC_KEY } from '../decorators/PublicAccess.decorator'
-import { M2M_TOKEN_PREFIX } from '../authentication.consts'
 
 type AuthenticatedRequest = FastifyRequest & { m2mToken?: unknown }
 
 /**
- * Global default-deny guard. Every route requires a valid Clerk M2M token
- * (`mt_*`, verified against ELECTION_API_MACHINE_SECRET) except routes marked
- * with `@PublicAccess()` (the ALB health check).
+ * Global default-deny guard. Every route requires a valid Clerk JWT-format M2M
+ * token, verified networkless against ELECTION_API_MACHINE_SECRET, except
+ * routes marked with `@PublicAccess()` (the ALB health check).
+ *
+ * Tokens are JWTs (`eyJ*`), so we don't gate on a prefix; `m2m.verify` rejects
+ * anything that isn't a valid M2M token for this machine.
  *
  * Enforcement is gated on ELECTION_API_AUTH_ENFORCED so we can roll out in
  * two steps: first deploy in observe-only mode (verify + log, but never
@@ -52,9 +54,6 @@ export class M2MAuthGuard implements CanActivate {
     try {
       if (!token) {
         throw new UnauthorizedException('Missing bearer token')
-      }
-      if (!token.startsWith(M2M_TOKEN_PREFIX)) {
-        throw new UnauthorizedException('Not an M2M token')
       }
       if (!this.machineSecret) {
         throw new UnauthorizedException(

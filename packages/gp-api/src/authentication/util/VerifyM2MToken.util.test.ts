@@ -21,7 +21,7 @@ describe('verifyM2MToken', () => {
     )
     expect(verify).toHaveBeenCalledWith({
       token: 'mt_token',
-      machineSecretKey: process.env.GP_WEBAPP_MACHINE_SECRET,
+      machineSecretKey: process.env.GP_API_MACHINE_SECRET,
     })
   })
 

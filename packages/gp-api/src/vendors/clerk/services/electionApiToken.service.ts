@@ -8,13 +8,14 @@ import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-cli
 const TOKEN_RENEWAL_BUFFER_MS = 30_000
 const TOKEN_TTL_SECONDS = 600
 
-const { GP_WEBAPP_MACHINE_SECRET } = process.env
+const { GP_API_MACHINE_SECRET } = process.env
 
 /**
- * Mints and caches a Clerk M2M token for calling election-api. gp-api is the
- * caller, so it mints with its own machine secret (GP_WEBAPP_MACHINE_SECRET);
- * election-api verifies as the recipient. The gp-webapp machine must be
- * connected to the election-api machine in the Clerk dashboard.
+ * Mints and caches a Clerk JWT-format M2M token for calling election-api. gp-api
+ * is the caller, so it mints with its own machine secret (GP_API_MACHINE_SECRET);
+ * election-api verifies as the recipient (networkless, since the token is a JWT).
+ * The gp-api machine must be connected to the election-api machine in the Clerk
+ * dashboard.
  *
  * The token is cached and reused until shortly before it expires; concurrent
  * callers share a single in-flight mint.
@@ -62,13 +63,14 @@ export class ElectionApiTokenService {
   }
 
   private async createAndCacheToken(): Promise<string> {
-    if (!GP_WEBAPP_MACHINE_SECRET) {
+    if (!GP_API_MACHINE_SECRET) {
       throw new Error(
-        'GP_WEBAPP_MACHINE_SECRET must be set to mint an election-api M2M token',
+        'GP_API_MACHINE_SECRET must be set to mint an election-api M2M token',
       )
     }
     const minted = await this.clerkClient.m2m.createToken({
-      machineSecretKey: GP_WEBAPP_MACHINE_SECRET,
+      machineSecretKey: GP_API_MACHINE_SECRET,
+      tokenFormat: 'jwt',
       secondsUntilExpiration: TOKEN_TTL_SECONDS,
     })
     if (!minted.token) {
