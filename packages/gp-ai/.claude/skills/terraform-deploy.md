@@ -3,18 +3,32 @@ name: terraform-deploy
 description: Use when deploying a gp-ai-projects code or infra change to an environment (dev/qa/prod) via Terraform — especially control-plane Lambda changes (dispatch_handler.py, scheduler_handler.py, task_reaper.py) that a branch merge does NOT auto-deploy. Covers the build_lambda_package + AWS-credential bridge + init/plan/apply procedure and what deploys automatically vs. manually.
 ---
 
-You are deploying a change in `gp-ai-projects`. Read this before assuming a merge deployed your code — for some components it did, for others it did not.
+> **TRANSITIONAL — read this first.** The code now lives at `packages/gp-ai` in
+> omni, but **omni does not deploy it yet**: there is no gp-ai CI workflow here,
+> and no branch in omni builds or applies anything for this subtree. Every
+> deployed gp-ai service is still shipped from the standalone
+> `thegoodparty/gp-ai-projects` repo and its `develop` / `qa` / `prod` branches.
+>
+> So the branch names below refer to **that repo**, not to omni. Run this
+> procedure from a `gp-ai-projects` checkout until the omni CI and Terraform
+> automation land, at which point deploys become: merge to omni `main` → dev
+> applies automatically; prod applies via `promote.yml`. This file is replaced
+> then. If you are unsure which world you are in, check whether
+> `.github/workflows/gp-ai.yml` exists in omni — if it does, this file is stale
+> and you should not be following it.
+
+You are deploying a change to the gp-ai services. Read this before assuming a merge deployed your code — for some components it did, for others it did not.
 
 ## What deploys automatically vs. needs Terraform
 
-A push/merge to a deployment branch (`develop`→dev, `qa`→qa, `prod`→prod) triggers `build-*.yml` workflows that build+push images. That is the WHOLE deploy for some components and only HALF for others:
+A push/merge to a `gp-ai-projects` deployment branch (`develop`→dev, `qa`→qa, `prod`→prod) triggers `build-*.yml` workflows that build+push images. That is the WHOLE deploy for some components and only HALF for others:
 
-| Component | How its code goes live | Action on a code change |
-| --- | --- | --- |
-| **Broker** (`broker/**`) | `build-broker.yml` builds the image and runs `aws ecs update-service --force-new-deployment` | **Automatic** on branch push. None. |
-| **Runner** (`pmf_engine/runner/**`) | `build-pmf-engine.yml` pushes the `:pmf-engine-<env>` image; the Fargate task def points at that moving tag, so the next `RunTask` pulls it | **Automatic** (next run). None. |
-| **Control-plane Lambdas** — dispatch, scheduler, task_reaper (`pmf_engine/control_plane/**`) | **Zip-packaged by Terraform** (`data.archive_file` over `pmf_engine/.lambda_build`). The image build does NOT touch them. | **Manual `terraform apply`.** A merge alone never updates them. |
-| **Any `*.tf` change** (IAM, SG, task def cpu/mem/env, new resources) | Terraform state | **Manual `terraform apply`** for that module. |
+| Component                                                                                    | How its code goes live                                                                                                                      | Action on a code change                                         |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| **Broker** (`broker/**`)                                                                     | `build-broker.yml` builds the image and runs `aws ecs update-service --force-new-deployment`                                                | **Automatic** on branch push. None.                             |
+| **Runner** (`pmf_engine/runner/**`)                                                          | `build-pmf-engine.yml` pushes the `:pmf-engine-<env>` image; the Fargate task def points at that moving tag, so the next `RunTask` pulls it | **Automatic** (next run). None.                                 |
+| **Control-plane Lambdas** — dispatch, scheduler, task_reaper (`pmf_engine/control_plane/**`) | **Zip-packaged by Terraform** (`data.archive_file` over `pmf_engine/.lambda_build`). The image build does NOT touch them.                   | **Manual `terraform apply`.** A merge alone never updates them. |
+| **Any `*.tf` change** (IAM, SG, task def cpu/mem/env, new resources)                         | Terraform state                                                                                                                             | **Manual `terraform apply`** for that module.                   |
 
 **The trap:** you change `dispatch_handler.py` or `scheduler_handler.py`, merge to `develop`, see the green CI builds, and assume dev is deployed. It is not — those run in the zip Lambdas, which only update via `terraform apply`. (Runner-side files like `config.py`/`params.py` DO ride the image, so a change spanning both needs the image build AND the apply.)
 

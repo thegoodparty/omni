@@ -1,6 +1,6 @@
 # Getting Started
 
-First-time setup for `gp-ai-projects` on macOS / Linux.
+First-time setup for `packages/gp-ai` on macOS / Linux.
 
 ## Prerequisites
 
@@ -13,18 +13,14 @@ You don't need pip / poetry / pyenv for this repo. `uv` covers all of it.
 
 ## Clone
 
-This repo uses `ai-rules` as a git submodule. Clone with `--recursive`:
+This subtree lives inside the omni monorepo; there is no standalone repo to clone.
 
 ```bash
-git clone --recursive git@github.com:thegoodparty/gp-ai-projects.git
-cd gp-ai-projects
+git clone git@github.com:thegoodparty/omni.git
+cd omni/packages/gp-ai
 ```
 
-If you already cloned without `--recursive`:
-
-```bash
-make submodule-init    # or: git submodule update --init --recursive
-```
+omni owns the `ai-rules` submodule at its root and initializes it via `npm install`. Nothing here needs `--recursive`.
 
 ## Configure environment
 

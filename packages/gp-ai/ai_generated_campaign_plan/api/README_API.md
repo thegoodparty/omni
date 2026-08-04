@@ -260,8 +260,8 @@ Professional campaign plan with:
 ### Setup
 
 ```bash
-# Navigate to project directory
-cd gp-ai-projects
+# Navigate to the subtree (from the omni repo root)
+cd packages/gp-ai
 
 # Install dependencies using uv
 uv sync

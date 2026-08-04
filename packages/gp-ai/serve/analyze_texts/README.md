@@ -51,7 +51,7 @@ serve/analyze_texts/
 ### 1. Install Dependencies
 
 ```bash
-cd gp-ai-projects
+cd packages/gp-ai
 uv sync
 source .venv/bin/activate
 ```

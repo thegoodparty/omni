@@ -25,7 +25,7 @@ You are writing Python in `gp-ai-projects`. Read this before you `uv add` anythi
   4. Commit `pyproject.toml`, the new `<member>/pyproject.toml`, and the updated `uv.lock` together.
   5. If it's a Lambda, copy the structure from an existing containerized member like `pmf_engine/` or `engineer_agent/` (Dockerfile, handler, `tests/`) and add a matching `infrastructure/modules/<name>/`.
 - **Running tests** →
-  - Repo-root cross-member tests: `uv run pytest tests/` (or `make test`).
+  - Everything CI runs: `make test` from `packages/gp-ai`. There is no repo-root `tests/` directory; the suite list lives in the `Makefile` as `TEST_PATHS` and CI invokes the same target.
   - Per-member: `cd <member> && uv run pytest tests/`.
   - Single test: `uv run pytest <path>::TestClass::test_case -v`.
 

@@ -1,8 +1,13 @@
-.PHONY: help submodule-init lint format type-check check test install-hooks uninstall-hooks
+.PHONY: help lint format type-check check test install-hooks uninstall-hooks
+
+# Single source of truth for which suites run. CI (.github/workflows/gp-ai.yml)
+# invokes `make test`, so the two cannot drift. There is no repo-root tests/;
+# bare `pytest` would also sweep script-style dirs that ship no runnable suite.
+TEST_PATHS := broker/tests pmf_engine/tests shared/tests serve/v1_pipeline/tests \
+              clickup_bot/tests engineer_agent/tests campaign_plan_lambda/tests
 
 help:
 	@echo "Available commands:"
-	@echo "  make submodule-init   - Initialize the ai-rules git submodule"
 	@echo "  make install-hooks    - Install pre-commit hooks"
 	@echo "  make uninstall-hooks  - Uninstall pre-commit hooks"
 	@echo "  make lint             - Run ruff linter"
@@ -11,17 +16,15 @@ help:
 	@echo "  make check            - Run all checks (lint + format + type)"
 	@echo "  make test             - Run pytest tests"
 
-submodule-init:
-	git submodule update --init --recursive
-	@echo "✅ ai-rules submodule initialized at: $$(cd ai-rules && git rev-parse --short HEAD)"
-
 install-hooks:
 	uv add --dev pre-commit
 	uv run pre-commit install
 	@echo "✅ Pre-commit hooks installed"
 
+# --git-common-dir, not a literal .git/: this package sits inside omni, so the
+# git dir is at the repo root, and in a worktree .git is a file, not a dir.
 uninstall-hooks:
-	@if [ -f .git/hooks/pre-commit ]; then \
+	@if [ -f "$$(git rev-parse --git-common-dir)/hooks/pre-commit" ]; then \
 		uv run pre-commit uninstall; \
 		echo "✅ Pre-commit hooks uninstalled"; \
 	else \
@@ -45,4 +48,4 @@ check: lint format type-check
 
 test:
 	@echo "🧪 Running tests..."
-	uv run pytest tests/
+	uv run pytest $(TEST_PATHS)
