@@ -164,6 +164,14 @@ def main() -> None:
     if previous == current:
         print("No new production deployment in the window; nothing to post.")
         return
+    if previous is None:
+        # Every deployment is inside the window (e.g. first day). Diff against the
+        # oldest recorded deployment, not a time-based git log which would include
+        # merged-but-not-yet-promoted commits.
+        if len(deployments) == 1:
+            print("Only one deployment on record; nothing to diff against.")
+            return
+        previous = deployments[-1][0]
 
     nums = shipped_pr_numbers(previous, current)
     if not nums:

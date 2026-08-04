@@ -389,7 +389,16 @@ jobs:
         candidate-sites,
         publish-experiments,
       ]
-    if: needs.gate.outputs.promote == 'true'
+    # An explicit `if` drops the implicit success() of `needs`, so check each
+    # deploy job's result — otherwise a partial promotion records a false success.
+    if: |
+      needs.gate.outputs.promote == 'true' &&
+      needs.gp-api.result == 'success' &&
+      needs.election-api.result == 'success' &&
+      needs.gp-webapp.result == 'success' &&
+      needs.gp-admin.result == 'success' &&
+      needs.candidate-sites.result == 'success' &&
+      (needs.publish-experiments.result == 'success' || needs.publish-experiments.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read
