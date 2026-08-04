@@ -96,6 +96,10 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# clickup_bot/tests/ and campaign_plan_lambda/tests/ both ship a test_handler.py
+# and neither tests/ dir is a package, so the default "prepend" import mode
+# aborts collection on a basename clash the moment both are collected together.
+addopts = "--import-mode=importlib"
 
 [dependency-groups]
 dev = [

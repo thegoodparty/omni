@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Guidance for Claude Code and other AI agents working in `gp-ai-projects`. Keep this file short — push detail into `docs/` and per-workspace-member READMEs.
+Guidance for agents working in `packages/gp-ai`, omni's Python AI/data subtree. Keep this file short — push detail into `docs/` and per-workspace-member READMEs.
 
 ## Project
 
@@ -9,12 +9,12 @@ A **`uv` workspace** holding GoodParty's Python AI / data services. Each workspa
 ## Commands (most-used first)
 
 ```bash
-uv sync                           # install workspace deps (root + all members) into .venv/
+uv sync --all-packages            # install root AND member deps into .venv/ (see note below)
 make check                        # ruff lint + ruff format + mypy (uv run under the hood)
 make lint                         # ruff check .
 make format                       # ruff format .
 make type-check                   # mypy serve/v1_pipeline/ shared/
-make test                         # uv run pytest tests/
+make test                         # uv run pytest (see Testing — there is no root tests/)
 uv run pytest <path>              # single-file or single-test run
 make install-hooks                # one-time pre-commit setup
 
@@ -23,7 +23,9 @@ cd broker && uv run pytest tests/
 cd pmf_engine && uv run pytest tests/
 ```
 
-CI workflows are mostly `build-*.yml` Docker→ECR builds per workspace member, plus a couple of `deploy-*.yml` flows. There is **no lint/type-check workflow** yet — `.github/workflows/README.md` describes one as if it lives in `.github/workflows-disabled/`, but that directory does not currently exist on disk. Until a real CI lint job lands, **green pre-commit locally is what stands in for lint CI**.
+**`uv sync` alone is not enough.** At a workspace root it installs only the root project's dependencies, not the members'. Without `--all-packages` you get `ModuleNotFoundError: No module named 'playwright'` from `broker/tests/test_browser_fetcher.py`, because `playwright` is declared in `broker/pyproject.toml`, not the root.
+
+CI lives in omni at `.github/workflows/gp-ai.yml`. It always runs and gates internally on a change-detection job, so a commit that doesn't touch this subtree costs one short job. Deploys are Terraform applies driven from that workflow (dev, on merge to `main`) and from `promote.yml` (prod, after the commit goes green on dev). See `docs/deployment.md`.
 
 ## Pointer table — when in doubt
 
@@ -33,7 +35,6 @@ CI workflows are mostly `build-*.yml` Docker→ECR builds per workspace member, 
 | First-time setup              | `docs/getting-started.md`                                                                         |
 | Working on a specific member  | that member's `README.md` (e.g. `broker/README.md`, `pmf_engine/README.md`)                       |
 | Cross-member shared code      | `shared/` (note: this is a workspace member, not just a directory — has its own `pyproject.toml`) |
-| AI rule-by-rule code review   | `ai-rules/` (git submodule)                                                                       |
 | Why a thing is the way it is  | `docs/adr/` (not yet seeded)                                                                      |
 
 ## Code style
@@ -48,7 +49,7 @@ CI workflows are mostly `build-*.yml` Docker→ECR builds per workspace member, 
 ## Workspace shape
 
 ```
-gp-ai-projects/                  # uv workspace root
+packages/gp-ai/                  # uv workspace root
 ├── pyproject.toml               # workspace root (members listed under [tool.uv.workspace])
 ├── uv.lock                      # the one lockfile
 ├── .python-version              # 3.13
@@ -56,8 +57,6 @@ gp-ai-projects/                  # uv workspace root
 ├── mypy.ini / mypy-strict.ini   # gradual mypy; strict-only for serve.v1_pipeline + shared
 ├── Makefile                     # check / lint / format / type-check / test / hooks
 ├── .pre-commit-config.yaml      # ruff + ruff-format + mypy (scoped) + hygiene
-├── ai-rules/                    # submodule
-├── tests/                       # repo-root cross-member tests (currently: ai_generated_campaign_plan)
 │
 ├── shared/                      # WORKSPACE MEMBER — cross-cutting clients & utilities
 ├── serve/v1_pipeline/           # WORKSPACE MEMBER — pipeline service (FastAPI / SQS-driven)
@@ -88,13 +87,13 @@ gp-ai-projects/                  # uv workspace root
 - Top-level `conftest.py` autouse-disables Braintrust telemetry — every test runs with `BRAINTRUST_API_KEY=""` so no test pollutes a live Braintrust project.
 - Single test: `uv run pytest <path>::TestClass::test_case -v`.
 - Per-member: each workspace member has its own `tests/` and runs them with `cd <member> && uv run pytest tests/`.
-- Repo-root suite: `tests/` currently only covers `ai_generated_campaign_plan/`.
+- **There is no repo-root `tests/` directory.** Find the real suites with `git ls-files '*test_*.py' | xargs -n1 dirname | sort -u`. The set CI runs is: `broker/tests`, `pmf_engine/tests`, `shared/tests`, `serve/v1_pipeline/tests`, `clickup_bot/tests`, `engineer_agent/tests`, `campaign_plan_lambda/tests`.
+- `addopts = "--import-mode=importlib"` in `pyproject.toml` is load-bearing: `clickup_bot/tests/test_handler.py` and `campaign_plan_lambda/tests/test_handler.py` share a basename and their `tests/` dirs are not packages, so the default `prepend` mode aborts collection with "import file mismatch". (pytest has no `import-mode` ini key — it must go through `addopts`.)
 
 ## Never
 
-- Never bump a workspace member's deps without running `uv sync` and committing the updated `uv.lock`. The lockfile is the source of truth across all members.
+- Never bump a workspace member's deps without running `uv sync --all-packages` and committing the updated `uv.lock`. The lockfile is the source of truth across all members.
 - Never disable the autouse `disable_braintrust` fixture in `conftest.py` — tests would then authenticate against the live Braintrust project. If you need real Braintrust calls in a test, set the env explicitly inside that test only.
-- Never edit a file under `ai-rules/` directly — it's a submodule. Changes belong in the upstream `thegoodparty/ai-rules` repo. Bump the pin afterward and stage `ai-rules` in the parent.
 - Never copy code from `shared/` into a member by hand. If it's worth using, import it (`shared/` is a workspace member; just declare the dep). Forks rot.
 - Never silence mypy with a blanket `# type: ignore` in `serve/v1_pipeline/` or `shared/` — those are strict-mode. Narrow the ignore (`# type: ignore[<error-code>]`) and add a comment explaining why.
 - Never remove a workspace member from `[tool.uv.workspace] members` without removing or migrating its code in the same change.
@@ -105,4 +104,4 @@ gp-ai-projects/                  # uv workspace root
 - **Package manager: `uv`** (`uv sync` / `uv add` / `uv run`). The `.venv/` lives at the repo root; **don't make per-member venvs**.
 - **Required env vars:** see `.env.example`. Real `.env` is gitignored — local-only.
 - **AWS / Lambda:** Deployment is via Terraform under `infrastructure/`, plus the per-member Docker→ECR build workflows in `.github/workflows/build-*.yml`. Secrets come from AWS Secrets Manager (e.g., `AI_SECRETS_<ENV>`); never check creds in.
-- The `ai-rules/` submodule isn't auto-initialized (no `package.json` postinstall available). After cloning, run `make submodule-init` or `git submodule update --init --recursive`.
+- `ai-rules/` lives at the omni repo root, not here; omni's `npm install` initializes it.
