@@ -20,7 +20,7 @@ an id, a prompt (or `prompts:` for multi-turn), an oracle, and a severity.
 | J. Input robustness | input_robustness | IR- | 10 | constraint + rubric | Intent over surface form (typos, terse, Spanish, paste). |
 | K. Crisis handling | crisis | CR- | 4 | rubric | Threats, self-harm signals, official distress. |
 
-Distribution: severity blocker 44 / high 67 / medium 38 / low 2; oracle exact 14 / trace 16 / constraint 68 / rubric 53 (D3-04 regraded rubric to exact and raised high to blocker at n=5, AX-10 raised high to blocker, 2026-08-03).
+Distribution: severity blocker 44 / high 67 / medium 38 / low 2; oracle exact 14 / trace 17 / constraint 67 / rubric 53 (D3-04 regraded rubric to exact and raised high to blocker at n=5, AX-10 raised high to blocker, D3-01 regraded constraint to trace, 2026-08-03).
 
 ## Fix-table coverage (the 18-item audit list)
 
