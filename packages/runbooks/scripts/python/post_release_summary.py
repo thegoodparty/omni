@@ -93,6 +93,10 @@ def ai_summary(prs: list[dict], ticket_titles: dict[str, str | None]) -> str | N
         resp = Anthropic().messages.create(
             model="claude-opus-5",
             max_tokens=1024,
+            # Disable thinking: this is a plain summarization, and on opus-5
+            # adaptive thinking is on by default and counts toward max_tokens,
+            # which would starve the actual summary text.
+            thinking={"type": "disabled"},
             messages=[{"role": "user", "content": prompt}],
         )
         return "".join(b.text for b in resp.content if b.type == "text").strip() or None

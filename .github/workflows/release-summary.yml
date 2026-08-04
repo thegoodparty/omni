@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read # gh pr list; specifying any scope drops the rest to none
 
 concurrency:
   group: release-summary
