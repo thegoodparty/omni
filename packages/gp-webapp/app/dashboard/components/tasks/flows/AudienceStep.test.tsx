@@ -127,6 +127,21 @@ describe('AudienceStep voter-count race', () => {
 })
 
 describe('AudienceStep saved-list selector', () => {
+  // ENG-10799: text now fetches its own reachability leaf (sms), same as the
+  // other three saved-list flows, instead of leaving count at 0 — so every
+  // test that selects a saved list needs a real list-detail response.
+  const mockTextListDetail = (sms: number) => ({
+    demographics: { people: sms + 5000, avgAge: null, avgIncome: null },
+    reachability: {
+      sms,
+      robocall: 0,
+      phoneBanking: 0,
+      doorKnocking: 0,
+      polls: sms,
+    },
+    outreachHistory: [],
+  })
+
   beforeEach(() => {
     mockCountVoterFile.mockReset()
     mockClientRequest.mockReset()
@@ -139,7 +154,12 @@ describe('AudienceStep saved-list selector', () => {
       audienceSuperVoters: true,
       hasCellPhone: true,
     }
-    mockClientRequest.mockResolvedValue({ data: [savedList] })
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({ data: mockTextListDetail(500) })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
 
     const onCreateVoterFileFilter = vi.fn().mockResolvedValue({ id: 999 })
     const onCreatePhoneList = vi.fn().mockResolvedValue('phone-token')
@@ -175,6 +195,7 @@ describe('AudienceStep saved-list selector', () => {
     await waitFor(() =>
       expect(screen.getByText(/Using your saved list/)).toBeInTheDocument(),
     )
+    await waitFor(() => expect(screen.getByText('500')).toBeInTheDocument())
 
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
 
@@ -231,11 +252,16 @@ describe('AudienceStep saved-list selector', () => {
   })
 
   it('applies preselectedListId once the matching saved list loads', async () => {
-    mockClientRequest.mockResolvedValue({
-      data: [
-        { id: 42, name: 'My Super Voters' },
-        { id: 43, name: 'Other List' },
-      ],
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({ data: mockTextListDetail(500) })
+      }
+      return Promise.resolve({
+        data: [
+          { id: 42, name: 'My Super Voters' },
+          { id: 43, name: 'Other List' },
+        ],
+      })
     })
 
     render(
@@ -259,7 +285,12 @@ describe('AudienceStep saved-list selector', () => {
 
   it('proceeding with the preselected list produces the manual-selection payload, attributed to the deep link', async () => {
     const savedList = { id: 42, name: 'My Super Voters', hasCellPhone: true }
-    mockClientRequest.mockResolvedValue({ data: [savedList] })
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({ data: mockTextListDetail(500) })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
 
     const onCreateVoterFileFilter = vi.fn().mockResolvedValue({ id: 999 })
     const onCreatePhoneList = vi.fn().mockResolvedValue('phone-token')
@@ -280,6 +311,7 @@ describe('AudienceStep saved-list selector', () => {
     )
 
     await screen.findByText(/Using your saved list/)
+    await waitFor(() => expect(screen.getByText('500')).toBeInTheDocument())
 
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
 
@@ -301,8 +333,11 @@ describe('AudienceStep saved-list selector', () => {
   })
 
   it('reports customFilters after switching from the deep-linked list back to build-new (ENG-10767)', async () => {
-    mockClientRequest.mockResolvedValue({
-      data: [{ id: 42, name: 'My Super Voters' }],
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({ data: mockTextListDetail(500) })
+      }
+      return Promise.resolve({ data: [{ id: 42, name: 'My Super Voters' }] })
     })
     mockCountVoterFile.mockResolvedValue(150)
 
@@ -378,11 +413,16 @@ describe('AudienceStep saved-list selector', () => {
   })
 
   it('lets the user switch away from the preselected list without snapping back', async () => {
-    mockClientRequest.mockResolvedValue({
-      data: [
-        { id: 42, name: 'My Super Voters' },
-        { id: 43, name: 'Other List' },
-      ],
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({ data: mockTextListDetail(500) })
+      }
+      return Promise.resolve({
+        data: [
+          { id: 42, name: 'My Super Voters' },
+          { id: 43, name: 'Other List' },
+        ],
+      })
     })
 
     render(
@@ -419,11 +459,16 @@ describe('AudienceStep saved-list selector', () => {
   })
 
   it('applies a changed preselectedListId that arrives while mounted (e.g. a caller updating the id it threads down)', async () => {
-    mockClientRequest.mockResolvedValue({
-      data: [
-        { id: 42, name: 'My Super Voters' },
-        { id: 99, name: 'A Different List' },
-      ],
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({ data: mockTextListDetail(500) })
+      }
+      return Promise.resolve({
+        data: [
+          { id: 42, name: 'My Super Voters' },
+          { id: 99, name: 'A Different List' },
+        ],
+      })
     })
 
     const { rerender } = render(
@@ -485,14 +530,19 @@ describe('AudienceStep saved-list selector', () => {
   })
 
   it('a locked list (firstUsedForOutreachAt set) is still pre-selectable', async () => {
-    mockClientRequest.mockResolvedValue({
-      data: [
-        {
-          id: 42,
-          name: 'Locked List',
-          firstUsedForOutreachAt: '2026-01-01T00:00:00.000Z',
-        },
-      ],
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({ data: mockTextListDetail(500) })
+      }
+      return Promise.resolve({
+        data: [
+          {
+            id: 42,
+            name: 'Locked List',
+            firstUsedForOutreachAt: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+      })
     })
 
     render(
@@ -549,17 +599,95 @@ describe('AudienceStep saved-list selector', () => {
       }),
     ).not.toBeInTheDocument()
   })
+
+  // ENG-10799: text reads reachability.sms, distinct from the other
+  // channels' leaves and from the raw list size, so a copy-paste of the
+  // wrong reachability key would fail this test.
+  it('uses the sms-eligible count for a selected saved list', async () => {
+    const savedList = { id: 42, name: 'My Super Voters' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({
+          data: {
+            demographics: { people: 9000, avgAge: null, avgIncome: null },
+            reachability: {
+              sms: 3200,
+              robocall: 1607,
+              phoneBanking: 500,
+              doorKnocking: 10,
+              polls: 3200,
+            },
+            outreachHistory: [],
+          },
+        })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    const onChangeCallback = vi.fn()
+
+    render(
+      <AudienceStep
+        type="text"
+        audience={{}}
+        onChangeCallback={onChangeCallback}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+    await waitFor(() => expect(screen.getByText('3,200')).toBeInTheDocument())
+    expect(onChangeCallback).toHaveBeenCalledWith('voterCount', 3200)
+  })
+
+  it('blocks Next when a selected saved list has zero sms-eligible members', async () => {
+    const savedList = { id: 42, name: 'My Super Voters' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({ data: mockTextListDetail(0) })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    const nextCallback = vi.fn()
+
+    render(
+      <AudienceStep
+        type="text"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={nextCallback}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+    await waitFor(() => expect(screen.getByText('0')).toBeInTheDocument())
+
+    const nextButton = screen.getByRole('button', { name: 'Next' })
+    expect(nextButton).toBeDisabled()
+
+    fireEvent.click(nextButton)
+    expect(nextCallback).not.toHaveBeenCalled()
+  })
 })
 
 // ENG-10764: robocall gets the same saved-list selector as text, but its
 // audience step must also keep the cost preview populated when a list is
 // selected (the checkbox-based live count doesn't apply to saved lists).
 describe('AudienceStep robocall saved-list selector', () => {
+  // ENG-10799: `people` is the channel-eligible (landline) count, not the
+  // raw list size — demographics.people is deliberately larger so a
+  // regression back to reading it (instead of reachability.robocall) fails
+  // these tests immediately.
   const mockListDetail = (people: number) => ({
-    demographics: { people, avgAge: null, avgIncome: null },
+    demographics: { people: people + 5000, avgAge: null, avgIncome: null },
     reachability: {
       sms: 0,
-      robocall: 0,
+      robocall: people,
       phoneBanking: 0,
       doorKnocking: 0,
       polls: 0,
@@ -700,6 +828,66 @@ describe('AudienceStep robocall saved-list selector', () => {
     expect(nextCallback).not.toHaveBeenCalled()
   })
 
+  // ENG-10806: a null reachability leaf means that channel's aggregate
+  // failed server-side, not that the list is empty — must get the same
+  // error treatment as a rejected list-detail fetch, not a $0.00 estimate.
+  // Distinct from the full-fetch-rejection case above: here the fetch
+  // itself resolves, only the active channel's own aggregates call failed.
+  it('surfaces an error and blocks Next when the saved list has a null robocall reachability leaf', async () => {
+    const savedList = { id: 42, name: 'My Super Voters' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({
+          data: {
+            demographics: { people: 5000, avgAge: null, avgIncome: null },
+            reachability: {
+              sms: 0,
+              robocall: null,
+              phoneBanking: 0,
+              doorKnocking: 0,
+              polls: 0,
+            },
+            outreachHistory: [],
+          },
+        })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    const onChangeCallback = vi.fn()
+    const nextCallback = vi.fn()
+
+    render(
+      <AudienceStep
+        type="robocall"
+        audience={{}}
+        onChangeCallback={onChangeCallback}
+        nextCallback={nextCallback}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+
+    await waitFor(() =>
+      expect(screen.getByText('Voter data unavailable')).toBeInTheDocument(),
+    )
+    // Never a silent $0.00 estimate — the null leaf reports the same
+    // voterCount: 0 as every other error path, never the raw list size and
+    // never left unset.
+    expect(onChangeCallback).toHaveBeenCalledWith('voterCount', 0)
+    // No breakdown line either — there's no eligible count to pair with
+    // the list size.
+    expect(screen.queryByText(/people in this list/)).not.toBeInTheDocument()
+
+    const nextButton = screen.getByRole('button', { name: 'Next' })
+    expect(nextButton).toBeDisabled()
+
+    fireEvent.click(nextButton)
+    expect(nextCallback).not.toHaveBeenCalled()
+  })
+
   it('blocks Next when the selected saved list has zero members', async () => {
     const savedList = { id: 42, name: 'My Super Voters' }
     mockClientRequest.mockImplementation((route: string) => {
@@ -732,15 +920,25 @@ describe('AudienceStep robocall saved-list selector', () => {
     expect(nextCallback).not.toHaveBeenCalled()
   })
 
-  it('keeps Next enabled for a text saved list, whose branch leaves the internal count at zero', async () => {
-    const savedList = { id: 42, name: 'My Super Voters' }
-    mockClientRequest.mockResolvedValue({ data: [savedList] })
+  // ENG-10799: the epic's headline billing bug — a saved list of 7,032
+  // voters with only 1,607 landline holders must price and report as a
+  // 1,607-contact robocall, not a 7,032-contact one.
+  it('prices a saved list from the landline-eligible count, not the raw list size', async () => {
+    const savedList = { id: 42, name: 'Big Robocall List' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({ data: mockListDetail(1607) })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    const onChangeCallback = vi.fn()
 
     render(
       <AudienceStep
-        type="text"
+        type="robocall"
         audience={{}}
-        onChangeCallback={vi.fn()}
+        onChangeCallback={onChangeCallback}
         nextCallback={vi.fn()}
         backCallback={vi.fn()}
         preselectedListId={42}
@@ -748,8 +946,11 @@ describe('AudienceStep robocall saved-list selector', () => {
     )
 
     await screen.findByText(/Using your saved list/)
-
-    expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled()
+    await waitFor(() => expect(screen.getByText('1,607')).toBeInTheDocument())
+    // 1,607 landline-eligible voters * $0.04/call (CALL_PRICE) = $64.28 —
+    // pricing off the raw 6,607-member list would show $264.28 instead.
+    expect(screen.getByText('$64.28')).toBeInTheDocument()
+    expect(onChangeCallback).toHaveBeenCalledWith('voterCount', 1607)
   })
 
   it('shows the voicemail-adjusted cost for a selected saved list', async () => {
@@ -840,12 +1041,15 @@ describe('AudienceStep robocall saved-list selector', () => {
 // (real count fetch, zero-member Next guard) but has no cost preview and no
 // phone list — and its download step needs to know a saved list was picked.
 describe('AudienceStep phone banking saved-list selector', () => {
+  // ENG-10799: `people` is the channel-eligible count, not the raw list
+  // size — demographics.people is deliberately larger so a regression back
+  // to reading it (instead of reachability.phoneBanking) fails immediately.
   const mockListDetail = (people: number) => ({
-    demographics: { people, avgAge: null, avgIncome: null },
+    demographics: { people: people + 5000, avgAge: null, avgIncome: null },
     reachability: {
       sms: 0,
       robocall: 0,
-      phoneBanking: 0,
+      phoneBanking: people,
       doorKnocking: 0,
       polls: 0,
     },
@@ -1091,15 +1295,17 @@ describe('AudienceStep phone banking saved-list selector', () => {
 // guard, no cost preview, no phone list) — and its download step needs to
 // know a saved list was picked so it can hit the segment export.
 describe('AudienceStep door knocking saved-list selector', () => {
+  // ENG-10799: `people` is the channel-eligible count, not the raw list
+  // size — demographics.people is deliberately larger so a regression back
+  // to reading it (instead of reachability.doorKnocking) fails immediately.
   const mockListDetail = (people: number) => ({
-    demographics: { people, avgAge: null, avgIncome: null },
+    demographics: { people: people + 5000, avgAge: null, avgIncome: null },
     reachability: {
       sms: 0,
       robocall: 0,
       phoneBanking: 0,
-      doorKnocking: 0,
-      email: null,
-      metaAds: null,
+      doorKnocking: people,
+      polls: 0,
     },
     outreachHistory: [],
   })
@@ -1336,5 +1542,220 @@ describe('AudienceStep door knocking saved-list selector', () => {
     expect(await screen.findByText(/Using your saved list/)).toBeInTheDocument()
     expect(screen.getAllByText('My Super Voters')).toHaveLength(2)
     expect(await screen.findByText('200')).toBeInTheDocument()
+  })
+})
+
+// ENG-10808: a saved list's raw membership can outnumber who a channel can
+// actually reach (e.g. a 7,032-voter list with only 1,607 landline
+// holders) — a user quoted the smaller number needs to see why. Robocall is
+// used for most cases here since its mock already sets demographics.people
+// well above reachability.robocall; the breakdown must read both numbers
+// off that same list-detail response, never a second fetch.
+describe('AudienceStep list-size vs eligible-count breakdown', () => {
+  beforeEach(() => {
+    mockCountVoterFile.mockReset()
+    mockClientRequest.mockReset()
+  })
+
+  it('shows the list size and the channel-eligible count when they differ', async () => {
+    const savedList = { id: 42, name: 'Big Robocall List' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({
+          data: {
+            demographics: { people: 7032, avgAge: null, avgIncome: null },
+            reachability: {
+              sms: 0,
+              robocall: 1607,
+              phoneBanking: 0,
+              doorKnocking: 0,
+              polls: 0,
+            },
+            outreachHistory: [],
+          },
+        })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    render(
+      <AudienceStep
+        type="robocall"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+    expect(
+      await screen.findByText(/7,032 people in this list/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/1,607 reachable by robocall/)).toBeInTheDocument()
+  })
+
+  it('collapses to a single number when the list size equals the eligible count', async () => {
+    const savedList = { id: 42, name: 'Fully Reachable List' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({
+          data: {
+            demographics: { people: 500, avgAge: null, avgIncome: null },
+            reachability: {
+              sms: 0,
+              robocall: 500,
+              phoneBanking: 0,
+              doorKnocking: 0,
+              polls: 0,
+            },
+            outreachHistory: [],
+          },
+        })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    render(
+      <AudienceStep
+        type="robocall"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+    await waitFor(() => expect(screen.getByText('500')).toBeInTheDocument())
+    expect(screen.queryByText(/people in this list/)).not.toBeInTheDocument()
+  })
+
+  it('shows the reachable-by-text breakdown for the text flow', async () => {
+    const savedList = { id: 42, name: 'Big Texting List' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({
+          data: {
+            demographics: { people: 9000, avgAge: null, avgIncome: null },
+            reachability: {
+              sms: 3200,
+              robocall: 0,
+              phoneBanking: 0,
+              doorKnocking: 0,
+              polls: 3200,
+            },
+            outreachHistory: [],
+          },
+        })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    render(
+      <AudienceStep
+        type="text"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+    expect(
+      await screen.findByText(/9,000 people in this list/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/3,200 reachable by text/)).toBeInTheDocument()
+  })
+
+  // Delegate finding: robocall and text were the only two channels covered
+  // here, but phoneBanking and doorKnocking hit the same
+  // REACHABILITY_CHANNELS.find(...)?.label.toLowerCase() lookup — an
+  // undefined match (key typo/rename) would silently render "reachable by "
+  // with no label and no error. Pins the exact label text per channel.
+  it('shows the reachable-by-phone-banking breakdown for the phone banking flow', async () => {
+    const savedList = { id: 42, name: 'Big Phone Banking List' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({
+          data: {
+            demographics: { people: 4000, avgAge: null, avgIncome: null },
+            reachability: {
+              sms: 0,
+              robocall: 0,
+              phoneBanking: 2500,
+              doorKnocking: 0,
+              polls: 0,
+            },
+            outreachHistory: [],
+          },
+        })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    render(
+      <AudienceStep
+        type="phoneBanking"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+    expect(
+      await screen.findByText(/4,000 people in this list/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/2,500 reachable by phone banking/),
+    ).toBeInTheDocument()
+  })
+
+  it('shows the reachable-by-door-knocking breakdown for the door knocking flow', async () => {
+    const savedList = { id: 42, name: 'Big Door Knocking List' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({
+          data: {
+            demographics: { people: 3000, avgAge: null, avgIncome: null },
+            reachability: {
+              sms: 0,
+              robocall: 0,
+              phoneBanking: 0,
+              doorKnocking: 1800,
+              polls: 0,
+            },
+            outreachHistory: [],
+          },
+        })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    render(
+      <AudienceStep
+        type="doorKnocking"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+    expect(
+      await screen.findByText(/3,000 people in this list/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/1,800 reachable by door knocking/),
+    ).toBeInTheDocument()
   })
 })

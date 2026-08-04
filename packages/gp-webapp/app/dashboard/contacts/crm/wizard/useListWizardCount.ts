@@ -57,7 +57,7 @@ export const useListWizardCount = (
     queryKey: ['list-wizard-count', orgSlug, debouncedPayload],
     queryFn: () =>
       clientRequest('POST /v1/contacts/count', debouncedPayload).then(
-        (res) => res.data.count,
+        (res) => res.data,
       ),
     enabled,
     // The count is an at-a-glance affordance while building; a window-focus
@@ -76,7 +76,7 @@ export const useListWizardCount = (
     countQuery.error instanceof FetchError && countQuery.error.status === 400
 
   return {
-    count: countQuery.data,
+    count: countQuery.data?.count,
     isLoading: countQuery.isPending || countQuery.isFetching,
     isStale: isDebouncing,
     isError: countQuery.isError,

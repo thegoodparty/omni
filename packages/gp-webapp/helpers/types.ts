@@ -242,7 +242,7 @@ export interface VoterFileFilters {
   partyIndependent?: boolean
   partyDemocrat?: boolean
   partyRepublican?: boolean
-  partyUnknown?: boolean
+  partyOther?: boolean
   age18_25?: boolean
   age25_35?: boolean
   age35_50?: boolean

@@ -96,7 +96,7 @@ export const ONBOARDING_STEPS: NonEmptyArray<OnboardingStepConfig> = [
     id: 'campaign-story-why',
     title: 'Why are you running?',
     description:
-      "We'll use this to draft your voter outreach and personalize your campaign plan.",
+      'Help us understand what inspired you to run for public office.',
     whyThisMatters: STORY_WHY_WE_ASK,
     isValid: () => true,
   },
@@ -104,17 +104,18 @@ export const ONBOARDING_STEPS: NonEmptyArray<OnboardingStepConfig> = [
     id: 'campaign-story-background',
     title: "What's your background?",
     description:
-      'A bit about who you are and what shaped you — we weave it into your outreach.',
-    whyThisMatters: STORY_WHY_WE_ASK,
+      'Tell us a bit about who you are, and your relationship to your community.',
+    whyThisMatters:
+      'The more we can learn about your background, the better we can craft your outreach using your voice, tone, and experience in your community.',
     isValid: () => true,
   },
   {
     id: 'campaign-story-issues',
     title: 'What issues do you most want to solve if elected?',
     description:
-      'Add each policy priority as its own entry — a short title and the story behind it.',
+      "Add each policy priority as it's own entry. Include a short title and description.",
     whyThisMatters:
-      'We use each priority to draft targeted outreach and shape your campaign plan. Add as many as matter to you — you can always edit or remove them later.',
+      'We use each priority to draft targeted outreach and shape your campaign plan. Add as many as matter to you. You can always edit or remove them later.',
     isValid: () => true,
   },
   {

@@ -44,6 +44,11 @@ export const NEXT_PUBLIC_GOOGLE_MAPS_KEY =
   process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY ||
   'AIzaSyDMcCbNUtBDnVRnoLClNHQ8hVDILY52ez8'
 
+// Domain-restricted tiles-only key (separate from gp-api's server-side
+// routing key — never expose that one).
+export const NEXT_PUBLIC_GEOAPIFY_TILES_KEY =
+  process.env.NEXT_PUBLIC_GEOAPIFY_TILES_KEY || ''
+
 export const NEXT_PUBLIC_CANDIDATES_SITE_BASE =
   process.env.NEXT_PUBLIC_CANDIDATES_SITE_BASE ||
   (IS_LOCAL ? 'http://localhost:4001' : 'https://candidates.goodparty.org')

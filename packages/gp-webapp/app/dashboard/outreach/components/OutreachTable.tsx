@@ -180,13 +180,6 @@ export const OutreachTable = ({
     )
   }
 
-  const formatVoterCount = (
-    count: number | null | undefined,
-  ): string | null => {
-    if (count == null) return null
-    return Number(count).toLocaleString()
-  }
-
   const columns = useMemo(
     () => [
       {
@@ -235,11 +228,17 @@ export const OutreachTable = ({
       },
       {
         header: 'Voters',
+        // Voters reached = total texts sent (textCount). billableTextCount is
+        // the billing unit after the free-texts discount — it can be 0 while
+        // the real reach is thousands — so it's only a fallback. Robocall and
+        // other channels carry no send count, so they render n/a.
         cell: ({ row }: { row: OutreachRow }) => {
-          const formattedCount = formatVoterCount(
-            row.voterFileFilter?.voterCount,
+          const sent = row.textCount ?? row.billableTextCount
+          return typeof sent === 'number' ? (
+            sent.toLocaleString()
+          ) : (
+            <NotApplicableLabel />
           )
-          return formattedCount ? formattedCount : <NotApplicableLabel />
         },
       },
       ...(p2pUxEnabled ? [STATUS_COLUMN] : []),

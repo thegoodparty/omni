@@ -80,12 +80,12 @@ export const buildCrudSavedFiltersTool = (deps: {
     'saves a new list from the same filter shape count_contacts uses ' +
     '(requires name, max 40 characters; compose filter fields from ' +
     "describe_filter_dimensions) and returns { id, name, count }; 'update' " +
-    "edits a list by id; 'delete' removes a list by id. A list already " +
-    'used for outreach is locked: update and delete return an error ' +
-    'explaining it must be duplicated to change it. Returns ids, names, ' +
-    'and counts only, never individual records, and returns a structured ' +
-    'error when the organization cannot manage lists (e.g. a Win campaign ' +
-    'without Pro).',
+    'edits a list by id; ' +
+    "'delete' removes a list by id. A list already used for outreach is " +
+    'locked: update and delete return an error explaining it must be ' +
+    'duplicated to change it. Returns ids, names, and counts only, never ' +
+    'individual records, and returns a structured error when the ' +
+    'organization cannot manage lists (e.g. a Win campaign without Pro).',
   inputSchema: crudSavedFiltersInputSchema,
   execute: async (input): Promise<CrudSavedFiltersOutput> => {
     const { voterFileFilters, contacts, organization } = deps
@@ -103,13 +103,11 @@ export const buildCrudSavedFiltersTool = (deps: {
         // Count before creating so a filter the org cannot count (non-Pro,
         // Serve party rejection, people-api outage) never leaves an orphan
         // list behind; the count is the same live number the route path
-        // computes, and voterCount: 0 matches what the wizard persists (the
-        // lists index reads live counts, not this column).
-        const count = await contacts.countContacts(filter, organization)
+        // computes (the lists index always reads live counts).
+        const { count } = await contacts.countContacts(filter, organization)
         const created = await voterFileFilters.create(organization.slug, {
           ...filter,
           name,
-          voterCount: 0,
         })
         return { id: created.id, name: created.name, count }
       }

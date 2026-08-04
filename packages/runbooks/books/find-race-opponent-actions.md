@@ -14,7 +14,7 @@ This is the source runbook for the future `experiments/race_opponent_actions/` P
 - `district` — `{ state, l2DistrictType, l2DistrictName }`, the shape gp-api's `DistrictResolverService.resolveByOrgSlug` returns (e.g. `{ "state": "NC", "l2DistrictType": "City", "l2DistrictName": "HENDERSONVILLE CITY" }`). May be `null` when the org has no resolvable position; that triggers the degrade path.
 - `race_context` — `{ office_name?, state?, city?, election_date? }`, phrasing context only.
 
-**Output**: `{ generated_at, cards: [...] }` with up to 5 cards. Each card: `{ rank, opponent_name, issue, title, body, sms_message, haystaq }` where `haystaq` is `{ hs_column, total_active, voter_count_ge50, voter_percentage_ge50, voter_count_ge70, voter_percentage_ge70 }` or `null` when the card has no usable sentiment data. The proven shape is under "Validated sample output" below; it becomes the `output_schema` for the follow-up experiment ticket.
+**Output**: `{ generated_at, cards: [...] }` with up to 5 cards. Each card: `{ rank, opponent_name, issue, title, body, sms_message, haystaq }` where `haystaq` is `{ hs_column, position_phrase, position_dir, total_active, voter_count_ge50, voter_percentage_ge50, voter_count_ge70, voter_percentage_ge70 }` (`position_phrase` is a short phrase for the candidate's pole of the issue axis, `position_dir` is `high`/`low` for whether the candidate aligns with high scorers on `hs_column`) or `null` when the card has no usable sentiment data. The proven shape is under "Validated sample output" below; it becomes the `output_schema` for the follow-up experiment ticket.
 
 ## Card constraints (these become the experiment's copy rules)
 

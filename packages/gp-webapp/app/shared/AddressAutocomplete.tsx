@@ -12,6 +12,7 @@ interface GooglePlace {
   geometry?: google.maps.places.PlaceGeometry
   place_id?: string
   name?: string
+  address_components?: google.maps.GeocoderAddressComponent[]
 }
 
 interface AddressAutocompleteProps extends Omit<
@@ -45,7 +46,13 @@ export default function AddressAutocomplete({
       types: ['address'],
       componentRestrictions: { country: 'us' },
       strictBounds: false,
-      fields: ['formatted_address', 'geometry', 'place_id', 'name'],
+      fields: [
+        'formatted_address',
+        'geometry',
+        'place_id',
+        'name',
+        'address_components',
+      ],
     },
     libraries: ['places'],
   })

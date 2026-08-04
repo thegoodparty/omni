@@ -1,6 +1,5 @@
 'use client'
 
-import { useUser } from '@shared/hooks/useUser'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import DashboardLayout from '../shared/DashboardLayout'
 import CampaignManager from './campaignManager/CampaignManager'
@@ -19,7 +18,6 @@ export default function DashboardContent({
   tcrCompliance,
   sunsetEligible,
 }: DashboardContentProps): React.JSX.Element {
-  const [user] = useUser()
   // trackExposure=false: this read only routes the home; the campaign-story
   // page's FeatureFlagGuard is the experiment's treatment surface. Mirrors the
   // legacy CampaignManager / DashboardMenu reads. When the flag is unresolved
@@ -34,7 +32,7 @@ export default function DashboardContent({
         wrapperClassName="!p-0"
       >
         <WebsiteSunsetModalController eligible={sunsetEligible} />
-        <CampaignManagerHome firstName={user?.firstName || undefined} />
+        <CampaignManagerHome tcrCompliance={tcrCompliance} />
       </DashboardLayout>
     )
   }

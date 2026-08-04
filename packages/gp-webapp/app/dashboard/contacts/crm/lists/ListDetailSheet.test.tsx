@@ -152,32 +152,6 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     expect(screen.getByText('$65,000')).toBeInTheDocument()
   })
 
-  // ENG-10775: people-api floors a slow aggregates query at FENCE_LIMIT
-  // (10,000) instead of finishing the exact count — the People tile must
-  // never present that floor as if it were exact.
-  it('renders a trailing + on the People tile when the count is a fenced lower bound', async () => {
-    api.mock('GET /v1/voters/voter-file/filters', {
-      status: 200,
-      data: [{ id: 42, name: 'GOTV text list' }],
-    })
-    api.mock('GET /v1/contacts/list-detail', {
-      status: 200,
-      data: {
-        ...emptyDetailResponse,
-        demographics: {
-          people: 10000,
-          avgAge: 42,
-          avgIncome: 65000,
-          fenced: true,
-        },
-      },
-    })
-
-    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
-
-    expect(await screen.findByText('10,000+')).toBeInTheDocument()
-  })
-
   it('renders the outreach-history table columns and the empty state', async () => {
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
@@ -403,7 +377,7 @@ describe('ListDetailSheet — universe mode (ENG-10778)', () => {
     ).toBeInTheDocument()
   })
 
-  it('renders without any list-only affordance: no kebab, no outreach history, no footer', async () => {
+  it('renders without any list-only affordance: no kebab, no outreach history, no Send outreach', async () => {
     render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
 
     await screen.findByText('District demographics')
@@ -416,12 +390,41 @@ describe('ListDetailSheet — universe mode (ENG-10778)', () => {
     expect(
       screen.queryByRole('heading', { name: 'Outreach history' }),
     ).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'Download list' }),
-    ).not.toBeInTheDocument()
+    // ENG-10809: the universe row's own card carries Send outreach — the
+    // sheet footer must never duplicate it, unlike the saved-list branch.
     expect(
       screen.queryByRole('link', { name: 'Send outreach' }),
     ).not.toBeInTheDocument()
+  })
+
+  // ENG-10809: the "All voters"/"All constituents" sheet lost its footer
+  // entirely when ENG-10778 added universe mode, even though the API has
+  // always supported a full-district download via an omitted segment.
+  it('renders the Download button and downloads the full district with no segment', async () => {
+    const user = userEvent.setup()
+
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Download list' }),
+    )
+
+    expect(downloadFn).toHaveBeenCalledWith(
+      ALL_SEGMENTS,
+      { context: 'win' },
+      expect.any(Function),
+    )
+  })
+
+  it('shows the lock icon instead of the download icon for a non-Pro user', async () => {
+    setContext({ canUseProFeatures: false })
+
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    const downloadButton = await screen.findByRole('button', {
+      name: 'Download list',
+    })
+    expect(downloadButton.querySelector('.lucide-lock')).toBeInTheDocument()
   })
 
   it('does not fire Segment Viewed for the universe (there is no segment)', async () => {

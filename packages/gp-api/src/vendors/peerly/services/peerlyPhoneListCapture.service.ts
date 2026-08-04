@@ -14,6 +14,8 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
     token: string
     voterFileFilterId: number | null
     recipients: { personId: string; phone: string }[]
+    excludedOptedOutCount: number
+    excludedDuplicatePhoneCount: number
   }): Promise<void> {
     const {
       organizationSlug,
@@ -21,11 +23,20 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
       token,
       voterFileFilterId,
       recipients,
+      excludedOptedOutCount,
+      excludedDuplicatePhoneCount,
     } = params
 
     await this.client.$transaction(async (tx) => {
       const phoneList = await tx.peerlyPhoneList.create({
-        data: { organizationSlug, campaignId, token, voterFileFilterId },
+        data: {
+          organizationSlug,
+          campaignId,
+          token,
+          voterFileFilterId,
+          excludedOptedOutCount,
+          excludedDuplicatePhoneCount,
+        },
       })
       await tx.peerlyPhoneListRecipient.createMany({
         data: recipients.map(({ personId, phone }) => ({
@@ -73,6 +84,14 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
     return this.client.peerlyPhoneListRecipient.findMany({
       where: { peerlyPhoneListId },
       select: { personId: true, phone: true },
+    })
+  }
+
+  // Billing fallback when Peerly's own leads_loaded can't be fetched: the
+  // captured rows are the recipients the list actually uploaded with.
+  countRecipients(peerlyPhoneListId: string): Promise<number> {
+    return this.client.peerlyPhoneListRecipient.count({
+      where: { peerlyPhoneListId },
     })
   }
 }

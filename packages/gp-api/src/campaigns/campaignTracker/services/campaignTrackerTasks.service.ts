@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { addDays, differenceInCalendarDays, format, startOfDay } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import { z } from 'zod'
 import {
   Campaign,
@@ -206,6 +207,29 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       clerkUserId,
       params,
     })
+  }
+
+  // Manual generation override for non-prod (see the controller's env gate).
+  // Dispatches a run immediately, deliberately skipping the weekly cron's
+  // CronLock daily lease and coverage dedup so it can be re-fired on demand for
+  // testing/demos. Mode mirrors the cron: `initial` when no dynamic generation
+  // exists yet, `weekly` once one does (so prior tasks feed back in).
+  async generateNow(campaign: Campaign): Promise<void> {
+    const withUser = await this.client.campaign.findUnique({
+      where: { id: campaign.id },
+      include: { user: true },
+    })
+    if (!withUser) {
+      throw new NotFoundException(`Campaign ${campaign.id} not found`)
+    }
+    const priorGeneration = await this.model.findFirst({
+      where: { campaignId: campaign.id, isDefaultTask: false },
+      select: { id: true },
+    })
+    await this.dispatchGeneration(
+      withUser,
+      priorGeneration ? 'weekly' : 'initial',
+    )
   }
 
   // First-run bootstrap, called once the campaign plan finishes generating
@@ -425,6 +449,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
         ? ":rocket: *Campaign tracker launched: first week's tasks*"
         : ':calendar: *Weekly campaign tasks generated*'
     await this.postCampaignWeekToSlack(campaign, weekStart, title)
+    await this.postOutreachScheduleOnce(campaign)
   }
 
   // One-shot on Pro upgrade: post the candidate's next week of tasks so CAS can
@@ -466,7 +491,86 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       mondayOfWeekUtc(earliest.date),
       ':tada: *Pro upgrade: your campaign tasks*',
     )
+    await this.postOutreachScheduleOnce(campaign)
     return true
+  }
+
+  // One-shot per campaign: post the full deterministic outreach schedule in
+  // the legacy "AI Campaign Plan Created" format. The ClickUp automation
+  // (Zapier, ops-owned) filters the CAS channel on exactly this message shape
+  // and parses the "(Due: MMM d, yyyy)" dates into voter-contact tasks, so
+  // tracker-cohort campaigns need it too — the Mon-Sun week posts above are
+  // ignored by the automation. Claimed via outreachSlackPostedAt before
+  // sending (generation-1 and Pro-upgrade can both reach here); the claim is
+  // released on a failed send so the next trigger retries.
+  private async postOutreachScheduleOnce(
+    campaign: CampaignWith<'user'>,
+  ): Promise<void> {
+    const outreach = await this.model.findMany({
+      where: {
+        campaignId: campaign.id,
+        isDefaultTask: true,
+        flowType: {
+          in: [CampaignTaskType.text, CampaignTaskType.robocall],
+        },
+      },
+      orderBy: { date: Prisma.SortOrder.asc },
+    })
+    if (outreach.length === 0) return
+
+    const claimed = await this.client.campaignStrategy.updateMany({
+      where: { campaignId: campaign.id, outreachSlackPostedAt: null },
+      data: { outreachSlackPostedAt: new Date() },
+    })
+    if (claimed.count === 0) return
+
+    const candidateName =
+      (campaign.user ? getUserFullName(campaign.user) : '') ||
+      campaign.data.name ||
+      'Unknown'
+    const { hubspotId } = campaign.data
+    const taskLines = outreach.map((task) => {
+      // Task dates are UTC-midnight instants; format from UTC parts so the
+      // rendered calendar date never shifts with the process timezone.
+      const due = task.date
+        ? formatInTimeZone(task.date, 'UTC', 'MMM d, yyyy')
+        : 'No date set'
+      return `- ${task.flowType!.toUpperCase()}: ${task.title} (Due: ${due})`
+    })
+    const body = [
+      ':white_check_mark: *AI Campaign Plan Created*',
+      `Candidate: ${candidateName}`,
+      `HubSpot ID: ${hubspotId ?? 'N/A'}`,
+      '',
+      `*Outreach Tasks (${outreach.length}):*`,
+      ...taskLines,
+    ].join('\n')
+
+    let sent: string | undefined
+    try {
+      sent = await this.slack.message(
+        {
+          blocks: [
+            {
+              type: SlackMessageType.SECTION,
+              text: { type: SlackMessageType.MRKDWN, text: body },
+            },
+          ],
+        },
+        SlackChannel.casClickupTasks,
+      )
+    } catch (error) {
+      this.logger.error(
+        { error, campaignId: campaign.id },
+        'outreach schedule Slack post failed',
+      )
+    }
+    if (sent === undefined) {
+      await this.client.campaignStrategy.updateMany({
+        where: { campaignId: campaign.id },
+        data: { outreachSlackPostedAt: null },
+      })
+    }
   }
 
   // Build + post one Mon-Sun week's task list for a Pro campaign to
@@ -522,10 +626,14 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       campaign.data.name ||
       'Unknown'
     const { hubspotId } = campaign.data
-    const startLabel = format(weekStart, 'MMM d')
-    const endLabel = format(addDays(weekStart, 6), 'MMM d')
+    // Week anchors and task dates are UTC-midnight instants; format from UTC
+    // parts so the rendered calendar dates never shift with the process TZ.
+    const startLabel = formatInTimeZone(weekStart, 'UTC', 'MMM d')
+    const endLabel = formatInTimeZone(addDays(weekStart, 6), 'UTC', 'MMM d')
     const taskLines = tasks.map((task) => {
-      const due = task.date ? format(task.date, 'MMM d') : 'No date set'
+      const due = task.date
+        ? formatInTimeZone(task.date, 'UTC', 'MMM d')
+        : 'No date set'
       const channel = task.flowType ? `${task.flowType.toUpperCase()}: ` : ''
       return `- ${channel}${task.title} (${due})`
     })

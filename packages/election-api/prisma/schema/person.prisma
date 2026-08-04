@@ -1,5 +1,5 @@
 // A canonical person in the civics graph — the spine behind a public
-// /people/<slug>-<personId> profile. `id` is the civics canonical
+// /people/<slug>-<id8> profile. `id` is the civics canonical
 // `gp_candidate_id` (person grain), minted by the gp-data-platform entity
 // resolution and written here by ETL (BallotReady-anchored or GoodParty-native
 // for people BallotReady doesn't know about). The application never writes this
@@ -10,10 +10,14 @@ model Person {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
   brPersonId   Int?     @map("br_person_id") // BallotReady Person databaseId; null for GP-native persons
-  // slugify(firstName-lastName); a cosmetic, human-readable prefix of the URL.
-  // NOT unique: the canonical /people/<slug>-<personId> URL disambiguates on the
-  // trailing UUID (lookups resolve by `id`), and full-name collisions are routine
-  // in US politics, so a unique slug would break ETL inserts of the second person.
+  // Human-readable base slug (`first-last`) minted by the gp-data-platform
+  // person mart. NOT unique — common names collide heavily (e.g. ~82 `jane-doe`
+  // rows). The public URL is /people/<slug>-<id8>, where <id8> is the first 8
+  // hex of `id`; the app appends it so every profile resolves to exactly one
+  // person without pushing collision-disambiguation into the data pipeline.
+  // by-slug lookup parses <id8> and does an indexed range scan on the `id` PK
+  // (see persons.service.getPersonBySlug), using this column only to
+  // disambiguate the rare case where two ids share the same 8-hex prefix.
   slug         String
 
   // Name parts (BallotReady Person)
@@ -45,9 +49,16 @@ model Person {
 
   state String?
 
+  // Whether the person has taken the GoodParty pledge. A gp-api-native flag
+  // rolled up from their candidacies by ETL (a person is pledged if pledged on
+  // any candidacy). Read-only, not PII — flows through default responses.
+  isPledged Boolean @default(false) @map("is_pledged")
+
   // Relations
   Candidacies   Candidacy[]
   OfficeHolders OfficeHolder[]
 
+  // Non-unique: the base slug collides for common names. Kept for the by-slug
+  // collision tiebreak and any name-based filtering; the unique key stays `id`.
   @@index([slug])
 }

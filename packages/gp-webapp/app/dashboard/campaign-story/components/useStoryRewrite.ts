@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
@@ -52,6 +52,16 @@ export const useStoryRewrite = (
   // Guards against overlapping rewrite calls (e.g. a double-click landing before
   // the disabled state re-renders).
   const rewritingRef = useRef(false)
+  // A rewrite request may resolve after the card unmounts (e.g. a "Start over"
+  // that remounts the cards while a rewrite is in flight). Don't apply the AI
+  // text in that case — it would write back into a just-cleared field.
+  const mountedRef = useRef(true)
+  useEffect(
+    () => () => {
+      mountedRef.current = false
+    },
+    [],
+  )
 
   const requestRewrite = async (): Promise<void> => {
     const trimmed = text.trim()
@@ -77,6 +87,7 @@ export const useStoryRewrite = (
           ...(trimmedTitle ? { title: trimmedTitle } : {}),
         },
       )
+      if (!mountedRef.current) return
       onImproved(data.rewrite)
       setCanUndo(true)
       trackEvent(EVENTS.CampaignStory.RewriteAccepted, { field })

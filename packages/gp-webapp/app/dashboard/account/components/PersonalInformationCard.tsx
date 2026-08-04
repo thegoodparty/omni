@@ -6,6 +6,7 @@ import { User } from 'helpers/types'
 
 interface PersonalInformationCardProps {
   user: User
+  title?: string
 }
 
 const FieldRow = ({
@@ -69,6 +70,7 @@ const ProviderIcon = ({ provider }: { provider?: string }): React.ReactNode => {
 
 export const PersonalInformationCard = ({
   user,
+  title = 'Personal Information',
 }: PersonalInformationCardProps): React.JSX.Element => {
   const { user: clerkUser } = useClerkUser()
   const { openUserProfile } = useClerk()
@@ -82,9 +84,7 @@ export const PersonalInformationCard = ({
   return (
     <Card className="w-full max-w-[640px] gap-4 p-6">
       <div className="flex items-center justify-between">
-        <h2 className="m-0 text-xl font-semibold text-foreground">
-          Personal Information
-        </h2>
+        <h2 className="m-0 text-xl font-semibold text-foreground">{title}</h2>
         <Button
           variant="outline"
           size="small"

@@ -1,0 +1,16 @@
+datasource peopleDb {
+  provider = "postgresql"
+  url      = env("PEOPLE_DATABASE_URL")
+  schemas  = ["green", "public"]
+}
+
+generator peopleClient {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema", "prismaSchemaFolder"]
+  binaryTargets   = ["native", "linux-musl-openssl-3.0.x"]
+  output          = "../../src/generated/people-prisma"
+}
+
+generator peopleJson {
+  provider = "prisma-json-types-generator"
+}

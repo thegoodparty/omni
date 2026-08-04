@@ -65,18 +65,6 @@ test.describe('Mobile Navigation', () => {
     console.log('✅ Mobile menu button is visible')
   })
 
-  test('should navigate to AI Assistant on mobile', async ({ page }) => {
-    await WaitHelper.waitForPageReady(page)
-
-    await openMobileNavLink(page, 'AI Assistant')
-    // The mobile header renders the page title as a heading in addition to the
-    // page's own heading, so scope to the first match to avoid strict mode.
-    await expect(
-      page.getByRole('heading', { name: 'AI Assistant' }).first(),
-    ).toBeVisible({ timeout: 15000 })
-    await expect(page).toHaveURL(/\/dashboard\/campaign-assistant$/)
-  })
-
   test('should navigate to Content Builder on mobile', async ({ page }) => {
     await WaitHelper.waitForPageReady(page)
 

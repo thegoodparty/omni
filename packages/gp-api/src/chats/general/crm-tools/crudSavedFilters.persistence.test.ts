@@ -1,11 +1,10 @@
-import { HttpService } from '@nestjs/axios'
-import { of } from 'rxjs'
 import { describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import {
   OutreachStatus,
   OutreachType,
@@ -15,12 +14,17 @@ import { buildCrudSavedFiltersTool } from './crudSavedFilters.tool'
 
 const service = useTestService()
 
-const DISTRICT_ID = 'district-crud-saved-filters-uuid'
+// districtId and the resolved activity-condition id set both now flow
+// through the real people-db Zod DTOs (ListPeopleDTO etc.), which require
+// GUID-shaped strings — unlike the legacy people-api HTTP path, which just
+// serialized these into a JSON body with no format validation.
+const DISTRICT_ID = '30000000-0000-0000-0000-000000000000'
+const PERSON_RESPONDED = '00000000-0000-0000-0000-000000000001'
 
 // The tool runs against the REAL VoterFileFilterService + ContactsService so
 // every route-side rule (Pro gate, completed-outreach validation, org
 // scoping, locked-filter conflict) is exercised, not mocked. Only the
-// people-api HTTP hop is stubbed — this suite doesn't run people-api.
+// people-db query hop is stubbed — this suite doesn't run a real people-db.
 const buildTool = (organization: Organization) =>
   buildCrudSavedFiltersTool({
     voterFileFilters: service.app.get(VoterFileFilterService),
@@ -48,11 +52,17 @@ const seedWinOrg = async (slug: string, isPro = true) => {
 }
 
 const stubPeopleApi = (totalResults: number) =>
-  vi
-    .spyOn(service.app.get(HttpService), 'post')
-    .mockReturnValue(
-      of({ data: { people: [], pagination: { totalResults } } }) as never,
-    )
+  vi.spyOn(service.app.get(VoterQueryService), 'findPeople').mockResolvedValue({
+    people: [],
+    pagination: {
+      totalResults,
+      currentPage: 1,
+      pageSize: 1,
+      totalPages: 1,
+      hasNextPage: false,
+      hasPreviousPage: false,
+    },
+  } as never)
 
 // The count path's Win eligibility check resolves the org's district +
 // ballot level through election-api, which this suite doesn't run.
@@ -86,7 +96,7 @@ describe('crud_saved_filters against the real service pipeline', () => {
     await service.prisma.contactInteractionText.create({
       data: {
         organizationSlug: organization.slug,
-        personId: 'person-responded-1',
+        personId: PERSON_RESPONDED,
         occurredAt: new Date('2026-07-01T12:00:00.000Z'),
         respondedAt: new Date('2026-07-02T12:00:00.000Z'),
         outreachId: completedText.id,

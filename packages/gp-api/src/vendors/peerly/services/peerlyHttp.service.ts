@@ -15,6 +15,19 @@ const RETRY_MAX = 3
 
 const { EXPLICITLY_LOG_PEERLY_TOKEN } = process.env
 
+/**
+ * Redacts a secret token for logging. Even when EXPLICITLY_LOG_PEERLY_TOKEN is
+ * enabled for debugging, we never emit the full token — only a short prefix
+ * plus length so the value can be correlated without leaking the secret.
+ */
+function redactToken(token: string | null): string {
+  if (!token) {
+    return '<empty>'
+  }
+  const prefix = token.slice(0, 6)
+  return `${prefix}…(redacted, len=${token.length})`
+}
+
 interface DecodedPeerlyToken {
   email: string
   username: string
@@ -161,7 +174,9 @@ export class PeerlyHttpService extends PeerlyBaseConfig {
           this.tokenExpiry = decodedToken.exp as number
           this.logger.debug(
             `Successfully renewed Peerly token${
-              EXPLICITLY_LOG_PEERLY_TOKEN === 'true' ? ` => ${this.token}` : ''
+              EXPLICITLY_LOG_PEERLY_TOKEN === 'true'
+                ? ` => ${redactToken(this.token)}`
+                : ''
             }`,
           )
         } else {
@@ -215,13 +230,18 @@ export class PeerlyHttpService extends PeerlyBaseConfig {
     data: unknown,
     config: AxiosRequestConfig,
   ) {
+    // Never emit the bearer token to logs. This path fires on every outbound
+    // request, so strip the Authorization header before logging the config.
+    const { headers, ...safeConfig } = config
+    const safeHeaders: Record<string, unknown> = { ...headers }
+    delete safeHeaders.Authorization
     this.logger.debug(
       {
         data: {
           url,
           method,
           data,
-          config,
+          config: { ...safeConfig, headers: safeHeaders },
         },
       },
       'Initializing Peerly HTTP request:',

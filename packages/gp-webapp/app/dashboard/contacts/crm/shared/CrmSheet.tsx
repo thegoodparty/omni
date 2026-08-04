@@ -17,6 +17,9 @@ interface CrmSheetProps {
   onOpenChange: (open: boolean) => void
   onBack?: () => void
   header: ReactNode
+  // Full-bleed band between the body and the footer (the footer's 608px
+  // column would otherwise constrain it) — the overlap strip renders here.
+  banner?: ReactNode
   footer?: ReactNode
   children: ReactNode
   bodyRef?: Ref<HTMLDivElement>
@@ -34,6 +37,7 @@ export default function CrmSheet({
   onOpenChange,
   onBack,
   header,
+  banner,
   footer,
   children,
   bodyRef,
@@ -65,6 +69,7 @@ export default function CrmSheet({
         <DrawerBody ref={bodyRef}>
           <div className="mx-auto w-full max-w-[560px] py-4">{children}</div>
         </DrawerBody>
+        {banner}
         {footer && (
           <DrawerFooter>
             <div className="mx-auto flex w-full max-w-[608px] flex-col gap-2">

@@ -30,6 +30,7 @@ export interface AudienceState {
   party_independent?: boolean
   party_democrat?: boolean
   party_republican?: boolean
+  party_other?: boolean
   age_18_25?: boolean
   age_25_35?: boolean
   age_35_50?: boolean
@@ -211,7 +212,7 @@ export const handleCreatePhoneList =
 export const handleCreateVoterFileFilter =
   ({
     type,
-    state: { audience, voterCount },
+    state: { audience },
     errorSnackbar = noop,
     now = new Date(),
   }: CreateVoterFileFilterParams) =>
@@ -221,7 +222,6 @@ export const handleCreateVoterFileFilter =
     const voterFileFilter = await createVoterFileFilter({
       name: buildAutoVoterFileFilterName(type, now),
       ...chosenAudiences,
-      voterCount,
     })
 
     if (!voterFileFilter) {

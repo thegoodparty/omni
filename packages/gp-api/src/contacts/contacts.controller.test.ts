@@ -136,7 +136,7 @@ describe('GET /v1/contacts authz', () => {
     })
     const countContacts = vi
       .spyOn(service.app.get(ContactsService), 'countContacts')
-      .mockResolvedValue(742)
+      .mockResolvedValue({ count: 742 })
 
     const result = await service.client.post(
       '/v1/contacts/count',

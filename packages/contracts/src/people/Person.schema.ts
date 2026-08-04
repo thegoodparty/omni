@@ -3,6 +3,7 @@ import {
   SupportStatusRollupSchema as GeneratedSupportStatusRollupSchema,
   type SupportStatusRollup as GeneratedSupportStatusRollup,
 } from '../generated/enums'
+import { VoterLikelihoodSchema } from './ContactStatus.schema'
 
 // Support-status rollup vocabulary shown on the person detail response
 // (ENG-10696). Sourced from the Prisma `SupportStatusRollup` enum (ENG-10700)
@@ -29,6 +30,21 @@ export const HOUSEHOLD_KEY_RESIDENCE_COLUMNS = [
   'Residence_Addresses_AddressLine',
   'Residence_Addresses_City',
   'Residence_Addresses_State',
+  'Residence_Addresses_Zip',
+] as const
+
+// Door knocking keys at UNIT granularity, not household: an apartment
+// building shares one AddressLine, so the household key above would sweep
+// every resident of the building into one door (and blow the serve-time
+// residents cap). These components resolve to the single knockable unit —
+// the July 14 audit's list, in display order. Same normalization recipe.
+export const DOOR_KNOCKING_UNIT_KEY_COLUMNS = [
+  'Residence_Addresses_HouseNumber',
+  'Residence_Addresses_PrefixDirection',
+  'Residence_Addresses_StreetName',
+  'Residence_Addresses_Designator',
+  'Residence_Addresses_SuffixDirection',
+  'Residence_Addresses_ApartmentNum',
   'Residence_Addresses_Zip',
 ] as const
 
@@ -111,6 +127,11 @@ export const PersonSchema = z.object({
   // boolean) so the UI can show recency later without a contract change
   // (ENG-10732).
   optedOutAt: z.string().nullable().optional(),
+  // Effective value (manual override ?? seed mapping from `voterStatus`
+  // above) — override ownership lives in gp-api's ContactStatusService
+  // (ENG-10833). Detail-only, like supportStatus/optedOutAt; omitted for
+  // `eo-` (Serve) orgs, which don't get this status at all.
+  voterLikelihood: VoterLikelihoodSchema.optional(),
 })
 
 export type Person = z.infer<typeof PersonSchema>

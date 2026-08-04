@@ -46,6 +46,12 @@ model CampaignStrategy {
   // so concurrent completions can't double-dispatch.
   trackerBootstrapped Boolean @default(false) @map("tracker_bootstrapped")
 
+  // One-shot claim for the CAS outreach-schedule Slack post (the message the
+  // ClickUp automation turns into voter-contact tasks). Claimed before posting
+  // so the generation-1 and Pro-upgrade triggers can't both post; released on
+  // a failed send so a later trigger retries.
+  outreachSlackPostedAt DateTime? @map("outreach_slack_posted_at")
+
   opportunities CampaignStrategyOpportunity[]
   challenges    CampaignStrategyChallenge[]
   opponents     CampaignStrategyOpponent[]

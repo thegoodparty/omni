@@ -5,15 +5,14 @@ import {
   Organization,
   SupportAnswer,
 } from '@/generated/prisma'
-import { HttpService } from '@nestjs/axios'
-import { of } from 'rxjs'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactsService } from './contacts.service'
 
 const service = useTestService()
 
 // Real Postgres + the real SupportStatusService derivation, through the real
-// ContactsService.findPerson wiring — only the people-api HTTP call is
+// ContactsService.findPerson wiring — only the people-db service call is
 // mocked (external boundary). Mirrors the existing SQL-derivation coverage in
 // contactInteraction/tests/supportStatus.service.test.ts, but proves the
 // detail endpoint actually attaches the rollup and strips party for `eo-`
@@ -21,23 +20,22 @@ const service = useTestService()
 describe('ContactsService.findPerson — supportStatus + party (ENG-10696)', () => {
   let contactsService: ContactsService
   let doorKnocks: ContactInteractionDoorKnockService
-  let httpService: HttpService
+  let voterQueryService: VoterQueryService
   let eoOrg: Organization
 
   const EO_SLUG = 'eo-person-detail'
   const PERSON_ID = 'person-detail-1'
-  const DISTRICT_ID = 'district-person-detail-uuid'
+  // The ported people-db services run their DTOs through Zod, whose
+  // districtId field is z.guid() — unlike the retired httpService path, a
+  // non-UUID placeholder fails validation here.
+  const DISTRICT_ID = '44444444-4444-4444-4444-444444444444'
 
   const mockPersonFetch = () => {
-    vi.spyOn(httpService, 'get').mockReturnValue(
-      of({
-        data: {
-          id: PERSON_ID,
-          firstName: 'Jane',
-          politicalParty: 'Independent',
-        },
-      }) as never,
-    )
+    vi.spyOn(voterQueryService, 'findPerson').mockResolvedValue({
+      id: PERSON_ID,
+      firstName: 'Jane',
+      politicalParty: 'Independent',
+    } as never)
   }
 
   const knock = (occurredAt: Date, supportAnswer?: SupportAnswer) =>
@@ -55,7 +53,7 @@ describe('ContactsService.findPerson — supportStatus + party (ENG-10696)', () 
   beforeEach(async () => {
     contactsService = service.app.get(ContactsService)
     doorKnocks = service.app.get(ContactInteractionDoorKnockService)
-    httpService = service.app.get(HttpService)
+    voterQueryService = service.app.get(VoterQueryService)
 
     eoOrg = await service.prisma.organization.create({
       data: {

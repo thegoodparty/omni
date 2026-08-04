@@ -445,6 +445,27 @@ def coverage_stats(state: Mapping[str, dict]) -> dict:
     return {"tracked_gaps": len(state), **counts}
 
 
+def is_actioned(entry: Mapping) -> bool:
+    """An accepted gap that already produced a ticket or was instrumented in-session. The
+    triage skill uses this so a re-run never double-files or re-offers it."""
+    return bool(entry.get("ticket_url") or entry.get("actioned_at"))
+
+
+def stamp_gap(
+    state: dict[str, dict], gap_id: str, *, ticket_url: str | None = None,
+    actioned_at: str | None = None,
+) -> dict[str, dict]:
+    """Record that an accepted gap was acted on. Idempotent: only sets provided fields."""
+    entry = state.get(gap_id)
+    if entry is None:
+        return state
+    if ticket_url is not None:
+        entry["ticket_url"] = ticket_url
+    if actioned_at is not None:
+        entry["actioned_at"] = actioned_at
+    return state
+
+
 # --- digest rendering ---------------------------------------------------------
 
 
@@ -474,11 +495,7 @@ def build_slack_payload(
     gap breaks the quiet gate, but an un-triaged backlog never re-nags the channel weekly.
     The full untriaged set stays browsable in the gaps sheet tab / committed log. new_gaps
     is that this-run set, sorted by (rank, id), capped at top_n."""
-    visible = sorted(
-        (e for e in state.values() if is_visible(e)),
-        key=lambda e: (e.get("rank", 5), e["id"]),
-    )
-    new_this_run = [e for e in visible if e.get("first_seen") == run_date]
+    new_gaps_this_run = new_this_run(state, run_date)
     new_gaps = [
         {
             "rank": e.get("rank", 5),
@@ -488,12 +505,12 @@ def build_slack_payload(
             "dashboard_question": e.get("dashboard_question", ""),
             "location": e["location"],
         }
-        for e in new_this_run[:top_n]
+        for e in new_gaps_this_run[:top_n]
     ]
     return {
         "status": judgment_status,
         "run_date": run_date,
-        "new_count": len(new_this_run),
+        "new_count": len(new_gaps_this_run),
         "pending_count": pending_count,
         "new_gaps": new_gaps,
         "browse_url": browse_url,
@@ -666,8 +683,12 @@ def render_seed_artifact(state: Mapping[str, dict]) -> str:
     lines = [
         f"# Instrumentation gap seed — {len(gaps)} candidate gaps",
         "",
-        "For each, set `- disposition:` to accepted | dismissed | open (blank keeps it `new`)",
-        "and add `- reason:` when dismissing. Then load it back with --load-seed.",
+        # Deliberately avoid the literal "- disposition:" / "- reason:" field-marker
+        # substrings here — a caller filling in a block via a naive first-match string
+        # replace (as review consumers do) would otherwise hit this instructional text
+        # instead of the real field line below.
+        "For each, set disposition to accepted, dismissed, or open (blank keeps it new)",
+        "and add a reason when dismissing. Then load it back with --load-seed.",
         "",
     ]
     for e in gaps:
@@ -684,6 +705,23 @@ def render_seed_artifact(state: Mapping[str, dict]) -> str:
             "",
         ]
     return "\n".join(lines)
+
+
+def new_this_run(state: Mapping[str, dict], run_date: str) -> list[dict]:
+    """Untriaged gaps first seen on ``run_date`` — the weekly review batch. Sorted by
+    (rank, id), matching the digest's ordering."""
+    batch = [
+        e for e in state.values()
+        if e.get("disposition") == "new" and e.get("first_seen") == run_date
+    ]
+    return sorted(batch, key=lambda e: (e.get("rank", 5), e["id"]))
+
+
+def render_review_artifact(state: Mapping[str, dict], run_date: str) -> str:
+    """The seed-artifact review format (fill `- disposition:` / `- reason:`), restricted to
+    this run's new gaps. Loads back through the same parse/apply path as the seed."""
+    batch = {e["id"]: e for e in new_this_run(state, run_date)}
+    return render_seed_artifact(batch)
 
 
 def run_seed(
@@ -817,14 +855,73 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--load-seed", type=Path, default=None,
                         help="parse a filled seed artifact and apply its dispositions to "
                              "--state; does no scan and no judgment")
+    parser.add_argument("--list-new", action="store_true",
+                        help="print this run's untriaged (new) gaps as JSON and exit")
+    parser.add_argument("--review-artifact", type=Path, default=None,
+                        help="write the weekly review artifact (this run's new gaps) and exit")
+    parser.add_argument("--load-review", type=Path, default=None,
+                        help="apply a filled weekly review artifact's dispositions (same "
+                             "format/behavior as --load-seed)")
     args = parser.parse_args(argv)
 
     repo_root = args.repo or Path(os.environ.get("OMNI_REPO", REPO_ROOT))
     today = datetime.strptime(args.today, "%Y-%m-%d").date() if args.today else date.today()
 
-    if args.load_seed:
+    # Each of these flags selects a distinct one-shot action; supplying more than one is a
+    # usage error. Guard before the individual branches (which each return early) so every
+    # conflicting pair is caught — not just --load-seed/--load-review.
+    set_actions = [
+        name
+        for name, val in (
+            ("--list-new", args.list_new),
+            ("--review-artifact", args.review_artifact),
+            ("--load-seed", args.load_seed),
+            ("--load-review", args.load_review),
+            ("--seed", args.seed),
+        )
+        if val
+    ]
+    if len(set_actions) > 1:
+        print(
+            f"gap-sweep: {', '.join(set_actions)} are mutually exclusive; pass only one.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if args.list_new:
+        # Read-only: never scans or judges.
+        try:
+            state = load_state(args.state)
+        except CorruptStateError as exc:
+            print(
+                f"gap-sweep: state file unreadable ({exc}); skipping this run, "
+                "state left untouched.",
+                file=sys.stderr,
+            )
+            return 0
+        json.dump(new_this_run(state, today.isoformat()), sys.stdout, indent=2, default=str)
+        sys.stdout.write("\n")
+        return 0
+
+    if args.review_artifact:
+        # Read-only: never scans or judges.
+        try:
+            state = load_state(args.state)
+        except CorruptStateError as exc:
+            print(
+                f"gap-sweep: state file unreadable ({exc}); skipping this run, "
+                "state left untouched.",
+                file=sys.stderr,
+            )
+            return 0
+        _atomic_write(args.review_artifact, render_review_artifact(state, today.isoformat()))
+        print(f"wrote review artifact for {today.isoformat()} to {args.review_artifact}", file=sys.stderr)
+        return 0
+
+    load_path = args.load_seed or args.load_review
+    if load_path:
         # Dedicated round-trip branch: no scan, no judgment — just apply a reviewer's
-        # dispositions from a filled seed artifact back onto the state.
+        # dispositions from a filled seed/review artifact back onto the state.
         try:
             prior = load_state(args.state)
         except CorruptStateError as exc:
@@ -834,11 +931,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 0
+        flag = "--load-seed" if args.load_seed else "--load-review"
         try:
-            seed_text = args.load_seed.read_text()
+            seed_text = load_path.read_text()
         except OSError as exc:
             print(
-                f"gap-sweep: --load-seed file unreadable ({exc}); skipping this run, "
+                f"gap-sweep: {flag} file unreadable ({exc}); skipping this run, "
                 "state left untouched.",
                 file=sys.stderr,
             )

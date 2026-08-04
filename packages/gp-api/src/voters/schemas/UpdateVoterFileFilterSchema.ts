@@ -6,7 +6,6 @@ export class UpdateVoterFileFilterSchema extends createZodDto(
   voterFilterBaseSchema
     .extend({
       name: z.string().min(1).optional(),
-      voterCount: z.coerce.number().optional(),
     })
     .partial(),
 ) {}

@@ -42,6 +42,7 @@ import type {
   UpdateOrdinanceRequest,
 } from '@goodparty_org/contracts'
 import { useOrdinanceQualityLoopFlag } from '@shared/experiments/ordinanceQualityLoopFlag'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ConfirmDeleteDialog } from '../../shared/ConfirmDeleteDialog'
 import ChatPill from '../../shared/ai-chat/ChatPill'
 import {
@@ -128,6 +129,13 @@ export default function DraftDetail({
   // exposure even though no UI branches on the flag here anymore — the loop
   // itself is server-gated on the same flag.
   useOrdinanceQualityLoopFlag()
+  // Both entry points (the in-chat draft-ready card and the ordinances list)
+  // land here, so one mount event covers "viewed a created draft".
+  useEffect(() => {
+    void trackEvent(EVENTS.Ordinances.DraftDetailsViewed, {
+      draftId: ordinance.id,
+    })
+  }, [ordinance.id])
   const [qualityLoop, setQualityLoop] = useState(ordinance.qualityLoop)
   // The report the loop last delivered (or the initial one). Keyed into
   // QualityReport so a mid-loop refresh actually replaces the rendered card.
@@ -272,6 +280,10 @@ export default function DraftDetail({
     setExportError(null)
     try {
       await downloadOrdinanceExport(ordinance.slug, format)
+      void trackEvent(EVENTS.Ordinances.DraftDetailsDownloaded, {
+        draftId: ordinance.id,
+        type: format === 'docx' ? 'word' : 'pdf',
+      })
     } catch {
       setExportError('Could not export the draft. Please try again.')
     }
@@ -282,6 +294,9 @@ export default function DraftDetail({
     setDeleteError(null)
     try {
       await deleteOrdinance(ordinance.slug)
+      void trackEvent(EVENTS.Ordinances.DraftDetailsDeleted, {
+        draftId: ordinance.id,
+      })
       // router.push doesn't synchronously unmount, so reset here — a lingering
       // deleting/open would otherwise lock the dialog in a spinner (or re-open
       // locked) during the nav window.
@@ -301,6 +316,10 @@ export default function DraftDetail({
     setStatus(next)
     try {
       await updateOrdinance(ordinance.slug, { status: next })
+      void trackEvent(EVENTS.Ordinances.DraftDetailsStatusUpdated, {
+        draftId: ordinance.id,
+        status: next,
+      })
     } catch {
       setStatus(prev)
     }

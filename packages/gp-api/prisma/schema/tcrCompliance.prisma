@@ -41,6 +41,17 @@ model TcrCompliance {
   campaign       Campaign             @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   campaignId     Int                  @unique @map("campaign_id")
 
+  // Structured filing address, set when the candidate entered their address
+  // manually instead of picking a Google suggestion (Places never suggests
+  // PO Boxes, which election filings commonly use). When line1 is set, the
+  // Peerly submissions read these components instead of resolving
+  // campaign.placeId, and postalAddress carries the composed string.
+  filingAddressLine1 String? @map("filing_address_line1")
+  filingAddressLine2 String? @map("filing_address_line2")
+  filingCity         String? @map("filing_city")
+  filingState        String? @map("filing_state")
+  filingZip          String? @map("filing_zip")
+
   peerlyIdentityId              String?   @unique @map("peerly_identity_id")
   peerlyRegistrationLink        String?   @map("peerly_registration_link")
   peerlyIdentityProfileLink     String?   @map("peerly_identity_profile_link")

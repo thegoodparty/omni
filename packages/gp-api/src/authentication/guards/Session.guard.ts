@@ -61,7 +61,8 @@ export class SessionGuard implements CanActivate {
         request.m2mToken = await this.authProvider.verifyM2MToken(token)
         return true
       } catch {
-        this.logger.debug('M2M token verification failed in SessionGuard')
+        // Reason is already logged at the ClerkAuthService boundary; here we
+        // just fall back to public-or-throw for a non-verifiable M2M token.
         return this.allowPublicOrThrow(context)
       }
     }

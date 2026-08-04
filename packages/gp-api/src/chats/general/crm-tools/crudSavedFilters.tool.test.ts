@@ -136,7 +136,7 @@ describe('crud_saved_filters execute', () => {
   })
 
   it('create counts first, then persists, and returns { id, name, count }', async () => {
-    const countContacts = vi.fn(() => Promise.resolve(321))
+    const countContacts = vi.fn(() => Promise.resolve({ count: 321 }))
     const create = vi.fn(() =>
       Promise.resolve({ id: 9, name: 'Persisted name' }),
     )
@@ -152,7 +152,11 @@ describe('crud_saved_filters execute', () => {
     })
     const result = await tool.execute(input)
     // The response reads from the persisted record, not the request input.
-    expect(result).toEqual({ id: 9, name: 'Persisted name', count: 321 })
+    expect(result).toEqual({
+      id: 9,
+      name: 'Persisted name',
+      count: 321,
+    })
     expect(countContacts).toHaveBeenCalledWith(
       { age18_25: true, supportStatus: ['supporter'] },
       ORGANIZATION,
@@ -161,7 +165,6 @@ describe('crud_saved_filters execute', () => {
       age18_25: true,
       supportStatus: ['supporter'],
       name: 'Young supporters',
-      voterCount: 0,
     })
     expect(countContacts.mock.invocationCallOrder[0]).toBeLessThan(
       create.mock.invocationCallOrder[0] ?? 0,

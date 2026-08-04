@@ -24,7 +24,7 @@ only mutable record — one row per knock on a person.
 | `door_knocking_route` | Frozen route header | `doorKnockingTurfId` UNIQUE — locked/idempotent both mean "this row exists". Never mutated after creation |
 | `door_knocking_stop` | One per unique lat/lng, in visit order | `(routeId, seq)` unique; `displayAddress` copied verbatim from `Residence_Addresses_AddressLine` at freeze |
 | `door_knocking_stop_target` | Bare-minimum person snapshot | personId (people-api UUID — never raw LALVOTERIDs), name, addressKey. Redact-in-place on deletion requests |
-| `contact_interaction_door_knock` | One row per knock on a person (EXISTS — CRM epic) | The CRM convention model (`src/contactInteraction/`); our writes target it via `sourceId`. OPEN: its locked 3-way vocabulary (answered/not_home/refused_to_engage + supporter/unsure/non_supporter) is narrower than the door-knocking question flow (no `inaccessible`, no `willVote`, no engaged/not_a_voter split) — Feliks ↔ Tomer to resolve before the interaction write path lands |
+| `contact_interaction_door_knock` | One row per knock on a person (CRM epic's model, extended additively) | Writes land here via `POST /v1/door-knocking/interactions`: `sourceId` = the phone's clientKey (replay-idempotent upsert, first write wins), `occurredAt` server-stamped. The vocabulary was extended additively for the question flow: `inaccessible` + `not_a_voter` outcomes, nullable `willVote` — `supportAnswer` stays the CRM's 3-way. CRM readers unaffected |
 
 The route-created activity event (one per target at freeze) is deferred to
 the interaction-write PR alongside the vocabulary resolution — it should
@@ -36,6 +36,14 @@ Shared-table touches: `OutreachType.nativeDoorKnocking` (new value — legacy
 `pending` in prod; never mix them) and `Outreach.doorKnockingRouteId`
 (nullable unique pointer — the per-channel pointer idiom, like
 `phoneListId`).
+
+## Where the code lives
+
+`src/doorKnocking/` (turf CRUD + the knock transaction; controller routes
+under `/v1/door-knocking`), `src/vendors/geoapify/` (Route Planner client —
+requires `GEOAPIFY_API_KEY`, validated lazily at call time so environments
+without it still boot), and the S2S evaluation/residents contracts in
+`@goodparty_org/contracts` implemented by people-api's `src/doorKnocking/`.
 
 ## The knock transaction (the money path)
 
@@ -67,8 +75,8 @@ call, loser returns `created: false`; (b) crash-mid-freeze → zero rows;
 
 ## Serving
 
-Every read of a route (knock response, later opens, walk start) = frozen
-route + live enrichment: residents-by-address from people-api (only units
+`GET /v1/door-knocking/turfs/:id/route`. Every read of a route (later
+opens, walk start) = frozen route + live enrichment: residents-by-address from people-api (only units
 containing a target; targets get live age/party; otherResidents are
 name-only) + each stop's knock status derived from
 `contact_interaction_door_knock` (org-wide, latest row per person —
@@ -79,13 +87,16 @@ locale), and is snapshotted offline on the phone.
 
 ## The pack (exploration map, step 2)
 
-Built per request from people_db, never stored: positions + person→
-household→dot index arrays + one byte per person per dimension (SoA), plus
-a `canvassStatus` byte joined in-memory from this package's interactions
-table (`(personId, status)` only — a SQL CASE over support→engaged→
-answered, latest per person). Map-minimal SELECT: no AddressLine, accuracy
-in WHERE only (v1 = `GeoMatchRooftop` only), `registered` computed as
-`(StateVoterID IS NOT NULL)`.
+`GET /v1/door-knocking/pack` (gp-api) → `POST /v1/door-knocking/pack`
+(people-api). Built per request from people_db, never stored: positions +
+person→household→dot index arrays + one byte per person per dimension
+(SoA). Dim buckets are derived by inverting people-api's `VALUE_MAPPERS`,
+so pack filtering can't drift from list-filter semantics. The
+`canvassStatus` plane is encoded from the org-wide latest-per-person
+statuses gp-api ships with the request (`(personId, status)` only — no
+PII), so the proxy never patches bytes. Map-minimal SELECT: no
+AddressLine, accuracy in WHERE only (v1 = `GeoMatchRooftop` only),
+`registered` computed as `(StateVoterID IS NOT NULL)`.
 
 ## Interim geo — and what changes when the data team delivers
 
