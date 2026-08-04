@@ -759,3 +759,51 @@ describe('CampaignTrackerTasksService.unCompleteTask', () => {
     expect(h.prisma.campaignTrackerTask.update).not.toHaveBeenCalled()
   })
 })
+
+describe('CampaignTrackerTasksService.generateNow', () => {
+  let h: ReturnType<typeof makeService>
+  beforeEach(() => {
+    h = makeService()
+  })
+
+  const withUser = {
+    id: 42,
+    organizationSlug: 'org-1',
+    details: {
+      raceId: 'race-abc',
+      electionDate: '2026-11-03',
+      state: 'NC',
+      city: 'Asheville',
+    },
+    user: { clerkId: 'clk_1', firstName: 'Jordan', lastName: 'Nguyen' },
+  }
+
+  it('dispatches in initial mode when no dynamic generation exists', async () => {
+    h.prisma.campaign.findUnique.mockResolvedValueOnce(withUser)
+    h.prisma.campaignTrackerTask.findFirst.mockResolvedValueOnce(null)
+    await h.service.generateNow({ id: 42 } as never)
+    expect(h.experimentRuns.dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: CAMPAIGN_TRACKER_EXPERIMENT_TYPE,
+        params: expect.objectContaining({ mode: 'initial' }),
+      }),
+    )
+  })
+
+  it('dispatches in weekly mode once a dynamic generation exists', async () => {
+    h.prisma.campaign.findUnique.mockResolvedValueOnce(withUser)
+    h.prisma.campaignTrackerTask.findFirst.mockResolvedValueOnce({ id: 'd1' })
+    await h.service.generateNow({ id: 42 } as never)
+    expect(h.experimentRuns.dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: expect.objectContaining({ mode: 'weekly' }),
+      }),
+    )
+  })
+
+  it('throws and does not dispatch when the campaign is missing', async () => {
+    h.prisma.campaign.findUnique.mockResolvedValueOnce(null)
+    await expect(h.service.generateNow({ id: 999 } as never)).rejects.toThrow()
+    expect(h.experimentRuns.dispatchRun).not.toHaveBeenCalled()
+  })
+})

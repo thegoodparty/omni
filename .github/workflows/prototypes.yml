@@ -2,9 +2,8 @@ name: prototypes
 
 on:
   pull_request:
-    branches-ignore: [qa, master]
   push:
-    branches: [develop]
+    branches: [main]
 
 permissions:
   contents: read
@@ -53,7 +52,7 @@ jobs:
     if: >-
       vars.VERCEL_PROJECT_ID_PROTOTYPES != ''
       && (github.event_name == 'pull_request'
-          || (github.event_name == 'push' && github.ref_name == 'develop'))
+          || (github.event_name == 'push' && github.ref_name == 'main'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

@@ -38,7 +38,6 @@ const selectList = vi.fn()
 
 const settledCount: ListWizardCountResult = {
   count: 250,
-  fenced: false,
   isLoading: false,
   isStale: false,
   isError: false,
@@ -104,14 +103,25 @@ describe('CreateListWizard — Save gate on the live count (ENG-10769)', () => {
     // The debounce window: the resolved count still reflects the PREVIOUS
     // selection (isLoading false), so saving now would persist a wrong
     // voterCount. isStale must hold Save closed on its own.
-    mockedUseListWizardCount.mockReturnValue({
-      ...settledCount,
-      isStale: true,
-    })
+    //
+    // 86ajrth65's build-CTA loading state means isStale must be settled
+    // (false) to even REACH the name step — reaching it with the mock
+    // already isStale:true would leave the conditions-step CTA itself
+    // stuck disabled/loading, and this suite's whole point is Save's own
+    // gate, not the CTA's. So navigate with the default settled mock first,
+    // then flip the mock to stale and force a re-render (typing a
+    // character) to simulate the debounce window opening AFTER arrival.
     const user = userEvent.setup()
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await reachNameStep(user)
+    expect(screen.getByRole('button', { name: 'Save list' })).toBeEnabled()
+
+    mockedUseListWizardCount.mockReturnValue({
+      ...settledCount,
+      isStale: true,
+    })
+    await user.type(screen.getByLabelText(/list name/i), '!')
 
     expect(screen.getByRole('button', { name: 'Save list' })).toBeDisabled()
   })

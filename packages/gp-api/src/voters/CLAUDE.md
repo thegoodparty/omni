@@ -6,16 +6,16 @@ This module does not store the voter file itself — L2 is the source of truth. 
 
 ## Key files
 
-| Path                                  | Purpose                                                                                  |
-| ------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `voters.module.ts`                    | Module wiring; exports `VoterFileService`, `VotersService`, `VoterFileFilterService`     |
-| `voterFile/voterFile.controller.ts`   | HTTP: list/create/update/delete `VoterFileFilter`, voter-file counts + CSV               |
-| `voterFile/voterFile.service.ts`      | `GET /voters/voter-file` counts/CSV via `ContactsService` → people-api (ENG-5032)        |
-| `services/voters.service.ts`          | L2 API client (counts, demographic breakdowns)                                           |
-| `services/voterFileFilter.service.ts` | Filter persistence + per-campaign filter listing                                         |
-| `services/voterOutreach.service.ts`   | Bridges voter filters to outreach campaigns                                              |
-| `schemas/`                            | Zod input schemas for filter create/update                                               |
-| `voters.types.ts`                     | `VoterCounts`, `EthnicityCounts`, `GenderCounts`, `PartisanCounts`, `VoterHistoryColumn` |
+| Path                                  | Purpose                                                                                       |
+| ------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `voters.module.ts`                    | Module wiring; exports `VoterFileService`, `VotersService`, `VoterFileFilterService`          |
+| `voterFile/voterFile.controller.ts`   | HTTP: list/create/update/delete `VoterFileFilter`, voter-file counts + CSV                    |
+| `voterFile/voterFile.service.ts`      | `GET /voters/voter-file` counts/CSV via `ContactsService` → people-db / people-api (ENG-5032) |
+| `services/voters.service.ts`          | L2 API client (counts, demographic breakdowns)                                                |
+| `services/voterFileFilter.service.ts` | Filter persistence + per-campaign filter listing                                              |
+| `services/voterOutreach.service.ts`   | Bridges voter filters to outreach campaigns                                                   |
+| `schemas/`                            | Zod input schemas for filter create/update                                                    |
+| `voters.types.ts`                     | `VoterCounts`, `EthnicityCounts`, `GenderCounts`, `PartisanCounts`, `VoterHistoryColumn`      |
 
 ## Patterns
 
@@ -27,7 +27,7 @@ This module does not store the voter file itself — L2 is the source of truth. 
 
 ## Gotchas
 
-- **gp-api no longer queries `gp-voter-db`** (ENG-5032). `GET /voters/voter-file` (the outreach/task-flow audience download and count — `downloadVoterList.util.ts` / `RecordCount` in gp-webapp) resolves through `ContactsService.countVoterFilePeople` / `downloadVoterFilePeople` → people-api, mapping the legacy underscore filters and per-type population rules in `voterFile/util/voterFilePeopleFilter.util.ts` (mirrors `segmentsToFiltersMap.const.ts`). Those two `ContactsService` methods are deliberately NOT pro-gated — the endpoint never was; `CanDownloadVoterFileGuard` owns access. The CSV is people-api's curated ~54-column subset with friendly headers (`DOWNLOAD_COLUMNS` in `packages/people-api/src/people/people.select.ts`, ENG-10766) — not the raw L2 columns, and not people-api's full internal projection either. `typeToQuery`/`customFiltersToQuery`/`VoterDatabaseService` are deleted; what remains of the old stack is deploy plumbing (`VOTER_DATASTORE` in `deploy/docker-entrypoint.sh`, the `voterCluster` resources in `deploy/index.ts`) and the nightly `write__l2_databricks_to_gp_api` ETL (gp-data-platform repo) — decommission those together, cluster last.
+- **gp-api no longer queries `gp-voter-db`** (ENG-5032). `GET /voters/voter-file` (the outreach/task-flow audience download and count — `downloadVoterList.util.ts` / `RecordCount` in gp-webapp) resolves through `ContactsService.countVoterFilePeople` / `downloadVoterFilePeople` → the `src/peopleDb` query/download services (`USE_LOCAL_PEOPLE_DB`) or, until a follow-up removes the fallback, the legacy people-api HTTP client — mapping the legacy underscore filters and per-type population rules in `voterFile/util/voterFilePeopleFilter.util.ts` (mirrors `segmentsToFiltersMap.const.ts`). Those two `ContactsService` methods are deliberately NOT pro-gated — the endpoint never was; `CanDownloadVoterFileGuard` owns access. The CSV is a curated ~54-column subset with friendly headers (`DOWNLOAD_COLUMNS` in `src/peopleDb/voter.select.ts`, ENG-10766) — not the raw L2 columns, and not the voter engine's full internal projection either. `typeToQuery`/`customFiltersToQuery`/`VoterDatabaseService` are deleted; what remains of the old stack is deploy plumbing (`VOTER_DATASTORE` in `deploy/docker-entrypoint.sh`, the `voterCluster` resources in `deploy/index.ts`) and the nightly `write__l2_databricks_to_gp_api` ETL (gp-data-platform repo) — decommission those together, cluster last.
 - The L2 API has its own rate limits and timeouts; wrap new calls in `try/catch` and throw `BadGatewayException` per `.cursor/rules/rules.mdc` Rule 3.
 - Counts surfaced to the UI come from L2 in real time and may shift between page loads — don't rely on them for billing or quota math.
 - `VotersModule` imports `OutreachModule` (one-way). If you find yourself wanting `OutreachModule` to import voters too, route the dependency through an existing service instead — adding a back-edge will require `forwardRef` and is a smell.

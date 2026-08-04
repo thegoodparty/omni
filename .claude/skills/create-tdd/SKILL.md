@@ -146,9 +146,11 @@ specified is acceptable; over-specified is the failure mode.**
 
 ## Where it goes (ClickUp)
 
-TDDs live in the **Technical Design Docs folder**: parent page `2ky4jq2q-81493`, in
-doc `2ky4jq2q-20493`, workspace `90132012119`. The section template is page
-`2ky4jq2q-81513` (read it for the current skeleton).
+TDDs live under the top-level **Technical Design Docs** page (`2ky4jq2q-81493`), a
+section of the "Eng Docs" doc `2ky4jq2q-20493`, workspace `90132012119`. The section
+template is page `2ky4jq2q-81513` (read it for the current skeleton). Always use this
+top-level page. The nested Technical Design Docs sections under Serve Docs and Win
+Docs are legacy locations; never post a new TDD there, even a product-specific one.
 
 Keep a local working copy under `scratch/<feature>/` and mirror to ClickUp through
 the **ClickUp MCP server** (configured in `.mcp.json`, authorized via OAuth, see

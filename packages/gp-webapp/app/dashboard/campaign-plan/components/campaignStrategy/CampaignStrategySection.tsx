@@ -2,11 +2,13 @@
 
 import { useMemo, useState } from 'react'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import { Accordion, Card } from '@styleguide'
+import { Accordion, Button, Card } from '@styleguide'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
+import { IS_PROD } from 'appEnv'
 import { buildTrackerStrategy } from './buildTrackerStrategy'
 import {
   isVoterContactFlowType,
+  useGenerateTrackerTasks,
   useToggleTrackerTaskComplete,
   useTrackerTasks,
 } from './useTrackerTasks'
@@ -23,6 +25,7 @@ import { useOutreachComposeFlow } from 'app/dashboard/outreach/hooks/useOutreach
 const CampaignStrategySection = (): React.JSX.Element => {
   const [campaign] = useCampaign()
   const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
+  const { generate, isGenerating } = useGenerateTrackerTasks()
   const toggleComplete = useToggleTrackerTaskComplete()
   const { open: openOutreachFlow, flowNode: outreachFlowNode } =
     useOutreachComposeFlow('campaign_tracker')
@@ -92,9 +95,26 @@ const CampaignStrategySection = (): React.JSX.Element => {
             when, so you always know your next move.
           </p>
         </div>
-        <span className="text-primary mt-1 shrink-0 text-xs font-semibold tracking-wide uppercase">
-          You are here
-        </span>
+        <div className="flex shrink-0 items-center gap-3">
+          {/* Non-prod-only manual trigger: prod generates via the weekly cron,
+              but dev/qa have no cron, so this lets us dispatch a run on demand.
+              gp-api 404s the route in prod as a backstop. */}
+          {!IS_PROD && (
+            <Button
+              variant="outline"
+              size="small"
+              onClick={generate}
+              loading={isGenerating}
+              loadingText="Generating…"
+              disabled={isPending}
+            >
+              Generate tasks
+            </Button>
+          )}
+          <span className="text-primary mt-1 text-xs font-semibold tracking-wide uppercase">
+            You are here
+          </span>
+        </div>
       </div>
       {isPending ? (
         <Card className="flex items-center gap-3 p-4">
@@ -120,7 +140,7 @@ const CampaignStrategySection = (): React.JSX.Element => {
         </Card>
       ) : (
         <>
-          {isGeneratingDynamic && (
+          {(isGeneratingDynamic || isGenerating) && (
             <Card className="mb-4 flex items-center gap-3 p-4">
               <div className="border-primary size-4 shrink-0 animate-spin rounded-full border-b-2" />
               <p className="text-muted-foreground text-sm">

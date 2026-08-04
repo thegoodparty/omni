@@ -11,6 +11,7 @@ import {
   applyCompliancePublishFallbacks,
   isPublicAddress,
   ssrfSafeLookup,
+  wouldBePublishableAfterFallbacks,
   type PositionWithTopIssue,
 } from './websites.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -900,5 +901,85 @@ describe('WebsitesService.createByCampaign', () => {
     expect(createArg.data.content.about.issues).toEqual([
       { title: 'Housing', description: 'Build more affordable housing.' },
     ])
+  })
+})
+
+describe('wouldBePublishableAfterFallbacks', () => {
+  const user = createMockUser({ firstName: 'Rick', lastName: 'Bennett' })
+  const noPositions: CampaignWith<'campaignPositions'> = {
+    ...createMockCampaign({ details: { state: 'ME' } }),
+    campaignPositions: [],
+  }
+  const housingPosition: PositionWithTopIssue = {
+    id: 1,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    description: 'Build more affordable housing.',
+    order: 0,
+    campaignId: 1,
+    positionId: 1,
+    topIssueId: 5,
+    topIssue: {
+      id: 5,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      name: 'Housing',
+    },
+  }
+  const genuineBio = `<p>${'a'.repeat(250)}</p>`
+
+  it('rejects empty content with no positions to seed', () => {
+    expect(wouldBePublishableAfterFallbacks({}, user, noPositions)).toBe(false)
+    expect(wouldBePublishableAfterFallbacks(null, user, noPositions)).toBe(
+      false,
+    )
+  })
+
+  it('accepts a genuine bio with a genuine website issue', () => {
+    const content = {
+      about: {
+        bio: genuineBio,
+        issues: [{ title: 'Roads', description: 'Fix the roads' }],
+      },
+    }
+
+    expect(wouldBePublishableAfterFallbacks(content, user, noPositions)).toBe(
+      true,
+    )
+  })
+
+  it('accepts a genuine bio whose issues would be seeded from positions', () => {
+    const withPositions: CampaignWith<'campaignPositions'> = {
+      ...createMockCampaign({ details: { state: 'ME' } }),
+      campaignPositions: [housingPosition],
+    }
+    const content = { about: { bio: genuineBio } }
+
+    expect(wouldBePublishableAfterFallbacks(content, user, withPositions)).toBe(
+      true,
+    )
+  })
+
+  it('rejects a genuine bio with neither website issues nor positions', () => {
+    const content = { about: { bio: genuineBio } }
+
+    expect(wouldBePublishableAfterFallbacks(content, user, noPositions)).toBe(
+      false,
+    )
+  })
+
+  it('rejects a too-short bio even with genuine issues', () => {
+    // The fallbacks never author a bio, so a bio under the genuineness bar
+    // fails the publish gate no matter what the issues look like.
+    const content = {
+      about: {
+        bio: '<p>Short bio.</p>',
+        issues: [{ title: 'Roads', description: 'Fix the roads' }],
+      },
+    }
+
+    expect(wouldBePublishableAfterFallbacks(content, user, noPositions)).toBe(
+      false,
+    )
   })
 })

@@ -111,6 +111,18 @@ export const LANGUAGE_CODE_TO_LABEL: Record<string, string> = {
 // same bounds.
 export { INCOME_RANGE_MAPPING }
 
+// The people-db ETL's Voter_Status CASE (gp-data-platform,
+// m_people_api__voter.sql) has no 'Unreliable' branch: the middle-propensity
+// cohort (voted exactly 1 of the last 3 tracked elections) falls into its
+// `else` and is stored as 'Unknown', so the literal 'Unreliable' matches
+// zero rows in every environment. Until the ETL is fixed and the cluster
+// rebuilt, an Unreliable selection must also match 'Unknown' or it selects
+// nothing.
+const expandUnreliableVoterStatus = (values: string[]): string[] =>
+  values.includes('Unreliable') && !values.includes('Unknown')
+    ? [...values, 'Unknown']
+    : values
+
 // Accepts a full persisted VoterFileFilter (saved-segment path) or the
 // unsaved, partial filter set the live count sends (ENG-10517). Only the filter
 // fields are read; missing ones are treated as unset, exactly like false/empty.
@@ -124,7 +136,6 @@ export const convertVoterFileFilterToFilters = (
     'updatedAt',
     'name',
     'search',
-    'voterCount',
     'campaignId',
     'campaign',
     'outreaches',
@@ -152,7 +163,7 @@ export const convertVoterFileFilterToFilters = (
     'partyIndependent',
     'partyDemocrat',
     'partyRepublican',
-    'partyUnknown',
+    'partyOther',
     'genderMale',
     'genderFemale',
     'genderUnknown',
@@ -224,8 +235,9 @@ export const convertVoterFileFilterToFilters = (
             ? { eq: normalizedLanguages[0] }
             : { in: normalizedLanguages }
       } else if (key === 'voterStatus') {
+        const expanded = expandUnreliableVoterStatus(value.map(String))
         filters['voterStatus'] =
-          value.length === 1 ? { eq: value[0] } : { in: value }
+          expanded.length === 1 ? { eq: expanded[0] } : { in: expanded }
       } else if (key === 'incomeRanges') {
         // Income ranges are handled separately after the loop
         // to allow combining with incomeUnknown using _includeNull
@@ -236,9 +248,11 @@ export const convertVoterFileFilterToFilters = (
   }
 
   if (!filters['voterStatus']) {
-    const voterStatusValues: string[] = AUDIENCE_VOTER_STATUS_VALUES.filter(
-      ({ field }) => segment[field],
-    ).map(({ value }) => value)
+    const voterStatusValues: string[] = expandUnreliableVoterStatus(
+      AUDIENCE_VOTER_STATUS_VALUES.filter(({ field }) => segment[field]).map(
+        ({ value }) => value,
+      ),
+    )
     if (voterStatusValues.length > 0) {
       filters['voterStatus'] =
         voterStatusValues.length === 1
@@ -251,7 +265,7 @@ export const convertVoterFileFilterToFilters = (
   if (segment.partyIndependent) politicalPartyValues.push('Independent')
   if (segment.partyDemocrat) politicalPartyValues.push('Democratic')
   if (segment.partyRepublican) politicalPartyValues.push('Republican')
-  if (segment.partyUnknown) politicalPartyValues.push('Unknown')
+  if (segment.partyOther) politicalPartyValues.push('Other')
   if (politicalPartyValues.length > 0) {
     filters['politicalParty'] =
       politicalPartyValues.length === 1

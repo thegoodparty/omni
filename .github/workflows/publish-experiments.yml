@@ -3,22 +3,21 @@ name: Publish PMF experiments
 on:
   pull_request:
     paths:
-      - "packages/runbooks/experiments/**"
-      - "packages/runbooks/scripts/python/publish_experiments.py"
-      - "packages/runbooks/scripts/python/test_experiment_manifests.py"
-      - ".github/workflows/publish-experiments.yml"
-  # Branch-per-env auto-publish:
-  #   push to dev  → publishes to dev  S3 bucket
-  #   push to qa   → publishes to qa   S3 bucket
-  #   push to main → publishes to prod S3 bucket
+      - 'packages/runbooks/experiments/**'
+      - 'packages/runbooks/scripts/python/publish_experiments.py'
+      - 'packages/runbooks/scripts/python/test_experiment_manifests.py'
+      - '.github/workflows/publish-experiments.yml'
+  # Auto-publish:
+  #   push to main → publishes to dev S3 bucket
+  # Prod publishing is handled by promote.yml, not here.
   push:
-    branches: [develop, qa, master]
+    branches: [main]
     paths:
-      - "packages/runbooks/experiments/**"
-      - "packages/runbooks/scripts/python/publish_experiments.py"
-      - ".github/workflows/publish-experiments.yml"
+      - 'packages/runbooks/experiments/**'
+      - 'packages/runbooks/scripts/python/publish_experiments.py'
+      - '.github/workflows/publish-experiments.yml'
   # workflow_dispatch with no inputs — env is derived from the branch you ran
-  # this workflow against (dev/qa/main). Always publishes the FULL set under
+  # this workflow against (main → dev). Always publishes the FULL set under
   # `experiments/<id>/`; partial publishes are intentionally not supported
   # (see publish_experiments.py docstring).
   workflow_dispatch: {}
@@ -49,16 +48,11 @@ jobs:
         run: uv run pytest test_experiment_manifests.py -v
 
   publish:
-    # Triggered on push to develop/qa/master, or manual workflow_dispatch from one of
-    # those branches. Env is derived from the branch — no choice input —
-    # because OIDC trust is per-branch (you can't publish to prod from the dev
-    # branch even if you tried).
+    # Triggered on push to main, or manual workflow_dispatch from main. Env is
+    # derived from the branch — no choice input — because OIDC trust is
+    # per-branch. Prod publishing lives in promote.yml.
     if: |
-      (github.event_name == 'push' && (
-        github.ref == 'refs/heads/develop' ||
-        github.ref == 'refs/heads/qa' ||
-        github.ref == 'refs/heads/master'
-      )) ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'workflow_dispatch'
     name: Publish manifests
     runs-on: ubuntu-latest
@@ -79,11 +73,9 @@ jobs:
         id: target
         run: |
           case "${{ github.ref }}" in
-            refs/heads/develop)  ENV="dev"  ;;
-            refs/heads/qa)   ENV="qa"   ;;
-            refs/heads/master) ENV="prod" ;;
+            refs/heads/main)  ENV="dev"  ;;
             *)
-              echo "::error::Refusing to publish from ${{ github.ref }} — only develop/qa/master branches map to envs."
+              echo "::error::Refusing to publish from ${{ github.ref }} — only the main branch maps to an env here."
               exit 1
               ;;
           esac

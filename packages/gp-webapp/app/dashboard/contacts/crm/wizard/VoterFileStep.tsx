@@ -22,20 +22,36 @@ interface VoterFileStepProps {
   isElectedOfficial: boolean
 }
 
-// filters.config.ts's "Voter Demographics" section key for the Voter
-// Likelihood field. Support status renders as its own hardcoded block AFTER
-// every filters.config.ts section, so reordering the config's section/field
-// array alone can't move Voter Likelihood "below" it (ENG-10838) — this
-// wizard pulls the field out of its normal section position and renders it
-// after Support status instead. The legacy flag-off page (FiltersSheet.tsx)
-// is untouched, so its rendering is unaffected by this move.
-const VOTER_LIKELIHOOD_FIELD_KEY = 'voter_likely'
-
-// filters.config.ts's "General Information" section key for Contacts Made
-// (ENG-10839, prototype order): pulled out the same way Voter Likelihood is,
-// but rendered directly ABOVE Support status instead of below it, and
-// Win-only (stripped for Serve like political_party).
+// filters.config.ts's "General Information" section key for Contacts Made:
+// rendered directly ABOVE the hardcoded Support status block (ENG-10839,
+// prototype order), and Win-only (stripped for Serve like political_party).
 const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
+
+// The wizard renders every other filters.config.ts field BELOW Support
+// status, in the Lovable prototype's order (ENG-10847; supersedes the
+// ENG-10838 single-field pull-out). Support status is a hardcoded block with
+// no config entry, so no filters.config.ts reorder could express this — and
+// the config's section order must stay untouched anyway because the legacy
+// flag-off page (FiltersSheet.tsx) renders it directly. Fields the prototype
+// doesn't have (gender, cell phone, landline) trail at the end; a config
+// field missing from this array still renders, after the ordered set.
+const FIELD_ORDER_BELOW_SUPPORT_STATUS = [
+  'voter_likely',
+  'political_party',
+  'age',
+  'marital_status',
+  'children',
+  'veteran_status',
+  'homeowner',
+  'business_owner',
+  'education',
+  'income_ranges',
+  'language',
+  'ethnicity',
+  'gender',
+  'cell_phone',
+  'landline',
+]
 
 // Step 2 of the voter-file branch (ENG-10721 locked-prototype parity): pill
 // toggles over the same filters.config.ts sections/options FiltersSheet and
@@ -51,23 +67,20 @@ export default function VoterFileStep({
 }: VoterFileStepProps) {
   // Political party doesn't apply to an elected official's constituent file —
   // same exclusion FiltersSheet applies today. Contacts Made is Win-only the
-  // same way (campaign activity has no Serve equivalent). Voter Likelihood
-  // and Contacts Made are both pulled out here (see the FIELD_KEY constants
-  // above) so they can render outside their normal filters.config.ts section
-  // position.
-  const displaySections = filterSections.map((section) => ({
-    ...section,
-    fields: section.fields.filter(
+  // same way (campaign activity has no Serve equivalent).
+  const orderIndex = (key: string) => {
+    const index = FIELD_ORDER_BELOW_SUPPORT_STATUS.indexOf(key)
+    return index === -1 ? FIELD_ORDER_BELOW_SUPPORT_STATUS.length : index
+  }
+
+  const fieldsBelowSupportStatus = filterSections
+    .flatMap((section) => section.fields)
+    .filter(
       (field) =>
-        field.key !== VOTER_LIKELIHOOD_FIELD_KEY &&
         field.key !== CONTACTS_MADE_FIELD_KEY &&
         (!isElectedOfficial || field.key !== 'political_party'),
-    ),
-  }))
-
-  const voterLikelihoodField = filterSections
-    .flatMap((section) => section.fields)
-    .find((field) => field.key === VOTER_LIKELIHOOD_FIELD_KEY)
+    )
+    .sort((a, b) => orderIndex(a.key) - orderIndex(b.key))
 
   const contactsMadeField = filterSections
     .flatMap((section) => section.fields)
@@ -145,12 +158,6 @@ export default function VoterFileStep({
         )}
       </div>
 
-      {displaySections.map((section) => (
-        <div key={section.title} className="flex flex-col gap-4">
-          {section.fields.map(renderField)}
-        </div>
-      ))}
-
       {!isElectedOfficial &&
         contactsMadeField &&
         renderField(contactsMadeField)}
@@ -178,7 +185,7 @@ export default function VoterFileStep({
         </ToggleGroup>
       </div>
 
-      {voterLikelihoodField && renderField(voterLikelihoodField)}
+      {fieldsBelowSupportStatus.map(renderField)}
     </div>
   )
 }

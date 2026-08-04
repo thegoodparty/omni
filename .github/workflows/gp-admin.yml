@@ -2,9 +2,8 @@ name: gp-admin
 
 on:
   pull_request:
-    branches-ignore: [qa, master]
   push:
-    branches: [develop, qa, master]
+    branches: [main]
 
 permissions:
   contents: read
@@ -29,7 +28,7 @@ jobs:
       - uses: ./.github/actions/setup-node-workspace
         with:
           app: gp-admin
-          build-contracts: "true"
+          build-contracts: 'true'
 
       - name: Build SDK
         run: npm run build -w packages/gp-sdk
@@ -52,12 +51,10 @@ jobs:
 
   # gp-admin is a single deployment that targets dev/qa/prod at runtime via
   # Clerk org switch, so it has no per-branch env vars or domains: PRs get a
-  # preview, master deploys to production. No develop/qa env deploys.
+  # preview. The production deploy is handled by promote.yml, not here.
   deploy:
     name: Deploy
-    if: >-
-      github.event_name == 'pull_request'
-      || (github.event_name == 'push' && github.ref_name == 'master')
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     outputs:
       url: ${{ steps.vercel.outputs.url }}
@@ -69,7 +66,7 @@ jobs:
       - uses: ./.github/actions/setup-node-workspace
         with:
           app: gp-admin
-          build-contracts: "true"
+          build-contracts: 'true'
 
       - name: Build SDK
         run: npm run build -w packages/gp-sdk
@@ -81,5 +78,5 @@ jobs:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
           vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
           vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_GP_ADMIN }}
-          target: ${{ github.ref_name == 'master' && 'production' || 'preview' }}
+          target: preview
           pr-alias: ${{ github.event_name == 'pull_request' && format('gp-admin-web-pr-{0}-good-party.vercel.app', github.event.pull_request.number) || '' }}

@@ -2,9 +2,8 @@ name: election-api
 
 on:
   pull_request:
-    branches-ignore: [qa, master]
   push:
-    branches: [develop, qa, master]
+    branches: [main]
 
 permissions:
   contents: read
@@ -62,7 +61,7 @@ jobs:
     needs: validate
     if: >-
       github.event_name == 'push'
-      && contains(fromJSON('["develop", "qa", "master"]'), github.ref_name)
+      && github.ref_name == 'main'
     runs-on: ubuntu-latest
     concurrency:
       group: election-api-deploy-${{ github.ref_name }}
@@ -84,9 +83,7 @@ jobs:
         id: ctx
         run: |
           case "${{ github.ref_name }}" in
-            develop) echo "environment=dev" >> "$GITHUB_OUTPUT" ;;
-            qa) echo "environment=qa" >> "$GITHUB_OUTPUT" ;;
-            master) echo "environment=prod" >> "$GITHUB_OUTPUT" ;;
+            main) echo "environment=dev" >> "$GITHUB_OUTPUT" ;;
           esac
 
       - name: Configure AWS Credentials

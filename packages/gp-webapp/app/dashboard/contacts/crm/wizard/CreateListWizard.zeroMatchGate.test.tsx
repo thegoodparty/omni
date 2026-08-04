@@ -13,9 +13,14 @@ import {
 // ENG-10781: locks the conditions-step build CTA's zero-match gate directly
 // to the count hook's return value — the same technique
 // CreateListWizard.staleGate.test.tsx uses for the Save gate — so the
-// in-flight/debouncing "don't flash disabled" requirement can be asserted
-// deterministically instead of racing the real 600ms debounce through
-// userEvent + MSW.
+// settled-zero case can be asserted deterministically instead of racing the
+// real 600ms debounce through userEvent + MSW.
+// 86ajrth65 (product feedback) reversed ENG-10781's in-flight/debouncing
+// stance: the CTA no longer stays clickable while loading/stale — it now
+// shows the styleguide Button's loading state (spinner, data-loading, no
+// number) and is disabled until the count settles. The two tests below were
+// rewritten from "does not disable while loading/stale" to assert that
+// reversal.
 vi.mock('../ContactsTableProvider', () => ({ useContactsTable: vi.fn() }))
 vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
 vi.mock('@shared/organization-picker', () => ({
@@ -96,7 +101,6 @@ const countResult = (
   overrides: Partial<ListWizardCountResult>,
 ): ListWizardCountResult => ({
   count: undefined,
-  fenced: undefined,
   isLoading: false,
   isStale: false,
   isError: false,
@@ -136,7 +140,12 @@ describe('CreateListWizard — build CTA zero-match gate (ENG-10781)', () => {
     ).toBeEnabled()
   })
 
-  it('does not disable the CTA while a zero-bound count is still loading', async () => {
+  it('disables the CTA with the loading spinner while a zero-bound count is still loading (86ajrth65)', async () => {
+    // 86ajrth65 reversed the "enabled while loading/stale" stance this
+    // suite originally pinned: the CTA now shows the styleguide Button's
+    // loading state (spinner, data-loading="true") and is disabled for as
+    // long as the count is unsettled, regardless of the zero-match value
+    // underneath it.
     mockedUseListWizardCount.mockReturnValue(
       countResult({ count: undefined, isLoading: true }),
     )
@@ -145,18 +154,18 @@ describe('CreateListWizard — build CTA zero-match gate (ENG-10781)', () => {
 
     await reachConditionsStepWithSelection(user)
 
-    // buildLabel already omits the count while loading, so there is no
-    // number to disable "at zero" — a valid selection alone keeps it enabled.
-    expect(
-      screen.getByRole('button', { name: 'Build your list' }),
-    ).toBeEnabled()
+    // buildLabel omits the count while loading, so the accessible name has
+    // no number.
+    const cta = screen.getByRole('button', { name: 'Build your list' })
+    expect(cta).toHaveAttribute('data-loading', 'true')
+    expect(cta).toBeDisabled()
   })
 
-  it('does not disable the CTA on a stale zero left over from the previous selection', async () => {
+  it('disables the CTA with the loading spinner on a stale zero left over from the previous selection (86ajrth65)', async () => {
     // isStale true + count 0: the 0 belongs to the payload BEFORE this
-    // selection change, not the current one — the exact window that must
-    // not disable, mirroring the staleGate suite's isStale-alone assertion
-    // for the Save button.
+    // selection change, not the current one. Under the 86ajrth65 loading
+    // reversal, isStale alone already disables the CTA (via the loading
+    // state) before the zero-match gate underneath it even matters.
     mockedUseListWizardCount.mockReturnValue(
       countResult({ count: 0, isStale: true }),
     )
@@ -165,11 +174,39 @@ describe('CreateListWizard — build CTA zero-match gate (ENG-10781)', () => {
 
     await reachConditionsStepWithSelection(user)
 
-    // buildLabel hides the stale number entirely (no "(0)"), and the CTA
-    // stays enabled.
+    // buildLabel hides the stale number entirely (no "(0)").
     const cta = screen.getByRole('button', { name: 'Build your list' })
     expect(cta).toHaveTextContent(/^Build your list$/)
-    expect(cta).toBeEnabled()
+    expect(cta).toHaveAttribute('data-loading', 'true')
+    expect(cta).toBeDisabled()
+  })
+
+  it('re-enables the CTA with the count once a loading count settles (86ajrth65 core AC)', async () => {
+    mockedUseListWizardCount.mockReturnValue(
+      countResult({ count: undefined, isLoading: true }),
+    )
+    const user = userEvent.setup()
+    const { rerender } = render(
+      <CreateListWizard open onOpenChange={vi.fn()} />,
+    )
+
+    await reachConditionsStepWithSelection(user)
+
+    const loadingCta = screen.getByRole('button', { name: 'Build your list' })
+    expect(loadingCta).toHaveAttribute('data-loading', 'true')
+    expect(loadingCta).toBeDisabled()
+
+    // The count settles for the same selection — the CTA must re-enable
+    // and show the number (open/onOpenChange are unchanged, so this
+    // doesn't retrigger the wizard's open-session reset effect).
+    mockedUseListWizardCount.mockReturnValue(countResult({ count: 42 }))
+    rerender(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    const settledCta = screen.getByRole('button', {
+      name: 'Build your list (42)',
+    })
+    expect(settledCta).toHaveAttribute('data-loading', 'false')
+    expect(settledCta).toBeEnabled()
   })
 
   it('disables the build CTA for the activity branch once a valid selection resolves to a settled zero', async () => {

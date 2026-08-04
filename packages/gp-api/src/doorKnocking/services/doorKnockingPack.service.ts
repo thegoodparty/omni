@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common'
-import type { Readable } from 'stream'
 import { DoorKnockingPackRequest } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
@@ -18,11 +17,11 @@ export class DoorKnockingPackService extends createPrismaBase(
     super()
   }
 
-  // The pack is a pass-through payload: people-api encodes the whole binary
-  // (including the canvassStatus plane, from the statuses shipped in the
-  // request), so gp-api never patches bytes — it only knows the org's knock
-  // history.
-  async build(organization: Organization): Promise<Readable> {
+  // The pack is a pass-through payload: the people-db pack builder encodes
+  // the whole binary (including the canvassStatus plane, from the statuses
+  // shipped in the request), so this service never patches bytes — it only
+  // knows the org's knock history.
+  async build(organization: Organization): Promise<Buffer> {
     const districtId =
       await this.contacts.resolveEligibleDistrictId(organization)
 

@@ -181,10 +181,13 @@ test.describe('Contacts activity filters', () => {
         { outreachType: 'text', outreachId: null, actions: [] },
       ])
 
-      await expect(build).toBeEnabled()
       // Real resolution round-trip: this org has no outreach history, so zero
       // is the CORRECT count for any activity condition (see header comment).
+      // The CTA is never enabled on this org: it shows the loading state
+      // while counting (86ajrth65) and a settled zero keeps it disabled
+      // (ENG-10781) — the old enabled-while-counting window is gone.
       await expect(build).toContainText('(0)', { timeout: 30_000 })
+      await expect(build).toBeDisabled()
 
       // "Any campaign" is the default; only the COMPLETED TEXT outreach joins
       // it — the pending text and the completed robocall are filtered out.
@@ -225,7 +228,7 @@ test.describe('Contacts activity filters', () => {
       ])
     })
 
-    await test.step('specific campaign vs any: both submittable, outreachId rides the payload', async () => {
+    await test.step('specific campaign vs any: outreachId rides the payload', async () => {
       const countRequest = armCountRequestWait(page, (conditions) =>
         conditions.some((condition) => condition.outreachId !== null),
       )
@@ -237,7 +240,7 @@ test.describe('Contacts activity filters', () => {
           actions: ['no_response'],
         },
       ])
-      await expect(build).toBeEnabled()
+      await expect(build).toContainText('(0)', { timeout: 30_000 })
 
       // Back to "any campaign" before saving: the create endpoint validates
       // outreachId existence against the org's real outreaches, and this id
@@ -268,7 +271,7 @@ test.describe('Contacts activity filters', () => {
         { outreachType: 'text', outreachId: null, actions: ['no_response'] },
         { outreachType: 'doorKnocking', outreachId: null, actions: [] },
       ])
-      await expect(build).toBeEnabled()
+      await expect(build).toContainText('(0)', { timeout: 30_000 })
 
       // Door-knock interactions have no outreach linkage, so the second
       // condition renders no campaign row — still exactly one on the step.
@@ -359,11 +362,6 @@ test.describe('Contacts activity filters', () => {
             actions: ['not_home', 'answered'],
           },
         ],
-        // ENG-10769: the wizard persists its resolved live count (the
-        // stubbed 3 above — the real org would resolve 0, which ENG-10781
-        // now blocks from saving) so the outreach page's Voters column
-        // stops defaulting to 0 for real lists.
-        voterCount: 3,
       })
     })
 

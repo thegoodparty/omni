@@ -1,3 +1,5 @@
+import json
+
 import event_state_slack as slk
 
 
@@ -274,6 +276,19 @@ def test_gap_thread_blocks_omits_absent_link_label():
     text = _flatten_text(slk.build_gap_thread_blocks(gap))
     assert "Browse gaps" in text
     assert "Set disposition" not in text
+
+
+def test_gap_thread_shows_triage_invocation():
+    gap = {
+        "status": "ok", "run_date": "2026-08-03", "new_count": 1,
+        "new_gaps": [{"rank": 1, "id": "a", "surface_type": "route",
+                      "rubric_rule": "flow", "dashboard_question": "q",
+                      "location": "app/x/page.tsx"}],
+        "browse_url": "https://sheet", "feedback_url": "https://gh",
+    }
+    blocks = slk.build_gap_thread_blocks(gap)
+    flat = json.dumps(blocks)
+    assert "/triage-instrumentation-gaps 2026-08-03" in flat
 
 
 def test_should_post_true_on_gap_news_even_if_health_quiet():

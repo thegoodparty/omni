@@ -145,4 +145,4 @@ npx vitest run src/queue/consumer/queueConsumer.service.test.ts
 
 ### Preview environments
 
-`AGENT_DISPATCH_QUEUE_NAME` is **not set** in preview envs. Dispatch fails at runtime: the DB row is flipped to `FAILED`, an error is logged, and `dispatchRun` throws `BadGatewayException`. Callers that want to exercise agent dispatch on a PR branch should merge to `develop` and test against dev. (Rationale: per-PR agent queues would require provisioning a matching consumer in `gp-ai-projects` per preview, which isn't worth the cost for a PR verification step.)
+`AGENT_DISPATCH_QUEUE_NAME` is **not set** in preview envs. Dispatch fails at runtime: the DB row is flipped to `FAILED`, an error is logged, and `dispatchRun` throws `BadGatewayException`. Callers that want to exercise agent dispatch on a PR branch should merge to `main` and test against dev. (Rationale: per-PR agent queues would require provisioning a matching consumer in `gp-ai-projects` per preview, which isn't worth the cost for a PR verification step.)

@@ -21,7 +21,14 @@ const UTM_KEYS = [
   'utm_term',
 ] as const
 
-const CLID_SUFFIX = 'clid'
+const CLID_KEYS = [
+  'fbclid',
+  'gclid',
+  'ttclid',
+  'msclkid',
+  'twclid',
+  'li_fat_id',
+] as const
 
 export const EVENTS = {
   CampaignStory: {
@@ -344,6 +351,9 @@ export const EVENTS = {
     Compliance: {
       BannerViewed: 'Pro Upgrade - Banner Viewed',
       BannerGetPro: 'Pro Upgrade - Banner: Click Get Pro',
+      TextingSetupBannerViewed: 'Pro Upgrade - Texting Setup Banner Viewed',
+      TextingSetupBannerStart:
+        'Pro Upgrade - Texting Setup Banner: Click Start',
       LockedItemClicked: 'Pro Upgrade - Locked Item: Click',
       ValuePropViewed: 'Pro Upgrade - Value Prop Viewed',
       ValuePropGetPro: 'Pro Upgrade - Value Prop: Click Get Pro',
@@ -736,11 +746,20 @@ export const extractClids = (
   const clids: Record<string, string> = {}
 
   for (const [key, value] of searchParams.entries()) {
-    if (key.toLowerCase().endsWith('clid')) {
+    if ((CLID_KEYS as readonly string[]).includes(key.toLowerCase()) && value) {
       clids[key] = value
     }
   }
   return clids
+}
+
+// Raw, unhashed Meta click cookies for Segment's Facebook Conversions API
+// destination (server-side CAPI has no cookie access). Do not reconstruct or
+// re-timestamp `_fbc` when the cookie is already present.
+export const getMetaClickIds = (): { fbc?: string; fbp?: string } => {
+  const fbc = cookie.get('_fbc')
+  const fbp = cookie.get('_fbp')
+  return { ...(fbc ? { fbc } : {}), ...(fbp ? { fbp } : {}) }
 }
 
 interface TrackRegistrationParams {
@@ -757,6 +776,13 @@ export const trackRegistrationCompleted = async ({
   signUpMethod = 'email',
 }: TrackRegistrationParams): Promise<void> => {
   const signUpDate = new Date().toISOString()
+  const metaClickIds = getMetaClickIds()
+  const clids = getPersistedClids()
+  const fbclid = clids.fbclid_last ?? clids.fbclid_first ?? undefined
+  const attributionTraits = {
+    ...metaClickIds,
+    ...(fbclid ? { fbclid } : {}),
+  }
 
   try {
     const analyticsInstance = await analytics
@@ -765,20 +791,22 @@ export const trackRegistrationCompleted = async ({
         await analyticsInstance.ready()
       }
       const hutk = cookie.get('hubspotutk')
-      analyticsInstance.identify(userId, {
+      await analyticsInstance.identify(userId, {
         signUpDate,
         signUpMethod,
         ...(email ? { email } : {}),
         ...(hutk ? { hutk } : {}),
+        ...attributionTraits,
       })
     }
   } catch (error) {
     console.error('Error identifying user for registration:', error)
   }
 
-  trackEvent(EVENTS.Onboarding.RegistrationCompleted, {
+  await trackEvent(EVENTS.Onboarding.RegistrationCompleted, {
     signUpDate,
     signUpMethod,
+    ...attributionTraits,
   })
 }
 
@@ -807,8 +835,9 @@ export const persistClidsOnce = (): void => {
 
   const params = new URLSearchParams(window.location.search)
 
-  for (const [key, value] of params.entries()) {
-    if (!key.toLowerCase().endsWith(CLID_SUFFIX) || !value) continue
+  for (const key of CLID_KEYS) {
+    const value = params.get(key)
+    if (!value) continue
 
     const firstKey = `${key}_first`
     const lastKey = `${key}_last`
@@ -856,15 +885,12 @@ export const getPersistedClids = (): Record<string, string | null> => {
   const clids: Record<string, string | null> = {}
 
   try {
-    for (let i = 0; i < window.sessionStorage.length; i++) {
-      const key = window.sessionStorage.key(i)
-      if (
-        key &&
-        (key.toLowerCase().endsWith(`${CLID_SUFFIX}_first`) ||
-          key.toLowerCase().endsWith(`${CLID_SUFFIX}_last`))
-      ) {
-        clids[key] = window.sessionStorage.getItem(key)
-      }
+    for (const key of CLID_KEYS) {
+      const first = window.sessionStorage.getItem(`${key}_first`)
+      const last = window.sessionStorage.getItem(`${key}_last`)
+
+      if (first) clids[`${key}_first`] = first
+      if (last) clids[`${key}_last`] = last
     }
   } catch {
     return {}

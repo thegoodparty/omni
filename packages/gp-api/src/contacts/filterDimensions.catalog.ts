@@ -145,7 +145,7 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
       { key: 'partyDemocrat', label: 'Democrat' },
       { key: 'partyIndependent', label: 'Independent' },
       { key: 'partyRepublican', label: 'Republican' },
-      { key: 'partyUnknown', label: 'Unknown' },
+      { key: 'partyOther', label: 'Other' },
     ],
   },
   {

@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common'
-import { HttpModule } from '@nestjs/axios'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { GeoapifyModule } from '@/vendors/geoapify/geoapify.module'
+import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { DoorKnockingController } from './doorKnocking.controller'
 import { DoorKnockingTurfService } from './services/doorKnockingTurf.service'
 import { DoorKnockingKnockService } from './services/doorKnockingKnock.service'
@@ -17,10 +17,10 @@ import { DoorKnockingPackService } from './services/doorKnockingPack.service'
   imports: [
     ClerkModule,
     ContactInteractionModule,
-    HttpModule,
     ContactsModule,
     OrganizationsModule,
     GeoapifyModule,
+    PeopleQueryModule,
   ],
   controllers: [DoorKnockingController],
   providers: [

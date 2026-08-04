@@ -73,7 +73,8 @@ export class ClerkAuthService implements AuthProvider {
           issuer: 'gp-broker',
           audience: 'gp-api',
         }) as jwt.JwtPayload
-      } catch {
+      } catch (err) {
+        this.logger.warn({ err }, 'Agent token verification failed')
         throw new UnauthorizedException('Agent token verification failed')
       }
       if (!payload.sub) {
@@ -115,7 +116,10 @@ export class ClerkAuthService implements AuthProvider {
         machineSecretKey: GP_API_MACHINE_SECRET,
       })
       return { id, subject }
-    } catch {
+    } catch (err) {
+      // Never log the token or machine secret; pass the raw error so pino
+      // serializes Clerk's reason (a rotated secret otherwise 401s silently).
+      this.logger.warn({ err }, 'M2M token verification failed')
       throw new UnauthorizedException('M2M token verification failed')
     }
   }

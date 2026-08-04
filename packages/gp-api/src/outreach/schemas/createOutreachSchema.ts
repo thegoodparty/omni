@@ -17,7 +17,13 @@ export class CreateOutreachSchema extends createZodDto(
         .default(OutreachStatus.pending),
       error: z.string().optional(),
       audienceRequest: z.string().optional(),
-      script: z.string().optional(),
+      // Multipart encoding rewrites lone LF to CRLF in field values, so the
+      // wire length exceeds what the client counted; normalize before the
+      // P2P length check below.
+      script: z
+        .string()
+        .transform((s) => s.replace(/\r\n/g, '\n'))
+        .optional(),
       message: z.string().optional(),
       date: z.string().datetime({ offset: true }).optional(),
       imageUrl: z.string().url().optional(),

@@ -7,10 +7,6 @@ const OVERLAP_DEBOUNCE_MS = 600
 
 export interface ListWizardOverlapCountResult {
   count: number | undefined
-  // True when people-api's statement-timeout guard floored `count` at
-  // FENCE_LIMIT — a lower bound, not the true overlap size. Render via
-  // formatFencedCount and suppress the percent (ENG-10840).
-  fenced: boolean | undefined
   isLoading: boolean
   // True while a payload change is still waiting out the debounce — mirrors
   // useListWizardCount's isStale (ENG-10517 pattern): the strip must not
@@ -58,7 +54,6 @@ export const useListWizardOverlapCount = (
 
   return {
     count: overlapQuery.data?.count,
-    fenced: overlapQuery.data?.fenced,
     isLoading: overlapQuery.isPending || overlapQuery.isFetching,
     isStale: isDebouncing,
     isError: overlapQuery.isError,

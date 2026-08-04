@@ -411,6 +411,13 @@ export type APIEndpoints = {
     Response: CampaignTrackerTask
   }
 
+  // Manual generation override, non-prod only (gp-api 404s it in prod). Fire to
+  // dispatch a tracker run for the current campaign on demand.
+  'POST /v1/campaigns/tracker-tasks/generate': {
+    Request: {}
+    Response: void
+  }
+
   'GET /v1/elected-office/current': {
     Request: {}
     Response: ElectedOffice
@@ -680,14 +687,14 @@ export type APIEndpoints = {
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
     } & Record<string, unknown>
-    Response: { count: number; fenced?: boolean }
+    Response: { count: number }
   }
   'POST /v1/contacts/overlap-count': {
     Request: {
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
     } & Record<string, unknown>
-    Response: { count: number; fenced: boolean }
+    Response: { count: number }
   }
   'GET /v1/contacts/download': {
     Request: { segment?: string }

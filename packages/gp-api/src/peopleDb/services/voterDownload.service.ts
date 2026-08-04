@@ -1,0 +1,320 @@
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  OnApplicationBootstrap,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common'
+import type { FastifyReply } from 'fastify'
+import { Pool, PoolClient } from 'pg'
+import { CopyToStreamQuery, to as copyTo } from 'pg-copy-streams'
+import { createGzip } from 'node:zlib'
+import { PeopleDbUrlProvider } from '../peopleDbUrl.provider'
+import { DistrictService } from './district.service'
+import { DownloadPeopleDTO } from '../schemas/people.schema'
+import { DOWNLOAD_COLUMNS, ExcludableVoterColumn } from '../voter.select'
+import { buildVoterWhereSql } from '../utils/buildVoterWhereSql.util'
+import { buildHouseholdKeySql } from '../utils/buildHouseholdKeySql.util'
+import { inlinePrismaSql } from '../utils/inlinePrismaSql.util'
+import { resolveDistrict } from '../utils/resolveDistrict.util'
+
+const DATABASE_SCHEMA = 'green'
+const VOTER_TABLENAME = 'Voter'
+const DISTRICTVOTER_TABLENAME = 'DistrictVoter'
+
+const quoteIdent = (id: string) => `"${id.replace(/"/g, '""')}"`
+
+@Injectable()
+export class VoterDownloadService
+  implements OnApplicationBootstrap, OnModuleInit, OnModuleDestroy
+{
+  private readonly logger = new Logger(VoterDownloadService.name)
+  private pool?: Pool
+  private unsubscribe: (() => void) | null = null
+
+  constructor(
+    private readonly districtService: DistrictService,
+    private readonly peopleDbUrl: PeopleDbUrlProvider,
+  ) {}
+
+  // A satellite dependency (people-db) must never take down the whole gp-api
+  // monolith at boot — fail soft here and let a request-time call surface the
+  // misconfiguration instead. The url provider's 5-min refresh + onChange
+  // recovers automatically once the URL becomes resolvable.
+  async onModuleInit() {
+    try {
+      this.pool = this.buildPool(await this.peopleDbUrl.ensureLoaded())
+    } catch (err) {
+      this.logger.warn(
+        { err },
+        'people-db download pool not initialized at boot; will retry via ' +
+          'the periodic SSM refresh',
+      )
+    }
+    this.unsubscribe = this.peopleDbUrl.onChange((url) => {
+      const previous = this.pool
+      this.pool = this.buildPool(url)
+      // end() drains: it waits for checked-out clients (e.g. an in-flight COPY)
+      // to be released before closing, so no explicit delay is needed. If
+      // there was no previous pool (never initialized at boot), there is
+      // nothing to drain.
+      previous?.end().catch((err: unknown) => {
+        this.logger.warn({ err }, 'Failed to end previous pg pool')
+      })
+    })
+  }
+
+  private buildPool(connectionString: string): Pool {
+    // Each COPY holds one session for the entire download. Cap connections so
+    // CSV downloads cannot crowd out other workloads, and cap how long a
+    // checkout waits to acquire one so a saturated pool fails fast instead of
+    // hanging the request indefinitely.
+    //
+    // NOTE: `COPY ... TO STDOUT` requires a session-mode Postgres connection.
+    // It is INCOMPATIBLE with `pgbouncer` in transaction or statement pooling
+    // mode. people-db currently connects directly to Aurora Postgres, which
+    // is session-mode. If a transaction-mode pooler is ever introduced in
+    // front of the DB, this service must bypass it.
+    return new Pool({
+      connectionString,
+      max: 10,
+      connectionTimeoutMillis: 10_000,
+    })
+  }
+
+  onApplicationBootstrap() {
+    // Pay the cold-connect cost up front so the first user-initiated download
+    // after a deploy / idle period doesn't include 200-500ms of pg handshake
+    // in its TTFB. Fire-and-forget; if it fails the next real request will
+    // retry and surface the error normally. Runs only when Nest finishes
+    // bootstrapping, so unit tests that instantiate the service directly do
+    // not pay this cost or pollute pool-call assertions. No-op if the pool
+    // was never initialized at boot (e.g. the URL was unresolved) — the
+    // first real download will build it lazily.
+    if (!this.pool) return
+    this.pool
+      .connect()
+      .then((client) => client.release())
+      .catch((err: unknown) => {
+        const error = err instanceof Error ? err : new Error(String(err))
+        this.logger.warn({ err: error }, 'Pre-warm of pg pool failed')
+      })
+  }
+
+  async onModuleDestroy() {
+    this.unsubscribe?.()
+    await this.pool?.end()
+  }
+
+  async streamPeopleCsv(
+    dto: DownloadPeopleDTO,
+    res: FastifyReply,
+    responseOptions?: {
+      filename?: string
+      extraHeaders?: Record<string, string>
+    },
+  ): Promise<void> {
+    const { state, useVoterOnlyPath, districtId } = await resolveDistrict(
+      this.districtService,
+      dto,
+    )
+    const effectiveDistrictId = useVoterOnlyPath ? null : districtId
+
+    if (!this.pool) {
+      throw new InternalServerErrorException(
+        'people-db download pool not initialized',
+      )
+    }
+
+    let client: PoolClient
+    try {
+      client = await this.pool.connect()
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to acquire pg client for COPY')
+      throw new InternalServerErrorException('Failed to start download')
+    }
+
+    // A 1M-row COPY can run for minutes. Disable any inherited
+    // `statement_timeout` for this session so the export is not killed
+    // mid-stream by a cluster default. Pool clients can be reused, so a
+    // future caller may inherit the relaxed value — every subsequent COPY
+    // also sets it explicitly, and no non-COPY path uses this pool.
+    try {
+      await client.query('SET statement_timeout = 0')
+    } catch (err) {
+      client.release()
+      this.logger.error({ err }, 'Failed to disable statement_timeout for COPY')
+      throw new InternalServerErrorException('Failed to start download')
+    }
+
+    // Build the COPY SQL and start the stream BEFORE committing response
+    // headers. A synchronous failure here (bad filter shape, COPY init
+    // rejected) must release the pool client and surface a structured 5xx
+    // — once headers are flushed the connection becomes a binary download
+    // and we can no longer deliver a JSON error.
+    let copyStream: CopyToStreamQuery
+    try {
+      const sql = this.buildCopySql({
+        client,
+        effectiveDistrictId,
+        state,
+        filters: dto.filters,
+        idOverrides: dto.idOverrides,
+        contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
+        groupByHousehold: dto.groupByHousehold,
+        excludeColumns: dto.excludeColumns,
+      })
+      copyStream = client.query(copyTo(sql))
+    } catch (err) {
+      client.release()
+      this.logger.error({ err }, 'Failed to start COPY query')
+      throw new InternalServerErrorException('Failed to start download')
+    }
+
+    // Commit the response headers to the wire now. Postgres can take many
+    // seconds to plan + return the first batch of a large COPY, and Fastify
+    // would otherwise hold our headers until the first body chunk is
+    // written. Flushing here lets the browser display its native download
+    // notification and lets gp-api forward its `Set-Cookie` handshake to the
+    // client before COPY starts producing bytes. After this point we can no
+    // longer return a structured error; the `copyStream.on('error', ...)`
+    // handler below destroys the socket on failure, which is the correct
+    // behavior for an in-flight streaming response.
+    res.raw.setHeader('Content-Type', 'text/csv')
+    // gzip on the wire: a statewide export is millions of wide rows and CSV
+    // compresses ~8-10x, which is what keeps the transfer under an upstream
+    // idle timeout. The browser decompresses transparently.
+    res.raw.setHeader('Content-Encoding', 'gzip')
+    res.raw.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${responseOptions?.filename ?? 'people.csv'}"`,
+    )
+    for (const [key, value] of Object.entries(
+      responseOptions?.extraHeaders ?? {},
+    )) {
+      res.raw.setHeader(key, value)
+    }
+    if (!res.raw.headersSent) {
+      res.raw.flushHeaders()
+    }
+
+    const gzip = createGzip()
+
+    let released = false
+    const release = () => {
+      if (released) return
+      released = true
+      client.release()
+    }
+
+    copyStream.on('end', () => {
+      release()
+    })
+
+    // Any failure in the COPY source or the gzip transform: release the pg
+    // client and tear down both streams + the socket. Headers are already
+    // sent for a streaming response, so we cannot deliver a structured error
+    // (the client sees a truncated response; we have logged the cause).
+    const abort = (err: Error) => {
+      this.logger.error({ err }, 'COPY/gzip stream error')
+      release()
+      if (!copyStream.destroyed) copyStream.destroy()
+      if (!gzip.destroyed) gzip.destroy()
+      if (!res.raw.headersSent) {
+        res.raw.statusCode = 500
+      }
+      if (!res.raw.destroyed) {
+        res.raw.destroy()
+      }
+    }
+    copyStream.on('error', abort)
+    gzip.on('error', abort)
+
+    res.raw.on('close', () => {
+      if (!copyStream.destroyed) copyStream.destroy()
+      if (!gzip.destroyed) gzip.destroy()
+      release()
+    })
+
+    copyStream.pipe(gzip).pipe(res.raw)
+
+    // Keep the Nest request alive until the response has fully flushed to the
+    // client. Real HTTP responses fire `close` once the socket is done; in
+    // tests / non-socket wrappers `finish` arrives first after `end()`. We
+    // accept either signal.
+    await new Promise<void>((resolve) => {
+      const done = () => resolve()
+      res.raw.once('close', done)
+      res.raw.once('finish', done)
+    })
+  }
+
+  private buildCopySql(args: {
+    client: PoolClient
+    effectiveDistrictId: string | null
+    state: string
+    filters: DownloadPeopleDTO['filters']
+    idOverrides?: DownloadPeopleDTO['idOverrides']
+    contactsMadeIdOverrides?: DownloadPeopleDTO['contactsMadeIdOverrides']
+    groupByHousehold?: boolean
+    excludeColumns?: ExcludableVoterColumn[]
+  }): string {
+    const {
+      client,
+      effectiveDistrictId,
+      state,
+      filters,
+      idOverrides,
+      contactsMadeIdOverrides,
+      groupByHousehold,
+      excludeColumns,
+    } = args
+
+    const excluded = new Set<string>(excludeColumns ?? [])
+
+    const voterCols = DOWNLOAD_COLUMNS.filter(
+      ({ column }) => !excluded.has(column),
+    )
+      .map(
+        ({ column, header }) =>
+          `v.${quoteIdent(column)} AS ${quoteIdent(header)}`,
+      )
+      .join(', ')
+
+    // Mirror the list endpoint's door-knocking de-dup: emit one row per
+    // physical household. DISTINCT ON keeps a single representative voter per
+    // residence-address composite; its leading ORDER BY must match the key,
+    // with v."id" as the deterministic tiebreaker.
+    const householdKey = groupByHousehold
+      ? inlinePrismaSql(buildHouseholdKeySql('v'), client)
+      : ''
+    const distinctOn = groupByHousehold ? `DISTINCT ON (${householdKey}) ` : ''
+    const orderBy = groupByHousehold ? `ORDER BY ${householdKey}, v."id"` : ''
+
+    const selectList = `SELECT ${distinctOn}${voterCols}`
+
+    const voterTable = `"${DATABASE_SCHEMA}"."${VOTER_TABLENAME}"`
+    const dvTable = `"${DATABASE_SCHEMA}"."${DISTRICTVOTER_TABLENAME}"`
+    const joinClause = effectiveDistrictId
+      ? `JOIN ${dvTable} dv ON v."State" = dv."State" AND v."id" = dv."voter_id"`
+      : ''
+
+    const whereSql = buildVoterWhereSql({
+      state,
+      districtId: effectiveDistrictId,
+      filters,
+      idOverrides,
+      contactsMadeIdOverrides,
+    })
+    const whereClause = inlinePrismaSql(whereSql, client)
+
+    return `COPY (
+      ${selectList}
+      FROM ${voterTable} v
+      ${joinClause}
+      ${whereClause}
+      ${orderBy}
+    ) TO STDOUT WITH (FORMAT CSV, HEADER TRUE)`
+  }
+}

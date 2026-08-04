@@ -31,6 +31,7 @@ describe('ClerkAuthService', () => {
   let service: ClerkAuthService
   let m2mVerify: ReturnType<typeof vi.fn>
   let getUser: ReturnType<typeof vi.fn>
+  let mockLogger: ReturnType<typeof createMockLogger>
 
   beforeEach(() => {
     m2mVerify = vi.fn()
@@ -39,7 +40,8 @@ describe('ClerkAuthService', () => {
       m2m: { verify: m2mVerify },
       users: { getUser },
     } as unknown as ClerkClient
-    service = new ClerkAuthService(clerkClient, createMockLogger())
+    mockLogger = createMockLogger()
+    service = new ClerkAuthService(clerkClient, mockLogger)
   })
 
   describe('verifySessionToken — broker-issued agent tokens', () => {
@@ -78,6 +80,10 @@ describe('ClerkAuthService', () => {
       const token = signBrokerToken({ sub: AGENT_SUB }, {}, 'wrong-secret')
 
       await expect(service.verifySessionToken(token)).rejects.toThrow(
+        'Agent token verification failed',
+      )
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        { err: expect.any(Error) },
         'Agent token verification failed',
       )
     })
@@ -165,10 +171,15 @@ describe('ClerkAuthService', () => {
     })
 
     it('rejects with UnauthorizedException on verification failure', async () => {
-      m2mVerify.mockRejectedValue(new Error('clerk rejected'))
+      const clerkError = new Error('clerk rejected')
+      m2mVerify.mockRejectedValue(clerkError)
 
       await expect(service.verifyM2MToken('mt_token')).rejects.toThrow(
         UnauthorizedException,
+      )
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        { err: clerkError },
+        'M2M token verification failed',
       )
     })
   })

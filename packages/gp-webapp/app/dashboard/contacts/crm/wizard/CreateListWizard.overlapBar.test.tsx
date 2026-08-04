@@ -76,7 +76,6 @@ const countResult = (
   // 47,240 / 200,000 rounds to 24% — the exact prototype figures from the
   // reference screenshot (wizard-overlap-bar.png).
   count: 200000,
-  fenced: false,
   isLoading: false,
   isStale: false,
   isError: false,
@@ -89,7 +88,6 @@ const overlapResult = (
   overrides: Partial<ListWizardOverlapCountResult> = {},
 ): ListWizardOverlapCountResult => ({
   count: 47240,
-  fenced: false,
   isLoading: false,
   isStale: false,
   isError: false,
@@ -97,6 +95,19 @@ const overlapResult = (
 })
 
 const savedList = { id: 1, name: 'A saved list' }
+
+// The count now renders inside its own <span> (font-semibold), so the full
+// sentence is split across DOM nodes — a plain getByText full-string match
+// only sees the <p>'s OWN direct text-node children (it excludes the span's
+// text), never matching. Match on the paragraph's combined textContent
+// instead, which still requires the exact copy (including spaces) to
+// survive — the point of the space bug this strip fixes.
+const overlapParagraph = (expectedText: string): HTMLElement =>
+  screen.getByText(
+    (_, element) =>
+      element?.tagName.toLowerCase() === 'p' &&
+      element.textContent === expectedText,
+  )
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -121,10 +132,13 @@ describe('CreateListWizard — saved-list overlap strip (ENG-10840)', () => {
     await reachConditionsStepWithSelection(user)
 
     expect(
-      screen.getByText(
+      overlapParagraph(
         "47,240 (24%) voters already exist in lists you've saved.",
       ),
     ).toBeInTheDocument()
+    // The count renders bold in its own span, distinct from the muted
+    // sentence around it.
+    expect(screen.getByText('47,240')).toHaveClass('font-semibold')
   })
 
   it('renders no strip when the org has no saved lists', async () => {
@@ -172,33 +186,5 @@ describe('CreateListWizard — saved-list overlap strip (ENG-10840)', () => {
     expect(
       screen.getByRole('button', { name: 'Build your list (200,000)' }),
     ).toBeEnabled()
-  })
-
-  it('renders the fenced count with no percent', async () => {
-    setContext({ customSegments: [savedList] } as never)
-    mockedUseListWizardOverlapCount.mockReturnValue(
-      overlapResult({ count: 10000, fenced: true }),
-    )
-    const user = userEvent.setup()
-    render(<CreateListWizard open onOpenChange={vi.fn()} />)
-
-    await reachConditionsStepWithSelection(user)
-
-    expect(
-      screen.getByText("10,000+ voters already exist in lists you've saved."),
-    ).toBeInTheDocument()
-  })
-
-  it('suppresses the percent when the live (denominator) count is fenced, even if the overlap is not', async () => {
-    setContext({ customSegments: [savedList] } as never)
-    mockedUseListWizardCount.mockReturnValue(countResult({ fenced: true }))
-    const user = userEvent.setup()
-    render(<CreateListWizard open onOpenChange={vi.fn()} />)
-
-    await reachConditionsStepWithSelection(user)
-
-    expect(
-      screen.getByText("47,240 voters already exist in lists you've saved."),
-    ).toBeInTheDocument()
   })
 })

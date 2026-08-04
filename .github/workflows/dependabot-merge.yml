@@ -6,11 +6,11 @@ name: Dependabot merge
 #
 # Merges use a GitHub App token instead of GITHUB_TOKEN because pushes made
 # with GITHUB_TOKEN never trigger other workflows — the deploy workflows on
-# develop would not run for the merge commit.
+# main would not run for the merge commit.
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: '*/30 * * * *'
   workflow_dispatch: {}
 
 concurrency:
@@ -40,7 +40,7 @@ jobs:
           set -euo pipefail
           cutoff="$(date -u -d '24 hours ago' '+%Y-%m-%dT%H:%M:%SZ')"
 
-          gh pr list --repo "$REPO" --author 'app/dependabot' --state open --base develop \
+          gh pr list --repo "$REPO" --author 'app/dependabot' --state open --base main \
             --json number,headRefName,reviewDecision,mergeable,statusCheckRollup,commits \
             > prs.json
 
