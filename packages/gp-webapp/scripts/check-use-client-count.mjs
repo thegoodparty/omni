@@ -153,7 +153,10 @@ import { dirname, join, relative } from 'node:path'
 // ENG-10858: +1 for campaignManager/TextingSetupBanner.tsx — self-gates on
 // useCampaign and fires a view event in an effect, like its sibling
 // ProUpgradeBanner.
-const BASELINE = 559
+// +1 for ordinances/components/OrdinanceBugReportSheet.tsx — the draft's
+// "Flag a bug" sheet manages description/submit state and opens a Vaul drawer,
+// so it must be a client component.
+const BASELINE = 560
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

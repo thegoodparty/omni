@@ -48,6 +48,25 @@ export async function downloadOrdinanceExport(
   setTimeout(() => URL.revokeObjectURL(url), 100)
 }
 
+// Flag a bug on the draft. Persists a bug_report annotation carrying the user's
+// description and the flagged passage (excerpt). The anchor is resource-wide
+// (all null) on purpose: the draft body is editable, so a positional anchor
+// can't be trusted to re-find the passage later — the excerpt is the record.
+export async function createOrdinanceBugReport(
+  slug: string,
+  input: { description: string; excerpt: string },
+): Promise<void> {
+  await clientRequest('POST /v1/ordinances/:slug/annotations', {
+    slug,
+    kind: 'bug_report',
+    anchor: { json_path: null, start: null, end: null },
+    payload: {
+      description: input.description,
+      excerpt: input.excerpt || undefined,
+    },
+  })
+}
+
 export async function fetchOrdinanceBySlug(slug: string): Promise<Ordinance> {
   const { data } = await clientRequest('GET /v1/ordinances/:slug', { slug })
   return data

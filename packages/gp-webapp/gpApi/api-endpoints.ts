@@ -512,6 +512,18 @@ export type APIEndpoints = {
     Response: Ordinance
   }
 
+  // Ordinance draft annotations. Only bug_report is supported here (the draft's
+  // "Flag a bug" affordance); the passage rides in payload.excerpt because the
+  // draft body is editable and a positional anchor would go stale.
+  'GET /v1/ordinances/:slug/annotations': {
+    Request: { slug: string }
+    Response: { annotations: ApiAnnotation[] }
+  }
+  'POST /v1/ordinances/:slug/annotations': {
+    Request: ApiCreateAnnotationInput & { slug: string }
+    Response: ApiAnnotation
+  }
+
   'PATCH /v1/ordinances/:slug': {
     Request: UpdateOrdinanceRequest
     Response: Ordinance
@@ -1494,7 +1506,7 @@ export type CommunityIssueDetail = CommunityIssueCard & {
 // in gp-api. The AnnotationsApi client maps to/from the camelCase shape
 // the rest of the frontend uses.
 export type ApiAnnotationKind = 'note' | 'chat' | 'bug_report' | 'review'
-export type ApiAnnotationResourceType = 'briefing'
+export type ApiAnnotationResourceType = 'briefing' | 'ordinance'
 
 export interface ApiAnnotationAnchorInput {
   json_path: string | null
@@ -1550,6 +1562,8 @@ export interface ApiAttachmentDownloadUrlResponse {
 export interface ApiAnnotationBugReport {
   id: string
   description: string
+  /** The flagged passage; null for briefings (re-derived from the anchor). */
+  excerpt: string | null
   submitted_at: string
 }
 
@@ -1600,7 +1614,7 @@ export type ApiCreateAnnotationInput =
   | {
       kind: 'bug_report'
       anchor: ApiAnnotationAnchorInput
-      payload: { description: string }
+      payload: { description: string; excerpt?: string }
     }
   | {
       kind: 'review'

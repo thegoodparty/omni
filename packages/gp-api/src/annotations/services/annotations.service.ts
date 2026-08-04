@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -18,6 +19,7 @@ import { resolveBriefingId } from '@/meetings/util/resolveBriefingId'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 
 const MAX_ANNOTATIONS_PER_USER_PER_BRIEFING = 200
+const MAX_ANNOTATIONS_PER_USER_PER_ORDINANCE = 200
 
 const ANNOTATION_INCLUDE = {
   note: {
@@ -83,6 +85,7 @@ function toDTO(row: AnnotationWithRelations): AnnotationDTO {
     base.bug_report = {
       id: row.bugReport.id,
       description: row.bugReport.description,
+      excerpt: row.bugReport.excerpt,
       submitted_at: row.bugReport.submittedAt.toISOString(),
     }
   }
@@ -255,6 +258,94 @@ export class AnnotationsService extends createPrismaBase(MODELS.Annotation) {
             resourceId: briefingId,
             ...anchorFields,
             bugReport: { create: { description: input.payload.description } },
+          },
+          include: ANNOTATION_INCLUDE,
+        })
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    )
+    return toDTO(row)
+  }
+
+  // Resolve a draft's slug to its id, scoped to the caller's office. Filtering
+  // on electedOfficeId is the ownership check — a foreign or soft-deleted slug
+  // 404s rather than leaking another office's ordinance.
+  private async resolveOrdinanceId(
+    slug: string,
+    electedOffice: ElectedOffice,
+  ): Promise<string> {
+    const ordinance = await this.client.ordinance.findFirst({
+      where: { slug, electedOfficeId: electedOffice.id, deletedAt: null },
+      select: { id: true },
+    })
+    if (!ordinance) throw new NotFoundException('ordinance_not_found')
+    return ordinance.id
+  }
+
+  async listForOrdinance(
+    slug: string,
+    userId: number,
+    electedOffice: ElectedOffice,
+  ): Promise<AnnotationDTO[]> {
+    const ordinanceId = await this.resolveOrdinanceId(slug, electedOffice)
+    const rows = await this.client.annotation.findMany({
+      where: {
+        resourceType: 'ordinance',
+        resourceId: ordinanceId,
+        authorUserId: userId,
+        kind: AnnotationKind.bug_report,
+      },
+      orderBy: { createdAt: 'asc' },
+      include: ANNOTATION_INCLUDE,
+    })
+    return rows.map(toDTO)
+  }
+
+  async createForOrdinance(
+    slug: string,
+    userId: number,
+    electedOffice: ElectedOffice,
+    input: CreateAnnotationRequest,
+  ): Promise<AnnotationDTO> {
+    // The ordinance draft only flags bugs; note/review/chat aren't wired here.
+    if (input.kind !== 'bug_report') {
+      throw new BadRequestException('unsupported_ordinance_annotation_kind')
+    }
+    const ordinanceId = await this.resolveOrdinanceId(slug, electedOffice)
+
+    const anchorFields = {
+      jsonPath: input.anchor.json_path,
+      start: input.anchor.start,
+      end: input.anchor.end,
+    }
+
+    // Serialize the count check and create so concurrent writes can't both
+    // slip past the per-user cap (same reasoning as createForBriefing).
+    const row = await this.client.$transaction(
+      async (tx) => {
+        const existing = await tx.annotation.count({
+          where: {
+            resourceType: 'ordinance',
+            resourceId: ordinanceId,
+            authorUserId: userId,
+          },
+        })
+        if (existing >= MAX_ANNOTATIONS_PER_USER_PER_ORDINANCE) {
+          throw new ForbiddenException('annotation_limit_reached')
+        }
+        return tx.annotation.create({
+          data: {
+            author: { connect: { id: userId } },
+            kind: AnnotationKind.bug_report,
+            resourceType: 'ordinance',
+            resourceId: ordinanceId,
+            ...anchorFields,
+            bugReport: {
+              create: {
+                description: input.payload.description,
+                excerpt: input.payload.excerpt ?? null,
+              },
+            },
           },
           include: ANNOTATION_INCLUDE,
         })
