@@ -986,17 +986,20 @@ def test_main_gap_slack_missing_file_is_graceful(monkeypatch, tmp_path):
     assert captured.get("gap") is None
 
 
-def test_build_slack_triage_skips_api_when_quiet(monkeypatch):
-    calls = []
+def test_build_slack_triage_quiet_run_returns_none_with_empty_items(monkeypatch):
+    # Quiet run: run_triage is invoked but with zero items, so its no-items early
+    # return keeps the API untouched (covered by test_run_triage_no_items) and the
+    # gate then suppresses the post.
+    seen_items = []
     monkeypatch.setattr(
         "digest_triage.run_triage",
-        lambda items, **kw: calls.append(1) or {"status": "ok", "items": items},
+        lambda items, **kw: seen_items.append(list(items)) or {"status": "no-items", "items": items},
     )
     result = {"run_date": date(2026, 8, 4), "flagged": [], "proposals": [],
               "status_counts": {}, "total_events": 0}
     changes = {"new": [], "escalated": [], "resolved": [], "still_open": []}
     triage = eh.build_slack_triage(result, changes, state_path=None, gap=None)
-    assert triage is None and calls == []
+    assert triage is None and seen_items == [[]]
 
 
 def test_build_slack_triage_runs_on_changes(monkeypatch):

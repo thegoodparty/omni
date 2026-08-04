@@ -823,20 +823,24 @@ def build_slack_triage(
     gap: dict | None,
 ) -> dict | None:
     """Assemble + judge the digest triage (DATA-2174). None when the quiet gate would
-    suppress the post anyway — the API call is skipped entirely on quiet runs. Judge
-    failure inside run_triage degrades to the rules tier, never raises."""
+    suppress the post anyway. Judged first, gated second, so the gate's red_open reads
+    final tiers and can never suppress a judge-promoted red; quiet runs still skip the
+    API call because their item list is empty (run_triage's no-items early return).
+    Judge failure inside run_triage degrades to the rules tier, never raises."""
     import digest_triage as dt
     import event_state_slack as slk
 
+    prior_anomalous = load_prior_anomalous(state_path)
     items = dt.build_items(
         result, changes,
         prior_state=load_prior_state(state_path),
-        prior_anomalous=load_prior_anomalous(state_path),
+        prior_anomalous=prior_anomalous,
     )
-    if not slk.should_post(result, changes, load_prior_anomalous(state_path), gap,
-                           red_open=dt.has_red(items)):
+    triage = dt.run_triage(items, api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    red_open = any(i.get("tier") == "red" for i in triage.get("items") or [])
+    if not slk.should_post(result, changes, prior_anomalous, gap, red_open=red_open):
         return None
-    return dt.run_triage(items, api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    return triage
 
 
 def main(argv: Sequence[str] | None = None) -> int:
