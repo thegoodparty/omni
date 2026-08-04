@@ -77,7 +77,11 @@ export class ElectionApiTokenService {
       throw new Error('Clerk M2M token creation returned no token')
     }
     this.cachedToken = minted.token
-    this.tokenExpiration = minted.expiration
+    // Clerk's createToken returns `expiration` as a Unix timestamp in seconds
+    // (M2MToken.fromJSON passes it through unconverted); isTokenValid compares
+    // against Date.now() in ms, so convert here or the cache never hits.
+    this.tokenExpiration =
+      minted.expiration != null ? minted.expiration * 1000 : null
     return minted.token
   }
 }

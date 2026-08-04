@@ -125,7 +125,7 @@ describe('ElectionsService', () => {
       expect(voterContactGoal).toBe(2505)
       expect(mockHttpGet).toHaveBeenCalledWith(
         expect.stringContaining('positions/by-ballotready-id/br-pos-1'),
-        expect.anything(),
+        expect.objectContaining({ headers: AUTH_HEADER }),
       )
     })
 
@@ -142,7 +142,7 @@ describe('ElectionsService', () => {
       expect(voterContactGoal).toBe(2505)
       expect(mockHttpGet).toHaveBeenCalledWith(
         expect.stringContaining('positions/pos-1'),
-        expect.anything(),
+        expect.objectContaining({ headers: AUTH_HEADER }),
       )
     })
 
