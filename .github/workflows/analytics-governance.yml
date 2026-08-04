@@ -124,6 +124,12 @@ jobs:
 
       - name: Health monitor + Slack digest
         working-directory: packages/runbooks/scripts/python
+        env:
+          # Digest triage judgment (DATA-2174), same repo secret as the gap sweep step
+          # above. Unset until an omni repo admin adds it; build_slack_triage then
+          # degrades to the rules tier via run_triage's "skipped: ANTHROPIC_API_KEY
+          # unset" status and the run continues.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_PRODUCT_ANALYTICS_API_KEY }}
         run: |
           # --gap-slack degrades to a health-only post when the file is absent (e.g. the
           # gap sweep step above failed) — never fails this step.

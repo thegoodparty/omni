@@ -984,3 +984,30 @@ def test_main_gap_slack_missing_file_is_graceful(monkeypatch, tmp_path):
     )
     assert rc == 0
     assert captured.get("gap") is None
+
+
+def test_build_slack_triage_skips_api_when_quiet(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "digest_triage.run_triage",
+        lambda items, **kw: calls.append(1) or {"status": "ok", "items": items},
+    )
+    result = {"run_date": date(2026, 8, 4), "flagged": [], "proposals": [],
+              "status_counts": {}, "total_events": 0}
+    changes = {"new": [], "escalated": [], "resolved": [], "still_open": []}
+    triage = eh.build_slack_triage(result, changes, state_path=None, gap=None)
+    assert triage is None and calls == []
+
+
+def test_build_slack_triage_runs_on_changes(monkeypatch):
+    monkeypatch.setattr(
+        "digest_triage.run_triage", lambda items, **kw: {"status": "ok", "items": items})
+    result = {"run_date": date(2026, 8, 4), "proposals": [], "status_counts": {},
+              "total_events": 1, "flagged": [{
+                  "event_type": "A", "status": "dormant", "rank": 8, "okr": None,
+                  "on_watchlist": False, "elevated": False, "anomaly": None,
+                  "event_count_30d": 0, "last_seen_date": None, "instrumented_pr": None,
+                  "divergence": None, "gpmeta": None}]}
+    changes = {"new": ["A"], "escalated": [], "resolved": [], "still_open": []}
+    triage = eh.build_slack_triage(result, changes, state_path=None, gap=None)
+    assert triage is not None and triage["items"][0]["event_type"] == "A"

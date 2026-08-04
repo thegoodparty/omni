@@ -816,6 +816,29 @@ def prepend_log(log_path: Path, section: str) -> None:
         log_path.write_text(existing + ("\n" if existing else "") + section)
 
 
+def build_slack_triage(
+    result: Mapping[str, Any],
+    changes: Mapping[str, list[str]],
+    state_path: Path | None,
+    gap: dict | None,
+) -> dict | None:
+    """Assemble + judge the digest triage (DATA-2174). None when the quiet gate would
+    suppress the post anyway — the API call is skipped entirely on quiet runs. Judge
+    failure inside run_triage degrades to the rules tier, never raises."""
+    import digest_triage as dt
+    import event_state_slack as slk
+
+    items = dt.build_items(
+        result, changes,
+        prior_state=load_prior_state(state_path),
+        prior_anomalous=load_prior_anomalous(state_path),
+    )
+    if not slk.should_post(result, changes, load_prior_anomalous(state_path), gap,
+                           red_open=dt.has_red(items)):
+        return None
+    return dt.run_triage(items, api_key=os.environ.get("ANTHROPIC_API_KEY"))
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Analytics event health monitor (DATA-1952).")
     parser.add_argument("--csv", type=Path, default=CODE_CSV, help="provenance CSV (code axis)")
@@ -899,8 +922,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 prior_state = load_prior_state(args.state)
                 prior_anomalous = load_prior_anomalous(args.state)
+                triage = build_slack_triage(result, changes, args.state, gap)
                 ts = slk.post_digest(result, changes, prior_state, token=token, channel=channel,
-                                     prior_anomalous=prior_anomalous, gap=gap)
+                                     prior_anomalous=prior_anomalous, gap=gap, triage=triage)
                 print(f"slack: posted digest (ts {ts})" if ts else "slack: quiet (no change)", file=sys.stderr)
             except Exception as exc:  # noqa: BLE001 — never let Slack fail the monitor
                 print(f"slack: post failed ({exc}); monitor run unaffected.", file=sys.stderr)
