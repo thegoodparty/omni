@@ -26,11 +26,11 @@ import {
 } from '@styleguide'
 import {
   ArrowLeftIcon,
+  BugIcon,
   CheckIcon,
   ChevronDownIcon,
   DownloadIcon,
   FileTextIcon,
-  FlagIcon,
   LoaderCircleIcon,
   MicIcon,
   SparklesIcon,
@@ -875,7 +875,7 @@ export default function DraftDetail({
             variant="outline"
             onClick={() => openBugReport(selection.text)}
           >
-            <FlagIcon className="size-3.5" aria-hidden />
+            <BugIcon className="size-3.5" aria-hidden />
             Flag a bug
           </Button>
         </div>
