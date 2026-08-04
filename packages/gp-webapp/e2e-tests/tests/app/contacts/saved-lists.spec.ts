@@ -251,10 +251,21 @@ test.describe('Saved list lifecycle', () => {
     })
 
     // The selector dropdown was opened to reach the trash and stays open behind
-    // the (now-closed) confirm dialog; on a cold preview it doesn't re-render
-    // shut fast enough, leaving a listbox and no combobox trigger for the
-    // assertions below. Close it explicitly (a no-op if already shut).
-    await page.keyboard.press('Escape')
+    // the confirm dialog. Radix dismisses only the topmost dismissable layer, so
+    // an Escape sent while the dialog is still mounted is eaten by the dialog and
+    // leaves the dropdown open — and an open Radix Select aria-hides the whole app
+    // shell, so `getByRole('combobox')` below then resolves to nothing ("element(s)
+    // not found") instead of reading the trigger. Whether the dialog has finished
+    // unmounting by this point is a race, so retry Escape until the trigger itself
+    // reports closed. The trigger is matched by `data-slot` (a DOM attribute, not a
+    // role) precisely because the role lookup is unavailable while it's hidden.
+    const segmentTrigger = page.locator('[data-slot="select-trigger"]').first()
+    await expect(async () => {
+      await page.keyboard.press('Escape')
+      await expect(segmentTrigger).toHaveAttribute('data-state', 'closed', {
+        timeout: 2000,
+      })
+    }).toPass({ timeout: 20000 })
 
     await expect(segmentSelect(page)).not.toContainText(listName, {
       timeout: 15000,
