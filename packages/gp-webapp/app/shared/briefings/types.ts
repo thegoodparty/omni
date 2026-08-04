@@ -117,7 +117,10 @@ export interface BriefingSummary {
 // ---------------------------------------------------------------------------
 
 export type AnnotationKind = 'note' | 'chat' | 'bug_report' | 'review'
-export type AnnotationResourceType = 'briefing'
+// The annotation system is shared across resources; ordinances flag bugs on
+// their drafts too. Briefings only ever load briefing rows, but the mapped
+// shape must accept whatever resource_type the API returns.
+export type AnnotationResourceType = 'briefing' | 'ordinance'
 
 export interface AnnotationAnchor {
   jsonPath: string | null
