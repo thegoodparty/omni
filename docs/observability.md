@@ -41,8 +41,9 @@ A workable default playbook:
 1. **Read the deployed code, not your local copy.** Deployed behavior is whatever
    is on the remote branch, not what your working tree happens to be — and this
    checkout is shared, so `HEAD` may be stale or moved under you by another session.
-   Env → branch: `develop`→dev, `qa`→qa, `master`→prod. The deployed people-api
-   service (dev/prod only, no qa) no longer has a repo package or branch-driven
+   Env → branch: `main` is the only branch. `origin/main` is what's on dev; prod
+   runs whatever commit automated promotion last shipped from `main`. The deployed
+   people-api service (dev/prod only, no qa) no longer has a repo package or branch-driven
    deploy in omni — it's frozen at whatever was last deployed before the
    people-db cutover; use its own logs to diagnose it, not this repo's HEAD.
    Before forming a hypothesis: `git fetch origin <branch>`, check how far

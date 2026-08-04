@@ -1,10 +1,11 @@
 name: Vercel deploy
 description: >-
   Build and deploy a Vercel project imperatively with the Vercel CLI (no git
-  integration). For env deploys (develop/qa) it deploys to the preview target
-  with branch-scoped env vars and aliases the result to a stable domain; for
-  prod it deploys to production. Caller must install workspace deps (and build
-  any prerequisites like the SDK) before invoking this action.
+  integration). For dev/PR deploys it deploys to the preview target with
+  branch-scoped env vars and aliases the result to a stable domain; for prod
+  (driven by automated promotion, promote.yml) it deploys to production. Caller
+  must install workspace deps (and build any prerequisites like the SDK) before
+  invoking this action.
 
 inputs:
   vercel-token:
@@ -25,13 +26,13 @@ inputs:
       branch-scoped preview env vars when this is set. Leave empty for generic
       PR previews and for the production target.
     required: false
-    default: ""
+    default: ''
   alias-domain:
     description: >-
       Stable domain to alias the deployment to (preview target only, e.g.
       dev.goodparty.org). Leave empty to keep only the generated preview URL.
     required: false
-    default: ""
+    default: ''
   pr-alias:
     description: >-
       Deterministic *.vercel.app subdomain to alias a PR preview deployment to
@@ -39,7 +40,7 @@ inputs:
       slug. Leave empty for non-PR deploys. This is independent of alias-domain
       so a single deploy can carry both a stable env domain and a PR alias.
     required: false
-    default: ""
+    default: ''
   api-base:
     description: >-
       Override NEXT_PUBLIC_API_BASE for this build (full-stack PR previews point
@@ -47,7 +48,7 @@ inputs:
       this is written into the pulled Vercel env before `vercel build`. Leave
       empty to use the project's configured value.
     required: false
-    default: ""
+    default: ''
 
 outputs:
   url:

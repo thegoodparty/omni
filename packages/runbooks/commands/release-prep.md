@@ -1,60 +1,56 @@
-<!-- v7 — 2026-07-31 -->
+<!-- v8 — 2026-08-04 -->
+
 # /release-prep
 
-Open each release repo's `develop → qa` PR with auto-merge enabled, wait for it to merge, then open the `qa → production` PR — the pending production release. Compile and print one `#devs-only` message that lists every included PR (across all repos), grouped per repo and then by author, so the team can confirm before the actual release.
+> **omni now releases automatically via promote-on-green off `main` — this runbook covers only gp-ai-projects until it is folded into omni.** A push to omni's `main` deploys dev and, once that commit's checks go green, the `promote.yml` workflow deploys the same commit to prod with no `develop → qa → master` promotion. This command is for gp-ai-projects, which still uses its manual `develop → qa → prod` release.
 
-There are **two release repos**, each promoted on its own three-branch line:
+Open gp-ai-projects' `develop → qa` PR with auto-merge enabled, wait for it to merge, deploy the control-plane to qa, then open the `qa → prod` PR — the pending production release. Compile and print one `#devs-only` message that lists every included PR, grouped by author, so the team can confirm before the actual release.
 
-| Repo             | Branch line             | Production tip |
-| ---------------- | ----------------------- | -------------- |
-| `omni`           | `develop → qa → master` | `master`       |
-| `gp-ai-projects` | `develop → qa → prod`   | `prod`         |
+gp-ai-projects is promoted on a three-branch line:
 
-`omni` is a monorepo (`dev / qa / prod`), so its prep is a single branch promotion. `gp-ai-projects` is a separate repo with the same shape but a `prod` production tip rather than `master`. A release prep loops over both repos; each repo is independent — one having no changes does not stop the other.
+| Repo             | Branch line           | Production tip |
+| ---------------- | --------------------- | -------------- |
+| `gp-ai-projects` | `develop → qa → prod` | `prod`         |
 
 <!-- BEGIN: resolve-runbooks-dir (keep in sync across commands/*.md) -->
+
 > **Where this runs:** Runbooks lives in the `omni` monorepo at `packages/runbooks`. All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to that package root. When invoked from any directory, first resolve and `cd` into it:
 >
 > 1. If `$RUNBOOKS_DIR` is set, use it.
 > 2. Else first that exists: `$HOME/Documents/gp/dev/omni/packages/runbooks`, `$HOME/code/omni/packages/runbooks`, `$HOME/omni/packages/runbooks`.
 > 3. Else ask the user where the omni repo is (the runbooks package is at `<omni>/packages/runbooks`); suggest `export RUNBOOKS_DIR=<omni>/packages/runbooks` in their shell profile.
+
 <!-- END: resolve-runbooks-dir -->
 
 <!-- BEGIN: resolve-release-repos (keep in sync across commands/*.md) -->
-> **The release repos are `omni` and `gp-ai-projects`.** Resolve each one's local path once. Each repo has a fixed production tip branch — `omni` → `master`, `gp-ai-projects` → `prod`.
+
+> **The release repo is `gp-ai-projects`** (production tip `prod`). Resolve its local path once:
 >
-> **omni** (production tip `master`):
-> 1. If `$RELEASE_OMNI_DIR` is set, use it.
-> 2. Else first that exists: `$HOME/Documents/gp/dev/omni`, `$HOME/code/omni`, `$HOME/omni`.
-> 3. Else ask the user where the omni repo is; suggest `export RELEASE_OMNI_DIR=<path>` in their shell profile.
->
-> **gp-ai-projects** (production tip `prod`):
 > 1. If `$RELEASE_AI_DIR` is set, use it.
 > 2. Else first that exists: `$HOME/Documents/gp/dev/gp-ai-projects`, `$HOME/code/gp-ai-projects`, `$HOME/gp-ai-projects`.
 > 3. Else ask the user where the gp-ai-projects repo is; suggest `export RELEASE_AI_DIR=<path>` in their shell profile.
+
 <!-- END: resolve-release-repos -->
 
 ## Prerequisites
 
-**books/.env variables**: `$RELEASE_OMNI_DIR`, `$RELEASE_AI_DIR`, `$RELEASE_AUTHOR_MAP`, `$RELEASE_DEVS_CHANNEL`, `$CLICKUP_TEAM_ID`, `$RELEASE_CLICKUP_TICKET_BASE`
+**books/.env variables**: `$RELEASE_AI_DIR`, `$RELEASE_AUTHOR_MAP`, `$RELEASE_DEVS_CHANNEL`, `$CLICKUP_TEAM_ID`, `$RELEASE_CLICKUP_TICKET_BASE`
 **scripts/.env variables**: none — this command builds ClickUp ticket links from the custom id (no API call); `CLICKUP_API_KEY` is not required here.
-**Tools**: `gh` (authenticated), `git`, `jq`; **plus `terraform` and an AWS CLI authenticated to the gp-ai-projects AWS account — only for Phase 2.5** (the gp-ai-projects control-plane deploy). Not needed when releasing omni only.
+**Tools**: `gh` (authenticated), `git`, `jq`; **plus `terraform` and an AWS CLI authenticated to the gp-ai-projects AWS account** for Phase 2.5 (the control-plane deploy).
 
-Defaults if a `books/.env` value is unset: `$RELEASE_OMNI_DIR=$HOME/Documents/gp/dev/omni`, `$RELEASE_AI_DIR=$HOME/Documents/gp/dev/gp-ai-projects`, `$RELEASE_AUTHOR_MAP=$HOME/.claude/release-authors.json`, `$RELEASE_DEVS_CHANNEL=#devs-only`, `$RELEASE_CLICKUP_TICKET_BASE=https://goodparty.clickup.com/t/$CLICKUP_TEAM_ID`.
+Defaults if a `books/.env` value is unset: `$RELEASE_AI_DIR=$HOME/Documents/gp/dev/gp-ai-projects`, `$RELEASE_AUTHOR_MAP=$HOME/.claude/release-authors.json`, `$RELEASE_DEVS_CHANNEL=#devs-only`, `$RELEASE_CLICKUP_TICKET_BASE=https://goodparty.clickup.com/t/$CLICKUP_TEAM_ID`.
 
 **Never commit on the user's behalf.** This command opens and merges PRs through `gh pr merge` (which acts on the remote), but never runs `git commit` locally.
 
-## How to loop over repos
-
-This command takes no arguments — the release targets are always `omni` and `gp-ai-projects`. Run **Phase 2 and Phase 3 once per repo**, using that repo's directory (`$RELEASE_OMNI_DIR` / `$RELEASE_AI_DIR`) and production tip (`master` / `prod`). Throughout the per-repo steps below, `$REPO_DIR` means the current repo's resolved path and `$TIP` means its production tip branch. Then build **one combined** `#devs-only` message (Phase 4) covering both repos. The repos are independent: if one has no changes, note it and continue with the other.
+Throughout the steps below, `$REPO_DIR` is the resolved gp-ai-projects path and `$TIP` is its production tip branch (`prod`).
 
 ## Steps
 
-### Phase 1: Resolve repos and config
+### Phase 1: Resolve repo and config
 
-1. **Resolve both repo paths** per the `resolve-release-repos` block above. Confirm them back to the user before continuing:
+1. **Resolve the gp-ai-projects path** per the `resolve-release-repos` block above. Confirm it back to the user before continuing:
 
-   > Will run release prep for omni (`<omni-path>`, tip `master`) and gp-ai-projects (`<ai-path>`, tip `prod`). OK?
+   > Will run release prep for gp-ai-projects (`<ai-path>`, tip `prod`). OK?
 
 2. **Load the author map.** Read `$RELEASE_AUTHOR_MAP` if it exists — JSON of GitHub login → Slack display name:
 
@@ -67,9 +63,9 @@ This command takes no arguments — the release targets are always `omni` and `g
    }
    ```
 
-   If the file doesn't exist, warn the user that unmapped authors will appear as raw GitHub logins in the message, then continue. The map is shared across both repos — the same login maps to the same Slack name regardless of which repo the PR is in.
+   If the file doesn't exist, warn the user that unmapped authors will appear as raw GitHub logins in the message, then continue.
 
-### Phase 2: develop → qa (run once per repo)
+### Phase 2: develop → qa
 
 3. **Fetch and check the diff:**
 
@@ -88,8 +84,8 @@ This command takes no arguments — the release targets are always `omni` and `g
    git log origin/$TIP..origin/qa --oneline --no-merges
    ```
 
-   - **Both empty** → print `<repo>: no changes between qa and develop — nothing to release` and skip this repo's remaining Phase 2/3 steps (it contributes nothing to the Phase 4 message). There is nothing to prep for this repo.
-   - **`$TIP..qa` non-empty** → the promotion already merged but the release PR was never opened. Skip the rest of Phase 2 for this repo and jump to **Phase 2.5** (deploy the gp-ai-projects control-plane to qa — a no-op for omni), then step 8 to open the `qa → $TIP` PR, then continue.
+   - **Both empty** → print `no changes between qa and develop — nothing to release` and stop. There is nothing to prep.
+   - **`$TIP..qa` non-empty** → the promotion already merged but the release PR was never opened. Skip the rest of Phase 2 and jump to **Phase 2.5** (deploy the control-plane to qa), then step 8 to open the `qa → $TIP` PR, then continue.
 
 4. **Create (or reuse) the develop → qa PR.** This command is rerunnable; check for an existing open PR first to avoid `gh pr create`'s 422 on duplicates:
 
@@ -115,9 +111,9 @@ This command takes no arguments — the release targets are always `omni` and `g
    Capture the PR number from `gh`'s output. `gh` reads the owner/repo from the cwd's git remote — no `--repo` flag needed when `cd`'d into the repo. **Each code block re-runs the `cd` defensively** — some agent runtimes reset cwd between tool calls, so don't rely on a single `cd` carrying across separate blocks.
 
 5. **Enable auto-merge on the develop → qa PR.** Every change in this PR already
-   passed the repo's required checks on its way into `develop` (for omni that is
-   the full E2E suite), so those checks do not need to re-gate the promotion to
-   `qa`. Instead of blocking on a manual `--watch`, hand the merge to GitHub:
+   passed the repo's required checks on its way into `develop`, so those checks do
+   not need to re-gate the promotion to `qa`. Instead of blocking on a manual
+   `--watch`, hand the merge to GitHub:
 
    ```bash
    cd "$REPO_DIR"
@@ -126,7 +122,7 @@ This command takes no arguments — the release targets are always `omni` and `g
 
    `--auto` queues the PR to merge automatically as soon as the `qa` branch's
    required status checks pass — any check that already passed into develop should
-   not be a *required* check for the promotion (if it is, relax the `qa` ruleset so
+   not be a _required_ check for the promotion (if it is, relax the `qa` ruleset so
    the release isn't gated on a suite that already passed into develop). `--merge`
    (not `--squash`) is intentional — it preserves the included PRs' squash commits
    on `qa` and the production tip, which is what `/release` parses to build the
@@ -142,9 +138,8 @@ This command takes no arguments — the release targets are always `omni` and `g
    ```
 
    If both the auto-merge enable and the direct-merge fallback fail (non-zero
-   exit), **stop this repo here** — do not open its `qa → $TIP` PR (step 8 assumes
-   the develop→qa merge will land). Record the error for the step 16 report and
-   move on to the next repo.
+   exit), **stop here** — do not open the `qa → $TIP` PR (step 8 assumes the
+   develop→qa merge will land). Record the error for the step 16 report.
 
 6. **Wait for the PR to actually merge.** Auto-merge completes on GitHub's side
    once required checks pass, so poll the PR's state rather than watching
@@ -161,7 +156,7 @@ This command takes no arguments — the release targets are always `omni` and `g
    against stale `qa`. Interpret `mergeStateStatus` while polling — `BEHIND` and
    `UNSTABLE` are not interchangeable:
 
-   - `UNSTABLE` — a *non-required* check is failing; this does **not** block
+   - `UNSTABLE` — a _non-required_ check is failing; this does **not** block
      auto-merge, so keep polling.
    - `BEHIND` — the base branch advanced and branch protection requires the PR be
      up to date, so auto-merge is stuck until the branch updates. Stop polling,
@@ -177,7 +172,7 @@ This command takes no arguments — the release targets are always `omni` and `g
 
      then present two options:
 
-   > <repo> PR #<n>: auto-merge is armed but a required check is failing, so it
+   > PR #<n>: auto-merge is armed but a required check is failing, so it
    > won't merge on its own.
    >
    > - **`investigate`** — leave auto-merge armed; fix or re-run the failing check
@@ -203,11 +198,10 @@ This command takes no arguments — the release targets are always `omni` and `g
    auto-merge armed, so it will still merge on its own once those `PENDING` checks
    finish.
 
-   On `investigate` (or a budget timeout), record that this repo's develop→qa PR
-   is left open with auto-merge armed, then skip this repo's step 8 and its Phase 4
-   contribution — `qa` has no new state yet — and move on to the next repo. On
-   `merge-anyway` (override merge) or once the poll reports `MERGED`, continue to
-   step 7.
+   On `investigate` (or a budget timeout), record that the develop→qa PR is left
+   open with auto-merge armed, then skip step 8 and the Phase 4 message — `qa` has
+   no new state yet — and go to the step 16 final report. On `merge-anyway`
+   (override merge) or once the poll reports `MERGED`, continue to step 7.
 
 7. **Re-fetch** so local `qa` is current:
 
@@ -216,60 +210,60 @@ This command takes no arguments — the release targets are always `omni` and `g
    git fetch origin --prune
    ```
 
-### Phase 2.5: Deploy gp-ai-projects control-plane to qa (gp-ai-projects only)
+### Phase 2.5: Deploy the control-plane to qa
 
-> **Skip this phase for omni** — omni deploys entirely on merge (Vercel + ECS). It applies only to **gp-ai-projects**, and only when its develop→qa merge landed (this run, or via the step 3 shortcut). In gp-ai-projects a merge auto-deploys the broker (ECS force-new-deployment) and runner (image tag), but the `dispatch`/`scheduler`/`task_reaper` Lambdas are zip-packaged by Terraform and need a manual `terraform apply` — without it, a control-plane change merged to `qa` is **not** live there. Full procedure and rationale live in the **`terraform-deploy` skill** at `$REPO_DIR/.claude/skills/terraform-deploy.md`; the steps below mirror it.
+> Applies whenever the develop→qa merge landed (this run, or via the step 3 shortcut). In gp-ai-projects a merge auto-deploys the broker (ECS force-new-deployment) and runner (image tag), but the `dispatch`/`scheduler`/`task_reaper` Lambdas are zip-packaged by Terraform and need a manual `terraform apply` — without it, a control-plane change merged to `qa` is **not** live there. Full procedure and rationale live in the **`terraform-deploy` skill** at `$REPO_DIR/.claude/skills/terraform-deploy.md`; the steps below mirror it.
 >
-> **If you reached this repo via the step 3 shortcut (`$TIP..qa` was already non-empty), still run 7a–7b here before opening the step 8 PR** — the prior run merged develop→qa but may not have applied the control-plane Terraform.
+> **If you reached here via the step 3 shortcut (`$TIP..qa` was already non-empty), still run 7a–7b before opening the step 8 PR** — the prior run merged develop→qa but may not have applied the control-plane Terraform.
 
-7a. **Wait for the qa image build to finish.** The develop→qa merge triggered `build-pmf-engine.yml` on `qa`; let the runner/broker images land first so the environment is coherent. **Match the run to the merge commit's SHA** — a bare `--limit 1` would return the *prior* completed build on `qa` (already `completed`/`success`) before the new run is even created, so the poll would exit early and you'd deploy the Lambdas against stale images:
+7a. **Wait for the qa image build to finish.** The develop→qa merge triggered `build-pmf-engine.yml` on `qa`; let the runner/broker images land first so the environment is coherent. **Match the run to the merge commit's SHA** — a bare `--limit 1` would return the _prior_ completed build on `qa` (already `completed`/`success`) before the new run is even created, so the poll would exit early and you'd deploy the Lambdas against stale images:
 
-   ```bash
-   cd "$REPO_DIR"
-   git fetch origin --prune   # gh pr merge updated the remote, not local refs
-   EXPECTED_SHA=$(git rev-parse origin/qa)   # the merge commit just landed on qa
-   gh run list --workflow build-pmf-engine.yml --branch qa --limit 5 \
-     --json status,conclusion,headSha \
-     | jq --arg sha "$EXPECTED_SHA" '.[] | select(.headSha == $sha) | {status, conclusion}'
-   ```
+```bash
+cd "$REPO_DIR"
+git fetch origin --prune   # gh pr merge updated the remote, not local refs
+EXPECTED_SHA=$(git rev-parse origin/qa)   # the merge commit just landed on qa
+gh run list --workflow build-pmf-engine.yml --branch qa --limit 5 \
+  --json status,conclusion,headSha \
+  | jq --arg sha "$EXPECTED_SHA" '.[] | select(.headSha == $sha) | {status, conclusion}'
+```
 
-   Poll until a run **for `$EXPECTED_SHA`** appears with `status` = `completed` (budget ~15 min). If that run's `conclusion` is not `success`, stop and report — do not deploy the Lambdas on top of a failed build.
+Poll until a run **for `$EXPECTED_SHA`** appears with `status` = `completed` (budget ~15 min). If that run's `conclusion` is not `success`, stop and report — do not deploy the Lambdas on top of a failed build.
 
 7b. **Apply the control-plane Terraform for qa**, in a throwaway worktree off `origin/qa` so the user's checkout is untouched (the apply zips `pmf_engine/.lambda_build` from the working tree, so it must be the released code):
 
-   ```bash
-   cd "$REPO_DIR"
-   git fetch origin --prune
-   git worktree remove --force .worktrees/release-cp-qa 2>/dev/null || true   # clear a leftover from a prior crashed/interrupted run — --force won't reuse a still-registered path
-   git worktree prune
-   git worktree add --force .worktrees/release-cp-qa origin/qa
-   cd .worktrees/release-cp-qa
-   bash pmf_engine/scripts/build_lambda_package.sh
-   cd infrastructure/environments/qa/pmf-engine-control-plane
-   eval "$(aws configure export-credentials --format env)"
-   terraform init -input=false
-   terraform plan -input=false -out=tfplan
-   ```
+```bash
+cd "$REPO_DIR"
+git fetch origin --prune
+git worktree remove --force .worktrees/release-cp-qa 2>/dev/null || true   # clear a leftover from a prior crashed/interrupted run — --force won't reuse a still-registered path
+git worktree prune
+git worktree add --force .worktrees/release-cp-qa origin/qa
+cd .worktrees/release-cp-qa
+bash pmf_engine/scripts/build_lambda_package.sh
+cd infrastructure/environments/qa/pmf-engine-control-plane
+eval "$(aws configure export-credentials --format env)"
+terraform init -input=false
+terraform plan -input=false -out=tfplan
+```
 
-   **Review the plan before applying.** A clean control-plane deploy is `0 to add, 3 to change, 0 to destroy` — the `dispatch`/`scheduler`/`task_reaper` Lambdas with only `source_code_hash` changing (or `No changes` if `qa` was already applied — the apply is idempotent, so re-running is safe). Anything beyond that (IAM, security groups, S3, networking) means drift — **remove the worktree first** (`cd "$REPO_DIR" && git worktree remove --force .worktrees/release-cp-qa && git worktree prune`), then stop and surface it instead of applying (a left-behind worktree blocks the next run's `git worktree add`). If the plan is clean, apply and then remove the worktree:
+**Review the plan before applying.** A clean control-plane deploy is `0 to add, 3 to change, 0 to destroy` — the `dispatch`/`scheduler`/`task_reaper` Lambdas with only `source_code_hash` changing (or `No changes` if `qa` was already applied — the apply is idempotent, so re-running is safe). Anything beyond that (IAM, security groups, S3, networking) means drift — **remove the worktree first** (`cd "$REPO_DIR" && git worktree remove --force .worktrees/release-cp-qa && git worktree prune`), then stop and surface it instead of applying (a left-behind worktree blocks the next run's `git worktree add`). If the plan is clean, apply and then remove the worktree:
 
-   ```bash
-   cd "$REPO_DIR/.worktrees/release-cp-qa/infrastructure/environments/qa/pmf-engine-control-plane"
-   eval "$(aws configure export-credentials --format env)"
-   terraform apply -input=false tfplan
-   ```
+```bash
+cd "$REPO_DIR/.worktrees/release-cp-qa/infrastructure/environments/qa/pmf-engine-control-plane"
+eval "$(aws configure export-credentials --format env)"
+terraform apply -input=false tfplan
+```
 
-   Then remove the worktree — **always, even if `terraform apply` exited non-zero** (on failure, run this before recording the error; the pre-flight teardown above is the backstop, but don't leave the worktree dangling):
+Then remove the worktree — **always, even if `terraform apply` exited non-zero** (on failure, run this before recording the error; the pre-flight teardown above is the backstop, but don't leave the worktree dangling):
 
-   ```bash
-   cd "$REPO_DIR" && git worktree remove --force .worktrees/release-cp-qa && git worktree prune
-   ```
+```bash
+cd "$REPO_DIR" && git worktree remove --force .worktrees/release-cp-qa && git worktree prune
+```
 
-   Record the result (applied / `No changes` / skipped / failed) for the step 16 report.
+Record the result (applied / `No changes` / skipped / failed) for the step 16 report.
 
-### Phase 3: qa → production (the pending release; run once per repo)
+### Phase 3: qa → production (the pending release)
 
-8. **Open the `qa → $TIP` PR — but do not merge it** (skip this step for the current repo if its develop→qa PR has not merged this run — step 5 couldn't merge it at all, or step 6 ended in `investigate` with auto-merge still pending — **exception: if you arrived here via the step 3 shortcut (`$TIP..qa` was already non-empty), do NOT skip — that is exactly the case this step must handle**). This is the pending production release. First check for an existing open one (same rerunnability concern as step 4):
+8. **Open the `qa → $TIP` PR — but do not merge it** (skip this step if the develop→qa PR has not merged this run — step 5 couldn't merge it at all, or step 6 ended in `investigate` with auto-merge still pending — **exception: if you arrived here via the step 3 shortcut (`$TIP..qa` was already non-empty), do NOT skip — that is exactly the case this step must handle**). This is the pending production release. First check for an existing open one (same rerunnability concern as step 4):
 
    ```bash
    cd "$REPO_DIR"
@@ -292,15 +286,11 @@ This command takes no arguments — the release targets are always `omni` and `g
 
    Capture the PR's URL. Same `cd`-per-block discipline as step 4.
 
-> **Loop checkpoint:** once steps 3–8 have run for both repos, continue to Phase 4 to build the single combined message. Carry forward, per repo: whether it merged this run, whether you arrived at step 8 via the step 3 shortcut (`$TIP..qa` was already non-empty at step 3 — the develop→qa PR did NOT merge this run, but the repo still contributes), its `qa → $TIP` PR URL (if opened), and any investigate/timeout/error state for the step 16 report.
-
 ### Phase 4: Build the #devs-only message
 
-> **A repo contributes to the message only if its develop→qa PR merged this run, OR you arrived at its step 8 via the step 3 shortcut (`$TIP..qa` was already non-empty).** A repo that had nothing to merge, or whose merge did not land this run (step 5 couldn't merge it, or step 6 ended in `investigate`/timeout), contributes nothing — `git log origin/$TIP..origin/qa` would only surface stale commits from a prior cycle, and announcing them is misleading. If **neither** repo contributes, skip this phase and step 15 and go to the step 16 final report.
+> **Build the message only if the develop→qa PR merged this run, OR you arrived at step 8 via the step 3 shortcut (`$TIP..qa` was already non-empty).** If nothing merged this run (step 5 couldn't merge it, or step 6 ended in `investigate`/timeout), `git log origin/$TIP..origin/qa` would only surface stale commits from a prior cycle, and announcing them is misleading — skip this phase and step 15 and go to the step 16 final report.
 
-Run steps 9–13 **per contributing repo**, accumulating results keyed by repo, then format the combined message in step 14.
-
-9. **List the commits being released** for the repo — these are the squash commits between `$TIP` and `qa`. Capture the hash too, since not every subject ends with `(#<n>)`:
+9. **List the commits being released** — these are the squash commits between `$TIP` and `qa`. Capture the hash too, since not every subject ends with `(#<n>)`:
 
    ```bash
    cd "$REPO_DIR"
@@ -341,9 +331,9 @@ Run steps 9–13 **per contributing repo**, accumulating results keyed by repo, 
     - PR head branch name (`headRefName` / `branch` from step 9–10)
     - the subjects of every commit in `$TIP..qa` that maps to this PR (you already have these from step 9's `git log`)
 
-    **Why a prefix set, not just `ENG-`:** omni PRs are almost always `ENG-XXXX`, but gp-ai-projects branches also use `DATA-`, `WEB-`, `CAP-`, and `DT-` prefixes (e.g. `DATA-1261_collin_improvements`, `WEB-4309`). Scanning only `ENG-` would silently drop the ticket for most gp-ai-projects PRs. The enumerated alternation (`ENG|DATA|WEB|CAP|DT`) avoids false positives that a bare `[A-Z]+-\d+` would catch (`UTF-8`, `SHA-256`). If a new prefix shows up, add it to this regex. In the jq one-liner the alternation **must be a non-capturing group** (`(?:…)`): jq's `scan` returns the *captured group* rather than the full match when the group captures, so a capturing `(ENG|…)` would yield `ENG` instead of `ENG-10253` and break every ticket link.
+    **Why a prefix set, not just `ENG-`:** gp-ai-projects branches use `DATA-`, `WEB-`, `CAP-`, and `DT-` prefixes (e.g. `DATA-1261_collin_improvements`, `WEB-4309`) as well as `ENG-`. Scanning only `ENG-` would silently drop the ticket for most PRs. The enumerated alternation (`ENG|DATA|WEB|CAP|DT`) avoids false positives that a bare `[A-Z]+-\d+` would catch (`UTF-8`, `SHA-256`). If a new prefix shows up, add it to this regex. In the jq one-liner the alternation **must be a non-capturing group** (`(?:…)`): jq's `scan` returns the _captured group_ rather than the full match when the group captures, so a capturing `(ENG|…)` would yield `ENG` instead of `ENG-10253` and break every ticket link.
 
-    **Title/body alone is not enough** — in practice the ticket id most often lives only in the branch name (`ENG-10256-persist-primary-result`) or a commit subject (`chore: ENG-10253 overflow`), while the PR title is a generic summary with no tag. Scanning only title/body silently drops the ticket for the majority of PRs. A PR may legitimately yield **zero** tags (a chore/refactor with no ticket anywhere) or **more than one** — both are fine.
+    **Title/body alone is not enough** — in practice the ticket id most often lives only in the branch name (`DATA-1261-persist-primary-result`) or a commit subject (`chore: DATA-1261 overflow`), while the PR title is a generic summary with no tag. Scanning only title/body silently drops the ticket for the majority of PRs. A PR may legitimately yield **zero** tags (a chore/refactor with no ticket anywhere) or **more than one** — both are fine.
 
     Example, per commit, accumulating tags into the PR keyed by `<pr_number>`:
 
@@ -366,24 +356,20 @@ Run steps 9–13 **per contributing repo**, accumulating results keyed by repo, 
 
     Do **not** call `clickup_api.py` here — message 1 shows the PR title plus the ticket link, not the ticket's ClickUp title. (Fetching the ticket title is `/release`'s job for the `#product-releases` notes in message 2.) These links are paste-safe: pasted into Slack as raw URLs they auto-link.
 
-13. **Group the repo's PRs by author** using the map loaded in step 2:
+13. **Group the PRs by author** using the map loaded in step 2:
     - `author.login` → display name via the JSON map, first letter uppercased
     - Unmapped logins → use the raw GitHub username as-is, surface in the final report
 
-14. **Format the single combined message** to match the layout used in `$RELEASE_DEVS_CHANNEL` — one shared header, then a per-repo section (only for contributing repos), and author groups within each repo:
+14. **Format the message** to match the layout used in `$RELEASE_DEVS_CHANNEL` — a header, then author groups:
 
     ```
     Here are the changes that are included in today's pending production release.
 
-    *omni*
+    *gp-ai-projects*
     <Name>:
       •  #<pr_number>: <pr_title> <ticket_link> [<ticket_link2> ...]
       •  ...
 
-    <Name>:
-      •  ...
-
-    *gp-ai-projects*
     <Name>:
       •  ...
     ```
@@ -393,12 +379,11 @@ Run steps 9–13 **per contributing repo**, accumulating results keyed by repo, 
     Each PR line ends with the ClickUp ticket link(s) from step 12 — one per tag, space-separated. A PR with no ticket tag (chore/refactor) gets no link, just the title. Example lines:
 
     ```
-      •  #1704: feat: update domain registrant to a vercel owner https://goodparty.clickup.com/t/90132012119/ENG-7506
       •  #312: feat: stitch braintrust prompt caching https://goodparty.clickup.com/t/90132012119/DATA-1261
       •  #1895: fix: rename useVerisons -> useVersions and add error handling
     ```
 
-    Ordering: repos in the order `omni` then `gp-ai-projects` (omit a repo's section entirely if it contributed nothing this run); within a repo, authors in the order they first appear in that repo's diff (oldest merged PR's author first); PRs/commits under each author in merge order. Include a repo's `*<repo>*` subheading only when it has at least one line. Leave any tag already present in the PR title as-is — don't strip it; the appended link is the canonical reference.
+    Ordering: authors in the order they first appear in the diff (oldest merged PR's author first); PRs/commits under each author in merge order. Leave any tag already present in the PR title as-is — don't strip it; the appended link is the canonical reference.
 
     For step-9 no-PR fallback entries (direct pushes, missing search match), use `<commit_hash[:7]>: <subject>` in place of `#<n>: <title>`; still scan the commit subject for a ticket tag and append its link if found. The user can decide whether to keep or strip these before pasting.
 
@@ -413,41 +398,40 @@ Run steps 9–13 **per contributing repo**, accumulating results keyed by repo, 
     ──────── END ────────
     ```
 
-16. **Final report** — cover both repos, and say which repo each line refers to:
-    - Per repo, if you arrived at step 8 via the step 3 shortcut (`$TIP..qa` was already non-empty — the develop→qa promotion had landed before this run): note that no develop→qa merge was needed this run, and list the `qa → $TIP` PR opened (with URL). Do **not** report this as a merge that happened this run.
-    - Per repo, if auto-merge landed cleanly: develop→qa merged (note "via auto-merge", or "via direct-merge fallback" if step 5's `--auto` wasn't allowed), `qa → $TIP` PR opened — with the open PR URL
-    - Per repo, if merged via admin override (`merge-anyway`): same as above, but call out which check(s) were red and overridden, so the team confirming in `$RELEASE_DEVS_CHANNEL` knows they shipped with a known failure
-    - Per repo, if there were no changes between qa and develop: note it (no PRs opened)
-    - Per repo, if step 6 ended in `investigate` (auto-merge armed but a required check is failing): nothing merged yet. List the develop→qa PR with URL and note "auto-merge is armed — it will merge on its own once the failing check goes green; re-run this command afterward to open the qa→$TIP PR". Name the failing check(s) (from the `gh pr checks` run in step 6).
-    - Per repo, if step 6 hit the ~20-min budget timeout (checks stuck `PENDING`, never `BLOCKED`): nothing merged yet. List the develop→qa PR with URL and note "auto-merge is armed but checks haven't finished — it will merge on its own once they pass; re-run this command afterward to open the qa→$TIP PR". Name the still-`PENDING` check(s), not "failing" ones.
-    - Per repo, if step 5 couldn't merge at all (both `--auto` and the direct-merge fallback failed): list the develop→qa PR with URL and the error, and note "merge could not be enabled — resolve in the GitHub UI (see Troubleshooting), then re-run from step 5"
-    - gp-ai-projects only (Phase 2.5): whether the qa control-plane Terraform was applied (Lambdas updated), reported `No changes` (already current), was skipped (omni / no gp-ai-projects merge this run), or failed (qa build not green, plan showed unexpected drift, or apply error) — note which, since a skip/failure means a control-plane change merged to `qa` is not yet live there.
+16. **Final report:**
+    - If you arrived at step 8 via the step 3 shortcut (`$TIP..qa` was already non-empty — the develop→qa promotion had landed before this run): note that no develop→qa merge was needed this run, and list the `qa → $TIP` PR opened (with URL). Do **not** report this as a merge that happened this run.
+    - If auto-merge landed cleanly: develop→qa merged (note "via auto-merge", or "via direct-merge fallback" if step 5's `--auto` wasn't allowed), `qa → $TIP` PR opened — with the open PR URL
+    - If merged via admin override (`merge-anyway`): same as above, but call out which check(s) were red and overridden, so the team confirming in `$RELEASE_DEVS_CHANNEL` knows they shipped with a known failure
+    - If there were no changes between qa and develop: note it (no PRs opened)
+    - If step 6 ended in `investigate` (auto-merge armed but a required check is failing): nothing merged yet. List the develop→qa PR with URL and note "auto-merge is armed — it will merge on its own once the failing check goes green; re-run this command afterward to open the qa→$TIP PR". Name the failing check(s) (from the `gh pr checks` run in step 6).
+    - If step 6 hit the ~20-min budget timeout (checks stuck `PENDING`, never `BLOCKED`): nothing merged yet. List the develop→qa PR with URL and note "auto-merge is armed but checks haven't finished — it will merge on its own once they pass; re-run this command afterward to open the qa→$TIP PR". Name the still-`PENDING` check(s), not "failing" ones.
+    - If step 5 couldn't merge at all (both `--auto` and the direct-merge fallback failed): list the develop→qa PR with URL and the error, and note "merge could not be enabled — resolve in the GitHub UI (see Troubleshooting), then re-run from step 5"
+    - Phase 2.5: whether the qa control-plane Terraform was applied (Lambdas updated), reported `No changes` (already current), was skipped (no merge this run), or failed (qa build not green, plan showed unexpected drift, or apply error) — note which, since a skip/failure means a control-plane change merged to `qa` is not yet live there.
     - Any unmapped GitHub authors that fell back to raw logins (suggest adding them to `$RELEASE_AUTHOR_MAP`)
     - Any PRs with no ticket tag found in title/body/branch/commits (rendered with no ticket link) — flag so the user can add a ticket reference if one was expected
     - Any commits with no PR backing them (no `(#<n>)` suffix and `gh api .../commits/<hash>/pulls` returned `[]`) — these appeared in the message with a commit-hash placeholder
-    - Suggested next step (only if at least one `qa → $TIP` PR was opened this run): "After the team has confirmed in `$RELEASE_DEVS_CHANNEL`, run `/release` to merge the qa → production PR(s) and post the release notes."
+    - Suggested next step (only if a `qa → $TIP` PR was opened this run): "After the team has confirmed in `$RELEASE_DEVS_CHANNEL`, run `/release` to merge the qa → production PR and post the release notes."
 
 ## Important Notes
 
-- **Two repos: omni and gp-ai-projects.** Both are `develop → qa → <prod tip>`; omni's prod tip is `master`, gp-ai-projects' is `prod`. Loop Phases 2–3 over both; build one combined Phase 4 message. The repos are independent — one with no changes (or a stuck merge) does not block the other.
+- **omni is not prepped here.** omni promotes automatically off `main` via promote-on-green; only gp-ai-projects uses this manual `develop → qa → prod` release.
 - **Do not commit on the user's behalf.** All merges run through `gh pr merge` (acts on the remote PR). Never `git commit` locally.
-- **Auto-merge the develop→qa PR; don't block on checks already passed into develop.** Every included change already passed the repo's required checks into `develop` (for omni, the full E2E suite), so the promotion to `qa` is handed to GitHub via `gh pr merge --auto --merge` rather than a blocking `gh pr checks --watch`. The command only waits (poll on PR `state`) for the merge to actually land, since step 8 diffs against the updated `qa`.
+- **Auto-merge the develop→qa PR; don't block on checks already passed into develop.** Every included change already passed the repo's required checks into `develop`, so the promotion to `qa` is handed to GitHub via `gh pr merge --auto --merge` rather than a blocking `gh pr checks --watch`. The command only waits (poll on PR `state`) for the merge to actually land, since step 8 diffs against the updated `qa`.
 - **`--merge`, not `--squash`.** The merge style is load-bearing — `/release` parses the `qa..$TIP` diff to find included ticket tags. Squashing would collapse them into the parent PR's commit body, making the lookup more fragile.
-- **Skip silent on empty diff.** If a repo's `git log qa..develop` is empty, that's normal — note it in the final report and continue with the other repo.
-- **gp-ai-projects needs a Terraform apply to qa (omni doesn't).** A merge auto-deploys gp-ai-projects' broker + runner, but its `dispatch`/`scheduler`/`task_reaper` Lambdas are zip-packaged by Terraform — Phase 2.5 applies them to `qa` after the build lands. omni has no equivalent step (Vercel + ECS deploy on merge). See the `terraform-deploy` skill in the gp-ai-projects repo.
+- **Skip silent on empty diff.** If `git log qa..develop` is empty, that's normal — note it in the final report.
+- **gp-ai-projects needs a Terraform apply to qa.** A merge auto-deploys the broker + runner, but the `dispatch`/`scheduler`/`task_reaper` Lambdas are zip-packaged by Terraform — Phase 2.5 applies them to `qa` after the build lands. See the `terraform-deploy` skill in the gp-ai-projects repo.
 - **Don't merge the qa → production PR.** This command only opens it. The actual release merge is done by `/release` once the team has confirmed.
 - **`gh` cwd detection.** When `cd`'d into a repo, `gh` resolves owner/repo from the git remote. Don't pass `--repo`.
 
 ## Troubleshooting
 
-| Failure | Fix |
-|---------|-----|
-| `gh pr create` returns "no commits between qa and develop" | Step 3 should have caught this — re-run step 3 for that repo to confirm the diff is empty, then move on. |
-| `gh pr merge --auto` fails ("auto-merge is not allowed") | The repo or `qa` branch doesn't permit auto-merge. Step 5's fallback handles this — run `gh pr merge <pr_number> --merge` directly (the checks already passed into develop). |
-| PR sits `OPEN` and never auto-merges | A required check on `qa` is failing or still running. Check the PR's Checks tab. If a check that already passed into develop is the blocker, it's redundant here — relax the `qa` ruleset so it isn't required, or override a known-good build with `gh pr merge <pr_number> --merge --admin`. |
-| A PR you expected to have a ticket shows no link | No `(ENG\|DATA\|WEB\|CAP\|DT)-\d+` tag was found in its title, body, branch name, or any of its commit subjects. Either the ticket was never referenced (add it to the PR/branch and re-run) or it's a genuine no-ticket chore. If it uses a brand-new prefix, add that prefix to step 11's regex. The link is built from the custom id — there's no API call to fail here. |
-| Ticket link 404s when clicked | `$RELEASE_CLICKUP_TICKET_BASE` is wrong, or `$CLICKUP_TEAM_ID` doesn't match the workspace. The canonical form is `https://<workspace>.clickup.com/t/<team_id>/<TAG>`. Fix the var; no re-fetch needed. |
-| Two PRs reference the same ticket | Expected (e.g., an omni change and a gp-ai-projects change for the same feature). The dev-only message lists both PRs under their respective repos/authors; the ticket is not deduped here — that's `/release`'s job. |
-| Author appears as raw GitHub login | They're not in `$RELEASE_AUTHOR_MAP`. Add them to the JSON and re-run, or edit the printed message before pasting. |
-| `gh pr merge` fails with "Pull request is not mergeable" | Branch protection rule (e.g., required review) is in effect. `--auto` may still be armed and will merge once the rule is satisfied. Resolve in the GitHub UI, then re-run from step 5 — the existing PR is reused and step 6's poll picks up the merge once it lands. |
-| `gh api .../commits/<hash>/pulls` returns `[]` for a commit | No PR was ever opened for that commit (likely a direct push to develop). Step 9's no-PR fallback should have caught this — the entry will appear in the dev-only message with a commit-hash placeholder, and is surfaced in the final report. |
+| Failure                                                     | Fix                                                                                                                                                                                                                                                                                                                                                                         |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gh pr create` returns "no commits between qa and develop"  | Step 3 should have caught this — re-run step 3 to confirm the diff is empty, then move on.                                                                                                                                                                                                                                                                                  |
+| `gh pr merge --auto` fails ("auto-merge is not allowed")    | The repo or `qa` branch doesn't permit auto-merge. Step 5's fallback handles this — run `gh pr merge <pr_number> --merge` directly (the checks already passed into develop).                                                                                                                                                                                                |
+| PR sits `OPEN` and never auto-merges                        | A required check on `qa` is failing or still running. Check the PR's Checks tab. If a check that already passed into develop is the blocker, it's redundant here — relax the `qa` ruleset so it isn't required, or override a known-good build with `gh pr merge <pr_number> --merge --admin`.                                                                              |
+| A PR you expected to have a ticket shows no link            | No `(ENG\|DATA\|WEB\|CAP\|DT)-\d+` tag was found in its title, body, branch name, or any of its commit subjects. Either the ticket was never referenced (add it to the PR/branch and re-run) or it's a genuine no-ticket chore. If it uses a brand-new prefix, add that prefix to step 11's regex. The link is built from the custom id — there's no API call to fail here. |
+| Ticket link 404s when clicked                               | `$RELEASE_CLICKUP_TICKET_BASE` is wrong, or `$CLICKUP_TEAM_ID` doesn't match the workspace. The canonical form is `https://<workspace>.clickup.com/t/<team_id>/<TAG>`. Fix the var; no re-fetch needed.                                                                                                                                                                     |
+| Author appears as raw GitHub login                          | They're not in `$RELEASE_AUTHOR_MAP`. Add them to the JSON and re-run, or edit the printed message before pasting.                                                                                                                                                                                                                                                          |
+| `gh pr merge` fails with "Pull request is not mergeable"    | Branch protection rule (e.g., required review) is in effect. `--auto` may still be armed and will merge once the rule is satisfied. Resolve in the GitHub UI, then re-run from step 5 — the existing PR is reused and step 6's poll picks up the merge once it lands.                                                                                                       |
+| `gh api .../commits/<hash>/pulls` returns `[]` for a commit | No PR was ever opened for that commit (likely a direct push to develop). Step 9's no-PR fallback should have caught this — the entry will appear in the dev-only message with a commit-hash placeholder, and is surfaced in the final report.                                                                                                                               |

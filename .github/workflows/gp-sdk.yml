@@ -2,9 +2,8 @@ name: gp-sdk
 
 on:
   pull_request:
-    branches-ignore: [qa, master]
   push:
-    branches: [develop, qa, master]
+    branches: [main]
 
 permissions:
   contents: read
@@ -28,7 +27,7 @@ jobs:
       - uses: ./.github/actions/setup-node-workspace
         with:
           app: gp-sdk
-          build-contracts: "true"
+          build-contracts: 'true'
 
       - name: Typecheck
         run: npm run typecheck -w ${{ env.WORKSPACE }}
@@ -41,9 +40,3 @@ jobs:
 
       - name: Build SDK
         run: npm run build -w ${{ env.WORKSPACE }}
-
-      - name: Publish note
-        if: github.event_name == 'push' && github.ref_name == 'master'
-        run: |
-          echo "SDK publish is intentionally not enabled in omni yet." >> "$GITHUB_STEP_SUMMARY"
-          echo "Resolve external consumers and npm token naming before enabling it." >> "$GITHUB_STEP_SUMMARY"

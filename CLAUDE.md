@@ -108,9 +108,13 @@ npm workspace graph. npm owns the TS packages; uv owns that subtree.
 
 ## Branches and deploys
 
-`develop -> qa -> master` map to `dev / qa / prod`. Backends deploy via
-Docker/ECR/Pulumi to ECS Fargate; frontends deploy via Vercel with
-deterministic PR-preview aliases. Detail in `docs/deployment.md`. The
+One long-lived branch, `main` (the default branch). Every PR targets `main`;
+pushing to `main` deploys the dev environment and runs full CI. Prod is reached
+only by automated promotion: the `promote.yml` workflow waits for a commit's
+required checks to go green on dev, confirms it is serving there, then deploys the
+same commit to prod. There is no manual promotion and no `qa`/`master` branch.
+Backends deploy via Docker/ECR/Pulumi to ECS Fargate; frontends deploy via Vercel
+with deterministic PR-preview aliases. Detail in `docs/deployment.md`. The
 deployed people-api service (`dev`/`prod` only, no `qa`) no longer has a
 repo package or CI pipeline here — it stays up as a frozen, manually
 decommissioned service until it's torn down.
@@ -142,10 +146,10 @@ When investigating a bug or incident, use the MCP tools rather than guessing.
   `{service_name="gp-api", deployment_environment_name="prod"}`.
 - **Sentry MCP** for frontend errors. Org slug `goodparty`, region
   `https://us.sentry.io`.
-- **Debugging deployed behavior?** Deployed code is whatever is on the remote
-  branch (`develop`→dev, `qa`→qa, `master`→prod), not your local tree — and this
-  checkout is shared, so `HEAD` may be stale. `git fetch origin <branch>` and read
-  `origin/<branch>` before forming any hypothesis.
+- **Debugging deployed behavior?** Deployed code is whatever is on `origin/main`
+  (dev) or, for prod, the last commit automated promotion shipped from `main`. It is
+  not your local tree, and this checkout is shared, so `HEAD` may be stale. `git fetch
+origin main` and read `origin/main` before forming any hypothesis.
 
 Full label reference, example queries, and an incident playbook: `docs/observability.md`.
 
