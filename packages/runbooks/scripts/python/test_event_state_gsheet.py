@@ -190,3 +190,20 @@ def test_main_refresh_gaps_skips_on_corrupt_state(monkeypatch, tmp_path, capsys)
     rc = gs.main(["refresh-gaps", "--spreadsheet-id", "SID", "--state", str(state_file)])
     assert rc == 0
     assert "skipping" in capsys.readouterr().err.lower()
+
+
+def test_build_meta_values_includes_refresh_and_clickup():
+    meta = {"refreshed_at": "2026-08-03T12:00:00", "event_count": 472,
+            "provenance_path": "/x/prov.csv"}
+    rows = gs.build_meta_values(meta, clickup_url="https://app.clickup.com/t/abc")
+    flat = {r[0]: r[1] for r in rows[1:]}
+    assert flat["last_refreshed"] == "2026-08-03T12:00:00"
+    assert flat["event_count"] == "472"
+    assert flat["clickup_page"] == "https://app.clickup.com/t/abc"
+
+
+def test_build_meta_values_omits_clickup_when_absent():
+    rows = gs.build_meta_values({"refreshed_at": "2026-08-03T12:00:00"}, clickup_url=None)
+    keys = {r[0] for r in rows}
+    assert "clickup_page" not in keys
+    assert ["last_refreshed", "2026-08-03T12:00:00"] in rows
