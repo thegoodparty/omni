@@ -39,7 +39,7 @@ const mintToken = async (): Promise<string> => {
     publishableKey: requireEnv('CLERK_PUBLISHABLE_KEY'),
   })
   // Mint with the caller machine secret (gp-admin's GP_PROD_MACHINE_SECRET),
-  // not gp-api's GP_WEBAPP_MACHINE_SECRET. gp-api verifies as the recipient,
+  // not gp-api's GP_API_MACHINE_SECRET. gp-api verifies as the recipient,
   // so the token must be issued by a machine connected to it in Clerk.
   const minted = await clerk.m2m.createToken({
     machineSecretKey: requireEnv('GP_PROD_MACHINE_SECRET'),
