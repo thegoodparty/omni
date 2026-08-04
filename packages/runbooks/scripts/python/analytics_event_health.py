@@ -356,6 +356,7 @@ def propose_watchlist_additions(
     watchlist_events: Iterable[str],
     today: date,
     window_days: int = PROPOSAL_WINDOW_DAYS,
+    dismissed_events: Iterable[str] = (),
 ) -> list[dict]:
     """Self-healing watchlist: events worth adding to the curated list.
 
@@ -372,6 +373,7 @@ def propose_watchlist_additions(
     """
     watched_families = set(watched_families)
     watchlist_events = set(watchlist_events)
+    dismissed_events = set(dismissed_events)
     cutoff = today - timedelta(days=window_days)
     out: list[dict] = []
     for row in catalog:
@@ -379,6 +381,8 @@ def propose_watchlist_additions(
         family = row["family"]
         if family not in watched_families or event_type in watchlist_events:
             continue
+        if event_type in dismissed_events:
+            continue  # human dismissed this proposal — stop the 90-day re-nag (DATA-2152)
         if is_system(family, event_type):
             continue
         if int(row.get("event_count_30d") or 0) <= 0:
@@ -671,14 +675,17 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
 # --- IO + CLI -----------------------------------------------------------------
 
 
-def load_watchlist(path: Path = WATCHLIST) -> tuple[list[str], list[str]]:
-    """Read ``monitored_events.yaml`` -> ``(watched_families, watchlist_event_names)``."""
+def load_watchlist(path: Path = WATCHLIST) -> tuple[list[str], list[str], list[str]]:
+    """Read ``monitored_events.yaml`` -> ``(watched_families, watchlist_event_names,
+    dismissed_event_names)``. ``dismissed`` are proposals a human rejected (DATA-2152);
+    the proposal queue skips them so they stop re-appearing for their 90-day window."""
     if not path.exists():
-        return [], []
+        return [], [], []
     doc = yaml.safe_load(path.read_text()) or {}
     families = doc.get("watched_families", []) or []
     events = [row["event"] for row in (doc.get("events", []) or []) if row.get("event")]
-    return families, events
+    dismissed = [row["event"] for row in (doc.get("dismissed", []) or []) if row.get("event")]
+    return families, events, dismissed
 
 
 def load_code_axis(csv_path: Path = CODE_CSV) -> dict[str, dict]:
@@ -747,7 +754,7 @@ def run_monitor(
     catalog = fetch_catalog(run_query)
     weekly = fetch_weekly(run_query)
     code = load_code_axis(csv_path)
-    watched_families, watchlist_events = load_watchlist(watchlist_path)
+    watched_families, watchlist_events, _dismissed_events = load_watchlist(watchlist_path)
     result = reconcile(catalog, weekly, code, today, watchlist_events, watched_families)
     changes = diff_flagged(result["flagged"], load_prior_state(state_path))
     return result, changes

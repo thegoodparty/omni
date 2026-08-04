@@ -371,6 +371,23 @@ def test_propose_watchlist_additions():
     assert proposals[0]["family"] == "win_onboarding"
 
 
+def test_propose_skips_dismissed_events():
+    today = date(2026, 8, 3)
+    catalog = [
+        {"event_type": "Kept Proposal", "family": "win_onboarding",
+         "event_count_30d": 10, "first_seen_date": "2026-07-20", "last_seen_date": "2026-08-01"},
+        {"event_type": "Rejected Proposal", "family": "win_onboarding",
+         "event_count_30d": 10, "first_seen_date": "2026-07-20", "last_seen_date": "2026-08-01"},
+    ]
+    out = eh.propose_watchlist_additions(
+        catalog, code={}, watched_families=["win_onboarding"],
+        watchlist_events=[], today=today, dismissed_events=["Rejected Proposal"],
+    )
+    names = {p["event_type"] for p in out}
+    assert "Kept Proposal" in names
+    assert "Rejected Proposal" not in names
+
+
 # --- reconcile (end-to-end over fixtures) ------------------------------------
 
 
@@ -653,6 +670,22 @@ def test_load_prior_anomalous_reads_valid_list(tmp_path):
     p = tmp_path / "state.json"
     p.write_text('{"run_date": "2026-06-29", "anomalous": ["B", "C"]}')
     assert eh.load_prior_anomalous(p) == {"B", "C"}
+
+
+# --- load_watchlist ----------------------------------------------------------
+
+
+def test_load_watchlist_reads_dismissed(tmp_path):
+    p = tmp_path / "mon.yaml"
+    p.write_text(
+        "watched_families: [win_onboarding]\n"
+        'events:\n  - {event: "Sign Up Clicked", product: win, family: win_onboarding}\n'
+        'dismissed:\n  - {event: "Noise Event", reason: "UI micro-interaction", date: "2026-08-03"}\n'
+    )
+    families, events, dismissed = eh.load_watchlist(p)
+    assert families == ["win_onboarding"]
+    assert events == ["Sign Up Clicked"]
+    assert dismissed == ["Noise Event"]
 
 
 # --- prepend_log -------------------------------------------------------------
