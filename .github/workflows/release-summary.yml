@@ -1,0 +1,65 @@
+name: Daily release summary
+
+# Posts a "shipped to prod" summary to #product-releases once a day at
+# 08:00 America/New_York. GitHub cron is UTC and has no DST, so we fire at both
+# 12:00 UTC (08:00 EDT) and 13:00 UTC (08:00 EST) and gate to the one that is
+# actually 08:00 in New York — exactly one run per day year-round.
+
+on:
+  schedule:
+    - cron: '0 12 * * *' # 08:00 EDT
+    - cron: '0 13 * * *' # 08:00 EST
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pull-requests: read # gh pr list; specifying any scope drops the rest to none
+
+concurrency:
+  group: release-summary
+  cancel-in-progress: false
+
+jobs:
+  post:
+    name: Post release summary
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gate to 08:00 America/New_York
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            hour=$(TZ=America/New_York date +%H)
+            if [ "$hour" != "08" ]; then
+              echo "::notice::$hour:00 America/New_York is not 08:00; skipping."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - uses: actions/checkout@v5
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        if: steps.gate.outputs.skip != 'true'
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: latest
+
+      - name: Install runtime deps
+        if: steps.gate.outputs.skip != 'true'
+        working-directory: packages/runbooks/scripts/python
+        run: uv sync --frozen
+
+      - name: Post release summary
+        if: steps.gate.outputs.skip != 'true'
+        working-directory: packages/runbooks/scripts/python
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
+          CLICKUP_TEAM_ID: ${{ vars.CLICKUP_TEAM_ID }}
+          RELEASE_PRODUCT_CHANNEL: ${{ vars.RELEASE_PRODUCT_CHANNEL }}
+        run: uv run python post_release_summary.py
