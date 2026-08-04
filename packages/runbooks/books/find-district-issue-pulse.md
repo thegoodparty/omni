@@ -14,7 +14,7 @@ This is the source runbook — it captures the human-runnable version of the wor
 The voter file lives at `goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq`. Three rules that bite people every time:
 
 1. `Voters_Active = 'A'` (string, not int)
-2. `hs_*` columns are CONTINUOUS 0-100 SCORES regardless of name suffix (`_yes`, `_treat`, `_oppose`, etc.). Threshold with `>= 50` for moderate support.
+2. `hs_*` columns are CONTINUOUS 0-100 SCORES regardless of name suffix (`_yes`, `_treat`, `_oppose`, etc.). Threshold with `>= 50` for moderate support. Scores are within-state percentile ranks (mean ~50, SD ~29, verified on the mart 2026-08-04): a voter scoring 60 is more aligned than ~60% of voters in their state. A district average near 50, or ~50% of voters clearing a `>= 50` threshold, means "typical for the state" — NOT a 50/50 opinion split and NOT absolute issue support. Report leans as deviation from the state average, never as "X% of voters support Y".
 3. The L2 district column is the VALUE of `PARAMS.l2DistrictType` (e.g. `City_Ward`), and the value to match is `PARAMS.l2DistrictName` (e.g. `FAYETTEVILLE CITY WARD 2`). Confirm the district exists in the canonical election-api table before you query — guessed names match zero rows and you measure the whole city by accident.
 
 ## Steps

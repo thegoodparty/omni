@@ -49,7 +49,7 @@ issueKeyword   — short phrase, e.g. "affordable housing", "minimum wage", "abo
 
 ### 1. Find the matching `hs_*` column
 
-The L2 + Haystaq join carries hundreds of `hs_*` columns. Each is a 0-100 alignment score on a specific issue (NOT a binary flag despite suffixes like `_yes`, `_support`, `_oppose`). Pick ONE column whose name semantically matches `issueKeyword`.
+The L2 + Haystaq join carries hundreds of `hs_*` columns. Each is a 0-100 alignment score on a specific issue (NOT a binary flag despite suffixes like `_yes`, `_support`, `_oppose`). Pick ONE column whose name semantically matches `issueKeyword`. Scores are within-state percentile ranks (mean ~50, SD ~29, verified on the mart 2026-08-04): a voter scoring 60 is more aligned than ~60% of voters in their state. A district average near 50, or ~50% of voters clearing a `>= 50` threshold, means "typical for the state" — NOT a 50/50 opinion split and NOT absolute issue support. Report leans as deviation from the state average, never as "X% of voters support Y". Name output fields accordingly: `aligned_voter_percentage` means the share of active district voters scoring above the state median on this issue, not absolute issue support — carry that definition into any consumer-facing copy.
 
 ```bash
 cd ~/work/runbooks/scripts/python

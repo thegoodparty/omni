@@ -27,7 +27,7 @@ All tables live in `goodparty_data_catalog.dbt`. Replace `{state}` with lowercas
 | Table | What's in it |
 |-------|--------------|
 | `stg_dbt_source__l2_s3_{state}_uniform` | Voter demographics (name, age, address, party, registration) |
-| `stg_dbt_source__l2_s3_{state}_haystaq_dna_scores` | Predictive scores (0-100) for ~300 issue/behavioral dimensions |
+| `stg_dbt_source__l2_s3_{state}_haystaq_dna_scores` | Predictive scores (0-100, within-state percentile ranks) for ~300 issue/behavioral dimensions |
 | `stg_dbt_source__l2_s3_{state}_haystaq_dna_flags` | Binary flags (Yes/No) |
 
 **Join key across all three:** `LALVOTERID`
@@ -124,6 +124,7 @@ print(flags_t[flags_t['value'] == 'Yes'].to_string())
 ## Tips
 
 - Scores are 0-100. Higher = stronger signal for that attribute.
+- Scores are within-state percentile ranks (mean ~50, SD ~29, verified on the mart 2026-08-04): a voter scoring 60 is more aligned than ~60% of voters in their state. A district average near 50, or ~50% of voters clearing a `>= 50` threshold, means "typical for the state" — NOT a 50/50 opinion split and NOT absolute issue support. Report leans as deviation from the state average, never as "X% of voters support Y".
 - ~300 score columns per voter. Use `SELECT * ... LIMIT 1` to explore column names.
 - Filter by city: `WHERE UPPER(Residence_Addresses_City) = "CITYNAME"`
 - Filter by zip: `WHERE Residence_Addresses_Zip LIKE "28801%"`
