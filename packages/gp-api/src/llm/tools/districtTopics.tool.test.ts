@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { HS_SCORE_SEMANTICS } from './hsScoreSemantics'
 import {
   buildDistrictTopicsTool,
   DISTRICT_TOPICS_CATALOG,
@@ -97,5 +98,29 @@ describe('buildDistrictTopicsTool', () => {
     expect(all.availableTopics).toEqual(
       expect.arrayContaining(Object.keys(DISTRICT_TOPICS_CATALOG)),
     )
+  })
+})
+
+describe('off-center baseline marker coupling', () => {
+  // The EXCEPTION rule in HS_SCORE_SEMANTICS keys on the literal marker text
+  // carried by annotated catalog meanings — the two must quote the same string.
+  const OFFCENTER_MARKER = 'not centered at 50'
+  const COVERAGE_MARKER = 'limited coverage'
+
+  it('quotes both markers in the score semantics', () => {
+    expect(HS_SCORE_SEMANTICS).toContain(OFFCENTER_MARKER)
+    expect(HS_SCORE_SEMANTICS).toContain(COVERAGE_MARKER)
+  })
+
+  it('carries the off-center marker on a known shifted-baseline column', () => {
+    const housing = DISTRICT_TOPICS_CATALOG.housing
+    const col = housing.columns.find((c) => c.name === 'hs_new_home_buyer')
+    expect(col?.meaning).toContain(OFFCENTER_MARKER)
+  })
+
+  it('carries the coverage marker on a known vintage-limited column', () => {
+    const all = Object.values(DISTRICT_TOPICS_CATALOG).flatMap((t) => t.columns)
+    const marked = all.filter((c) => c.meaning.includes(COVERAGE_MARKER))
+    expect(marked.length).toBeGreaterThan(0)
   })
 })

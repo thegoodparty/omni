@@ -297,6 +297,8 @@ describe('buildSystemPrompt', () => {
       expect(out).toContain('DISTRICT INSIGHTS RULES')
       expect(out).toContain('Never report a specific count below 100')
       expect(out).toContain('Never echo SQL')
+      expect(out).toContain('RELATIVE TO THE STATE AVERAGE')
+      expect(out).toContain('never invent an explanation')
     })
 
     it('omits the rules block when district_insights is NOT available', () => {

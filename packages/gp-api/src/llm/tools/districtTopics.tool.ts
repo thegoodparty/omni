@@ -11,6 +11,10 @@ export interface CatalogTopic {
   columns: CatalogColumn[]
 }
 
+// Source each `meaning` from the column-documentation seed in gp-data-platform
+// (seeds/l2_column_classification.csv) rather than paraphrasing the column
+// name. Scale/threshold framing lives in HS_SCORE_SEMANTICS — keep `meaning`
+// strings to the stance itself, no scale text.
 export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
   housing: {
     description:
@@ -26,8 +30,16 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       },
       { name: 'hs_gentrification_support', meaning: 'supports gentrification' },
       { name: 'hs_gentrification_oppose', meaning: 'opposes gentrification' },
-      { name: 'hs_new_home_buyer', meaning: 'recently bought a home' },
-      { name: 'hs_any_home_buyer', meaning: 'has ever bought a home' },
+      {
+        name: 'hs_new_home_buyer',
+        meaning:
+          'recently bought a home (not centered at 50 — statewide baseline is about 60; read leans against that baseline)',
+      },
+      {
+        name: 'hs_any_home_buyer',
+        meaning:
+          'has ever bought a home (not centered at 50 — statewide baseline is about 60; read leans against that baseline)',
+      },
     ],
   },
   taxes: {
@@ -39,19 +51,23 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       { name: 'hs_gas_tax_oppose', meaning: 'opposes the gas tax' },
       {
         name: 'hs_social_security_tax_increase_support',
-        meaning: 'supports raising social security taxes',
+        meaning:
+          'supports raising social security taxes (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_social_security_tax_increase_oppose',
-        meaning: 'opposes raising social security taxes',
+        meaning:
+          'opposes raising social security taxes (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_min_wage_15_increase_support',
-        meaning: 'supports raising min wage to $15',
+        meaning:
+          'supports raising min wage to $15 (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_min_wage_15_increase_oppose',
-        meaning: 'opposes raising min wage to $15',
+        meaning:
+          'opposes raising min wage to $15 (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_ideology_fiscal_conserv',
@@ -95,11 +111,13 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       },
       {
         name: 'hs_community_college_free_support',
-        meaning: 'supports free community college',
+        meaning:
+          'supports free community college (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_community_college_free_oppose',
-        meaning: 'opposes free community college',
+        meaning:
+          'opposes free community college (limited coverage: data exists in only 12 states; null elsewhere)',
       },
     ],
   },
@@ -131,19 +149,23 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       { name: 'hs_obamacare_aca_oppose', meaning: 'opposes the ACA' },
       {
         name: 'hs_family_medical_leave_support',
-        meaning: 'supports paid family/medical leave',
+        meaning:
+          'supports paid family/medical leave (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_family_medical_leave_oppose',
-        meaning: 'opposes paid family/medical leave',
+        meaning:
+          'opposes paid family/medical leave (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_opioid_crisis_treat',
-        meaning: 'treats opioid crisis as a health issue',
+        meaning:
+          'treats opioid crisis as a health issue (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_opioid_crisis_enforce',
-        meaning: 'treats opioid crisis as a law-enforcement issue',
+        meaning:
+          'treats opioid crisis as a law-enforcement issue (limited coverage: data exists in only 12 states; null elsewhere)',
       },
     ],
   },
@@ -190,11 +212,13 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       },
       {
         name: 'hs_sell_federal_lands_support',
-        meaning: 'supports selling federal lands',
+        meaning:
+          'supports selling federal lands (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_sell_federal_lands_oppose',
-        meaning: 'opposes selling federal lands',
+        meaning:
+          'opposes selling federal lands (limited coverage: data exists in only 12 states; null elsewhere)',
       },
     ],
   },
@@ -203,21 +227,25 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
     columns: [
       {
         name: 'hs_mass_deporations_support',
-        meaning: 'supports mass deportations',
+        meaning:
+          'supports mass deportations (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_mass_deporations_oppose',
-        meaning: 'opposes mass deportations',
+        meaning:
+          'opposes mass deportations (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       { name: 'hs_mexican_wall_support', meaning: 'supports a border wall' },
       { name: 'hs_mexican_wall_oppose', meaning: 'opposes a border wall' },
       {
         name: 'hs_immigration_process_unfair',
-        meaning: 'sees the immigration process as unfair',
+        meaning:
+          'sees the immigration process as unfair (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_immigration_undesirable',
-        meaning: 'sees more immigration as undesirable',
+        meaning:
+          'sees more immigration as undesirable (limited coverage: data exists in only 12 states; null elsewhere)',
       },
     ],
   },
@@ -227,7 +255,8 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
     columns: [
       {
         name: 'hs_violent_crime_very_worried',
-        meaning: 'very worried about violent crime',
+        meaning:
+          'very worried about violent crime (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_violent_crime_not_worried',
@@ -331,7 +360,8 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       },
       {
         name: 'hs_likely_polling_turnout',
-        meaning: 'likely to physically show up at a polling place',
+        meaning:
+          'likely to physically show up at a polling place (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_likely_ev',
@@ -402,7 +432,8 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       { name: 'hs_tribalism_team_gop', meaning: 'team-Republican tribalism' },
       {
         name: 'hs_tribalism_open_minded',
-        meaning: 'open-minded, low partisan tribalism',
+        meaning:
+          'open-minded, low partisan tribalism (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_ticket_splitter_yes',
@@ -420,11 +451,13 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
     columns: [
       {
         name: 'hs_trust_science_always',
-        meaning: 'always or usually trusts scientific consensus',
+        meaning:
+          'always or usually trusts scientific consensus (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_trust_science_rarely',
-        meaning: 'rarely trusts scientific consensus',
+        meaning:
+          'rarely trusts scientific consensus (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_voting_fraud_concern_fraud',
@@ -432,7 +465,8 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       },
       {
         name: 'hs_voting_fraud_concern_oppression',
-        meaning: 'concerned about voter suppression',
+        meaning:
+          'concerned about voter suppression (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_view_of_opposition_dangerous',
@@ -448,11 +482,13 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       },
       {
         name: 'hs_conspiracy_believer',
-        meaning: 'leans toward conspiracy theories',
+        meaning:
+          'leans toward conspiracy theories (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_conspiracy_nonbeliever',
-        meaning: 'rejects conspiracy theories',
+        meaning:
+          'rejects conspiracy theories (limited coverage: data exists in only 12 states; null elsewhere)',
       },
     ],
   },
@@ -461,15 +497,18 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
     columns: [
       {
         name: 'hs_tv_most_trusted_news_fox',
-        meaning: 'trusts Fox most for TV news',
+        meaning:
+          'trusts Fox most for TV news (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_tv_most_trusted_news_cnn',
-        meaning: 'trusts CNN most for TV news',
+        meaning:
+          'trusts CNN most for TV news (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_tv_most_trusted_news_msnbc',
-        meaning: 'trusts MSNBC most for TV news',
+        meaning:
+          'trusts MSNBC most for TV news (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_tv_viewer_watch_any_tv',
@@ -481,7 +520,8 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       },
       {
         name: 'hs_social_media_user',
-        meaning: 'active social media user',
+        meaning:
+          'active social media user (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_social_media_user_no_or_infrequent',
