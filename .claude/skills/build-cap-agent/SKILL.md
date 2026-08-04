@@ -558,8 +558,8 @@ The script validates every manifest, uploads per-experiment files, then writes
 `index.json` LAST (atomic switch). If validation fails, S3 is untouched. New
 dispatches see the new bytes within ~60s (Lambda's `index.json` TTL cache).
 
-> **`develop` CI clobbers dev.** The dev `index.json` and broker-dev track the
-> `develop` branch. If a `develop` build runs after your manual publish, it
+> **`main` CI clobbers dev.** The dev `index.json` and broker-dev track the
+> `main` branch. If a `main` build runs after your manual publish, it
 > re-publishes and reverts your eng-branch changes. After dispatching from an eng
 > branch, re-check your entry is present
 > (`AWS_PROFILE=work aws s3 cp s3://agent-experiment-metadata-dev/index.json -`) and
@@ -680,7 +680,7 @@ with the relevant subset of these:
 | Run hangs ~30s+ on a URL / agent uses `urllib`/`curl`    | Quarantined network; direct egress fails                                          | Hand the agent the literal `pmf_runtime.http.head/get/download` call                         |
 | Runner: `No artifact files found in /workspace/output`   | Agent ran out of turns or never wrote the file                                    | Increase `max_turns`; tighten the instruction; remove discovery steps                        |
 | `contract_violation` after the agent claimed success     | Validator caught a missing/wrong-typed field                                      | Add an explicit `python3 /workspace/validate_output.py` step BEFORE declaring success        |
-| Your instruction/manifest change had no effect           | Didn't republish, or a `develop` build clobbered it                               | Re-run `publish_experiments.py --env=dev`; confirm the entry in `index.json`                 |
+| Your instruction/manifest change had no effect           | Didn't republish, or a `main` build clobbered it                               | Re-run `publish_experiments.py --env=dev`; confirm the entry in `index.json`                 |
 
 ## See also
 

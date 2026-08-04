@@ -22,7 +22,7 @@ approved and the full set of checks green, all on the same commit.
 
 Repo conventions this skill enforces (from the root `CLAUDE.md`): PR bodies explain
 **why**, not what; **no** "test plan" section; **no** `Co-Authored-By: Claude` and
-no "Created by Claude" footers. **PRs always target `develop`.**
+no "Created by Claude" footers. **PRs always target `main`.**
 
 ## Pre-flight checks (how to verify)
 
@@ -31,7 +31,7 @@ package's CI and waste a delegate round.
 
 **How to verify is documented in each package's `CLAUDE.md`** (its "Verify"
 section). Find the package(s) the diff touches
-(`git diff --name-only origin/develop...HEAD`), open the relevant
+(`git diff --name-only origin/main...HEAD`), open the relevant
 `packages/<dir>/CLAUDE.md`, and run the verification steps it lists. There is no
 single universal command — gp-api has `npm run verify`; others document their own
 lint / type-check / test / build steps.
@@ -43,12 +43,12 @@ always resolves.
 
 ## Phase 1 — open the PR (fully auto)
 
-1. **Branch first if needed.** If you're on `develop`, create a feature branch
+1. **Branch first if needed.** If you're on `main`, create a feature branch
    (`git checkout -b <name>`, short kebab-case from the change) before committing.
-   Never commit directly to `develop`.
+   Never commit directly to `main`.
 
 2. **Run pre-flight checks on the touched package(s)** (see "Pre-flight checks"
-   above). Find them with `git diff --name-only origin/develop...HEAD`.
+   above). Find them with `git diff --name-only origin/main...HEAD`.
    - **Pass** → continue.
    - **Fail** → STOP. Show exactly what failed, then ask the user: fix it now, or
      open anyway (escape hatch for pre-existing or unrelated failures). Do not
@@ -58,7 +58,7 @@ always resolves.
    on a resume against an existing PR, run it before entering Phase 2.
    - If the branch already has an open PR (`gh pr view --json number,url`), don't
      recreate it; go straight to Phase 2 against it.
-   - Otherwise push the branch and `gh pr create --base develop`. Write a
+   - Otherwise push the branch and `gh pr create --base main`. Write a
      **why-focused** body (the motivation and the tradeoff, not a file-by-file
      recap). Omit any test-plan section and any AI-authorship footer.
 
@@ -167,7 +167,7 @@ re-triggers them. Anchor on HEAD, the same as delegate.
        configured `BASE_URL` + Clerk test stack against a real API — see
        `packages/gp-webapp/e2e-tests/CLAUDE.md`).
      - **Flaky, pre-existing, or infra** (a failure unrelated to your diff and
-       present on `develop`, a deploy failure, an auth stack outage) → **escalate**,
+       present on `main`, a deploy failure, an auth stack outage) → **escalate**,
        don't churn. Hand back the failing check with your evidence; a single re-run
        for a suspected flake is fine, blind re-pushing is not.
 

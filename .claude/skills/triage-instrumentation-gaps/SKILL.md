@@ -1,6 +1,6 @@
 ---
 name: triage-instrumentation-gaps
-description: Run the weekly instrumentation-governance review over two queues — instrumentation gaps (instrumentation_gaps.py) and watchlist proposals (analytics_event_health.py) — entered from the Slack governance digest, ending in one PR against develop. Use when the user says "triage instrumentation gaps", "/triage-instrumentation-gaps", "review the watchlist proposals", or picks up the digest's triage line.
+description: Run the weekly instrumentation-governance review over two queues — instrumentation gaps (instrumentation_gaps.py) and watchlist proposals (analytics_event_health.py) — entered from the Slack governance digest, ending in one PR against main. Use when the user says "triage instrumentation gaps", "/triage-instrumentation-gaps", "review the watchlist proposals", or picks up the digest's triage line.
 ---
 
 # Triage instrumentation gaps
@@ -282,7 +282,7 @@ Once both queues are dispositioned:
    `packages/runbooks/scripts/python/instrumentation_data/` /
    `packages/runbooks/scripts/python/`.
 2. Stage exactly those files.
-3. Invoke the **`ship-pr`** skill to open one PR against `develop`. Title it for the
+3. Invoke the **`ship-pr`** skill to open one PR against `main`. Title it for the
    run, e.g. `chore(governance): triage <run_date> — gap + watchlist review`. In the
    body, list:
    - Queue A: which gap ids were ticketed (with ClickUp links), which were handed to
