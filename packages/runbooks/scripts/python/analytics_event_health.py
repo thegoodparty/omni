@@ -382,7 +382,7 @@ def propose_watchlist_additions(
         if family not in watched_families or event_type in watchlist_events:
             continue
         if event_type in dismissed_events:
-            continue  # human dismissed this proposal — stop the 90-day re-nag (DATA-2152)
+            continue  # human dismissed this proposal — never re-propose it (DATA-2152)
         if is_system(family, event_type):
             continue
         if int(row.get("event_count_30d") or 0) <= 0:
@@ -698,7 +698,8 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
 def load_watchlist(path: Path = WATCHLIST) -> tuple[list[str], list[str], list[str]]:
     """Read ``monitored_events.yaml`` -> ``(watched_families, watchlist_event_names,
     dismissed_event_names)``. ``dismissed`` are proposals a human rejected (DATA-2152);
-    the proposal queue skips them so they stop re-appearing for their 90-day window."""
+    the proposal queue skips them permanently so a rejected event never re-proposes (the
+    per-row ``date`` is an informational audit note, not a suppression expiry)."""
     if not path.exists():
         return [], [], []
     doc = yaml.safe_load(path.read_text()) or {}

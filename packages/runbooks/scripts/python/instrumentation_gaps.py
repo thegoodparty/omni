@@ -867,6 +867,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     repo_root = args.repo or Path(os.environ.get("OMNI_REPO", REPO_ROOT))
     today = datetime.strptime(args.today, "%Y-%m-%d").date() if args.today else date.today()
 
+    # Each of these flags selects a distinct one-shot action; supplying more than one is a
+    # usage error. Guard before the individual branches (which each return early) so every
+    # conflicting pair is caught — not just --load-seed/--load-review.
+    set_actions = [
+        name
+        for name, val in (
+            ("--list-new", args.list_new),
+            ("--review-artifact", args.review_artifact),
+            ("--load-seed", args.load_seed),
+            ("--load-review", args.load_review),
+            ("--seed", args.seed),
+        )
+        if val
+    ]
+    if len(set_actions) > 1:
+        print(
+            f"gap-sweep: {', '.join(set_actions)} are mutually exclusive; pass only one.",
+            file=sys.stderr,
+        )
+        return 1
+
     if args.list_new:
         # Read-only: never scans or judges.
         try:
@@ -897,13 +918,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"wrote review artifact for {today.isoformat()} to {args.review_artifact}", file=sys.stderr)
         return 0
 
-    if args.load_seed and args.load_review:
-        print(
-            "gap-sweep: --load-seed and --load-review are mutually exclusive; "
-            "pass only one.",
-            file=sys.stderr,
-        )
-        return 1
     load_path = args.load_seed or args.load_review
     if load_path:
         # Dedicated round-trip branch: no scan, no judgment — just apply a reviewer's

@@ -982,6 +982,36 @@ def test_cli_list_new_skips_on_corrupt_state(tmp_path, capsys):
     assert "unreadable" in err or "corrupt" in err.lower()
 
 
+def test_cli_review_artifact_writes_this_run_batch(tmp_path):
+    state_path = tmp_path / "gaps.json"
+    state_path.write_text(json.dumps({
+        "a": {"id": "a", "disposition": "new", "first_seen": "2026-08-03", "rank": 1,
+              "surface_type": "route", "location": "app/x/page.tsx"},
+        "old": {"id": "old", "disposition": "new", "first_seen": "2026-07-01", "rank": 1},
+    }))
+    out = tmp_path / "review.md"
+
+    rc = ig.main(["--state", str(state_path), "--today", "2026-08-03",
+                  "--review-artifact", str(out)])
+
+    assert rc == 0
+    text = out.read_text()
+    assert "## a" in text and "## old" not in text        # only this run's batch
+    assert "- disposition:" in text                        # fillable review artifact
+
+
+def test_cli_review_artifact_and_load_seed_are_mutually_exclusive(tmp_path, capsys):
+    out = tmp_path / "review.md"
+    seed = tmp_path / "seed.md"
+    seed.write_text("# seed\n")
+
+    rc = ig.main(["--review-artifact", str(out), "--load-seed", str(seed)])
+
+    assert rc == 1                                         # caught before the early return
+    assert "mutually exclusive" in capsys.readouterr().err
+    assert not out.exists()                                # no artifact written
+
+
 def test_stamp_gap_and_is_actioned():
     state = {"a": {"id": "a", "disposition": "accepted"}}
     ig.stamp_gap(state, "a", ticket_url="https://clickup.com/t/DATA-9999", actioned_at="2026-08-03")

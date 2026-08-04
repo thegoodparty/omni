@@ -207,3 +207,33 @@ def test_build_meta_values_omits_clickup_when_absent():
     keys = {r[0] for r in rows}
     assert "clickup_page" not in keys
     assert ["last_refreshed", "2026-08-03T12:00:00"] in rows
+
+
+def test_write_meta_sheet_updates_then_clears_and_returns_count():
+    svc = _FakeService()
+    meta = {"refreshed_at": "2026-08-03T12:00:00", "event_count": 2,
+            "provenance_path": "/x/prov.csv"}
+    n = gs.write_meta_sheet(
+        meta, service=svc, spreadsheet_id="sheet1",
+        clickup_url="https://app.clickup.com/t/abc",
+    )
+    kinds = [k for k, _ in svc.log]
+    assert kinds == ["update", "clear"]              # update before clear, never empty
+    update_kw = svc.log[0][1]
+    assert update_kw["spreadsheetId"] == "sheet1"
+    assert update_kw["range"] == f"{gs.META_TAB}!A1"
+    assert update_kw["valueInputOption"] == "RAW"
+    values = update_kw["body"]["values"]
+    assert values[0] == ["key", "value"]
+    flat = {r[0]: r[1] for r in values[1:]}
+    assert flat["last_refreshed"] == "2026-08-03T12:00:00"
+    assert flat["clickup_page"] == "https://app.clickup.com/t/abc"
+    assert n == len(values) - 1                       # data-row count excludes header
+    clear_kw = svc.log[1][1]
+    assert clear_kw["range"] == f"{gs.META_TAB}!A{len(values) + 1}:ZZ"
+
+
+def test_write_meta_sheet_default_tab_is_META_TAB():
+    svc = _FakeService()
+    gs.write_meta_sheet({"refreshed_at": "x"}, service=svc, spreadsheet_id="s")
+    assert svc.log[0][1]["range"] == f"{gs.META_TAB}!A1"
