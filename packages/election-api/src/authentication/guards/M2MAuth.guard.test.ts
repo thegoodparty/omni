@@ -89,6 +89,19 @@ describe('M2MAuthGuard', () => {
     expect(logger.warn).toHaveBeenCalled()
   })
 
+  it('allows (observe-only) a present but invalid token when enforcement is off', async () => {
+    // The primary path during rollout: real callers send tokens that fail
+    // verification, and the guard must still let them through while warning.
+    process.env.ELECTION_API_AUTH_ENFORCED = 'false'
+    const verify = vi.fn().mockRejectedValue(new Error('invalid token'))
+    const { guard, logger } = makeGuard({ verify })
+    await expect(
+      guard.canActivate(makeContext({ authorization: 'Bearer bad-token' })),
+    ).resolves.toBe(true)
+    expect(verify).toHaveBeenCalled()
+    expect(logger.warn).toHaveBeenCalled()
+  })
+
   it('rejects when the machine secret is not configured (enforced)', async () => {
     process.env.ELECTION_API_AUTH_ENFORCED = 'true'
     delete process.env.ELECTION_API_MACHINE_SECRET
