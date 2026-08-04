@@ -119,9 +119,8 @@ what was promoted is the `promote.yml` run history. If a queryable "what is in
 prod" view is wanted later, emit a GitHub Deployment marker from `promote.yml`
 (one API call, no branch, no tag). Deferred; not needed for v1.
 
-Access control moves from "branch protection on `master`" to: prod credentials
-scoped to a GitHub **Environment** (`prod`) that only `promote.yml`'s prod jobs
-can access, plus restricting who can `workflow_dispatch` promote and who can
+Access control moves from "branch protection on `master`" to controlling who can
+push to `main` and who can trigger the promote workflow (`workflow_dispatch`) and
 toggle the freeze variable.
 
 ### Operational properties to accept
@@ -180,7 +179,6 @@ Build `promote.yml` for the TypeScript services and cut prod over to it.
   prototypes) do not participate in promotion.
 - Move each service's prod deploy trigger off `push: master` and onto being
   invoked by `promote.yml` with the promoted SHA.
-- Stand up the `prod` GitHub Environment and scope prod credentials to it.
 - Add the freeze variable and wire the check.
 - Cut over, verify a real merge auto-promotes end to end, then delete the
   `master` branch and update branch protection so `develop` is the protected
@@ -201,7 +199,7 @@ Move the AI services in and extend the train to them.
 - Automate its Terraform. Today `infrastructure/deploy.sh` is run by hand. Add
   `terraform plan` on PRs touching `packages/gp-ai/infrastructure` (posted to
   the PR), `terraform apply` for dev on merge to `develop`, and `terraform
-  apply` for prod inside `promote.yml`. Apply automation needs guardrails: plan
+apply` for prod inside `promote.yml`. Apply automation needs guardrails: plan
   visible on the PR, apply gated on merge, and destroy operations never
   automatic.
 - Extend `promote.yml` to deploy the gp-ai services' prod images and run the
@@ -228,4 +226,4 @@ Move the AI services in and extend the train to them.
 3. gp-ai services' "green on dev" gate definition (Phase 3).
 4. Where and when prod migrations run today in gp-api and election-api
    (informational, since enforcement is deferred).
-5. Prod GitHub Environment protections and who may dispatch/freeze.
+5. Who may dispatch/freeze promotion.

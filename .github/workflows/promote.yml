@@ -82,10 +82,16 @@ jobs:
           EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          # Workflow runs whose green-ness gates a prod ship: everything promote.yml
-          # deploys. E2E lives inside gp-webapp.yml.
-          REQUIRED="gp-api.yml election-api.yml gp-webapp.yml gp-admin.yml candidate-sites.yml publish-experiments.yml"
-          DEADLINE=$(( $(date +%s) + 60*60 ))   # 60 min budget
+          # Workflow runs whose green-ness gates a prod ship. These have no path
+          # filters, so they run on every main push. E2E lives inside gp-webapp.yml.
+          REQUIRED="gp-api.yml election-api.yml gp-webapp.yml gp-admin.yml candidate-sites.yml"
+          # Path-filtered: publish-experiments only runs when a commit touches
+          # experiment files, so most commits produce no run for it. Gate on it
+          # only when a run actually exists; a missing run is not a blocker.
+          CONDITIONAL="publish-experiments.yml"
+          # Budget must exceed a slow-but-healthy E2E path: E2E Wait (45m job
+          # timeout) + shards (30m) + summary (15m). 120m clears it with margin.
+          DEADLINE=$(( $(date +%s) + 120*60 ))
 
           while :; do
             # Superseded check (push only): if a newer commit is main's tip, this
@@ -101,11 +107,16 @@ jobs:
 
             pending=0
             failed=""
-            for wf in $REQUIRED; do
+            for wf in $REQUIRED $CONDITIONAL; do
               run=$(gh api "repos/$REPO/actions/workflows/$wf/runs?head_sha=$SHA&event=push&per_page=1" \
                 --jq '.workflow_runs[0] | {status, conclusion} | @base64' 2>/dev/null || echo "")
               if [ -z "$run" ] || [ "$run" = "null" ]; then
-                pending=$((pending+1)); continue
+                # No run for this commit. Required workflows always run, so keep
+                # waiting; a path-filtered CONDITIONAL one legitimately never ran.
+                case " $CONDITIONAL " in
+                  *" $wf "*) continue ;;
+                  *) pending=$((pending+1)); continue ;;
+                esac
               fi
               decoded=$(echo "$run" | base64 --decode)
               status=$(echo "$decoded" | jq -r '.status')
@@ -171,7 +182,6 @@ jobs:
     needs: gate
     if: needs.gate.outputs.promote == 'true'
     runs-on: ubuntu-latest
-    environment: prod
     permissions:
       contents: read
       id-token: write
@@ -211,7 +221,6 @@ jobs:
     needs: gate
     if: needs.gate.outputs.promote == 'true'
     runs-on: ubuntu-latest
-    environment: prod
     permissions:
       contents: read
       id-token: write
@@ -248,7 +257,6 @@ jobs:
     needs: gate
     if: needs.gate.outputs.promote == 'true'
     runs-on: ubuntu-latest
-    environment: prod
     steps:
       - uses: actions/checkout@v5
         with:
@@ -271,7 +279,6 @@ jobs:
     needs: gate
     if: needs.gate.outputs.promote == 'true'
     runs-on: ubuntu-latest
-    environment: prod
     steps:
       - uses: actions/checkout@v5
         with:
@@ -296,7 +303,6 @@ jobs:
     needs: gate
     if: needs.gate.outputs.promote == 'true'
     runs-on: ubuntu-latest
-    environment: prod
     steps:
       - uses: actions/checkout@v5
         with:
@@ -318,7 +324,6 @@ jobs:
     needs: gate
     if: needs.gate.outputs.promote == 'true'
     runs-on: ubuntu-latest
-    environment: prod
     permissions:
       id-token: write
       contents: read

@@ -28,17 +28,14 @@ local-update snippet. It is dramatically lower-interruption than deleting
 4. **Verify the required-check ruleset.** The `E2E` status check must be required
    on `main` (rename usually carries it over; confirm under Settings ->
    Rules/Branches). Automated promotion gates on it.
-5. **Create the `prod` GitHub Environment** (Settings -> Environments). Scope
-   prod secrets to it if you want isolation. Do NOT add required reviewers to it,
-   or every automated promotion will pause for manual approval.
-6. **Confirm identity and secrets.** The `omni-automation` GitHub App can push to
+5. **Confirm identity and secrets.** The `omni-automation` GitHub App can push to
    `main`; CI secrets/vars exist (`VERCEL_*`, `AWS_ROLE_ARN`, etc.).
-7. **Shake out the first run.** Push a trivial commit to `main`. Watch the dev
+6. **Shake out the first run.** Push a trivial commit to `main`. Watch the dev
    deploy and `E2E` settle. The `promote` workflow runs but skips (frozen).
-8. **Go live.** When dev is green and you are satisfied, set
+7. **Go live.** When dev is green and you are satisfied, set
    `PROMOTION_FROZEN=false`, then re-run `promote` via `workflow_dispatch` (or
    push the next commit). It deploys the green commit to prod.
-9. **Clean up branches.** Once a green promotion is verified, delete the old
+8. **Clean up branches.** Once a green promotion is verified, delete the old
    `master` and `qa` branches. Prod keeps serving the last master-deployed build
    until the first automated promotion ships main's tip. (Tearing down the qa
    _environment_ is a separate later task.)
