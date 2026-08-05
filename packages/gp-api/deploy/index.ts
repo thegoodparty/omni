@@ -524,6 +524,16 @@ export = async () => {
         prod: 'assets.goodparty.org',
       }),
       WEBAPP_ROOT_URL: `https://${productDomain}`,
+      // Optional marketing-revalidate endpoint override. In prod
+      // WEBAPP_ROOT_URL is already the marketing origin, so leaving this empty
+      // makes the service fall back to WEBAPP_ROOT + /api/revalidate-person. In
+      // non-prod WEBAPP_ROOT_URL is the Clerk-protected product webapp, so dev
+      // must point revalidation explicitly at the marketing deployment.
+      MARKETING_REVALIDATE_URL: select({
+        preview: '',
+        dev: 'https://gp-marketing-git-develop-good-party.vercel.app/api/revalidate-person',
+        prod: '',
+      }),
       AI_MODELS: 'claude-sonnet-4-6',
       LLAMA_AI_ASSISTANT: 'asst_GP_AI_1.0',
       SQS_QUEUE: queue.name,
