@@ -30,6 +30,7 @@ demand when you open files in that package) and in `docs/`. Follow the pointers.
 | `packages/gp-webapp`       | Product app for candidates & elected officials                    | Next.js 16        | 4000 |
 | `packages/prototypes`      | Public backend-free UI prototyping surface                        | Next.js           | 4002 |
 | `packages/election-api`    | Election/race/candidacy data microservice                         | NestJS + Fastify  | 3001 |
+| `packages/gp-ai`           | Python AI/data services + their Terraform                         | Python + uv       | —    |
 | `packages/gp-admin`        | Internal staff admin console (uses the SDK)                       | Next.js 16        | 3500 |
 | `packages/candidate-sites` | Per-candidate static sites                                        | Next.js           | 4001 |
 | `packages/styleguide`      | `@goodparty_org/styleguide` — shared design system (Radix/shadcn) | TypeScript        | —    |
@@ -46,6 +47,7 @@ demand when you open files in that package) and in `docs/`. Follow the pointers.
 | Our AI agent platform (CAP) — overview | `docs/cap.md`                                 |
 | Background agents / PMF Engine / evals | `docs/cap-background-agents.md`               |
 | Interactive AI chat (the `ai` SDK)     | `docs/cap-interactive-agents.md`              |
+| The Python AI services + their infra   | `packages/gp-ai/CLAUDE.md`                    |
 | Setting up / running locally           | `docs/development.md`                         |
 | Writing or fixing a test               | `docs/testing.md`                             |
 | Deploys, branches, CI                  | `docs/deployment.md`                          |
@@ -78,9 +80,11 @@ These apply across all TypeScript packages. Per-package docs add detail and may
 tighten them (e.g. gp-api enforces an 80-char line width via `.cursor/rules/`); when
 a nested rule conflicts with this list, the nested rule wins for that package.
 
-`packages/runbooks` is the one polyglot exception: its `scripts/python/` is a
-uv-managed Python project (its own `pyproject.toml`/`uv.lock`), independent of the
-npm workspace graph. npm owns the TS packages; uv owns that subtree.
+There are two polyglot exceptions: `packages/runbooks/scripts/python` and
+`packages/gp-ai`. Each is a uv-managed Python project with its own
+`pyproject.toml`/`uv.lock`, independent of the npm workspace graph. npm owns the TS
+packages; uv owns those subtrees. `packages/gp-ai` has no `package.json`, so the
+`packages/*` workspace glob skips it.
 
 - **TypeScript style:** no semicolons, single quotes, trailing commas. Arrow
   functions over `function` declarations. No `any` (and avoid `unknown`) in new code.

@@ -1,0 +1,21 @@
+{
+  "name": "slack-notifier",
+  "version": "1.0.0",
+  "description": "Lambda function to send ECS task failure notifications to Slack",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "package": "npm run build && cd dist && zip -r ../slack-notifier.zip .",
+    "clean": "rm -rf dist slack-notifier.zip",
+    "test": "node --import tsx --test \"*.test.ts\""
+  },
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.5.4"
+  }
+}
