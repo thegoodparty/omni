@@ -26,6 +26,7 @@
     "schema": "prisma/schema"
   },
   "dependencies": {
+    "@clerk/backend": "^2.29.7",
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.0.0",
     "@fastify/helmet": "^13.0.1",

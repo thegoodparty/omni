@@ -19,6 +19,7 @@ import { lastValueFrom } from 'rxjs'
 import { serializeError } from 'serialize-error'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { SlackChannel } from 'src/vendors/slack/slackService.types'
+import { ElectionApiTokenService } from '@/vendors/clerk/services/electionApiToken.service'
 import { ElectionApiRoutes } from '../constants/elections.const'
 import {
   BuildRaceTargetDetailsInput,
@@ -46,6 +47,7 @@ export class ElectionsService {
     private readonly httpService: HttpService,
     private readonly slack: SlackService,
     private readonly logger: PinoLogger,
+    private readonly tokenService: ElectionApiTokenService,
   ) {
     this.logger.setContext(ElectionsService.name)
     if (!ElectionsService.BASE_URL) {
@@ -72,8 +74,10 @@ export class ElectionsService {
     ) as Record<string, string | number | boolean | string[]>
     this.logger.debug({ filteredParams }, `Election API GET ${path} params: `)
     try {
+      const headers = await this.tokenService.authHeader()
       const { data, status } = (await lastValueFrom(
         this.httpService.get(fullUrl, {
+          headers,
           params: query,
           paramsSerializer: (params) =>
             Object.entries(params)
@@ -126,8 +130,9 @@ export class ElectionsService {
     const fullUrl = `${ElectionsService.BASE_URL}/${ElectionsService.API_VERSION}/${path}`
     this.logger.debug({ body }, `Election API POST ${path} body: `)
     try {
+      const headers = await this.tokenService.authHeader()
       const { data, status } = (await lastValueFrom(
-        this.httpService.post(fullUrl, body),
+        this.httpService.post(fullUrl, body, { headers }),
       )) as { data: Res; status: number }
       if (status >= 200 && status < 300) return data
       this.logger.warn(`Election API POST ${path} responded ${status}`)
