@@ -69,6 +69,9 @@ describe('SnackbarProvider + useSnackbar', () => {
     await screen.findByText('Saved!')
 
     const toast = document.querySelector<HTMLElement>('[data-sonner-toast]')
+    // Success toasts route through toast.success(); guard the distinguishing
+    // attribute so a revert to plain toast() is caught.
+    expect(toast?.getAttribute('data-type')).toBe('success')
     expect(toast?.getAttribute('data-rich-colors')).not.toBe('true')
     expect(toast?.getAttribute('data-y-position')).toBe('bottom')
     expect(toast?.getAttribute('data-x-position')).toBe('right')
