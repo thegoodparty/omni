@@ -128,8 +128,12 @@ jobs:
             pending=0
             failed=""
             for wf in $REQUIRED $CONDITIONAL; do
+              # `// empty` so a missing run yields an empty string, not base64 of a
+              # null-valued object — otherwise the no-run guard below never fires and
+              # a path-filtered workflow that never runs (publish-experiments) is
+              # mistaken for a perpetually-pending required check and times out the gate.
               run=$(gh api "repos/$REPO/actions/workflows/$wf/runs?head_sha=$SHA&event=push&per_page=1" \
-                --jq '.workflow_runs[0] | {status, conclusion} | @base64' 2>/dev/null || echo "")
+                --jq '.workflow_runs[0] // empty | {status, conclusion} | @base64' 2>/dev/null || echo "")
               if [ -z "$run" ] || [ "$run" = "null" ]; then
                 # No run for this commit. Required workflows always run, so keep
                 # waiting; a path-filtered CONDITIONAL one legitimately never ran.
