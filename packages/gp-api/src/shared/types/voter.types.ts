@@ -11,6 +11,7 @@ export const CUSTOM_FILTERS = [
   'audience_likelyVoters',
   'audience_unreliableVoters',
   'audience_unlikelyVoters',
+  'audience_unknown',
   'party_independent',
   'party_democrat',
   'party_republican',
