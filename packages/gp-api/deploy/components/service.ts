@@ -3,7 +3,7 @@ import * as aws from '@pulumi/aws'
 import { sortBy } from 'es-toolkit'
 
 export interface ServiceConfig {
-  environment: 'preview' | 'dev' | 'qa' | 'prod'
+  environment: 'preview' | 'dev' | 'prod'
   stage: string
 
   imageUri: string
@@ -58,7 +58,7 @@ export function createService({
   const isProd = environment === 'prod'
   const serviceName = `gp-api-${stage}`
 
-  const select = <T>(values: Record<'preview' | 'dev' | 'qa' | 'prod', T>): T =>
+  const select = <T>(values: Record<'preview' | 'dev' | 'prod', T>): T =>
     values[environment]
 
   const clusterName = `gp-${stage}-fargateCluster`
@@ -75,7 +75,6 @@ export function createService({
     name: select({
       preview: `gp-api-preview-${stage}-sg`,
       dev: 'gp-api-developLoadBalancerSecurityGroup-5ba8676',
-      qa: 'gp-api-qaLoadBalancerSecurityGroup-623a91f',
       prod: 'gp-api-masterLoadBalancerSecurityGroup-c8b2676',
     }),
     // This is false now, but these names are immutable :sob:
@@ -111,7 +110,6 @@ export function createService({
     name: select({
       preview: `gpapi-${stage}`,
       dev: 'develop-gpapidevelopLoad',
-      qa: 'g-qa-gpapiqaLoadBalancer',
       prod: 'master-gpapimasterLoadBa',
     }),
     internal: false,
@@ -333,7 +331,7 @@ export function createService({
   // out of Pulumi state (e.g. a stack whose state was cleared while the record
   // lingered in Route53), which makes a redeploy fail with "record already
   // exists". Adopt/overwrite the existing record for preview so a drifted
-  // record self-heals; keep the fail-if-exists default for dev/qa/prod.
+  // record self-heals; keep the fail-if-exists default for dev/prod.
   const allowOverwrite = environment === 'preview'
 
   new aws.route53.Record('dnsARecord', {
