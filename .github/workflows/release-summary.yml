@@ -62,6 +62,5 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
-          CLICKUP_TEAM_ID: ${{ vars.CLICKUP_TEAM_ID }}
           RELEASE_PRODUCT_CHANNEL: ${{ vars.RELEASE_PRODUCT_CHANNEL }}
         run: uv run python post_release_summary.py

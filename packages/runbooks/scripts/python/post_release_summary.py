@@ -10,8 +10,8 @@ as bolded links. Degrades gracefully: a missing ANTHROPIC/ClickUp credential
 drops that enrichment rather than failing the run.
 
 Needs full git history (checkout fetch-depth: 0). Env: GH_TOKEN, GITHUB_REPOSITORY,
-SLACK_BOT_TOKEN, ANTHROPIC_API_KEY (optional), CLICKUP_API_TOKEN + CLICKUP_TEAM_ID
-(optional), RELEASE_PRODUCT_CHANNEL (default #product-releases),
+SLACK_BOT_TOKEN, ANTHROPIC_API_KEY (optional), CLICKUP_API_TOKEN (optional; the
+ClickUp team id is hardcoded), RELEASE_PRODUCT_CHANNEL (default #product-releases),
 RELEASE_WINDOW_HOURS (24).
 """
 
@@ -32,6 +32,7 @@ MERGE_RE = re.compile(r"^Merge pull request #(\d+)")
 REPO = os.environ.get("GITHUB_REPOSITORY", "thegoodparty/omni")
 CHANNEL = os.environ.get("RELEASE_PRODUCT_CHANNEL") or "#product-releases"
 WINDOW_HOURS = int(os.environ.get("RELEASE_WINDOW_HOURS") or "24")
+CLICKUP_TEAM_ID = "90132012119"  # GoodParty workspace; custom task ids resolve here
 
 
 def gh_api(path: str):
@@ -91,13 +92,12 @@ def tickets_for(pr: dict) -> set[str]:
 def clickup_lookup(tag: str) -> tuple[str | None, str | None]:
     """(name, url) for a ClickUp custom task id, or (None, None) on any failure."""
     api_key = os.environ.get("CLICKUP_API_TOKEN")
-    team_id = os.environ.get("CLICKUP_TEAM_ID")
-    if not api_key or not team_id:
+    if not api_key:
         return None, None
     try:
         task = clickup_api.request(
             "GET", f"task/{tag}", api_key,
-            params={"custom_task_ids": "true", "team_id": team_id},
+            params={"custom_task_ids": "true", "team_id": CLICKUP_TEAM_ID},
         )
         return task.get("name"), task.get("url")
     except Exception as exc:  # noqa: BLE001 - enrichment only, never fatal
@@ -152,6 +152,12 @@ def post_slack(text: str) -> None:
         raise RuntimeError(f"Slack chat.postMessage failed: {body.get('error', 'unknown')}")
 
 
+def slack_escape(s: str) -> str:
+    # Slack mrkdwn link labels <url|label> close at a literal '>'; escape the
+    # HTML-special chars so titles like "a -> b" or "A & B" don't break the link.
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def main() -> None:
     deployments = successful_prod_deployments()
     if not deployments:
@@ -188,18 +194,18 @@ def main() -> None:
     date_str = datetime.now(timezone.utc).astimezone().strftime("%b %-d, %Y")
     lines = [f"*Shipped to prod — {date_str}*", ""]
     if summary:
-        lines += [summary, ""]
+        lines += [slack_escape(summary), ""]
 
     if tickets:
         lines.append("*Tickets*")
         for tag, (name, url) in tickets.items():
-            label = f"<{url}|*{tag}*>" if url else f"*{tag}*"
-            lines.append(f"• {label}" + (f": {name}" if name else ""))
+            text = f"{tag}: {slack_escape(name)}" if name else tag
+            lines.append(f"- <{url}|*{text}*>" if url else f"- *{text}*")
         lines.append("")
 
-    lines.append("*PRs*")
+    lines.append("*Pull Requests*")
     for pr in prs:
-        lines.append(f"• <{pr['url']}|*#{pr['number']}*>: {pr['title']}")
+        lines.append(f"- <{pr['url']}|*#{pr['number']}: {slack_escape(pr['title'])}*>")
 
     post_slack("\n".join(lines).strip())
     print(f"Posted release summary: {len(prs)} PR(s), {len(tickets)} ticket(s).")
