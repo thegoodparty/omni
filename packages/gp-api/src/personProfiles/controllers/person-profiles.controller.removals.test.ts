@@ -3,6 +3,7 @@ import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
 import { PersonProfilesController } from './person-profiles.controller'
 import { PersonProfilesService } from '../services/person-profiles.service'
 import { MarketingRevalidationService } from '../services/marketing-revalidation.service'
+import { PersonIdBackfillService } from '../services/person-id-backfill.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import type {
   ClearPersonProfileRemovalDto,
@@ -42,6 +43,7 @@ describe('PersonProfilesController removals', () => {
       profiles as unknown as PersonProfilesService,
       revalidation as unknown as MarketingRevalidationService,
       {} as unknown as S3Service,
+      {} as unknown as PersonIdBackfillService,
     )
   })
 

@@ -16,6 +16,10 @@ const PERSON_EMAIL = 'jane.doe.personal@example.com'
 const PERSON_PHONE = '+1-555-0142'
 const CANDIDACY_EMAIL = 'jane.campaign@example.com'
 
+// Internal gp-api user linkage (numeric gp-api User.id as text, NOT a UUID).
+// Filterable, but must NEVER appear in any response.
+const PERSON_GP_API_USER_ID = '12345'
+
 // Public-by-design office contact — these MUST be present.
 const OFFICE_EMAIL = 'mayor.office@city.gov'
 const OFFICE_PHONE = '555-0100'
@@ -36,6 +40,11 @@ const expectNoPersonPii = (payload: unknown) => {
   expect(json).not.toContain(PERSON_EMAIL)
   expect(json).not.toContain(PERSON_PHONE)
   expect(json).not.toContain(CANDIDACY_EMAIL)
+  // The internal gp-api user linkage is filter-only and must never be
+  // broadcast, under any key.
+  expect(json).not.toContain('gpApiUserId')
+  expect(json).not.toContain('gp_api_user_id')
+  expect(json).not.toContain(PERSON_GP_API_USER_ID)
 }
 
 const seedPerson = async () => {
@@ -50,6 +59,8 @@ const seedPerson = async () => {
       // PII columns that the service must omit from every response.
       email: PERSON_EMAIL,
       phone: PERSON_PHONE,
+      // Internal linkage — filterable, never returned.
+      gpApiUserId: PERSON_GP_API_USER_ID,
     },
   })
 
@@ -201,6 +212,41 @@ describe('GET /v1/persons (public list)', () => {
   it('rejects a request for the phone column (allowlist blocks PII)', async () => {
     const res = await service.client.get('/v1/persons', {
       params: { columns: 'id,phone' },
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('requires M2M auth to use the gpApiUserId filter (no public enumeration)', async () => {
+    // The linkage column is already omitted from responses, but filtering on it
+    // is itself an enumeration oracle, so an unauthenticated (observe-only)
+    // caller is rejected outright. The authenticated 200 path is covered by the
+    // service + controller unit tests (the harness runs without an M2M token).
+    const res = await service.client.get('/v1/persons', {
+      params: { gpApiUserId: PERSON_GP_API_USER_ID, columns: 'id' },
+    })
+    expect(res.status).toBe(401)
+  })
+
+  it('never returns gp_api_user_id on the default response', async () => {
+    const res = await service.client.get('/v1/persons')
+
+    expect(res.status).toBe(200)
+    const jane = res.data.find((p: { id: string }) => p.id === PERSON_ID)
+    expect(jane).not.toHaveProperty('gpApiUserId')
+    expect(jane).not.toHaveProperty('gp_api_user_id')
+    expectNoPersonPii(res.data)
+  })
+
+  it('rejects a request for the gp_api_user_id column (never selectable)', async () => {
+    const res = await service.client.get('/v1/persons', {
+      params: { columns: 'id,gp_api_user_id' },
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects a non-numeric gpApiUserId filter', async () => {
+    const res = await service.client.get('/v1/persons', {
+      params: { gpApiUserId: 'not-a-number' },
     })
     expect(res.status).toBe(400)
   })
