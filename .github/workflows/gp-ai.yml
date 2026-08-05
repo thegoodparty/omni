@@ -32,6 +32,7 @@ jobs:
     outputs:
       any: ${{ steps.filter.outputs.any }}
       python: ${{ steps.filter.outputs.python }}
+      infra: ${{ steps.filter.outputs.infra }}
       services: ${{ steps.services.outputs.list }}
     steps:
       - uses: actions/checkout@v5
@@ -44,6 +45,9 @@ jobs:
           filters: |
             any:
               - 'packages/gp-ai/**'
+              - '.github/workflows/gp-ai.yml'
+            infra:
+              - 'packages/gp-ai/infrastructure/**'
               - '.github/workflows/gp-ai.yml'
             python:
               - 'packages/gp-ai/**/*.py'
@@ -245,13 +249,182 @@ jobs:
             --query 'service.deployments[0].{status:status,taskDefinition:taskDefinition}' \
             --output table
 
+  # Plans every dev root and posts one consolidated comment. PR-only: this shows
+  # a reviewer what an apply would do, and nothing here applies anything.
+  #
+  # ONE job, not an 11-job matrix. Each root is a `background: true` step, so all
+  # 11 plan concurrently on a single runner and cost a single concurrency slot
+  # against the org's 60. That works because terraform init/plan is I/O-bound —
+  # it spends nearly all its time blocked on S3 and the AWS APIs — so 11 of them
+  # on one runner barely contend. (Do NOT copy this pattern for the image builds:
+  # those are QEMU-emulated arm64 and genuinely CPU-bound.)
+  #
+  # Only dev is planned. dev and prod share module code, so the dev plan is the
+  # review signal; planning prod too would double the work for near-zero added
+  # information and would read AI_SECRETS_PROD on every infra PR.
+  terraform-plan:
+    name: TF plan (dev)
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    env:
+      PLAN_DIR: /tmp/tfplans
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # 1.15.x, not 1.9.x: the S3 backends set `use_lockfile = true`, which needs
+      # Terraform >= 1.10. Pinned to the version these plans were verified with.
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      # Both artifacts are consumed at PLAN time (archive_file / filebase64sha256),
+      # not just at apply, so they must exist before any plan runs.
+      - name: Build pmf-engine lambda package
+        working-directory: packages/gp-ai
+        run: bash pmf_engine/scripts/build_lambda_package.sh
+
+      - name: Build serve-analyze lambda trigger
+        working-directory: packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger
+        run: |
+          npm ci
+          npm run build
+
+      # Each of these records its result to files and always exits 0. `wait-all`
+      # short-circuits everything after it if any background step fails, and we
+      # want the comment posted even when a root errors — so the assemble step
+      # below owns the pass/fail decision.
+      - {
+          name: plan dev/agent-experiment-metadata,
+          background: true,
+          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/agent-experiment-metadata,
+        }
+      - {
+          name: plan dev/agent-run-inputs,
+          background: true,
+          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/agent-run-inputs,
+        }
+      - {
+          name: plan dev/broker,
+          background: true,
+          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/broker,
+        }
+      - {
+          name: plan dev/campaign-plan-lambda,
+          background: true,
+          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/campaign-plan-lambda,
+        }
+      - {
+          name: plan dev/ddhq-matcher-fargate,
+          background: true,
+          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/ddhq-matcher-fargate,
+        }
+      - {
+          name: plan dev/engineer-agent-fargate,
+          background: true,
+          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/engineer-agent-fargate,
+        }
+      - {
+          name: plan dev/pmf-engine-control-plane,
+          background: true,
+          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/pmf-engine-control-plane,
+        }
+      - {
+          name: plan dev/pmf-engine-fargate,
+          background: true,
+          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/pmf-engine-fargate,
+        }
+      - {
+          name: plan dev/pmf-vpc-endpoints,
+          background: true,
+          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/pmf-vpc-endpoints,
+        }
+      - {
+          name: plan dev/serve-analyze-fargate,
+          background: true,
+          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/serve-analyze-fargate,
+        }
+      - {
+          name: plan dev/shared-infra,
+          background: true,
+          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/shared-infra,
+        }
+
+      - wait-all:
+
+      - name: Post consolidated plan comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs')
+            const dir = process.env.PLAN_DIR
+            const LIMIT = 55000
+
+            const roots = fs.readdirSync(dir).filter(f => f.endsWith('.code'))
+              .map(f => f.replace(/\.code$/, '')).sort()
+
+            const rows = roots.map(slug => {
+              const read = ext => { try { return fs.readFileSync(`${dir}/${slug}.${ext}`, 'utf8').trim() } catch { return '' } }
+              return { slug, code: read('code'), destroys: parseInt(read('destroy') || '0', 10), text: read('txt') }
+            })
+
+            const errored = rows.filter(r => r.code !== '0' && r.code !== '2')
+            const changed = rows.filter(r => r.code === '2')
+            const destroying = rows.filter(r => r.destroys > 0)
+
+            const label = r => r.code === '0' ? 'no changes'
+              : r.code === '2' ? (r.destroys > 0 ? `**${r.destroys} to DESTROY**` : 'changes')
+              : '**error**'
+
+            let body = `### Terraform plan — dev (${rows.length} roots)\n\n`
+            body += `${changed.length} with changes, ${rows.length - changed.length - errored.length} clean`
+            body += errored.length ? `, **${errored.length} errored**\n\n` : `\n\n`
+            if (destroying.length) {
+              body += `> [!WARNING]\n> This plan would destroy resources. Destroys are never applied automatically — `
+              body += `an operator must review and apply by hand.\n\n`
+            }
+            body += `| root | result |\n| --- | --- |\n`
+            for (const r of rows) body += `| \`${r.slug.replace(/^dev-/, '')}\` | ${label(r)} |\n`
+
+            for (const r of rows.filter(r => r.code !== '0')) {
+              const t = r.text.length > LIMIT ? r.text.slice(-LIMIT) + '\n…truncated, see job log…' : r.text
+              body += `\n<details><summary><code>${r.slug}</code></summary>\n\n\`\`\`terraform\n${t}\n\`\`\`\n\n</details>\n`
+            }
+
+            // Upsert so repeated pushes don't bury the PR in plan comments.
+            const marker = '<!-- gp-ai-tf-plan -->'
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: context.issue.number, owner: context.repo.owner, repo: context.repo.repo, per_page: 100,
+            })
+            const existing = comments.find(c => c.body?.includes(marker))
+            const payload = { owner: context.repo.owner, repo: context.repo.repo, body: `${marker}\n${body}` }
+            if (existing) await github.rest.issues.updateComment({ ...payload, comment_id: existing.id })
+            else await github.rest.issues.createComment({ ...payload, issue_number: context.issue.number })
+
+            if (errored.length) {
+              core.setFailed(`terraform plan failed for: ${errored.map(r => r.slug).join(', ')}`)
+            }
+
   # Stable aggregation gate. Branch protection and promote.yml want one name
   # whose meaning doesn't change as jobs fan in and out. `skipped` is a
   # legitimate pass here (the commit didn't touch this subtree); `failure` and
   # `cancelled` are not.
   gate:
     name: gp-ai
-    needs: [changes, validate, build]
+    needs: [changes, validate, build, terraform-plan]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -260,6 +433,7 @@ jobs:
           CHANGES: ${{ needs.changes.result }}
           VALIDATE: ${{ needs.validate.result }}
           BUILD: ${{ needs.build.result }}
+          TF_PLAN: ${{ needs['terraform-plan'].result }}
         run: |
           set -euo pipefail
           # `changes` has no `if`, so it always runs — anything other than
@@ -271,7 +445,7 @@ jobs:
             exit 1
           fi
           failed=0
-          for pair in "validate:$VALIDATE" "build:$BUILD"; do
+          for pair in "validate:$VALIDATE" "build:$BUILD" "terraform-plan:$TF_PLAN"; do
             name=${pair%%:*}
             result=${pair#*:}
             case "$result" in
