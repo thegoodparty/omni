@@ -28,7 +28,7 @@ Entry point is `seed/seed.ts`. `npm run migrate:reset` invokes it after wiping t
 
 ## Patterns
 
-- **CSV seeds run unconditionally in dev/qa/prod**; factory seeds run only with `NODE_ENV=development` and `SKIP_MTFCC_SEED=true`. This prevents fake users from leaking into hosted envs.
+- **CSV seeds run unconditionally in dev/prod**; factory seeds run only with `NODE_ENV=development` and `SKIP_MTFCC_SEED=true`. This prevents fake users from leaking into hosted envs.
 - **Factories return Prisma create input**, not saved rows. The caller decides whether to `create` or batch.
 - **`fixedCampaigns.json`** holds known IDs/slugs used by tests and demo flows — treat it as a contract, not a sample. Adding a campaign here is a code change, not a data change.
 - **Scenarios are CLI-arg driven**: `seed/scenarios.ts <name>`. Add a new branch in the `switch` instead of adding a new file when possible.

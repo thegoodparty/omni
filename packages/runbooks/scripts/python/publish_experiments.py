@@ -52,7 +52,7 @@ EXPERIMENTS_DIR = REPO_ROOT / "experiments"
 META_SCHEMA_PATH = EXPERIMENTS_DIR / "_schema" / "manifest.schema.json"
 QA_META_SCHEMA_PATH = EXPERIMENTS_DIR / "_schema" / "qa.schema.json"
 
-VALID_ENVS = {"dev", "qa", "prod"}
+VALID_ENVS = {"dev", "prod"}
 
 # Total bytes cap across all attachments for a single experiment. Bounds the
 # broker manifest payload (it streams all attachments in one envelope) and the
