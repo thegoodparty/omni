@@ -42,6 +42,7 @@ import type {
   UpdateOrdinanceRequest,
 } from '@goodparty_org/contracts'
 import { useOrdinanceQualityLoopFlag } from '@shared/experiments/ordinanceQualityLoopFlag'
+import { useSnackbar } from '@shared/utils/Snackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ConfirmDeleteDialog } from '../../shared/ConfirmDeleteDialog'
 import ChatPill from '../../shared/ai-chat/ChatPill'
@@ -571,14 +572,17 @@ export default function DraftDetail({
     setSelection(null)
   }, [])
 
+  const { successSnackbar } = useSnackbar()
+
   const submitBugReport = useCallback(
     async (description: string): Promise<void> => {
       await createOrdinanceBugReport(ordinance.slug, {
         description,
         excerpt: bugReportExcerpt ?? '',
       })
+      successSnackbar('Thanks — your bug report was submitted')
     },
-    [ordinance.slug, bugReportExcerpt],
+    [ordinance.slug, bugReportExcerpt, successSnackbar],
   )
 
   return (
