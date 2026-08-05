@@ -96,6 +96,7 @@ def report_status(
     **kwargs,
 ) -> dict:
     from .config import get_config
+
     body: dict = {"status": status, **kwargs}
     if duration_seconds is not None:
         body["duration_seconds"] = duration_seconds
@@ -112,6 +113,7 @@ def report_status(
 
 def upload_logs(files: dict[str, bytes]) -> dict:
     from .config import get_config
+
     file_parts = [("files", (name, data)) for name, data in files.items()]
     response = get_config().client.post("/internal/upload-logs", files=file_parts)
     response.raise_for_status()

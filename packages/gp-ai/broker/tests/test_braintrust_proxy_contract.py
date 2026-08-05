@@ -268,8 +268,7 @@ class TestBraintrustRealSDKContract:
         #    per-run token never reaches Braintrust.
         for c in calls:
             assert c.authorization == f"Bearer {REAL_UPSTREAM_KEY}", (
-                f"request {c.method} {c.host}{c.path} forwarded "
-                f"unexpected auth {c.authorization!r}"
+                f"request {c.method} {c.host}{c.path} forwarded unexpected auth {c.authorization!r}"
             )
         assert all(c.authorization != f"Bearer {VALID_BROKER_TOKEN}" for c in calls)
 

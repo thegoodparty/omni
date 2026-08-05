@@ -59,9 +59,7 @@ def _set_full_env(monkeypatch):
     monkeypatch.delenv("INSTRUCTION", raising=False)
 
 
-def test_from_env_pass_through_experiment_id_run_id_organization_slug(
-    monkeypatch, patched_broker
-):
+def test_from_env_pass_through_experiment_id_run_id_organization_slug(monkeypatch, patched_broker):
     """The three identity fields are read straight from env vars unchanged."""
     _set_full_env(monkeypatch)
 
@@ -72,9 +70,7 @@ def test_from_env_pass_through_experiment_id_run_id_organization_slug(
     assert config.organization_slug == "org-123"
 
 
-def test_from_env_uses_broker_envelope_instruction_not_INSTRUCTION_env_var(
-    monkeypatch, patched_broker
-):
+def test_from_env_uses_broker_envelope_instruction_not_INSTRUCTION_env_var(monkeypatch, patched_broker):
     """Precedence rule: when EXPERIMENT_ID is set, the broker envelope's
     instruction wins. The INSTRUCTION env var is deliberately ignored to
     prevent stale-env footguns on re-runs."""
@@ -88,9 +84,7 @@ def test_from_env_uses_broker_envelope_instruction_not_INSTRUCTION_env_var(
     assert "STALE" not in config.instruction
 
 
-def test_from_env_broker_manifest_model_overrides_agent_model_env(
-    monkeypatch, patched_broker
-):
+def test_from_env_broker_manifest_model_overrides_agent_model_env(monkeypatch, patched_broker):
     """Precedence rule: AGENT_MODEL env var loses to the broker manifest's
     model. The runner trusts the broker for model choice so ops can swap
     models per-experiment without redeploying the runner."""
@@ -101,9 +95,7 @@ def test_from_env_broker_manifest_model_overrides_agent_model_env(
     config = RunnerConfig.from_env()
 
     assert config.model == synthetic_manifest()["model"]
-    assert config.model != "opus", (
-        f"manifest model must override AGENT_MODEL env var; got {config.model!r}"
-    )
+    assert config.model != "opus", f"manifest model must override AGENT_MODEL env var; got {config.model!r}"
 
 
 def test_from_env_params_json_parses_to_dict(monkeypatch, patched_broker):
@@ -145,8 +137,7 @@ def test_from_env_uses_defaults(monkeypatch):
     monkeypatch.setenv("ORGANIZATION_SLUG", "test")
     monkeypatch.setenv("INSTRUCTION", "Do stuff.")
     monkeypatch.setenv("ENVIRONMENT", "local")
-    for key in ["PARAMS_JSON", "HARNESS", "AGENT_MODEL",
-                "BROKER_URL", "BROKER_TOKEN"]:
+    for key in ["PARAMS_JSON", "HARNESS", "AGENT_MODEL", "BROKER_URL", "BROKER_TOKEN"]:
         monkeypatch.delenv(key, raising=False)
 
     config = RunnerConfig.from_env()
@@ -318,9 +309,7 @@ def test_from_env_rejects_combinator_with_empty_branch_objects(monkeypatch):
 def test_from_env_rejects_combinator_with_only_typeless_branches(monkeypatch):
     """A branch with only metadata (`description`, `title`) and no `type` /
     `properties` / nested combinator is structurally a no-op. Reject."""
-    envelope = _envelope_with_output_schema(
-        {"oneOf": [{"description": "x"}, {"title": "y"}]}
-    )
+    envelope = _envelope_with_output_schema({"oneOf": [{"description": "x"}, {"title": "y"}]})
     _set_broker_env(monkeypatch, run_id="run-typeless-branch")
 
     with patch(
@@ -404,7 +393,7 @@ def test_from_env_raises_on_non_object_params(monkeypatch):
     monkeypatch.setenv("RUN_ID", "run-001")
     monkeypatch.setenv("ORGANIZATION_SLUG", "test")
     monkeypatch.setenv("INSTRUCTION", "Do stuff.")
-    monkeypatch.setenv("PARAMS_JSON", '[1, 2, 3]')
+    monkeypatch.setenv("PARAMS_JSON", "[1, 2, 3]")
 
     with pytest.raises(ValueError, match="object"):
         RunnerConfig.from_env()
@@ -699,12 +688,9 @@ class TestTimeoutSecondsErrorMessage:
             RunnerConfig.from_env()
 
         msg = str(exc_info.value)
-        assert "TIMEOUT_SECONDS" in msg, (
-            f"error must name the offending env var, got: {msg!r}"
-        )
+        assert "TIMEOUT_SECONDS" in msg, f"error must name the offending env var, got: {msg!r}"
         assert "not-a-number" in msg, (
-            f"error must echo the bad value so operators can diff against "
-            f"the task definition, got: {msg!r}"
+            f"error must echo the bad value so operators can diff against the task definition, got: {msg!r}"
         )
 
     def test_empty_timeout_seconds_falls_back_to_default(self, monkeypatch):
@@ -734,15 +720,18 @@ class TestValidateBrokerUrlSchemeStandalone:
             BrokerUrlSchemeError,
             validate_broker_url_scheme,
         )
+
         with pytest.raises(BrokerUrlSchemeError, match="https"):
             validate_broker_url_scheme("http://broker.example.test", "prod")
 
     def test_helper_allows_https_in_prod(self):
         from pmf_engine.runner.config import validate_broker_url_scheme
+
         validate_broker_url_scheme("https://broker.ai.goodparty.org", "prod")
 
     def test_helper_allows_plaintext_in_local_envs(self):
         from pmf_engine.runner.config import validate_broker_url_scheme
+
         for env in ("local", "development", "test"):
             validate_broker_url_scheme("http://127.0.0.1:8080", env)
 
@@ -751,6 +740,7 @@ class TestValidateBrokerUrlSchemeStandalone:
             BrokerUrlSchemeError,
             validate_broker_url_scheme,
         )
+
         for env in ("dev", "qa", "prod"):
             with pytest.raises(BrokerUrlSchemeError, match="must be set"):
                 validate_broker_url_scheme("", env)
@@ -760,6 +750,7 @@ class TestValidateBrokerUrlSchemeStandalone:
             BrokerUrlSchemeError,
             validate_broker_url_scheme,
         )
+
         for env in ("PROD", " dev", "QA", "Prod"):
             with pytest.raises(BrokerUrlSchemeError, match="https"):
                 validate_broker_url_scheme("http://broker.example.test", env)
@@ -769,9 +760,11 @@ class TestValidateBrokerUrlSchemeStandalone:
             BrokerUrlSchemeError,
             validate_broker_url_scheme,
         )
+
         with pytest.raises(BrokerUrlSchemeError) as exc_info:
             validate_broker_url_scheme(
-                "http://user:secret@broker.example.test/path", "prod",
+                "http://user:secret@broker.example.test/path",
+                "prod",
             )
         msg = str(exc_info.value)
         assert "secret" not in msg
@@ -787,17 +780,16 @@ class TestRedactUserinfoEdgeCases:
 
     def test_unparseable_url_returns_redacted_placeholder(self):
         from pmf_engine.runner.config import _redact_userinfo
+
         result = _redact_userinfo("http://[::1")
-        assert result == "<url-redacted>", (
-            f"unparseable URL must default to safe placeholder, got: {result!r}"
-        )
+        assert result == "<url-redacted>", f"unparseable URL must default to safe placeholder, got: {result!r}"
 
     def test_no_hostname_no_userinfo_returns_redacted_placeholder(self):
         from pmf_engine.runner.config import _redact_userinfo
+
         result = _redact_userinfo("not-a-url")
         assert result == "<url-redacted>", (
-            f"URL with no parseable hostname must default to safe placeholder, "
-            f"got: {result!r}"
+            f"URL with no parseable hostname must default to safe placeholder, got: {result!r}"
         )
 
 
@@ -887,9 +879,7 @@ def test_runner_config_attachments_field_uses_default_factory_dict():
         instruction="hi",
     )
     config.attachments["a.md"] = "leaked"
-    assert other.attachments == {}, (
-        "default_factory must yield a fresh dict per-instance; got shared state"
-    )
+    assert other.attachments == {}, "default_factory must yield a fresh dict per-instance; got shared state"
 
 
 # ---------------------------------------------------------------------------
@@ -1045,7 +1035,7 @@ def test_from_env_with_blank_qa_version_ids_passes_none(monkeypatch, patched_bro
     _base_env_for_attachment_tests(monkeypatch)
     monkeypatch.setenv("QA_VERSION_IDS", "   ")
 
-    config = RunnerConfig.from_env()
+    RunnerConfig.from_env()
 
     assert patched_broker_capturing["qa_version_ids"] is None
 

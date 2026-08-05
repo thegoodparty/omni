@@ -105,9 +105,7 @@ class TestCallbackSenderFailureCarriesDurationAndCost:
 
     def test_failed_callback_includes_duration_and_cost(self):
         sqs = MagicMock()
-        sender = CallbackSender(
-            sqs_client=sqs, queue_url="https://sqs.example.com/queue.fifo"
-        )
+        sender = CallbackSender(sqs_client=sqs, queue_url="https://sqs.example.com/queue.fifo")
 
         sender.send_result(
             run_id="run-fail-dc",

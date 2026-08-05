@@ -468,9 +468,7 @@ class TestDownloadPath:
                 os.unlink(result.body_path)
 
     @pytest.mark.asyncio
-    async def test_download_exceeding_max_bytes_raises_413_and_unlinks(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_download_exceeding_max_bytes_raises_413_and_unlinks(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The fetcher enforces MAX_BYTES on download; oversized files must
         be unlinked immediately and a 413 raised."""
         _patch_playwright_types(monkeypatch)
@@ -517,9 +515,7 @@ class TestDownloadPath:
 
 class TestPageResponsePath:
     @pytest.mark.asyncio
-    async def test_returns_real_content_type_from_response_headers(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_returns_real_content_type_from_response_headers(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_playwright_types(monkeypatch)
 
         body = b"<html><body>ok</body></html>"
@@ -569,9 +565,7 @@ class TestPageResponsePath:
         assert exc.value.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_missing_content_type_defaults_to_octet_stream(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_missing_content_type_defaults_to_octet_stream(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_playwright_types(monkeypatch)
 
         page = _FakePage(
@@ -593,9 +587,7 @@ class TestPageResponsePath:
         assert result.content_type == "application/octet-stream"
 
     @pytest.mark.asyncio
-    async def test_page_response_exceeding_page_max_raises_413(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_page_response_exceeding_page_max_raises_413(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Page-response path enforces the tighter PAGE_RESPONSE_MAX_BYTES cap
         before buffering response.body() into RAM."""
         _patch_playwright_types(monkeypatch)
@@ -730,9 +722,7 @@ class TestHtmlBodyIsRenderedVisibleText:
 
 class TestNavigationFailure:
     @pytest.mark.asyncio
-    async def test_nav_error_with_no_download_raises_generic_502(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_nav_error_with_no_download_raises_generic_502(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_playwright_types(monkeypatch)
 
         from playwright.async_api import Error as PlaywrightError
@@ -762,9 +752,7 @@ class TestDownloadGraceWindow:
     HTML back to the caller instead of the file."""
 
     @pytest.mark.asyncio
-    async def test_late_fired_download_after_successful_goto_is_captured(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_late_fired_download_after_successful_goto_is_captured(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_playwright_types(monkeypatch)
 
         download_url = "https://example.com/agenda.pdf"
@@ -808,9 +796,7 @@ class TestDownloadGraceWindow:
                 os.unlink(result.body_path)
 
     @pytest.mark.asyncio
-    async def test_textual_response_skips_binary_grace_and_settle(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_textual_response_skips_binary_grace_and_settle(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """For JSON/text responses (NOT HTML), the fetcher must skip both the
         secondary binary download grace AND the post-nav networkidle settle.
         That's the whole point of the content-type-conditional waits — JSON
@@ -835,9 +821,7 @@ class TestDownloadGraceWindow:
         result = await fetcher.fetch("https://example.com/api")
         assert result.body == body
         # JSON must never trigger the networkidle settle wait.
-        assert page._load_state_calls == 0, (
-            "JSON responses must not wait_for_load_state(networkidle)"
-        )
+        assert page._load_state_calls == 0, "JSON responses must not wait_for_load_state(networkidle)"
         # Only the initial download grace should fire (≤ 1 budget worth of slices).
         # Binary grace would add 3× more slices; that's the regression we guard against.
         from broker.browser_fetcher import (
@@ -855,9 +839,7 @@ class TestDownloadGraceWindow:
         )
 
     @pytest.mark.asyncio
-    async def test_nav_error_path_waits_full_download_window(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_nav_error_path_waits_full_download_window(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When goto raises (download path with no response), the loop should
         be willing to wait the full DOWNLOAD_WAIT_MS for the download event."""
         _patch_playwright_types(monkeypatch)
@@ -900,9 +882,7 @@ class TestPostNavSettleConditional:
     download triggers and pay up to POST_NAV_SETTLE_MS via networkidle wait."""
 
     @pytest.mark.asyncio
-    async def test_json_response_does_not_wait_for_networkidle(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_json_response_does_not_wait_for_networkidle(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_playwright_types(monkeypatch)
 
         body = b'{"ok":true}'
@@ -923,14 +903,11 @@ class TestPostNavSettleConditional:
         result = await fetcher.fetch("https://example.com/api")
         assert result.body == body
         assert page._load_state_calls == 0, (
-            "JSON response must not wait_for_load_state(networkidle) — "
-            "POST_NAV_SETTLE_MS should be conditional"
+            "JSON response must not wait_for_load_state(networkidle) — POST_NAV_SETTLE_MS should be conditional"
         )
 
     @pytest.mark.asyncio
-    async def test_html_response_waits_for_networkidle(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_html_response_waits_for_networkidle(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_playwright_types(monkeypatch)
 
         body = b"<html></html>"
@@ -1022,6 +999,7 @@ class TestSSRFRecheckAfterAwaits:
         # Earlier wait_for_timeout grace windows must remain no-ops so the
         # violation is specifically attributed to post-settle.
         page._on_settle = None
+
         async def wait_for_load_state(state: str, *, timeout: int) -> None:
             page._load_state_calls += 1
             await on_settle()
@@ -1094,9 +1072,7 @@ class TestContextLeakProtection:
             await fetcher.fetch("https://example.com/")
 
         assert len(browser.contexts) == 1
-        assert browser.contexts[0].closed, (
-            "context.close() must run even when new_page() raises"
-        )
+        assert browser.contexts[0].closed, "context.close() must run even when new_page() raises"
 
     @pytest.mark.asyncio
     async def test_context_closed_when_stealth_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1111,9 +1087,7 @@ class TestContextLeakProtection:
         with pytest.raises(RuntimeError):
             await fetcher.fetch("https://example.com/")
 
-        assert browser.contexts[0].closed, (
-            "context.close() must run even when stealth_async raises"
-        )
+        assert browser.contexts[0].closed, "context.close() must run even when stealth_async raises"
 
 
 class TestAcloseGate:
@@ -1134,9 +1108,7 @@ class TestAcloseGate:
         assert exc.value.status_code == 503
 
     @pytest.mark.asyncio
-    async def test_aclose_drains_in_flight_fetches_before_closing(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_aclose_drains_in_flight_fetches_before_closing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_playwright_types(monkeypatch)
 
         gate = asyncio.Event()
@@ -1215,6 +1187,7 @@ class TestDownloadTempFileLeakOnSSRFViolation:
         # Capture the path that gets written so we can assert it's unlinked.
         captured_paths: list[str] = []
         from broker import browser_fetcher as bf_module
+
         orig_save = bf_module._save_download_to_disk
 
         async def save_then_violate(download):
@@ -1227,9 +1200,7 @@ class TestDownloadTempFileLeakOnSSRFViolation:
             await handler(_FakeRoute("https://10.0.0.5/internal-subresource"))
             return path, size
 
-        monkeypatch.setattr(
-            "broker.browser_fetcher._save_download_to_disk", save_then_violate
-        )
+        monkeypatch.setattr("broker.browser_fetcher._save_download_to_disk", save_then_violate)
 
         browser = _FakeBrowser(lambda: page)
         browser_holder.append(browser)
@@ -1242,9 +1213,7 @@ class TestDownloadTempFileLeakOnSSRFViolation:
         assert "SSRF blocked mid-fetch" in exc.value.detail
         assert len(captured_paths) == 1, "save was called exactly once"
         leaked = captured_paths[0]
-        assert not os.path.exists(leaked), (
-            f"download temp file leaked after post-save SSRF violation: {leaked}"
-        )
+        assert not os.path.exists(leaked), f"download temp file leaked after post-save SSRF violation: {leaked}"
 
     @pytest.mark.asyncio
     async def test_late_download_path_unlinks_on_post_save_ssrf_violation(
@@ -1267,28 +1236,34 @@ class TestDownloadTempFileLeakOnSSRFViolation:
         browser_holder: list[_FakeBrowser] = []
         page = _FakePage(
             response=_FakeResponse(
-                url="https://example.com/", status=200,
-                headers={"content-type": "text/html"}, body=b"<html></html>",
+                url="https://example.com/",
+                status=200,
+                headers={"content-type": "text/html"},
+                body=b"<html></html>",
             ),
             url="https://example.com/",
         )
+
         # Suppress download fires in the grace window so we end up on the
         # post-settle late-download path. Return the FakeResponse so we take
         # the page-response → settle branch (download will fire inside
         # wait_for_load_state below).
         async def goto(_url: str, *, timeout: int):
             return page._response
+
         page.goto = goto  # type: ignore[method-assign]
 
         # Fire the download from inside wait_for_load_state (the post-settle path).
         async def wait_for_load_state(state: str, *, timeout: int) -> None:
             page._load_state_calls += 1
             page.emit_download(_FakeDownload(download_url, payload))
+
         page.wait_for_load_state = wait_for_load_state  # type: ignore[method-assign]
         page._on_settle = None
 
         captured_paths: list[str] = []
         from broker import browser_fetcher as bf_module
+
         orig_save = bf_module._save_download_to_disk
 
         async def save_then_violate(download):
@@ -1298,9 +1273,7 @@ class TestDownloadTempFileLeakOnSSRFViolation:
             await handler(_FakeRoute("https://10.0.0.5/late-subresource"))
             return path, size
 
-        monkeypatch.setattr(
-            "broker.browser_fetcher._save_download_to_disk", save_then_violate
-        )
+        monkeypatch.setattr("broker.browser_fetcher._save_download_to_disk", save_then_violate)
 
         browser = _FakeBrowser(lambda: page)
         browser_holder.append(browser)
@@ -1312,9 +1285,7 @@ class TestDownloadTempFileLeakOnSSRFViolation:
         assert exc.value.status_code == 400
         assert len(captured_paths) == 1
         leaked = captured_paths[0]
-        assert not os.path.exists(leaked), (
-            f"late-download temp file leaked after post-save SSRF violation: {leaked}"
-        )
+        assert not os.path.exists(leaked), f"late-download temp file leaked after post-save SSRF violation: {leaked}"
 
 
 def _patch_playwright_async_api(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1351,9 +1322,7 @@ class TestSubResourceSSRFNonFatalDuringSettle:
     `tracker.record(...)`), which the _ViolationTracker-only tests bypass."""
 
     @pytest.mark.asyncio
-    async def test_subresource_ssrf_during_settle_resolves_page(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_subresource_ssrf_during_settle_resolves_page(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_playwright_types(monkeypatch)
         _patch_playwright_async_api(monkeypatch)
 
@@ -1471,8 +1440,8 @@ class TestSubResourceSSRFTolerance:
     @pytest.mark.parametrize(
         "subresource_url",
         [
-            "https://d31qbv1cthcecs.cloudfront.net/atrk.js",       # comScore/Alexa tracker
-            "https://launch.newsinc.com/js/embed.js",               # NewsInc video widget
+            "https://d31qbv1cthcecs.cloudfront.net/atrk.js",  # comScore/Alexa tracker
+            "https://launch.newsinc.com/js/embed.js",  # NewsInc video widget
         ],
     )
     def test_real_world_embedded_trackers_are_not_fatal(self, subresource_url):

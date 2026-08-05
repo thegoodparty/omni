@@ -478,8 +478,7 @@ def _validate_input_files(value) -> None:
             raise ValueError(f"_input_files[{i}].key must be a 1-1024 char string: got {key!r}")
         if not isinstance(dest, str) or not _INPUT_FILE_DEST_RE.fullmatch(dest):
             raise ValueError(
-                f"_input_files[{i}].dest must be a simple filename "
-                f"matching [A-Za-z0-9_][A-Za-z0-9._-]*: got {dest!r}"
+                f"_input_files[{i}].dest must be a simple filename matching [A-Za-z0-9_][A-Za-z0-9._-]*: got {dest!r}"
             )
 
 
@@ -731,9 +730,7 @@ def launch_run(
 
         if failures or not tasks:
             failure_reasons = [f.get("reason", "unknown") for f in failures]
-            logger.error(
-                f"ECS RunTask failed (experiment={experiment_id}, " f"run={message['run_id']}): {failure_reasons}"
-            )
+            logger.error(f"ECS RunTask failed (experiment={experiment_id}, run={message['run_id']}): {failure_reasons}")
             _cleanup_minted_token(broker, minted_broker_token, message["run_id"])
             safe_summary = _classify_ecs_failure_reasons(failure_reasons)
             kind = _classify_ecs_failure_kind(failure_reasons)

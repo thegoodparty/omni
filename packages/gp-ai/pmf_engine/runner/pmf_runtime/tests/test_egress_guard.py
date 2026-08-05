@@ -84,6 +84,7 @@ class TestConnectGuard:
     def test_blocks_non_loopback_ip_literal_via_connect_ex(self, monkeypatch):
         """connect_ex is a distinct C-level method — a caller using it with an IP
         literal must be blocked too, not just connect()."""
+
         def fake_getaddrinfo(host, *args, **kwargs):
             return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.9.9.9", 0))]
 

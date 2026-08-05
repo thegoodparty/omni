@@ -5,7 +5,6 @@ import threading
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from broker.auth import BrokerTokenAuth, get_broker_token
 from broker.data_query_tracker import DataQueryTracker
 from broker.dynamodb_client import ScopeTicket
 from broker.sql_rewriter import ScopeViolation, rewrite_query, validate_parameters
@@ -44,6 +43,7 @@ class DatabricksClient:
         conn = getattr(self._local, "conn", None)
         if conn is None:
             from databricks import sql as dbx_sql
+
             conn = dbx_sql.connect(
                 server_hostname=self._server_hostname,
                 http_path=self._http_path,
@@ -109,7 +109,7 @@ async def databricks_query(
         raise HTTPException(
             status_code=400,
             detail={"reason_code": exc.reason_code, "detail": exc.detail},
-        )
+        ) from exc
 
     try:
         validate_parameters(result.sql, req.parameters or {})
@@ -117,21 +117,20 @@ async def databricks_query(
         raise HTTPException(
             status_code=400,
             detail={"reason_code": exc.reason_code, "detail": exc.detail},
-        )
+        ) from exc
 
     try:
         # The databricks-sql connector is sync-only. Run it on a worker thread so
         # the event loop stays free to service other requests during long queries.
-        columns, rows = await asyncio.to_thread(
-            db_client.execute, result.sql, req.parameters or None
-        )
+        columns, rows = await asyncio.to_thread(db_client.execute, result.sql, req.parameters or None)
     except Exception:
         logger.error(
             "databricks query failed run_id=%s sql=%s",
-            ticket.run_id, result.sql[:200],
+            ticket.run_id,
+            result.sql[:200],
             exc_info=True,
         )
-        raise HTTPException(status_code=502, detail="Databricks query execution failed")
+        raise HTTPException(status_code=502, detail="Databricks query execution failed") from None
 
     # Successful query — increment the per-ticket tracker so artifact_publish
     # knows real data backed at least one query for this run. Anti-fabrication

@@ -101,9 +101,7 @@ def _parse_version_ids_env(var_name: str) -> dict[str, str] | None:
     except json.JSONDecodeError as exc:
         raise ValueError(f"Invalid {var_name}: {exc}") from exc
     if not isinstance(parsed, dict):
-        raise ValueError(
-            f"{var_name} must decode to an object, got {type(parsed).__name__}"
-        )
+        raise ValueError(f"{var_name} must decode to an object, got {type(parsed).__name__}")
     return {str(k): str(v) for k, v in parsed.items()}
 
 
@@ -190,9 +188,7 @@ class RunnerConfig:
         if params is None:
             params = {}
         elif not isinstance(params, dict):
-            raise ValueError(
-                f"PARAMS_JSON must decode to an object, got {type(params).__name__}"
-            )
+            raise ValueError(f"PARAMS_JSON must decode to an object, got {type(params).__name__}")
 
         experiment_id = os.environ.get("EXPERIMENT_ID", "")
         instruction = os.environ.get("INSTRUCTION", "")
@@ -225,10 +221,7 @@ class RunnerConfig:
         if os.environ.get("PARAMS_VIA_BROKER", "").strip() == "1":
             broker_token_for_params = os.environ.get("BROKER_TOKEN", "").strip()
             if not (broker_url and broker_token_for_params):
-                raise RuntimeError(
-                    "Cannot fetch params via broker: "
-                    "BROKER_URL and BROKER_TOKEN must both be set."
-                )
+                raise RuntimeError("Cannot fetch params via broker: BROKER_URL and BROKER_TOKEN must both be set.")
             from pmf_engine.runner.params import fetch_params_from_broker
 
             params = fetch_params_from_broker(
@@ -270,6 +263,7 @@ class RunnerConfig:
             qa_version_ids = _parse_version_ids_env("QA_VERSION_IDS")
 
             from pmf_engine.runner.manifest_loader import load_from_broker
+
             envelope = load_from_broker(
                 experiment_id=experiment_id,
                 broker_url=broker_url_for_manifest,
@@ -318,9 +312,7 @@ class RunnerConfig:
             try:
                 timeout_seconds = int(ts_raw)
             except ValueError:
-                raise ValueError(
-                    f"TIMEOUT_SECONDS must be an integer; got {ts_raw!r}"
-                )
+                raise ValueError(f"TIMEOUT_SECONDS must be an integer; got {ts_raw!r}") from None
 
         return cls(
             experiment_id=experiment_id,

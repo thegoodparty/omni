@@ -1,17 +1,15 @@
-import io
 import time
 from unittest.mock import MagicMock
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from broker.dynamodb_client import ScopeTicket
 from broker.endpoints.upload_logs import (
-    router,
-    get_scope_ticket,
-    get_s3_client,
     get_artifact_bucket,
+    get_s3_client,
+    get_scope_ticket,
+    router,
 )
 
 BROKER_TOKEN = "broker-token-test-abc123"

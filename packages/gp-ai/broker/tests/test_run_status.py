@@ -62,6 +62,7 @@ def _create_app(
     app.dependency_overrides[get_artifact_bucket] = lambda: "gp-agent-artifacts-dev"
 
     from broker.endpoints.run_status import get_data_query_tracker
+
     app.dependency_overrides[get_data_query_tracker] = lambda: MagicMock()
 
     return app, mock_s3, mock_sender, mock_store
@@ -163,8 +164,7 @@ class TestRunStatusContractViolation:
         assert resp1.status_code == 200
         first_call_kwargs = mock_s3.put_object.call_args[1]
         assert first_call_kwargs.get("IfNoneMatch") == "*", (
-            "quarantine put_object must pass IfNoneMatch='*' to guarantee "
-            "write-once semantics"
+            "quarantine put_object must pass IfNoneMatch='*' to guarantee write-once semantics"
         )
 
         mock_s3.put_object.side_effect = ClientError(
@@ -325,12 +325,8 @@ class TestRunStatusClearsRunLock:
             ticket = _make_ticket(run_id="run-term-001")
             real_store.put_ticket(ticket)
 
-            assert "Item" in ddb.get_item(
-                TableName="scope-tickets-term", Key={"pk": {"S": ticket.pk}}
-            )
-            assert "Item" in ddb.get_item(
-                TableName="scope-tickets-term", Key={"pk": {"S": f"run:{ticket.run_id}"}}
-            )
+            assert "Item" in ddb.get_item(TableName="scope-tickets-term", Key={"pk": {"S": ticket.pk}})
+            assert "Item" in ddb.get_item(TableName="scope-tickets-term", Key={"pk": {"S": f"run:{ticket.run_id}"}})
 
             app = FastAPI()
             app.include_router(router)
@@ -341,6 +337,7 @@ class TestRunStatusClearsRunLock:
             app.dependency_overrides[get_broker_token_raw] = lambda: BROKER_TOKEN
             app.dependency_overrides[get_artifact_bucket] = lambda: "bucket"
             from broker.endpoints.run_status import get_data_query_tracker
+
             app.dependency_overrides[get_data_query_tracker] = lambda: MagicMock()
 
             client = TestClient(app)
@@ -351,9 +348,9 @@ class TestRunStatusClearsRunLock:
             )
             assert resp.status_code == 200
 
-            assert "Item" not in ddb.get_item(
-                TableName="scope-tickets-term", Key={"pk": {"S": ticket.pk}}
-            ), "ticket row must be gone after terminal status"
+            assert "Item" not in ddb.get_item(TableName="scope-tickets-term", Key={"pk": {"S": ticket.pk}}), (
+                "ticket row must be gone after terminal status"
+            )
             assert "Item" not in ddb.get_item(
                 TableName="scope-tickets-term", Key={"pk": {"S": f"run:{ticket.run_id}"}}
             ), (
@@ -392,7 +389,8 @@ class TestRunStatusTerminalFailureAlerting:
     def test_failed_emits_structured_log_with_run_id_and_experiment(self, caplog):
         caplog.set_level("WARNING", logger="broker.endpoints.run_status")
         ticket = _make_ticket(
-            experiment_id="meeting_briefing", run_id="run-failed-001",
+            experiment_id="meeting_briefing",
+            run_id="run-failed-001",
             organization_slug="demo-org",
         )
         resp, _ = self._post("failed", reason_code="agent_crashed", ticket=ticket)
@@ -411,8 +409,7 @@ class TestRunStatusTerminalFailureAlerting:
         resp, _ = self._post("contract_violation", ticket=ticket)
         assert resp.status_code == 200
         assert any(
-            "run_status terminal" in r.message and "status=contract_violation" in r.message
-            for r in caplog.records
+            "run_status terminal" in r.message and "status=contract_violation" in r.message for r in caplog.records
         )
 
     def test_timeout_emits_structured_log_with_status_timeout(self, caplog):
@@ -422,10 +419,7 @@ class TestRunStatusTerminalFailureAlerting:
         ticket = _make_ticket(run_id="run-timeout-001")
         resp, _ = self._post("timeout", ticket=ticket)
         assert resp.status_code == 200
-        assert any(
-            "run_status terminal" in r.message and "status=timeout" in r.message
-            for r in caplog.records
-        )
+        assert any("run_status terminal" in r.message and "status=timeout" in r.message for r in caplog.records)
 
     def test_failed_emits_cloudwatch_metric_with_dimensions(self):
         ticket = _make_ticket(experiment_id="meeting_briefing", run_id="run-metric-001")
@@ -456,6 +450,7 @@ class TestRunStatusTerminalFailureAlerting:
         from unittest.mock import patch
 
         from broker.endpoints.run_status import _reset_cw_client_for_tests
+
         _reset_cw_client_for_tests()
         app, _, mock_sender, _ = _create_app()
         with patch(
@@ -495,8 +490,7 @@ class TestRunStatusQaEvalTranscriptField:
         assert resp.status_code == 200, resp.text
         assert resp.json()["callback_sent"] is True
         transcript_puts = [
-            c for c in mock_s3.put_object.call_args_list
-            if c.kwargs.get("Key", "").endswith("eval_transcript.jsonl")
+            c for c in mock_s3.put_object.call_args_list if c.kwargs.get("Key", "").endswith("eval_transcript.jsonl")
         ]
         assert not transcript_puts, (
             "run-status must not perform a durable transcript write — it is a "

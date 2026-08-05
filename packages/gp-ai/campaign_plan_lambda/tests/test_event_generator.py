@@ -7,15 +7,15 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from campaign_plan_lambda.event_generator import (
-    CampaignContext,
+    FILTER_PROMPT_FALLBACK,
     NOT_AVAILABLE,
+    CampaignContext,
+    LlmEventResult,
+    LlmEventResultList,
     _build_prompt_variables,
     _filter_and_structure_events,
     _or_not_available,
     _search_community_events,
-    FILTER_PROMPT_FALLBACK,
-    LlmEventResult,
-    LlmEventResultList,
     generate_event_tasks,
 )
 from shared.braintrust import NoOpSpan
@@ -39,19 +39,17 @@ def _sample_vars(**overrides):
 def _render_filter_prompt(**overrides):
     """Render FILTER_PROMPT_FALLBACK through the production variable builder.
     Used by prompt-injection tests that care about the escaping path."""
-    defaults = dict(
-        today=date(2026, 1, 1),
-        election_date=date(2026, 11, 4),
-        state="MA",
-        city="Boston",
-        office_name="Mayor",
-        office_level="CITY",
-        primary_election_date=None,
-    )
+    defaults = {
+        "today": date(2026, 1, 1),
+        "election_date": date(2026, 11, 4),
+        "state": "MA",
+        "city": "Boston",
+        "office_name": "Mayor",
+        "office_level": "CITY",
+        "primary_election_date": None,
+    }
     defaults.update(overrides)
-    return FILTER_PROMPT_FALLBACK.format(
-        **_build_prompt_variables(**defaults), raw_events=""
-    )
+    return FILTER_PROMPT_FALLBACK.format(**_build_prompt_variables(**defaults), raw_events="")
 
 
 def _render_with_city(city: str) -> str:
@@ -116,9 +114,7 @@ class TestFilterAndStructureEvents:
     @pytest.mark.asyncio
     async def test_returns_empty_when_llm_returns_no_events(self):
         mock_client = Mock()
-        mock_client.generate_structured_content.return_value = LlmEventResultList(
-            events=[]
-        )
+        mock_client.generate_structured_content.return_value = LlmEventResultList(events=[])
 
         result = await _filter_and_structure_events(
             mock_client, _sample_vars(), date(2026, 11, 4), date(2026, 1, 1), "raw events text"
@@ -171,7 +167,9 @@ class TestFilterAndStructureEvents:
         mock_client = Mock()
         mock_client.generate_structured_content.return_value = LlmEventResultList(
             events=[
-                LlmEventResult(title="Event With URL", description="Test", date="2026-07-04", url="https://example.com/event"),
+                LlmEventResult(
+                    title="Event With URL", description="Test", date="2026-07-04", url="https://example.com/event"
+                ),
                 LlmEventResult(title="Event Without URL", description="Test", date="2026-07-05"),
             ]
         )
@@ -351,9 +349,7 @@ class TestRenderedPromptBoundary:
     @pytest.mark.asyncio
     async def test_filter_uses_rendered_prompt_verbatim(self):
         mock_client = Mock()
-        mock_client.generate_structured_content.return_value = LlmEventResultList(
-            events=[]
-        )
+        mock_client.generate_structured_content.return_value = LlmEventResultList(events=[])
 
         await _filter_and_structure_events(
             mock_client,
@@ -418,7 +414,8 @@ class TestParentSpanMetadata:
         fake_client = Mock()
         fake_client.default_model = Mock(value="gemini-3-flash-preview")
         fake_client.get_usage_stats.return_value = {
-            "api_calls": 2, "total_cost": 0.01,
+            "api_calls": 2,
+            "total_cost": 0.01,
         }
 
         ctx = CampaignContext(

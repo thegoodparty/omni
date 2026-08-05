@@ -20,10 +20,13 @@ class Cursor:
         self.description: list[tuple] | None = None
 
     def execute(self, sql: str, parameters: dict | None = None):
-        response = self._client.post("/databricks/query", json={
-            "sql": sql,
-            "parameters": parameters or {},
-        })
+        response = self._client.post(
+            "/databricks/query",
+            json={
+                "sql": sql,
+                "parameters": parameters or {},
+            },
+        )
         if response.status_code == 400:
             data = response.json()
             payload = data.get("detail") if isinstance(data.get("detail"), dict) else data
@@ -65,4 +68,5 @@ class Connection:
 
 def connect(**kwargs) -> Connection:
     from .config import get_config
+
     return Connection(get_config().client)

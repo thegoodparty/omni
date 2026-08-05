@@ -132,9 +132,7 @@ class TestSendErrorMessage:
 
 
 class TestS3BeforeSqs:
-    def test_s3_write_happens_before_sqs_send(
-        self, mock_s3, mock_sqs, call_log, monkeypatch
-    ):
+    def test_s3_write_happens_before_sqs_send(self, mock_s3, mock_sqs, call_log, monkeypatch):
         monkeypatch.setenv("S3_RESULTS_BUCKET", "test-bucket")
         monkeypatch.setenv("OUTPUT_SQS_QUEUE_URL", "https://sqs.example.com/queue.fifo")
 

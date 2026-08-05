@@ -27,7 +27,9 @@ class ClusteringAdapter:
 
     def __init__(self, config_path: str | None = None):
         """Initialize clustering adapter"""
-        self.config_path = config_path or str(Path(__file__).parent.parent.parent / "hierarchical_discovery/config.yaml")
+        self.config_path = config_path or str(
+            Path(__file__).parent.parent.parent / "hierarchical_discovery/config.yaml"
+        )
 
         # Load the config to understand the system
         try:
@@ -38,7 +40,7 @@ class ClusteringAdapter:
             logger.error(f"Failed to load hierarchical discovery config: {e}", exc_info=True)
             raise
 
-    def _convert_to_raw_messages(self, messages: list[ConsolidatedMessage], campaign_name: str) -> list['RawMessage']:
+    def _convert_to_raw_messages(self, messages: list[ConsolidatedMessage], campaign_name: str) -> list["RawMessage"]:
         """Convert ConsolidatedMessage objects to RawMessage objects for hierarchical discovery"""
         from datetime import datetime
 
@@ -50,17 +52,17 @@ class ClusteringAdapter:
                 csv_file=f"{campaign_name}_in_memory",
                 csv_row_index=i,
                 original_text=msg.message_text,
-                timestamp=msg.sent_at if hasattr(msg, 'sent_at') else datetime.now(),
+                timestamp=msg.sent_at if hasattr(msg, "sent_at") else datetime.now(),
                 campaign_source=campaign_name.lower(),
                 metadata={
-                    'Campaign ID': msg.campaign_id or campaign_name,
-                    'Campaign Name': msg.campaign_name or campaign_name,
-                    'Contact Phone Number': msg.phone_number,
-                    'Carrier': msg.carrier or 'UNKNOWN',
-                    'Send Direction': 'INBOUND',
-                    'Message Text': msg.message_text,
-                    'round': msg.round or 'Unknown'
-                }
+                    "Campaign ID": msg.campaign_id or campaign_name,
+                    "Campaign Name": msg.campaign_name or campaign_name,
+                    "Contact Phone Number": msg.phone_number,
+                    "Carrier": msg.carrier or "UNKNOWN",
+                    "Send Direction": "INBOUND",
+                    "Message Text": msg.message_text,
+                    "round": msg.round or "Unknown",
+                },
             )
             raw_messages.append(raw_message)
 
@@ -72,39 +74,34 @@ class ClusteringAdapter:
         temp_config = self.config.copy()
 
         normalized_campaign = "berkeley" if campaign_name.lower() == "berkley" else campaign_name.lower()
-        temp_config['data_source'] = normalized_campaign
+        temp_config["data_source"] = normalized_campaign
 
-        if 'data_files' not in temp_config:
-            temp_config['data_files'] = {}
-        temp_config['data_files'][normalized_campaign] = temp_csv_path
+        if "data_files" not in temp_config:
+            temp_config["data_files"] = {}
+        temp_config["data_files"][normalized_campaign] = temp_csv_path
         logger.info(f"📂 Configured data_files['{normalized_campaign}'] = {temp_csv_path}")
 
         temp_output_dir = str(Path(temp_data_dir) / "output")
-        temp_config['output']['base_dir'] = temp_output_dir
+        temp_config["output"]["base_dir"] = temp_output_dir
 
-        temp_config['filtering']['enabled'] = True
+        temp_config["filtering"]["enabled"] = True
         logger.info("✅ Content filtering ENABLED to remove STOP messages and emoji reactions")
 
-        temp_config['ai_processing']['enabled'] = True
+        temp_config["ai_processing"]["enabled"] = True
         logger.info("✅ AI processing ENABLED for message cleaning")
 
-        temp_config['dendrogram']['enabled'] = False
+        temp_config["dendrogram"]["enabled"] = False
 
-        if 'hierarchical' not in temp_config:
-            temp_config['hierarchical'] = {}
+        if "hierarchical" not in temp_config:
+            temp_config["hierarchical"] = {}
 
-        temp_config['hierarchical']['optimal_k_config'] = {
-            'min_k': 5,
-            'max_k': 50,
-            'step': 1,
-            'max_cv': 1.0
-        }
+        temp_config["hierarchical"]["optimal_k_config"] = {"min_k": 5, "max_k": 50, "step": 1, "max_cv": 1.0}
         logger.info("✅ Optimal k analysis ENABLED (k=5 to k=50)")
 
-        temp_config['output']['save_intermediates'] = False
+        temp_config["output"]["save_intermediates"] = False
 
         temp_config_file = str(Path(temp_data_dir) / "temp_config.yaml")
-        with open(temp_config_file, 'w') as f:
+        with open(temp_config_file, "w") as f:
             yaml.dump(temp_config, f)
 
         return temp_config_file
@@ -115,8 +112,8 @@ class ClusteringAdapter:
 
         try:
             # Handle multi-cluster pipeline results (returns dict with consolidated messages)
-            if isinstance(pipeline_result, dict) and 'messages' in pipeline_result:
-                messages = pipeline_result['messages']
+            if isinstance(pipeline_result, dict) and "messages" in pipeline_result:
+                messages = pipeline_result["messages"]
                 logger.info(f"🔍 Processing {len(messages)} clustering result objects from multi-cluster pipeline")
 
                 # Debug: Show first message structure
@@ -130,31 +127,32 @@ class ClusteringAdapter:
                 logger.info(f"🔍 Processing {len(messages)} atomic messages as individual records")
 
                 # Process each atomic message individually
-                for msg_idx, msg_data in enumerate(messages):
-                    phone_number = str(msg_data.get('phone_number', ''))
+                for _msg_idx, msg_data in enumerate(messages):
+                    phone_number = str(msg_data.get("phone_number", ""))
                     if not phone_number:
                         logger.warning(f"🔍 DEBUG Skipping message with no phone number: {list(msg_data.keys())[:5]}")
                         continue
 
                     # Generate unique atomic_id for this atomic message
                     import uuid
+
                     atomic_id = str(uuid.uuid4())
 
                     # Extract ALL cluster configurations (not just one)
-                    cluster_assignments = msg_data.get('cluster_assignments', {})
-                    cluster_themes = msg_data.get('cluster_themes', {})
-                    cluster_issues_summaries = msg_data.get('cluster_issues_summaries', {})
-                    cluster_key_topics = msg_data.get('cluster_key_topics', {})
-                    cluster_sentiments = msg_data.get('cluster_sentiments', {})
-                    cluster_categories = msg_data.get('cluster_categories', {})
-                    cluster_civic_relevance = msg_data.get('cluster_civic_relevance', {})
-                    cluster_confidence_scores = msg_data.get('cluster_confidence_scores', {})
-                    cluster_detailed_analyses = msg_data.get('cluster_detailed_analyses', {})
-                    cluster_verbatim_quotes = msg_data.get('cluster_verbatim_quotes', {})
-                    cluster_quotes = msg_data.get('cluster_quotes', {})
+                    cluster_assignments = msg_data.get("cluster_assignments", {})
+                    cluster_themes = msg_data.get("cluster_themes", {})
+                    cluster_issues_summaries = msg_data.get("cluster_issues_summaries", {})
+                    cluster_key_topics = msg_data.get("cluster_key_topics", {})
+                    cluster_sentiments = msg_data.get("cluster_sentiments", {})
+                    cluster_categories = msg_data.get("cluster_categories", {})
+                    cluster_civic_relevance = msg_data.get("cluster_civic_relevance", {})
+                    cluster_confidence_scores = msg_data.get("cluster_confidence_scores", {})
+                    cluster_detailed_analyses = msg_data.get("cluster_detailed_analyses", {})
+                    cluster_verbatim_quotes = msg_data.get("cluster_verbatim_quotes", {})
+                    cluster_quotes = msg_data.get("cluster_quotes", {})
 
-                    message = msg_data.get('message', '')
-                    atomic_message = msg_data.get('atomic_message', '')
+                    message = msg_data.get("message", "")
+                    atomic_message = msg_data.get("atomic_message", "")
 
                     # Build multi-cluster data for ALL cluster configurations
                     multi_cluster_data = {}
@@ -163,7 +161,7 @@ class ClusteringAdapter:
                         if cluster_count in cluster_assignments:
                             key_topics_data = cluster_key_topics.get(cluster_count, [])
                             if isinstance(key_topics_data, str):
-                                key_topics = [topic.strip() for topic in key_topics_data.split(',') if topic.strip()]
+                                key_topics = [topic.strip() for topic in key_topics_data.split(",") if topic.strip()]
                             elif isinstance(key_topics_data, list):
                                 key_topics = key_topics_data
                             else:
@@ -184,39 +182,45 @@ class ClusteringAdapter:
                                 quotes = []
 
                             multi_cluster_data[cluster_count] = {
-                                'cluster_id': int(cluster_assignments[cluster_count]) if cluster_assignments[cluster_count] != '' else -1,
-                                'cluster_theme': str(cluster_themes.get(cluster_count, 'Uncategorized')),
-                                'cluster_category': str(cluster_categories.get(cluster_count, 'Other')),
-                                'issues_summary': cluster_issues_summaries.get(cluster_count, ''),
-                                'key_topics': key_topics,
-                                'cluster_sentiment': str(cluster_sentiments.get(cluster_count, 'neutral')),
-                                'civic_relevance': str(cluster_civic_relevance.get(cluster_count, 'General civic engagement')),
-                                'theme_confidence': float(cluster_confidence_scores.get(cluster_count, 0.0)) if cluster_confidence_scores.get(cluster_count) else 0.0,
-                                'detailed_analysis': cluster_detailed_analyses.get(cluster_count, ''),
-                                'verbatim_quotes': verbatim_quotes,
-                                'quotes': quotes
+                                "cluster_id": int(cluster_assignments[cluster_count])
+                                if cluster_assignments[cluster_count] != ""
+                                else -1,
+                                "cluster_theme": str(cluster_themes.get(cluster_count, "Uncategorized")),
+                                "cluster_category": str(cluster_categories.get(cluster_count, "Other")),
+                                "issues_summary": cluster_issues_summaries.get(cluster_count, ""),
+                                "key_topics": key_topics,
+                                "cluster_sentiment": str(cluster_sentiments.get(cluster_count, "neutral")),
+                                "civic_relevance": str(
+                                    cluster_civic_relevance.get(cluster_count, "General civic engagement")
+                                ),
+                                "theme_confidence": float(cluster_confidence_scores.get(cluster_count, 0.0))
+                                if cluster_confidence_scores.get(cluster_count)
+                                else 0.0,
+                                "detailed_analysis": cluster_detailed_analyses.get(cluster_count, ""),
+                                "verbatim_quotes": verbatim_quotes,
+                                "quotes": quotes,
                             }
 
                     # Check if this is an opt-out/non-substantive message
-                    is_opt_out = msg_data.get('is_opt_out', False)
+                    is_opt_out = msg_data.get("is_opt_out", False)
 
                     # Store multi-cluster data for this atomic message (use atomic_id as key)
                     # Include non-substantive messages even if they have no cluster data
                     if multi_cluster_data or is_opt_out:
                         clustering_map[atomic_id] = {
-                            'atomic_id': atomic_id,
-                            'phone_number': phone_number,
-                            'cluster_data': multi_cluster_data if multi_cluster_data else {},
-                            'message': message,
-                            'atomic_message': atomic_message,
-                            'is_opt_out': is_opt_out
+                            "atomic_id": atomic_id,
+                            "phone_number": phone_number,
+                            "cluster_data": multi_cluster_data if multi_cluster_data else {},
+                            "message": message,
+                            "atomic_message": atomic_message,
+                            "is_opt_out": is_opt_out,
                         }
 
                 logger.info(f"Successfully parsed {len(clustering_map)} clustering results from data objects")
                 return clustering_map
 
             # Handle single-cluster pipeline results (PipelineResult object)
-            elif hasattr(pipeline_result, 'clustered_messages') and hasattr(pipeline_result, 'cluster_analyses'):
+            elif hasattr(pipeline_result, "clustered_messages") and hasattr(pipeline_result, "cluster_analyses"):
                 clustered_messages = pipeline_result.clustered_messages
                 cluster_analyses = pipeline_result.cluster_analyses
                 logger.debug(f"Processing {len(clustered_messages)} clustered messages from single-cluster pipeline")
@@ -224,13 +228,13 @@ class ClusteringAdapter:
                 # Create a mapping of cluster_id to analysis
                 analysis_map = {}
                 for analysis in cluster_analyses:
-                    if hasattr(analysis, 'cluster_id') and hasattr(analysis, 'theme_analysis'):
+                    if hasattr(analysis, "cluster_id") and hasattr(analysis, "theme_analysis"):
                         analysis_map[analysis.cluster_id] = analysis
 
                 # Process each clustered message
                 for msg in clustered_messages:
                     # Extract phone number from metadata
-                    metadata = getattr(msg, 'metadata', {})
+                    metadata = getattr(msg, "metadata", {})
                     phone_number = metadata.get("Contact Phone Number", "")
                     if not phone_number:
                         continue
@@ -243,31 +247,37 @@ class ClusteringAdapter:
                         clustering_result = ClusteringResult(
                             phone_number=phone_number,
                             cluster_id=cluster_id,
-                            cluster_theme=str(getattr(ta, 'theme', 'Uncategorized')),
-                            cluster_category=str(getattr(ta, 'category', 'Other')),
-                            key_topics=list(getattr(ta, 'key_topics', [])),
-                            cluster_sentiment=str(getattr(ta, 'sentiment', 'neutral')),
-                            civic_relevance=str(getattr(ta, 'civic_relevance', 'General civic engagement')),
-                            theme_confidence=float(getattr(ta, 'confidence_score', 0.0)),
-                            detailed_analysis=str(getattr(ta, 'detailed_analysis', '')) if getattr(ta, 'detailed_analysis', '') else None,
-                            verbatim_quotes=' | '.join(getattr(ta, 'verbatim_quotes', [])) if getattr(ta, 'verbatim_quotes', []) else None
+                            cluster_theme=str(getattr(ta, "theme", "Uncategorized")),
+                            cluster_category=str(getattr(ta, "category", "Other")),
+                            key_topics=list(getattr(ta, "key_topics", [])),
+                            cluster_sentiment=str(getattr(ta, "sentiment", "neutral")),
+                            civic_relevance=str(getattr(ta, "civic_relevance", "General civic engagement")),
+                            theme_confidence=float(getattr(ta, "confidence_score", 0.0)),
+                            detailed_analysis=str(getattr(ta, "detailed_analysis", ""))
+                            if getattr(ta, "detailed_analysis", "")
+                            else None,
+                            verbatim_quotes=" | ".join(getattr(ta, "verbatim_quotes", []))
+                            if getattr(ta, "verbatim_quotes", [])
+                            else None,
                         )
                     else:
                         # Fallback for missing analysis
                         clustering_result = ClusteringResult(
                             phone_number=phone_number,
                             cluster_id=cluster_id,
-                            cluster_theme=f'Cluster {cluster_id}',
-                            cluster_category='Other',
+                            cluster_theme=f"Cluster {cluster_id}",
+                            cluster_category="Other",
                             key_topics=[],
-                            cluster_sentiment='neutral',
-                            civic_relevance='General civic engagement',
-                            theme_confidence=0.0
+                            cluster_sentiment="neutral",
+                            civic_relevance="General civic engagement",
+                            theme_confidence=0.0,
                         )
 
                     clustering_map[phone_number] = clustering_result
 
-                logger.info(f"Successfully parsed {len(clustering_map)} clustering results from single-cluster pipeline")
+                logger.info(
+                    f"Successfully parsed {len(clustering_map)} clustering results from single-cluster pipeline"
+                )
                 return clustering_map
 
             else:
@@ -277,14 +287,16 @@ class ClusteringAdapter:
         except Exception as e:
             logger.error(f"Failed to parse clustering results from objects: {e}", exc_info=True)
             logger.debug(f"Pipeline result type: {type(pipeline_result)}")
-            if hasattr(pipeline_result, '__dict__'):
+            if hasattr(pipeline_result, "__dict__"):
                 logger.debug(f"Pipeline result attributes: {list(pipeline_result.__dict__.keys())}")
             elif isinstance(pipeline_result, dict):
                 logger.debug(f"Pipeline result keys: {list(pipeline_result.keys())}")
 
         return clustering_map
 
-    async def process_messages(self, messages: list[ConsolidatedMessage], campaign_name: str = "temp", persistent_output_dir: str | None = None) -> dict[str, dict[str, Any]]:
+    async def process_messages(
+        self, messages: list[ConsolidatedMessage], campaign_name: str = "temp", persistent_output_dir: str | None = None
+    ) -> dict[str, dict[str, Any]]:
         """
         Process messages through hierarchical discovery pipeline
 
@@ -321,9 +333,7 @@ class ClusteringAdapter:
             orchestrator = HierarchicalDiscoveryOrchestrator(temp_config_path, data_source_override=normalized_campaign)
 
             pipeline_result = await orchestrator.run_pipeline(
-                disable_optimization=True,
-                return_data=True,
-                in_memory_messages=raw_messages
+                disable_optimization=True, return_data=True, in_memory_messages=raw_messages
             )
 
             clustering_map = self._parse_clustering_results_from_objects(pipeline_result)
@@ -342,6 +352,7 @@ class ClusteringAdapter:
             if temp_data_dir and temp_data_dir.exists():
                 try:
                     import shutil
+
                     shutil.rmtree(str(temp_data_dir))
                     logger.debug(f"Cleaned up temporary directory: {temp_data_dir}")
                 except Exception as e:
@@ -394,9 +405,9 @@ class ClusteringAdapter:
 
 
 # Convenience function for direct usage
-async def cluster_messages(messages: list[ConsolidatedMessage],
-                          config_path: str | None = None,
-                          campaign_name: str = "temp") -> dict[str, dict[str, Any]]:
+async def cluster_messages(
+    messages: list[ConsolidatedMessage], config_path: str | None = None, campaign_name: str = "temp"
+) -> dict[str, dict[str, Any]]:
     """
     Convenience function to cluster messages
 

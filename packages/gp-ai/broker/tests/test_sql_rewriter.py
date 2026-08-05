@@ -19,7 +19,6 @@ TEST_SCOPE = {
 }
 
 
-
 # ---------------------------------------------------------------------------
 # 1. MUST-REJECT: Stacked statements
 # ---------------------------------------------------------------------------
@@ -36,7 +35,7 @@ class TestStackedStatements:
             )
 
     def test_unicode_semicolon(self):
-        sql = f"SELECT LALVOTERID FROM {ALLOWED_TABLE}\uFF1B DROP TABLE foo"
+        sql = f"SELECT LALVOTERID FROM {ALLOWED_TABLE}\uff1b DROP TABLE foo"
         with pytest.raises(ScopeViolation, match="stacked_statements"):
             rewrite_query(sql, TEST_SCOPE)
 
@@ -95,10 +94,7 @@ class TestDisallowedTableFrom:
 # ---------------------------------------------------------------------------
 class TestDisallowedTableJoin:
     def test_join_system_iam(self):
-        sql = (
-            f"SELECT v.LALVOTERID FROM {ALLOWED_TABLE} v "
-            "JOIN system.iam.users u ON v.LALVOTERID = u.id"
-        )
+        sql = f"SELECT v.LALVOTERID FROM {ALLOWED_TABLE} v JOIN system.iam.users u ON v.LALVOTERID = u.id"
         with pytest.raises(ScopeViolation, match="disallowed_table"):
             rewrite_query(sql, TEST_SCOPE)
 
@@ -111,10 +107,7 @@ class TestDisallowedTableJoin:
             rewrite_query(sql, TEST_SCOPE)
 
     def test_cross_join_bad_table(self):
-        sql = (
-            f"SELECT v.LALVOTERID FROM {ALLOWED_TABLE} v "
-            "CROSS JOIN system.information_schema.columns"
-        )
+        sql = f"SELECT v.LALVOTERID FROM {ALLOWED_TABLE} v CROSS JOIN system.information_schema.columns"
         with pytest.raises(ScopeViolation, match="disallowed_table"):
             rewrite_query(sql, TEST_SCOPE)
 
@@ -124,10 +117,7 @@ class TestDisallowedTableJoin:
 # ---------------------------------------------------------------------------
 class TestDisallowedTableSubquery:
     def test_in_subquery(self):
-        sql = (
-            f"SELECT LALVOTERID FROM {ALLOWED_TABLE} "
-            "WHERE LALVOTERID IN (SELECT id FROM system.iam.users)"
-        )
+        sql = f"SELECT LALVOTERID FROM {ALLOWED_TABLE} WHERE LALVOTERID IN (SELECT id FROM system.iam.users)"
         with pytest.raises(ScopeViolation, match="disallowed_table"):
             rewrite_query(sql, TEST_SCOPE)
 
@@ -253,45 +243,31 @@ class TestForbiddenFunctions:
 
     def test_explode(self):
         with pytest.raises(ScopeViolation, match="forbidden_function"):
-            rewrite_query(
-                f"SELECT explode(LALVOTERID) FROM {ALLOWED_TABLE}", TEST_SCOPE
-            )
+            rewrite_query(f"SELECT explode(LALVOTERID) FROM {ALLOWED_TABLE}", TEST_SCOPE)
 
     def test_rejects_explode_outer(self):
         with pytest.raises(ScopeViolation, match="forbidden_function"):
-            rewrite_query(
-                f"SELECT explode_outer(LALVOTERID) FROM {ALLOWED_TABLE}", TEST_SCOPE
-            )
+            rewrite_query(f"SELECT explode_outer(LALVOTERID) FROM {ALLOWED_TABLE}", TEST_SCOPE)
 
     def test_rejects_posexplode(self):
         with pytest.raises(ScopeViolation, match="forbidden_function"):
-            rewrite_query(
-                f"SELECT posexplode(LALVOTERID) FROM {ALLOWED_TABLE}", TEST_SCOPE
-            )
+            rewrite_query(f"SELECT posexplode(LALVOTERID) FROM {ALLOWED_TABLE}", TEST_SCOPE)
 
     def test_rejects_posexplode_outer(self):
         with pytest.raises(ScopeViolation, match="forbidden_function"):
-            rewrite_query(
-                f"SELECT posexplode_outer(LALVOTERID) FROM {ALLOWED_TABLE}", TEST_SCOPE
-            )
+            rewrite_query(f"SELECT posexplode_outer(LALVOTERID) FROM {ALLOWED_TABLE}", TEST_SCOPE)
 
     def test_rejects_inline(self):
         with pytest.raises(ScopeViolation, match="forbidden_function"):
-            rewrite_query(
-                f"SELECT inline(LALVOTERID) FROM {ALLOWED_TABLE}", TEST_SCOPE
-            )
+            rewrite_query(f"SELECT inline(LALVOTERID) FROM {ALLOWED_TABLE}", TEST_SCOPE)
 
     def test_rejects_inline_outer(self):
         with pytest.raises(ScopeViolation, match="forbidden_function"):
-            rewrite_query(
-                f"SELECT inline_outer(LALVOTERID) FROM {ALLOWED_TABLE}", TEST_SCOPE
-            )
+            rewrite_query(f"SELECT inline_outer(LALVOTERID) FROM {ALLOWED_TABLE}", TEST_SCOPE)
 
     def test_rejects_stack(self):
         with pytest.raises(ScopeViolation, match="forbidden_function"):
-            rewrite_query(
-                f"SELECT stack(2, LALVOTERID, Voters_Age) FROM {ALLOWED_TABLE}", TEST_SCOPE
-            )
+            rewrite_query(f"SELECT stack(2, LALVOTERID, Voters_Age) FROM {ALLOWED_TABLE}", TEST_SCOPE)
 
 
 # ---------------------------------------------------------------------------
@@ -320,17 +296,13 @@ class TestParameterMismatch:
 # ---------------------------------------------------------------------------
 class TestMustAcceptSimple:
     def test_simple_select_fq(self):
-        result = rewrite_query(
-            f"SELECT LALVOTERID, Voters_Age FROM {ALLOWED_TABLE}", TEST_SCOPE
-        )
+        result = rewrite_query(f"SELECT LALVOTERID, Voters_Age FROM {ALLOWED_TABLE}", TEST_SCOPE)
         assert isinstance(result, RewriteResult)
         assert result.statement_type == "select"
         assert "LALVOTERID" in result.sql
 
     def test_simple_select_short_name(self):
-        result = rewrite_query(
-            f"SELECT LALVOTERID FROM {SHORT_TABLE}", TEST_SCOPE
-        )
+        result = rewrite_query(f"SELECT LALVOTERID FROM {SHORT_TABLE}", TEST_SCOPE)
         assert isinstance(result, RewriteResult)
         assert result.statement_type == "select"
 
@@ -357,21 +329,15 @@ class TestMustAcceptSimple:
         assert result.statement_type == "select"
 
     def test_select_count_star(self):
-        result = rewrite_query(
-            f"SELECT COUNT(*) FROM {ALLOWED_TABLE}", TEST_SCOPE
-        )
+        result = rewrite_query(f"SELECT COUNT(*) FROM {ALLOWED_TABLE}", TEST_SCOPE)
         assert result.statement_type == "select"
 
     def test_select_sum_aggregate(self):
-        result = rewrite_query(
-            f"SELECT SUM(Voters_Age) FROM {ALLOWED_TABLE}", TEST_SCOPE
-        )
+        result = rewrite_query(f"SELECT SUM(Voters_Age) FROM {ALLOWED_TABLE}", TEST_SCOPE)
         assert result.statement_type == "select"
 
     def test_select_with_limit_within_max(self):
-        result = rewrite_query(
-            f"SELECT LALVOTERID FROM {ALLOWED_TABLE} LIMIT 100", TEST_SCOPE
-        )
+        result = rewrite_query(f"SELECT LALVOTERID FROM {ALLOWED_TABLE} LIMIT 100", TEST_SCOPE)
         assert result.statement_type == "select"
         assert "100" in result.sql
 
@@ -438,9 +404,7 @@ class TestScopeEnforcementOrEscape:
         assert "Fayetteville" in result.sql
 
     def test_no_where_still_gets_scope(self):
-        result = rewrite_query(
-            f"SELECT LALVOTERID FROM {ALLOWED_TABLE}", TEST_SCOPE
-        )
+        result = rewrite_query(f"SELECT LALVOTERID FROM {ALLOWED_TABLE}", TEST_SCOPE)
         assert "NC" in result.sql
         assert "Fayetteville" in result.sql
 
@@ -450,22 +414,16 @@ class TestScopeEnforcementOrEscape:
 # ---------------------------------------------------------------------------
 class TestScopeEnforcementLimit:
     def test_limit_exceeds_max(self):
-        result = rewrite_query(
-            f"SELECT LALVOTERID FROM {ALLOWED_TABLE} LIMIT 1000000", TEST_SCOPE
-        )
+        result = rewrite_query(f"SELECT LALVOTERID FROM {ALLOWED_TABLE} LIMIT 1000000", TEST_SCOPE)
         assert "50000" in result.sql
         assert "1000000" not in result.sql
 
     def test_no_limit_injected(self):
-        result = rewrite_query(
-            f"SELECT LALVOTERID FROM {ALLOWED_TABLE}", TEST_SCOPE
-        )
+        result = rewrite_query(f"SELECT LALVOTERID FROM {ALLOWED_TABLE}", TEST_SCOPE)
         assert "50000" in result.sql
 
     def test_limit_within_max_preserved(self):
-        result = rewrite_query(
-            f"SELECT LALVOTERID FROM {ALLOWED_TABLE} LIMIT 500", TEST_SCOPE
-        )
+        result = rewrite_query(f"SELECT LALVOTERID FROM {ALLOWED_TABLE} LIMIT 500", TEST_SCOPE)
         assert "500" in result.sql
 
 

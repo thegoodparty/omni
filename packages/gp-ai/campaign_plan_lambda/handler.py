@@ -9,14 +9,13 @@ import asyncio
 import json
 import os
 import time
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
+from typing import TypedDict
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from typing import TypedDict, Optional
-
-from shared.logger import get_logger
 from campaign_plan_lambda.output import CampaignPlanResult
+from shared.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -37,10 +36,10 @@ class LambdaEvent(TypedDict):
 
 class Secrets(BaseModel):
     GEMINI_API_KEY: str
-    BRAINTRUST_API_KEY: Optional[str] = None
+    BRAINTRUST_API_KEY: str | None = None
 
 
-_secrets_cache: Optional[Secrets] = None
+_secrets_cache: Secrets | None = None
 MAX_RECEIVE_COUNT = 3
 
 
@@ -53,18 +52,22 @@ class SqsMessageBody(BaseModel):
     electionDate: str = Field(
         validation_alias=AliasChoices("electionDate", "election_date"),
     )
-    state: Optional[str] = None
-    city: Optional[str] = None
-    officeName: Optional[str] = None
-    officeLevel: Optional[str] = None
-    primaryElectionDate: Optional[str] = None
+    state: str | None = None
+    city: str | None = None
+    officeName: str | None = None
+    officeLevel: str | None = None
+    primaryElectionDate: str | None = None
 
     # Blank optional strings from gp-api collapse to None so the "not available"
     # fallback fires uniformly downstream. Whitespace-only strings count as
     # blank. electionDate is excluded — it's required, so blank input is a real
     # validation error.
     @field_validator(
-        "state", "city", "officeName", "officeLevel", "primaryElectionDate",
+        "state",
+        "city",
+        "officeName",
+        "officeLevel",
+        "primaryElectionDate",
         mode="before",
     )
     @classmethod
@@ -81,7 +84,7 @@ class SqsMessageBody(BaseModel):
 
     @field_validator("primaryElectionDate")
     @classmethod
-    def validate_primary_election_date(cls, v: Optional[str]) -> Optional[str]:
+    def validate_primary_election_date(cls, v: str | None) -> str | None:
         if v is None:
             return None
         date.fromisoformat(v)
@@ -117,12 +120,11 @@ def handler(event: LambdaEvent, context=None) -> None:
     _inject_secrets()
 
     from shared.braintrust import init_braintrust
+
     init_braintrust(project="campaign-plan")
 
     for record in event.get("Records", []):
-        receive_count = int(
-            record.get("attributes", {}).get("ApproximateReceiveCount", "1")
-        )
+        receive_count = int(record.get("attributes", {}).get("ApproximateReceiveCount", "1"))
 
         try:
             message_body = SqsMessageBody(**json.loads(record["body"]))
@@ -134,6 +136,7 @@ def handler(event: LambdaEvent, context=None) -> None:
                     raw = json.loads(record.get("body", "{}"))
                     if isinstance(raw, dict) and "campaignId" in raw:
                         from campaign_plan_lambda.output import send_error_message
+
                         send_error_message(int(raw["campaignId"]), "Invalid message format")
                 except Exception as notify_err:
                     logger.warning(f"Failed to send error notification: {notify_err}")
@@ -146,7 +149,7 @@ def handler(event: LambdaEvent, context=None) -> None:
         start_time = time.time()
 
         try:
-            result = asyncio.run(_generate(campaign_id, message_body))
+            asyncio.run(_generate(campaign_id, message_body))
             elapsed = time.time() - start_time
             logger.info(f"Campaign {campaign_id} completed in {elapsed:.1f}s")
         except Exception as e:
@@ -169,7 +172,7 @@ def handler(event: LambdaEvent, context=None) -> None:
 
 async def _generate(campaign_id: int, msg: SqsMessageBody) -> CampaignPlanResult:
     from campaign_plan_lambda.event_generator import CampaignContext, generate_event_tasks
-    from campaign_plan_lambda.output import write_result_to_s3, send_completion_message
+    from campaign_plan_lambda.output import send_completion_message, write_result_to_s3
 
     ctx = CampaignContext(
         electionDate=msg.electionDate,
@@ -182,7 +185,7 @@ async def _generate(campaign_id: int, msg: SqsMessageBody) -> CampaignPlanResult
     event_tasks = await generate_event_tasks(ctx)
     logger.info(f"Generated {len(event_tasks)} event tasks")
 
-    generation_timestamp = datetime.now(timezone.utc).isoformat()
+    generation_timestamp = datetime.now(UTC).isoformat()
 
     from campaign_plan_lambda.output import TaskDict
 

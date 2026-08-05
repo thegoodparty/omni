@@ -106,10 +106,7 @@ def get(url: str, purpose: str = "") -> dict:
             upstream_status = resp.status_code
 
         if not _is_textual(content_type):
-            raise ValueError(
-                f"http.get cannot decode binary content-type {content_type!r}; "
-                "use http.download instead"
-            )
+            raise ValueError(f"http.get cannot decode binary content-type {content_type!r}; use http.download instead")
 
         chunks: list[bytes] = []
         byte_size = 0

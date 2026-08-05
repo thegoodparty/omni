@@ -4,6 +4,7 @@ Exercise the engine's contract module against tiny, hand-written synthetic
 JSON Schema Draft-07 schemas. Per-experiment contract validation belongs in
 the runbooks repo.
 """
+
 from __future__ import annotations
 
 import json
@@ -16,7 +17,6 @@ from pmf_engine.runner.contract import (
     format_contract_for_prompt,
     validate_artifact_contract,
 )
-
 
 SYNTHETIC_SCHEMA = {
     "type": "object",
@@ -165,12 +165,14 @@ class TestCollectContractErrors:
                 },
             },
         }
-        artifact = json.dumps({
-            "segments": [
-                {"name": "ok", "count": 1},
-                {"name": 99},
-            ]
-        }).encode()
+        artifact = json.dumps(
+            {
+                "segments": [
+                    {"name": "ok", "count": 1},
+                    {"name": 99},
+                ]
+            }
+        ).encode()
         errors = collect_contract_errors(artifact, schema)
         assert len(errors) == 2
         assert any("segments[1].name" in e for e in errors)

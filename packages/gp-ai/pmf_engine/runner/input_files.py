@@ -100,7 +100,10 @@ def prefetch_input_files(
             written.append(target)
             logger.info(
                 "prefetched_input_file dest=%r bucket=%r key=%r bytes=%d",
-                dest, bucket, key, len(response.content),
+                dest,
+                bucket,
+                key,
+                len(response.content),
             )
     except BaseException:
         # On ANY failure (broker error, unsafe dest, FileExistsError on

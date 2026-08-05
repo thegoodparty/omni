@@ -521,7 +521,10 @@ class TestArtifactPublishRunKeyImmutability:
         app, mock_s3, mock_sender, mock_store = _create_app(ticket=ticket)
         mock_s3.put_object.side_effect = ClientError(
             error_response={
-                "Error": {"Code": "PreconditionFailed", "Message": "At least one of the pre-conditions you specified did not hold"},
+                "Error": {
+                    "Code": "PreconditionFailed",
+                    "Message": "At least one of the pre-conditions you specified did not hold",
+                },
                 "ResponseMetadata": {"HTTPStatusCode": 412},
             },
             operation_name="PutObject",
@@ -561,15 +564,13 @@ class TestArtifactPublishRunKeyImmutability:
 
         # Find the per-run archive call (vs latest pointer).
         run_call = next(
-            c for c in mock_s3.put_object.call_args_list
-            if c.kwargs["Key"] == "district_intel/di-run-007/artifact.json"
+            c for c in mock_s3.put_object.call_args_list if c.kwargs["Key"] == "district_intel/di-run-007/artifact.json"
         )
         assert run_call.kwargs.get("IfNoneMatch") == "*"
 
         # The latest pointer is intentionally mutable — must NOT have IfNoneMatch.
         latest_call = next(
-            c for c in mock_s3.put_object.call_args_list
-            if c.kwargs["Key"] == "district_intel/42/latest.json"
+            c for c in mock_s3.put_object.call_args_list if c.kwargs["Key"] == "district_intel/42/latest.json"
         )
         assert "IfNoneMatch" not in latest_call.kwargs
 
@@ -651,9 +652,7 @@ class TestArtifactPublishLatestJsonFailureIsBestEffort:
         assert call_kwargs["artifact_key"] == archive_key
         assert call_kwargs["status"] == "success"
 
-        mock_store.delete_ticket_and_run_lock.assert_called_once_with(
-            BROKER_TOKEN, "di-run-latest-flake"
-        )
+        mock_store.delete_ticket_and_run_lock.assert_called_once_with(BROKER_TOKEN, "di-run-latest-flake")
 
     def test_latest_json_failure_logs_warning_with_context(self, caplog):
         ticket = _make_ticket(
@@ -680,9 +679,7 @@ class TestArtifactPublishLatestJsonFailureIsBestEffort:
         assert resp.status_code == 200, resp.text
 
         warning_records = [
-            r for r in caplog.records
-            if r.levelno == logging.WARNING
-            and r.name == "broker.endpoints.artifact_publish"
+            r for r in caplog.records if r.levelno == logging.WARNING and r.name == "broker.endpoints.artifact_publish"
         ]
         assert len(warning_records) >= 1, (
             f"expected warning from artifact_publish, got: "
@@ -772,9 +769,7 @@ class TestArtifactPublishAntiFabricationGate:
         """Manifest declared allowed_tables → publish requires at least one
         successful Databricks query. Zero queries → 400 + clear reason."""
         ticket = _make_ticket_with_data_scope()
-        app, mock_s3, mock_sender, mock_store = _create_app(
-            ticket=ticket, tracker_count=0
-        )
+        app, mock_s3, mock_sender, mock_store = _create_app(ticket=ticket, tracker_count=0)
         client = TestClient(app)
 
         resp = client.post(
@@ -796,9 +791,7 @@ class TestArtifactPublishAntiFabricationGate:
     def test_publish_allowed_after_one_successful_query(self):
         """Tracker count >= 1 → gate passes, normal publish proceeds."""
         ticket = _make_ticket_with_data_scope()
-        app, mock_s3, mock_sender, _ = _create_app(
-            ticket=ticket, tracker_count=1
-        )
+        app, mock_s3, mock_sender, _ = _create_app(ticket=ticket, tracker_count=1)
         client = TestClient(app)
 
         resp = client.post(
@@ -817,9 +810,7 @@ class TestArtifactPublishAntiFabricationGate:
         Databricks at all."""
         # Default _make_ticket has scope={} — no allowed_tables.
         ticket = _make_ticket(experiment_id="meeting_briefing")
-        app, mock_s3, mock_sender, _ = _create_app(
-            ticket=ticket, tracker_count=0
-        )
+        app, mock_s3, mock_sender, _ = _create_app(ticket=ticket, tracker_count=0)
         client = TestClient(app)
 
         resp = client.post(
@@ -921,9 +912,7 @@ class TestArtifactPublishDataRequiredUnlessCarveOut:
         and zero data queries succeeded. The gate skips — this is a legitimate
         no-data outcome, not a fabricated artifact."""
         ticket = _make_ticket_with_data_required_unless()
-        app, mock_s3, mock_sender, _ = _create_app(
-            ticket=ticket, tracker_count=0
-        )
+        app, mock_s3, mock_sender, _ = _create_app(ticket=ticket, tracker_count=0)
         client = TestClient(app)
 
         resp = client.post(
@@ -942,9 +931,7 @@ class TestArtifactPublishDataRequiredUnlessCarveOut:
         a successful query — protecting against the original fabrication risk
         when the agent emits a full briefing without real data backing it."""
         ticket = _make_ticket_with_data_required_unless()
-        app, mock_s3, mock_sender, _ = _create_app(
-            ticket=ticket, tracker_count=0
-        )
+        app, mock_s3, mock_sender, _ = _create_app(ticket=ticket, tracker_count=0)
         client = TestClient(app)
 
         full_artifact = {
@@ -995,9 +982,7 @@ class TestArtifactPublishDataRequiredUnlessCarveOut:
             pytest.param("not-a-dict", id="non-dict-carve-out"),
         ],
     )
-    def test_malformed_carve_out_does_not_crash_and_falls_back_to_strict_gate(
-        self, malformed_carve_out
-    ):
+    def test_malformed_carve_out_does_not_crash_and_falls_back_to_strict_gate(self, malformed_carve_out):
         """The carve-out shape is meta-schema-validated upstream in the runbooks
         repo, but the broker treats `ticket.scope` as untrusted dict input. A
         malformed `data_required_unless` (missing keys, wrong types, etc.) must
@@ -1032,8 +1017,7 @@ class TestArtifactPublishDataRequiredUnlessCarveOut:
         # Critical: IS a 400 with the structured anti-fabrication reason,
         # because the malformed carve-out is treated as absent.
         assert resp.status_code == 400, (
-            f"malformed carve-out crashed the publish path: status={resp.status_code} "
-            f"body={resp.text}"
+            f"malformed carve-out crashed the publish path: status={resp.status_code} body={resp.text}"
         )
         assert "NoDataQueriesSucceeded" in resp.json()["detail"]
         mock_s3.put_object.assert_not_called()
@@ -1073,12 +1057,24 @@ def _qa_verdict() -> dict:
         "status": "evaluated",
         "pass": False,
         "checks": [
-            {"name": "grounding_coverage", "type": "deterministic",
-             "passed": False, "score": 0.62, "threshold": 0.8,
-             "detail": "62% of claims grounded", "duration_ms": 412},
-            {"name": "citation_resolves", "type": "deterministic",
-             "passed": True, "score": 1.0, "threshold": 1.0,
-             "detail": "all citations resolve", "duration_ms": 88},
+            {
+                "name": "grounding_coverage",
+                "type": "deterministic",
+                "passed": False,
+                "score": 0.62,
+                "threshold": 0.8,
+                "detail": "62% of claims grounded",
+                "duration_ms": 412,
+            },
+            {
+                "name": "citation_resolves",
+                "type": "deterministic",
+                "passed": True,
+                "score": 1.0,
+                "threshold": 1.0,
+                "detail": "all citations resolve",
+                "duration_ms": 88,
+            },
         ],
         "violations": ["one human-readable string"],
         "duration_ms": 9300,
@@ -1093,7 +1089,9 @@ class TestArtifactPublishQaVerdictPassthrough:
         to send_result: gp-api was dropped as a callback consumer, so the
         verdict no longer rides the callback at all."""
         ticket = _make_ticket(
-            experiment_id="district_intel", organization_slug="42", run_id="di-verbatim",
+            experiment_id="district_intel",
+            organization_slug="42",
+            run_id="di-verbatim",
         )
         app, mock_s3, mock_sender, _ = _create_app(ticket=ticket)
         client = TestClient(app)
@@ -1108,7 +1106,8 @@ class TestArtifactPublishQaVerdictPassthrough:
         assert resp.status_code == 200, resp.text
         # The verdict is written durably, verbatim.
         verdict_call = next(
-            c for c in mock_s3.put_object.call_args_list
+            c
+            for c in mock_s3.put_object.call_args_list
             if c.kwargs["Key"] == "district_intel/di-verbatim/qa/verdict.json"
         )
         assert json.loads(verdict_call.kwargs["Body"]) == verdict
@@ -1121,7 +1120,9 @@ class TestArtifactPublishQaVerdictPassthrough:
         verdict. A verdict with keys the broker has never heard of — even an
         empty dict — publishes fine and is written durably as-is."""
         ticket = _make_ticket(
-            experiment_id="district_intel", organization_slug="42", run_id="di-weird",
+            experiment_id="district_intel",
+            organization_slug="42",
+            run_id="di-weird",
         )
         app, mock_s3, _, _ = _create_app(ticket=ticket)
         client = TestClient(app)
@@ -1135,8 +1136,7 @@ class TestArtifactPublishQaVerdictPassthrough:
 
         assert resp.status_code == 200, resp.text
         verdict_call = next(
-            c for c in mock_s3.put_object.call_args_list
-            if c.kwargs["Key"] == "district_intel/di-weird/qa/verdict.json"
+            c for c in mock_s3.put_object.call_args_list if c.kwargs["Key"] == "district_intel/di-weird/qa/verdict.json"
         )
         assert json.loads(verdict_call.kwargs["Body"]) == weird
 
@@ -1146,7 +1146,9 @@ class TestArtifactPublishQaVerdictPassthrough:
         regression that's invisible at the HTTP layer. Pin that the declared
         field reaches the handler and drives the durable S3 write."""
         ticket = _make_ticket(
-            experiment_id="district_intel", organization_slug="42", run_id="di-declared",
+            experiment_id="district_intel",
+            organization_slug="42",
+            run_id="di-declared",
         )
         app, mock_s3, _, _ = _create_app(ticket=ticket)
         client = TestClient(app)
@@ -1159,7 +1161,8 @@ class TestArtifactPublishQaVerdictPassthrough:
         )
 
         verdict_bodies = [
-            json.loads(c.kwargs["Body"]) for c in mock_s3.put_object.call_args_list
+            json.loads(c.kwargs["Body"])
+            for c in mock_s3.put_object.call_args_list
             if c.kwargs["Key"] == "district_intel/di-declared/qa/verdict.json"
         ]
         assert verdict_bodies, "declared qa_verdict was dropped by pydantic"
@@ -1228,15 +1231,10 @@ class TestArtifactPublishQaVerdictPassthrough:
         mock_sender.send_result.assert_called_once()
         assert "qa_verdict" not in mock_sender.send_result.call_args.kwargs
         # Ticket still cleaned up.
-        mock_store.delete_ticket_and_run_lock.assert_called_once_with(
-            BROKER_TOKEN, "run-oversize-verdict"
-        )
+        mock_store.delete_ticket_and_run_lock.assert_called_once_with(BROKER_TOKEN, "run-oversize-verdict")
 
         # A CloudWatch metric fired for the skip (operator-alertable).
-        skip_calls = [
-            c for c in mock_metric.call_args_list
-            if c.args[0] == "broker_qa_verdict_size_cap_exceeded"
-        ]
+        skip_calls = [c for c in mock_metric.call_args_list if c.args[0] == "broker_qa_verdict_size_cap_exceeded"]
         assert skip_calls, "expected broker_qa_verdict_size_cap_exceeded metric on oversize skip"
 
     def test_oversized_qa_verdict_logs_error_with_run_id(self, caplog):
@@ -1259,9 +1257,7 @@ class TestArtifactPublishQaVerdictPassthrough:
 
         assert resp.status_code == 200, resp.text
         error_records = [
-            r for r in caplog.records
-            if r.levelno == logging.ERROR
-            and r.name == "broker.endpoints.artifact_publish"
+            r for r in caplog.records if r.levelno == logging.ERROR and r.name == "broker.endpoints.artifact_publish"
         ]
         assert error_records, "expected an ERROR log for the oversize verdict skip"
         msg = error_records[0].getMessage()
@@ -1329,7 +1325,9 @@ class TestArtifactPublishQaVerdictPassthrough:
         over = {"blob": "x" * (cap - over_envelope + 1)}
         assert len(json.dumps(over)) == cap + 1
         ticket_over = _make_ticket(
-            experiment_id="district_intel", organization_slug="42", run_id="over-cap",
+            experiment_id="district_intel",
+            organization_slug="42",
+            run_id="over-cap",
         )
         app, mock_s3, mock_sender, _ = _create_app(ticket=ticket_over)
         client = TestClient(app)
@@ -1347,7 +1345,9 @@ class TestArtifactPublishQaVerdictPassthrough:
         at = {"blob": "x" * (cap - over_envelope)}
         assert len(json.dumps(at)) == cap
         ticket_at = _make_ticket(
-            experiment_id="district_intel", organization_slug="42", run_id="at-cap",
+            experiment_id="district_intel",
+            organization_slug="42",
+            run_id="at-cap",
         )
         app2, mock_s3_2, mock_sender2, _ = _create_app(ticket=ticket_at)
         client2 = TestClient(app2)
@@ -1405,7 +1405,8 @@ class TestArtifactPublishDurableQaVerdictS3Capture:
         assert resp.status_code == 200, resp.text
 
         verdict_calls = [
-            c for c in mock_s3.put_object.call_args_list
+            c
+            for c in mock_s3.put_object.call_args_list
             if c.kwargs["Key"] == "district_intel/di-qa-capture/qa/verdict.json"
         ]
         assert len(verdict_calls) == 1, (
@@ -1443,9 +1444,7 @@ class TestArtifactPublishDurableQaVerdictS3Capture:
         keys_in_order = [c.kwargs["Key"] for c in mock_s3.put_object.call_args_list]
         artifact_idx = keys_in_order.index("district_intel/di-qa-order/artifact.json")
         verdict_idx = keys_in_order.index("district_intel/di-qa-order/qa/verdict.json")
-        assert artifact_idx < verdict_idx, (
-            f"qa verdict must be written after artifact.json; order was {keys_in_order}"
-        )
+        assert artifact_idx < verdict_idx, f"qa verdict must be written after artifact.json; order was {keys_in_order}"
 
     def test_qa_raw_output_written_to_run_prefix(self):
         """When the runner includes `qa_raw_output` (the raw main.py stdout),
@@ -1478,12 +1477,12 @@ class TestArtifactPublishDurableQaVerdictS3Capture:
         # The raw main.py output is written under the EXACT main_output.json key
         # (not a startswith match — pin the literal filename).
         raw_calls = [
-            c for c in mock_s3.put_object.call_args_list
+            c
+            for c in mock_s3.put_object.call_args_list
             if c.kwargs["Key"] == "district_intel/di-qa-raw/qa/main_output.json"
         ]
         assert len(raw_calls) == 1, (
-            f"expected one main_output.json write under the qa prefix, got keys: "
-            f"{sorted(keys_written)}"
+            f"expected one main_output.json write under the qa prefix, got keys: {sorted(keys_written)}"
         )
         rc = raw_calls[0]
         assert rc.kwargs["Body"] == raw
@@ -1534,17 +1533,13 @@ class TestArtifactPublishDurableQaVerdictS3Capture:
         # Publish succeeds despite the qa write failing.
         assert resp.status_code == 200, resp.text
         # The artifact write happened.
-        artifact_keys = {
-            c.kwargs["Key"] for c in mock_s3.put_object.call_args_list
-        }
+        artifact_keys = {c.kwargs["Key"] for c in mock_s3.put_object.call_args_list}
         assert "district_intel/di-qa-write-flake/artifact.json" in artifact_keys
         # The callback fired, carrying NO verdict.
         mock_sender.send_result.assert_called_once()
         assert "qa_verdict" not in mock_sender.send_result.call_args.kwargs
         # The ticket was still cleaned up.
-        mock_store.delete_ticket_and_run_lock.assert_called_once_with(
-            BROKER_TOKEN, "di-qa-write-flake"
-        )
+        mock_store.delete_ticket_and_run_lock.assert_called_once_with(BROKER_TOKEN, "di-qa-write-flake")
 
     def test_qa_write_failure_logs_with_run_id(self, caplog):
         """A failed qa write logs (with the run_id) so the lost durable capture
@@ -1589,9 +1584,9 @@ class TestArtifactPublishDurableQaVerdictS3Capture:
 
         assert resp.status_code == 200, resp.text
         qa_log_records = [
-            r for r in caplog.records
-            if r.name == "broker.endpoints.artifact_publish"
-            and "di-verdict-write-log" in r.getMessage()
+            r
+            for r in caplog.records
+            if r.name == "broker.endpoints.artifact_publish" and "di-verdict-write-log" in r.getMessage()
         ]
         assert qa_log_records, (
             f"expected a log mentioning the run_id for the failed qa write, got: "
@@ -1650,13 +1645,11 @@ class TestArtifactPublishDurableQaVerdictS3Capture:
         assert resp.status_code == 200, resp.text
 
         raw_bodies = [
-            c.kwargs["Body"] for c in mock_s3.put_object.call_args_list
-            if c.kwargs["Key"] == "district_intel/di-qa-raw-declared/qa/main_output.json"
-            and c.kwargs["Body"] == raw
+            c.kwargs["Body"]
+            for c in mock_s3.put_object.call_args_list
+            if c.kwargs["Key"] == "district_intel/di-qa-raw-declared/qa/main_output.json" and c.kwargs["Body"] == raw
         ]
-        assert raw_bodies, (
-            "declared qa_raw_output was dropped by pydantic — no raw-output write"
-        )
+        assert raw_bodies, "declared qa_raw_output was dropped by pydantic — no raw-output write"
 
     def test_verdict_present_raw_absent_writes_only_verdict_json(self):
         """The COMMON skipped/error path: the gate produced a verdict but no raw
@@ -1680,19 +1673,14 @@ class TestArtifactPublishDurableQaVerdictS3Capture:
         assert resp.status_code == 200, resp.text
 
         # EXACT qa key set: verdict.json present, main_output.json ABSENT.
-        qa_keys = {
-            c.kwargs["Key"] for c in mock_s3.put_object.call_args_list
-            if "/qa/" in c.kwargs["Key"]
-        }
+        qa_keys = {c.kwargs["Key"] for c in mock_s3.put_object.call_args_list if "/qa/" in c.kwargs["Key"]}
         assert qa_keys == {"district_intel/di-verdict-only/qa/verdict.json"}
         assert "district_intel/di-verdict-only/qa/main_output.json" not in qa_keys
 
         # Callback fired with the verdict.
         mock_sender.send_result.assert_called_once()
         assert "qa_verdict" not in mock_sender.send_result.call_args.kwargs
-        mock_store.delete_ticket_and_run_lock.assert_called_once_with(
-            BROKER_TOKEN, "di-verdict-only"
-        )
+        mock_store.delete_ticket_and_run_lock.assert_called_once_with(BROKER_TOKEN, "di-verdict-only")
 
     def test_qa_verdict_and_raw_write_exact_basenames(self):
         """Pin the EXACT qa key basenames — 'verdict.json' and
@@ -1718,10 +1706,7 @@ class TestArtifactPublishDurableQaVerdictS3Capture:
         )
         assert resp.status_code == 200, resp.text
 
-        qa_keys = {
-            c.kwargs["Key"] for c in mock_s3.put_object.call_args_list
-            if "/qa/" in c.kwargs["Key"]
-        }
+        qa_keys = {c.kwargs["Key"] for c in mock_s3.put_object.call_args_list if "/qa/" in c.kwargs["Key"]}
         assert qa_keys == {
             "district_intel/di-exact-keys/qa/verdict.json",
             "district_intel/di-exact-keys/qa/main_output.json",
@@ -1770,18 +1755,11 @@ class TestArtifactPublishDurableQaVerdictS3Capture:
         # Callback still fired with the verdict; ticket cleaned up.
         mock_sender.send_result.assert_called_once()
         assert "qa_verdict" not in mock_sender.send_result.call_args.kwargs
-        mock_store.delete_ticket_and_run_lock.assert_called_once_with(
-            BROKER_TOKEN, "di-oversize-raw"
-        )
+        mock_store.delete_ticket_and_run_lock.assert_called_once_with(BROKER_TOKEN, "di-oversize-raw")
 
         # Observable: a CloudWatch metric fired for the raw-output skip.
-        skip_calls = [
-            c for c in mock_metric.call_args_list
-            if c.args[0] == "broker_qa_raw_output_size_cap_exceeded"
-        ]
-        assert skip_calls, (
-            "expected broker_qa_raw_output_size_cap_exceeded metric on oversize raw skip"
-        )
+        skip_calls = [c for c in mock_metric.call_args_list if c.args[0] == "broker_qa_raw_output_size_cap_exceeded"]
+        assert skip_calls, "expected broker_qa_raw_output_size_cap_exceeded metric on oversize raw skip"
 
     def test_oversize_raw_output_logs_error_with_run_id(self, caplog):
         """The oversize raw skip logs an ERROR carrying the run_id and byte
@@ -1807,7 +1785,8 @@ class TestArtifactPublishDurableQaVerdictS3Capture:
 
         assert resp.status_code == 200, resp.text
         error_records = [
-            r for r in caplog.records
+            r
+            for r in caplog.records
             if r.levelno == logging.ERROR
             and r.name == "broker.endpoints.artifact_publish"
             and "di-oversize-raw-log" in r.getMessage()
@@ -1838,7 +1817,8 @@ class TestArtifactPublishDurableQaVerdictS3Capture:
         assert resp.status_code == 200, resp.text
 
         raw_call = next(
-            c for c in mock_s3.put_object.call_args_list
+            c
+            for c in mock_s3.put_object.call_args_list
             if c.kwargs["Key"] == "district_intel/di-raw-write-once/qa/main_output.json"
         )
         assert raw_call.kwargs.get("IfNoneMatch") == "*"
@@ -1888,9 +1868,7 @@ class TestArtifactPublishDurableQaVerdictS3Capture:
         assert resp.status_code == 200, resp.text
         mock_sender.send_result.assert_called_once()
         assert "qa_verdict" not in mock_sender.send_result.call_args.kwargs
-        mock_store.delete_ticket_and_run_lock.assert_called_once_with(
-            BROKER_TOKEN, "di-qa-dup"
-        )
+        mock_store.delete_ticket_and_run_lock.assert_called_once_with(BROKER_TOKEN, "di-qa-dup")
 
     def test_failed_verdict_write_skips_main_output_no_orphan(self):
         """Write-level coupling: main_output.json is the verdict's raw fragment
@@ -1955,17 +1933,14 @@ class TestArtifactPublishDurableQaVerdictS3Capture:
         # CRITICAL: main_output.json must NOT be written — it would be an orphan
         # with no sibling verdict.json.
         assert main_output_key not in keys_written, (
-            f"orphan main_output.json written without a sibling verdict.json; "
-            f"keys written: {keys_written}"
+            f"orphan main_output.json written without a sibling verdict.json; keys written: {keys_written}"
         )
 
         # The callback still fired (carrying NO verdict), and the ticket was
         # still cleaned up.
         mock_sender.send_result.assert_called_once()
         assert "qa_verdict" not in mock_sender.send_result.call_args.kwargs
-        mock_store.delete_ticket_and_run_lock.assert_called_once_with(
-            BROKER_TOKEN, "di-verdict-fail-orphan"
-        )
+        mock_store.delete_ticket_and_run_lock.assert_called_once_with(BROKER_TOKEN, "di-verdict-fail-orphan")
 
     def test_verdict_412_already_exists_still_writes_main_output(self):
         """The 412 (PreconditionFailed) branch on verdict.json means the sibling
@@ -2020,9 +1995,7 @@ class TestArtifactPublishDurableQaVerdictS3Capture:
             f"already exists (412 already-captured); keys written: {keys_written}"
         )
         mock_sender.send_result.assert_called_once()
-        mock_store.delete_ticket_and_run_lock.assert_called_once_with(
-            BROKER_TOKEN, "di-verdict-412-raw"
-        )
+        mock_store.delete_ticket_and_run_lock.assert_called_once_with(BROKER_TOKEN, "di-verdict-412-raw")
 
 
 # ---------------------------------------------------------------------------
@@ -2065,7 +2038,8 @@ class TestArtifactPublishDurableQaEvalTranscriptS3Capture:
         assert resp.status_code == 200, resp.text
 
         transcript_calls = [
-            c for c in mock_s3.put_object.call_args_list
+            c
+            for c in mock_s3.put_object.call_args_list
             if c.kwargs["Key"] == "district_intel/di-qa-transcript/qa/eval_transcript.jsonl"
         ]
         assert len(transcript_calls) == 1, (
@@ -2104,13 +2078,12 @@ class TestArtifactPublishDurableQaEvalTranscriptS3Capture:
         assert resp.status_code == 200, resp.text
 
         transcript_bodies = [
-            c.kwargs["Body"] for c in mock_s3.put_object.call_args_list
+            c.kwargs["Body"]
+            for c in mock_s3.put_object.call_args_list
             if c.kwargs["Key"] == "district_intel/di-transcript-declared/qa/eval_transcript.jsonl"
             and c.kwargs["Body"] == transcript
         ]
-        assert transcript_bodies, (
-            "declared qa_eval_transcript was dropped by pydantic — no transcript write"
-        )
+        assert transcript_bodies, "declared qa_eval_transcript was dropped by pydantic — no transcript write"
 
     def test_oversize_qa_eval_transcript_is_fail_open_skips_write_but_publishes(self):
         """v1 fail-open: an oversize qa_eval_transcript must NOT 400. The broker
@@ -2155,18 +2128,13 @@ class TestArtifactPublishDurableQaEvalTranscriptS3Capture:
         # Callback still fired with the verdict; ticket cleaned up.
         mock_sender.send_result.assert_called_once()
         assert "qa_verdict" not in mock_sender.send_result.call_args.kwargs
-        mock_store.delete_ticket_and_run_lock.assert_called_once_with(
-            BROKER_TOKEN, "di-oversize-transcript"
-        )
+        mock_store.delete_ticket_and_run_lock.assert_called_once_with(BROKER_TOKEN, "di-oversize-transcript")
 
         # Observable: a CloudWatch metric fired for the transcript skip.
         skip_calls = [
-            c for c in mock_metric.call_args_list
-            if c.args[0] == "broker_qa_eval_transcript_size_cap_exceeded"
+            c for c in mock_metric.call_args_list if c.args[0] == "broker_qa_eval_transcript_size_cap_exceeded"
         ]
-        assert skip_calls, (
-            "expected broker_qa_eval_transcript_size_cap_exceeded metric on oversize skip"
-        )
+        assert skip_calls, "expected broker_qa_eval_transcript_size_cap_exceeded metric on oversize skip"
 
     def test_qa_eval_transcript_write_gated_on_verdict_written_no_orphan(self):
         """Write-level coupling: eval_transcript.jsonl must never be written when
@@ -2220,14 +2188,11 @@ class TestArtifactPublishDurableQaEvalTranscriptS3Capture:
         # CRITICAL: eval_transcript.jsonl must NOT be written — it would be an
         # orphan with no sibling verdict.json.
         assert transcript_key not in keys_written, (
-            f"orphan eval_transcript.jsonl written without a sibling verdict.json; "
-            f"keys written: {keys_written}"
+            f"orphan eval_transcript.jsonl written without a sibling verdict.json; keys written: {keys_written}"
         )
 
         mock_sender.send_result.assert_called_once()
-        mock_store.delete_ticket_and_run_lock.assert_called_once_with(
-            BROKER_TOKEN, "di-transcript-orphan"
-        )
+        mock_store.delete_ticket_and_run_lock.assert_called_once_with(BROKER_TOKEN, "di-transcript-orphan")
 
     def test_verdict_412_already_exists_still_writes_eval_transcript(self):
         """The 412 (PreconditionFailed) branch on verdict.json means the sibling
@@ -2278,9 +2243,7 @@ class TestArtifactPublishDurableQaEvalTranscriptS3Capture:
             f"already exists (412 already-captured); keys written: {keys_written}"
         )
         mock_sender.send_result.assert_called_once()
-        mock_store.delete_ticket_and_run_lock.assert_called_once_with(
-            BROKER_TOKEN, "di-transcript-412"
-        )
+        mock_store.delete_ticket_and_run_lock.assert_called_once_with(BROKER_TOKEN, "di-transcript-412")
 
     def test_qa_eval_transcript_write_failure_does_not_fail_publish(self, caplog):
         """The durable transcript write is best-effort: a generic S3 failure on
@@ -2325,18 +2288,15 @@ class TestArtifactPublishDurableQaEvalTranscriptS3Capture:
 
         assert resp.status_code == 200, resp.text
         warning_records = [
-            r for r in caplog.records
+            r
+            for r in caplog.records
             if r.name == "broker.endpoints.artifact_publish"
             and r.levelno == logging.WARNING
             and "di-transcript-write-flake" in r.getMessage()
         ]
-        assert warning_records, (
-            "expected a WARNING log mentioning the run_id for the failed transcript write"
-        )
+        assert warning_records, "expected a WARNING log mentioning the run_id for the failed transcript write"
         mock_sender.send_result.assert_called_once()
-        mock_store.delete_ticket_and_run_lock.assert_called_once_with(
-            BROKER_TOKEN, "di-transcript-write-flake"
-        )
+        mock_store.delete_ticket_and_run_lock.assert_called_once_with(BROKER_TOKEN, "di-transcript-write-flake")
 
     def test_eval_transcript_cap_equals_one_mib(self):
         """Pin the transcript cap to its ABSOLUTE value (1 MiB) and to the
@@ -2449,7 +2409,7 @@ class TestQaPublishCrossSurfaceContract:
             duration_ms=4200,
             cost_usd=0.0731,
         ).to_dict()
-        qa_raw_output = "[{\"name\": \"sources_resolve\", \"passed\": false}]"
+        qa_raw_output = '[{"name": "sources_resolve", "passed": false}]'
         qa_eval_transcript = '{"turn":1}'
 
         body = self._capture_producer_body(

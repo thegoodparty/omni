@@ -5,7 +5,6 @@ import boto3
 from botocore.exceptions import ClientError
 from pydantic import BaseModel, Field
 
-
 RUN_LOCK_PK_PREFIX = "run:"
 
 
@@ -64,9 +63,7 @@ class ScopeTicketStore:
         if ticket.clerk_user_id is not None:
             item["clerk_user_id"] = {"S": ticket.clerk_user_id}
         if ticket.input_files is not None:
-            item["input_files"] = {
-                "S": json.dumps([f.model_dump() for f in ticket.input_files])
-            }
+            item["input_files"] = {"S": json.dumps([f.model_dump() for f in ticket.input_files])}
 
         run_lock_item = {
             "pk": {"S": _run_lock_pk(ticket.run_id)},
@@ -130,9 +127,7 @@ class ScopeTicketStore:
 
         input_files = None
         if "input_files" in item:
-            input_files = [
-                InputFileRef(**f) for f in json.loads(item["input_files"]["S"])
-            ]
+            input_files = [InputFileRef(**f) for f in json.loads(item["input_files"]["S"])]
 
         return ScopeTicket(
             pk=item["pk"]["S"],

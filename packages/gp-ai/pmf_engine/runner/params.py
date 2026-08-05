@@ -47,8 +47,6 @@ def fetch_params_from_broker(
             client.close()
 
     if not isinstance(params, dict):
-        raise ValueError(
-            f"/params/read must return an object, got {type(params).__name__}"
-        )
+        raise ValueError(f"/params/read must return an object, got {type(params).__name__}")
     logger.info("fetched params from broker keys=%d", len(params))
     return params

@@ -9,6 +9,7 @@ contract validation is the runbooks repo's job.
 If you find yourself reaching for a real experiment fixture here, that's a
 smell — the test belongs in runbooks, not in pmf_engine.
 """
+
 from __future__ import annotations
 
 import copy
@@ -30,6 +31,7 @@ def _default_environment_to_test(monkeypatch):
     override this (later setenv wins)."""
     monkeypatch.setenv("ENVIRONMENT", "test")
 
+
 # Synthetic manifest — minimal but realistic shape that satisfies the meta
 # schema at `~/work/runbooks/experiments/_schema/manifest.schema.json`. Used
 # by every engine test that needs a manifest. The id `smoke_test` does NOT
@@ -41,9 +43,7 @@ SYNTHETIC_MANIFEST: dict = {
     "max_turns": 10,
     "timeout_seconds": 600,
     "scope": {
-        "allowed_tables": [
-            "goodparty_data_catalog.dbt.synthetic_table"
-        ],
+        "allowed_tables": ["goodparty_data_catalog.dbt.synthetic_table"],
         "max_rows": 1000,
     },
     "input_schema": {
@@ -98,8 +98,7 @@ def synthetic_instruction() -> str:
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",
-        "e2e: full-stack local end-to-end test "
-        "(requires local gp-api, AWS creds, Claude agent; run with -m e2e)",
+        "e2e: full-stack local end-to-end test (requires local gp-api, AWS creds, Claude agent; run with -m e2e)",
     )
 
 

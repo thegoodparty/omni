@@ -100,7 +100,7 @@ async def proxy_mcp_root(
                 "reason": "gp_api_upstream_failed",
                 "err": type(exc).__name__,
             },
-        )
+        ) from exc
 
     upstream_content_type = upstream.headers.get("content-type", "application/json")
 
@@ -168,7 +168,7 @@ async def proxy_mcp_root(
                 "reason": "gp_api_upstream_failed",
                 "err": type(exc).__name__,
             },
-        )
+        ) from exc
     finally:
         await _safe_aclose()
 

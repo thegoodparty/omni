@@ -8,9 +8,9 @@ import pytest
 from pydantic import ValidationError
 
 from campaign_plan_lambda.handler import (
-    handler,
-    SqsMessageBody,
     MAX_RECEIVE_COUNT,
+    SqsMessageBody,
+    handler,
 )
 
 
@@ -109,9 +109,7 @@ class TestInputValidation:
 
     def test_invalid_primary_election_date_rejected(self):
         with pytest.raises(ValidationError):
-            SqsMessageBody(
-                campaignId=123, electionDate="2026-11-04", primaryElectionDate="not-a-date"
-            )
+            SqsMessageBody(campaignId=123, electionDate="2026-11-04", primaryElectionDate="not-a-date")
 
     def test_empty_primary_election_date_allowed(self):
         # gp-api may send an empty string when the field is genuinely absent.
@@ -176,12 +174,15 @@ class TestInputValidation:
 class TestInvalidMessageErrorNotification:
     @patch("campaign_plan_lambda.handler._inject_secrets")
     def test_no_error_sent_on_first_attempt(self, _mock_secrets):
-        event = _make_sqs_event({
-            "campaignId": 456,
-            "election_date": "not-a-date",
-            "city": "Boston",
-            "state": "MA",
-        }, receive_count=1)
+        event = _make_sqs_event(
+            {
+                "campaignId": 456,
+                "election_date": "not-a-date",
+                "city": "Boston",
+                "state": "MA",
+            },
+            receive_count=1,
+        )
 
         with patch("campaign_plan_lambda.output.send_error_message") as mock_send:
             with pytest.raises(ValidationError):
@@ -190,12 +191,15 @@ class TestInvalidMessageErrorNotification:
 
     @patch("campaign_plan_lambda.handler._inject_secrets")
     def test_sends_error_on_final_attempt_when_campaign_id_present(self, _mock_secrets):
-        event = _make_sqs_event({
-            "campaignId": 456,
-            "election_date": "not-a-date",
-            "city": "Boston",
-            "state": "MA",
-        }, receive_count=MAX_RECEIVE_COUNT)
+        event = _make_sqs_event(
+            {
+                "campaignId": 456,
+                "election_date": "not-a-date",
+                "city": "Boston",
+                "state": "MA",
+            },
+            receive_count=MAX_RECEIVE_COUNT,
+        )
 
         with patch("campaign_plan_lambda.output.send_error_message") as mock_send:
             with pytest.raises(ValidationError):
@@ -204,9 +208,12 @@ class TestInvalidMessageErrorNotification:
 
     @patch("campaign_plan_lambda.handler._inject_secrets")
     def test_sends_error_on_final_attempt_when_missing_fields(self, _mock_secrets):
-        event = _make_sqs_event({
-            "campaignId": 789,
-        }, receive_count=MAX_RECEIVE_COUNT)
+        event = _make_sqs_event(
+            {
+                "campaignId": 789,
+            },
+            receive_count=MAX_RECEIVE_COUNT,
+        )
 
         with patch("campaign_plan_lambda.output.send_error_message") as mock_send:
             with pytest.raises(ValidationError):
@@ -215,10 +222,13 @@ class TestInvalidMessageErrorNotification:
 
     @patch("campaign_plan_lambda.handler._inject_secrets")
     def test_no_error_sent_when_campaign_id_missing(self, _mock_secrets):
-        event = _make_sqs_event({
-            "election_date": "2026-11-04",
-            "city": "Boston",
-        }, receive_count=MAX_RECEIVE_COUNT)
+        event = _make_sqs_event(
+            {
+                "election_date": "2026-11-04",
+                "city": "Boston",
+            },
+            receive_count=MAX_RECEIVE_COUNT,
+        )
 
         with patch("campaign_plan_lambda.output.send_error_message") as mock_send:
             with pytest.raises(ValidationError):

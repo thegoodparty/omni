@@ -71,10 +71,7 @@ def _select_oneof_branch(data: dict, schema: dict) -> dict | None:
     discriminators: set[str] | None = None
     for branch in branches:
         props = branch.get("properties", {})
-        enum_fields = {
-            k for k, v in props.items()
-            if isinstance(v, dict) and isinstance(v.get("enum"), list)
-        }
+        enum_fields = {k for k, v in props.items() if isinstance(v, dict) and isinstance(v.get("enum"), list)}
         discriminators = enum_fields if discriminators is None else discriminators & enum_fields
 
     for field in discriminators or ():
@@ -143,10 +140,7 @@ def _schema_to_example(schema, indent: int) -> str:
     if isinstance(schema, dict):
         if not schema:
             return "{}"
-        inner = ",\n".join(
-            f'{pad}  "{k}": {_schema_to_example(v, indent + 1)}'
-            for k, v in schema.items()
-        )
+        inner = ",\n".join(f'{pad}  "{k}": {_schema_to_example(v, indent + 1)}' for k, v in schema.items())
         return "{\n" + inner + "\n" + pad + "}"
     if isinstance(schema, list):
         item = _schema_to_example(schema[0], indent + 1) if schema else "..."

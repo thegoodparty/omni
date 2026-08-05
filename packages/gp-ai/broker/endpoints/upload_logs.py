@@ -41,12 +41,7 @@ def upload_logs(
 
     for f in files:
         filename = f.filename or ""
-        if (
-            not filename
-            or not _FILENAME_ALLOWLIST.fullmatch(filename)
-            or ".." in filename
-            or filename.startswith("/")
-        ):
+        if not filename or not _FILENAME_ALLOWLIST.fullmatch(filename) or ".." in filename or filename.startswith("/"):
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid filename: {filename!r}",
@@ -64,10 +59,12 @@ def upload_logs(
         except Exception:
             logger.error(
                 "S3 upload-logs failed run_id=%s key=%s bucket=%s",
-                ticket.run_id, key, bucket,
+                ticket.run_id,
+                key,
+                bucket,
                 exc_info=True,
             )
-            raise HTTPException(status_code=500, detail="Failed to upload logs to S3")
+            raise HTTPException(status_code=500, detail="Failed to upload logs to S3") from None
 
         uploaded.append(key)
 

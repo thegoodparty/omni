@@ -27,48 +27,17 @@ Examples:
   python query_db.py --count campaigns
 
 IMPORTANT: Only SELECT queries are allowed. No INSERT, UPDATE, DELETE, or DDL.
-        """
+        """,
     )
 
+    parser.add_argument("--query", type=str, help="SQL query to execute (SELECT only)")
+    parser.add_argument("--list-tables", action="store_true", help="List all tables in the default schema")
+    parser.add_argument("--describe", type=str, metavar="TABLE", help="Describe a table's schema")
+    parser.add_argument("--count", type=str, metavar="TABLE", help="Get row count for a table")
+    parser.add_argument("--sample", type=str, metavar="TABLE", help="Get sample rows from a table")
+    parser.add_argument("--limit", type=int, default=10, help="Number of rows for sample (default: 10)")
     parser.add_argument(
-        "--query",
-        type=str,
-        help="SQL query to execute (SELECT only)"
-    )
-    parser.add_argument(
-        "--list-tables",
-        action="store_true",
-        help="List all tables in the default schema"
-    )
-    parser.add_argument(
-        "--describe",
-        type=str,
-        metavar="TABLE",
-        help="Describe a table's schema"
-    )
-    parser.add_argument(
-        "--count",
-        type=str,
-        metavar="TABLE",
-        help="Get row count for a table"
-    )
-    parser.add_argument(
-        "--sample",
-        type=str,
-        metavar="TABLE",
-        help="Get sample rows from a table"
-    )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=10,
-        help="Number of rows for sample (default: 10)"
-    )
-    parser.add_argument(
-        "--output",
-        choices=["table", "json", "csv"],
-        default="table",
-        help="Output format (default: table)"
+        "--output", choices=["table", "json", "csv"], default="table", help="Output format (default: table)"
     )
 
     args = parser.parse_args()

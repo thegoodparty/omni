@@ -7,98 +7,186 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from broker.auth import AuthError, BrokerTokenAuth
+from broker.browser_fetcher import PlaywrightBrowserFetcher  # noqa: I001
 from broker.callback_sender import CallbackSender
 from broker.data_query_tracker import DataQueryTracker
 from broker.dynamodb_client import ScopeTicket, ScopeTicketStore
 from broker.endpoints.agent_mcp_proxy import (
     get_agent_fleet_id as agent_mcp_get_agent_fleet_id,
+)
+from broker.endpoints.agent_mcp_proxy import (
     get_agent_mcp_secret as agent_mcp_get_agent_mcp_secret,
+)
+from broker.endpoints.agent_mcp_proxy import (
     get_gp_api_base_url as agent_mcp_get_gp_api_base_url,
+)
+from broker.endpoints.agent_mcp_proxy import (
     get_http_client as agent_mcp_get_http_client,
+)
+from broker.endpoints.agent_mcp_proxy import (
     get_scope_ticket as agent_mcp_get_scope_ticket,
+)
+from broker.endpoints.agent_mcp_proxy import (
     router as agent_mcp_router,
 )
 from broker.endpoints.anthropic_proxy import (
     get_anthropic_api_key,
     get_broker_auth,
     get_upstream_client,
-    router as anthropic_router,
 )
-from broker.endpoints.braintrust_proxy import (
-    get_braintrust_api_key,
-    get_broker_auth as braintrust_get_broker_auth,
-    get_upstream_client as braintrust_get_upstream_client,
-    router as braintrust_router,
+from broker.endpoints.anthropic_proxy import (
+    router as anthropic_router,
 )
 from broker.endpoints.artifact_publish import (
     get_artifact_bucket as publish_get_artifact_bucket,
+)
+from broker.endpoints.artifact_publish import (
     get_broker_token_raw as publish_get_broker_token_raw,
+)
+from broker.endpoints.artifact_publish import (
     get_callback_sender as publish_get_callback_sender,
+)
+from broker.endpoints.artifact_publish import (
     get_data_query_tracker as publish_get_data_query_tracker,
+)
+from broker.endpoints.artifact_publish import (
     get_s3_client as publish_get_s3_client,
+)
+from broker.endpoints.artifact_publish import (
     get_scope_ticket as publish_get_scope_ticket,
+)
+from broker.endpoints.artifact_publish import (
     get_ticket_store as publish_get_ticket_store,
+)
+from broker.endpoints.artifact_publish import (
     router as publish_router,
 )
 from broker.endpoints.artifact_read import (
     get_artifact_bucket as read_get_artifact_bucket,
+)
+from broker.endpoints.artifact_read import (
     get_s3_client as read_get_s3_client,
+)
+from broker.endpoints.artifact_read import (
     get_scope_ticket as read_get_scope_ticket,
+)
+from broker.endpoints.artifact_read import (
     router as read_router,
 )
-from broker.endpoints.params_read import (
-    get_scope_ticket as params_get_scope_ticket,
-    router as params_router,
+from broker.endpoints.braintrust_proxy import (
+    get_braintrust_api_key,
 )
-from broker.endpoints.inputs_read import (
-    get_s3_client as inputs_get_s3_client,
-    get_scope_ticket as inputs_get_scope_ticket,
-    router as inputs_router,
+from broker.endpoints.braintrust_proxy import (
+    get_broker_auth as braintrust_get_broker_auth,
+)
+from broker.endpoints.braintrust_proxy import (
+    get_upstream_client as braintrust_get_upstream_client,
+)
+from broker.endpoints.braintrust_proxy import (
+    router as braintrust_router,
 )
 from broker.endpoints.databricks_query import (
     get_data_query_tracker as dbx_get_data_query_tracker,
+)
+from broker.endpoints.databricks_query import (
     get_databricks_client as dbx_get_databricks_client,
+)
+from broker.endpoints.databricks_query import (
     get_scope_ticket as dbx_get_scope_ticket,
+)
+from broker.endpoints.databricks_query import (
     router as databricks_router,
+)
+from broker.endpoints.delete_run_token import (
+    get_service_token_hash as delete_get_service_token_hash,
+)
+from broker.endpoints.delete_run_token import (
+    get_ticket_store as delete_get_ticket_store,
+)
+from broker.endpoints.delete_run_token import (
+    router as delete_router,
+)
+from broker.endpoints.experiment_manifest import (
+    get_experiment_metadata_bucket as exp_get_experiment_metadata_bucket,
+)
+from broker.endpoints.experiment_manifest import (
+    get_s3_client as exp_get_s3_client,
+)
+from broker.endpoints.experiment_manifest import (
+    get_scope_ticket as exp_get_scope_ticket,
+)
+from broker.endpoints.experiment_manifest import (
+    router as experiment_manifest_router,
+)
+from broker.endpoints.http_fetch import (
+    get_browser_fetcher as http_get_browser_fetcher,
+)
+from broker.endpoints.http_fetch import (
+    get_http_client as http_get_http_client,
+)
+from broker.endpoints.http_fetch import (
+    get_scope_ticket as http_get_scope_ticket,
+)
+from broker.endpoints.http_fetch import (
+    router as http_router,
+)
+from broker.endpoints.inputs_read import (
+    get_s3_client as inputs_get_s3_client,
+)
+from broker.endpoints.inputs_read import (
+    get_scope_ticket as inputs_get_scope_ticket,
+)
+from broker.endpoints.inputs_read import (
+    router as inputs_router,
 )
 from broker.endpoints.mint_run_token import (
     get_service_token_hash,
     get_ticket_store,
+)
+from broker.endpoints.mint_run_token import (
     router as mint_router,
 )
-from broker.endpoints.delete_run_token import (
-    get_service_token_hash as delete_get_service_token_hash,
-    get_ticket_store as delete_get_ticket_store,
-    router as delete_router,
+from broker.endpoints.params_read import (
+    get_scope_ticket as params_get_scope_ticket,
 )
-from broker.endpoints.http_fetch import (
-    get_browser_fetcher as http_get_browser_fetcher,
-    get_http_client as http_get_http_client,
-    get_scope_ticket as http_get_scope_ticket,
-    router as http_router,
+from broker.endpoints.params_read import (
+    router as params_router,
 )
-from broker.browser_fetcher import PlaywrightBrowserFetcher  # noqa: I001
 from broker.endpoints.run_status import (
     get_artifact_bucket as status_get_artifact_bucket,
+)
+from broker.endpoints.run_status import (
     get_broker_token_raw as status_get_broker_token_raw,
+)
+from broker.endpoints.run_status import (
     get_callback_sender as status_get_callback_sender,
+)
+from broker.endpoints.run_status import (
     get_data_query_tracker as status_get_data_query_tracker,
+)
+from broker.endpoints.run_status import (
     get_s3_client as status_get_s3_client,
+)
+from broker.endpoints.run_status import (
     get_scope_ticket as status_get_scope_ticket,
+)
+from broker.endpoints.run_status import (
     get_ticket_store as status_get_ticket_store,
+)
+from broker.endpoints.run_status import (
     router as status_router,
 )
 from broker.endpoints.upload_logs import (
     get_artifact_bucket as upload_get_artifact_bucket,
-    get_s3_client as upload_get_s3_client,
-    get_scope_ticket as upload_get_scope_ticket,
-    router as upload_router,
 )
-from broker.endpoints.experiment_manifest import (
-    get_experiment_metadata_bucket as exp_get_experiment_metadata_bucket,
-    get_s3_client as exp_get_s3_client,
-    get_scope_ticket as exp_get_scope_ticket,
-    router as experiment_manifest_router,
+from broker.endpoints.upload_logs import (
+    get_s3_client as upload_get_s3_client,
+)
+from broker.endpoints.upload_logs import (
+    get_scope_ticket as upload_get_scope_ticket,
+)
+from broker.endpoints.upload_logs import (
+    router as upload_router,
 )
 from broker.secrets import load_secrets_from_env
 
@@ -123,8 +211,6 @@ def _resolve_table_name() -> str:
 
 
 def _resolve_scope_ticket(broker_auth):
-    from broker.auth import get_broker_token as _extract_token
-
     def _resolver(request):
         token = request.headers.get("x-broker-token", "")
         return broker_auth.verify(token)
@@ -165,6 +251,7 @@ async def lifespan(app: FastAPI):
     )
 
     from fastapi import Request
+
     from broker.auth import AuthError
 
     def _resolve_ticket_from_request(request: Request) -> ScopeTicket:

@@ -2,13 +2,14 @@
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 
 @dataclass
 class ConsolidatedMessage:
     """Raw consolidated message from replies + results join"""
+
     phone_number: str
     message_text: str
     sent_at: datetime
@@ -22,6 +23,7 @@ class ConsolidatedMessage:
 @dataclass
 class ClusteringResult:
     """Results from hierarchical clustering pipeline"""
+
     phone_number: str
     cluster_id: int = -1
     cluster_theme: str = "Uncategorized"
@@ -77,19 +79,18 @@ class UnifiedCampaignRecord:
 
     def __post_init__(self) -> None:
         if self.created_at is None:
-            self.created_at = datetime.now(timezone.utc)
+            self.created_at = datetime.now(UTC)
         if self.updated_at is None:
-            self.updated_at = datetime.now(timezone.utc)
+            self.updated_at = datetime.now(UTC)
         if not self.record_id:
             self.record_id = str(uuid.uuid4())
         if not self.atomic_id:
             self.atomic_id = str(uuid.uuid4())
 
     @classmethod
-    def from_consolidated_message(cls,
-                                  consolidated: ConsolidatedMessage,
-                                  campaign_id: str,
-                                  clustering_result: dict[str, Any] | None = None) -> 'UnifiedCampaignRecord':
+    def from_consolidated_message(
+        cls, consolidated: ConsolidatedMessage, campaign_id: str, clustering_result: dict[str, Any] | None = None
+    ) -> "UnifiedCampaignRecord":
         """Create unified record from consolidated message and analysis results"""
 
         # Handle multi-cluster data and message variants
@@ -99,12 +100,12 @@ class UnifiedCampaignRecord:
         atomic_id = None
         is_opt_out = False
         if clustering_result and isinstance(clustering_result, dict):
-            if 'cluster_data' in clustering_result:
-                multi_cluster_data = clustering_result['cluster_data']
-            original_message = clustering_result.get('message')
-            atomic_message = clustering_result.get('atomic_message')
-            atomic_id = clustering_result.get('atomic_id')
-            is_opt_out = clustering_result.get('is_opt_out', False)
+            if "cluster_data" in clustering_result:
+                multi_cluster_data = clustering_result["cluster_data"]
+            original_message = clustering_result.get("message")
+            atomic_message = clustering_result.get("atomic_message")
+            atomic_id = clustering_result.get("atomic_id")
+            is_opt_out = clustering_result.get("is_opt_out", False)
 
         # Generate atomic_id if not provided (for backward compatibility)
         if not atomic_id:
@@ -116,30 +117,27 @@ class UnifiedCampaignRecord:
             record_id=str(uuid.uuid4()),
             atomic_id=atomic_id,
             phone_number=consolidated.phone_number,
-
             # Message data
             message_text=consolidated.message_text,
             sent_at=consolidated.sent_at,
             round=consolidated.round,
-
             # Message metadata
             campaign_name=consolidated.campaign_name,
             carrier=consolidated.carrier,
             poll_id=consolidated.poll_id,
-
             # Multi-cluster data
             multi_cluster_data=multi_cluster_data,
             original_message=original_message,
             atomic_message=atomic_message,
-
             # Non-substantive flag
-            is_opt_out=is_opt_out
+            is_opt_out=is_opt_out,
         )
 
 
 @dataclass
 class PipelineResult:
     """Results from running the complete pipeline"""
+
     campaign_id: str
     input_messages: int
     atomic_messages: int
@@ -179,13 +177,15 @@ class PipelineResult:
     def summary(self) -> dict[str, Any]:
         """Generate summary dictionary"""
         return {
-            'campaign_id': self.campaign_id,
-            'input_messages': self.input_messages,
-            'atomic_messages': self.atomic_messages,
-            'messages_expanded': f"+{self.messages_expanded}" if self.messages_expanded > 0 else str(self.messages_expanded),
-            'output_records': self.output_records,
-            'success_rate': f"{self.success_rate:.1f}%",
-            'processing_time': f"{self.processing_time:.2f}s",
-            'errors_count': len(self.errors),
-            'warnings_count': len(self.warnings)
+            "campaign_id": self.campaign_id,
+            "input_messages": self.input_messages,
+            "atomic_messages": self.atomic_messages,
+            "messages_expanded": f"+{self.messages_expanded}"
+            if self.messages_expanded > 0
+            else str(self.messages_expanded),
+            "output_records": self.output_records,
+            "success_rate": f"{self.success_rate:.1f}%",
+            "processing_time": f"{self.processing_time:.2f}s",
+            "errors_count": len(self.errors),
+            "warnings_count": len(self.warnings),
         }

@@ -114,22 +114,25 @@ def _default_index(
     return {"experiments": experiments}
 
 
-def _make_s3_responder(manifest: dict | None = None, instruction: str | None = None,
-                        manifest_error: Exception | None = None,
-                        instruction_error: Exception | None = None,
-                        manifest_body_override: bytes | None = None,
-                        instruction_body_override: bytes | None = None,
-                        recorded_calls: list | None = None,
-                        index: dict | None = None,
-                        index_error: Exception | None = None,
-                        attachments: dict[str, bytes | str] | None = None,
-                        attachment_version_ids: dict[str, str] | None = None,
-                        attachment_errors: dict[str, Exception] | None = None,
-                        attachment_content_lengths: dict[str, int] | None = None,
-                        qa_files: dict[str, bytes | str] | None = None,
-                        qa_version_ids: dict[str, str] | None = None,
-                        qa_errors: dict[str, Exception] | None = None,
-                        qa_content_lengths: dict[str, int] | None = None):
+def _make_s3_responder(
+    manifest: dict | None = None,
+    instruction: str | None = None,
+    manifest_error: Exception | None = None,
+    instruction_error: Exception | None = None,
+    manifest_body_override: bytes | None = None,
+    instruction_body_override: bytes | None = None,
+    recorded_calls: list | None = None,
+    index: dict | None = None,
+    index_error: Exception | None = None,
+    attachments: dict[str, bytes | str] | None = None,
+    attachment_version_ids: dict[str, str] | None = None,
+    attachment_errors: dict[str, Exception] | None = None,
+    attachment_content_lengths: dict[str, int] | None = None,
+    qa_files: dict[str, bytes | str] | None = None,
+    qa_version_ids: dict[str, str] | None = None,
+    qa_errors: dict[str, Exception] | None = None,
+    qa_content_lengths: dict[str, int] | None = None,
+):
     """Returns a side_effect for s3_client.get_object that routes by Key suffix.
 
     If `recorded_calls` is passed, append (Key, kwargs_dict) tuples for tests
@@ -203,6 +206,7 @@ def _make_s3_responder(manifest: dict | None = None, instruction: str | None = N
                 response["VersionId"] = att_versions[basename]
             return response
         raise AssertionError(f"unexpected S3 key: {Key}")
+
     return _get_object
 
 
@@ -248,7 +252,11 @@ class TestExperimentManifestSuccess:
             "mode": "win",
             "model": "sonnet",
             "max_turns": 50,
-            "contract": {"schema": {"type": "object"}, "type": "json", "s3_key_template": "{experiment_id}/{run_id}/x.json"},
+            "contract": {
+                "schema": {"type": "object"},
+                "type": "json",
+                "s3_key_template": "{experiment_id}/{run_id}/x.json",
+            },
         }
         instruction = "# Voter Targeting\n\nStep 1: query Databricks"
         app = _create_app(s3_get_object=_make_s3_responder(manifest=manifest, instruction=instruction))
@@ -351,7 +359,9 @@ class TestExperimentManifestValidation:
 
 class TestExperimentManifestS3Errors:
     def test_404_when_manifest_missing(self):
-        app = _create_app(s3_get_object=_make_s3_responder(manifest_error=_no_such_key("voter_targeting/manifest.json")))
+        app = _create_app(
+            s3_get_object=_make_s3_responder(manifest_error=_no_such_key("voter_targeting/manifest.json"))
+        )
         client = TestClient(app)
         resp = client.post(
             "/experiment/manifest",
@@ -366,7 +376,9 @@ class TestExperimentManifestS3Errors:
         assert "voter_targeting" not in detail
 
     def test_404_when_instruction_missing(self):
-        app = _create_app(s3_get_object=_make_s3_responder(instruction_error=_no_such_key("voter_targeting/instruction.md")))
+        app = _create_app(
+            s3_get_object=_make_s3_responder(instruction_error=_no_such_key("voter_targeting/instruction.md"))
+        )
         client = TestClient(app)
         resp = client.post(
             "/experiment/manifest",
@@ -434,6 +446,7 @@ class TestExperimentManifestVersionPinning:
     def test_returns_resolved_version_ids_in_response(self):
         """S3 GetObject returns VersionId in response. Surface it back to the
         caller so the runner can log what it actually got (audit trail)."""
+
         def _get_with_versions(Bucket, Key, **kwargs):
             if Key == "index.json":
                 return _s3_body(json.dumps(_default_index()))
@@ -548,13 +561,16 @@ class TestExperimentManifestOrphanBlocking:
 
 
 class TestExperimentManifestVersionIdValidation:
-    @pytest.mark.parametrize("bad_version", [
-        "",                       # empty string
-        "has spaces",             # space disallowed
-        "has/slash",              # slash disallowed
-        "x" * 1025,               # too long
-        "weird;injection",        # semicolon disallowed
-    ])
+    @pytest.mark.parametrize(
+        "bad_version",
+        [
+            "",  # empty string
+            "has spaces",  # space disallowed
+            "has/slash",  # slash disallowed
+            "x" * 1025,  # too long
+            "weird;injection",  # semicolon disallowed
+        ],
+    )
     def test_rejects_invalid_manifest_version_id(self, bad_version):
         app = _create_app()
         client = TestClient(app)
@@ -729,12 +745,14 @@ class TestExperimentManifestMetrics:
 
 class TestExperimentManifestAttachmentFetch:
     def test_attachments_in_index_are_fetched_and_returned_by_basename(self):
-        index = _default_index(attachment_keys={
-            "voter_targeting": [
-                "voter_targeting/attachments/notes.md",
-                "voter_targeting/attachments/lookup.csv",
-            ],
-        })
+        index = _default_index(
+            attachment_keys={
+                "voter_targeting": [
+                    "voter_targeting/attachments/notes.md",
+                    "voter_targeting/attachments/lookup.csv",
+                ],
+            }
+        )
         responder = _make_s3_responder(
             index=index,
             attachments={
@@ -808,14 +826,16 @@ class TestExperimentManifestAttachmentFetch:
         index point at an unrelated S3 key. Broker must skip those."""
         recorded: list = []
         index = {
-            "experiments": [{
-                "id": "voter_targeting",
-                "attachment_keys": [
-                    "voter_targeting/attachments/legit.md",
-                    "other_experiment/attachments/cross.md",  # wrong prefix
-                    "../etc/passwd",                          # nonsense
-                ],
-            }],
+            "experiments": [
+                {
+                    "id": "voter_targeting",
+                    "attachment_keys": [
+                        "voter_targeting/attachments/legit.md",
+                        "other_experiment/attachments/cross.md",  # wrong prefix
+                        "../etc/passwd",  # nonsense
+                    ],
+                }
+            ],
         }
         responder = _make_s3_responder(
             index=index,
@@ -840,9 +860,11 @@ class TestExperimentManifestAttachmentFetch:
 
 class TestExperimentManifestAttachmentVersionPinning:
     def test_resolved_attachment_version_ids_surfaced(self):
-        index = _default_index(attachment_keys={
-            "voter_targeting": ["voter_targeting/attachments/lookup.csv"],
-        })
+        index = _default_index(
+            attachment_keys={
+                "voter_targeting": ["voter_targeting/attachments/lookup.csv"],
+            }
+        )
         responder = _make_s3_responder(
             index=index,
             attachments={"lookup.csv": "k,v\n"},
@@ -867,9 +889,11 @@ class TestExperimentManifestAttachmentVersionPinning:
         passes attachment_version_ids, those VersionIds must reach S3 so
         the pinned-replay path returns the same bytes Lambda saw."""
         recorded: list = []
-        index = _default_index(attachment_keys={
-            "voter_targeting": ["voter_targeting/attachments/notes.md"],
-        })
+        index = _default_index(
+            attachment_keys={
+                "voter_targeting": ["voter_targeting/attachments/notes.md"],
+            }
+        )
         responder = _make_s3_responder(
             index=index,
             attachments={"notes.md": "frozen\n"},
@@ -896,9 +920,11 @@ class TestExperimentManifestAttachmentVersionPinning:
         VersionId in the GetObject kwargs). Sending an empty string would
         be rejected by S3."""
         recorded: list = []
-        index = _default_index(attachment_keys={
-            "voter_targeting": ["voter_targeting/attachments/notes.md"],
-        })
+        index = _default_index(
+            attachment_keys={
+                "voter_targeting": ["voter_targeting/attachments/notes.md"],
+            }
+        )
         responder = _make_s3_responder(
             index=index,
             attachments={"notes.md": "latest\n"},
@@ -918,13 +944,16 @@ class TestExperimentManifestAttachmentVersionPinning:
 
 
 class TestExperimentManifestAttachmentValidation:
-    @pytest.mark.parametrize("bad_key", [
-        "has/slash.md",      # path separator in basename — not safe
-        "..",                # traversal
-        ".",                 # current-dir
-        "spaces in name.md", # whitespace not in basename pattern
-        "",                  # empty
-    ])
+    @pytest.mark.parametrize(
+        "bad_key",
+        [
+            "has/slash.md",  # path separator in basename — not safe
+            "..",  # traversal
+            ".",  # current-dir
+            "spaces in name.md",  # whitespace not in basename pattern
+            "",  # empty
+        ],
+    )
     def test_rejects_unsafe_attachment_version_id_keys(self, bad_key):
         app = _create_app()
         client = TestClient(app)
@@ -961,9 +990,11 @@ class TestExperimentManifestAttachmentDecodeError:
         """Binary attachments are explicitly unsupported. A publisher
         accident (e.g. uploading a PDF) must surface as a loud 500 with a
         metric, not corrupt the runner workspace by silently coercing."""
-        index = _default_index(attachment_keys={
-            "voter_targeting": ["voter_targeting/attachments/bad.bin"],
-        })
+        index = _default_index(
+            attachment_keys={
+                "voter_targeting": ["voter_targeting/attachments/bad.bin"],
+            }
+        )
         responder = _make_s3_responder(
             index=index,
             attachments={"bad.bin": b"\xff\xfe\xfd not utf-8"},
@@ -995,9 +1026,11 @@ class TestExperimentManifestSizeAndCountCaps:
         handler must check ContentLength and short-circuit before reading
         the body."""
         oversize_bytes = b"a" * (em.MAX_ATTACHMENT_BYTES + 1)
-        index = _default_index(attachment_keys={
-            "voter_targeting": ["voter_targeting/attachments/huge.bin"],
-        })
+        index = _default_index(
+            attachment_keys={
+                "voter_targeting": ["voter_targeting/attachments/huge.bin"],
+            }
+        )
         responder = _make_s3_responder(
             index=index,
             attachments={"huge.bin": oversize_bytes},
@@ -1023,9 +1056,11 @@ class TestExperimentManifestSizeAndCountCaps:
         a bounded read with `read(MAX+1)` catches the oversize case before
         the broker process holds gigabytes in memory."""
         oversize_bytes = b"b" * (em.MAX_ATTACHMENT_BYTES + 1)
-        index = _default_index(attachment_keys={
-            "voter_targeting": ["voter_targeting/attachments/huge.bin"],
-        })
+        index = _default_index(
+            attachment_keys={
+                "voter_targeting": ["voter_targeting/attachments/huge.bin"],
+            }
+        )
         responder = _make_s3_responder(
             index=index,
             attachments={"huge.bin": oversize_bytes},
@@ -1139,13 +1174,15 @@ class TestExperimentManifestUnsafeBasename:
         slip a `spaces in name.md` basename past defense-in-depth."""
         recorded: list = []
         index = {
-            "experiments": [{
-                "id": "voter_targeting",
-                "attachment_keys": [
-                    "voter_targeting/attachments/legit.md",
-                    "voter_targeting/attachments/spaces in name.md",
-                ],
-            }],
+            "experiments": [
+                {
+                    "id": "voter_targeting",
+                    "attachment_keys": [
+                        "voter_targeting/attachments/legit.md",
+                        "voter_targeting/attachments/spaces in name.md",
+                    ],
+                }
+            ],
         }
         responder = _make_s3_responder(
             index=index,
@@ -1167,15 +1204,9 @@ class TestExperimentManifestUnsafeBasename:
         fetched = {k for k, _ in recorded}
         assert "voter_targeting/attachments/spaces in name.md" not in fetched
         # Drift metric must fire with the unsafe-basename label.
-        drift_calls = [
-            call for call in mock_metric.call_args_list
-            if call.args[0] == "broker_attachment_index_drift"
-        ]
+        drift_calls = [call for call in mock_metric.call_args_list if call.args[0] == "broker_attachment_index_drift"]
         assert drift_calls, "expected broker_attachment_index_drift metric"
-        dims = [
-            d for call in drift_calls for d in call.args[1]
-            if d.get("Name") == "drift_kind"
-        ]
+        dims = [d for call in drift_calls for d in call.args[1] if d.get("Name") == "drift_kind"]
         assert any(d.get("Value") == "unsafe_basename" for d in dims)
 
 
@@ -1192,13 +1223,15 @@ class TestExperimentManifestIndexDriftMetrics:
         kind=non_string_key."""
         recorded: list = []
         index = {
-            "experiments": [{
-                "id": "voter_targeting",
-                "attachment_keys": [
-                    "voter_targeting/attachments/legit.md",
-                    42,  # non-string drift
-                ],
-            }],
+            "experiments": [
+                {
+                    "id": "voter_targeting",
+                    "attachment_keys": [
+                        "voter_targeting/attachments/legit.md",
+                        42,  # non-string drift
+                    ],
+                }
+            ],
         }
         responder = _make_s3_responder(
             index=index,
@@ -1217,17 +1250,9 @@ class TestExperimentManifestIndexDriftMetrics:
         assert resp.status_code == 200
         # Only the legit one comes back.
         assert resp.json()["attachments"] == {"legit.md": "ok\n"}
-        drift_calls = [
-            call for call in mock_metric.call_args_list
-            if call.args[0] == "broker_attachment_index_drift"
-        ]
+        drift_calls = [call for call in mock_metric.call_args_list if call.args[0] == "broker_attachment_index_drift"]
         assert drift_calls
-        kinds = {
-            d.get("Value")
-            for call in drift_calls
-            for d in call.args[1]
-            if d.get("Name") == "drift_kind"
-        }
+        kinds = {d.get("Value") for call in drift_calls for d in call.args[1] if d.get("Name") == "drift_kind"}
         assert "non_string_key" in kinds
 
     def test_wrong_prefix_attachment_key_emits_drift_metric(self):
@@ -1235,13 +1260,15 @@ class TestExperimentManifestIndexDriftMetrics:
         operators couldn't alert on it. Must emit the drift metric with
         kind=wrong_prefix."""
         index = {
-            "experiments": [{
-                "id": "voter_targeting",
-                "attachment_keys": [
-                    "voter_targeting/attachments/legit.md",
-                    "other_experiment/attachments/cross.md",
-                ],
-            }],
+            "experiments": [
+                {
+                    "id": "voter_targeting",
+                    "attachment_keys": [
+                        "voter_targeting/attachments/legit.md",
+                        "other_experiment/attachments/cross.md",
+                    ],
+                }
+            ],
         }
         responder = _make_s3_responder(
             index=index,
@@ -1257,17 +1284,9 @@ class TestExperimentManifestIndexDriftMetrics:
             )
 
         assert resp.status_code == 200
-        drift_calls = [
-            call for call in mock_metric.call_args_list
-            if call.args[0] == "broker_attachment_index_drift"
-        ]
+        drift_calls = [call for call in mock_metric.call_args_list if call.args[0] == "broker_attachment_index_drift"]
         assert drift_calls
-        kinds = {
-            d.get("Value")
-            for call in drift_calls
-            for d in call.args[1]
-            if d.get("Name") == "drift_kind"
-        }
+        kinds = {d.get("Value") for call in drift_calls for d in call.args[1] if d.get("Name") == "drift_kind"}
         assert "wrong_prefix" in kinds
 
 
@@ -1284,11 +1303,13 @@ class TestExperimentManifestNonListAttachmentKeys:
         a metric."""
         recorded: list = []
         index = {
-            "experiments": [{
-                "id": "voter_targeting",
-                # Drift: string, not a list.
-                "attachment_keys": "single.md",
-            }],
+            "experiments": [
+                {
+                    "id": "voter_targeting",
+                    # Drift: string, not a list.
+                    "attachment_keys": "single.md",
+                }
+            ],
         }
         responder = _make_s3_responder(
             index=index,
@@ -1310,17 +1331,9 @@ class TestExperimentManifestNonListAttachmentKeys:
         attachment_gets = [k for k, _ in recorded if "/attachments/" in k]
         assert attachment_gets == []
         assert resp.json()["attachments"] == {}
-        drift_calls = [
-            call for call in mock_metric.call_args_list
-            if call.args[0] == "broker_attachment_index_drift"
-        ]
+        drift_calls = [call for call in mock_metric.call_args_list if call.args[0] == "broker_attachment_index_drift"]
         assert drift_calls
-        kinds = {
-            d.get("Value")
-            for call in drift_calls
-            for d in call.args[1]
-            if d.get("Name") == "drift_kind"
-        }
+        kinds = {d.get("Value") for call in drift_calls for d in call.args[1] if d.get("Name") == "drift_kind"}
         assert "non_list_attachment_keys" in kinds
 
 
@@ -1348,15 +1361,11 @@ class TestExperimentManifestIndexFetchFailureMetric:
 
         assert resp.status_code == 404
         fetch_failure_calls = [
-            call for call in mock_metric.call_args_list
-            if call.args[0] == "broker_index_fetch_failure"
+            call for call in mock_metric.call_args_list if call.args[0] == "broker_index_fetch_failure"
         ]
         assert fetch_failure_calls
         fallbacks = {
-            d.get("Value")
-            for call in fetch_failure_calls
-            for d in call.args[1]
-            if d.get("Name") == "fallback"
+            d.get("Value") for call in fetch_failure_calls for d in call.args[1] if d.get("Name") == "fallback"
         }
         assert "empty" in fallbacks
 
@@ -1372,9 +1381,11 @@ class TestExperimentManifestAttachmentMissingDetail:
         S3, the 404 detail must say `attachment not found`, not
         `manifest not found` (which would mislead the runner / operator
         into looking at the wrong S3 path)."""
-        index = _default_index(attachment_keys={
-            "voter_targeting": ["voter_targeting/attachments/gone.md"],
-        })
+        index = _default_index(
+            attachment_keys={
+                "voter_targeting": ["voter_targeting/attachments/gone.md"],
+            }
+        )
         responder = _make_s3_responder(
             index=index,
             attachments={},
@@ -1506,10 +1517,12 @@ class TestExperimentManifestQaFetch:
         JSON; the entrypoints are utf-8 strings keyed by basename."""
         index = _default_index(
             qa_manifest_key={"voter_targeting": "voter_targeting/qa/manifest.json"},
-            qa_keys={"voter_targeting": [
-                "voter_targeting/qa/main.py",
-                "voter_targeting/qa/eval.md",
-            ]},
+            qa_keys={
+                "voter_targeting": [
+                    "voter_targeting/qa/main.py",
+                    "voter_targeting/qa/eval.md",
+                ]
+            },
         )
         responder = _make_s3_responder(
             index=index,
@@ -1705,13 +1718,16 @@ class TestExperimentManifestQaVersionPinning:
 
 
 class TestExperimentManifestQaVersionIdValidation:
-    @pytest.mark.parametrize("bad_key", [
-        "has/slash.py",       # path separator in basename — not safe
-        "..",                 # traversal
-        ".",                  # current-dir
-        "spaces in name.md",  # whitespace not in basename pattern
-        "",                   # empty
-    ])
+    @pytest.mark.parametrize(
+        "bad_key",
+        [
+            "has/slash.py",  # path separator in basename — not safe
+            "..",  # traversal
+            ".",  # current-dir
+            "spaces in name.md",  # whitespace not in basename pattern
+            "",  # empty
+        ],
+    )
     def test_rejects_unsafe_qa_version_id_keys(self, bad_key):
         """qa_version_ids is validated IDENTICALLY to attachment_version_ids:
         the key must be a safe basename (defends the `<id>/qa/<basename>` S3
@@ -1779,15 +1795,17 @@ class TestExperimentManifestQaSafetyGuards:
         the broker must skip it (never fetch an unrelated S3 key) and emit a
         drift metric, mirroring the attachment wrong-prefix guard."""
         index = {
-            "experiments": [{
-                "id": "voter_targeting",
-                "attachment_keys": [],
-                "qa_manifest_key": "voter_targeting/qa/manifest.json",
-                "qa_keys": [
-                    "voter_targeting/qa/legit.py",
-                    "other_experiment/qa/cross.py",  # wrong prefix
-                ],
-            }],
+            "experiments": [
+                {
+                    "id": "voter_targeting",
+                    "attachment_keys": [],
+                    "qa_manifest_key": "voter_targeting/qa/manifest.json",
+                    "qa_keys": [
+                        "voter_targeting/qa/legit.py",
+                        "other_experiment/qa/cross.py",  # wrong prefix
+                    ],
+                }
+            ],
         }
         responder = _make_s3_responder(
             index=index,
@@ -1805,20 +1823,12 @@ class TestExperimentManifestQaSafetyGuards:
         assert resp.status_code == 200
         # Only the legit qa file came back; the cross-prefix one was skipped.
         assert resp.json()["qa"]["files"] == {"legit.py": "ok\n"}
-        drift_calls = [
-            call for call in mock_metric.call_args_list
-            if call.args[0] == "broker_attachment_index_drift"
-        ]
+        drift_calls = [call for call in mock_metric.call_args_list if call.args[0] == "broker_attachment_index_drift"]
         assert drift_calls, "expected a drift metric for the wrong-prefix qa key"
         # Pin the drift_kind DIMENSION value (like the attachment siblings pin
         # unsafe_basename / non_string_key / wrong_prefix) so the metric can't
         # silently mislabel the cause.
-        kinds = {
-            d.get("Value")
-            for call in drift_calls
-            for d in call.args[1]
-            if d.get("Name") == "drift_kind"
-        }
+        kinds = {d.get("Value") for call in drift_calls for d in call.args[1] if d.get("Name") == "drift_kind"}
         assert "qa_wrong_prefix" in kinds
 
     def test_non_utf8_qa_file_returns_500(self):
@@ -1949,16 +1959,18 @@ class TestExperimentManifestQaManifestDedupe:
     def test_qa_manifest_in_both_keys_fetched_once_and_emits_drift(self):
         recorded: list = []
         index = {
-            "experiments": [{
-                "id": "voter_targeting",
-                "attachment_keys": [],
-                "qa_manifest_key": "voter_targeting/qa/manifest.json",
-                # Drift: manifest.json also listed in qa_keys (should be excluded).
-                "qa_keys": [
-                    "voter_targeting/qa/manifest.json",
-                    "voter_targeting/qa/main.py",
-                ],
-            }],
+            "experiments": [
+                {
+                    "id": "voter_targeting",
+                    "attachment_keys": [],
+                    "qa_manifest_key": "voter_targeting/qa/manifest.json",
+                    # Drift: manifest.json also listed in qa_keys (should be excluded).
+                    "qa_keys": [
+                        "voter_targeting/qa/manifest.json",
+                        "voter_targeting/qa/main.py",
+                    ],
+                }
+            ],
         }
         responder = _make_s3_responder(
             index=index,
@@ -1990,10 +2002,7 @@ class TestExperimentManifestQaManifestDedupe:
         assert "manifest.json" not in qa["files"]
         assert qa["files"] == {"main.py": "print(1)\n"}
         # A drift metric fires for the overlap.
-        drift_calls = [
-            call for call in mock_metric.call_args_list
-            if call.args[0] == "broker_attachment_index_drift"
-        ]
+        drift_calls = [call for call in mock_metric.call_args_list if call.args[0] == "broker_attachment_index_drift"]
         assert drift_calls, "expected a drift metric for the qa-manifest overlap"
 
     def test_non_dict_qa_manifest_returns_500_with_decode_metric(self):
@@ -2022,7 +2031,6 @@ class TestExperimentManifestQaManifestDedupe:
         assert resp.status_code == 500
         assert "qa manifest" in resp.json()["detail"].lower()
         decode_calls = [
-            call for call in mock_metric.call_args_list
-            if call.args[0] == "broker_qa_manifest_decode_error"
+            call for call in mock_metric.call_args_list if call.args[0] == "broker_qa_manifest_decode_error"
         ]
         assert decode_calls, "expected the qa-manifest decode metric to fire on a non-dict manifest"

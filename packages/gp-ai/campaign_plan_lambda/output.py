@@ -8,7 +8,7 @@ existing SQS FIFO queue.
 import json
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TypedDict
 
 from shared.logger import get_logger
@@ -94,7 +94,7 @@ def write_result_to_s3(campaign_id: int, result: CampaignPlanResult) -> str:
     Returns the S3 key for the stored object.
     """
     bucket = os.environ["S3_RESULTS_BUCKET"]
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
     unique_id = uuid.uuid4().hex[:8]
     s3_key = f"results/{campaign_id}/{timestamp}-{unique_id}.json"
 
@@ -109,9 +109,7 @@ def write_result_to_s3(campaign_id: int, result: CampaignPlanResult) -> str:
     return s3_key
 
 
-def send_completion_message(
-    campaign_id: int, s3_key: str, task_count: int, timestamp: str
-) -> None:
+def send_completion_message(campaign_id: int, s3_key: str, task_count: int, timestamp: str) -> None:
     """Send success completion message to gp-api's SQS FIFO queue."""
     message: SqsMessage = {
         "type": "campaignPlanComplete",

@@ -2,7 +2,6 @@ import pytest
 
 from pmf_engine.control_plane.scope_derivation import derive_scope
 
-
 SYNTHETIC_MANIFEST_SCOPE = {
     "allowed_tables": ["goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq"],
     "max_rows": 50000,

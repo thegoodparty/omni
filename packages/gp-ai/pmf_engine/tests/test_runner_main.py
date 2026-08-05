@@ -73,9 +73,7 @@ class TestUploadLogsObservability:
     make it observable.
     """
 
-    def test_upload_logs_failure_warns_with_run_id_experiment_id_and_stacktrace(
-        self, tmp_path
-    ):
+    def test_upload_logs_failure_warns_with_run_id_experiment_id_and_stacktrace(self, tmp_path):
         """`shared.logger` disables propagation (propagate=False), so pytest's
         caplog can't see these records via the root logger. Attach a
         BufferingHandler to the specific logger instead.
@@ -110,10 +108,7 @@ class TestUploadLogsObservability:
         finally:
             _main_mod.logger.removeHandler(handler)
 
-        warns = [
-            r for r in captured
-            if r.levelno >= logging.WARNING and "upload" in r.getMessage().lower()
-        ]
+        warns = [r for r in captured if r.levelno >= logging.WARNING and "upload" in r.getMessage().lower()]
         assert warns, (
             f"expected log-upload failure to warn from pmf_engine.runner.main.logger; "
             f"got: {[(r.levelname, r.getMessage()) for r in captured]}"
@@ -200,9 +195,7 @@ async def test_run_experiment_reports_failed_on_publish_failure(mock_publish, _m
 @pytest.mark.asyncio
 @patch("pmf_engine.runner.main._upload_logs")
 @patch("pmf_engine.runner.main.publish")
-async def test_publish_failure_then_report_status_failure_leaves_callback_unsent(
-    mock_publish, _mock_logs
-):
+async def test_publish_failure_then_report_status_failure_leaves_callback_unsent(mock_publish, _mock_logs):
     """Double-failure path: broker.publish raises, then broker.report_status
     also raises. The terminal-callback marker MUST stay False so the outer
     main() handler can attempt its own fallback callback. If the marker is set
@@ -253,7 +246,7 @@ async def test_main_falls_back_to_sqs_when_outer_report_status_fails():
                             with patch("pmf_engine.runner.main._send_failed_to_sqs_directly") as mock_sqs:
                                 mock_run.side_effect = RuntimeError("kaboom")
                                 mock_publish.report_status.side_effect = Exception("broker down")
-                                with pytest.raises(Exception):
+                                with pytest.raises(RuntimeError, match="kaboom"):
                                     await main()
 
     mock_sqs.assert_called_once()
@@ -393,8 +386,7 @@ async def test_main_writes_attachments_to_workspace_before_running_experiment():
 
         # BEFORE workspace setup: attachments must NOT be on disk yet.
         assert "catalog.md" not in files_before_setup, (
-            f"attachments must not exist before from_env returns; got: "
-            f"{list(files_before_setup.keys())!r}"
+            f"attachments must not exist before from_env returns; got: {list(files_before_setup.keys())!r}"
         )
         assert "lookup.csv" not in files_before_setup
         assert "instruction.md" not in files_before_setup
@@ -450,11 +442,14 @@ async def test_main_rejects_reserved_basename_attachment():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("unsafe_name", [
-    "../escape.md",        # parent-dir traversal
-    "/abs/path.md",        # absolute path
-    "nested/file.md",      # nested subdir (not a basename)
-])
+@pytest.mark.parametrize(
+    "unsafe_name",
+    [
+        "../escape.md",  # parent-dir traversal
+        "/abs/path.md",  # absolute path
+        "nested/file.md",  # nested subdir (not a basename)
+    ],
+)
 async def test_main_rejects_unsafe_attachment_basenames(unsafe_name):
     """Path-safety belt-and-suspenders: the runner refuses any attachment
     name that isn't a clean basename, even if the broker somehow forwards
@@ -481,10 +476,7 @@ async def test_main_rejects_unsafe_attachment_basenames(unsafe_name):
                                 await main()
 
         mock_run.assert_not_called()
-        failed_calls = [
-            c for c in mock_publish.report_status.call_args_list
-            if c[0][0] == "failed"
-        ]
+        failed_calls = [c for c in mock_publish.report_status.call_args_list if c[0][0] == "failed"]
         assert failed_calls
         assert failed_calls[-1].kwargs.get("reason_code") == "AttachmentSafetyViolation"
 
@@ -621,15 +613,9 @@ async def test_main_partial_attachment_write_failure_does_not_invoke_run_experim
     mock_run.assert_not_called()
 
     # report_status('failed') called with the new error class.
-    failed_calls = [
-        c for c in mock_publish.report_status.call_args_list
-        if c[0][0] == "failed"
-    ]
+    failed_calls = [c for c in mock_publish.report_status.call_args_list if c[0][0] == "failed"]
     assert failed_calls, "expected a failed callback"
-    assert any(
-        c.kwargs.get("reason_code") == "AttachmentSafetyViolation"
-        for c in failed_calls
-    ), (
+    assert any(c.kwargs.get("reason_code") == "AttachmentSafetyViolation" for c in failed_calls), (
         f"expected reason_code='AttachmentSafetyViolation'; got: "
         f"{[c.kwargs.get('reason_code') for c in failed_calls]!r}"
     )
@@ -674,13 +660,8 @@ async def test_main_works_with_runner_config_default_attachments(tmp_path):
     # Only runner-written sidecars present — no spurious attachment files.
     assert (tmp_path / "instruction.md").exists()
     runner_sidecars = {"instruction.md", "SANDBOX.md"}
-    extra_files = [
-        p.name for p in tmp_path.iterdir()
-        if p.is_file() and p.name not in runner_sidecars
-    ]
-    assert extra_files == [], (
-        f"default-attachments path must not create extra files; got: {extra_files!r}"
-    )
+    extra_files = [p.name for p in tmp_path.iterdir() if p.is_file() and p.name not in runner_sidecars]
+    assert extra_files == [], f"default-attachments path must not create extra files; got: {extra_files!r}"
 
 
 @pytest.mark.asyncio
@@ -724,7 +705,7 @@ async def test_main_sends_failed_status_on_timeout():
                                     await main()
 
     mock_hard_exit.assert_called_once_with(1)
-    status_calls = [c for c in mock_publish.report_status.call_args_list]
+    status_calls = list(mock_publish.report_status.call_args_list)
     statuses = [c[0][0] for c in status_calls]
     assert "failed" in statuses
     failed_call = next(c for c in status_calls if c[0][0] == "failed")
@@ -826,9 +807,11 @@ async def test_run_experiment_contract_violation_invalid_json_still_reports(mock
     skip report_status and mark_callback_sent, leaving the run PENDING
     forever in gp-api with no way to know why.
     """
-    config = _make_config(contract_schema={"type": "object", "required": ["greeting"], "properties": {"greeting": {"type": "string"}}})
+    config = _make_config(
+        contract_schema={"type": "object", "required": ["greeting"], "properties": {"greeting": {"type": "string"}}}
+    )
     fake_result = HarnessResult(
-        artifact_bytes=b'this is not valid json {{{',
+        artifact_bytes=b"this is not valid json {{{",
         content_type="application/json",
         cost_usd=0.02,
         num_turns=2,
@@ -858,7 +841,9 @@ async def test_run_experiment_contract_violation_none_artifact_bytes(mock_publis
     `None[:4096]` — which would skip report_status entirely and leave the run
     PENDING forever (the same failure mode Fix #6 was supposed to close).
     """
-    config = _make_config(contract_schema={"type": "object", "required": ["greeting"], "properties": {"greeting": {"type": "string"}}})
+    config = _make_config(
+        contract_schema={"type": "object", "required": ["greeting"], "properties": {"greeting": {"type": "string"}}}
+    )
     fake_result = HarnessResult(
         artifact_bytes=None,  # type: ignore[arg-type]
         content_type="application/json",
@@ -888,7 +873,9 @@ async def test_run_experiment_contract_violation_str_artifact_bytes(mock_publish
     instead of bytes, .decode() on str raises AttributeError — same lost
     callback. Coerce defensively.
     """
-    config = _make_config(contract_schema={"type": "object", "required": ["greeting"], "properties": {"greeting": {"type": "string"}}})
+    config = _make_config(
+        contract_schema={"type": "object", "required": ["greeting"], "properties": {"greeting": {"type": "string"}}}
+    )
     fake_result = HarnessResult(
         artifact_bytes="not bytes, but str",  # type: ignore[arg-type]
         content_type="application/json",
@@ -1132,12 +1119,8 @@ async def test_run_experiment_publishes_when_braintrust_flush_raises(mock_publis
     assert call_args[0] == ({"greeting": "hello"},)
     assert call_args.kwargs.get("cost_usd") == pytest.approx(0.05)
     # The run is NOT reported as failed just because telemetry couldn't flush.
-    failed_calls = [
-        c for c in mock_publish.report_status.call_args_list if c[0][0] == "failed"
-    ]
-    assert not failed_calls, (
-        f"Braintrust flush failure must not produce a failed status; got: {failed_calls!r}"
-    )
+    failed_calls = [c for c in mock_publish.report_status.call_args_list if c[0][0] == "failed"]
+    assert not failed_calls, f"Braintrust flush failure must not produce a failed status; got: {failed_calls!r}"
 
 
 @pytest.mark.asyncio
@@ -1167,7 +1150,9 @@ async def test_run_experiment_traces_failure_to_braintrust(mock_publish, _mock_l
 @patch("pmf_engine.runner.main._upload_logs")
 @patch("pmf_engine.runner.main.publish")
 async def test_run_experiment_traces_contract_violation_to_braintrust(mock_publish, _mock_logs):
-    config = _make_config(contract_schema={"type": "object", "required": ["greeting"], "properties": {"greeting": {"type": "string"}}})
+    config = _make_config(
+        contract_schema={"type": "object", "required": ["greeting"], "properties": {"greeting": {"type": "string"}}}
+    )
     fake_result = HarnessResult(
         artifact_bytes=b'{"greeting": 42}',
         content_type="application/json",
@@ -1274,8 +1259,7 @@ class TestMainErrorPaths:
 
         failed_calls = [c for c in mock_publish.report_status.call_args_list if c[0][0] == "failed"]
         assert len(failed_calls) == 1, (
-            f"Expected exactly 1 failed status after harness failure, "
-            f"got {len(failed_calls)}"
+            f"Expected exactly 1 failed status after harness failure, got {len(failed_calls)}"
         )
 
     @pytest.mark.asyncio
@@ -1345,6 +1329,7 @@ class TestValidatorScriptShim:
         for name, body in artifacts.items():
             (tmpdir / "output" / name).write_text(json.dumps(body))
         from pmf_engine.runner.main import _VALIDATOR_SCRIPT
+
         (tmpdir / "validate_output.py").write_text(_VALIDATOR_SCRIPT)
 
     def _run_validator(self, tmpdir: Path) -> subprocess.CompletedProcess:
@@ -1414,6 +1399,7 @@ class TestValidatorScriptShim:
         (tmp_path / "output").mkdir()
         (tmp_path / "contract_schema.json").write_text(json.dumps(self._obj(["x"], x={"type": "string"})))
         from pmf_engine.runner.main import _VALIDATOR_SCRIPT
+
         (tmp_path / "validate_output.py").write_text(_VALIDATOR_SCRIPT)
         result = self._run_validator(tmp_path)
         assert result.returncode == 1
@@ -1427,6 +1413,7 @@ class TestCallbackLifecycleFix:
 
         async def inner_send_and_chain(*args, **kwargs):
             from pmf_engine.runner.main import _mark_callback_sent
+
             _mark_callback_sent()
             try:
                 raise RuntimeError("Agent crashed")
@@ -1443,10 +1430,7 @@ class TestCallbackLifecycleFix:
                                     await main()
 
         failed_calls = [c for c in mock_publish.report_status.call_args_list if c[0][0] == "failed"]
-        assert len(failed_calls) == 0, (
-            f"Expected no failed status when callback already sent, "
-            f"got {len(failed_calls)}"
-        )
+        assert len(failed_calls) == 0, f"Expected no failed status when callback already sent, got {len(failed_calls)}"
 
     @pytest.mark.asyncio
     async def test_publish_failure_uploads_logs_before_failed_status(self):
@@ -1464,8 +1448,6 @@ class TestCallbackLifecycleFix:
 
         def track_upload_logs(*args, **kwargs):
             call_order.append("upload_logs")
-
-        real_report_status_called = False
 
         original_publish = MagicMock()
         original_publish.publish.side_effect = Exception("Broker down")
@@ -1487,27 +1469,33 @@ class TestCallbackLifecycleFix:
         )
 
     def test_corrupt_params_json_raises(self):
-        with patch.dict(os.environ, {
-            "PARAMS_JSON": "not-json",
-            "EXPERIMENT_ID": "hello_world",
-            "RUN_ID": "run-001",
-            "ORGANIZATION_SLUG": "org-123",
-            "INSTRUCTION": "x",
-            "AGENT_MODEL": "sonnet",
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "PARAMS_JSON": "not-json",
+                "EXPERIMENT_ID": "hello_world",
+                "RUN_ID": "run-001",
+                "ORGANIZATION_SLUG": "org-123",
+                "INSTRUCTION": "x",
+                "AGENT_MODEL": "sonnet",
+            },
+        ):
             with pytest.raises(ValueError, match="PARAMS_JSON"):
                 RunnerConfig.from_env()
 
     @pytest.mark.asyncio
     async def test_bootstrap_config_failure_exits(self):
-        with patch.dict(os.environ, {
-            "RUN_ID": "run-boot",
-            "ORGANIZATION_SLUG": "org-boot",
-            "EXPERIMENT_ID": "smoke_test",
-            "BROKER_URL": "https://broker.test",
-            "BROKER_TOKEN": "tok-test",
-            "ENVIRONMENT": "dev",
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "RUN_ID": "run-boot",
+                "ORGANIZATION_SLUG": "org-boot",
+                "EXPERIMENT_ID": "smoke_test",
+                "BROKER_URL": "https://broker.test",
+                "BROKER_TOKEN": "tok-test",
+                "ENVIRONMENT": "dev",
+            },
+        ):
             with patch(
                 "pmf_engine.runner.main.RunnerConfig.from_env",
                 side_effect=ValueError("Invalid TIMEOUT_SECONDS"),
@@ -1519,7 +1507,9 @@ class TestCallbackLifecycleFix:
 
     @pytest.mark.asyncio
     async def test_validator_non_contract_violation_uploads_logs_and_reports_failed(self):
-        config = _make_config(contract_schema={"type": "object", "required": ["greeting"], "properties": {"greeting": {"type": "string"}}})
+        config = _make_config(
+            contract_schema={"type": "object", "required": ["greeting"], "properties": {"greeting": {"type": "string"}}}
+        )
         fake_result = HarnessResult(
             artifact_bytes=b'{"greeting": "hello"}',
             content_type="application/json",
@@ -1598,6 +1588,7 @@ class TestCallbackLifecycleFix:
             import signal as signal_module
 
             import pmf_engine.runner.main as main_module
+
             main_module._handle_signal(signal_module.SIGTERM)
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1611,9 +1602,7 @@ class TestCallbackLifecycleFix:
                                     # _hard_exit so the path is observable and guard
                                     # the real os._exit so it never kills the test.
                                     with patch("pmf_engine.runner.main.os._exit"):
-                                        with patch(
-                                            "pmf_engine.runner.main._hard_exit"
-                                        ) as mock_hard_exit:
+                                        with patch("pmf_engine.runner.main._hard_exit") as mock_hard_exit:
                                             canceller = asyncio.ensure_future(cancel_soon())
                                             await main()
                                             try:
@@ -1658,9 +1647,7 @@ class TestCallbackLifecycleFix:
                                     with pytest.raises(Exception, match="Broker down"):
                                         await main()
 
-        assert statuses_reported.count("failed") == 1, (
-            f"Expected exactly 1 failed status, got: {statuses_reported}"
-        )
+        assert statuses_reported.count("failed") == 1, f"Expected exactly 1 failed status, got: {statuses_reported}"
 
 
 class TestFailureCallbacksCarryDurationAndCost:
@@ -1699,7 +1686,9 @@ class TestFailureCallbacksCarryDurationAndCost:
     @patch("pmf_engine.runner.main._upload_logs")
     @patch("pmf_engine.runner.main.publish")
     async def test_contract_violation_reports_duration_and_cost(self, mock_publish, _mock_logs):
-        config = _make_config(contract_schema={"type": "object", "required": ["greeting"], "properties": {"greeting": {"type": "string"}}})
+        config = _make_config(
+            contract_schema={"type": "object", "required": ["greeting"], "properties": {"greeting": {"type": "string"}}}
+        )
         fake_result = HarnessResult(
             artifact_bytes=b'{"greeting": 42}',
             content_type="application/json",
@@ -1762,14 +1751,19 @@ class TestObservabilityHardening:
         must surface as SystemExit(1) so ECS marks the task FAILED instead of
         silently passing the runner empty state."""
         from pmf_engine.runner.manifest_loader import ManifestLoadError
-        with patch.dict(os.environ, {
-            "EXPERIMENT_ID": "smoke_test",
-            "RUN_ID": "run-broker-err",
-            "ORGANIZATION_SLUG": "org-x",
-            "BROKER_URL": "https://broker.test",
-            "BROKER_TOKEN": "tok-test",
-            "PARAMS_JSON": "{}",
-        }, clear=False):
+
+        with patch.dict(
+            os.environ,
+            {
+                "EXPERIMENT_ID": "smoke_test",
+                "RUN_ID": "run-broker-err",
+                "ORGANIZATION_SLUG": "org-x",
+                "BROKER_URL": "https://broker.test",
+                "BROKER_TOKEN": "tok-test",
+                "PARAMS_JSON": "{}",
+            },
+            clear=False,
+        ):
             os.environ.pop("INSTRUCTION", None)
             with patch(
                 "pmf_engine.runner.manifest_loader.load_from_broker",
@@ -1789,37 +1783,39 @@ class TestObservabilityHardening:
         PENDING forever and operators have to grep CloudWatch to find them.
         """
         from pmf_engine.runner.manifest_loader import ManifestLoadError
-        with patch.dict(os.environ, {
-            "EXPERIMENT_ID": "smoke_test",
-            "RUN_ID": "run-callback-on-fail",
-            "ORGANIZATION_SLUG": "org-x",
-            "BROKER_URL": "https://broker.test",
-            "BROKER_TOKEN": "tok-test",
-            "PARAMS_JSON": "{}",
-        }, clear=False):
+
+        with patch.dict(
+            os.environ,
+            {
+                "EXPERIMENT_ID": "smoke_test",
+                "RUN_ID": "run-callback-on-fail",
+                "ORGANIZATION_SLUG": "org-x",
+                "BROKER_URL": "https://broker.test",
+                "BROKER_TOKEN": "tok-test",
+                "PARAMS_JSON": "{}",
+            },
+            clear=False,
+        ):
             os.environ.pop("INSTRUCTION", None)
-            with patch("pmf_engine.runner.main.publish") as mock_publish, \
-                 patch("pmf_engine.runner.main.init_config"), \
-                 patch(
-                     "pmf_engine.runner.manifest_loader.load_from_broker",
-                     side_effect=ManifestLoadError("broker 503"),
-                 ):
+            with (
+                patch("pmf_engine.runner.main.publish") as mock_publish,
+                patch("pmf_engine.runner.main.init_config"),
+                patch(
+                    "pmf_engine.runner.manifest_loader.load_from_broker",
+                    side_effect=ManifestLoadError("broker 503"),
+                ),
+            ):
                 with pytest.raises(SystemExit):
                     await main()
 
         mock_publish.report_status.assert_called_once()
         call = mock_publish.report_status.call_args
-        assert call.args[0] == "failed", (
-            f"first arg must be 'failed' status, got {call.args[0]!r}"
-        )
+        assert call.args[0] == "failed", f"first arg must be 'failed' status, got {call.args[0]!r}"
         assert call.kwargs.get("reason_code") == "ManifestLoadError", (
-            f"reason_code must surface the exception type for ops triage, "
-            f"got {call.kwargs.get('reason_code')!r}"
+            f"reason_code must surface the exception type for ops triage, got {call.kwargs.get('reason_code')!r}"
         )
         detail = call.kwargs.get("detail", "")
-        assert "broker 503" in detail, (
-            f"detail must include the underlying error message, got {detail!r}"
-        )
+        assert "broker 503" in detail, f"detail must include the underlying error message, got {detail!r}"
 
 
 class TestRunExperimentNoS3OrSQS:
@@ -1828,6 +1824,7 @@ class TestRunExperimentNoS3OrSQS:
     @patch("pmf_engine.runner.main.publish")
     async def test_run_experiment_signature_has_no_s3_or_sqs_params(self, mock_publish, _mock_logs):
         import inspect
+
         sig = inspect.signature(run_experiment)
         param_names = set(sig.parameters.keys())
         assert "s3_client" not in param_names
@@ -1853,16 +1850,13 @@ class TestCollectWorkspaceFilesSensitiveWithAllowedExtensions:
         (tmp_path / "normal.json").write_text('{"ok": true}')
 
         collected = _collect_workspace_files(
-            str(tmp_path), allowed_extensions=_SAFE_TMP_EXTENSIONS,
+            str(tmp_path),
+            allowed_extensions=_SAFE_TMP_EXTENSIONS,
         )
 
         keys = set(collected.keys())
-        assert "workspace/normal.json" in keys, (
-            f"normal.json should be collected, got keys: {keys}"
-        )
-        assert "workspace/credentials.json" not in keys, (
-            f"credentials.json must NOT be collected, got keys: {keys}"
-        )
+        assert "workspace/normal.json" in keys, f"normal.json should be collected, got keys: {keys}"
+        assert "workspace/credentials.json" not in keys, f"credentials.json must NOT be collected, got keys: {keys}"
 
     def test_env_pattern_excluded_despite_yaml_allowlist(self, tmp_path):
         from pmf_engine.runner.main import (
@@ -1874,13 +1868,12 @@ class TestCollectWorkspaceFilesSensitiveWithAllowedExtensions:
         (tmp_path / "settings.yaml").write_text("ok: true\n")
 
         collected = _collect_workspace_files(
-            str(tmp_path), allowed_extensions=_SAFE_TMP_EXTENSIONS,
+            str(tmp_path),
+            allowed_extensions=_SAFE_TMP_EXTENSIONS,
         )
 
         keys = set(collected.keys())
-        assert "workspace/settings.yaml" in keys, (
-            f"settings.yaml should be collected, got keys: {keys}"
-        )
+        assert "workspace/settings.yaml" in keys, f"settings.yaml should be collected, got keys: {keys}"
         assert "workspace/config.env.yaml" not in keys, (
             f"config.env.yaml must NOT be collected (contains .env), got keys: {keys}"
         )
@@ -1907,12 +1900,8 @@ class TestCollectWorkspaceFilesSkipsUserInputs:
         collected = _collect_workspace_files(str(tmp_path))
         keys = set(collected.keys())
 
-        assert "workspace/output/result.json" in keys, (
-            f"output/result.json should be collected, got keys: {keys}"
-        )
-        assert "workspace/instruction.md" in keys, (
-            f"instruction.md should be collected, got keys: {keys}"
-        )
+        assert "workspace/output/result.json" in keys, f"output/result.json should be collected, got keys: {keys}"
+        assert "workspace/instruction.md" in keys, f"instruction.md should be collected, got keys: {keys}"
         assert "workspace/input/agenda.pdf" not in keys, (
             f"input/agenda.pdf must NOT be collected (user-uploaded), got keys: {keys}"
         )
@@ -1951,18 +1940,12 @@ class TestCollectLogFilesMilestonesPromotion:
 
         logs_dir = tmp_path / "logs"
         logs_dir.mkdir()
-        (logs_dir / "milestones.jsonl").write_text(
-            '{"ts":"2026-01-01T00:00:00+00:00","name":"gather"}\n'
-        )
+        (logs_dir / "milestones.jsonl").write_text('{"ts":"2026-01-01T00:00:00+00:00","name":"gather"}\n')
 
         files = _collect_log_files(str(tmp_path))
 
-        assert "milestones.jsonl" in files, (
-            f"milestones must be promoted to the bare key, got: {sorted(files)}"
-        )
-        assert files["milestones.jsonl"] == (
-            b'{"ts":"2026-01-01T00:00:00+00:00","name":"gather"}\n'
-        )
+        assert "milestones.jsonl" in files, f"milestones must be promoted to the bare key, got: {sorted(files)}"
+        assert files["milestones.jsonl"] == (b'{"ts":"2026-01-01T00:00:00+00:00","name":"gather"}\n')
 
     def test_nested_milestones_key_removed_after_promotion(self, tmp_path):
         from pmf_engine.runner.main import _collect_log_files
@@ -2002,9 +1985,7 @@ class TestBrokerInitLastResortSqsFallback:
     """
 
     @pytest.mark.asyncio
-    async def test_double_failure_attempts_direct_sqs_send_then_exits(
-        self, monkeypatch
-    ):
+    async def test_double_failure_attempts_direct_sqs_send_then_exits(self, monkeypatch):
         """init_config raises, then from_env's broker fetch raises. The
         last-resort SQS sender MUST be invoked, then sys.exit(1).
         """
@@ -2036,17 +2017,11 @@ class TestBrokerInitLastResortSqsFallback:
         # Helper signature: (run_id, experiment_id, reason_code, detail)
         all_args = list(call_args) + list(call_kwargs.values())
         joined = " ".join(str(a) for a in all_args)
-        assert "run-double-fail" in joined, (
-            f"run_id must be in last-resort SQS send args, got: {all_args!r}"
-        )
-        assert "smoke_test" in joined, (
-            f"experiment_id must be in last-resort SQS send args, got: {all_args!r}"
-        )
+        assert "run-double-fail" in joined, f"run_id must be in last-resort SQS send args, got: {all_args!r}"
+        assert "smoke_test" in joined, f"experiment_id must be in last-resort SQS send args, got: {all_args!r}"
 
     @pytest.mark.asyncio
-    async def test_double_failure_still_exits_when_direct_sqs_send_fails(
-        self, monkeypatch
-    ):
+    async def test_double_failure_still_exits_when_direct_sqs_send_fails(self, monkeypatch):
         """If even the SQS direct send fails (e.g., no IAM, no RESULTS_QUEUE_URL,
         SQS down) we MUST still sys.exit(1). The hang-prevention is best-effort —
         a failed sentinel is still better than a CrashLoop on the SQS retry.
@@ -2079,6 +2054,7 @@ class TestBrokerInitLastResortSqsFallback:
         rather than raising — the entrypoint must still reach sys.exit(1).
         """
         from pmf_engine.runner.main import _send_failed_to_sqs_directly
+
         monkeypatch.delenv("RESULTS_QUEUE_URL", raising=False)
         ok = _send_failed_to_sqs_directly(
             run_id="run-001",
@@ -2160,9 +2136,7 @@ class TestBrokerUrlSchemeGuardBeforeInit:
     """
 
     @pytest.mark.asyncio
-    async def test_plaintext_broker_url_in_prod_does_not_call_init_config(
-        self, monkeypatch
-    ):
+    async def test_plaintext_broker_url_in_prod_does_not_call_init_config(self, monkeypatch):
         monkeypatch.setenv("BROKER_URL", "http://broker.example.test:8080")
         monkeypatch.setenv("BROKER_TOKEN", "tok-test")
         monkeypatch.setenv("RUN_ID", "run-001")
@@ -2205,6 +2179,7 @@ class TestSigtermDuringInitExitsCleanly:
         # toggling the module flag inside the patched init_config.
         def init_then_signal(*args, **kwargs):
             import pmf_engine.runner.main as _m
+
             _m._shutdown_requested = True
 
         # Use AsyncMock so the patched run_experiment is a valid coroutine
@@ -2223,15 +2198,18 @@ class TestSigtermDuringInitExitsCleanly:
                             await main()
 
         assert exc_info.value.code == 1
-        async_run.assert_not_called(), (
-            "run_experiment must NOT be reached after a pre-task signal — "
-            "the runner should exit before launching the agent task"
+        (
+            async_run.assert_not_called(),
+            (
+                "run_experiment must NOT be reached after a pre-task signal — "
+                "the runner should exit before launching the agent task"
+            ),
         )
         # We should have sent a failed callback with reason_code Signal.
         signal_calls = [
-            c for c in mock_publish.report_status.call_args_list
-            if c[0][0] == "failed"
-            and "Signal" in (c.kwargs.get("reason_code", "") or "")
+            c
+            for c in mock_publish.report_status.call_args_list
+            if c[0][0] == "failed" and "Signal" in (c.kwargs.get("reason_code", "") or "")
         ]
         assert signal_calls, (
             f"expected failed-status with reason_code='Signal' on pre-task "
@@ -2250,9 +2228,7 @@ class TestSigtermDuringInitExitsCleanly:
 
 
 @pytest.mark.asyncio
-async def test_write_action_manifest_flows_through_to_claude_agent_options(
-    monkeypatch, tmp_path
-):
+async def test_write_action_manifest_flows_through_to_claude_agent_options(monkeypatch, tmp_path):
     """ENG-10234: a write-action manifest with system_prompt /
     permission_mode / allowed_external_tools flows end-to-end. The dispatch
     side (ENG-10128) routes the SQS message; this test covers the runner side
@@ -2333,19 +2309,17 @@ async def test_write_action_manifest_flows_through_to_claude_agent_options(
 
     monkeypatch.setenv("WORKSPACE_DIR", str(workspace))
 
-    with patch(
-        "pmf_engine.runner.harness.claude_sdk.query", side_effect=fake_query
-    ), patch("pmf_engine.runner.main.publish"), patch(
-        "pmf_engine.runner.main._upload_logs"
+    with (
+        patch("pmf_engine.runner.harness.claude_sdk.query", side_effect=fake_query),
+        patch("pmf_engine.runner.main.publish"),
+        patch("pmf_engine.runner.main._upload_logs"),
     ):
         harness = ClaudeSdkHarness()
         await run_experiment(config, harness=harness)
 
     options = captured["options"]
     # system_prompt prepended above the capability section.
-    assert options.system_prompt.startswith(
-        "You are setting up TCR compliance for a candidate.\n"
-    )
+    assert options.system_prompt.startswith("You are setting up TCR compliance for a candidate.\n")
     # permission_mode overrides the bypassPermissions default.
     assert options.permission_mode == "default"
     # allowed_external_tools extended onto ALLOWED_TOOLS, base set preserved.
@@ -2353,9 +2327,7 @@ async def test_write_action_manifest_flows_through_to_claude_agent_options(
     # MCP server wired from BROKER_URL + BROKER_TOKEN env.
     assert options.mcp_servers["broker"]["type"] == "http"
     assert options.mcp_servers["broker"]["url"] == "https://broker-dev.test/agent/mcp"
-    assert options.mcp_servers["broker"]["headers"] == {
-        "X-Broker-Token": "tok-end-to-end"
-    }
+    assert options.mcp_servers["broker"]["headers"] == {"X-Broker-Token": "tok-end-to-end"}
 
 
 # ---------------------------------------------------------------------------
@@ -2500,17 +2472,12 @@ class TestBrokerTokenRedaction:
 
         from pmf_engine.runner.main import _redact_line
 
-        original = (
-            '{"event": "session_start", '
-            '"headers": {"X-Broker-Token": "tok-broker-abc-12345"}}'
-        )
+        original = '{"event": "session_start", "headers": {"X-Broker-Token": "tok-broker-abc-12345"}}'
         redacted = _redact_line(original)
 
         parsed = _json.loads(redacted)
         assert parsed["event"] == "session_start"
         assert "tok-broker-abc-12345" not in parsed["headers"]["X-Broker-Token"]
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -2542,15 +2509,15 @@ def _make_verdict(**overrides):
     serialization the runner folds onto the wire."""
     from pmf_engine.runner.qa_gate import Verdict
 
-    defaults = dict(
-        status="evaluated",
-        pass_=True,
-        qa_version_ids={"manifest.json": "v1"},
-        checks=[{"name": "grounding", "type": "deterministic", "passed": True}],
-        violations=[],
-        duration_ms=1234,
-        cost_usd=0.0,
-    )
+    defaults = {
+        "status": "evaluated",
+        "pass_": True,
+        "qa_version_ids": {"manifest.json": "v1"},
+        "checks": [{"name": "grounding", "type": "deterministic", "passed": True}],
+        "violations": [],
+        "duration_ms": 1234,
+        "cost_usd": 0.0,
+    }
     defaults.update(overrides)
     return Verdict(**defaults)
 
@@ -2597,15 +2564,9 @@ async def test_no_qa_folder_publish_is_byte_identical(mock_publish, _mock_logs):
     assert call_args[0] == ({"greeting": "hello"},)
     assert call_args.kwargs.get("cost_usd") == pytest.approx(0.05)
     assert "duration_seconds" in call_args.kwargs
-    assert "qa_verdict" not in call_args.kwargs, (
-        "no-qa path must not pass qa_verdict to publish"
-    )
-    assert "qa_raw_output" not in call_args.kwargs, (
-        "no-qa path must not pass qa_raw_output to publish"
-    )
-    assert "qa_eval_transcript" not in call_args.kwargs, (
-        "no-qa path must not pass qa_eval_transcript to publish"
-    )
+    assert "qa_verdict" not in call_args.kwargs, "no-qa path must not pass qa_verdict to publish"
+    assert "qa_raw_output" not in call_args.kwargs, "no-qa path must not pass qa_raw_output to publish"
+    assert "qa_eval_transcript" not in call_args.kwargs, "no-qa path must not pass qa_eval_transcript to publish"
 
     # span.log success output carries no qa_verdict key.
     log_kwargs = mock_span.log.call_args[1]
@@ -2664,7 +2625,9 @@ async def test_observe_mode_failing_verdict_still_publishes_with_qa_verdict(mock
     """Observe-only: a verdict with pass=False STILL publishes (never
     quarantines), and the verdict rides the publish call as qa_verdict
     (the contract-C dict). No failure status is reported."""
-    config = _make_config(qa_envelope={"manifest": {"blocking": False}, "files": {}, "resolved_qa_version_ids": {"manifest.json": "v9"}})
+    config = _make_config(
+        qa_envelope={"manifest": {"blocking": False}, "files": {}, "resolved_qa_version_ids": {"manifest.json": "v9"}}
+    )
     fake_result = HarnessResult(
         artifact_bytes=b'{"greeting": "hello"}',
         content_type="application/json",
@@ -2753,7 +2716,9 @@ async def test_publish_omits_qa_eval_transcript_when_gate_returns_none(mock_publ
     """A main.py-only gate run returns eval_transcript=None (no evaluator). The
     runner must NOT pass qa_eval_transcript to publish (so the broker omits the
     durable write), while still forwarding the verdict + raw output."""
-    config = _make_config(qa_envelope={"manifest": {"blocking": False}, "files": {"main.py": "x"}, "resolved_qa_version_ids": {}})
+    config = _make_config(
+        qa_envelope={"manifest": {"blocking": False}, "files": {"main.py": "x"}, "resolved_qa_version_ids": {}}
+    )
     fake_result = HarnessResult(
         artifact_bytes=b'{"greeting": "hello"}',
         content_type="application/json",
@@ -2788,7 +2753,9 @@ async def test_publish_forwards_empty_qa_eval_transcript(mock_publish, _mock_log
     """An eval.md run whose evaluator produced an EMPTY transcript ('') forwards
     that empty string (distinct from None=no-evaluator), so the broker records
     the evaluator ran."""
-    config = _make_config(qa_envelope={"manifest": {"blocking": False}, "files": {"eval.md": "judge"}, "resolved_qa_version_ids": {}})
+    config = _make_config(
+        qa_envelope={"manifest": {"blocking": False}, "files": {"eval.md": "judge"}, "resolved_qa_version_ids": {}}
+    )
     fake_result = HarnessResult(
         artifact_bytes=b'{"greeting": "hello"}',
         content_type="application/json",
@@ -2911,9 +2878,7 @@ async def test_qa_gate_receives_artifact_bytes_envelope_and_remaining_budget(moc
 @pytest.mark.asyncio
 @patch("pmf_engine.runner.main._upload_logs")
 @patch("pmf_engine.runner.main.publish")
-async def test_real_qa_gate_bridge_runs_deterministic_main_and_rides_publish(
-    mock_publish, _mock_logs, tmp_path
-):
+async def test_real_qa_gate_bridge_runs_deterministic_main_and_rides_publish(mock_publish, _mock_logs, tmp_path):
     """End-to-end of the real to_thread bridge. With a main.py-only qa folder,
     the REAL run_qa_gate engine runs the deterministic subprocess on a worker
     thread (asyncio.to_thread). The fixture main.py emits one failing + one
@@ -2992,9 +2957,7 @@ async def test_real_qa_gate_bridge_runs_deterministic_main_and_rides_publish(
 @pytest.mark.asyncio
 @patch("pmf_engine.runner.main._upload_logs")
 @patch("pmf_engine.runner.main.publish")
-async def test_real_qa_gate_bridge_marshals_evaluator_and_rides_publish(
-    mock_publish, _mock_logs, tmp_path
-):
+async def test_real_qa_gate_bridge_marshals_evaluator_and_rides_publish(mock_publish, _mock_logs, tmp_path):
     """End-to-end of the real async/sync bridge. With an eval.md-only qa folder,
     the REAL run_qa_gate engine runs on a worker thread (asyncio.to_thread),
     injects an evaluator_runner that bounces back onto the event loop
@@ -3199,9 +3162,7 @@ async def test_qa_gate_hook_passes_run_id_and_experiment_id(mock_publish, _mock_
         with patch("pmf_engine.runner.main.BraintrustClient.get_instance", return_value=mock_bt):
             await run_experiment(config, harness=mock_harness)
 
-    assert captured.get("run_id") == "run-corr-42", (
-        f"hook must forward run_id; got kwargs {sorted(captured)!r}"
-    )
+    assert captured.get("run_id") == "run-corr-42", f"hook must forward run_id; got kwargs {sorted(captured)!r}"
     assert captured.get("experiment_id") == "exp-corr-99"
 
 
@@ -3245,12 +3206,8 @@ async def test_qa_gate_broker_env_omits_unset_keys(mock_publish, _mock_logs):
 
     broker_env = captured["broker_env"]
     # Neither key present at all — NOT mapped to "".
-    assert "BROKER_URL" not in broker_env, (
-        f"unset BROKER_URL must be omitted, not empty-string; got {broker_env!r}"
-    )
-    assert "BROKER_TOKEN" not in broker_env, (
-        f"unset BROKER_TOKEN must be omitted, not empty-string; got {broker_env!r}"
-    )
+    assert "BROKER_URL" not in broker_env, f"unset BROKER_URL must be omitted, not empty-string; got {broker_env!r}"
+    assert "BROKER_TOKEN" not in broker_env, f"unset BROKER_TOKEN must be omitted, not empty-string; got {broker_env!r}"
     assert "" not in broker_env.values()
 
 
@@ -3334,9 +3291,7 @@ async def test_qa_gate_hook_defense_in_depth_catch_logs_at_error(mock_publish, _
         _main_mod.logger.removeHandler(handler)
 
     hook_records = [r for r in captured if "qa_gate_hook_failed" in r.getMessage()]
-    assert hook_records, (
-        f"expected a qa_gate_hook_failed log; got {[r.getMessage() for r in captured]!r}"
-    )
+    assert hook_records, f"expected a qa_gate_hook_failed log; got {[r.getMessage() for r in captured]!r}"
     rec = hook_records[0]
     assert rec.levelno == logging.ERROR, (
         f"qa_gate_hook_failed must log at ERROR (logger.exception), got {rec.levelname}"

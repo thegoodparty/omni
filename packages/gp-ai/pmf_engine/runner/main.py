@@ -51,14 +51,18 @@ def _hard_exit(code: int) -> None:
 # matches one of these names would silently clobber the runner's own write.
 # The publisher rejects these at upload time; this set is the runtime
 # defense-in-depth guard.
-_RESERVED_WORKSPACE_FILES = frozenset({
-    "instruction.md",
-    "contract_schema.json",
-    "validate_output.py",
-    "SANDBOX.md",
-})
+_RESERVED_WORKSPACE_FILES = frozenset(
+    {
+        "instruction.md",
+        "contract_schema.json",
+        "validate_output.py",
+        "SANDBOX.md",
+    }
+)
 
-_SANDBOX_DOC = EGRESS_MESSAGE.split("See /workspace/SANDBOX.md")[0].rstrip() + """
+_SANDBOX_DOC = (
+    EGRESS_MESSAGE.split("See /workspace/SANDBOX.md")[0].rstrip()
+    + """
 
 ## Allowed tools
 
@@ -77,6 +81,7 @@ Never use urllib, requests, httpx, curl, wget, or raw socket directly — they f
 retry them or reverse-engineer the runtime. There is no route out of this container except the \
 broker-proxied tools above.
 """
+)
 
 
 class AttachmentSafetyViolation(RuntimeError):
@@ -87,6 +92,7 @@ class AttachmentSafetyViolation(RuntimeError):
     reason_code='AttachmentSafetyViolation' to gp-api — operators get a
     greppable, alertable error type instead of a generic 'RuntimeError'.
     """
+
 
 _VALIDATOR_SCRIPT = '''#!/usr/bin/env python3
 """Validate output artifact against the contract schema.
@@ -135,6 +141,7 @@ sys.exit(exit_code)
 def get_harness(harness_name: str) -> AgentHarness:
     if harness_name == "claude_sdk":
         from .harness.claude_sdk import ClaudeSdkHarness
+
         return ClaudeSdkHarness()
     raise ValueError(f"Unknown harness: {harness_name}")
 
@@ -179,6 +186,7 @@ def _send_failed_to_sqs_directly(
         return False
     try:
         import boto3
+
         sqs = boto3.client("sqs")
         body = {
             "run_id": run_id,
@@ -199,7 +207,8 @@ def _send_failed_to_sqs_directly(
     except Exception:
         logger.exception(
             "last_resort_sqs_send_failed run_id=%s experiment_id=%s",
-            run_id, experiment_id,
+            run_id,
+            experiment_id,
         )
         return False
 
@@ -211,6 +220,7 @@ def _accumulated_agent_cost() -> float | None:
     accumulator can't be read."""
     try:
         from .harness.claude_sdk import get_accumulated_cost
+
         return get_accumulated_cost()
     except Exception:
         return None
@@ -239,10 +249,7 @@ def _report_failed_or_fallback(
             cost_usd=cost_usd,
         )
     except Exception as report_err:
-        logger.exception(
-            "failed_callback_send_failed errorType=ReportStatusError "
-            f"run_id={run_id} error={report_err}"
-        )
+        logger.exception(f"failed_callback_send_failed errorType=ReportStatusError run_id={run_id} error={report_err}")
         _send_failed_to_sqs_directly(
             run_id=run_id,
             experiment_id=experiment_id,
@@ -269,7 +276,8 @@ def _exit_on_pre_task_shutdown(
     detail = "Task terminated by signal during init"
     logger.info(
         "pre_task_shutdown_requested run_id=%s experiment_id=%s",
-        run_id, experiment_id,
+        run_id,
+        experiment_id,
     )
     if broker_initialized:
         try:
@@ -281,7 +289,8 @@ def _exit_on_pre_task_shutdown(
             )
         except Exception:
             logger.exception(
-                "pre_task_shutdown_callback_failed run_id=%s", run_id,
+                "pre_task_shutdown_callback_failed run_id=%s",
+                run_id,
             )
             _send_failed_to_sqs_directly(
                 run_id=run_id,
@@ -300,11 +309,13 @@ def _exit_on_pre_task_shutdown(
 
 
 _SECRET_PATTERNS = [
-    re.compile(r'(?i)(api[_-]?key|secret[_-]?key|access[_-]?key|token|password|credential|auth)\s*[=:]\s*["\']?([A-Za-z0-9_\-/.+]{8,})["\']?'),
-    re.compile(r'(?i)(sk-[a-zA-Z0-9]{20,})'),
-    re.compile(r'(?i)(AKIA[0-9A-Z]{16})'),
-    re.compile(r'(?i)(ghp_[A-Za-z0-9]{36,})'),
-    re.compile(r'(?i)(xox[bpra]-[A-Za-z0-9\-]+)'),
+    re.compile(
+        r'(?i)(api[_-]?key|secret[_-]?key|access[_-]?key|token|password|credential|auth)\s*[=:]\s*["\']?([A-Za-z0-9_\-/.+]{8,})["\']?'
+    ),
+    re.compile(r"(?i)(sk-[a-zA-Z0-9]{20,})"),
+    re.compile(r"(?i)(AKIA[0-9A-Z]{16})"),
+    re.compile(r"(?i)(ghp_[A-Za-z0-9]{36,})"),
+    re.compile(r"(?i)(xox[bpra]-[A-Za-z0-9\-]+)"),
 ]
 
 # Bearer-token redaction. `Authorization: Bearer <token>` doesn't match the
@@ -314,7 +325,7 @@ _SECRET_PATTERNS = [
 # unredacted through _upload_logs. Captured separately so the substitution
 # can preserve the "Bearer " prefix (diagnostic value) while redacting only
 # the secret portion.
-_BEARER_TOKEN_PATTERN = re.compile(r'(?i)(Bearer\s+)([A-Za-z0-9_\-/.+=]{8,})')
+_BEARER_TOKEN_PATTERN = re.compile(r"(?i)(Bearer\s+)([A-Za-z0-9_\-/.+=]{8,})")
 
 # X-Broker-Token redaction. The runner passes BROKER_TOKEN in this header on
 # the MCP server config (claude_sdk._build_broker_mcp_servers), and the SDK
@@ -323,9 +334,7 @@ _BEARER_TOKEN_PATTERN = re.compile(r'(?i)(Bearer\s+)([A-Za-z0-9_\-/.+=]{8,})')
 # _SECRET_PATTERNS' `\s*[=:]` doesn't catch it. Captured separately so the
 # substitution preserves the key + separator (parseable JSON structure)
 # while redacting only the value.
-_BROKER_TOKEN_PATTERN = re.compile(
-    r'(?i)(X-Broker-Token["\']?\s*[=:]\s*["\']?)([A-Za-z0-9_\-/.+=]{8,})'
-)
+_BROKER_TOKEN_PATTERN = re.compile(r'(?i)(X-Broker-Token["\']?\s*[=:]\s*["\']?)([A-Za-z0-9_\-/.+=]{8,})')
 
 
 def _redact_line(line: str) -> str:
@@ -353,6 +362,7 @@ def _find_session_jsonl() -> str | None:
     if not os.path.isdir(claude_dir):
         return None
     import glob as glob_mod
+
     candidates = glob_mod.glob(os.path.join(claude_dir, "projects", "**", "*.jsonl"), recursive=True)
     if not candidates:
         return None
@@ -362,7 +372,16 @@ def _find_session_jsonl() -> str | None:
 _SENSITIVE_PATTERNS = {".env", ".key", ".pem", ".crt", "credentials", "secret"}
 
 _SAFE_TMP_EXTENSIONS = {
-    ".json", ".csv", ".txt", ".md", ".log", ".html", ".pdf", ".xml", ".yaml", ".yml",
+    ".json",
+    ".csv",
+    ".txt",
+    ".md",
+    ".log",
+    ".html",
+    ".pdf",
+    ".xml",
+    ".yaml",
+    ".yml",
 }
 
 
@@ -419,9 +438,12 @@ def _collect_log_files(workspace_dir: str) -> dict[str, bytes]:
     files: dict[str, bytes] = {}
 
     files.update(_collect_workspace_files(workspace_dir))
-    files.update(_collect_workspace_files(
-        "/tmp", allowed_extensions=_SAFE_TMP_EXTENSIONS,
-    ))
+    files.update(
+        _collect_workspace_files(
+            "/tmp",
+            allowed_extensions=_SAFE_TMP_EXTENSIONS,
+        )
+    )
 
     session_file = _find_session_jsonl()
     if session_file:
@@ -453,7 +475,9 @@ def _upload_logs(workspace_dir: str, *, run_id: str, experiment_id: str) -> None
             publish.upload_logs(files)
             logger.info(
                 "log upload ok run_id=%s experiment_id=%s files=%d",
-                run_id, experiment_id, len(files),
+                run_id,
+                experiment_id,
+                len(files),
             )
     except Exception as e:
         # Swallow intentionally — terminal callback is more important than logs.
@@ -461,7 +485,10 @@ def _upload_logs(workspace_dir: str, *, run_id: str, experiment_id: str) -> None
         # for alerting grep patterns, exc_info=True so the stack trace isn't lost.
         logger.warning(
             "log upload failed run_id=%s experiment_id=%s exc_type=%s: %s",
-            run_id, experiment_id, type(e).__name__, e,
+            run_id,
+            experiment_id,
+            type(e).__name__,
+            e,
             exc_info=True,
         )
 
@@ -478,9 +505,7 @@ def _qa_gate_correlation_kwargs(config: RunnerConfig) -> dict[str, str]:
         accepted = inspect.signature(run_qa_gate).parameters
     except (TypeError, ValueError):
         return {}
-    has_var_keyword = any(
-        p.kind is inspect.Parameter.VAR_KEYWORD for p in accepted.values()
-    )
+    has_var_keyword = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in accepted.values())
     out: dict[str, str] = {}
     if has_var_keyword or "run_id" in accepted:
         out["run_id"] = config.run_id
@@ -541,9 +566,7 @@ async def _run_qa_gate_hook(
             # Called from the gate's worker thread; bounce the coroutine back
             # to the runner's event loop and block this thread until it
             # resolves.
-            future = asyncio.run_coroutine_threadsafe(
-                run_evaluator_agent(params), loop
-            )
+            future = asyncio.run_coroutine_threadsafe(run_evaluator_agent(params), loop)
             bridge_timeout = params.timeout_seconds + _FINALIZE_TIMEOUT_SECONDS + 30
             try:
                 return future.result(timeout=bridge_timeout)
@@ -555,7 +578,9 @@ async def _run_qa_gate_hook(
                 future.cancel()
                 logger.warning(
                     "qa_gate_evaluator_bridge_timeout run_id=%s experiment_id=%s timeout=%ss",
-                    config.run_id, config.experiment_id, bridge_timeout,
+                    config.run_id,
+                    config.experiment_id,
+                    bridge_timeout,
                 )
                 return EvaluatorResult(status="error")
 
@@ -576,7 +601,10 @@ async def _run_qa_gate_hook(
         # log at ERROR with a stack trace — it is actionable, not routine.
         logger.exception(
             "qa_gate_hook_failed run_id=%s experiment_id=%s exc_type=%s: %s",
-            config.run_id, config.experiment_id, type(e).__name__, e,
+            config.run_id,
+            config.experiment_id,
+            type(e).__name__,
+            e,
         )
         resolved = {}
         if isinstance(config.qa_envelope, dict):
@@ -695,13 +723,15 @@ async def run_experiment(
                     rejected = {"_raw_bytes": "", "_truncated": False}
                 # Flush before report_status deletes the broker scope ticket
                 # (see harness-failure branch above).
-                span.log(output={
-                    "status": "contract_violation",
-                    "error": str(e),
-                    "cost_usd": result.cost_usd,
-                    "num_turns": result.num_turns,
-                    "duration_seconds": duration,
-                })
+                span.log(
+                    output={
+                        "status": "contract_violation",
+                        "error": str(e),
+                        "cost_usd": result.cost_usd,
+                        "num_turns": result.num_turns,
+                        "duration_seconds": duration,
+                    }
+                )
                 bt.flush()
                 publish.report_status(
                     "contract_violation",
@@ -738,13 +768,15 @@ async def run_experiment(
                 _upload_logs(workspace_dir, run_id=config.run_id, experiment_id=config.experiment_id)
                 # Flush before report_status deletes the broker scope ticket
                 # (see harness-failure branch above).
-                span.log(output={
-                    "status": "failed",
-                    "error": str(e),
-                    "cost_usd": result.cost_usd,
-                    "num_turns": result.num_turns,
-                    "duration_seconds": duration,
-                })
+                span.log(
+                    output={
+                        "status": "failed",
+                        "error": str(e),
+                        "cost_usd": result.cost_usd,
+                        "num_turns": result.num_turns,
+                        "duration_seconds": duration,
+                    }
+                )
                 bt.flush()
                 publish.report_status(
                     "failed",
@@ -950,8 +982,7 @@ async def main():
                 callback_sent = True
             except Exception as report_err:
                 logger.exception(
-                    "failed_callback_send_failed errorType=ReportStatusError "
-                    f"run_id={raw_run_id} error={report_err}"
+                    f"failed_callback_send_failed errorType=ReportStatusError run_id={raw_run_id} error={report_err}"
                 )
         # C2 fallback: if the broker channel never came up (or the callback
         # itself failed), post the failed envelope DIRECTLY to RESULTS_QUEUE_URL
@@ -1047,34 +1078,33 @@ async def main():
         for name, body in (config.attachments or {}).items():
             if name in _RESERVED_WORKSPACE_FILES:
                 logger.error(
-                    "attachment_safety_violation errorType=%s "
-                    "run_id=%s experiment_id=%s basename=%r",
-                    "reserved_basename", config.run_id, config.experiment_id, name,
+                    "attachment_safety_violation errorType=%s run_id=%s experiment_id=%s basename=%r",
+                    "reserved_basename",
+                    config.run_id,
+                    config.experiment_id,
+                    name,
                 )
-                raise AttachmentSafetyViolation(
-                    f"attachment {name!r} collides with reserved basename"
-                )
+                raise AttachmentSafetyViolation(f"attachment {name!r} collides with reserved basename")
             if name != os.path.basename(name) or name.startswith("/") or ".." in name.split("/"):
                 logger.error(
-                    "attachment_safety_violation errorType=%s "
-                    "run_id=%s experiment_id=%s basename=%r",
-                    "unsafe_basename", config.run_id, config.experiment_id, name,
+                    "attachment_safety_violation errorType=%s run_id=%s experiment_id=%s basename=%r",
+                    "unsafe_basename",
+                    config.run_id,
+                    config.experiment_id,
+                    name,
                 )
-                raise AttachmentSafetyViolation(
-                    f"attachment {name!r} has an unsafe basename"
-                )
+                raise AttachmentSafetyViolation(f"attachment {name!r} has an unsafe basename")
             attachment_path = os.path.realpath(os.path.join(workspace_dir, name))
             # Realpath containment check: even after the basename guard, a
             # symlinked workspace_dir or future validator drift could let
             # the path leave /workspace/. Catch it before we open.
-            if not (
-                attachment_path == workspace_real
-                or attachment_path.startswith(workspace_real + os.sep)
-            ):
+            if not (attachment_path == workspace_real or attachment_path.startswith(workspace_real + os.sep)):
                 logger.error(
-                    "attachment_safety_violation errorType=%s "
-                    "run_id=%s experiment_id=%s basename=%r resolved=%r",
-                    "path_escape", config.run_id, config.experiment_id, name,
+                    "attachment_safety_violation errorType=%s run_id=%s experiment_id=%s basename=%r resolved=%r",
+                    "path_escape",
+                    config.run_id,
+                    config.experiment_id,
+                    name,
                     attachment_path,
                 )
                 raise AttachmentSafetyViolation(
@@ -1100,8 +1130,7 @@ async def main():
                 pass
             except Exception as drain_err:
                 logger.warning(
-                    f"Error draining cancelled task for run {config.run_id}: "
-                    f"{drain_err}",
+                    f"Error draining cancelled task for run {config.run_id}: {drain_err}",
                     exc_info=True,
                 )
         _upload_logs(workspace_dir, run_id=config.run_id, experiment_id=config.experiment_id)

@@ -18,11 +18,11 @@ emitting extras is safe. This mirror uses `extra="allow"` to reflect that.
 """
 
 import json
+from typing import Literal
 from unittest.mock import MagicMock
 
 import pytest
 from pydantic import BaseModel, ConfigDict, ValidationError
-from typing import Literal
 
 from broker.callback_sender import CallbackSender
 
@@ -151,7 +151,9 @@ class TestSchemaRejectsInvalid:
 
     def test_missing_required_field_rejected(self):
         with pytest.raises(ValidationError):
-            GpApiAgentExperimentResultMessage.model_validate({
-                "type": "agentExperimentResult",
-                "data": {"status": "success"},  # missing runId
-            })
+            GpApiAgentExperimentResultMessage.model_validate(
+                {
+                    "type": "agentExperimentResult",
+                    "data": {"status": "success"},  # missing runId
+                }
+            )

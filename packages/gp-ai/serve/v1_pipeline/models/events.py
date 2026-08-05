@@ -14,6 +14,7 @@ class PollIssueAnalysisData:
     quotes: list[dict[str, str]]
     responseCount: int
 
+
 @dataclass
 class PollAnalysisCompleteData:
     pollId: str
@@ -21,13 +22,11 @@ class PollAnalysisCompleteData:
     responsesLocation: str
     issues: list[PollIssueAnalysisData]
 
+
 @dataclass
 class PollAnalysisCompleteEvent:
     data: PollAnalysisCompleteData
-    type: str = 'pollAnalysisComplete'
+    type: str = "pollAnalysisComplete"
 
     def to_json(self) -> dict:
-        return {
-            'type': self.type,
-            'data': asdict(self.data)
-        }
+        return {"type": self.type, "data": asdict(self.data)}

@@ -89,7 +89,7 @@ def artifact_read(
     except ClientError as e:
         error_code = e.response.get("Error", {}).get("Code", "")
         if error_code in ("NoSuchKey", "404"):
-            raise HTTPException(status_code=404, detail=f"Artifact not found: {s3_key}")
+            raise HTTPException(status_code=404, detail=f"Artifact not found: {s3_key}") from e
         logger.error(
             "S3 artifact_read failed run_id=%s experiment_id=%s key=%s bucket=%s code=%s",
             ticket.run_id,
@@ -99,7 +99,7 @@ def artifact_read(
             error_code,
             exc_info=True,
         )
-        raise HTTPException(status_code=500, detail="S3 read error")
+        raise HTTPException(status_code=500, detail="S3 read error") from e
 
     raw_bytes = s3_response["Body"].read()
     try:
@@ -113,7 +113,7 @@ def artifact_read(
             bucket,
             exc_info=True,
         )
-        raise HTTPException(status_code=500, detail="Artifact decode error")
+        raise HTTPException(status_code=500, detail="Artifact decode error") from None
 
     content_str = json.dumps(artifact)
 
@@ -127,6 +127,6 @@ def artifact_read(
             s3_key,
             bucket,
         )
-        raise HTTPException(status_code=500, detail="Artifact failed safety check")
+        raise HTTPException(status_code=500, detail="Artifact failed safety check") from None
 
     return ArtifactReadResponse(content=fenced, artifact=artifact)

@@ -8,16 +8,14 @@ as defense-in-depth against LLMs claiming quotes that don't exist.
 """
 
 from __future__ import annotations
+
 import html as _html
 import re
 from difflib import SequenceMatcher
 
-
 # Match <script>...</script> / <style>...</style> including their content.
 # Case-insensitive, dotall so newlines inside are consumed.
-_SCRIPT_STYLE_RE = re.compile(
-    r"<(script|style)[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL
-)
+_SCRIPT_STYLE_RE = re.compile(r"<(script|style)[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
 # Match any remaining HTML tag (open/close/self-closing) but NOT the < in
 # stringified code like "x < 1" (requires a letter or / directly after <).
 _TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")

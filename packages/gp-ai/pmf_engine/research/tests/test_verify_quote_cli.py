@@ -15,13 +15,11 @@ Exit code: 0 = match, 1 = no match, 2 = usage/IO error
 """
 
 from __future__ import annotations
+
 import json
 import sys
-import tempfile
 from io import StringIO
 from pathlib import Path
-
-import pytest
 
 from pmf_engine.research.verify_quote import main
 
@@ -109,7 +107,7 @@ def test_outputs_valid_json_on_both_success_and_failure(tmp_path, capsys):
     """The CLI output contract: stdout is always a single JSON object, whether
     the quote matched or not. Orchestrators parse it the same way."""
     body = _write(tmp_path, "body.html", "hello world")
-    for quote, expected_match in [("hello", True), ("xyz", False)]:
+    for quote, _expected_match in [("hello", True), ("xyz", False)]:
         rc, out = _run_main([str(body), "--quote", quote], capsys)
         assert "match" in out
         assert "similarity" in out

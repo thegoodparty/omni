@@ -50,11 +50,7 @@ def _create_app(
     app = FastAPI()
     app.include_router(router)
 
-    _ticket = ticket or _make_ticket(
-        input_files=[
-            InputFileRef(bucket=INPUT_BUCKET, key=INPUT_KEY, dest="agenda.pdf")
-        ]
-    )
+    _ticket = ticket or _make_ticket(input_files=[InputFileRef(bucket=INPUT_BUCKET, key=INPUT_KEY, dest="agenda.pdf")])
     app.dependency_overrides[get_scope_ticket] = lambda: _ticket
 
     mock_s3 = MagicMock()
@@ -63,9 +59,7 @@ def _create_app(
     elif s3_response:
         mock_s3.get_object.return_value = s3_response
     else:
-        mock_s3.get_object.return_value = _make_s3_response(
-            b"%PDF-1.4 dummy content", content_length=22
-        )
+        mock_s3.get_object.return_value = _make_s3_response(b"%PDF-1.4 dummy content", content_length=22)
     app.dependency_overrides[get_s3_client] = lambda: mock_s3
 
     return app
@@ -74,9 +68,7 @@ def _create_app(
 class TestInputsReadSuccess:
     def test_returns_bytes_for_authorized_ref(self):
         body_bytes = b"%PDF-1.4 fake agenda body"
-        app = _create_app(
-            s3_response=_make_s3_response(body_bytes, content_length=len(body_bytes))
-        )
+        app = _create_app(s3_response=_make_s3_response(body_bytes, content_length=len(body_bytes)))
         client = TestClient(app)
 
         resp = client.post(
@@ -134,11 +126,7 @@ class TestInputsReadAuth:
         assert resp.status_code == 403
 
     def test_wrong_bucket_returns_403(self):
-        ticket = _make_ticket(
-            input_files=[
-                InputFileRef(bucket=INPUT_BUCKET, key=INPUT_KEY, dest="agenda.pdf")
-            ]
-        )
+        ticket = _make_ticket(input_files=[InputFileRef(bucket=INPUT_BUCKET, key=INPUT_KEY, dest="agenda.pdf")])
         app = _create_app(ticket=ticket)
         client = TestClient(app)
 
@@ -151,11 +139,7 @@ class TestInputsReadAuth:
         assert resp.status_code == 403
 
     def test_wrong_key_returns_403(self):
-        ticket = _make_ticket(
-            input_files=[
-                InputFileRef(bucket=INPUT_BUCKET, key=INPUT_KEY, dest="agenda.pdf")
-            ]
-        )
+        ticket = _make_ticket(input_files=[InputFileRef(bucket=INPUT_BUCKET, key=INPUT_KEY, dest="agenda.pdf")])
         app = _create_app(ticket=ticket)
         client = TestClient(app)
 
@@ -255,9 +239,7 @@ class TestInputsReadSizeCap:
         # Body read should never be called when ContentLength tripwires the cap.
         body = MagicMock()
         body.read.side_effect = AssertionError("should not be read when oversize")
-        app = _create_app(
-            s3_response={"Body": body, "ContentLength": oversize}
-        )
+        app = _create_app(s3_response={"Body": body, "ContentLength": oversize})
         client = TestClient(app)
 
         resp = client.post(
@@ -270,9 +252,7 @@ class TestInputsReadSizeCap:
 
     def test_body_length_above_cap_returns_413_when_content_length_absent(self):
         oversize_body = b"x" * (MAX_INPUT_BYTES + 1)
-        app = _create_app(
-            s3_response=_make_s3_response(oversize_body, content_length=None)
-        )
+        app = _create_app(s3_response=_make_s3_response(oversize_body, content_length=None))
         client = TestClient(app)
 
         resp = client.post(

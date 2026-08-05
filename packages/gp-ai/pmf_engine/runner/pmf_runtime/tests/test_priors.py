@@ -1,4 +1,5 @@
 import json
+
 import httpx
 import pytest
 
@@ -17,6 +18,7 @@ def _inject_client(handler):
 class TestRead:
     def setup_method(self):
         import pmf_engine.runner.pmf_runtime.config as config_mod
+
         config_mod._config = None
 
     def test_read_success(self):

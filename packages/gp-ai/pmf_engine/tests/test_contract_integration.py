@@ -43,7 +43,8 @@ class TestRunnerContractValidation:
 
         mock_harness = AsyncMock()
         mock_harness.run.return_value = HarnessResult(
-            artifact_bytes=artifact, content_type="application/json",
+            artifact_bytes=artifact,
+            content_type="application/json",
         )
 
         await run_experiment(config, harness=mock_harness)
@@ -63,7 +64,8 @@ class TestRunnerContractValidation:
 
         mock_harness = AsyncMock()
         mock_harness.run.return_value = HarnessResult(
-            artifact_bytes=artifact, content_type="application/json",
+            artifact_bytes=artifact,
+            content_type="application/json",
         )
 
         await run_experiment(config, harness=mock_harness)
@@ -81,7 +83,8 @@ class TestRunnerContractValidation:
 
         mock_harness = AsyncMock()
         mock_harness.run.return_value = HarnessResult(
-            artifact_bytes=artifact, content_type="application/json",
+            artifact_bytes=artifact,
+            content_type="application/json",
         )
 
         await run_experiment(config, harness=mock_harness)
@@ -100,7 +103,8 @@ class TestPublishFailure:
 
         mock_harness = AsyncMock()
         mock_harness.run.return_value = HarnessResult(
-            artifact_bytes=artifact, content_type="application/json",
+            artifact_bytes=artifact,
+            content_type="application/json",
         )
         mock_publish.publish.side_effect = Exception("Broker unreachable")
 
@@ -127,6 +131,7 @@ class TestPublishFailure:
 class TestCollectWorkspaceFilesSecurity:
     def test_skips_env_files(self, tmp_path):
         from pmf_engine.runner.main import _collect_workspace_files
+
         (tmp_path / "data.json").write_text('{"ok": true}')
         (tmp_path / ".env").write_text("SECRET_KEY=hunter2")
         (tmp_path / "credentials.json").write_text('{"token": "abc"}')
@@ -143,6 +148,7 @@ class TestCollectWorkspaceFilesSecurity:
 
     def test_respects_aggregate_cap(self, tmp_path):
         from pmf_engine.runner.main import _collect_workspace_files
+
         for i in range(10):
             (tmp_path / f"file_{i}.txt").write_bytes(b"x" * 1024 * 1024)
 
@@ -151,6 +157,7 @@ class TestCollectWorkspaceFilesSecurity:
 
     def test_allowlist_only_permits_safe_extensions(self, tmp_path):
         from pmf_engine.runner.main import _collect_workspace_files
+
         (tmp_path / "data.json").write_text('{"ok": true}')
         (tmp_path / "notes.txt").write_text("hello")
         (tmp_path / "report.pdf").write_bytes(b"%PDF-1.4")
@@ -167,6 +174,7 @@ class TestCollectWorkspaceFilesSecurity:
 
     def test_blocklist_still_applies_under_allowlist(self, tmp_path):
         from pmf_engine.runner.main import _collect_workspace_files
+
         (tmp_path / "credentials.json").write_text('{"token": "abc"}')
         (tmp_path / "data.json").write_text('{"ok": true}')
 
@@ -182,6 +190,7 @@ class TestCollectWorkspaceFilesSecurity:
 class TestSessionJsonlRedaction:
     def test_redacts_api_keys(self):
         from pmf_engine.runner.main import _redact_line
+
         line = '{"content": "export API_KEY=sk-abc123def456ghi789jkl012mno345"}'
         redacted = _redact_line(line)
         assert "REDACTED" in redacted
@@ -189,6 +198,7 @@ class TestSessionJsonlRedaction:
 
     def test_redacts_standalone_sk_keys(self):
         from pmf_engine.runner.main import _redact_line
+
         line = '{"content": "key is sk-abc123def456ghi789jkl012mno345"}'
         redacted = _redact_line(line)
         assert "REDACTED" in redacted
@@ -196,6 +206,7 @@ class TestSessionJsonlRedaction:
 
     def test_redacts_aws_access_keys(self):
         from pmf_engine.runner.main import _redact_line
+
         line = '{"output": "AKIAIOSFODNN7EXAMPLE"}'
         redacted = _redact_line(line)
         assert "REDACTED" in redacted
@@ -203,6 +214,7 @@ class TestSessionJsonlRedaction:
 
     def test_redacts_token_assignments(self):
         from pmf_engine.runner.main import _redact_line
+
         line = 'SECRET_KEY="myverylongsecretvalue123"'
         redacted = _redact_line(line)
         assert "myverylongsecretvalue123" not in redacted
@@ -210,11 +222,13 @@ class TestSessionJsonlRedaction:
 
     def test_preserves_normal_content(self):
         from pmf_engine.runner.main import _redact_line
+
         line = '{"message": "Generated 5 segments for district analysis"}'
         assert _redact_line(line) == line
 
     def test_redact_session_jsonl_creates_redacted_copy(self, tmp_path):
         from pmf_engine.runner.main import _redact_session_jsonl
+
         source = tmp_path / "session.jsonl"
         source.write_text(
             '{"line": 1, "content": "normal text"}\n'

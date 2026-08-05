@@ -153,17 +153,22 @@ def _emit_metric(metric_name: str, dimensions: list[dict]) -> None:
     try:
         _get_cw_client().put_metric_data(
             Namespace="Broker",
-            MetricData=[{
-                "MetricName": metric_name,
-                "Value": 1,
-                "Unit": "Count",
-                "Dimensions": dimensions,
-            }],
+            MetricData=[
+                {
+                    "MetricName": metric_name,
+                    "Value": 1,
+                    "Unit": "Count",
+                    "Dimensions": dimensions,
+                }
+            ],
         )
     except Exception as e:
         logger.warning(
             "MetricEmissionFailed metric=%s exc_type=%s: %s",
-            metric_name, type(e).__name__, e, exc_info=True,
+            metric_name,
+            type(e).__name__,
+            e,
+            exc_info=True,
         )
 
 
@@ -209,9 +214,7 @@ class ExperimentManifestRequest(BaseModel):
 
     @field_validator("attachment_version_ids")
     @classmethod
-    def _validate_attachment_version_ids(
-        cls, v: dict[str, str] | None
-    ) -> dict[str, str] | None:
+    def _validate_attachment_version_ids(cls, v: dict[str, str] | None) -> dict[str, str] | None:
         """Reject keys / values that don't match the basename / VersionId
         patterns. Defends the S3 key construction below: we map a basename
         to `<experiment_id>/attachments/<basename>`, and a key containing
@@ -235,9 +238,7 @@ class ExperimentManifestRequest(BaseModel):
 
     @field_validator("qa_version_ids")
     @classmethod
-    def _validate_qa_version_ids(
-        cls, v: dict[str, str] | None
-    ) -> dict[str, str] | None:
+    def _validate_qa_version_ids(cls, v: dict[str, str] | None) -> dict[str, str] | None:
         """Validate qa_version_ids IDENTICALLY to attachment_version_ids.
         Keys map to `<experiment_id>/qa/<basename>`, so the same basename
         safety guard defends against traversal. `manifest.json` is a normal
@@ -331,7 +332,11 @@ def _fetch_object(
         if code in ("NoSuchKey", "NoSuchVersion", "404"):
             logger.warning(
                 "S3 %s fetch returned 404 run_id=%s key=%s bucket=%s version_id=%s",
-                label, ticket_run_id, key, bucket, version_id,
+                label,
+                ticket_run_id,
+                key,
+                bucket,
+                version_id,
             )
             # Public detail intentionally omits the S3 key — no internal
             # pathing leaks across the broker boundary. Operators have the
@@ -339,12 +344,21 @@ def _fetch_object(
             raise HTTPException(status_code=404, detail=f"{label} not found") from e
         logger.error(
             "S3 %s fetch failed run_id=%s key=%s bucket=%s version_id=%s code=%s",
-            label, ticket_run_id, key, bucket, version_id, code, exc_info=True,
+            label,
+            ticket_run_id,
+            key,
+            bucket,
+            version_id,
+            code,
+            exc_info=True,
         )
-        _emit_metric("broker_s3_manifest_fetch_failure", [
-            {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
-            {"Name": "error_code", "Value": code or "unknown"},
-        ])
+        _emit_metric(
+            "broker_s3_manifest_fetch_failure",
+            [
+                {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
+                {"Name": "error_code", "Value": code or "unknown"},
+            ],
+        )
         raise HTTPException(status_code=500, detail="manifest store unavailable") from e
     if size_cap_bytes is not None:
         # ContentLength is reported by S3 on every GetObject; check it
@@ -354,12 +368,20 @@ def _fetch_object(
         if isinstance(declared, int) and declared > size_cap_bytes:
             logger.error(
                 "S3 %s exceeds size cap run_id=%s key=%s bucket=%s declared=%d cap=%d",
-                label, ticket_run_id, key, bucket, declared, size_cap_bytes,
+                label,
+                ticket_run_id,
+                key,
+                bucket,
+                declared,
+                size_cap_bytes,
             )
-            _emit_metric("broker_attachment_size_cap_exceeded", [
-                {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
-                {"Name": "label", "Value": label},
-            ])
+            _emit_metric(
+                "broker_attachment_size_cap_exceeded",
+                [
+                    {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
+                    {"Name": "label", "Value": label},
+                ],
+            )
             raise HTTPException(status_code=502, detail=f"{label} exceeds size cap")
         # Bounded read: even if ContentLength was missing or lying, asking
         # for cap+1 bytes lets us detect oversize without holding gigabytes.
@@ -367,12 +389,20 @@ def _fetch_object(
         if len(body) > size_cap_bytes:
             logger.error(
                 "S3 %s body exceeds size cap (post-read) run_id=%s key=%s bucket=%s actual=%d cap=%d",
-                label, ticket_run_id, key, bucket, len(body), size_cap_bytes,
+                label,
+                ticket_run_id,
+                key,
+                bucket,
+                len(body),
+                size_cap_bytes,
             )
-            _emit_metric("broker_attachment_size_cap_exceeded", [
-                {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
-                {"Name": "label", "Value": label},
-            ])
+            _emit_metric(
+                "broker_attachment_size_cap_exceeded",
+                [
+                    {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
+                    {"Name": "label", "Value": label},
+                ],
+            )
             raise HTTPException(status_code=502, detail=f"{label} exceeds size cap")
         return body, response.get("VersionId")
     return response["Body"].read(), response.get("VersionId")
@@ -399,8 +429,13 @@ def _fetch_object_cached(
         if cached is not None:
             return cached
     body, resolved_version = _fetch_object(
-        s3_client, bucket, key, ticket_run_id, version_id,
-        label=label, size_cap_bytes=size_cap_bytes,
+        s3_client,
+        bucket,
+        key,
+        ticket_run_id,
+        version_id,
+        label=label,
+        size_cap_bytes=size_cap_bytes,
     )
     if version_id is not None:
         _OBJECT_CACHE.put((bucket, key, version_id), body, resolved_version)
@@ -430,21 +465,31 @@ def _fetch_index_json(s3_client, bucket: str) -> dict:
         if cached:
             logger.warning(
                 "index.json fetch failed bucket=%s exc=%s — falling back to stale cache",
-                bucket, e, exc_info=True,
+                bucket,
+                e,
+                exc_info=True,
             )
-            _emit_metric("broker_index_fetch_failure", [
-                {"Name": "Environment", "Value": env},
-                {"Name": "fallback", "Value": "stale_cache"},
-            ])
+            _emit_metric(
+                "broker_index_fetch_failure",
+                [
+                    {"Name": "Environment", "Value": env},
+                    {"Name": "fallback", "Value": "stale_cache"},
+                ],
+            )
             return cached[0]
         logger.error(
             "index.json fetch failed bucket=%s exc=%s — falling back to empty (broker blackout)",
-            bucket, e, exc_info=True,
+            bucket,
+            e,
+            exc_info=True,
         )
-        _emit_metric("broker_index_fetch_failure", [
-            {"Name": "Environment", "Value": env},
-            {"Name": "fallback", "Value": "empty"},
-        ])
+        _emit_metric(
+            "broker_index_fetch_failure",
+            [
+                {"Name": "Environment", "Value": env},
+                {"Name": "fallback", "Value": "empty"},
+            ],
+        )
         return {"experiments": []}
     _INDEX_CACHE[bucket] = (index, now)
     return index
@@ -466,13 +511,19 @@ def _emit_index_drift(experiment_id: str, run_id: str, drift_kind: str, detail: 
     """
     logger.error(
         "attachment_index_drift drift_kind=%s experiment_id=%s run_id=%s detail=%s",
-        drift_kind, experiment_id, run_id, detail,
+        drift_kind,
+        experiment_id,
+        run_id,
+        detail,
     )
-    _emit_metric("broker_attachment_index_drift", [
-        {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
-        {"Name": "drift_kind", "Value": drift_kind},
-        {"Name": "experiment_id", "Value": experiment_id},
-    ])
+    _emit_metric(
+        "broker_attachment_index_drift",
+        [
+            {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
+            {"Name": "drift_kind", "Value": drift_kind},
+            {"Name": "experiment_id", "Value": experiment_id},
+        ],
+    )
 
 
 def _build_fetch_specs(
@@ -535,7 +586,7 @@ def _build_fetch_specs(
         if not k.startswith(prefix):
             _emit_index_drift(experiment_id, run_id, drift_wrong_prefix, f"key={k}")
             continue
-        basename = k[len(prefix):]
+        basename = k[len(prefix) :]
         if not _is_safe_attachment_basename(basename):
             _emit_index_drift(experiment_id, run_id, drift_unsafe_basename, f"basename={basename!r}")
             continue
@@ -545,13 +596,19 @@ def _build_fetch_specs(
     if len(specs) > MAX_ATTACHMENTS_PER_EXPERIMENT:
         logger.error(
             "%s experiment_id=%s run_id=%s declared=%d cap=%d",
-            count_cap_log_prefix, experiment_id, run_id,
-            len(specs), MAX_ATTACHMENTS_PER_EXPERIMENT,
+            count_cap_log_prefix,
+            experiment_id,
+            run_id,
+            len(specs),
+            MAX_ATTACHMENTS_PER_EXPERIMENT,
         )
-        _emit_metric(count_cap_metric, [
-            {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
-            {"Name": "experiment_id", "Value": experiment_id},
-        ])
+        _emit_metric(
+            count_cap_metric,
+            [
+                {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
+                {"Name": "experiment_id", "Value": experiment_id},
+            ],
+        )
         specs = specs[:MAX_ATTACHMENTS_PER_EXPERIMENT]
 
     return specs
@@ -572,12 +629,17 @@ def experiment_manifest(
         logger.error(
             "scope_violation_attempt errorType=cross_experiment_manifest_read "
             "run_id=%s ticket_experiment=%s requested=%s",
-            ticket.run_id, ticket.experiment_id, req.experiment_id,
+            ticket.run_id,
+            ticket.experiment_id,
+            req.experiment_id,
         )
-        _emit_metric("broker_scope_violation_attempt", [
-            {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
-            {"Name": "endpoint", "Value": "experiment_manifest"},
-        ])
+        _emit_metric(
+            "broker_scope_violation_attempt",
+            [
+                {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
+                {"Name": "endpoint", "Value": "experiment_manifest"},
+            ],
+        )
         raise HTTPException(status_code=403, detail="manifest access denied for this run's scope")
 
     # Defense in depth: refuse orphan reads. When an experiment is removed from
@@ -593,12 +655,16 @@ def experiment_manifest(
     if index_entry is None:
         logger.error(
             "orphan_manifest_blocked experiment_id=%s run_id=%s",
-            ticket.experiment_id, ticket.run_id,
+            ticket.experiment_id,
+            ticket.run_id,
         )
-        _emit_metric("broker_orphan_manifest_blocked", [
-            {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
-            {"Name": "experiment_id", "Value": ticket.experiment_id},
-        ])
+        _emit_metric(
+            "broker_orphan_manifest_blocked",
+            [
+                {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
+                {"Name": "experiment_id", "Value": ticket.experiment_id},
+            ],
+        )
         raise HTTPException(status_code=404, detail="experiment not currently registered")
 
     manifest_key = f"{req.experiment_id}/manifest.json"
@@ -642,9 +708,7 @@ def experiment_manifest(
     # Narrow to a real str up front so the prefix/slice ops below type-check
     # (index_entry.get returns Any | None). A non-str / empty value = no qa.
     qa_manifest_key: str | None = (
-        qa_manifest_key_raw
-        if isinstance(qa_manifest_key_raw, str) and qa_manifest_key_raw
-        else None
+        qa_manifest_key_raw if isinstance(qa_manifest_key_raw, str) and qa_manifest_key_raw else None
     )
     has_qa_folder = qa_manifest_key is not None
     qa_specs: list[tuple[str, str, str | None]] = []  # (basename, s3_key, version_id)
@@ -659,23 +723,25 @@ def experiment_manifest(
         # The manifest is always the first qa spec. It must live under the
         # qa prefix; a hand-edited index that points it elsewhere is drift.
         if qa_manifest_key.startswith(qa_prefix):
-            man_basename = qa_manifest_key[len(qa_prefix):]
+            man_basename = qa_manifest_key[len(qa_prefix) :]
             if _is_safe_attachment_basename(man_basename):
                 qa_manifest_basename = man_basename
-                qa_specs.append(
-                    (man_basename, qa_manifest_key, requested_qa_pins.get(man_basename))
-                )
+                qa_specs.append((man_basename, qa_manifest_key, requested_qa_pins.get(man_basename)))
                 seen_qa_keys.add(qa_manifest_key)
             else:
                 _emit_index_drift(
-                    ticket.experiment_id, ticket.run_id,
-                    "qa_unsafe_basename", f"basename={man_basename!r}",
+                    ticket.experiment_id,
+                    ticket.run_id,
+                    "qa_unsafe_basename",
+                    f"basename={man_basename!r}",
                 )
                 has_qa_folder = False
         else:
             _emit_index_drift(
-                ticket.experiment_id, ticket.run_id,
-                "qa_wrong_prefix", f"key={qa_manifest_key}",
+                ticket.experiment_id,
+                ticket.run_id,
+                "qa_wrong_prefix",
+                f"key={qa_manifest_key}",
             )
             has_qa_folder = False
 
@@ -711,21 +777,36 @@ def experiment_manifest(
     ex = _get_fetch_executor()
     fut_m = ex.submit(
         _fetch_object_cached,
-        s3_client, bucket, manifest_key, ticket.run_id, req.manifest_version_id,
-        "manifest", None,
+        s3_client,
+        bucket,
+        manifest_key,
+        ticket.run_id,
+        req.manifest_version_id,
+        "manifest",
+        None,
     )
     fut_i = ex.submit(
         _fetch_object_cached,
-        s3_client, bucket, instruction_key, ticket.run_id, req.instruction_version_id,
-        "instruction", None,
+        s3_client,
+        bucket,
+        instruction_key,
+        ticket.run_id,
+        req.instruction_version_id,
+        "instruction",
+        None,
     )
     attachment_futures = [
         (
             basename,
             ex.submit(
                 _fetch_object_cached,
-                s3_client, bucket, s3_key, ticket.run_id, version_id,
-                "attachment", MAX_ATTACHMENT_BYTES,
+                s3_client,
+                bucket,
+                s3_key,
+                ticket.run_id,
+                version_id,
+                "attachment",
+                MAX_ATTACHMENT_BYTES,
             ),
         )
         for basename, s3_key, version_id in attachment_specs
@@ -735,8 +816,13 @@ def experiment_manifest(
             basename,
             ex.submit(
                 _fetch_object_cached,
-                s3_client, bucket, s3_key, ticket.run_id, version_id,
-                "qa", MAX_QA_BYTES,
+                s3_client,
+                bucket,
+                s3_key,
+                ticket.run_id,
+                version_id,
+                "qa",
+                MAX_QA_BYTES,
             ),
         )
         for basename, s3_key, version_id in qa_specs
@@ -744,42 +830,49 @@ def experiment_manifest(
     manifest_bytes, manifest_resolved_version = fut_m.result()
     instruction_bytes, instruction_resolved_version = fut_i.result()
     attachment_results: list[tuple[str, bytes, str | None]] = [
-        (basename, *fut.result())
-        for basename, fut in attachment_futures
+        (basename, *fut.result()) for basename, fut in attachment_futures
     ]
-    qa_results: list[tuple[str, bytes, str | None]] = [
-        (basename, *fut.result())
-        for basename, fut in qa_futures
-    ]
+    qa_results: list[tuple[str, bytes, str | None]] = [(basename, *fut.result()) for basename, fut in qa_futures]
 
     try:
         manifest = json.loads(manifest_bytes)
     except (json.JSONDecodeError, ValueError) as decode_err:
         logger.error(
-            "manifest_decode_error errorType=manifest_decode "
-            "experiment_id=%s run_id=%s key=%s bucket=%s version_id=%s",
-            req.experiment_id, ticket.run_id, manifest_key, bucket, req.manifest_version_id,
+            "manifest_decode_error errorType=manifest_decode experiment_id=%s run_id=%s key=%s bucket=%s version_id=%s",
+            req.experiment_id,
+            ticket.run_id,
+            manifest_key,
+            bucket,
+            req.manifest_version_id,
             exc_info=True,
         )
-        _emit_metric("broker_manifest_decode_error", [
-            {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
-            {"Name": "experiment_id", "Value": req.experiment_id},
-        ])
+        _emit_metric(
+            "broker_manifest_decode_error",
+            [
+                {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
+                {"Name": "experiment_id", "Value": req.experiment_id},
+            ],
+        )
         raise HTTPException(status_code=500, detail="manifest decode error") from decode_err
 
     try:
         instruction_text = instruction_bytes.decode("utf-8")
     except UnicodeDecodeError as decode_err:
         logger.error(
-            "instruction_decode_error errorType=instruction_decode "
-            "experiment_id=%s run_id=%s key=%s version_id=%s",
-            req.experiment_id, ticket.run_id, instruction_key, req.instruction_version_id,
+            "instruction_decode_error errorType=instruction_decode experiment_id=%s run_id=%s key=%s version_id=%s",
+            req.experiment_id,
+            ticket.run_id,
+            instruction_key,
+            req.instruction_version_id,
             exc_info=True,
         )
-        _emit_metric("broker_instruction_decode_error", [
-            {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
-            {"Name": "experiment_id", "Value": req.experiment_id},
-        ])
+        _emit_metric(
+            "broker_instruction_decode_error",
+            [
+                {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
+                {"Name": "experiment_id", "Value": req.experiment_id},
+            ],
+        )
         raise HTTPException(status_code=500, detail="instruction decode error") from decode_err
 
     attachments: dict[str, str] = {}
@@ -794,15 +887,19 @@ def experiment_manifest(
             # attachments_binary base64 channel when this becomes a real
             # requirement, not a guess.
             logger.error(
-                "attachment_decode_error errorType=attachment_decode "
-                "experiment_id=%s run_id=%s basename=%s",
-                req.experiment_id, ticket.run_id, basename,
+                "attachment_decode_error errorType=attachment_decode experiment_id=%s run_id=%s basename=%s",
+                req.experiment_id,
+                ticket.run_id,
+                basename,
                 exc_info=True,
             )
-            _emit_metric("broker_attachment_decode_error", [
-                {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
-                {"Name": "experiment_id", "Value": req.experiment_id},
-            ])
+            _emit_metric(
+                "broker_attachment_decode_error",
+                [
+                    {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
+                    {"Name": "experiment_id", "Value": req.experiment_id},
+                ],
+            )
             raise HTTPException(status_code=500, detail="attachment decode error") from decode_err
         if resolved_version is not None:
             resolved_attachment_versions[basename] = resolved_version
@@ -824,30 +921,38 @@ def experiment_manifest(
                 decoded = body.decode("utf-8")
             except UnicodeDecodeError as decode_err:
                 logger.error(
-                    "qa_decode_error errorType=qa_decode "
-                    "experiment_id=%s run_id=%s basename=%s",
-                    req.experiment_id, ticket.run_id, basename,
+                    "qa_decode_error errorType=qa_decode experiment_id=%s run_id=%s basename=%s",
+                    req.experiment_id,
+                    ticket.run_id,
+                    basename,
                     exc_info=True,
                 )
-                _emit_metric("broker_qa_decode_error", [
-                    {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
-                    {"Name": "experiment_id", "Value": req.experiment_id},
-                ])
+                _emit_metric(
+                    "broker_qa_decode_error",
+                    [
+                        {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
+                        {"Name": "experiment_id", "Value": req.experiment_id},
+                    ],
+                )
                 raise HTTPException(status_code=500, detail="qa file decode error") from decode_err
             if basename == qa_manifest_basename:
                 try:
                     decoded_manifest = json.loads(decoded)
                 except (json.JSONDecodeError, ValueError) as decode_err:
                     logger.error(
-                        "qa_manifest_decode_error errorType=qa_manifest_decode "
-                        "experiment_id=%s run_id=%s basename=%s",
-                        req.experiment_id, ticket.run_id, basename,
+                        "qa_manifest_decode_error errorType=qa_manifest_decode experiment_id=%s run_id=%s basename=%s",
+                        req.experiment_id,
+                        ticket.run_id,
+                        basename,
                         exc_info=True,
                     )
-                    _emit_metric("broker_qa_manifest_decode_error", [
-                        {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
-                        {"Name": "experiment_id", "Value": req.experiment_id},
-                    ])
+                    _emit_metric(
+                        "broker_qa_manifest_decode_error",
+                        [
+                            {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
+                            {"Name": "experiment_id", "Value": req.experiment_id},
+                        ],
+                    )
                     raise HTTPException(status_code=500, detail="qa manifest decode error") from decode_err
                 # The qa manifest must be a JSON OBJECT (the engine reads a
                 # `blocking` field off it). A bare scalar/array is malformed —
@@ -857,12 +962,18 @@ def experiment_manifest(
                     logger.error(
                         "qa_manifest_decode_error errorType=qa_manifest_not_object "
                         "experiment_id=%s run_id=%s basename=%s json_type=%s",
-                        req.experiment_id, ticket.run_id, basename, type(decoded_manifest).__name__,
+                        req.experiment_id,
+                        ticket.run_id,
+                        basename,
+                        type(decoded_manifest).__name__,
                     )
-                    _emit_metric("broker_qa_manifest_decode_error", [
-                        {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
-                        {"Name": "experiment_id", "Value": req.experiment_id},
-                    ])
+                    _emit_metric(
+                        "broker_qa_manifest_decode_error",
+                        [
+                            {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
+                            {"Name": "experiment_id", "Value": req.experiment_id},
+                        ],
+                    )
                     raise HTTPException(status_code=500, detail="qa manifest decode error")
                 qa_manifest_obj = decoded_manifest
             else:

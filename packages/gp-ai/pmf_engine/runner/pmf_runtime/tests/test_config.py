@@ -1,12 +1,10 @@
-import os
-import pytest
 import httpx
+import pytest
 
 from pmf_engine.runner.pmf_runtime.config import (
     PMFRuntimeConfig,
     get_config,
     init_config,
-    _config,
 )
 
 
@@ -63,6 +61,7 @@ class TestPMFRuntimeConfig:
 class TestModuleFunctions:
     def setup_method(self):
         import pmf_engine.runner.pmf_runtime.config as config_mod
+
         config_mod._config = None
 
     def test_init_config_creates_singleton(self):

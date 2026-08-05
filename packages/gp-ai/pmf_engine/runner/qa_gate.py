@@ -64,6 +64,7 @@ def _default_gate_root() -> str:
     by the non-root `agent` user, so the default is writable in the container."""
     return os.environ.get("QA_GATE_ROOT", "").strip() or DEFAULT_QA_GATE_ROOT
 
+
 # Platform defaults (contract A). Authors override via qa/manifest.json.
 _DEFAULT_DETERMINISTIC_TIMEOUT = 120
 _DEFAULT_AGENT_MODEL = "sonnet"
@@ -123,9 +124,7 @@ _SECRET_PATTERNS = [
 # FOLLOW-UP: extract the redaction patterns + helper into a shared module so the
 # gate and runner/main.py can't drift again (deliberately NOT done here to keep
 # this change small).
-_BROKER_TOKEN_PATTERN = re.compile(
-    r'(?i)(X-Broker-Token["\']?\s*[=:]\s*["\']?)([A-Za-z0-9_\-/.+=]{8,})'
-)
+_BROKER_TOKEN_PATTERN = re.compile(r'(?i)(X-Broker-Token["\']?\s*[=:]\s*["\']?)([A-Za-z0-9_\-/.+=]{8,})')
 _BEARER_TOKEN_PATTERN = re.compile(r"(?i)(Bearer\s+)([A-Za-z0-9_\-/.+=]{8,})")
 _PREFIX_PRESERVING_PATTERNS = [_BROKER_TOKEN_PATTERN, _BEARER_TOKEN_PATTERN]
 

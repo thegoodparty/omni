@@ -18,6 +18,7 @@ def _inject_client(handler):
 class TestPublish:
     def setup_method(self):
         import pmf_engine.runner.pmf_runtime.config as config_mod
+
         config_mod._config = None
 
     def test_publish_success(self):
@@ -261,6 +262,7 @@ class TestPublish:
 class TestReportStatus:
     def setup_method(self):
         import pmf_engine.runner.pmf_runtime.config as config_mod
+
         config_mod._config = None
 
     def test_report_status_success(self):
@@ -313,6 +315,7 @@ class TestReportStatus:
 class TestReportStatusRetry:
     def setup_method(self):
         import pmf_engine.runner.pmf_runtime.config as config_mod
+
         config_mod._config = None
 
     def test_report_status_retries_on_transient_5xx(self, monkeypatch):
@@ -326,9 +329,7 @@ class TestReportStatusRetry:
             return httpx.Response(200, json={"ack": True})
 
         _inject_client(handler)
-        monkeypatch.setattr(
-            "pmf_engine.runner.pmf_runtime.publish.time.sleep", sleeps.append
-        )
+        monkeypatch.setattr("pmf_engine.runner.pmf_runtime.publish.time.sleep", sleeps.append)
 
         result = report_status("failed", reason_code="x")
         assert result["ack"] is True
@@ -346,9 +347,7 @@ class TestReportStatusRetry:
             return httpx.Response(200, json={"ack": True})
 
         _inject_client(handler)
-        monkeypatch.setattr(
-            "pmf_engine.runner.pmf_runtime.publish.time.sleep", lambda s: None
-        )
+        monkeypatch.setattr("pmf_engine.runner.pmf_runtime.publish.time.sleep", lambda s: None)
 
         result = report_status("running")
         assert result["ack"] is True
@@ -362,15 +361,12 @@ class TestReportStatusRetry:
             return httpx.Response(401, json={"detail": "scope_ticket_missing"})
 
         _inject_client(handler)
-        monkeypatch.setattr(
-            "pmf_engine.runner.pmf_runtime.publish.time.sleep", lambda s: None
-        )
+        monkeypatch.setattr("pmf_engine.runner.pmf_runtime.publish.time.sleep", lambda s: None)
 
         with pytest.raises(httpx.HTTPStatusError):
             report_status("running")
         assert attempts["count"] == 1, (
-            "4xx must fail fast — retrying on auth/client errors wastes "
-            "time and makes the error visible later"
+            "4xx must fail fast — retrying on auth/client errors wastes time and makes the error visible later"
         )
 
     def test_report_status_exhausts_retries_and_re_raises(self, monkeypatch):
@@ -381,9 +377,7 @@ class TestReportStatusRetry:
             return httpx.Response(503, json={"detail": "service unavailable"})
 
         _inject_client(handler)
-        monkeypatch.setattr(
-            "pmf_engine.runner.pmf_runtime.publish.time.sleep", lambda s: None
-        )
+        monkeypatch.setattr("pmf_engine.runner.pmf_runtime.publish.time.sleep", lambda s: None)
 
         with pytest.raises(httpx.HTTPStatusError):
             report_status("failed")
@@ -393,6 +387,7 @@ class TestReportStatusRetry:
 class TestPublishRetry:
     def setup_method(self):
         import pmf_engine.runner.pmf_runtime.config as config_mod
+
         config_mod._config = None
 
     def test_publish_retries_on_transient_5xx(self, monkeypatch):
@@ -406,9 +401,7 @@ class TestPublishRetry:
             return httpx.Response(200, json={"id": "art-9", "status": "accepted"})
 
         _inject_client(handler)
-        monkeypatch.setattr(
-            "pmf_engine.runner.pmf_runtime.publish.time.sleep", sleeps.append
-        )
+        monkeypatch.setattr("pmf_engine.runner.pmf_runtime.publish.time.sleep", sleeps.append)
 
         result = publish({"score": 0.5})
         assert result["id"] == "art-9"
@@ -426,9 +419,7 @@ class TestPublishRetry:
             return httpx.Response(200, json={"id": "art-1", "status": "accepted"})
 
         _inject_client(handler)
-        monkeypatch.setattr(
-            "pmf_engine.runner.pmf_runtime.publish.time.sleep", lambda s: None
-        )
+        monkeypatch.setattr("pmf_engine.runner.pmf_runtime.publish.time.sleep", lambda s: None)
 
         result = publish({"score": 0.5})
         assert result["id"] == "art-1"
@@ -442,15 +433,12 @@ class TestPublishRetry:
             return httpx.Response(400, json={"detail": "schema mismatch"})
 
         _inject_client(handler)
-        monkeypatch.setattr(
-            "pmf_engine.runner.pmf_runtime.publish.time.sleep", lambda s: None
-        )
+        monkeypatch.setattr("pmf_engine.runner.pmf_runtime.publish.time.sleep", lambda s: None)
 
         with pytest.raises(ValueError, match="Artifact rejected: schema mismatch"):
             publish({"bad": "data"})
         assert attempts["count"] == 1, (
-            "contract rejection (400) must fail fast — retrying will not "
-            "fix a schema violation"
+            "contract rejection (400) must fail fast — retrying will not fix a schema violation"
         )
 
     def test_publish_does_not_retry_on_409(self, monkeypatch):
@@ -461,15 +449,11 @@ class TestPublishRetry:
             return httpx.Response(409, json={"detail": "already published"})
 
         _inject_client(handler)
-        monkeypatch.setattr(
-            "pmf_engine.runner.pmf_runtime.publish.time.sleep", lambda s: None
-        )
+        monkeypatch.setattr("pmf_engine.runner.pmf_runtime.publish.time.sleep", lambda s: None)
 
         with pytest.raises(httpx.HTTPStatusError):
             publish({"score": 0.5})
-        assert attempts["count"] == 1, (
-            "4xx must fail fast — caller handles 409 duplicate semantics"
-        )
+        assert attempts["count"] == 1, "4xx must fail fast — caller handles 409 duplicate semantics"
 
     def test_publish_exhausts_retries_and_re_raises(self, monkeypatch):
         attempts = {"count": 0}
@@ -479,9 +463,7 @@ class TestPublishRetry:
             return httpx.Response(503, json={"detail": "service unavailable"})
 
         _inject_client(handler)
-        monkeypatch.setattr(
-            "pmf_engine.runner.pmf_runtime.publish.time.sleep", lambda s: None
-        )
+        monkeypatch.setattr("pmf_engine.runner.pmf_runtime.publish.time.sleep", lambda s: None)
 
         with pytest.raises(httpx.HTTPStatusError):
             publish({"score": 0.5})
@@ -491,11 +473,10 @@ class TestPublishRetry:
 class TestUploadLogs:
     def setup_method(self):
         import pmf_engine.runner.pmf_runtime.config as config_mod
+
         config_mod._config = None
 
     def test_upload_logs_success(self):
-        captured = {}
-
         def handler(request):
             assert b"stdout.log" in request.content
             assert b"hello world" in request.content
@@ -513,10 +494,12 @@ class TestUploadLogs:
             return httpx.Response(200, json={"uploaded": 2})
 
         _inject_client(handler)
-        result = upload_logs({
-            "stdout.log": b"out data",
-            "stderr.log": b"err data",
-        })
+        result = upload_logs(
+            {
+                "stdout.log": b"out data",
+                "stderr.log": b"err data",
+            }
+        )
         assert result["uploaded"] == 2
 
     def test_upload_logs_uses_files_form_field_name(self):
@@ -544,6 +527,4 @@ class TestUploadLogs:
         name_headers = [line for line in body.split(b"\r\n") if line.startswith(b"Content-Disposition:")]
         assert len(name_headers) == 2, f"expected 2 parts, got {len(name_headers)}: {name_headers}"
         for header in name_headers:
-            assert b'name="files"' in header, (
-                f"part uses wrong form field name (broker expects 'files'): {header!r}"
-            )
+            assert b'name="files"' in header, f"part uses wrong form field name (broker expects 'files'): {header!r}"

@@ -196,7 +196,7 @@ async def mint_run_token(
             request.run_id,
             request.experiment_id,
         )
-        raise HTTPException(status_code=409, detail="Ticket already exists")
+        raise HTTPException(status_code=409, detail="Ticket already exists") from None
 
     logger.info(
         "mint_run_token ok run_id=%s experiment_id=%s exp=%d clerk_user=%s",

@@ -41,9 +41,7 @@ def inputs_read(
             status_code=403,
             detail="No input files authorized for this run",
         )
-    if not any(
-        f.bucket == req.bucket and f.key == req.key for f in ticket.input_files
-    ):
+    if not any(f.bucket == req.bucket and f.key == req.key for f in ticket.input_files):
         raise HTTPException(
             status_code=403,
             detail="Input file not authorized for this run",
@@ -57,7 +55,7 @@ def inputs_read(
             raise HTTPException(
                 status_code=404,
                 detail=f"Input file not found: s3://{req.bucket}/{req.key}",
-            )
+            ) from e
         logger.error(
             "S3 inputs_read failed run_id=%s bucket=%r key=%r code=%s",
             ticket.run_id,
@@ -66,16 +64,13 @@ def inputs_read(
             error_code,
             exc_info=True,
         )
-        raise HTTPException(status_code=500, detail="S3 read error")
+        raise HTTPException(status_code=500, detail="S3 read error") from e
 
     content_length = s3_response.get("ContentLength")
     if content_length is not None and content_length > MAX_INPUT_BYTES:
         raise HTTPException(
             status_code=413,
-            detail=(
-                f"Input file exceeds {MAX_INPUT_BYTES}-byte cap "
-                f"(size={content_length})"
-            ),
+            detail=(f"Input file exceeds {MAX_INPUT_BYTES}-byte cap (size={content_length})"),
         )
 
     # Bound the in-memory load even when the ContentLength header is missing
@@ -88,10 +83,7 @@ def inputs_read(
     if len(body) > MAX_INPUT_BYTES:
         raise HTTPException(
             status_code=413,
-            detail=(
-                f"Input file exceeds {MAX_INPUT_BYTES}-byte cap "
-                f"(size>={len(body)})"
-            ),
+            detail=(f"Input file exceeds {MAX_INPUT_BYTES}-byte cap (size>={len(body)})"),
         )
 
     logger.info(

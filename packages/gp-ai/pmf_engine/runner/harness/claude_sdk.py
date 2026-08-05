@@ -106,6 +106,7 @@ def get_accumulated_cost() -> float:
     handlers to bill timed-out/cancelled runs instead of reporting 0.0."""
     return _accumulated_cost_usd
 
+
 # Subagent fan-out (runtime.max_parallel_subagents). The SDK's subagent
 # dispatch tool is named "Agent" in claude-agent-sdk 0.2.x (it was "Task" in
 # 0.1.x). The parent calls it to spawn one researcher per independent item.
@@ -448,7 +449,9 @@ async def run_agent(
         max_buffer_size=100 * 1024 * 1024,  # 100MB
     )
 
-    base_prompt = "Execute the experiment according to your instructions. Write the output artifact to /workspace/output/."
+    base_prompt = (
+        "Execute the experiment according to your instructions. Write the output artifact to /workspace/output/."
+    )
     if params:
         params_json = json.dumps(params, indent=2)
         prompt = (
@@ -473,8 +476,7 @@ async def run_agent(
                 f.write(json.dumps(record, default=str) + "\n")
         except Exception as log_err:
             logger.warning(
-                f"conversation.jsonl write failed (session={session_id}): "
-                f"{type(log_err).__name__}: {log_err}"
+                f"conversation.jsonl write failed (session={session_id}): {type(log_err).__name__}: {log_err}"
             )
 
     async for message in query(prompt=prompt, options=options):
@@ -498,8 +500,7 @@ async def run_agent(
                             pending_tool_spans[block.id] = tool_span
                         except Exception as span_err:
                             logger.warning(
-                                f"Braintrust tool span enter failed for {block.name} "
-                                f"(id={block.id}): {span_err}"
+                                f"Braintrust tool span enter failed for {block.name} (id={block.id}): {span_err}"
                             )
                             pending_tool_spans[block.id] = None
             _log_jsonl({"type": "assistant", "message": {"content": content_blocks}})
@@ -512,9 +513,7 @@ async def run_agent(
                     if isinstance(block.content, str):
                         content_str = block.content
                     elif isinstance(block.content, list):
-                        content_str = " ".join(
-                            getattr(b, "text", "") for b in block.content if hasattr(b, "text")
-                        )
+                        content_str = " ".join(getattr(b, "text", "") for b in block.content if hasattr(b, "text"))
                     logger.info(f"[{message_count}] result ({status}): {content_str[:2000]}")
                     _log_jsonl({"type": "tool_result", "content": content_str, "is_error": block.is_error})
                     tool_span = pending_tool_spans.pop(block.tool_use_id, None)
@@ -524,8 +523,7 @@ async def run_agent(
                             tool_span.__exit__(None, None, None)
                         except Exception as span_err:
                             logger.warning(
-                                f"Braintrust tool span close failed for "
-                                f"tool_use_id={block.tool_use_id}: {span_err}"
+                                f"Braintrust tool span close failed for tool_use_id={block.tool_use_id}: {span_err}"
                             )
 
         elif isinstance(message, ResultMessage):
@@ -538,12 +536,13 @@ async def run_agent(
             # raised just below (which the runner's generic kill handler bills).
             _accumulated_cost_usd = total_cost
 
-            _log_jsonl({"type": "result", "total_cost_usd": total_cost, "num_turns": num_turns, "session_id": session_id})
+            _log_jsonl(
+                {"type": "result", "total_cost_usd": total_cost, "num_turns": num_turns, "session_id": session_id}
+            )
 
             if message.is_error:
                 raise AgentExecutionError(
-                    f"Agent error after {num_turns} turns "
-                    f"(session={session_id}): {message.result or 'unknown error'}"
+                    f"Agent error after {num_turns} turns (session={session_id}): {message.result or 'unknown error'}"
                 )
 
             logger.info(
@@ -601,19 +600,24 @@ async def _finalize(state, params, primary_options, drain) -> None:
     finalize_timeout = min(_FINALIZE_TIMEOUT_SECONDS, params.timeout_seconds)
     logger.info(
         "qa_evaluator_finalize_fresh session=%s timeout=%ss max_turns=%d",
-        state["session_id"], finalize_timeout, _FINALIZE_MAX_TURNS,
+        state["session_id"],
+        finalize_timeout,
+        _FINALIZE_MAX_TURNS,
     )
     try:
         await asyncio.wait_for(drain(finalize_prompt, finalize_options), timeout=finalize_timeout)
     except TimeoutError:
         logger.warning(
             "qa_evaluator_finalize_timeout session=%s timeout=%ss — fail-open, status=error",
-            state["session_id"], finalize_timeout,
+            state["session_id"],
+            finalize_timeout,
         )
     except Exception as fin_err:
         logger.exception(
             "qa_evaluator_finalize_raised %s: %s (session=%s) — fail-open, status=error",
-            type(fin_err).__name__, fin_err, state["session_id"],
+            type(fin_err).__name__,
+            fin_err,
+            state["session_id"],
         )
 
 
@@ -642,9 +646,7 @@ async def run_evaluator_agent(
     a raised exception, so the run still publishes. Fragments are read by the
     gate from params.result_file_path, so this returns fragments=[].
     """
-    logger.info(
-        f"Starting QA evaluator agent (model: {params.model}, max_turns: {params.max_turns})"
-    )
+    logger.info(f"Starting QA evaluator agent (model: {params.model}, max_turns: {params.max_turns})")
 
     resolved_permission_mode = _resolve_permission_mode()
 
@@ -707,17 +709,19 @@ async def run_evaluator_agent(
                 state["duration_ms"] = state["duration_ms"] + (message.duration_ms or 0)
                 state["subtype"] = message.subtype
                 state["result"] = "error" if message.is_error else "ok"
-                transcript.append({
-                    "turn": 0,
-                    "kind": "result",
-                    "status": "error" if message.is_error else "ok",
-                    "subtype": message.subtype,
-                    "is_error": message.is_error,
-                    "num_turns": message.num_turns,
-                    "session_id": message.session_id,
-                    "cost_usd": message.total_cost_usd or 0.0,
-                    "duration_ms": message.duration_ms or 0,
-                })
+                transcript.append(
+                    {
+                        "turn": 0,
+                        "kind": "result",
+                        "status": "error" if message.is_error else "ok",
+                        "subtype": message.subtype,
+                        "is_error": message.is_error,
+                        "num_turns": message.num_turns,
+                        "session_id": message.session_id,
+                        "cost_usd": message.total_cost_usd or 0.0,
+                        "duration_ms": message.duration_ms or 0,
+                    }
+                )
                 if message.is_error:
                     logger.warning(
                         f"QA evaluator agent errored after {message.num_turns} turns "
@@ -732,67 +736,62 @@ async def run_evaluator_agent(
             # content, so no secret can leak into the logs.
             if isinstance(message, AssistantMessage):
                 turn += 1
-                tools = [
-                    f"{b.name}:{str(b.input)[:80]}"
-                    for b in message.content
-                    if isinstance(b, ToolUseBlock)
-                ]
-                text_chars = sum(
-                    len(b.text or "")
-                    for b in message.content
-                    if isinstance(b, TextBlock)
-                )
+                tools = [f"{b.name}:{str(b.input)[:80]}" for b in message.content if isinstance(b, ToolUseBlock)]
+                text_chars = sum(len(b.text or "") for b in message.content if isinstance(b, TextBlock))
                 logger.info(
                     "qa_evaluator_turn=%d tools=%s text_chars=%d",
-                    turn, tools or None, text_chars,
+                    turn,
+                    tools or None,
+                    text_chars,
                 )
-                text = "".join(
-                    b.text or "" for b in message.content if isinstance(b, TextBlock)
+                text = "".join(b.text or "" for b in message.content if isinstance(b, TextBlock))
+                transcript.append(
+                    {
+                        "turn": turn,
+                        "kind": "assistant",
+                        "text": text,
+                        "tools": [
+                            {"name": b.name, "input": str(b.input)[:_TRANSCRIPT_TOOL_INPUT_CAP]}
+                            for b in message.content
+                            if isinstance(b, ToolUseBlock)
+                        ],
+                    }
                 )
-                transcript.append({
-                    "turn": turn,
-                    "kind": "assistant",
-                    "text": text,
-                    "tools": [
-                        {"name": b.name, "input": str(b.input)[:_TRANSCRIPT_TOOL_INPUT_CAP]}
-                        for b in message.content
-                        if isinstance(b, ToolUseBlock)
-                    ],
-                })
             elif isinstance(message, UserMessage):
                 content = getattr(message, "content", None)
                 if isinstance(content, list):
                     sizes = [
-                        len(b.content)
-                        if isinstance(b.content, str)
-                        else len(json.dumps(b.content, default=str))
+                        len(b.content) if isinstance(b.content, str) else len(json.dumps(b.content, default=str))
                         for b in content
                         if isinstance(b, ToolResultBlock)
                     ]
                     if sizes:
                         logger.info(
                             "qa_evaluator_turn=%d tool_result_chars=%s total=%d",
-                            turn, sizes, sum(sizes),
+                            turn,
+                            sizes,
+                            sum(sizes),
                         )
                     results = []
                     for b in content:
                         if not isinstance(b, ToolResultBlock):
                             continue
-                        raw_content = (
-                            b.content if isinstance(b.content, str)
-                            else json.dumps(b.content, default=str)
+                        raw_content = b.content if isinstance(b.content, str) else json.dumps(b.content, default=str)
+                        results.append(
+                            {
+                                "tool_use_id": b.tool_use_id,
+                                "is_error": b.is_error,
+                                "content": raw_content[:_TRANSCRIPT_TOOL_RESULT_CAP],
+                            }
                         )
-                        results.append({
-                            "tool_use_id": b.tool_use_id,
-                            "is_error": b.is_error,
-                            "content": raw_content[:_TRANSCRIPT_TOOL_RESULT_CAP],
-                        })
                     if results:
-                        transcript.append({
-                            "turn": turn,
-                            "kind": "tool_result",
-                            "results": results,
-                        })
+                        transcript.append(
+                            {
+                                "turn": turn,
+                                "kind": "tool_result",
+                                "results": results,
+                            }
+                        )
 
     def _build(status: str) -> EvaluatorResult:
         records: list[dict] = state["transcript"]  # type: ignore[assignment]
@@ -885,7 +884,9 @@ def collect_output_artifact(workspace_dir: str, experiment_id: str | None = None
         extras = [os.path.basename(f) for f in files if f != preferred]
         logger.warning(
             "agent wrote %d files in output/; using %s, ignoring: %s",
-            len(files), os.path.basename(preferred), extras,
+            len(files),
+            os.path.basename(preferred),
+            extras,
         )
         artifact_path = preferred
 

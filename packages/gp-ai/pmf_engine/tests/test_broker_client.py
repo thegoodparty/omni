@@ -1,5 +1,4 @@
-import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -157,16 +156,12 @@ class TestMintRunTokenPriorArtifactVersions:
                 scope={"state": "NC"},
                 params={"issues": ["housing"]},
                 clerk_user_id="user_test",
-                prior_artifact_versions={
-                    "smoke_dep": "smoke_dep/org-1/run-a/artifact.json"
-                },
+                prior_artifact_versions={"smoke_dep": "smoke_dep/org-1/run-a/artifact.json"},
             )
 
         body = mock_post.call_args.kwargs["json"]
         assert "prior_artifact_versions" in body
-        assert body["prior_artifact_versions"] == {
-            "smoke_dep": "smoke_dep/org-1/run-a/artifact.json"
-        }
+        assert body["prior_artifact_versions"] == {"smoke_dep": "smoke_dep/org-1/run-a/artifact.json"}
 
     def test_mint_run_token_omits_prior_artifact_versions_when_none(self):
         mock_response = MagicMock()
