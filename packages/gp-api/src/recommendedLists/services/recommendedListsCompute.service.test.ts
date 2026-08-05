@@ -2,6 +2,10 @@ import { Test } from '@nestjs/testing'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { parseISO } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
+import {
+  RECOMMENDED_LIST_OUTREACH_TYPE_VALUES,
+  RecommendedListsSchema,
+} from '@goodparty_org/contracts'
 import { PrismaService } from '@/prisma/prisma.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
@@ -29,6 +33,8 @@ import {
 
 type Row = Record<string, unknown>
 
+const ALL_OUTREACH_TYPES = [...RECOMMENDED_LIST_OUTREACH_TYPE_VALUES]
+
 const CAMPAIGN_ID = 42
 const RACE_ID = 'race-1'
 const ORG_SLUG = 'scott-commish'
@@ -36,6 +42,7 @@ const STATE = 'MN'
 const DTYPE = 'County_Commissioner_District'
 const DNAME = 'SCOTT CNTY COMM DIST 5'
 const HS_COL = 'hs_trump_vs_harris_double_dislike'
+const HS_COL_2 = 'hs_abortion_pro_choice'
 const SUB_COLS = ['County', 'City', 'Precinct'] as const
 
 const allowedHs = new Set(
@@ -100,10 +107,15 @@ const subFor = (districtType: string): 'County' | 'City' | 'Precinct' =>
     districtType,
   )
 
+// Anchor sizing keys off the VOTE GOAL, not projected turnout: sstar is the
+// VOTESCORE band whose cumulative count reaches 3 x win_number_effective
+// (LIKELY_VOTER_UNIVERSE_MULTIPLIER). 3 x 33 = 99 lands in the VOTESCORE >= 1 band
+// of HISTOGRAM (cum 100), so sstar stays 1. (The old rule used projected_turnout,
+// which would give sstar = 3 here — the divergence is why the fixture is tuned.)
 const strategyContext = (overrides: Record<string, unknown> = {}) => ({
-  projected_turnout: 100,
+  projected_turnout: 65,
   registered_voters: 41230,
-  win_number_effective: 9201,
+  win_number_effective: 33,
   office_level: 'COUNTY',
   official_office_name: 'County Commissioner District 5',
   relevant_election_date: '2026-11-03',
@@ -294,7 +306,7 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
     expect(data.computedAt).toBeInstanceOf(Date)
 
     const a = exponentA(officeR('COUNTY', DTYPE, true))
-    expect(data.payload).toEqual({
+    expect(RecommendedListsSchema.parse(data.payload)).toEqual({
       meta: {
         officeName: 'County Commissioner District 5',
         state: 'MN',
@@ -302,8 +314,8 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
         districtName: DNAME,
         districtLabel: 'SCOTT CNTY COMM DIST 5, MN',
         registeredVoters: 41230,
-        projectedTurnout: 100,
-        votesNeeded: 9201,
+        projectedTurnout: 65,
+        votesNeeded: 33,
         electionCode: electionCode(parseISO('2026-11-03'), STATE),
         electionDate: '2026-11-03',
         subGeoLabel: 'counties',
@@ -311,11 +323,12 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
       },
       lists: [
         {
-          kind: 'voterSupportId',
+          variant: 'voterSupportId',
+          goal: 'introduction',
           name: 'Candidate Intro & Voter Support ID',
           priority: 1,
-          allowedOutreachTypes: ['doorKnocking'],
-          allowedPhases: ['earlyCampaign', 'midCampaign'],
+          allowedOutreachTypes: ALL_OUTREACH_TYPES,
+          allowedPhases: ['earlyCampaign', 'midCampaign', 'gotvPhase'],
           details: {
             votescoreThreshold: 1,
             voterCount: 100,
@@ -328,37 +341,11 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
           },
         },
         {
-          kind: 'issueAligned',
-          name: 'Voters who lean toward Protecting local water quality',
+          variant: 'persuasionPartisanAligned',
+          goal: 'persuasion',
+          name: 'Voters open to an independent choice',
           priority: 2,
-          allowedOutreachTypes: [
-            'doorKnocking',
-            'phone',
-            'email',
-            'directMail',
-          ],
-          allowedPhases: ['midCampaign'],
-          details: {
-            phrase: 'Protecting local water quality',
-            opponentName: 'Jane Doe',
-            threatTier: 'primary_threat',
-            activeVoters: 200,
-            supporters: 80,
-            opponents: 30,
-            persuadable: 90,
-            supportersPlausible: 50,
-          },
-        },
-        {
-          kind: 'partisanAligned',
-          name: 'Partisanship-Aligned Voters',
-          priority: 3,
-          allowedOutreachTypes: [
-            'doorKnocking',
-            'phone',
-            'email',
-            'directMail',
-          ],
+          allowedOutreachTypes: ALL_OUTREACH_TYPES,
           allowedPhases: ['midCampaign'],
           details: {
             shape: 'P4',
@@ -385,10 +372,29 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
           },
         },
         {
-          kind: 'gotv',
+          variant: 'persuasionIssueAligned',
+          goal: 'persuasion',
+          name: 'Voters who lean toward Protecting local water quality',
+          priority: 3,
+          allowedOutreachTypes: ALL_OUTREACH_TYPES,
+          allowedPhases: ['midCampaign'],
+          details: {
+            phrase: 'Protecting local water quality',
+            opponentName: 'Jane Doe',
+            threatTier: 'primary_threat',
+            activeVoters: 200,
+            supporters: 80,
+            opponents: 30,
+            persuadable: 90,
+            supportersPlausible: 50,
+          },
+        },
+        {
+          variant: 'gotv',
+          goal: 'gotv',
           name: 'Get Out The Vote',
-          priority: 4,
-          allowedOutreachTypes: ['doorKnocking', 'phone', 'robocall', 'email'],
+          priority: 3,
+          allowedOutreachTypes: ALL_OUTREACH_TYPES,
           allowedPhases: ['gotvPhase'],
           details: {
             dropoffX: 4200,
@@ -397,6 +403,81 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
         },
       ],
     })
+  })
+
+  it('keeps tied-priority envelopes in assembly order and names both issue-card directions', async () => {
+    const routes = routesFor({
+      sstar: 1,
+      hasDem: true,
+      hasGop: false,
+      isPartisan: true,
+      officeLevel: 'COUNTY',
+    })
+    routes.set(issueUniverse(DF, HS_COL_2, 'low', 1, allowedHs), [ISSUE_ROW])
+    const { service, update } = await setup({
+      routes,
+      standoutRows: [
+        standoutRow(),
+        standoutRow({
+          hsColumn: HS_COL_2,
+          positionDir: 'low',
+          positionPhrase: 'Expanding the county sales tax',
+          issue: 'Taxes',
+          order: 1,
+        }),
+      ],
+      summaryRows: [summaryRow()],
+    })
+
+    await service.handleRecompute({
+      campaignId: CAMPAIGN_ID,
+      raceId: RACE_ID,
+      attempt: 1,
+    })
+
+    const lists = RecommendedListsSchema.parse(payloadOf(update).payload).lists
+    expect(lists.map((envelope) => [envelope.variant, envelope.name])).toEqual([
+      ['voterSupportId', 'Candidate Intro & Voter Support ID'],
+      ['persuasionPartisanAligned', 'Voters open to an independent choice'],
+      [
+        'persuasionIssueAligned',
+        'Voters who lean toward Protecting local water quality',
+      ],
+      [
+        'persuasionIssueAligned',
+        'Voters who lean away from Expanding the county sales tax',
+      ],
+      ['gotv', 'Get Out The Vote'],
+    ])
+  })
+
+  it('omits the gotv envelope when turnout drop-off does not apply', async () => {
+    const routes = routesFor({
+      sstar: 1,
+      hasDem: true,
+      hasGop: false,
+      isPartisan: true,
+      officeLevel: 'FEDERAL',
+    })
+    const { service, update } = await setup({
+      routes,
+      context: strategyContext({ office_level: 'FEDERAL' }),
+      standoutRows: [standoutRow()],
+      summaryRows: [summaryRow()],
+    })
+
+    await service.handleRecompute({
+      campaignId: CAMPAIGN_ID,
+      raceId: RACE_ID,
+      attempt: 1,
+    })
+
+    const lists = RecommendedListsSchema.parse(payloadOf(update).payload).lists
+    expect(lists.map((envelope) => envelope.variant)).toEqual([
+      'voterSupportId',
+      'persuasionPartisanAligned',
+      'persuasionIssueAligned',
+    ])
   })
 
   it('drops an issue card whose active cell count is below the floor', async () => {
@@ -422,10 +503,10 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
       attempt: 1,
     })
 
-    const kinds = payloadOf(update).payload.lists.map(
-      (envelope: { kind: string }) => envelope.kind,
+    const variants = payloadOf(update).payload.lists.map(
+      (envelope: { variant: string }) => envelope.variant,
     )
-    expect(kinds).not.toContain('issueAligned')
+    expect(variants).not.toContain('persuasionIssueAligned')
   })
 
   it('produces an NP1 card with null add-ons when no major-party opponent runs', async () => {
@@ -458,7 +539,8 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
     })
 
     const envelope = payloadOf(update).payload.lists.find(
-      (list: { kind: string }) => list.kind === 'partisanAligned',
+      (list: { variant: string }) =>
+        list.variant === 'persuasionPartisanAligned',
     )
     const partisan = envelope.details
     expect(partisan.shape).toBe('NP1')
@@ -467,7 +549,7 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
     expect(partisan.signals.registrationAddOn).toBeNull()
   })
 
-  it('degrades the anchor to nulls when projected turnout is missing', async () => {
+  it('degrades the anchor to nulls when the vote goal is missing', async () => {
     const routes = routesFor({
       sstar: null,
       hasDem: true,
@@ -477,7 +559,9 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
     })
     const { service, update } = await setup({
       routes,
-      context: strategyContext({ projected_turnout: null }),
+      // Anchor now sizes off the vote goal, so a null win number (not a null
+      // projected turnout) is what collapses sstar and the anchor details.
+      context: strategyContext({ win_number_effective: null }),
       standoutRows: [standoutRow()],
       summaryRows: [summaryRow()],
     })
@@ -492,7 +576,7 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
     const data = payloadOf(update)
     expect(data.status).toBe('ready')
     const anchor = data.payload.lists.find(
-      (list: { kind: string }) => list.kind === 'voterSupportId',
+      (list: { variant: string }) => list.variant === 'voterSupportId',
     )
     expect(anchor.details).toEqual({
       votescoreThreshold: null,
@@ -501,7 +585,7 @@ describe('RecommendedListsComputeService.handleRecompute', () => {
       estimatedHours: null,
       turfs: [],
     })
-    expect(data.payload.meta.projectedTurnout).toBeNull()
+    expect(data.payload.meta.votesNeeded).toBeNull()
   })
 
   it('ack-drops a recompute for a snapshot that is no longer pending', async () => {

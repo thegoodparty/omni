@@ -25,6 +25,7 @@ import {
   cardSubtitle,
   electionCode,
   exponentA,
+  LIKELY_VOTER_UNIVERSE_MULTIPLIER,
   officeR,
   partisanUnionPredicate,
   pickSubGeo,
@@ -202,7 +203,13 @@ export class RecommendedListsComputeService extends createPrismaBase(
       score: toInt(row.s),
       n: toInt(row.n),
     }))
-    const sstar = votescoreThreshold(histogram, projectedTurnout)
+    // Size the plausible-turnout electorate (List type 1) to the VOTE GOAL, not to
+    // projected turnout: cumulative-count band down to
+    // LIKELY_VOTER_UNIVERSE_MULTIPLIER x votesNeededToWin (a contact buffer above
+    // the win number; self-caps at the whole file). See the multiplier's citations.
+    const universeTarget =
+      votesNeeded === null ? null : LIKELY_VOTER_UNIVERSE_MULTIPLIER * votesNeeded
+    const sstar = votescoreThreshold(histogram, universeTarget)
     const sub = pickSubGeo(
       SUB_GEO_COLUMNS.map((col) => ({
         col,
@@ -269,11 +276,13 @@ export class RecommendedListsComputeService extends createPrismaBase(
     }
 
     const registry = RECOMMENDED_LISTS_REGISTRY
-    const lists: RecommendedListEnvelope[] = [
-      {
-        kind: 'voterSupportId',
+    const lists: RecommendedListEnvelope[] = []
+    if (registry.voterSupportId.isActive) {
+      lists.push({
+        variant: 'voterSupportId',
+        goal: registry.voterSupportId.goal,
         name: registry.voterSupportId.name,
-        priority: registry.voterSupportId.priority,
+        priority: registry.voterSupportId.priority.default,
         allowedOutreachTypes: [...registry.voterSupportId.allowedOutreachTypes],
         allowedPhases: [...registry.voterSupportId.allowedPhases],
         details: {
@@ -284,36 +293,47 @@ export class RecommendedListsComputeService extends createPrismaBase(
             doorCount === null ? null : doorCount / DOORS_PER_HOUR,
           turfs: this.toTurfs(anchorTurfRows),
         },
-      },
-      ...issueEntries.map(
-        (entry): RecommendedListEnvelope => ({
-          kind: 'issueAligned',
-          name: entry.name,
-          priority: registry.issueAligned.priority,
-          allowedOutreachTypes: [...registry.issueAligned.allowedOutreachTypes],
-          allowedPhases: [...registry.issueAligned.allowedPhases],
-          details: entry.details,
-        }),
-      ),
-      {
-        kind: 'partisanAligned',
-        name: registry.partisanAligned.name,
-        priority: registry.partisanAligned.priority,
+      })
+    }
+    if (registry.persuasionIssueAligned.isActive) {
+      lists.push(
+        ...issueEntries.map(
+          (entry): RecommendedListEnvelope => ({
+            variant: 'persuasionIssueAligned',
+            goal: registry.persuasionIssueAligned.goal,
+            name: entry.name,
+            priority: registry.persuasionIssueAligned.priority.default,
+            allowedOutreachTypes: [
+              ...registry.persuasionIssueAligned.allowedOutreachTypes,
+            ],
+            allowedPhases: [...registry.persuasionIssueAligned.allowedPhases],
+            details: entry.details,
+          }),
+        ),
+      )
+    }
+    if (registry.persuasionPartisanAligned.isActive) {
+      lists.push({
+        variant: 'persuasionPartisanAligned',
+        goal: registry.persuasionPartisanAligned.goal,
+        name: registry.persuasionPartisanAligned.name,
+        priority: registry.persuasionPartisanAligned.priority.default,
         allowedOutreachTypes: [
-          ...registry.partisanAligned.allowedOutreachTypes,
+          ...registry.persuasionPartisanAligned.allowedOutreachTypes,
         ],
-        allowedPhases: [...registry.partisanAligned.allowedPhases],
+        allowedPhases: [...registry.persuasionPartisanAligned.allowedPhases],
         details: partisan,
-      },
-    ]
+      })
+    }
 
     // A gotv envelope only exists when turnout drop-off applies to this office;
     // its absence (not a null field) is how the reader learns it doesn't.
-    if (a !== null) {
+    if (a !== null && registry.gotv.isActive) {
       lists.push({
-        kind: 'gotv',
+        variant: 'gotv',
+        goal: registry.gotv.goal,
         name: registry.gotv.name,
-        priority: registry.gotv.priority,
+        priority: registry.gotv.priority.default,
         allowedOutreachTypes: [...registry.gotv.allowedOutreachTypes],
         allowedPhases: [...registry.gotv.allowedPhases],
         details: {

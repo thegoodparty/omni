@@ -139,13 +139,19 @@ export const RecommendedListGotvSchema = z.object({
 })
 export type RecommendedListGotv = z.infer<typeof RecommendedListGotvSchema>
 
+// Outreach channels a list can be worked through. Value set (and casing) tracks
+// the product's outreach vocabulary (https://snuggle-nav-kit.lovable.app/outreach),
+// with two deliberate deviations: `phone` is kept (not `phoneBanking`) and
+// `directMail` is retained.
 export const RECOMMENDED_LIST_OUTREACH_TYPE_VALUES = [
-  'doorKnocking',
-  'phone',
+  'socialMedia',
   'sms',
   'email',
-  'directMail',
   'robocall',
+  'phone',
+  'doorKnocking',
+  'poll',
+  'directMail',
 ] as const
 export const RecommendedListOutreachTypeSchema = z.enum(
   RECOMMENDED_LIST_OUTREACH_TYPE_VALUES,
@@ -162,33 +168,53 @@ export const RECOMMENDED_LIST_PHASE_VALUES = [
 export const RecommendedListPhaseSchema = z.enum(RECOMMENDED_LIST_PHASE_VALUES)
 export type RecommendedListPhase = z.infer<typeof RecommendedListPhaseSchema>
 
-// Every recommended list is wrapped in a metadata envelope: display order
-// (priority), which outreach channels and campaign phases it applies to, and a
-// discriminated `kind` that types its `details`. This is the contract seed of a
-// config-driven model — a new list kind adds a member here plus its details
-// schema, without changing the top-level response shape.
+// Product-facing outreach goal a list serves. This is a coarser, candidate-facing
+// categorization than `variant` (the machine discriminant that types `details`):
+// multiple variants can share a goal (both persuasion variants -> 'persuasion'),
+// and some goals have no list yet (eventInvite / earlyVote / custom). Value set
+// (and casing) tracks the product's outreach vocabulary:
+// https://snuggle-nav-kit.lovable.app/outreach
+export const RECOMMENDED_LIST_GOAL_VALUES = [
+  'introduction',
+  'persuasion',
+  'eventInvite',
+  'earlyVote',
+  'gotv',
+  'custom',
+] as const
+export const RecommendedListGoalSchema = z.enum(RECOMMENDED_LIST_GOAL_VALUES)
+export type RecommendedListGoal = z.infer<typeof RecommendedListGoalSchema>
+
+// Every recommended list is wrapped in a metadata envelope: the product-facing
+// `goal` (a coarse, candidate-facing category — several lists can share one, e.g.
+// both persuasion lists are goal 'persuasion'), the unique `variant` that
+// discriminates `details` (the specific list recipe), display order (priority),
+// and the outreach channels / campaign phases it applies to. This is the contract
+// seed of a config-driven model — a new list variant adds a member here plus its
+// details schema, without changing the top-level response shape.
 const RecommendedListEnvelopeBaseSchema = z.object({
   name: z.string(),
+  goal: RecommendedListGoalSchema,
   priority: z.number().int(),
   allowedOutreachTypes: z.array(RecommendedListOutreachTypeSchema).min(1),
   allowedPhases: z.array(RecommendedListPhaseSchema).min(1),
 })
 
-export const RecommendedListEnvelopeSchema = z.discriminatedUnion('kind', [
+export const RecommendedListEnvelopeSchema = z.discriminatedUnion('variant', [
   RecommendedListEnvelopeBaseSchema.extend({
-    kind: z.literal('voterSupportId'),
+    variant: z.literal('voterSupportId'),
     details: RecommendedListAnchorSchema,
   }),
   RecommendedListEnvelopeBaseSchema.extend({
-    kind: z.literal('issueAligned'),
+    variant: z.literal('persuasionIssueAligned'),
     details: RecommendedListIssueCardSchema,
   }),
   RecommendedListEnvelopeBaseSchema.extend({
-    kind: z.literal('partisanAligned'),
+    variant: z.literal('persuasionPartisanAligned'),
     details: RecommendedListPartisanSchema,
   }),
   RecommendedListEnvelopeBaseSchema.extend({
-    kind: z.literal('gotv'),
+    variant: z.literal('gotv'),
     details: RecommendedListGotvSchema,
   }),
 ])

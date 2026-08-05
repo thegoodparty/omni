@@ -27,6 +27,31 @@ export const THIRD_CUT = 50
 export const DISLIKE_CUT = 70
 export const CELL_SIZE_FLOOR = 50
 
+// Likely-voter universe multiplier. The anchor "likely voters" list (List type 1)
+// is sized to the VOTE GOAL, not to projected turnout: take the highest-propensity
+// voters (VOTESCORE bands, tie-inclusive) top-down until the cumulative count
+// reaches LIKELY_VOTER_UNIVERSE_MULTIPLIER x votesNeededToWin, self-capping at the
+// whole district file.
+//
+// Rationale: the field-campaign literature sizes the voter-contact universe as a
+// multiple of the win number to absorb two independent losses between "on the
+// list" and "votes for you" — turnout attrition among identified supporters, and
+// the support/ID rate of the people you contact:
+//   - Emerge, "Election Math": ID goal = 1.33 x win number (turnout cushion), then
+//     target universe = 2-3 x ID goal (support cushion) => ~2.7-4x the win number.
+//     https://la.emergeamerica.org/wp-content/uploads/sites/10/2019/02/Election-Math.pdf
+//   - The Campaign Workshop, "Vote Goal and Vote Deficit": persuasion universe =
+//     3 x vote deficit, assuming a ~1-in-3 support rate.
+//     https://www.thecampaignworkshop.com/blog/pillar/campaign-strategy/vote-goal
+// We take 3 as the round central value of that range. Since votesNeededToWin is
+// ~half of projected turnout, 3 x votesNeededToWin ~= 1.5x projected turnout: a
+// contact buffer above the vote goal, capped at the registered file.
+//
+// TODO: when a per-voter conversion/support model lands, this flat multiplier
+// becomes per-voter P(support) and the cut sums P(turnout) x P(support) to the win
+// number (see the runbook's list-sizing note); VOTESCORE also swaps to p_hat then.
+export const LIKELY_VOTER_UNIVERSE_MULTIPLIER = 3
+
 // Strong opponent-party partisan threshold. Distinct from DISLIKE_CUT: a voter
 // modeled at/above this on a running opponent's party model is dropped from the
 // modeled-independent add-on.
@@ -92,7 +117,7 @@ export const votescoreThreshold = (
   for (const row of rows) {
     cum += row.n
     // Return the whole boundary band (VOTESCORE >= this score), never trimming
-    // tied voters to hit an exact N — band count >= N by design.
+    // tied voters to hit the target exactly — band count >= targetN by design.
     if (cum >= targetN) return row.score
   }
   const lowest = rows.at(-1)
