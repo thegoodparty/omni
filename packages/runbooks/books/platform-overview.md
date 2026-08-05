@@ -31,7 +31,7 @@ Most product code now lives in a single npm-workspaces monorepo: **omni** (`theg
 | **gp-api**          | NestJS 11/Fastify, Prisma, PG           | 3000       | `api.goodparty.org`                                                 | Docker → ECR → Pulumi → ECS Fargate |
 | **gp-webapp**       | Next.js 15, React 19, Tailwind, MUI     | 4000       | `goodparty.org` (product app)                                       | Vercel (CLI)                        |
 | **election-api**    | NestJS/Fastify, Prisma, PG              | 3001       | `election-api.goodparty.org`                                        | Docker → ECR → Pulumi → ECS Fargate |
-| **gp-admin**        | Next.js 16, React 19                    | 3500       | Vercel (single deploy fronts dev/qa/prod)                           | Vercel (CLI)                        |
+| **gp-admin**        | Next.js 16, React 19                    | 3500       | Vercel (single deploy fronts dev/prod)                              | Vercel (CLI)                        |
 | **candidate-sites** | Next.js, React, Tailwind                | 4001       | Vercel                                                              | Vercel (CLI)                        |
 | **gp-sdk**          | TypeScript (`@goodparty_org/sdk`)       | —          | typed API client — in-tree, not published                           | —                                   |
 | **contracts**       | TypeScript (`@goodparty_org/contracts`) | —          | Zod schemas/types for cross-service shapes — in-tree, not published | —                                   |
@@ -42,13 +42,13 @@ Most product code now lives in a single npm-workspaces monorepo: **omni** (`theg
 
 ### External repos (separate, not in omni)
 
-| Project              | Location                         | Stack                      | Purpose                                                                                                                                     |
-| -------------------- | -------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| **gp-ai-projects**   | `$PROJECT_ROOT/gp-ai-projects`   | Python/FastAPI, Gemini     | AI/ML pipeline: campaign-plan generation, civic message analysis, HubSpot-DDHQ matching, engineer agent. ALBs: `ai-prod`, `ai-dev`, `ai-qa` |
-| **gp-data-platform** | `$PROJECT_ROOT/gp-data-platform` | Airbyte + dbt + Databricks | Full data pipeline: ingest 9+ sources, transform with 460+ dbt models, write back to all PG databases                                       |
-| **runbooks**         | `$PROJECT_ROOT/runbooks`         | Markdown + scripts         | Agent runbooks (this repo). PMF Engine experiment runs execute these via gp-api's `agentExperiments` dispatch                               |
-| **gp-marketing**     | `thegoodparty/gp-marketing`      | Next.js                    | Public marketing site (moved out of gp-webapp)                                                                                              |
-| **ops**              | `thegoodparty/ops`               | —                          | Operational scripts + Delegate agent/review framework                                                                                       |
+| Project              | Location                         | Stack                      | Purpose                                                                                                                            |
+| -------------------- | -------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **gp-ai-projects**   | `$PROJECT_ROOT/gp-ai-projects`   | Python/FastAPI, Gemini     | AI/ML pipeline: campaign-plan generation, civic message analysis, HubSpot-DDHQ matching, engineer agent. ALBs: `ai-prod`, `ai-dev` |
+| **gp-data-platform** | `$PROJECT_ROOT/gp-data-platform` | Airbyte + dbt + Databricks | Full data pipeline: ingest 9+ sources, transform with 460+ dbt models, write back to all PG databases                              |
+| **runbooks**         | `$PROJECT_ROOT/runbooks`         | Markdown + scripts         | Agent runbooks (this repo). PMF Engine experiment runs execute these via gp-api's `agentExperiments` dispatch                      |
+| **gp-marketing**     | `thegoodparty/gp-marketing`      | Next.js                    | Public marketing site (moved out of gp-webapp)                                                                                     |
+| **ops**              | `thegoodparty/ops`               | —                          | Operational scripts + Delegate agent/review framework                                                                              |
 
 ---
 
@@ -61,7 +61,7 @@ Users → goodparty.org (Vercel: gp-webapp — product app for candidates & elec
          └── candidate-sites (Vercel) for candidate pages → calls gp-api
 
 Staff → gp-admin (Vercel, single deploy) → gp-api via @goodparty_org/sdk + Clerk M2M
-         (active Clerk org selects dev/qa/prod; per-env M2M secret, no cookie flow)
+         (active Clerk org selects dev/prod; per-env M2M secret, no cookie flow)
 
 gp-api (53 controllers, 20+ Prisma models)
   ├── Prisma → people-db (USE_LOCAL_PEOPLE_DB=true, in-process via src/peopleDb/)
@@ -209,7 +209,7 @@ removes it — see `gp-api/src/peopleDb/CLAUDE.md`.
 
 **Deploy (legacy people-api service, frozen)**: no repo package or CI pipeline
 remains in omni — the ECS service and Aurora cluster stay up manually until
-decommissioned. Environments: `dev`/`prod` only (no qa). Aurora PG prod:
+decommissioned. Environments: `dev`/`prod` only. Aurora PG prod:
 `db.r6g.4xlarge` x2.
 
 ### election-api — Election Data Service
@@ -293,7 +293,7 @@ Route groups under `gp-webapp/app/`: `dashboard`, `onboarding`, `login`/`logout`
 **Next.js 16 App Router** at `packages/gp-admin` (`src/app`, `components`, `lib`, `shared`, `middleware.ts`). Local port 3500.
 
 - Talks to gp-api exclusively via `@goodparty_org/sdk`, authenticated with a per-environment **Clerk M2M secret** (no user cookie flow).
-- A **single Vercel deploy** fronts dev/qa/prod — the active Clerk org selects which environment it targets.
+- A **single Vercel deploy** fronts dev/prod — the active Clerk org selects which environment it targets.
 - Replaces the legacy admin tooling that used to live inside gp-webapp.
 
 ### candidate-sites — Candidate Campaign Websites
@@ -643,14 +643,12 @@ Catalog: `goodparty_data_catalog`. Read-only from app code (SELECT only). Write 
 | Secret Name         | Used By                    |
 | ------------------- | -------------------------- |
 | `GP_API_DEV`        | gp-api (dev + PR previews) |
-| `GP_API_QA`         | gp-api (qa)                |
 | `GP_API_PROD`       | gp-api (prod)              |
-| `ELECTION_API_DEV`  | election-api (dev + qa)    |
+| `ELECTION_API_DEV`  | election-api (dev)         |
 | `ELECTION_API_PROD` | election-api (prod)        |
 | `PEOPLE_API_DEV`    | people-api (dev)           |
 | `PEOPLE_API_PROD`   | people-api (prod)          |
 | `AI_SECRETS_DEV`    | gp-ai-projects (dev)       |
-| `AI_SECRETS_QA`     | gp-ai-projects (qa)        |
 | `AI_SECRETS_PROD`   | gp-ai-projects (prod)      |
 
 Read a secret: `AWS_PROFILE=$AWS_PROFILE aws secretsmanager get-secret-value --secret-id SECRET_NAME --query SecretString --output text | jq .`
@@ -679,7 +677,7 @@ Tests load `.env.test`.
 
 **gp-ai-projects**: GEMINI_API_KEY, TAVILY_API_KEY, DATABRICKS_API_KEY, DATABRICKS_SERVER_HOSTNAME, DATABRICKS_HTTP_PATH, GOODPARTY_API_TOKEN, BRAINTRUST_API_KEY, ANTHROPIC_API_KEY, CLICKUP_API_KEY
 
-**gp-admin**: CLERK_SECRET_KEY, NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, per-env Clerk org IDs (GP_ORG_ID_DEV/QA/PROD) + M2M secrets (GP_DEV/QA/PROD_MACHINE_SECRET), GP_DEV/QA/PROD_API_DOMAIN, GP_API_PROTOCOL, GP_API_PORT, GP_API_ROOT_PATH, NEXT_PUBLIC_GP_WEBAPP_URL (see `omni/packages/gp-admin/.env.example`)
+**gp-admin**: CLERK_SECRET_KEY, NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, per-env Clerk org IDs (GP_ORG_ID_DEV/PROD) + M2M secrets (GP_DEV/PROD_MACHINE_SECRET), GP_DEV/PROD_API_DOMAIN, GP_API_PROTOCOL, GP_API_PORT, GP_API_ROOT_PATH, NEXT_PUBLIC_GP_WEBAPP_URL (see `omni/packages/gp-admin/.env.example`)
 
 **Local agent tooling**: `GRAFANA_SERVICE_ACCOUNT_TOKEN` (for the Grafana MCP — see MCP tools below)
 
@@ -695,16 +693,14 @@ Backend infra for gp-api and election-api is provisioned via **Pulumi** from `om
 | ------------------------------------- | ------------------------------------- | ----------------------------- |
 | `gp-master-fargateCluster`            | `gp-api-master`                       | 2                             |
 | `gp-develop-fargateCluster`           | `gp-api-develop`                      | —                             |
-| `gp-qa-fargateCluster`                | `gp-api-qa`                           | —                             |
 | `gp-pr-*-fargateCluster`              | `gp-api-pr-*` (ephemeral PR previews) | 1 each                        |
 | `election-api-master-fargateCluster`  | `election-api-master`                 | 2                             |
 | `election-api-develop-fargateCluster` | `election-api-develop`                | 1                             |
-| `election-api-qa-fargateCluster`      | `election-api-qa`                     | —                             |
 | `people-api-master-fargateCluster`    | `people-api-master`                   | 2-16 (auto-scale 50% CPU/mem) |
 | `people-api-develop-fargateCluster`   | `people-api-develop`                  | 1-4                           |
 | `vpn-cluster`                         | `vpn-service`                         | 1                             |
 
-On-demand ECS (Lambda-triggered, gp-ai-projects): `serve-analyze-{dev,qa,prod}`, `ddhq-matcher-{dev,qa,prod}`, `engineer-agent-{dev,qa,prod}`
+On-demand ECS (Lambda-triggered, gp-ai-projects): `serve-analyze-{dev,prod}`, `ddhq-matcher-{dev,prod}`, `engineer-agent-{dev,prod}`
 
 > PR-preview clusters/DBs are ephemeral — enumerate live ones with `aws ecs list-clusters` rather than trusting a static list. Stale gp-api preview stacks are cleaned up by `gp-api-cleanup-preview.yml`.
 
@@ -714,10 +710,9 @@ On-demand ECS (Lambda-triggered, gp-ai-projects): `serve-analyze-{dev,qa,prod}`,
 | ------------------------- | ---------------------------------- | -------------------------------------------------- |
 | `gp-api-db-prod`          | gp-api prod                        | db.serverless                                      |
 | `gp-api-db`               | gp-api dev                         | db.serverless                                      |
-| `gp-api-db-qa`            | gp-api qa                          | db.serverless                                      |
 | `gp-api-pr-*`             | PR previews (ephemeral)            | db.serverless                                      |
 | `election-api-db-prod`    | election-api prod                  | Serverless v2 (1-64 ACU, 14-day backup)            |
-| `election-api-db-develop` | election-api dev/qa                | Serverless v2 (0.5-64 ACU, 7-day backup)           |
+| `election-api-db-develop` | election-api dev                   | Serverless v2 (0.5-64 ACU, 7-day backup)           |
 | `gp-people-db-prod`       | people-api prod                    | db.r6g.4xlarge (x2), Performance Insights advanced |
 | `gp-people-db-dev`        | people-api dev                     | db.t4g.medium                                      |
 | `gp-voter-db`             | Voter data (L2) — per-state tables | db.r6g.4xlarge (x2)                                |
@@ -729,7 +724,6 @@ On-demand ECS (Lambda-triggered, gp-ai-projects): `serve-analyze-{dev,qa,prod}`,
 | --------------------------------------- | ----------------------------------------- |
 | `assets.goodparty.org`                  | Production assets (fronted by CloudFront) |
 | `assets-dev.goodparty.org`              | Dev assets (fronted by CloudFront)        |
-| `assets-qa.goodparty.org`               | QA assets (fronted by CloudFront)         |
 | `normalized-voter-files`                | L2 voter data by state                    |
 | `goodparty-ballotready`                 | BallotReady election data                 |
 | `goodparty-warehouse-databricks`        | Databricks warehouse data                 |
@@ -749,19 +743,19 @@ aws s3 ls | grep -i assets
 
 ### SQS (FIFO queues)
 
-Per-stage: `{stage}-campaign-queue.fifo` + DLQ for develop, master, qa, PR previews. Per-developer: `{DevName}-campaign-queue.fifo` + DLQ (one per team member). Plus agent-experiment / agent-results queues for the PMF Engine.
+Per-stage: `{stage}-campaign-queue.fifo` + DLQ for develop, master, PR previews. Per-developer: `{DevName}-campaign-queue.fifo` + DLQ (one per team member). Plus agent-experiment / agent-results queues for the PMF Engine.
 
 ### Lambda Functions
 
-| Function                              | Purpose                                                       |
-| ------------------------------------- | ------------------------------------------------------------- |
-| `serve-analyze-trigger-{dev,qa,prod}` | Trigger serve-analyze ECS tasks                               |
-| `ddhq-matcher-trigger-{dev,qa,prod}`  | Trigger DDHQ matcher ECS tasks                                |
-| `clickup-bot-prod`                    | ClickUp webhook → engineer agent ECS trigger                  |
-| `shared-slack-notifier`               | Slack notifications for deploys                               |
-| `databricks-s3-ingest` (x2)           | S3 → Databricks ingestion                                     |
-| `s3-ballotready`                      | BallotReady S3 processing                                     |
-| agent-experiment worker               | PMF Engine: runs the matching runbook for an `experiment_run` |
+| Function                           | Purpose                                                       |
+| ---------------------------------- | ------------------------------------------------------------- |
+| `serve-analyze-trigger-{dev,prod}` | Trigger serve-analyze ECS tasks                               |
+| `ddhq-matcher-trigger-{dev,prod}`  | Trigger DDHQ matcher ECS tasks                                |
+| `clickup-bot-prod`                 | ClickUp webhook → engineer agent ECS trigger                  |
+| `shared-slack-notifier`            | Slack notifications for deploys                               |
+| `databricks-s3-ingest` (x2)        | S3 → Databricks ingestion                                     |
+| `s3-ballotready`                   | BallotReady S3 processing                                     |
+| agent-experiment worker            | PMF Engine: runs the matching runbook for an `experiment_run` |
 
 ### ECR Repositories
 
@@ -773,7 +767,7 @@ Per-stage: `{stage}-campaign-queue.fifo` + DLQ for develop, master, qa, PR previ
 
 ### SNS Topics (failure alerts)
 
-`ddhq-matcher-failures-{dev,qa,prod}`, `serve-analyze-pipeline-failures-{dev,qa,prod}`, `engineer-agent-failures-{dev,qa,prod}`, `GP-Prod-SNS`
+`ddhq-matcher-failures-{dev,prod}`, `serve-analyze-pipeline-failures-{dev,prod}`, `engineer-agent-failures-{dev,prod}`, `GP-Prod-SNS`
 
 ### DynamoDB
 
@@ -818,7 +812,7 @@ Single trunk: `main` is the one long-lived branch and the default branch; all PR
 | `main`   | Dev         | The trunk; PRs target it. A push deploys dev (`*-dev.goodparty.org` / `dev.goodparty.org`) and runs full CI incl. the post-merge Playwright E2E |
 | `pr-<N>` | Preview     | Backend: `https://pr-<N>.preview.goodparty.org`; frontend: deterministic Vercel alias                                                           |
 
-Prod (`*.goodparty.org` / `api.goodparty.org`) is reached only by automated promotion: `promote.yml` rides `push: main`, waits for that commit's checks to go green on dev, then deploys the same commit to prod. It runs as the `omni-automation` GitHub App, is freeze-switch gated, and has a manual `workflow_dispatch` fallback. Forward-only — the ECS circuit breaker auto-reverts a crash-on-boot; there is no manual rollback and no manual `develop → qa → master` promotion. The `qa` and `master` branches are gone (qa is dropped from CI; the qa infrastructure teardown is a separate later task).
+Prod (`*.goodparty.org` / `api.goodparty.org`) is reached only by automated promotion: `promote.yml` rides `push: main`, waits for that commit's checks to go green on dev, then deploys the same commit to prod. It runs as the `omni-automation` GitHub App, is freeze-switch gated, and has a manual `workflow_dispatch` fallback. Forward-only — the ECS circuit breaker auto-reverts a crash-on-boot; there is no manual rollback and no manual `develop → qa → master` promotion. The `qa` and `master` branches are gone, and the qa environment has been fully decommissioned.
 
 ### VPC Details
 
@@ -915,7 +909,7 @@ cd $PROJECT_ROOT/gp-data-platform/airflow/astro && astro dev start  # :8080
 | Slack channels | Deploy notifications, AI failures, P2V issues, poll delivery                              | Configured in gp-api                                                                                                                                                   |
 | SNS            | Pipeline failure alerts                                                                   | ddhq-matcher, serve-analyze, engineer-agent                                                                                                                            |
 
-**Narrowing Grafana logs** — filter by `service_name` (`gp-api` | `election-api` | `people-api`) and `deployment_environment_name` (`dev` | `qa` | `prod`):
+**Narrowing Grafana logs** — filter by `service_name` (`gp-api` | `election-api` | `people-api`) and `deployment_environment_name` (`dev` | `prod`):
 
 ```logql
 {service_name="gp-api", deployment_environment_name="prod"}

@@ -119,7 +119,7 @@ required checks to go green on dev, confirms it is serving there, then deploys t
 same commit to prod. There is no manual promotion and no `qa`/`master` branch.
 Backends deploy via Docker/ECR/Pulumi to ECS Fargate; frontends deploy via Vercel
 with deterministic PR-preview aliases. Detail in `docs/deployment.md`. The
-deployed people-api service (`dev`/`prod` only, no `qa`) no longer has a
+deployed people-api service (`dev`/`prod` only) no longer has a
 repo package or CI pipeline here — it stays up as a frozen, manually
 decommissioned service until it's torn down.
 
@@ -146,7 +146,7 @@ When investigating a bug or incident, use the MCP tools rather than guessing.
   Datasource UIDs: Loki `grafanacloud-logs`, Tempo `grafanacloud-traces`,
   Prometheus `grafanacloud-prom`. Narrow logs with labels `service_name`
   (`gp-api` | `election-api` | `people-api`) and `deployment_environment_name`
-  (`dev` | `qa` | `prod`), e.g.
+  (`dev` | `prod`), e.g.
   `{service_name="gp-api", deployment_environment_name="prod"}`.
 - **Sentry MCP** for frontend errors. Org slug `goodparty`, region
   `https://us.sentry.io`.
