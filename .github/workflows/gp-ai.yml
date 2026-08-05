@@ -1,0 +1,260 @@
+name: gp-ai
+
+# Deliberately NO workflow-level path filter. promote.yml gates on workflow-run
+# conclusions, and a path-filtered workflow produces no run at all for unrelated
+# commits — which would force it into the awkward "gate only if a run exists"
+# bucket. Instead this always runs and gates internally on the `changes` job, so
+# a commit that doesn't touch packages/gp-ai costs one ~10s job and still yields
+# a run concluding `success`. Same shape as gp-api.yml always running.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: gp-ai-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REPOSITORY: gp-ai-projects
+  SUBTREE: packages/gp-ai
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      any: ${{ steps.filter.outputs.any }}
+      python: ${{ steps.filter.outputs.python }}
+      services: ${{ steps.services.outputs.list }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            any:
+              - 'packages/gp-ai/**'
+              - '.github/workflows/gp-ai.yml'
+            python:
+              - 'packages/gp-ai/**/*.py'
+              - 'packages/gp-ai/pyproject.toml'
+              - 'packages/gp-ai/uv.lock'
+              - 'packages/gp-ai/Makefile'
+              - '.github/workflows/gp-ai.yml'
+            broker:
+              - 'packages/gp-ai/broker/**'
+              - 'packages/gp-ai/pyproject.toml'
+              - 'packages/gp-ai/uv.lock'
+            pmf-engine:
+              - 'packages/gp-ai/pmf_engine/**'
+              - 'packages/gp-ai/shared/**'
+              - 'packages/gp-ai/pyproject.toml'
+              - 'packages/gp-ai/uv.lock'
+            serve-analyze:
+              - 'packages/gp-ai/serve/v1_pipeline/**'
+              - 'packages/gp-ai/serve/hierarchical_discovery/**'
+              - 'packages/gp-ai/shared/**'
+              - 'packages/gp-ai/pyproject.toml'
+              - 'packages/gp-ai/uv.lock'
+            ddhq-matcher:
+              - 'packages/gp-ai/hubspot_ddhq_match/**'
+              - 'packages/gp-ai/shared/**'
+              - 'packages/gp-ai/pyproject.toml'
+              - 'packages/gp-ai/uv.lock'
+            engineer-agent:
+              - 'packages/gp-ai/engineer_agent/**'
+              - 'packages/gp-ai/shared/**'
+              - 'packages/gp-ai/pyproject.toml'
+              - 'packages/gp-ai/uv.lock'
+
+      # Collapse the per-service booleans into a JSON array the build matrix
+      # consumes, so only changed services get a build job. An empty array
+      # skips the build job entirely rather than running a no-op matrix.
+      - name: Build service matrix
+        id: services
+        env:
+          FILTERS: ${{ toJSON(steps.filter.outputs) }}
+        run: |
+          set -euo pipefail
+          list='[]'
+          for s in broker pmf-engine serve-analyze ddhq-matcher engineer-agent; do
+            if [ "$(jq -r --arg s "$s" '.[$s] // "false"' <<<"$FILTERS")" = "true" ]; then
+              list=$(jq -c --arg s "$s" '. + [$s]' <<<"$list")
+            fi
+          done
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+          echo "Services to build: $list"
+
+  validate:
+    name: Validate
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/gp-ai
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: latest
+
+      # --all-packages is load-bearing: `uv sync` at a workspace root installs
+      # ONLY the root project's deps, not the members'. Without it broker's
+      # playwright dep is missing and 11 tests fail with ModuleNotFoundError.
+      - name: Install deps
+        run: uv sync --frozen --all-packages --all-extras
+
+      # Scope is set by extend-exclude in pyproject.toml, not here — so a local
+      # `make lint` checks exactly what CI checks.
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format check
+        run: uv run ruff format --check .
+
+      # `make test` owns the suite list (TEST_PATHS) so CI and local runs cannot
+      # drift. There is no repo-root tests/ directory.
+      - name: Test
+        run: make test
+
+      # mypy is NOT a gate. It reports ~895 errors across the deployed members
+      # (419 in shared alone) and none are auto-fixable, so there is no scope at
+      # which it could pass today. Running it advisory-only keeps the signal
+      # visible in the log without a check that can never go green. Promote it
+      # to a real step, member by member, as the debt is paid down.
+      - name: Type check (advisory, non-blocking)
+        continue-on-error: true
+        run: uv run mypy serve/v1_pipeline/ shared/
+
+  build:
+    name: Build ${{ matrix.service }}
+    needs: changes
+    if: needs.changes.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.changes.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Resolve Dockerfile
+        id: df
+        run: |
+          case "${{ matrix.service }}" in
+            broker)         echo "file=packages/gp-ai/broker/Dockerfile" ;;
+            pmf-engine)     echo "file=packages/gp-ai/pmf_engine/Dockerfile" ;;
+            serve-analyze)  echo "file=packages/gp-ai/serve/v1_pipeline/Dockerfile" ;;
+            ddhq-matcher)   echo "file=packages/gp-ai/hubspot_ddhq_match/deployment/Dockerfile" ;;
+            engineer-agent) echo "file=packages/gp-ai/engineer_agent/Dockerfile" ;;
+          esac >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:latest
+            network=host
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Build on PRs too (catches a broken Dockerfile before merge) but only
+      # push from main — a PR pushing SHA tags would litter ECR with images for
+      # commits that never land.
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          # context is the subtree, not the repo root: every COPY in these
+          # Dockerfiles was written relative to the old repo root. Widening it
+          # to '.' would both break those COPYs and drag all of omni into the
+          # build.
+          context: packages/gp-ai
+          file: ${{ steps.df.outputs.file }}
+          platforms: linux/arm64
+          push: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
+          # SHA-tagged and immutable. The mutable <service>-dev tag is retained
+          # only until Terraform pins the SHA (that PR removes it), so the
+          # existing force-new-deployment dev path keeps working until then.
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ matrix.service }}-${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ matrix.service }}-dev
+          cache-from: type=gha,scope=gp-ai-${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=gp-ai-${{ matrix.service }}
+          provenance: false
+
+      # Preserves the dev deploy that build-broker.yml used to do in the old
+      # repo. Without this, pushing the mutable broker-dev tag changes nothing —
+      # the running service keeps its old image — and because gp-ai changes no
+      # longer land in gp-ai-projects, dev would silently freeze on the last
+      # image that repo built. Broker is the only service that needs it: the
+      # pmf-engine runner is RunTask-driven off a moving tag, so the next run
+      # picks up the new image on its own.
+      #
+      # This is transitional. Once Terraform pins the SHA, `terraform apply`
+      # becomes the deploy and this step goes away along with the mutable tag.
+      - name: Redeploy broker on dev
+        if: >-
+          matrix.service == 'broker'
+          && github.event_name == 'push'
+          && github.ref_name == 'main'
+        run: |
+          aws ecs update-service \
+            --cluster broker-dev \
+            --service broker-dev \
+            --force-new-deployment \
+            --region ${{ env.AWS_REGION }} \
+            --query 'service.deployments[0].{status:status,taskDefinition:taskDefinition}' \
+            --output table
+
+  # Stable aggregation gate. Branch protection and promote.yml want one name
+  # whose meaning doesn't change as jobs fan in and out. `skipped` is a
+  # legitimate pass here (the commit didn't touch this subtree); `failure` and
+  # `cancelled` are not.
+  gate:
+    name: gp-ai
+    needs: [changes, validate, build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check needed jobs
+        env:
+          VALIDATE: ${{ needs.validate.result }}
+          BUILD: ${{ needs.build.result }}
+        run: |
+          set -euo pipefail
+          failed=0
+          for pair in "validate:$VALIDATE" "build:$BUILD"; do
+            name=${pair%%:*}
+            result=${pair#*:}
+            case "$result" in
+              success|skipped) echo "$name: $result" ;;
+              *) echo "::error::gp-ai $name concluded '$result'"; failed=1 ;;
+            esac
+          done
+          [ "$failed" -eq 0 ] || exit 1
+          echo "gp-ai checks satisfied"
