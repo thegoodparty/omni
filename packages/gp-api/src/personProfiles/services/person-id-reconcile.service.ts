@@ -27,7 +27,14 @@ export class PersonIdReconcileService {
     )
     if (!claimed) return
 
-    await this.backfill.reconcileNullPersonIds(RECONCILE_BATCH_LIMIT)
-    await this.cronLock.markCompleted(PERSON_ID_BACKFILL_CRON_JOB, now)
+    // Always release the daily-run lock: if the sweep throws (e.g. a Prisma
+    // error), leaving the claim un-completed strands it until the 6h stale
+    // takeover — well past the next 04:00 run — so the day's sweep is lost with
+    // no retry. finally lets the error still propagate to the global logger.
+    try {
+      await this.backfill.reconcileNullPersonIds(RECONCILE_BATCH_LIMIT)
+    } finally {
+      await this.cronLock.markCompleted(PERSON_ID_BACKFILL_CRON_JOB, now)
+    }
   }
 }

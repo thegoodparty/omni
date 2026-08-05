@@ -39,4 +39,20 @@ describe('PersonIdReconcileService.reconcile', () => {
 
     expect(sweep).not.toHaveBeenCalled()
   })
+
+  it('releases the daily lock even if the sweep throws', async () => {
+    const cronLock = service.app.get(CronLockService)
+    vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
+    const markCompleted = vi
+      .spyOn(cronLock, 'markCompleted')
+      .mockResolvedValue(undefined)
+    vi.spyOn(
+      service.app.get(PersonIdBackfillService),
+      'reconcileNullPersonIds',
+    ).mockRejectedValue(new Error('prisma boom'))
+
+    await expect(reconcileService().reconcile()).rejects.toThrow('prisma boom')
+    // finally still marks completed so the claim isn't stranded.
+    expect(markCompleted).toHaveBeenCalledTimes(1)
+  })
 })

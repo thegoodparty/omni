@@ -216,25 +216,15 @@ describe('GET /v1/persons (public list)', () => {
     expect(res.status).toBe(400)
   })
 
-  it('filters by gpApiUserId and returns only the matching person id', async () => {
+  it('requires M2M auth to use the gpApiUserId filter (no public enumeration)', async () => {
+    // The linkage column is already omitted from responses, but filtering on it
+    // is itself an enumeration oracle, so an unauthenticated (observe-only)
+    // caller is rejected outright. The authenticated 200 path is covered by the
+    // service + controller unit tests (the harness runs without an M2M token).
     const res = await service.client.get('/v1/persons', {
       params: { gpApiUserId: PERSON_GP_API_USER_ID, columns: 'id' },
     })
-
-    expect(res.status).toBe(200)
-    expect(res.data).toHaveLength(1)
-    expect(res.data[0].id).toBe(PERSON_ID)
-    // Even scoped to columns=id, the linkage itself never comes back.
-    expect(Object.keys(res.data[0])).toEqual(['id'])
-    expectNoPersonPii(res.data)
-  })
-
-  it('returns an empty list for an unmatched gpApiUserId', async () => {
-    const res = await service.client.get('/v1/persons', {
-      params: { gpApiUserId: '99999', columns: 'id' },
-    })
-    expect(res.status).toBe(200)
-    expect(res.data).toHaveLength(0)
+    expect(res.status).toBe(401)
   })
 
   it('never returns gp_api_user_id on the default response', async () => {
