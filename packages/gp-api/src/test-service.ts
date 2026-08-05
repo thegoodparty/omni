@@ -19,6 +19,7 @@ import {
   TEMPLATE_LOCK_KEY,
   startTestPostgres,
 } from './test-postgres'
+import { ElectionApiTokenService } from './vendors/clerk/services/electionApiToken.service'
 
 export const TEST_CLERK_ID = 'user_test_123'
 
@@ -127,6 +128,16 @@ export const useTestService = (): TestServiceContext => {
         return { externalUserId: sub }
       },
     )
+
+    // election-api calls now require a Clerk M2M token (ElectionApiTokenService).
+    // Route tests don't set GP_API_MACHINE_SECRET and stub the election-api HTTP
+    // calls anyway, so stub the token — otherwise authHeader() throws and every
+    // election-api-backed endpoint (e.g. district resolution behind contacts
+    // count) returns a 502.
+    const electionApiTokenService = app.get(ElectionApiTokenService)
+    vi.spyOn(electionApiTokenService, 'authHeader').mockResolvedValue({
+      Authorization: 'Bearer test-election-api-token',
+    })
 
     // Start the application on a random available port
     await app.listen({ port: 0, host: '127.0.0.1' })
