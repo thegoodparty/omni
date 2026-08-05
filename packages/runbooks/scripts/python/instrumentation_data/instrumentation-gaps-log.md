@@ -1,3 +1,24 @@
+## 2026-08-05
+
+### Potential instrumentation gaps
+
+Coverage: 19 tracked — 19 new, 0 open, 0 accepted, 0 dismissed.
+
+| rank | surface | type | rubric rule | dashboard question | location |
+| --- | --- | --- | --- | --- | --- |
+| 0 | packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceStepper.tsx#wizard_stage | wizard_stage | multi-step flow stage | Where do users enter and drop off across the ordinance wizard's numbered steps? | packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceStepper.tsx |
+| 0 | packages/gp-webapp/app/dashboard/polls/[id]/expand/shared/ExpandStepFooter.tsx#wizard_stage | wizard_stage | multi-step flow stage | At which of the 3 expand-poll steps do users drop off? | packages/gp-webapp/app/dashboard/polls/[id]/expand/shared/ExpandStepFooter.tsx |
+| 0 | packages/gp-webapp/app/dashboard/website/create/components/WebsiteCreateFlow.tsx#wizard_stage | wizard_stage | multi-step flow stage | Where do users drop off across the website creation flow's steps (About, Complete, etc.)? | packages/gp-webapp/app/dashboard/website/create/components/WebsiteCreateFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/website/editor/components/WebsiteEditorPageStepper.tsx#wizard_stage | wizard_stage | multi-step flow stage | At which website editor step do users advance or abandon before publishing? | packages/gp-webapp/app/dashboard/website/editor/components/WebsiteEditorPageStepper.tsx |
+| 0 | packages/gp-webapp/app/onboarding/components/FollowOnFlow.tsx#wizard_stage | wizard_stage | multi-step flow stage | Where do users drop off across the follow-on onboarding steps (office selection, pledge, etc.)? | packages/gp-webapp/app/onboarding/components/FollowOnFlow.tsx |
+| 0 | packages/gp-webapp/app/onboarding/shared/OnboardingTopBar.tsx#wizard_stage | wizard_stage | multi-step flow stage | Where do users drop off across onboarding steps shown in this progress bar? | packages/gp-webapp/app/onboarding/shared/OnboardingTopBar.tsx |
+| 0 | packages/gp-webapp/app/serve/onboarding/ServeOnboardingFlow.tsx#wizard_stage | wizard_stage | multi-step flow stage | Where do users drop off across the Serve onboarding steps (office, party, dates, confirm)? | packages/gp-webapp/app/serve/onboarding/ServeOnboardingFlow.tsx |
+| 1 | packages/gp-api/src/annotations/services/annotationAttachment.service.ts#api_job | api_job | async job completion (server truth) | How often does OCR processing for note attachments complete successfully vs. error, and how long does it take? | packages/gp-api/src/annotations/services/annotationAttachment.service.ts |
+| 1 | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit | form_submit | primary CTA / outcome (form submit) | How many users successfully submit a bug report on a briefing annotation, and how often does it fail? | packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx |
+| 1 | packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx#form_submit | form_submit | primary CTA / outcome (form submit) | How many users successfully submit staged notes (typed/camera/upload) to a briefing, and how often does it fail? | packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx |
+
+(9 more new gaps — see the state file.)
+
 ## 2026-08-03
 
 ### Potential instrumentation gaps
