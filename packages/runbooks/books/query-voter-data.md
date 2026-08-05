@@ -123,8 +123,7 @@ print(flags_t[flags_t['value'] == 'Yes'].to_string())
 
 ## Tips
 
-- Scores are 0-100. Higher = stronger signal for that attribute.
-- Scores are within-state percentile ranks (mean ~50, SD ~29, verified on the mart 2026-08-04): a voter scoring 60 is more aligned than ~60% of voters in their state. A district average near 50, or ~50% of voters clearing a `>= 50` threshold, means "typical for the state" — NOT a 50/50 opinion split and NOT absolute issue support. Report leans as deviation from the state average, never as "X% of voters support Y".
+- Scores are 0-100; higher = stronger signal for that attribute. They are within-state percentile ranks (mean ~50, SD ~29, verified on `int__l2_nationwide_uniform_w_haystaq` 2026-08-04): a voter scoring 60 is more aligned than ~60% of voters in their state. A district average near 50, or ~50% of voters clearing a `>= 50` threshold, means "typical for the state" — NOT a 50/50 opinion split and NOT absolute issue support. Report leans as deviation from the state average, never as "X% of voters support Y". Two exceptions: `hs_new_home_buyer`/`hs_any_home_buyer` sit at a ~60 baseline in every state, and ~106 columns exist in only some states (two vendor vintages: a 12-state set and a 39-state set) — they are null elsewhere, so an all-null or 0%-aligned result can mean no coverage in that state, not opposition.
 - ~300 score columns per voter. Use `SELECT * ... LIMIT 1` to explore column names.
 - Filter by city: `WHERE UPPER(Residence_Addresses_City) = "CITYNAME"`
 - Filter by zip: `WHERE Residence_Addresses_Zip LIKE "28801%"`
