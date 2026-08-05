@@ -633,9 +633,10 @@ print(json.dumps([{"name": "loc", "passed": True, "cwd": os.getcwd()}]))
     # Outside workspace.
     assert not real_gate.startswith(real_ws + os.sep)
     assert real_gate != real_ws
-    # Outside the literal /tmp the runner sweeps.
-    assert not real_gate.startswith("/tmp/")
-    assert real_gate != "/tmp"
+    # NB: no "/tmp" assertion here. This test injects gate_base_dir, so the
+    # gate dir lives wherever the fixture put it — under /tmp on Linux, where
+    # pytest's tmp_path lives. The real invariant (the DEFAULT root is not
+    # swept) is asserted in test_default_gate_root_honors_qa_gate_root_env.
     # Under the injected base.
     assert real_gate.startswith(os.path.realpath(gate_base))
     # Deleted after the gate finished.
@@ -998,6 +999,9 @@ def test_default_gate_root_honors_qa_gate_root_env(monkeypatch):
     writable mount; blank/unset falls back to the (Dockerfile-created) default."""
     monkeypatch.delenv("QA_GATE_ROOT", raising=False)
     assert qa_gate_mod._default_gate_root() == qa_gate_mod.DEFAULT_QA_GATE_ROOT
+    # The point of a dedicated root: the runner sweeps /tmp, so gate bytes must
+    # not land there. Asserted on the default rather than on an injected base.
+    assert not qa_gate_mod.DEFAULT_QA_GATE_ROOT.startswith("/tmp")
     monkeypatch.setenv("QA_GATE_ROOT", "/custom/writable-root")
     assert qa_gate_mod._default_gate_root() == "/custom/writable-root"
     monkeypatch.setenv("QA_GATE_ROOT", "   ")
@@ -1130,7 +1134,6 @@ def test_evaluator_fragments_read_from_injected_result_file(workspace, gate_base
     rfp = os.path.realpath(params.result_file_path)
     assert rfp.startswith(os.path.realpath(gate_base))
     assert not rfp.startswith(os.path.realpath(workspace) + os.sep)
-    assert not rfp.startswith("/tmp/")
     # gate_cwd is the materialized gate dir, workspace passed through read-only.
     assert os.path.realpath(params.gate_cwd).startswith(os.path.realpath(gate_base))
     assert params.workspace_dir == workspace
