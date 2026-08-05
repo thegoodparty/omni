@@ -139,6 +139,19 @@ export class PublicCampaignsService extends createPrismaBase(MODELS.Campaign) {
   ): boolean {
     const campaignTokens = campaignSlug.split('-').filter(Boolean)
     const set = new Set(campaignTokens)
+
+    // `findSlug` de-duplicates colliding slugs by appending a counter (1-99) to
+    // the name *before* slugify, so a second "Mike Vick" is stored as
+    // `mike-vick1`, not `mike-vick-1`. Without stripping that counter the last
+    // name never matches and the candidate's own page reports them unclaimed.
+    const lastToken = campaignTokens.at(-1)
+    const collisionBase = lastToken
+      ? /^(.+?)\d{1,2}$/.exec(lastToken)?.[1]
+      : undefined
+    if (collisionBase) {
+      set.add(collisionBase)
+    }
+
     return requiredTokens.every((token) => set.has(token))
   }
 

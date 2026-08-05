@@ -112,6 +112,41 @@ describe('GET /v1/public-campaigns', () => {
     expect(res.status).toBe(404)
   })
 
+  it('matches a campaign whose slug carries a collision counter (mike-vick1)', async () => {
+    await seedCampaign({
+      id: 10,
+      slug: 'mike-vick1',
+      raceId: 'race-vick',
+      isActive: true,
+    })
+
+    const res = await find({
+      raceId: 'race-vick',
+      firstName: 'Mike',
+      lastName: 'Vick',
+    })
+
+    expect(res.status).toBe(200)
+    expect(res.data.slug).toBe('mike-vick1')
+  })
+
+  it('does not let the collision-counter fallback match an unrelated last name', async () => {
+    await seedCampaign({
+      id: 11,
+      slug: 'mike-vickers',
+      raceId: 'race-vickers',
+      isActive: true,
+    })
+
+    const res = await find({
+      raceId: 'race-vickers',
+      firstName: 'Mike',
+      lastName: 'Vick',
+    })
+
+    expect(res.status).toBe(404)
+  })
+
   it('disambiguates by first name when two active campaigns share raceId + last name', async () => {
     await seedCampaign({
       id: 4,
