@@ -130,16 +130,18 @@ describe('GET /v1/public-campaigns', () => {
     expect(res.data.slug).toBe('mike-vick1')
   })
 
+  // Exercises the stripping path itself: the counter is stripped off `vic2`,
+  // and the resulting `vic` must still not satisfy a lookup for `vick`.
   it('does not let the collision-counter fallback match an unrelated last name', async () => {
     await seedCampaign({
       id: 11,
-      slug: 'mike-vickers',
-      raceId: 'race-vickers',
+      slug: 'mike-vic2',
+      raceId: 'race-vic2',
       isActive: true,
     })
 
     const res = await find({
-      raceId: 'race-vickers',
+      raceId: 'race-vic2',
       firstName: 'Mike',
       lastName: 'Vick',
     })
