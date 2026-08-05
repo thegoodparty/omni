@@ -43,13 +43,16 @@ export class PersonIdBackfillService extends createPrismaBase(MODELS.User) {
         await this.usersService.updateUser({ id: user.id }, { personId })
       } catch (error) {
         // User.person_id is @unique. The linkage is 1:1, so another user
-        // already owning this personId means upstream data is inconsistent —
-        // log it and skip the write rather than failing /mine.
+        // already owning this personId means upstream data is inconsistent.
+        // Skip the write and leave THIS user unlinked — returning the resolved
+        // id would unlock the editor (canCreate) while POST still 409s on a
+        // null owner.personId.
         if (!isUniqueConstraintError(error)) throw error
         this.logger.warn(
           { error, userId: user.id, personId },
-          'person_id already owned by another user; skipping backfill write',
+          'person_id already owned by another user; leaving user unlinked',
         )
+        return user.personId ?? null
       }
       return personId
     } catch (error) {

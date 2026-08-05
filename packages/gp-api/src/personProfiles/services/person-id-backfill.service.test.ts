@@ -74,8 +74,10 @@ describe('PersonIdBackfillService.linkUserIfMissing', () => {
 
     const result = await backfill().linkUserIfMissing(user)
 
-    // Per contract: never throws; this user's own row is untouched.
-    expect(result).toBe(PERSON_ID)
+    // Never throws, and the clash leaves this user unlinked: we return the
+    // user's actual (null) personId, NOT the resolved id — otherwise canCreate
+    // would unlock while POST still 409s.
+    expect(result).toBeNull()
     expect((await getUser(service.user.id)).personId).toBeNull()
     expect((await getUser(other.id)).personId).toBe(PERSON_ID)
   })
