@@ -9,7 +9,7 @@ from shared.logger import get_logger
 
 logger = get_logger(__name__)
 
-_AWS_DEPLOYMENT_ENVS = ("dev", "qa", "prod")
+_AWS_DEPLOYMENT_ENVS = ("dev", "prod")
 
 
 class BrokerUrlSchemeError(ValueError):

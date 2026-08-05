@@ -314,11 +314,6 @@ Check CloudWatch logs for the specific step that failed. Common issues:
 - S3 Bucket: `ddhq-matcher-output-dev`
 - ECS Cluster: `ddhq-matcher-dev`
 
-### QA
-- Domain: `https://ai-qa.goodparty.org/match/hubspot-ddhq`
-- S3 Bucket: `ddhq-matcher-output-qa`
-- ECS Cluster: `ddhq-matcher-qa`
-
 ### Prod
 - Domain: `https://ai.goodparty.org/match/hubspot-ddhq`
 - S3 Bucket: `ddhq-matcher-output-prod`

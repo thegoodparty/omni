@@ -1,6 +1,6 @@
 ---
 name: terraform-deploy
-description: Use when deploying a gp-ai-projects code or infra change to an environment (dev/qa/prod) via Terraform — especially control-plane Lambda changes (dispatch_handler.py, scheduler_handler.py, task_reaper.py) that a branch merge does NOT auto-deploy. Covers the build_lambda_package + AWS-credential bridge + init/plan/apply procedure and what deploys automatically vs. manually.
+description: Use when deploying a gp-ai-projects code or infra change to an environment (dev/prod) via Terraform — especially control-plane Lambda changes (dispatch_handler.py, scheduler_handler.py, task_reaper.py) that a branch merge does NOT auto-deploy. Covers the build_lambda_package + AWS-credential bridge + init/plan/apply procedure and what deploys automatically vs. manually.
 ---
 
 > **TRANSITIONAL — read this first.** The code now lives at `packages/gp-ai` in

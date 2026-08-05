@@ -10,12 +10,12 @@ terraform {
 }
 
 variable "environment" {
-  description = "Environment name (dev, qa, prod). Drives bucket name and IAM role names."
+  description = "Environment name (dev, prod). Drives bucket name and IAM role names."
   type        = string
 
   validation {
-    condition     = contains(["dev", "qa", "prod"], var.environment)
-    error_message = "environment must be one of: dev, qa, prod"
+    condition     = contains(["dev", "prod"], var.environment)
+    error_message = "environment must be one of: dev, prod"
   }
 }
 

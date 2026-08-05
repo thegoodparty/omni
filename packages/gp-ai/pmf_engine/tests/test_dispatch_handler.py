@@ -2243,7 +2243,7 @@ class TestResolveRoutingFailures:
         self._setup_loader(monkeypatch, fake_loader)
 
         with (
-            patch.dict(os.environ, {"ENVIRONMENT": "qa"}, clear=False),
+            patch.dict(os.environ, {"ENVIRONMENT": "dev"}, clear=False),
             patch("pmf_engine.control_plane.dispatch_handler._emit_metric") as mock_metric,
         ):
             with pytest.raises(ManifestLoaderTransientError):
@@ -2255,7 +2255,7 @@ class TestResolveRoutingFailures:
         dim_dict = {d["Name"]: d["Value"] for d in dimensions}
         assert dim_dict.get("error_type") == "transient", f"error_type dimension must be 'transient', got {dim_dict!r}"
         assert dim_dict.get("experiment_id") == "smoke_test"
-        assert dim_dict.get("Environment") == "qa"
+        assert dim_dict.get("Environment") == "dev"
 
     def test_loader_malformed_error_raises_and_emits_metric(self, monkeypatch):
         """Corrupt/invalid manifest in S3 → publish-pipeline bug. Re-raise

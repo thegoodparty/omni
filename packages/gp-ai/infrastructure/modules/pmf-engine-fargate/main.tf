@@ -1,5 +1,5 @@
 variable "environment" {
-  description = "Environment name (dev, qa, prod)"
+  description = "Environment name (dev, prod)"
   type        = string
 }
 
@@ -64,7 +64,7 @@ variable "broker_url" {
 
   validation {
     condition     = startswith(lower(var.broker_url), "https://")
-    error_message = "broker_url must use https:// — runner rejects plaintext in dev/qa/prod."
+    error_message = "broker_url must use https:// — runner rejects plaintext in dev/prod."
   }
 
   validation {

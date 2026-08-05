@@ -463,7 +463,7 @@ class TestMintRunTokenInputFiles:
 
     def test_input_files_honors_environment_bucket(self, monkeypatch):
         """A ref naming the env's own inputs bucket passes the gate."""
-        monkeypatch.setenv("ENVIRONMENT", "qa")
+        monkeypatch.setenv("ENVIRONMENT", "dev")
         store = MagicMock(spec=ScopeTicketStore)
         app = _create_test_app(store=store)
         client = TestClient(app)
@@ -473,7 +473,7 @@ class TestMintRunTokenInputFiles:
             json=_mint_payload(
                 input_files=[
                     {
-                        "bucket": "gp-agent-run-inputs-qa",
+                        "bucket": "gp-agent-run-inputs-dev",
                         "key": "uploads/org/abc/agenda.pdf",
                         "dest": "agenda.pdf",
                     }

@@ -4,7 +4,7 @@ Operational procedures for the PMF Engine v2 broker service.
 
 **AWS Account:** 333022194791 | **Region:** us-west-2
 **ECR:** `333022194791.dkr.ecr.us-west-2.amazonaws.com/gp-ai-projects`
-**Tags:** `broker-dev`, `broker-qa`, `broker-prod`
+**Tags:** `broker-dev`, `broker-prod`
 
 ---
 
@@ -12,7 +12,7 @@ Operational procedures for the PMF Engine v2 broker service.
 
 ### Via CI (preferred)
 
-Push to `develop`/`qa`/`prod` with changes under `broker/`. The `build-broker.yml` workflow builds, pushes to ECR, and force-redeploys the ECS service.
+Merge to `main` with changes under `broker/`. The `build-broker.yml` workflow builds, pushes to ECR, and force-redeploys the ECS service.
 
 ### Manual
 

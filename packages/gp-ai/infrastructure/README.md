@@ -253,15 +253,6 @@ aws logs tail /ecs/serve-analyze-dev --follow --profile work
 - **Docker Image**: `serve-analyze-dev`
 - **DynamoDB Table**: `serve-message-v1-dev`
 
-### QA
-- **Domain**: `ai-qa.goodparty.org`
-- **ALB**: `ai-qa` load balancer
-- **ECS Cluster**: `serve-analyze-qa`
-- **Lambda Trigger**: `serve-analyze-trigger-qa`
-- **S3 Bucket**: `serve-analyze-data-qa`
-- **Docker Image**: `serve-analyze-qa`
-- **DynamoDB Table**: `serve-message-v1-qa`
-
 ### Production
 - **Domain**: `ai.goodparty.org`
 - **ALB**: `ai-prod` load balancer

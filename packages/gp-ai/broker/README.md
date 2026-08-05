@@ -26,7 +26,7 @@ See `ARCHITECTURE.md` for the full endpoint list, auth flow, and deployment topo
 
 ## Topology: one hostname, ALB as the routing layer
 
-Clients always talk to **one hostname** per environment: `broker-dev.ai.goodparty.org` (dev), `broker-qa.ai.goodparty.org` (qa), `broker.ai.goodparty.org` (prod). Behind that hostname sits an internal ALB that terminates TLS (public ACM cert) and forwards to a target group of broker tasks.
+Clients always talk to **one hostname** per environment: `broker-dev.ai.goodparty.org` (dev), `broker.ai.goodparty.org` (prod). Behind that hostname sits an internal ALB that terminates TLS (public ACM cert) and forwards to a target group of broker tasks.
 
 Today the target group points at a single broker ECS service. Tomorrow, when one broker shape isn't enough, **the ALB is the seam for splitting into pools** — no consumer-side change, no DNS churn, no new hostname.
 
