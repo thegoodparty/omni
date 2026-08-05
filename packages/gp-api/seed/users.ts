@@ -124,19 +124,27 @@ export const ensureClerkUser = async (
       clerkErrors[0]?.code === 'form_identifier_exists'
 
     if (isDuplicate) {
-      const existing = await clerkThrottle(() =>
-        clerk.users.getUserList({
-          emailAddress: [email],
-        }),
-      )
+      // Every preview shares one Clerk dev instance, so a first-boot seed
+      // reliably rides its rate limit. This lookup used to be the one Clerk
+      // call outside a catch: a 429 escaped it, rejected the enclosing pmap,
+      // and killed the whole seed before campaigns were ever created.
+      try {
+        const existing = await clerkThrottle(() =>
+          clerk.users.getUserList({
+            emailAddress: [email],
+          }),
+        )
 
-      const clerkUser = existing.data[0]
-      if (clerkUser) {
-        await prisma.user.update({
-          where: { id: localUserId },
-          data: { clerkId: clerkUser.id },
-        })
-        console.log(`  [CLERK] Linked ${email} → ${clerkUser.id}`)
+        const clerkUser = existing.data[0]
+        if (clerkUser) {
+          await prisma.user.update({
+            where: { id: localUserId },
+            data: { clerkId: clerkUser.id },
+          })
+          console.log(`  [CLERK] Linked ${email} → ${clerkUser.id}`)
+        }
+      } catch (lookupError) {
+        console.error(`  [CLERK] Failed to link ${email}:`, lookupError)
       }
     } else {
       console.error(`  [CLERK] Failed to sync ${email}:`, error)
