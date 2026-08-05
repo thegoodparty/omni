@@ -2,7 +2,10 @@ import { useTheme } from 'next-themes'
 import { Toaster as Sonner, type ToasterProps } from 'sonner'
 
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = 'system', resolvedTheme } = useTheme()
+  // Default resolvedTheme to 'light': next-themes returns it undefined on SSR
+  // and the first client render, which would otherwise flash light tokens on a
+  // dark page until hydration resolves the actual theme.
+  const { theme = 'system', resolvedTheme = 'light' } = useTheme()
 
   return (
     <Sonner
