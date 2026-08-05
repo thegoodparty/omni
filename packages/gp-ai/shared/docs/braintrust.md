@@ -80,7 +80,7 @@ BraintrustClient.reset_instance()
 
 ### 1. Add Secret to AWS Secrets Manager
 
-The API key should already be in `AI_SECRETS_DEV`, `AI_SECRETS_QA`, and `AI_SECRETS_PROD`. If not:
+The API key should already be in `AI_SECRETS_DEV` and `AI_SECRETS_PROD`. If not:
 
 ```bash
 # Get current secret value

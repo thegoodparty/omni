@@ -463,7 +463,7 @@ def _validate_input_files(value) -> None:
     if not expected_bucket:
         raise ValueError(
             "_input_files cannot be validated: ENVIRONMENT env var missing on dispatch lambda; "
-            "set ENVIRONMENT to one of dev/qa/prod (see modules/pmf-engine-control-plane/main.tf)"
+            "set ENVIRONMENT to one of dev/prod (see modules/pmf-engine-control-plane/main.tf)"
         )
     for i, entry in enumerate(value):
         if not isinstance(entry, dict):

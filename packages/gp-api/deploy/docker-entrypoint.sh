@@ -26,7 +26,7 @@ fi
 # and PollResponsesDownloadService's pg.Pool (max 5). At 5 each that is ~10
 # connections per preview, so ~10 concurrent previews fit under the
 # ~100-connection ceiling of a 0.5-ACU instance; Aurora auto-scales above that
-# and the connections alarm fires at 80. Dev/qa/prod get the standard 20.
+# and the connections alarm fires at 80. Dev/prod get the standard 20.
 if [ "$IS_PREVIEW" = "true" ]; then
   DB_CONN_LIMIT=5
 else

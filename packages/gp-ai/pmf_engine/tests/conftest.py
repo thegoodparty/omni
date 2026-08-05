@@ -27,7 +27,7 @@ def _default_environment_to_test(monkeypatch):
     BROKER_URL is unset. Tests that don't care about env then crash on init
     before exercising the behavior under test. Pinning 'test' (not in
     _AWS_DEPLOYMENT_ENVS) takes the local/in-process path. Env-validation tests
-    that explicitly set ENVIRONMENT to dev/qa/prod via monkeypatch.setenv still
+    that explicitly set ENVIRONMENT to dev/prod via monkeypatch.setenv still
     override this (later setenv wins)."""
     monkeypatch.setenv("ENVIRONMENT", "test")
 

@@ -35,8 +35,8 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
   thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
 
   tags = {
-    Name        = "GitHub Actions OIDC Provider"
-    Purpose     = "Allow GitHub Actions to assume AWS roles"
+    Name    = "GitHub Actions OIDC Provider"
+    Purpose = "Allow GitHub Actions to assume AWS roles"
   }
 }
 
@@ -67,8 +67,8 @@ resource "aws_iam_role" "github_actions_ecr_push" {
   })
 
   tags = {
-    Name        = "GitHub Actions ECR Push Role"
-    Purpose     = "Allow GitHub Actions to push Docker images to ECR"
+    Name    = "GitHub Actions ECR Push Role"
+    Purpose = "Allow GitHub Actions to push Docker images to ECR"
   }
 }
 
@@ -196,7 +196,6 @@ resource "aws_iam_role_policy" "github_actions_ecs_deploy" {
         ]
         Resource = [
           "arn:aws:ecs:us-west-2:${data.aws_caller_identity.current.account_id}:service/broker-dev/broker-dev",
-          "arn:aws:ecs:us-west-2:${data.aws_caller_identity.current.account_id}:service/broker-qa/broker-qa",
           "arn:aws:ecs:us-west-2:${data.aws_caller_identity.current.account_id}:service/broker-prod/broker-prod"
         ]
       }

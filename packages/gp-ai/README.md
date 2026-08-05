@@ -127,7 +127,7 @@ gp-ai-projects/
 │   ├── logger.py                # Environment-aware logging
 │   └── databricks_client.py     # Databricks connector
 ├── infrastructure/               # Terraform modules
-│   ├── environments/            # dev/qa/prod configs
+│   ├── environments/            # dev/prod configs
 │   └── modules/                 # Reusable modules
 └── stitch_golden_data/          # Legacy data matching (archived)
 ```

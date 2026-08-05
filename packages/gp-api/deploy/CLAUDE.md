@@ -1,6 +1,6 @@
 # Deploy
 
-Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `infra-cli.ts` wrapper used by the `npm run infra` commands. Targets these environments: `preview` (per-PR), `dev` (deployed on push to `main`, the single long-lived branch), and `prod`. A push to `main` deploys dev; `prod` is reached only by automated promotion — the `promote.yml` workflow waits for that commit's checks to go green on dev, then deploys the same commit to prod. It is forward-only (ECS circuit breaker auto-reverts a crash-on-boot; there is no manual rollback). There is no `qa` branch and no manual promotion.
+Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `infra-cli.ts` wrapper used by the `npm run infra` commands. Targets these environments: `preview` (per-PR), `dev` (deployed on push to `main`, the single long-lived branch), and `prod`. A push to `main` deploys dev; `prod` is reached only by automated promotion — the `promote.yml` workflow waits for that commit's checks to go green on dev, then deploys the same commit to prod. It is forward-only (ECS circuit breaker auto-reverts a crash-on-boot; there is no manual rollback). There is no manual promotion.
 
 ## Key files
 
@@ -23,7 +23,7 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 
 ## Patterns
 
-- **Environment is a literal union** (`'preview' \| 'dev' \| 'qa' \| 'prod'`) narrowed from `pulumi.Config().require('environment')`. The `select<T>(values)` helper in `index.ts` is the canonical way to choose per-env values — use it instead of `if/else` chains.
+- **Environment is a literal union** (`'preview' \| 'dev' \| 'prod'`) narrowed from `pulumi.Config().require('environment')`. The `select<T>(values)` helper in `index.ts` is the canonical way to choose per-env values — use it instead of `if/else` chains.
 - **Preview stacks are ephemeral**: `prNumber` is required for `preview`, and stack name is `pr-${prNumber}`. They are torn down two ways: `gp-api-teardown-preview.yml` destroys a PR's stack on `pull_request: closed`, and `gp-api-cleanup-preview.yml` sweeps any dangling ones (those with no open PR, found by `find-stale-preview-stacks.ts`) every 3 hours. Both share the `destroy-preview-stack` composite action, which runs `pulumi cancel` first — a runner killed mid-deploy leaves a state lock that otherwise makes `pulumi destroy` fail and strands the stack's ALB.
 - **Pulumi config secrets** come from SSM via `infra-cli.ts` (`PULUMI_CONFIG_PASSPHRASE`, `GRAFANA_AUTH`, `GRAFANA_SM_ACCESS_TOKEN`). The CLI fetches them per-run; nothing is committed.
 - **Docker image is tagged with `imageUri`** passed in from CI; `index.ts` reads it via `pulumi.Config()`. Local builds aren't deployable — push through the workflow.
@@ -38,7 +38,7 @@ The persistent Aurora PostgreSQL Serverless v2 cluster (`gp-api-preview-shared-d
 
 ### Preview connection strategy
 
-Preview services run with `connection_limit=5` (set by `IS_PREVIEW` in `docker-entrypoint.sh`). Dev/qa/prod keep the standard `connection_limit=20`. Each preview container opens **two** pools against the shared instance — Prisma via `DATABASE_URL` (`connection_limit=5`) and `PollResponsesDownloadService`'s own `pg.Pool` (`max=5`) — so the per-preview budget is ~10 connections. Against the ~100-connection ceiling of a 0.5-ACU instance that is ~10 concurrent previews before the ceiling; Aurora auto-scales above 0.5 ACU as load grows.
+Preview services run with `connection_limit=5` (set by `IS_PREVIEW` in `docker-entrypoint.sh`). Dev/prod keep the standard `connection_limit=20`. Each preview container opens **two** pools against the shared instance — Prisma via `DATABASE_URL` (`connection_limit=5`) and `PollResponsesDownloadService`'s own `pg.Pool` (`max=5`) — so the per-preview budget is ~10 connections. Against the ~100-connection ceiling of a 0.5-ACU instance that is ~10 concurrent previews before the ceiling; Aurora auto-scales above 0.5 ACU as load grows.
 **Scaling levers if connection pressure is real:**
 
 1. Raise `minCapacity` in the cluster's `serverlessv2ScalingConfiguration` (in `components/preview-shared-cluster.ts`; reduces cold-start connection drops).
@@ -51,8 +51,8 @@ The task role is granted `ssm:GetParameter` on
 `people-db-connection-string-<dev|prod>` (`index.ts`, alongside the other
 task-role permissions); `PEOPLE_DB_SSM_PARAM` is passed to the container so
 `PeopleDbUrlProvider` (`src/peopleDb/peopleDbUrl.provider.ts`) reads the exact
-parameter name instead of deriving one from `OTEL_SERVICE_ENVIRONMENT`. qa and
-preview map to the `dev` parameter — no separate qa/preview secret exists.
+parameter name instead of deriving one from `OTEL_SERVICE_ENVIRONMENT`. preview
+maps to the `dev` parameter — no separate preview secret exists.
 
 All environments authenticate via the ECS task role — no task carries static
 AWS keys. The AWS SDK's default credential chain resolves to the task role in

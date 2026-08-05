@@ -1,7 +1,7 @@
 import * as aws from '@pulumi/aws'
 
 export interface AnnotationAttachmentsBucketConfig {
-  environment: 'dev' | 'qa' | 'prod'
+  environment: 'dev' | 'prod'
 }
 
 /**
@@ -19,13 +19,13 @@ export function createAnnotationAttachmentsBucket({
 }: AnnotationAttachmentsBucketConfig): {
   bucket: aws.s3.Bucket
 } {
-  const select = <T>(values: Record<'dev' | 'qa' | 'prod', T>): T =>
+  const select = <T>(values: Record<'dev' | 'prod', T>): T =>
     values[environment]
 
-  // Names follow the env (dev/qa/prod), same as assets-bucket. The dev bucket
+  // Names follow the env (dev/prod), same as assets-bucket. The dev bucket
   // is being adopted from one created manually in the console; Pulumi takes
   // it over on first deploy (one-time `pulumi import` if the create errors
-  // out as "already owned"). QA/prod are created fresh on their first deploy.
+  // out as "already owned"). Prod is created fresh on its first deploy.
   const bucketName = `annotation-attachments-${environment}`
 
   const bucket = new aws.s3.Bucket('annotation-attachments-bucket', {
@@ -90,16 +90,7 @@ export function createAnnotationAttachmentsBucket({
         allowedHeaders: ['*'],
         allowedMethods: ['PUT'],
         allowedOrigins: select({
-          dev: [
-            'http://localhost:4000',
-            'https://dev.goodparty.org',
-            'https://qa.goodparty.org',
-          ],
-          qa: [
-            'http://localhost:4000',
-            'https://gp-ui-git-qa-good-party.vercel.app',
-            'https://qa.goodparty.org',
-          ],
+          dev: ['http://localhost:4000', 'https://dev.goodparty.org'],
           prod: ['https://goodparty.org'],
         }),
         exposeHeaders: ['ETag'],

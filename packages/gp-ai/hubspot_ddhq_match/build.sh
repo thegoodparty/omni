@@ -11,7 +11,7 @@ LOCAL_IMAGE="ddhq-matcher"
 TAG="${1:-dev}"
 
 case "$TAG" in
-  main|master|prod|qa|dev|release)
+  main|master|prod|dev|release)
     ECR_TAG="ddhq-matcher-${TAG}"
     echo -e "${GREEN}Environment tag detected: ${YELLOW}${ECR_TAG}${NC} (never expires)${NC}"
     ;;

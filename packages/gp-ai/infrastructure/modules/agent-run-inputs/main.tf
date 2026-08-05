@@ -10,12 +10,12 @@ terraform {
 }
 
 variable "environment" {
-  description = "Environment name (dev, qa, prod). Drives bucket name and CORS allowed-origin list."
+  description = "Environment name (dev, prod). Drives bucket name and CORS allowed-origin list."
   type        = string
 
   validation {
-    condition     = contains(["dev", "qa", "prod"], var.environment)
-    error_message = "environment must be one of: dev, qa, prod"
+    condition     = contains(["dev", "prod"], var.environment)
+    error_message = "environment must be one of: dev, prod"
   }
 }
 
@@ -31,11 +31,6 @@ locals {
     dev = [
       "http://localhost:4000",
       "https://dev.goodparty.org",
-    ]
-    qa = [
-      "http://localhost:4000",
-      "https://gp-ui-git-qa-good-party.vercel.app",
-      "https://qa.goodparty.org",
     ]
     prod = [
       "https://goodparty.org",

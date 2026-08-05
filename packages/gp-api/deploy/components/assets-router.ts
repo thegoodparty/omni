@@ -2,7 +2,7 @@ import * as pulumi from '@pulumi/pulumi'
 import * as aws from '@pulumi/aws'
 
 export interface AssetsRouterConfig {
-  environment: 'dev' | 'qa' | 'prod'
+  environment: 'dev' | 'prod'
   bucket: aws.s3.BucketV2
   bucketRegionalDomainName: pulumi.Input<string>
   hostedZoneId: string
@@ -14,12 +14,11 @@ export function createAssetsRouter({
   bucketRegionalDomainName,
   hostedZoneId,
 }: AssetsRouterConfig) {
-  const select = <T>(values: Record<'dev' | 'qa' | 'prod', T>): T =>
+  const select = <T>(values: Record<'dev' | 'prod', T>): T =>
     values[environment]
 
   const domain = select({
     dev: 'assets-dev.goodparty.org',
-    qa: 'assets-qa.goodparty.org',
     prod: 'assets.goodparty.org',
   })
 
@@ -33,7 +32,6 @@ export function createAssetsRouter({
 
   const certificateArn = select({
     dev: 'arn:aws:acm:us-east-1:333022194791:certificate/993245c3-7462-45df-9aca-12acc133b9f3',
-    qa: 'arn:aws:acm:us-east-1:333022194791:certificate/5ff12552-4ba0-4e77-b6c1-25cdb6a626c2',
     prod: 'arn:aws:acm:us-east-1:333022194791:certificate/4ea24fb7-eb1b-486d-8257-61fa08ab21a1',
   })
 

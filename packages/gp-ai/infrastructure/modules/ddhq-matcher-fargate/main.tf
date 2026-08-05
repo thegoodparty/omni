@@ -1,5 +1,5 @@
 variable "environment" {
-  description = "Environment name (dev, qa, prod)"
+  description = "Environment name (dev, prod)"
   type        = string
 }
 
@@ -440,11 +440,11 @@ resource "aws_lambda_function" "matcher_trigger" {
 
   environment {
     variables = {
-      ECS_CLUSTER_NAME     = aws_ecs_cluster.matcher.name
-      TASK_DEFINITION_ARN  = aws_ecs_task_definition.matcher.arn
-      SUBNET_IDS           = join(",", var.private_subnet_ids)
-      SECURITY_GROUP_ID    = aws_security_group.ecs_tasks.id
-      S3_OUTPUT_BUCKET     = aws_s3_bucket.matcher_output.id
+      ECS_CLUSTER_NAME    = aws_ecs_cluster.matcher.name
+      TASK_DEFINITION_ARN = aws_ecs_task_definition.matcher.arn
+      SUBNET_IDS          = join(",", var.private_subnet_ids)
+      SECURITY_GROUP_ID   = aws_security_group.ecs_tasks.id
+      S3_OUTPUT_BUCKET    = aws_s3_bucket.matcher_output.id
     }
   }
 

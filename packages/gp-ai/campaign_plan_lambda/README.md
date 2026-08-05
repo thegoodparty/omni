@@ -184,7 +184,7 @@ Every Lambda invocation produces a parent `generate_event_tasks` span (type `tas
 ```
 generate_event_tasks                  input = {electionDate, city, state, ...}
                                       output = {tasks: [...]}
-                                      metadata.environment = DEV/QA/PROD/eval
+                                      metadata.environment = DEV/PROD/eval
                                       metadata.model = gemini-3-flash-preview
 ├── generate_with_search              input = {prompt: "..."}, output = {text, search_queries, sources}
 └── generate_structured_content       input = {prompt: "..."}, output = {events: [...]}

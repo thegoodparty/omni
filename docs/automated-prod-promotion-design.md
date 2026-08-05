@@ -170,6 +170,16 @@ Make "promote" mean one hop before automating it.
   This is real infra teardown, not just YAML. Sequence: stop deploying to qa,
   verify nothing depends on it, `pulumi destroy` the qa stacks, remove secrets
   and DNS.
+
+  **Done 2026-08-04.** Both omni Pulumi stacks (`gp-api-qa`, `election-api-qa`)
+  and all ten gp-ai-projects qa Terraform roots were destroyed, along with the
+  qa Vercel domains/env vars, DNS, ACM certs, and secrets. Two ordering
+  constraints worth remembering if this is ever repeated: security-group
+  cross-references, not `terraform_remote_state` reads, dictate teardown order
+  (`broker` must precede `pmf-engine-control-plane`), and
+  `pmf-engine-control-plane` looks up gp-api's `qa-Queue.fifo` **by name**, so
+  destroying the gp-api stack first breaks its plan.
+
 - Retire the `develop -> qa -> master` release runbook.
 - Leave `master` in place for now; prod still deploys from `master` until
   Phase 2 cuts over. This keeps Phase 1 low-risk and independently shippable.

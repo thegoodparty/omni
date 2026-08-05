@@ -15,7 +15,7 @@ export default async () => {
 
   // DB SAFETY: the testcontainer always binds to a random localhost port. Refuse
   // to run migrations against anything but a local host — this guarantees the
-  // harness can never touch a dev/qa/prod database, even if misconfigured.
+  // harness can never touch a dev/prod database, even if misconfigured.
   const host = new URL(baseUri).hostname
   if (host !== 'localhost' && host !== '127.0.0.1') {
     throw new Error(

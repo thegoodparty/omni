@@ -6,7 +6,7 @@ import { userInfo } from 'node:os'
 
 const ECR_REGISTRY = '333022194791.dkr.ecr.us-west-2.amazonaws.com'
 
-const ENVIRONMENTS = ['preview', 'dev', 'qa', 'prod'] as const
+const ENVIRONMENTS = ['preview', 'dev', 'prod'] as const
 
 const AWS_REGION = 'us-west-2'
 

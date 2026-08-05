@@ -63,9 +63,7 @@ function extractBucketFromS3Path(s3Path: string): string | undefined {
 }
 
 function getApiUrlFromBucket(bucketName: string): string {
-  if (bucketName.includes('-qa')) {
-    return 'https://ai-qa.goodparty.org/serve/messages';
-  } else if (bucketName.includes('-prod')) {
+  if (bucketName.includes('-prod')) {
     return 'https://ai.goodparty.org/serve/messages';
   } else {
     return 'https://ai-dev.goodparty.org/serve/messages';

@@ -11,7 +11,6 @@ Single ECR repository for all gp-ai-projects Docker images.
 
 **Images stored**:
 - `serve-analyze-dev` - V1 Pipeline (dev environment)
-- `serve-analyze-qa` - V1 Pipeline (qa environment)
 - `serve-analyze-prod` - V1 Pipeline (prod environment)
 - Future AI project images...
 
@@ -59,7 +58,6 @@ docker buildx build --platform linux/arm64 -t serve-analyze -f Dockerfile ../..
 
 # Tag for each environment
 docker tag serve-analyze:latest ${ECR_REPO}:serve-analyze-dev
-docker tag serve-analyze:latest ${ECR_REPO}:serve-analyze-qa
 docker tag serve-analyze:latest ${ECR_REPO}:serve-analyze-prod
 
 # Login
@@ -68,7 +66,6 @@ aws ecr get-login-password --region us-west-2 --profile work | \
 
 # Push all
 docker push ${ECR_REPO}:serve-analyze-dev
-docker push ${ECR_REPO}:serve-analyze-qa
 docker push ${ECR_REPO}:serve-analyze-prod
 ```
 
@@ -141,7 +138,6 @@ resource "aws_ecs_task_definition" "example" {
 - Any tag containing `main` - Main branch builds (e.g., `main`, `feature-main`)
 - Any tag containing `master` - Master branch builds (e.g., `master`)
 - Any tag containing `prod` - Production deployments (e.g., `prod`, `ddhq-matcher-prod`, `serve-analyze-prod`)
-- Any tag containing `qa` - QA deployments (e.g., `qa`, `ddhq-matcher-qa`)
 - Any tag containing `dev` - Development deployments (e.g., `dev`, `ddhq-matcher-dev`, `serve-analyze-dev`)
 - Any tag containing `release` - Release builds (e.g., `release`, `campaign-planner-release`)
 
