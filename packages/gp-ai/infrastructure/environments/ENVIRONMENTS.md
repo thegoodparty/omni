@@ -27,14 +27,28 @@ infrastructure/environments/
     └── shared-infra/             ✅ DEPLOYED (ALB + Route53)
 ```
 
+> **Corrected 2026-08-05.** This file previously listed `vpc-01fed488c4047eaae`
+> as a separate dev VPC. **That VPC does not exist** — `describe-vpcs` returns
+> `InvalidVpcID.NotFound`, and the account holds exactly one application VPC,
+> `vpc-0763fa52c32ebcf6a` ("gp-master-api", 10.0.0.0/16). Every environment
+> shares it, along with the same subnets, ACM certificate and Route53 zone; only
+> `custom_domain_name` differs. Confirmed against the live `ai-dev` and `ai-prod`
+> load balancers, both of which report that VPC.
+>
+> Do not "fix" the committed `*.auto.tfvars` to match an older version of this
+> table — doing so points dev at a VPC that isn't there and breaks every plan.
+>
+> The **qa** columns below are historical. qa was decommissioned 2026-08-04/05
+> and its Terraform roots were deleted.
+
 ## serve-analyze-fargate: Environment Comparison
 
 | Configuration | Dev | QA | Prod |
 |---------------|-----|----|----|
 | **Terraform State** | `serve-analyze-fargate/dev/terraform.tfstate` | `serve-analyze-fargate/qa/terraform.tfstate` | `serve-analyze-fargate/prod/terraform.tfstate` |
 | **Environment Variable** | `"dev"` | `"qa"` | `"prod"` |
-| **VPC ID** | `vpc-01fed488c4047eaae` | Configurable (dev or prod VPC) | `vpc-0763fa52c32ebcf6a` |
-| **Private Subnets** | 4 AZs | Configurable | 2 AZs |
+| **VPC ID** | `vpc-0763fa52c32ebcf6a` | — | `vpc-0763fa52c32ebcf6a` |
+| **Private Subnets** | 2 AZs (shared) | — | 2 AZs (shared) |
 | **Docker Image Tag** | `serve-analyze-dev` | `serve-analyze-qa` | `serve-analyze-prod` |
 | **DynamoDB Table** | `serve-message-v1-dev` | `serve-message-v1-qa` | `serve-message-v1-prod` |
 | **Purpose** | Active development | Pre-prod testing | Live production |

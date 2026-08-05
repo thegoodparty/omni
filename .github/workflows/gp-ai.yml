@@ -371,40 +371,67 @@ jobs:
           script: |
             const fs = require('fs')
             const dir = process.env.PLAN_DIR
-            const LIMIT = 55000
+            // GitHub rejects an issue comment body over 65536 chars. The budget
+            // has to be shared across ALL embedded plans, not applied per plan —
+            // four 55k plans would produce a 220k body and a hard API failure.
+            const MAX_BODY = 60000
 
             const roots = fs.readdirSync(dir).filter(f => f.endsWith('.code'))
               .map(f => f.replace(/\.code$/, '')).sort()
 
             const rows = roots.map(slug => {
               const read = ext => { try { return fs.readFileSync(`${dir}/${slug}.${ext}`, 'utf8').trim() } catch { return '' } }
-              return { slug, code: read('code'), destroys: parseInt(read('destroy') || '0', 10), text: read('txt') }
+              return {
+                slug, code: read('code'), text: read('txt'),
+                destroys: parseInt(read('destroy') || '0', 10),
+                replaces: parseInt(read('replace') || '0', 10),
+              }
             })
 
             const errored = rows.filter(r => r.code !== '0' && r.code !== '2')
             const changed = rows.filter(r => r.code === '2')
             const destroying = rows.filter(r => r.destroys > 0)
+            const replacing = rows.filter(r => r.replaces > 0)
 
-            const label = r => r.code === '0' ? 'no changes'
-              : r.code === '2' ? (r.destroys > 0 ? `**${r.destroys} to DESTROY**` : 'changes')
-              : '**error**'
-
-            let body = `### Terraform plan — dev (${rows.length} roots)\n\n`
-            body += `${changed.length} with changes, ${rows.length - changed.length - errored.length} clean`
-            body += errored.length ? `, **${errored.length} errored**\n\n` : `\n\n`
-            if (destroying.length) {
-              body += `> [!WARNING]\n> This plan would destroy resources. Destroys are never applied automatically — `
-              body += `an operator must review and apply by hand.\n\n`
-            }
-            body += `| root | result |\n| --- | --- |\n`
-            for (const r of rows) body += `| \`${r.slug.replace(/^dev-/, '')}\` | ${label(r)} |\n`
-
-            for (const r of rows.filter(r => r.code !== '0')) {
-              const t = r.text.length > LIMIT ? r.text.slice(-LIMIT) + '\n…truncated, see job log…' : r.text
-              body += `\n<details><summary><code>${r.slug}</code></summary>\n\n\`\`\`terraform\n${t}\n\`\`\`\n\n</details>\n`
+            const label = r => {
+              if (r.code === '0') return 'no changes'
+              if (r.code !== '2') return '**error**'
+              const bits = []
+              if (r.destroys) bits.push(`**${r.destroys} to destroy**`)
+              if (r.replaces) bits.push(`**${r.replaces} to replace**`)
+              return bits.length ? bits.join(', ') : 'changes'
             }
 
-            // Upsert so repeated pushes don't bury the PR in plan comments.
+            let head = `### Terraform plan — dev (${rows.length} roots)\n\n`
+            head += `${changed.length} with changes, ${rows.length - changed.length - errored.length} clean`
+            head += errored.length ? `, **${errored.length} errored**\n\n` : `\n\n`
+            if (destroying.length || replacing.length) {
+              head += `> [!WARNING]\n> This plan would `
+              head += [destroying.length && 'destroy', replacing.length && 'replace'].filter(Boolean).join(' and ')
+              head += ` resources. Neither is applied automatically — an operator must review and apply by hand.\n\n`
+            }
+            head += `| root | result |\n| --- | --- |\n`
+            for (const r of rows) head += `| \`${r.slug.replace(/^dev-/, '')}\` | ${label(r)} |\n`
+
+            // Share the remaining budget evenly across the plans worth showing,
+            // errors first so a failure is never the thing that gets dropped.
+            const show = [...errored, ...changed.filter(r => !errored.includes(r))]
+            let body = head
+            if (show.length) {
+              const perPlan = Math.max(2000, Math.floor((MAX_BODY - head.length) / show.length) - 200)
+              for (const r of show) {
+                const t = r.text.length > perPlan
+                  ? `…truncated, see the job log for the full plan…\n` + r.text.slice(-perPlan)
+                  : r.text
+                const block = `\n<details><summary><code>${r.slug}</code></summary>\n\n\`\`\`terraform\n${t}\n\`\`\`\n\n</details>\n`
+                if (body.length + block.length > MAX_BODY) {
+                  body += `\n_Remaining plans omitted to stay under GitHub's comment size limit; see the job log._\n`
+                  break
+                }
+                body += block
+              }
+            }
+
             const marker = '<!-- gp-ai-tf-plan -->'
             const { data: comments } = await github.rest.issues.listComments({
               issue_number: context.issue.number, owner: context.repo.owner, repo: context.repo.repo, per_page: 100,
@@ -414,6 +441,7 @@ jobs:
             if (existing) await github.rest.issues.updateComment({ ...payload, comment_id: existing.id })
             else await github.rest.issues.createComment({ ...payload, issue_number: context.issue.number })
 
+            core.info(`comment body: ${body.length} chars (limit ${MAX_BODY})`)
             if (errored.length) {
               core.setFailed(`terraform plan failed for: ${errored.map(r => r.slug).join(', ')}`)
             }

@@ -49,11 +49,21 @@ echo "$code" >"$plan_dir/$slug.code"
 
 # Count deletions so the comment can flag them. Destroys are never applied
 # automatically, so surfacing them on the PR is the whole point.
+#
+# A pure delete is actions == ["delete"]. A REPLACE is ["delete","create"] (or
+# ["create","delete"] for create_before_destroy), which is destructive in its own
+# right — it can drop data and cause downtime — but is not a removal, so the two
+# are counted separately rather than lumped together under "to DESTROY".
 destroys=0
+replaces=0
 if [ "$code" = "2" ] && [ -f tfplan ]; then
-  destroys=$(terraform show -json tfplan 2>/dev/null \
-    | jq '[.resource_changes[]? | select(.change.actions | index("delete"))] | length' 2>/dev/null || echo 0)
+  json=$(terraform show -json tfplan 2>/dev/null || echo '{}')
+  destroys=$(jq '[.resource_changes[]? | select(.change.actions == ["delete"])] | length' <<<"$json" 2>/dev/null || echo 0)
+  replaces=$(jq '[.resource_changes[]?
+                  | select((.change.actions | index("delete")) and (.change.actions | index("create")))]
+                 | length' <<<"$json" 2>/dev/null || echo 0)
 fi
 echo "${destroys:-0}" >"$plan_dir/$slug.destroy"
+echo "${replaces:-0}" >"$plan_dir/$slug.replace"
 
 exit 0
