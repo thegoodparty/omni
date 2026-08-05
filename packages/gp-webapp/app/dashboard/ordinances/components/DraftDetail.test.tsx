@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   cancelQualityLoop: vi.fn(),
   fetchQualityIterations: vi.fn(),
   createOrdinanceBugReport: vi.fn(),
+  successSnackbar: vi.fn(),
   draftChatProps: {
     current: null as {
       seedText?: string
@@ -38,6 +39,14 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
     },
   }
 })
+
+vi.mock('@shared/utils/Snackbar', () => ({
+  useSnackbar: () => ({
+    successSnackbar: mocks.successSnackbar,
+    errorSnackbar: vi.fn(),
+    displaySnackbar: vi.fn(),
+  }),
+}))
 
 vi.mock('../data/ordinances-api', () => ({
   updateOrdinance: mocks.updateOrdinance,
@@ -279,6 +288,7 @@ describe('DraftDetail selection toolbar', () => {
     mocks.updateOrdinance.mockResolvedValue(makeOrdinance())
     mocks.createOrdinanceBugReport.mockReset()
     mocks.createOrdinanceBugReport.mockResolvedValue(undefined)
+    mocks.successSnackbar.mockReset()
     mocks.draftChatProps.current = null
   })
   afterEach(() => {
@@ -360,6 +370,9 @@ describe('DraftDetail selection toolbar', () => {
         },
       )
     })
+    expect(mocks.successSnackbar).toHaveBeenCalledWith(
+      'Thanks — your bug report was submitted',
+    )
   })
 })
 
