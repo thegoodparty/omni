@@ -25,7 +25,7 @@ describe('PersonsService', () => {
 
     expect(findMany).toHaveBeenCalledWith({
       where: {},
-      omit: { email: true, phone: true },
+      omit: { email: true, phone: true, gpApiUserId: true },
       include: {},
     })
   })
@@ -37,7 +37,7 @@ describe('PersonsService', () => {
     } as PersonFilterDto)
 
     const args = findMany.mock.calls[0]?.[0]
-    expect(args.omit).toEqual({ email: true, phone: true })
+    expect(args.omit).toEqual({ email: true, phone: true, gpApiUserId: true })
     expect(args.include.OfficeHolders).toBe(true)
     expect(args.include.Candidacies).toEqual({
       omit: { email: true },
@@ -72,6 +72,19 @@ describe('PersonsService', () => {
     expect(args.where).toEqual({ id: { in: [a, b] } })
   })
 
+  it('filters by gpApiUserId (gp-api user linkage lookup)', async () => {
+    await service.getPersons({
+      gpApiUserId: '12345',
+      includeOfficeHolders: false,
+      includeCandidacies: false,
+    } as PersonFilterDto)
+
+    const args = findMany.mock.calls[0]?.[0]
+    expect(args.where).toEqual({ gpApiUserId: '12345' })
+    // The internal linkage is never returned, even when filtered on.
+    expect(args.omit).toEqual({ email: true, phone: true, gpApiUserId: true })
+  })
+
   it('throws NotFound when a person id does not resolve', async () => {
     await expect(service.getPersonById('missing-id')).rejects.toBeInstanceOf(
       NotFoundException,
@@ -84,7 +97,7 @@ describe('PersonsService', () => {
 
     expect(findUnique).toHaveBeenCalledWith({
       where: { id: 'p1' },
-      omit: { email: true, phone: true },
+      omit: { email: true, phone: true, gpApiUserId: true },
       include: {
         OfficeHolders: true,
         Candidacies: {
@@ -110,7 +123,7 @@ describe('PersonsService', () => {
           lt: 'a1b2c3d5-0000-0000-0000-000000000000',
         },
       })
-      expect(args.omit).toEqual({ email: true, phone: true })
+      expect(args.omit).toEqual({ email: true, phone: true, gpApiUserId: true })
       expect(result).toEqual({ id: 'a1b2c3d4-...', slug: 'jane-doe' })
     })
 

@@ -22,6 +22,7 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
     const {
       slug,
       personId,
+      gpApiUserId,
       ids,
       state,
       columns,
@@ -32,6 +33,7 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
     const where: Prisma.PersonWhereInput = {
       ...(slug && { slug }),
       ...(personId && { id: personId }),
+      ...(gpApiUserId && { gpApiUserId }),
       ...(ids && ids.length > 0 && { id: { in: ids } }),
       ...(state && { state }),
     }
@@ -50,10 +52,11 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
       return this.model.findMany({ where, select })
     }
 
-    // Default path returns every scalar, so omit personal PII here too.
+    // Default path returns every scalar, so omit personal PII and the internal
+    // gpApiUserId linkage (filter-only, never broadcast) here too.
     return this.model.findMany({
       where,
-      omit: { email: true, phone: true },
+      omit: { email: true, phone: true, gpApiUserId: true },
       include: relations,
     })
   }
@@ -63,7 +66,7 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
   async getPersonById(personId: string) {
     const person = await this.model.findUnique({
       where: { id: personId },
-      omit: { email: true, phone: true },
+      omit: { email: true, phone: true, gpApiUserId: true },
       include: {
         OfficeHolders: true,
         Candidacies: CANDIDACY_INCLUDE,
@@ -187,7 +190,7 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
 
     const candidates = await this.model.findMany({
       where: { id: this.idPrefixRange(idPrefix) },
-      omit: { email: true, phone: true },
+      omit: { email: true, phone: true, gpApiUserId: true },
       include: {
         OfficeHolders: true,
         Candidacies: CANDIDACY_INCLUDE,

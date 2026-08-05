@@ -529,6 +529,42 @@ describe('ElectionsService', () => {
     })
   })
 
+  describe('getPersonIdByGpApiUserId', () => {
+    it('returns the linked person id and passes the numeric user id as text', async () => {
+      mockHttpGet.mockReturnValue(
+        of({ data: [{ id: 'person-uuid-1' }], status: 200 }),
+      )
+
+      const result = await service.getPersonIdByGpApiUserId(12345)
+
+      expect(result).toBe('person-uuid-1')
+      expect(mockHttpGet).toHaveBeenCalledWith(
+        expect.stringContaining('/v1/persons'),
+        expect.objectContaining({
+          params: { gpApiUserId: '12345', columns: 'id' },
+        }),
+      )
+    })
+
+    it('returns null when no person is linked to the user', async () => {
+      mockHttpGet.mockReturnValue(of({ data: [], status: 200 }))
+
+      const result = await service.getPersonIdByGpApiUserId(999)
+
+      expect(result).toBeNull()
+    })
+
+    it('returns null (swallows) when election-api fails', async () => {
+      mockHttpGet.mockImplementation(() => {
+        throw new Error('boom')
+      })
+
+      const result = await service.getPersonIdByGpApiUserId(42)
+
+      expect(result).toBeNull()
+    })
+  })
+
   describe('buildRaceTargetDetails with districtId', () => {
     it('returns metrics when election-api returns valid turnout via districtId', async () => {
       mockHttpGet.mockReturnValue(
