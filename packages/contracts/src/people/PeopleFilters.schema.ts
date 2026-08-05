@@ -60,7 +60,6 @@ export const PEOPLE_FILTER_VALUE_ENUMS = {
     'Likely',
     'Unreliable',
     'Unlikely',
-    'First Time',
     'Unknown',
   ] as const,
   politicalParty: ['Independent', 'Democratic', 'Republican', 'Other'] as const,

@@ -64,8 +64,8 @@ export type ContactStatuses = z.infer<typeof ContactStatusesSchema>
 // vocabulary.
 export const VOTER_LIKELIHOOD_LABELS: Record<VoterLikelihood, string> = {
   unknown: 'Unknown',
-  first_time: 'First Time',
   unlikely: 'Unlikely',
+  unreliable: 'Unreliable',
   likely: 'Likely',
   super: 'Super',
 }

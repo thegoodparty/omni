@@ -102,17 +102,14 @@ describe('convertVoterFileFilterToFilters age ranges', () => {
   })
 })
 
-// The people-db ETL stores the middle-propensity cohort as 'Unknown' and
-// never writes 'Unreliable' (see expandUnreliableVoterStatus) — an
-// Unreliable selection that doesn't also match 'Unknown' selects nothing.
 describe('convertVoterFileFilterToFilters voter status', () => {
-  it('expands an Unreliable audience selection to include Unknown', () => {
+  it('maps an Unreliable selection to Unreliable alone', () => {
     expect(
       convertVoterFileFilterToFilters({ audienceUnreliableVoters: true }),
-    ).toEqual({ voterStatus: { in: ['Unreliable', 'Unknown'] } })
+    ).toEqual({ voterStatus: { eq: 'Unreliable' } })
   })
 
-  it('does not duplicate Unknown when both buckets are selected', () => {
+  it('keeps Unreliable and Unknown distinct when both are selected', () => {
     expect(
       convertVoterFileFilterToFilters({
         audienceUnreliableVoters: true,
@@ -121,15 +118,15 @@ describe('convertVoterFileFilterToFilters voter status', () => {
     ).toEqual({ voterStatus: { in: ['Unreliable', 'Unknown'] } })
   })
 
-  it('leaves non-Unreliable selections untouched', () => {
+  it('maps a single non-Unreliable selection with eq', () => {
     expect(
       convertVoterFileFilterToFilters({ audienceSuperVoters: true }),
     ).toEqual({ voterStatus: { eq: 'Super' } })
   })
 
-  it('expands a raw voterStatus array containing Unreliable', () => {
+  it('passes a raw voterStatus array through unexpanded', () => {
     expect(
       convertVoterFileFilterToFilters({ voterStatus: ['Unreliable'] }),
-    ).toEqual({ voterStatus: { in: ['Unreliable', 'Unknown'] } })
+    ).toEqual({ voterStatus: { eq: 'Unreliable' } })
   })
 })
