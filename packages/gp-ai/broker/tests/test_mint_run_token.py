@@ -550,9 +550,9 @@ class TestFailureLogging:
             headers={"Authorization": "Bearer wrong-token"},
         )
         assert resp.status_code == 401
-        assert any(
-            "invalid_service_token" in r.message for r in caplog.records if r.name == self.LOGGER_NAME
-        ), f"missing invalid_service_token warning; got: {[r.message for r in caplog.records]}"
+        assert any("invalid_service_token" in r.message for r in caplog.records if r.name == self.LOGGER_NAME), (
+            f"missing invalid_service_token warning; got: {[r.message for r in caplog.records]}"
+        )
 
     def test_logs_warning_on_ttl_above_cap(self, caplog):
         caplog.set_level(logging.WARNING, logger=self.LOGGER_NAME)

@@ -2,16 +2,15 @@ import json
 import time
 from unittest.mock import MagicMock
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from broker.dynamodb_client import ScopeTicket
 from broker.endpoints.artifact_read import (
-    router,
-    get_scope_ticket,
-    get_s3_client,
     get_artifact_bucket,
+    get_s3_client,
+    get_scope_ticket,
+    router,
 )
 
 BROKER_TOKEN = "broker-token-test-abc123"
@@ -112,6 +111,7 @@ class TestArtifactReadHonorsSnapshotKey:
         pinned_artifact = {"summary": "pinned intel snapshot", "version": "pinned"}
         app = _create_app(ticket=ticket, s3_response=_make_s3_response(pinned_artifact))
         from broker.endpoints import artifact_read as mod
+
         # grab the mock we set up in _create_app
         mock_s3 = app.dependency_overrides[mod.get_s3_client]()
 
@@ -163,6 +163,7 @@ class TestArtifactReadHonorsSnapshotKey:
         # prior_artifact_versions remains None
         app = _create_app(ticket=ticket)
         from broker.endpoints import artifact_read as mod
+
         mock_s3 = app.dependency_overrides[mod.get_s3_client]()
 
         client = TestClient(app)

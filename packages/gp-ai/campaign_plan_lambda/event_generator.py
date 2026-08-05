@@ -10,12 +10,11 @@ Prompts are loaded from Braintrust (with hardcoded fallbacks if unavailable).
 
 import os
 from datetime import date
-from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-from shared.llm_gemini_3 import Gemini3Client
 from shared.braintrust import load_prompt_from_braintrust, trace_pipeline
+from shared.llm_gemini_3 import Gemini3Client
 from shared.logger import get_logger
 
 logger = get_logger(__name__)
@@ -70,14 +69,15 @@ COMMUNITY EVENTS DATA:
 
 class LlmEventResult(BaseModel):
     """Schema for Gemini structured output — what the LLM returns."""
+
     title: str = Field(..., description="Event name")
     description: str = Field(..., description="Why this event matters for the campaign")
     date: str = Field(..., description="Event date in YYYY-MM-DD format")
-    url: Optional[str] = Field(None, description="Direct URL to the event page")
+    url: str | None = Field(None, description="Direct URL to the event page")
 
     @field_validator("url", mode="before")
     @classmethod
-    def validate_url(cls, v: Optional[str]) -> Optional[str]:
+    def validate_url(cls, v: str | None) -> str | None:
         if not v:
             return None
         if not isinstance(v, str):
@@ -93,7 +93,7 @@ class LlmEventResult(BaseModel):
 
 
 class LlmEventResultList(BaseModel):
-    events: List[LlmEventResult]
+    events: list[LlmEventResult]
 
 
 class CampaignContext(BaseModel):
@@ -102,26 +102,28 @@ class CampaignContext(BaseModel):
     span input, so `model_dump()` produces the dict we log directly.
     `electionDate` is required; everything else is optional and the prompt
     builder substitutes a "not available" sentinel for missing values."""
+
     electionDate: str
-    state: Optional[str] = None
-    city: Optional[str] = None
-    officeName: Optional[str] = None
-    officeLevel: Optional[str] = None
-    primaryElectionDate: Optional[str] = None
+    state: str | None = None
+    city: str | None = None
+    officeName: str | None = None
+    officeLevel: str | None = None
+    primaryElectionDate: str | None = None
 
 
 class CampaignEventTask(BaseModel):
     """Final task shape matching gp-api's CampaignTask schema."""
+
     title: str
     description: str
     cta: str
     flowType: str
     week: int
     date: str
-    url: Optional[str] = None
+    url: str | None = None
 
 
-def _or_not_available(v: Optional[str]) -> str:
+def _or_not_available(v: str | None) -> str:
     """Return the value or the 'not available' sentinel. Empty/whitespace
     strings count as missing. Angle brackets are HTML-escaped so untrusted
     content (e.g. a city value containing `</city>`) cannot break out of the
@@ -138,11 +140,11 @@ def _build_prompt_variables(
     *,
     today: date,
     election_date: date,
-    state: Optional[str],
-    city: Optional[str],
-    office_name: Optional[str],
-    office_level: Optional[str],
-    primary_election_date: Optional[str],
+    state: str | None,
+    city: str | None,
+    office_name: str | None,
+    office_level: str | None,
+    primary_election_date: str | None,
 ) -> dict:
     """Prompt variables shared by both Gemini calls. Missing fields become 'not available'."""
     return {
@@ -158,8 +160,8 @@ def _build_prompt_variables(
 
 async def generate_event_tasks(
     ctx: CampaignContext,
-    llm_client: Optional[Gemini3Client] = None,
-) -> List[CampaignEventTask]:
+    llm_client: Gemini3Client | None = None,
+) -> list[CampaignEventTask]:
     llm_client = llm_client or Gemini3Client()
 
     today = date.today()
@@ -191,20 +193,26 @@ async def generate_event_tasks(
 
         raw_events = await _search_community_events(llm_client, variables)
         event_tasks = await _filter_and_structure_events(
-            llm_client, variables, election_date, today, raw_events,
+            llm_client,
+            variables,
+            election_date,
+            today,
+            raw_events,
         )
 
         span.log(output={"tasks": [t.model_dump() for t in event_tasks]})
 
     stats = llm_client.get_usage_stats()
-    logger.info(f"Generated {len(event_tasks)} event tasks | Gemini: {stats['api_calls']} calls, ${stats['total_cost']:.4f}")
+    logger.info(
+        f"Generated {len(event_tasks)} event tasks | Gemini: {stats['api_calls']} calls, ${stats['total_cost']:.4f}"
+    )
     return event_tasks
 
 
 async def _search_community_events(
     llm_client: Gemini3Client,
     variables: dict,
-    rendered_prompt: Optional[str] = None,
+    rendered_prompt: str | None = None,
 ) -> str:
     """Run the grounded-search step.
 
@@ -233,8 +241,8 @@ async def _filter_and_structure_events(
     election_date: date,
     today: date,
     raw_events: str,
-    rendered_prompt: Optional[str] = None,
-) -> List[CampaignEventTask]:
+    rendered_prompt: str | None = None,
+) -> list[CampaignEventTask]:
     """Run the filter/structure step.
 
     `rendered_prompt` is for eval/test use only — when supplied, it bypasses
@@ -257,11 +265,9 @@ async def _filter_and_structure_events(
         temperature=0.0,
     )
     if not isinstance(raw_response, LlmEventResultList):
-        raise TypeError(
-            f"Expected LlmEventResultList, got {type(raw_response).__name__}"
-        )
+        raise TypeError(f"Expected LlmEventResultList, got {type(raw_response).__name__}")
 
-    tasks: List[CampaignEventTask] = []
+    tasks: list[CampaignEventTask] = []
     unparseable_date_count = 0
     for event in raw_response.events:
         try:
@@ -278,27 +284,24 @@ async def _filter_and_structure_events(
         # Countdown convention: week 1 = election week, higher = further out
         week = max(1, ((election_date - event_date).days // 7) + 1)
 
-        tasks.append(CampaignEventTask(
-            title=event.title,
-            description=event.description,
-            cta="Attend event",
-            flowType="events",
-            week=week,
-            date=event.date,
-            url=event.url,
-        ))
+        tasks.append(
+            CampaignEventTask(
+                title=event.title,
+                description=event.description,
+                cta="Attend event",
+                flowType="events",
+                week=week,
+                date=event.date,
+                url=event.url,
+            )
+        )
 
     # Retry only when every drop was a date-format failure — a second call may
     # produce parseable output. Out-of-range drops persist across retries (same
     # prompt, same window), so return empty as success to avoid a retry storm.
-    all_drops_were_unparseable = (
-        len(raw_response.events) > 0
-        and unparseable_date_count == len(raw_response.events)
-    )
+    all_drops_were_unparseable = len(raw_response.events) > 0 and unparseable_date_count == len(raw_response.events)
     if not tasks and all_drops_were_unparseable:
-        raise RuntimeError(
-            f"LLM returned {len(raw_response.events)} events but none had parseable dates"
-        )
+        raise RuntimeError(f"LLM returned {len(raw_response.events)} events but none had parseable dates")
 
     tasks.sort(key=lambda t: t.date)
     return tasks

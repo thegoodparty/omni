@@ -40,22 +40,29 @@ def _emit_terminal_failure_metric(experiment_id: str, status: str) -> None:
     try:
         _get_cw_client().put_metric_data(
             Namespace="PMFEngine",
-            MetricData=[{
-                "MetricName": "ExperimentTerminalFailure",
-                "Value": 1,
-                "Unit": "Count",
-                "Dimensions": [
-                    {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "dev").strip().lower()},
-                    {"Name": "ExperimentId", "Value": experiment_id},
-                    {"Name": "Status", "Value": status},
-                ],
-            }],
+            MetricData=[
+                {
+                    "MetricName": "ExperimentTerminalFailure",
+                    "Value": 1,
+                    "Unit": "Count",
+                    "Dimensions": [
+                        {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "dev").strip().lower()},
+                        {"Name": "ExperimentId", "Value": experiment_id},
+                        {"Name": "Status", "Value": status},
+                    ],
+                }
+            ],
         )
     except Exception as e:
         logger.warning(
             "ExperimentTerminalFailure metric emission failed experiment_id=%s status=%s exc_type=%s: %s",
-            experiment_id, status, type(e).__name__, e, exc_info=True,
+            experiment_id,
+            status,
+            type(e).__name__,
+            e,
+            exc_info=True,
         )
+
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -64,9 +71,7 @@ router = APIRouter(prefix="/internal", tags=["internal"])
 # that uploads to S3 and emits the success callback. `timeout` is accepted
 # here but translated to `failed` before the callback is sent, because
 # gp-api's zod consumer only accepts `success | failed | contract_violation`.
-AgentReportableStatus = Literal[
-    "failed", "contract_violation", "timeout"
-]
+AgentReportableStatus = Literal["failed", "contract_violation", "timeout"]
 
 # Statuses the broker forwards to gp-api on the callback wire. Must stay in
 # sync with gp-api/src/queue/queue.types.ts (zod enum).
@@ -96,17 +101,22 @@ class RunStatusResponse(BaseModel):
 def get_scope_ticket() -> ScopeTicket:  # pragma: no cover
     raise NotImplementedError
 
+
 def get_s3_client():  # pragma: no cover
     raise NotImplementedError
+
 
 def get_callback_sender() -> CallbackSender:  # pragma: no cover
     raise NotImplementedError
 
+
 def get_ticket_store() -> ScopeTicketStore:  # pragma: no cover
     raise NotImplementedError
 
+
 def get_broker_token_raw() -> str:  # pragma: no cover
     raise NotImplementedError
+
 
 def get_artifact_bucket() -> str:  # pragma: no cover
     raise NotImplementedError
@@ -149,13 +159,14 @@ def run_status(
                 pass
             if error_code in ("PreconditionFailed", "412"):
                 logger.warning(
-                    "quarantine already exists for run_id=%s — preserving "
-                    "first forensic record", ticket.run_id,
+                    "quarantine already exists for run_id=%s — preserving first forensic record",
+                    ticket.run_id,
                 )
             else:
                 logger.error(
                     "quarantine S3 write failed run_id=%s key=%s",
-                    ticket.run_id, quarantine_key,
+                    ticket.run_id,
+                    quarantine_key,
                     exc_info=True,
                 )
 
@@ -167,9 +178,13 @@ def run_status(
     logger.warning(
         "run_status terminal status=%s reason_code=%s run_id=%s "
         "experiment_id=%s organization_slug=%s duration_seconds=%s detail=%s",
-        req.status, req.reason_code or "",
-        ticket.run_id, ticket.experiment_id, ticket.organization_slug,
-        req.duration_seconds or 0, (req.detail or "")[:200],
+        req.status,
+        req.reason_code or "",
+        ticket.run_id,
+        ticket.experiment_id,
+        ticket.organization_slug,
+        req.duration_seconds or 0,
+        (req.detail or "")[:200],
     )
     _emit_terminal_failure_metric(ticket.experiment_id, req.status)
 
@@ -203,7 +218,8 @@ def run_status(
         except Exception:
             logger.error(
                 "ticket/run-lock delete failed after terminal run_status run_id=%s broker_token_prefix=%s",
-                ticket.run_id, broker_token[:8],
+                ticket.run_id,
+                broker_token[:8],
                 exc_info=True,
             )
         # Drop the per-ticket data-query counter so the dict doesn't grow
@@ -214,7 +230,8 @@ def run_status(
         except Exception:
             logger.warning(
                 "tracker clear failed after terminal run_status run_id=%s",
-                ticket.run_id, exc_info=True,
+                ticket.run_id,
+                exc_info=True,
             )
 
     return RunStatusResponse(callback_sent=True)

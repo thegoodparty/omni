@@ -18,6 +18,7 @@ The runner-side broker fetch is exercised through a real
 boundary the test claims to defend (see test_manifest_loader.py for the same
 pattern at the unit-test layer).
 """
+
 from __future__ import annotations
 
 import json
@@ -132,8 +133,7 @@ def test_dispatch_env_roundtrips_to_runner_config():
         "BRAINTRUST_API_URL",
     ):
         assert critical in env_map, (
-            f"dispatch_handler no longer sets {critical} — "
-            f"RunnerConfig.from_env will read stale/missing values"
+            f"dispatch_handler no longer sets {critical} — RunnerConfig.from_env will read stale/missing values"
         )
 
     assert env_map["BROKER_TOKEN"] == "tok-test-123"
@@ -160,14 +160,12 @@ def test_dispatch_env_roundtrips_to_runner_config():
 
     factory = _ClientFactory(handler)
 
-    with patch.dict(os.environ, env_map, clear=False), \
-         patch("pmf_engine.runner.manifest_loader.httpx.Client", factory):
+    with patch.dict(os.environ, env_map, clear=False), patch("pmf_engine.runner.manifest_loader.httpx.Client", factory):
         os.environ.pop("INSTRUCTION", None)
         config = RunnerConfig.from_env()
 
     assert len(factory.requests) == 1, (
-        f"runner must hit broker exactly once on cold from_env(), "
-        f"got {len(factory.requests)} requests"
+        f"runner must hit broker exactly once on cold from_env(), got {len(factory.requests)} requests"
     )
 
     assert config.experiment_id == experiment_id
@@ -208,9 +206,7 @@ def test_dispatch_env_timeout_is_string_type():
         container_name="c",
     )
     env_map = _env_list_to_map(overrides["containerOverrides"][0]["environment"])
-    assert isinstance(env_map["TIMEOUT_SECONDS"], str), (
-        "ECS runTask environment values must be strings"
-    )
+    assert isinstance(env_map["TIMEOUT_SECONDS"], str), "ECS runTask environment values must be strings"
     int(env_map["TIMEOUT_SECONDS"])
 
 
@@ -267,14 +263,11 @@ def test_attachment_version_ids_round_trip_dispatch_to_runner_request(monkeypatc
 
     factory = _ClientFactory(handler)
 
-    with patch.dict(os.environ, env_map, clear=False), \
-         patch("pmf_engine.runner.manifest_loader.httpx.Client", factory):
+    with patch.dict(os.environ, env_map, clear=False), patch("pmf_engine.runner.manifest_loader.httpx.Client", factory):
         os.environ.pop("INSTRUCTION", None)
         RunnerConfig.from_env()
 
-    assert len(factory.requests) == 1, (
-        f"runner must hit broker exactly once, got {len(factory.requests)}"
-    )
+    assert len(factory.requests) == 1, f"runner must hit broker exactly once, got {len(factory.requests)}"
 
 
 def test_qa_version_ids_round_trip_dispatch_to_runner_request(monkeypatch):
@@ -330,11 +323,8 @@ def test_qa_version_ids_round_trip_dispatch_to_runner_request(monkeypatch):
 
     factory = _ClientFactory(handler)
 
-    with patch.dict(os.environ, env_map, clear=False), \
-         patch("pmf_engine.runner.manifest_loader.httpx.Client", factory):
+    with patch.dict(os.environ, env_map, clear=False), patch("pmf_engine.runner.manifest_loader.httpx.Client", factory):
         os.environ.pop("INSTRUCTION", None)
         RunnerConfig.from_env()
 
-    assert len(factory.requests) == 1, (
-        f"runner must hit broker exactly once, got {len(factory.requests)}"
-    )
+    assert len(factory.requests) == 1, f"runner must hit broker exactly once, got {len(factory.requests)}"

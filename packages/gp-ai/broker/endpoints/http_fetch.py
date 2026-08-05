@@ -74,6 +74,7 @@ async def _status_check(client: httpx.AsyncClient, url: str) -> tuple[int, str]:
     missing-Location -> 502, hop bound) is delegated to the canonical
     `resolve_redirects` loop in `ssrf_guard` — never re-implemented here.
     """
+
     async def _run() -> tuple[int, str]:
         head_client = _HeaderInjectingClient(client, {"user-agent": USER_AGENT})
         try:
@@ -81,9 +82,7 @@ async def _status_check(client: httpx.AsyncClient, url: str) -> tuple[int, str]:
                 head_client, "HEAD", url, timeout=_HEAD_TIMEOUT_S, max_redirects=_HEAD_MAX_REDIRECTS
             )
             if resp.status_code in (403, 405, 501):
-                get_client = _HeaderInjectingClient(
-                    client, {"user-agent": USER_AGENT, "range": "bytes=0-0"}
-                )
+                get_client = _HeaderInjectingClient(client, {"user-agent": USER_AGENT, "range": "bytes=0-0"})
                 resp, final_url = await resolve_redirects(
                     get_client,
                     "GET",
@@ -95,17 +94,13 @@ async def _status_check(client: httpx.AsyncClient, url: str) -> tuple[int, str]:
         except HTTPException:
             raise
         except httpx.TimeoutException as e:
-            raise HTTPException(
-                status_code=504, detail=f"timeout after {_HEAD_TIMEOUT_S}s: {url}"
-            ) from e
+            raise HTTPException(status_code=504, detail=f"timeout after {_HEAD_TIMEOUT_S}s: {url}") from e
         except httpx.HTTPError as e:
-            raise HTTPException(
-                status_code=502, detail=f"connection failed: {type(e).__name__}: {e}"
-            ) from e
+            raise HTTPException(status_code=502, detail=f"connection failed: {type(e).__name__}: {e}") from e
 
     try:
         return await asyncio.wait_for(_run(), timeout=_HEAD_TOTAL_TIMEOUT_S)
-    except asyncio.TimeoutError as e:
+    except TimeoutError as e:
         raise HTTPException(
             status_code=504,
             detail=f"head check exceeded {_HEAD_TOTAL_TIMEOUT_S}s total: {url}",
@@ -221,12 +216,19 @@ async def http_head(
     except HTTPException as e:
         logger.warning(
             "http_head failed run_id=%s status=%d purpose=%s url=%s detail=%s",
-            ticket.run_id, e.status_code, req.purpose or "", req.url, e.detail,
+            ticket.run_id,
+            e.status_code,
+            req.purpose or "",
+            req.url,
+            e.detail,
         )
         raise
     logger.info(
         "http_head ok run_id=%s status=%d purpose=%s url=%s",
-        ticket.run_id, status, req.purpose or "", req.url,
+        ticket.run_id,
+        status,
+        req.purpose or "",
+        req.url,
     )
     return {"status": status, "final_url": final_url}
 

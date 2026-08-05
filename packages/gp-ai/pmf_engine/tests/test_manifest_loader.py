@@ -63,9 +63,7 @@ class TestManifestLoaderSuccess:
             assert payload == {"experiment_id": "smoke_test"}
             return httpx.Response(200, json=envelope)
 
-        result = load_from_broker(
-            "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-        )
+        result = load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
         assert result["manifest"] == envelope["manifest"]
         assert result["instruction"] == envelope["instruction"]
@@ -241,9 +239,7 @@ class TestManifestLoaderAttachmentVersionIds:
             captured["body"] = json.loads(request.content)
             return httpx.Response(200, json=envelope)
 
-        load_from_broker(
-            "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-        )
+        load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
         assert "attachment_version_ids" not in captured["body"]
 
@@ -258,9 +254,7 @@ class TestManifestLoaderAttachmentVersionIds:
         def handler(request):
             return httpx.Response(200, json=envelope)
 
-        result = load_from_broker(
-            "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-        )
+        result = load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
         assert result["resolved_attachment_version_ids"] == {"lookup.csv": "Vlk_resolved"}
 
     def test_envelope_absent_attachments_key_logs_info(self, caplog):
@@ -276,10 +270,9 @@ class TestManifestLoaderAttachmentVersionIds:
             return httpx.Response(200, json=envelope)
 
         import logging
+
         with caplog.at_level(logging.INFO, logger="pmf_engine.runner.manifest_loader"):
-            load_from_broker(
-                "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-            )
+            load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
         messages = [r.message for r in caplog.records if r.name == "pmf_engine.runner.manifest_loader"]
         assert any("attachments" in m.lower() and "older broker" in m.lower() for m in messages), (
@@ -294,10 +287,9 @@ class TestManifestLoaderAttachmentVersionIds:
             return httpx.Response(200, json=envelope)
 
         import logging
+
         with caplog.at_level(logging.INFO, logger="pmf_engine.runner.manifest_loader"):
-            load_from_broker(
-                "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-            )
+            load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
         messages = [r.message for r in caplog.records if r.name == "pmf_engine.runner.manifest_loader"]
         assert not any("older broker" in m.lower() for m in messages), (
@@ -316,9 +308,7 @@ class TestManifestLoaderAttachmentVersionIds:
             return httpx.Response(200, json=envelope)
 
         with pytest.raises(ManifestLoadError):
-            load_from_broker(
-                "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-            )
+            load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
 
 # ---------------------------------------------------------------------------
@@ -364,9 +354,7 @@ class TestRunnerWriteActionValidation:
         def handler(request):
             return httpx.Response(200, json=envelope)
 
-        result = load_from_broker(
-            "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-        )
+        result = load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
         assert result["manifest"]["system_prompt"] == "You are a compliance setup agent."
         assert result["manifest"]["permission_mode"] == "default"
         assert result["manifest"]["allowed_external_tools"] == ["Read"]
@@ -383,9 +371,7 @@ class TestRunnerWriteActionValidation:
         def handler(request):
             return httpx.Response(200, json=envelope)
 
-        result = load_from_broker(
-            "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-        )
+        result = load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
         assert "system_prompt" not in result["manifest"]
         assert "permission_mode" not in result["manifest"]
         assert "allowed_external_tools" not in result["manifest"]
@@ -404,9 +390,7 @@ class TestRunnerWriteActionValidation:
             return httpx.Response(200, json=envelope)
 
         with pytest.raises(ManifestLoadError, match="permission_mode"):
-            load_from_broker(
-                "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-            )
+            load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
     def test_rejects_non_string_permission_mode(self):
         envelope = _envelope_with_write_action(permission_mode=42)
@@ -415,9 +399,7 @@ class TestRunnerWriteActionValidation:
             return httpx.Response(200, json=envelope)
 
         with pytest.raises(ManifestLoadError, match="permission_mode"):
-            load_from_broker(
-                "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-            )
+            load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
     def test_accepts_bypass_permissions_mode(self):
         envelope = _envelope_with_write_action(permission_mode="bypassPermissions")
@@ -425,9 +407,7 @@ class TestRunnerWriteActionValidation:
         def handler(request):
             return httpx.Response(200, json=envelope)
 
-        result = load_from_broker(
-            "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-        )
+        result = load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
         assert result["manifest"]["permission_mode"] == "bypassPermissions"
 
     def test_accepts_valid_runtime_max_parallel_subagents(self):
@@ -438,9 +418,7 @@ class TestRunnerWriteActionValidation:
         def handler(request):
             return httpx.Response(200, json=envelope)
 
-        result = load_from_broker(
-            "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-        )
+        result = load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
         assert result["manifest"]["runtime"]["max_parallel_subagents"] == 4
 
     def test_accepts_when_runtime_absent(self):
@@ -450,9 +428,7 @@ class TestRunnerWriteActionValidation:
         def handler(request):
             return httpx.Response(200, json=envelope)
 
-        result = load_from_broker(
-            "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-        )
+        result = load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
         assert "runtime" not in result["manifest"]
 
     @pytest.mark.parametrize("bad_value", ["4", 3.14, True, -1, [4], {"n": 4}])
@@ -465,9 +441,7 @@ class TestRunnerWriteActionValidation:
             return httpx.Response(200, json=envelope)
 
         with pytest.raises(ManifestLoadError, match="max_parallel_subagents"):
-            load_from_broker(
-                "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-            )
+            load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
     def test_rejects_non_dict_runtime(self):
         envelope = _envelope_with_write_action(runtime=42)
@@ -476,9 +450,7 @@ class TestRunnerWriteActionValidation:
             return httpx.Response(200, json=envelope)
 
         with pytest.raises(ManifestLoadError, match="runtime"):
-            load_from_broker(
-                "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-            )
+            load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
     @pytest.mark.parametrize("bad_value", [42, 3.14, ["a", "list"], {"a": "dict"}, True])
     def test_rejects_non_string_system_prompt(self, bad_value):
@@ -488,9 +460,7 @@ class TestRunnerWriteActionValidation:
             return httpx.Response(200, json=envelope)
 
         with pytest.raises(ManifestLoadError, match="system_prompt"):
-            load_from_broker(
-                "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-            )
+            load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
     @pytest.mark.parametrize("empty_value", ["", "   ", "\n\t"])
     def test_rejects_empty_system_prompt(self, empty_value):
@@ -501,9 +471,7 @@ class TestRunnerWriteActionValidation:
             return httpx.Response(200, json=envelope)
 
         with pytest.raises(ManifestLoadError, match="system_prompt"):
-            load_from_broker(
-                "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-            )
+            load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
     @pytest.mark.parametrize("bad_value", ["WebFetch", 42, {"tool": "WebFetch"}])
     def test_rejects_non_list_allowed_external_tools(self, bad_value):
@@ -513,9 +481,7 @@ class TestRunnerWriteActionValidation:
             return httpx.Response(200, json=envelope)
 
         with pytest.raises(ManifestLoadError, match="allowed_external_tools"):
-            load_from_broker(
-                "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-            )
+            load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
     @pytest.mark.parametrize(
         "bad_entry",
@@ -530,9 +496,7 @@ class TestRunnerWriteActionValidation:
             return httpx.Response(200, json=envelope)
 
         with pytest.raises(ManifestLoadError, match="allowed_external_tools"):
-            load_from_broker(
-                "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-            )
+            load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
     def test_empty_external_tools_list_is_valid(self):
         """An empty list explicitly denies external tools — distinct from
@@ -542,9 +506,7 @@ class TestRunnerWriteActionValidation:
         def handler(request):
             return httpx.Response(200, json=envelope)
 
-        result = load_from_broker(
-            "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-        )
+        result = load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
         assert result["manifest"]["allowed_external_tools"] == []
 
     def test_permission_mode_validated_in_isolation(self):
@@ -561,9 +523,7 @@ class TestRunnerWriteActionValidation:
             return httpx.Response(200, json=envelope)
 
         with pytest.raises(ManifestLoadError, match="permission_mode"):
-            load_from_broker(
-                "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-            )
+            load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
 
 # ---------------------------------------------------------------------------
@@ -608,9 +568,7 @@ class TestManifestLoaderQaVersionIds:
             captured["body"] = json.loads(request.content)
             return httpx.Response(200, json=envelope)
 
-        load_from_broker(
-            "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-        )
+        load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
         assert "qa_version_ids" not in captured["body"]
 
@@ -638,9 +596,7 @@ class TestManifestLoaderQaEnvelope:
         def handler(request):
             return httpx.Response(200, json=envelope)
 
-        result = load_from_broker(
-            "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-        )
+        result = load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
         assert result["qa"] == {
             "manifest": {"blocking": False},
@@ -664,9 +620,7 @@ class TestManifestLoaderQaEnvelope:
         def handler(request):
             return httpx.Response(200, json=envelope)
 
-        result = load_from_broker(
-            "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-        )
+        result = load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
         assert "qa" not in result
 
@@ -680,9 +634,7 @@ class TestManifestLoaderQaEnvelope:
             return httpx.Response(200, json=envelope)
 
         with pytest.raises(ManifestLoadError, match="qa"):
-            load_from_broker(
-                "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-            )
+            load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
     def test_envelope_rejects_non_dict_qa_manifest(self):
         envelope = _good_envelope()
@@ -692,9 +644,7 @@ class TestManifestLoaderQaEnvelope:
             return httpx.Response(200, json=envelope)
 
         with pytest.raises(ManifestLoadError, match="qa.manifest"):
-            load_from_broker(
-                "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-            )
+            load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
     def test_envelope_rejects_non_string_qa_file_body(self):
         envelope = _good_envelope()
@@ -708,9 +658,7 @@ class TestManifestLoaderQaEnvelope:
             return httpx.Response(200, json=envelope)
 
         with pytest.raises(ManifestLoadError, match="qa.files"):
-            load_from_broker(
-                "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-            )
+            load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
     def test_envelope_rejects_non_string_qa_version_id(self):
         envelope = _good_envelope()
@@ -724,9 +672,7 @@ class TestManifestLoaderQaEnvelope:
             return httpx.Response(200, json=envelope)
 
         with pytest.raises(ManifestLoadError, match="resolved_qa_version_ids"):
-            load_from_broker(
-                "smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler)
-            )
+            load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, client=_client_returning(handler))
 
 
 # ---------------------------------------------------------------------------
@@ -917,6 +863,4 @@ class TestLoadFromBrokerKeywordOnlyTail:
         with pytest.raises(TypeError):
             # Attempt to pass too many positionals — would land on a
             # keyword-only slot.
-            load_from_broker(
-                "smoke_test", BROKER_URL, BROKER_TOKEN, None, None, None, None, 30.0, client
-            )
+            load_from_broker("smoke_test", BROKER_URL, BROKER_TOKEN, None, None, None, None, 30.0, client)

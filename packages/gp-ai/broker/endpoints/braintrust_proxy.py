@@ -73,7 +73,7 @@ async def proxy_braintrust(
             exc.reason_code,
             broker_token[:8] if broker_token else "empty",
         )
-        raise HTTPException(status_code=401, detail="Invalid or expired broker token")
+        raise HTTPException(status_code=401, detail="Invalid or expired broker token") from exc
 
     if not api_key:
         # Fail closed when the broker has no Braintrust key configured. The SDK
@@ -113,7 +113,7 @@ async def proxy_braintrust(
         raise HTTPException(
             status_code=502,
             detail=f"braintrust upstream failed: {type(e).__name__}",
-        )
+        ) from e
 
     return Response(
         content=response_body,

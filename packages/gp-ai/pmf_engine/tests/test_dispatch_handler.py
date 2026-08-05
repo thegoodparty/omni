@@ -1372,9 +1372,7 @@ class TestParamsInlineVsBroker:
     def test_small_params_ride_inline(self):
         env_map = {
             e["name"]: e["value"]
-            for e in self._overrides_for({"district": "CA-12"})[
-                "containerOverrides"
-            ][0]["environment"]
+            for e in self._overrides_for({"district": "CA-12"})["containerOverrides"][0]["environment"]
         }
         assert json.loads(env_map["PARAMS_JSON"]) == {"district": "CA-12"}
         assert "PARAMS_VIA_BROKER" not in env_map
@@ -1383,9 +1381,7 @@ class TestParamsInlineVsBroker:
         # ~18 KB: over the 6000-byte inline budget, under the 20000 hard cap.
         env_map = {
             e["name"]: e["value"]
-            for e in self._overrides_for({"issues": "x" * 18000})[
-                "containerOverrides"
-            ][0]["environment"]
+            for e in self._overrides_for({"issues": "x" * 18000})["containerOverrides"][0]["environment"]
         }
         assert env_map["PARAMS_VIA_BROKER"] == "1"
         assert "PARAMS_JSON" not in env_map

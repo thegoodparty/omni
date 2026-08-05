@@ -68,6 +68,7 @@ def _create_app(
     app.dependency_overrides[get_databricks_client] = lambda: mock_db
 
     from broker.endpoints.databricks_query import get_data_query_tracker
+
     app.dependency_overrides[get_data_query_tracker] = lambda: MagicMock()
 
     return app, mock_db
@@ -120,7 +121,7 @@ class TestDatabricksQueryDisallowedTable:
 
 class TestDatabricksQueryExpiredToken:
     def test_expired_broker_token_returns_401(self):
-        expired_ticket = _make_ticket(expired=True)
+        _make_ticket(expired=True)
 
         app = FastAPI()
         app.include_router(router)
@@ -198,24 +199,32 @@ class TestDatabricksConnectionPooling:
 
         class _FakeCursor:
             description = [("party", None), ("age", None)]
+
             def execute(self, sql, parameters=None):
                 pass
+
             def fetchall(self):
                 return [["Independent", 35]]
+
             def __enter__(self):
                 return self
+
             def __exit__(self, *a):
                 return False
 
         class _FakeConnection:
             def __init__(self):
                 self.closed = False
+
             def cursor(self):
                 return _FakeCursor()
+
             def close(self):
                 self.closed = True
+
             def __enter__(self):
                 return self
+
             def __exit__(self, *a):
                 self.closed = True
                 return False
@@ -228,6 +237,7 @@ class TestDatabricksConnectionPooling:
 
         # Patch the module-level databricks.sql import so DatabricksClient uses the fake.
         import sys
+
         fake_module = MagicMock()
         fake_module.sql = _FakeDbxSql
         monkeypatch.setitem(sys.modules, "databricks", fake_module)
@@ -244,8 +254,7 @@ class TestDatabricksConnectionPooling:
             client.execute("SELECT 1", {})
 
         assert len(connects) == 1, (
-            f"expected 1 connection (pooled), got {len(connects)} "
-            f"(connection is being re-opened per query)"
+            f"expected 1 connection (pooled), got {len(connects)} (connection is being re-opened per query)"
         )
 
 
@@ -267,39 +276,48 @@ class TestDatabricksReconnectOnStaleSession:
 
         class _StaleCursor:
             description = None
+
             def execute(self, sql, parameters=None):
                 cursor_calls.append(("stale", sql))
                 raise RuntimeError(
-                    "Error during request to server: INVALID_STATE: "
-                    "Invalid SessionHandle: SessionHandle [01f13b61-...]"
+                    "Error during request to server: INVALID_STATE: Invalid SessionHandle: SessionHandle [01f13b61-...]"
                 )
+
             def fetchall(self):
                 return []
+
             def __enter__(self):
                 return self
+
             def __exit__(self, *a):
                 return False
 
         class _FreshCursor:
             description = [("party", None)]
+
             def execute(self, sql, parameters=None):
                 cursor_calls.append(("fresh", sql))
+
             def fetchall(self):
                 return [["Independent"]]
+
             def __enter__(self):
                 return self
+
             def __exit__(self, *a):
                 return False
 
         class _StaleConnection:
             def cursor(self):
                 return _StaleCursor()
+
             def close(self):
                 pass
 
         class _FreshConnection:
             def cursor(self):
                 return _FreshCursor()
+
             def close(self):
                 pass
 
@@ -312,6 +330,7 @@ class TestDatabricksReconnectOnStaleSession:
                 return connections.pop(0)
 
         import sys
+
         fake_module = MagicMock()
         fake_module.sql = _FakeDbxSql
         monkeypatch.setitem(sys.modules, "databricks", fake_module)
@@ -336,18 +355,23 @@ class TestDatabricksReconnectOnStaleSession:
 
         class _AlwaysFailsCursor:
             description = None
+
             def execute(self, sql, parameters=None):
                 raise RuntimeError("INVALID_STATE: Invalid SessionHandle")
+
             def fetchall(self):
                 return []
+
             def __enter__(self):
                 return self
+
             def __exit__(self, *a):
                 return False
 
         class _AlwaysFailsConnection:
             def cursor(self):
                 return _AlwaysFailsCursor()
+
             def close(self):
                 pass
 
@@ -357,6 +381,7 @@ class TestDatabricksReconnectOnStaleSession:
                 return _AlwaysFailsConnection()
 
         import sys
+
         fake_module = MagicMock()
         fake_module.sql = _FakeDbxSql
         monkeypatch.setitem(sys.modules, "databricks", fake_module)
@@ -434,9 +459,7 @@ class TestDatabricksQueryParameterValidationAlwaysRuns:
             f"expected 400 for empty params + unbound placeholder, got {resp.status_code}: {resp.text}"
         )
         detail = resp.json()["detail"]
-        assert detail["reason_code"] == "parameter_mismatch", (
-            f"expected reason_code=parameter_mismatch, got {detail}"
-        )
+        assert detail["reason_code"] == "parameter_mismatch", f"expected reason_code=parameter_mismatch, got {detail}"
         assert mock_db.execute.call_count == 0
 
 
@@ -465,6 +488,7 @@ class TestEventLoopNotBlockedByDatabricks:
         mock_db.execute.side_effect = _slow_execute
         app.dependency_overrides[get_databricks_client] = lambda: mock_db
         from broker.endpoints.databricks_query import get_data_query_tracker
+
         app.dependency_overrides[get_data_query_tracker] = lambda: MagicMock()
 
         transport = ASGITransport(app=app)
@@ -484,8 +508,10 @@ class TestEventLoopNotBlockedByDatabricks:
             elapsed = time.perf_counter() - start
 
         statuses = [r.status_code for r in responses]
-        bodies = [r.json() if r.headers.get("content-type", "").startswith("application/json") else r.text for r in responses]
-        assert all(s == 200 for s in statuses), f"non-200s: {list(zip(statuses, bodies))}"
+        bodies = [
+            r.json() if r.headers.get("content-type", "").startswith("application/json") else r.text for r in responses
+        ]
+        assert all(s == 200 for s in statuses), f"non-200s: {list(zip(statuses, bodies, strict=False))}"
         # Serialized (sync handler) would be ~0.9s. Parallel (async + to_thread)
         # should be ~0.3s; allow generous 0.65s ceiling for CI jitter.
         assert elapsed < 0.65, f"queries serialized: {elapsed:.2f}s (>= 0.65s means event loop is blocked)"

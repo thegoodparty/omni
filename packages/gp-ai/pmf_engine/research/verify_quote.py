@@ -20,6 +20,7 @@ parse without caring about exit code.
 """
 
 from __future__ import annotations
+
 import argparse
 import json
 import sys
@@ -38,8 +39,9 @@ def main(argv: list[str] | None = None) -> int:
     qgroup.add_argument("--quote", help="Literal quote to look for in the body.")
     qgroup.add_argument("--quote-file", help="Path to a file containing the quote.")
     parser.add_argument(
-        "--strict", action="store_true",
-        help="Disable aggressive normalization (unicode/punctuation conflation). Default: aggressive."
+        "--strict",
+        action="store_true",
+        help="Disable aggressive normalization (unicode/punctuation conflation). Default: aggressive.",
     )
     try:
         args = parser.parse_args(argv)
@@ -51,11 +53,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.body_path == "-":
             body = sys.stdin.read()
         else:
-            with open(args.body_path, "r", encoding="utf-8", errors="replace") as f:
+            with open(args.body_path, encoding="utf-8", errors="replace") as f:
                 body = f.read()
 
         if args.quote_file:
-            with open(args.quote_file, "r", encoding="utf-8", errors="replace") as f:
+            with open(args.quote_file, encoding="utf-8", errors="replace") as f:
                 quote = f.read()
         else:
             quote = args.quote

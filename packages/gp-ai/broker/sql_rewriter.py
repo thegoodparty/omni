@@ -20,25 +20,51 @@ class RewriteResult:
 
 SCOPE_COLUMNS = frozenset({"Residence_Addresses_State", "Residence_Addresses_City"})
 
-FORBIDDEN_TABLE_FUNCTIONS = frozenset({
-    "range", "read_files", "delta", "json", "parquet", "csv",
-    "explode", "explode_outer", "posexplode", "posexplode_outer",
-    "inline", "inline_outer", "stack",
-})
+FORBIDDEN_TABLE_FUNCTIONS = frozenset(
+    {
+        "range",
+        "read_files",
+        "delta",
+        "json",
+        "parquet",
+        "csv",
+        "explode",
+        "explode_outer",
+        "posexplode",
+        "posexplode_outer",
+        "inline",
+        "inline_outer",
+        "stack",
+    }
+)
 
-FORBIDDEN_SELECT_FUNCTIONS = frozenset({
-    "explode", "explode_outer", "posexplode", "posexplode_outer",
-    "inline", "inline_outer", "stack",
-})
+FORBIDDEN_SELECT_FUNCTIONS = frozenset(
+    {
+        "explode",
+        "explode_outer",
+        "posexplode",
+        "posexplode_outer",
+        "inline",
+        "inline_outer",
+        "stack",
+    }
+)
 
 DISALLOWED_STATEMENT_TYPES = (
-    exp.Insert, exp.Update, exp.Delete, exp.Merge,
-    exp.Drop, exp.Create, exp.Alter, exp.Grant, exp.Command,
+    exp.Insert,
+    exp.Update,
+    exp.Delete,
+    exp.Merge,
+    exp.Drop,
+    exp.Create,
+    exp.Alter,
+    exp.Grant,
+    exp.Command,
 )
 
 _PARAM_RE = re.compile(r":(\w+)\b|%\((\w+)\)s")
 
-_UNICODE_SEMICOLONS = "\uFF1B\uFE14\u037E"
+_UNICODE_SEMICOLONS = "\uff1b\ufe14\u037e"
 
 
 def rewrite_query(sql: str, scope: dict, parameters: dict | None = None) -> RewriteResult:
@@ -163,7 +189,6 @@ def _walk_tables(ast: exp.Select, scope: dict, cte_names: set[str]):
     for table in ast.find_all(exp.Table):
         if not _table_is_allowed(table, scope, cte_names):
             raise ScopeViolation("disallowed_table", detail=_resolve_table_fqn(table))
-
 
 
 def _check_forbidden_functions(ast: exp.Select):

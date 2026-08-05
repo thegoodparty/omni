@@ -6,16 +6,17 @@ pmf_runtime.publish, which talks to the broker API. These tests verify
 the runner correctly calls the publish module in success, failure, and
 contract violation paths.
 """
+
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from pmf_engine.runner.config import RunnerConfig
 from pmf_engine.runner.harness.base import HarnessResult
-from pmf_engine.runner.main import run_experiment, _collect_workspace_files
+from pmf_engine.runner.main import _collect_workspace_files, run_experiment
 
 
 def _config(**overrides) -> RunnerConfig:
@@ -63,7 +64,9 @@ class TestPublishIntegration:
     @patch("pmf_engine.runner.main._upload_logs")
     @patch("pmf_engine.runner.main.publish")
     async def test_contract_violation_does_not_publish(self, mock_publish, _mock_logs):
-        config = _config(contract_schema={"type": "object", "required": ["greeting"], "properties": {"greeting": {"type": "string"}}})
+        config = _config(
+            contract_schema={"type": "object", "required": ["greeting"], "properties": {"greeting": {"type": "string"}}}
+        )
         fake_result = HarnessResult(
             artifact_bytes=b'{"greeting": 42}',
             content_type="application/json",
@@ -94,9 +97,7 @@ class TestCollectWorkspaceFiles:
         names = set(files.keys())
         assert any("safe.txt" in n for n in names)
         for banned in (".env", "credentials.json", "mycert.pem"):
-            assert not any(banned in n for n in names), (
-                f"sensitive file {banned} leaked into collected files: {names}"
-            )
+            assert not any(banned in n for n in names), f"sensitive file {banned} leaked into collected files: {names}"
 
     def test_file_content_preserved(self, tmp_path):
         body = "line-1\nline-2\n"

@@ -73,48 +73,60 @@ class TestDatesInRange:
         self.input = {"electionDate": self.election.isoformat()}
 
     def test_all_in_range_scores_one(self):
-        output = {"tasks": [
-            {"date": (self.today + timedelta(days=10)).isoformat()},
-            {"date": (self.today + timedelta(days=30)).isoformat()},
-        ]}
+        output = {
+            "tasks": [
+                {"date": (self.today + timedelta(days=10)).isoformat()},
+                {"date": (self.today + timedelta(days=30)).isoformat()},
+            ]
+        }
         assert evals.dates_in_range(self.input, output) == 1.0
 
     def test_past_event_excluded(self):
         # Lower bound (today) was added in this branch — past events used
         # to score as in-range.
-        output = {"tasks": [
-            {"date": (self.today - timedelta(days=1)).isoformat()},
-            {"date": (self.today + timedelta(days=10)).isoformat()},
-        ]}
+        output = {
+            "tasks": [
+                {"date": (self.today - timedelta(days=1)).isoformat()},
+                {"date": (self.today + timedelta(days=10)).isoformat()},
+            ]
+        }
         assert evals.dates_in_range(self.input, output) == 0.5
 
     def test_post_election_event_excluded(self):
-        output = {"tasks": [
-            {"date": (self.election + timedelta(days=1)).isoformat()},
-            {"date": (self.today + timedelta(days=10)).isoformat()},
-        ]}
+        output = {
+            "tasks": [
+                {"date": (self.election + timedelta(days=1)).isoformat()},
+                {"date": (self.today + timedelta(days=10)).isoformat()},
+            ]
+        }
         assert evals.dates_in_range(self.input, output) == 0.5
 
     def test_today_and_election_inclusive(self):
-        output = {"tasks": [
-            {"date": self.today.isoformat()},
-            {"date": self.election.isoformat()},
-        ]}
+        output = {
+            "tasks": [
+                {"date": self.today.isoformat()},
+                {"date": self.election.isoformat()},
+            ]
+        }
         assert evals.dates_in_range(self.input, output) == 1.0
 
     def test_invalid_date_string_dropped(self):
-        output = {"tasks": [
-            {"date": "not-a-date"},
-            {"date": (self.today + timedelta(days=10)).isoformat()},
-        ]}
+        output = {
+            "tasks": [
+                {"date": "not-a-date"},
+                {"date": (self.today + timedelta(days=10)).isoformat()},
+            ]
+        }
         # 1 valid out of 2 total
         assert evals.dates_in_range(self.input, output) == 0.5
 
     def test_non_dict_task_dropped(self):
-        output = {"tasks": [
-            None,
-            {"date": (self.today + timedelta(days=10)).isoformat()},
-        ]}
+        output = {
+            "tasks": [
+                None,
+                {"date": (self.today + timedelta(days=10)).isoformat()},
+            ]
+        }
         assert evals.dates_in_range(self.input, output) == 0.5
 
     def test_no_tasks_scores_zero(self):
@@ -147,12 +159,14 @@ class TestUrlsValid:
         assert evals.urls_valid(None, output) == 0.0
 
     def test_mixed(self):
-        output = {"tasks": [
-            {"url": "https://valid.com"},
-            {"url": "javascript:alert(1)"},
-            {"url": None},
-            {"url": "https://another.com"},
-        ]}
+        output = {
+            "tasks": [
+                {"url": "https://valid.com"},
+                {"url": "javascript:alert(1)"},
+                {"url": None},
+                {"url": "https://another.com"},
+            ]
+        }
         assert evals.urls_valid(None, output) == 0.75
 
     def test_non_dict_task_dropped(self):

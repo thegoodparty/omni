@@ -13,14 +13,15 @@ import json
 import os
 import sys
 import uuid
+from collections import defaultdict
 from pathlib import Path
 from unittest.mock import MagicMock
-from collections import defaultdict
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from dotenv import load_dotenv
+
 load_dotenv(project_root / ".env")
 
 sqs_message_body = {
@@ -133,7 +134,7 @@ def main():
 
     if captured["sqs"]:
         completion = json.loads(captured["sqs"][0]["MessageBody"])
-        print(f"\nCompletion message:")
+        print("\nCompletion message:")
         print(json.dumps(completion, indent=2))
 
 

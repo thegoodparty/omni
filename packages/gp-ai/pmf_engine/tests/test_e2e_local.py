@@ -58,9 +58,7 @@ class TestWaitForRunCompletion:
 
     def test_raises_on_timeout_when_run_never_terminal(self):
         mock_client = MagicMock()
-        mock_client.get.return_value = FakeHttpxResponse(
-            200, [{"runId": "run-001", "status": "PENDING"}]
-        )
+        mock_client.get.return_value = FakeHttpxResponse(200, [{"runId": "run-001", "status": "PENDING"}])
         mock_client.__enter__ = MagicMock(return_value=mock_client)
         mock_client.__exit__ = MagicMock(return_value=None)
 
@@ -95,9 +93,7 @@ class TestWaitForRunCompletion:
 
     def test_raises_on_contract_violation_status(self):
         mock_client = MagicMock()
-        mock_client.get.return_value = FakeHttpxResponse(
-            200, [{"runId": "run-001", "status": "CONTRACT_VIOLATION"}]
-        )
+        mock_client.get.return_value = FakeHttpxResponse(200, [{"runId": "run-001", "status": "CONTRACT_VIOLATION"}])
         mock_client.__enter__ = MagicMock(return_value=mock_client)
         mock_client.__exit__ = MagicMock(return_value=None)
 
@@ -113,9 +109,7 @@ class TestWaitForRunCompletion:
 
     def test_raises_on_timeout_when_run_id_not_in_list(self):
         mock_client = MagicMock()
-        mock_client.get.return_value = FakeHttpxResponse(
-            200, [{"runId": "other-run", "status": "SUCCESS"}]
-        )
+        mock_client.get.return_value = FakeHttpxResponse(200, [{"runId": "other-run", "status": "SUCCESS"}])
         mock_client.__enter__ = MagicMock(return_value=mock_client)
         mock_client.__exit__ = MagicMock(return_value=None)
 
@@ -131,9 +125,7 @@ class TestWaitForRunCompletion:
 
     def test_sends_bearer_token_in_authorization_header(self):
         mock_client = MagicMock()
-        mock_client.get.return_value = FakeHttpxResponse(
-            200, [{"runId": "run-001", "status": "SUCCESS"}]
-        )
+        mock_client.get.return_value = FakeHttpxResponse(200, [{"runId": "run-001", "status": "SUCCESS"}])
         mock_client.__enter__ = MagicMock(return_value=mock_client)
         mock_client.__exit__ = MagicMock(return_value=None)
 
@@ -147,7 +139,5 @@ class TestWaitForRunCompletion:
                 )
 
         call_kwargs = mock_client.get.call_args
-        headers = call_kwargs.kwargs.get("headers") or (
-            call_kwargs.args[1] if len(call_kwargs.args) > 1 else {}
-        )
+        headers = call_kwargs.kwargs.get("headers") or (call_kwargs.args[1] if len(call_kwargs.args) > 1 else {})
         assert headers.get("Authorization") == "Bearer my-jwt"

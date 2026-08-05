@@ -14,6 +14,7 @@ the duration of each test — `traced_span`, `traced_call`, and
 test prevents state leaking between tests if any of them set the key
 locally for their own assertions.
 """
+
 import pytest
 
 from shared.braintrust import BraintrustClient

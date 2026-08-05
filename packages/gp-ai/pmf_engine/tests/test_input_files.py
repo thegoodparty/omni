@@ -275,9 +275,7 @@ class TestPrefetchCleansUpOnPartialFailure:
     and because briefing against a partial input is incorrect.
     """
 
-    def test_partial_fetch_failure_removes_already_written_files(
-        self, tmp_path, monkeypatch
-    ):
+    def test_partial_fetch_failure_removes_already_written_files(self, tmp_path, monkeypatch):
         _set_input_files_env(
             monkeypatch,
             [
@@ -305,9 +303,7 @@ class TestPrefetchCleansUpOnPartialFailure:
         assert not (tmp_path / "input" / "agenda.pdf").exists()
         assert not (tmp_path / "input" / "appendix.pdf").exists()
 
-    def test_unsafe_dest_in_later_entry_rolls_back_earlier_writes(
-        self, tmp_path, monkeypatch
-    ):
+    def test_unsafe_dest_in_later_entry_rolls_back_earlier_writes(self, tmp_path, monkeypatch):
         _set_input_files_env(
             monkeypatch,
             [

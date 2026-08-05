@@ -62,6 +62,7 @@ class _ViolationTracker:
     def fatal(self) -> str | None:
         return self._fatal
 
+
 logger = logging.getLogger(__name__)
 
 USER_AGENT = (
@@ -186,14 +187,10 @@ class PlaywrightBrowserFetcher:
         acquired = 0
         try:
             for _ in range(self._max_concurrent):
-                await asyncio.wait_for(
-                    self._semaphore.acquire(), timeout=_ACLOSE_DRAIN_TIMEOUT_S
-                )
+                await asyncio.wait_for(self._semaphore.acquire(), timeout=_ACLOSE_DRAIN_TIMEOUT_S)
                 acquired += 1
         except TimeoutError:
-            logger.warning(
-                "browser_fetcher.aclose timed out waiting for in-flight fetches"
-            )
+            logger.warning("browser_fetcher.aclose timed out waiting for in-flight fetches")
         try:
             if self._browser is not None:
                 await self._browser.close()
@@ -212,9 +209,7 @@ class PlaywrightBrowserFetcher:
             raise HTTPException(status_code=503, detail="browser fetcher shutting down")
         async with self._semaphore:
             if self._closing:
-                raise HTTPException(
-                    status_code=503, detail="browser fetcher shutting down"
-                )
+                raise HTTPException(status_code=503, detail="browser fetcher shutting down")
             return await self._fetch_impl(url)
 
     async def _fetch_impl(self, url: str) -> BrowserFetchResult:
@@ -223,9 +218,7 @@ class PlaywrightBrowserFetcher:
         from playwright_stealth import stealth_async  # type: ignore[import-untyped]
 
         if self._browser is None:
-            raise RuntimeError(
-                "PlaywrightBrowserFetcher.start() must be awaited before fetch()"
-            )
+            raise RuntimeError("PlaywrightBrowserFetcher.start() must be awaited before fetch()")
 
         tracker = _ViolationTracker()
 
@@ -291,27 +284,18 @@ class PlaywrightBrowserFetcher:
             # 1) Initial grace window — Cloudflare and other JS challenges
             # frequently trigger downloads 200-500 ms after page.goto settles.
             # Always wait this regardless of response state.
-            await self._wait_for_download(
-                page, downloads, INITIAL_DOWNLOAD_GRACE_MS, _raise_if_violation
-            )
+            await self._wait_for_download(page, downloads, INITIAL_DOWNLOAD_GRACE_MS, _raise_if_violation)
 
             if not downloads:
                 # 2) If goto raised (download path with no response), keep waiting
                 # the full DOWNLOAD_WAIT_MS for the download event.
                 if response is None or nav_error is not None:
                     remaining = max(DOWNLOAD_WAIT_MS - INITIAL_DOWNLOAD_GRACE_MS, 0)
-                    await self._wait_for_download(
-                        page, downloads, remaining, _raise_if_violation
-                    )
+                    await self._wait_for_download(page, downloads, remaining, _raise_if_violation)
                 else:
                     # 3) Successful navigation with a response: only pay the
                     # secondary download window for binary content-types.
-                    ct_initial = (
-                        (response.headers.get("content-type") or "")
-                        .split(";")[0]
-                        .strip()
-                        .lower()
-                    )
+                    ct_initial = (response.headers.get("content-type") or "").split(";")[0].strip().lower()
                     if _is_binary_content_type(ct_initial):
                         await self._wait_for_download(
                             page,
@@ -342,11 +326,7 @@ class PlaywrightBrowserFetcher:
                         )
                     _raise_if_violation()
                 captured = captured_responses.get(final_url)
-                content_type = (
-                    captured[0]
-                    if captured and captured[0]
-                    else "application/octet-stream"
-                )
+                content_type = captured[0] if captured and captured[0] else "application/octet-stream"
                 return BrowserFetchResult(
                     status=200,
                     content_type=content_type,
@@ -357,9 +337,7 @@ class PlaywrightBrowserFetcher:
                 )
 
             if nav_error is not None:
-                logger.warning(
-                    "playwright navigation error url=%s error=%s", url, nav_error
-                )
+                logger.warning("playwright navigation error url=%s error=%s", url, nav_error)
                 raise HTTPException(
                     status_code=502,
                     detail="upstream navigation failed",
@@ -380,13 +358,9 @@ class PlaywrightBrowserFetcher:
             # late sub-resources / late download triggers. JSON/XML/text get
             # zero settle. networkidle timeout is acceptable — we've already
             # waited the budgeted window.
-            if _is_binary_content_type(content_type) or content_type.startswith(
-                "text/html"
-            ):
+            if _is_binary_content_type(content_type) or content_type.startswith("text/html"):
                 try:
-                    await page.wait_for_load_state(
-                        "networkidle", timeout=POST_NAV_SETTLE_MS
-                    )
+                    await page.wait_for_load_state("networkidle", timeout=POST_NAV_SETTLE_MS)
                 except PlaywrightError:
                     pass
                 _raise_if_violation()
@@ -411,11 +385,7 @@ class PlaywrightBrowserFetcher:
                             )
                         _raise_if_violation()
                     captured = captured_responses.get(final_url)
-                    ct = (
-                        captured[0]
-                        if captured and captured[0]
-                        else "application/octet-stream"
-                    )
+                    ct = captured[0] if captured and captured[0] else "application/octet-stream"
                     return BrowserFetchResult(
                         status=200,
                         content_type=ct,
@@ -520,9 +490,7 @@ async def _save_download_to_disk(download: object) -> tuple[str, int]:
             try:
                 await asyncio.to_thread(os.unlink, tmp_path)
             except OSError:
-                logger.warning(
-                    "failed to unlink oversized download tmp_path=%s", tmp_path
-                )
+                logger.warning("failed to unlink oversized download tmp_path=%s", tmp_path)
             raise HTTPException(
                 status_code=413,
                 detail=f"download exceeded {MAX_BYTES} bytes",

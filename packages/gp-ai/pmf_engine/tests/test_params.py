@@ -90,9 +90,7 @@ class TestFromEnvParamsViaBroker:
             config = RunnerConfig.from_env()
 
         assert config.params == fetched
-        mock_fetch.assert_called_once_with(
-            broker_url=BROKER_URL, broker_token=BROKER_TOKEN
-        )
+        mock_fetch.assert_called_once_with(broker_url=BROKER_URL, broker_token=BROKER_TOKEN)
 
     def test_missing_broker_token_raises(self, monkeypatch):
         self._base_env(monkeypatch)
@@ -107,9 +105,7 @@ class TestFromEnvParamsViaBroker:
         monkeypatch.delenv("PARAMS_VIA_BROKER", raising=False)
         monkeypatch.setenv("PARAMS_JSON", json.dumps({"district": "CA-12"}))
 
-        with patch(
-            "pmf_engine.runner.params.fetch_params_from_broker"
-        ) as mock_fetch:
+        with patch("pmf_engine.runner.params.fetch_params_from_broker") as mock_fetch:
             config = RunnerConfig.from_env()
 
         assert config.params == {"district": "CA-12"}

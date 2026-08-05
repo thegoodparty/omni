@@ -1,7 +1,6 @@
 import re
 from html import escape
 
-
 _SCRIPT_RE = re.compile(r"<script[^>]*>.*?</script>", re.DOTALL | re.IGNORECASE)
 _STYLE_RE = re.compile(r"<style[^>]*>.*?</style>", re.DOTALL | re.IGNORECASE)
 _COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -27,13 +26,5 @@ def fence_content(content: str, source: str, fetched_at: str | None = None) -> s
     safe_source = escape(source, quote=True)
     if fetched_at:
         safe_ts = escape(fetched_at, quote=True)
-        return (
-            f'<untrusted_web_content source="{safe_source}" fetched_at="{safe_ts}">'
-            f"{content}"
-            f"</untrusted_web_content>"
-        )
-    return (
-        f'<untrusted_web_content source="{safe_source}">'
-        f"{content}"
-        f"</untrusted_web_content>"
-    )
+        return f'<untrusted_web_content source="{safe_source}" fetched_at="{safe_ts}">{content}</untrusted_web_content>'
+    return f'<untrusted_web_content source="{safe_source}">{content}</untrusted_web_content>'

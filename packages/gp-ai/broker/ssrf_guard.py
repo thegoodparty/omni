@@ -48,11 +48,9 @@ async def validate_url(url: str) -> None:
         pass
 
     try:
-        infos = await asyncio.get_running_loop().getaddrinfo(
-            host, parsed.port or 443, proto=socket.IPPROTO_TCP
-        )
+        infos = await asyncio.get_running_loop().getaddrinfo(host, parsed.port or 443, proto=socket.IPPROTO_TCP)
     except socket.gaierror as e:
-        raise HTTPException(status_code=400, detail=f"DNS resolution failed: {e}")
+        raise HTTPException(status_code=400, detail=f"DNS resolution failed: {e}") from e
 
     for info in infos:
         addr = info[4][0]
@@ -68,14 +66,7 @@ def reject_if_private(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> None
         reject_if_private(ip.ipv4_mapped)
         return
 
-    if (
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_multicast
-        or ip.is_reserved
-        or ip.is_unspecified
-    ):
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
         raise HTTPException(
             status_code=400,
             detail=f"URL resolves to blocked address range: {ip}",

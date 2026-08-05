@@ -71,8 +71,7 @@ def _validate_write_action_fields(manifest: dict) -> None:
     if permission_mode is not None:
         if not isinstance(permission_mode, str) or permission_mode not in _PERMISSION_MODE_VALUES:
             raise ManifestLoadError(
-                f"manifest.permission_mode must be one of {sorted(_PERMISSION_MODE_VALUES)}; "
-                f"got {permission_mode!r}"
+                f"manifest.permission_mode must be one of {sorted(_PERMISSION_MODE_VALUES)}; got {permission_mode!r}"
             )
 
     system_prompt = manifest.get("system_prompt")
@@ -86,9 +85,7 @@ def _validate_write_action_fields(manifest: dict) -> None:
             raise ManifestLoadError("manifest.allowed_external_tools must be a list")
         for t in tools:
             if not isinstance(t, str) or not t.strip():
-                raise ManifestLoadError(
-                    f"manifest.allowed_external_tools entry must be a non-empty string; got {t!r}"
-                )
+                raise ManifestLoadError(f"manifest.allowed_external_tools entry must be a non-empty string; got {t!r}")
 
     # runtime.max_parallel_subagents — opt-in for parallel research fan-out.
     # Optional nested block; when present it must be a dict and the field, if
@@ -100,19 +97,13 @@ def _validate_write_action_fields(manifest: dict) -> None:
         if not isinstance(runtime, dict):
             raise ManifestLoadError(f"manifest.runtime must be an object; got {runtime!r}")
         mps = runtime.get("max_parallel_subagents")
-        if mps is not None and (
-            isinstance(mps, bool) or not isinstance(mps, int) or mps < 0
-        ):
+        if mps is not None and (isinstance(mps, bool) or not isinstance(mps, int) or mps < 0):
             raise ManifestLoadError(
                 f"manifest.runtime.max_parallel_subagents must be a non-negative integer; got {mps!r}"
             )
         mtt = runtime.get("max_thinking_tokens")
-        if mtt is not None and (
-            isinstance(mtt, bool) or not isinstance(mtt, int) or mtt < 0
-        ):
-            raise ManifestLoadError(
-                f"manifest.runtime.max_thinking_tokens must be a non-negative integer; got {mtt!r}"
-            )
+        if mtt is not None and (isinstance(mtt, bool) or not isinstance(mtt, int) or mtt < 0):
+            raise ManifestLoadError(f"manifest.runtime.max_thinking_tokens must be a non-negative integer; got {mtt!r}")
 
 
 def _require_str_str_map(raw: object, label: str) -> dict[str, str]:
@@ -127,9 +118,7 @@ def _require_str_str_map(raw: object, label: str) -> dict[str, str]:
     out: dict[str, str] = {}
     for name, value in raw.items():
         if not isinstance(name, str) or not isinstance(value, str):
-            raise ManifestLoadError(
-                f"{label}['{name}'] must map a string basename to a string version_id"
-            )
+            raise ManifestLoadError(f"{label}['{name}'] must map a string basename to a string version_id")
         out[name] = value
     return out
 
@@ -161,9 +150,7 @@ def _validate_qa_envelope(raw_qa: object) -> dict | None:
     files: dict[str, str] = {}
     for name, body in raw_files.items():
         if not isinstance(name, str) or not isinstance(body, str):
-            raise ManifestLoadError(
-                f"envelope.qa.files['{name}'] must map a string basename to a string body"
-            )
+            raise ManifestLoadError(f"envelope.qa.files['{name}'] must map a string basename to a string body")
         files[name] = body
 
     raw_resolved = raw_qa.get("resolved_qa_version_ids")
@@ -240,7 +227,9 @@ def load_from_broker(
                 detail = response.text[:200]
             logger.error(
                 "manifest fetch non-200 experiment_id=%s status=%s detail=%s",
-                experiment_id, response.status_code, detail,
+                experiment_id,
+                response.status_code,
+                detail,
             )
             raise ManifestLoadError(
                 f"broker returned {response.status_code} for experiment '{experiment_id}': {detail}"
@@ -278,8 +267,7 @@ def load_from_broker(
         has_attachments_key = "attachments" in envelope
         if not has_attachments_key:
             logger.info(
-                "broker did not return attachments key — running against older broker? "
-                "experiment_id=%s",
+                "broker did not return attachments key — running against older broker? experiment_id=%s",
                 experiment_id,
             )
         raw_attachments = envelope.get("attachments", {})
@@ -290,9 +278,7 @@ def load_from_broker(
         attachments: dict[str, str] = {}
         for name, body in raw_attachments.items():
             if not isinstance(name, str) or not isinstance(body, str):
-                raise ManifestLoadError(
-                    f"envelope.attachments['{name}'] must map a string basename to a string body"
-                )
+                raise ManifestLoadError(f"envelope.attachments['{name}'] must map a string basename to a string body")
             attachments[name] = body
 
         # Resolved attachment VersionIds — broker's audit-trail echo of what

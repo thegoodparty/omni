@@ -100,7 +100,7 @@ class JobStore:
                 TableName=self._table,
                 Key={"run_id": {"S": run_id}},
                 UpdateExpression=(
-                    "SET #s = :launching, attempts = attempts + :one, " "claimed_at = :now REMOVE gsi_pk, queue_sort"
+                    "SET #s = :launching, attempts = attempts + :one, claimed_at = :now REMOVE gsi_pk, queue_sort"
                 ),
                 ConditionExpression="#s = :queued",
                 ExpressionAttributeNames={"#s": "status"},

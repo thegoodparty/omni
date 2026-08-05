@@ -5,7 +5,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 
-from broker.auth import AuthError, BrokerTokenAuth, get_broker_token
+from broker.auth import AuthError, BrokerTokenAuth
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +55,10 @@ async def proxy_messages(
     except AuthError as exc:
         logger.warning(
             "auth failure reason_code=%s token_prefix=%s",
-            exc.reason_code, broker_token[:8] if broker_token else "empty",
+            exc.reason_code,
+            broker_token[:8] if broker_token else "empty",
         )
-        raise HTTPException(status_code=401, detail="Invalid or expired broker token")
+        raise HTTPException(status_code=401, detail="Invalid or expired broker token") from exc
 
     body = await request.body()
 
@@ -79,7 +80,7 @@ async def proxy_messages(
     try:
         parsed_body = json.loads(body)
     except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
+        raise HTTPException(status_code=400, detail="Invalid JSON body") from None
 
     is_streaming = parsed_body.get("stream", False)
 
@@ -95,12 +96,14 @@ async def proxy_messages(
     except httpx.HTTPError as e:
         logger.warning(
             "anthropic upstream error run_id=%s model=%s exc_type=%s",
-            ticket.run_id, parsed_body.get("model", "?"), type(e).__name__,
+            ticket.run_id,
+            parsed_body.get("model", "?"),
+            type(e).__name__,
         )
         raise HTTPException(
             status_code=502,
             detail=f"anthropic upstream failed: {type(e).__name__}",
-        )
+        ) from e
 
     if not is_streaming:
         try:
@@ -108,12 +111,14 @@ async def proxy_messages(
         except httpx.HTTPError as e:
             logger.warning(
                 "anthropic upstream read error run_id=%s model=%s exc_type=%s",
-                ticket.run_id, parsed_body.get("model", "?"), type(e).__name__,
+                ticket.run_id,
+                parsed_body.get("model", "?"),
+                type(e).__name__,
             )
             raise HTTPException(
                 status_code=502,
                 detail=f"anthropic upstream failed: {type(e).__name__}",
-            )
+            ) from e
         return Response(
             content=response_body,
             status_code=upstream_response.status_code,
@@ -129,7 +134,11 @@ async def proxy_messages(
             model = parsed_body.get("model", "?")
             logger.error(
                 "anthropic upstream stream truncated run_id=%s org=%s model=%s exc_type=%s: %s",
-                ticket.run_id, ticket.organization_slug, model, exc_type, e,
+                ticket.run_id,
+                ticket.organization_slug,
+                model,
+                exc_type,
+                e,
                 exc_info=True,
             )
             # Yield a synthetic SSE error event so the downstream SDK fails
@@ -137,7 +146,7 @@ async def proxy_messages(
             # complete assistant turn. 200 is already on the wire; this is
             # the only way to signal failure mid-stream.
             yield (
-                b'event: error\n'
+                b"event: error\n"
                 b'data: {"type":"error","error":{"type":"upstream_stream_truncated",'
                 b'"message":"upstream stream ended unexpectedly"}}\n\n'
             )

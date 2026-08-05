@@ -6,6 +6,7 @@ Usage:
   python3 parse_conversation.py outputs/20260407-walking-plan/conversation.jsonl
   python3 parse_conversation.py conversation.jsonl --verbose  # include tool results
 """
+
 import json
 import sys
 
@@ -58,9 +59,7 @@ def parse(path, verbose=False):
             elif msg_type == "tool_result" and verbose:
                 content = d.get("content", "")
                 if isinstance(content, list):
-                    content = " ".join(
-                        c.get("text", "") for c in content if isinstance(c, dict)
-                    )
+                    content = " ".join(c.get("text", "") for c in content if isinstance(c, dict))
                 content = str(content).strip()
                 if content:
                     preview = content[:200].replace("\n", " ")

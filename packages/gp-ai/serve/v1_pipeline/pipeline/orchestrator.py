@@ -4,7 +4,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -42,7 +42,7 @@ class V1PipelineOrchestrator:
         self.config_path = config_path or str(Path(__file__).parent.parent / "config/pipeline_config.yaml")
 
         # Track original config directory for path resolution (in case config_path is a temp file)
-        self.original_config_dir = Path(__file__).parent.parent / 'config'
+        self.original_config_dir = Path(__file__).parent.parent / "config"
 
         # Load configuration
         self.config = self._load_config()
@@ -50,8 +50,8 @@ class V1PipelineOrchestrator:
         # Initialize components
         self.input_dir: str | None = None
         self.output_dir: str | None = None
-        self.clusterer: 'ClusteringAdapter' | None = None
-        self.sqs_publisher: 'SQSEventPublisher' | None = None
+        self.clusterer: ClusteringAdapter | None = None
+        self.sqs_publisher: SQSEventPublisher | None = None
 
         # Pipeline state
         self.errors: list[str] = []
@@ -89,23 +89,23 @@ class V1PipelineOrchestrator:
         logger.info(f"🔍 Config directory: {config_dir}")
 
         # Resolve consolidation paths
-        if 'consolidation' in config:
-            if 'input_dir' in config['consolidation']:
-                original_input = config['consolidation']['input_dir']
+        if "consolidation" in config:
+            if "input_dir" in config["consolidation"]:
+                original_input = config["consolidation"]["input_dir"]
                 input_path = Path(original_input)
                 if not input_path.is_absolute():
                     resolved_path = config_dir / input_path
                     resolved_absolute = str(resolved_path.resolve())
-                    config['consolidation']['input_dir'] = resolved_absolute
+                    config["consolidation"]["input_dir"] = resolved_absolute
                     logger.info(f"🔍 Input dir: {original_input} -> {resolved_absolute}")
 
-            if 'output_dir' in config['consolidation']:
-                original_output = config['consolidation']['output_dir']
+            if "output_dir" in config["consolidation"]:
+                original_output = config["consolidation"]["output_dir"]
                 output_path = Path(original_output)
                 if not output_path.is_absolute():
                     resolved_path = config_dir / output_path
                     resolved_absolute = str(resolved_path.resolve())
-                    config['consolidation']['output_dir'] = resolved_absolute
+                    config["consolidation"]["output_dir"] = resolved_absolute
                     logger.info(f"🔍 Output dir: {original_output} -> {resolved_absolute}")
 
         return config
@@ -116,11 +116,11 @@ class V1PipelineOrchestrator:
 
         def substitute_value(value: Any) -> Any:
             if isinstance(value, str):
-                pattern = r'\$\{([^}]+)\}'
+                pattern = r"\$\{([^}]+)\}"
                 matches = re.findall(pattern, value)
                 for var_name in matches:
-                    env_value = os.getenv(var_name, '')
-                    value = value.replace(f'${{{var_name}}}', env_value)
+                    env_value = os.getenv(var_name, "")
+                    value = value.replace(f"${{{var_name}}}", env_value)
                 return value
             elif isinstance(value, dict):
                 return {k: substitute_value(v) for k, v in value.items()}
@@ -135,35 +135,26 @@ class V1PipelineOrchestrator:
     def _get_default_config(self) -> dict[str, Any]:
         """Get default configuration"""
         return {
-            'pipeline': {
-                'mode': 'integrated'
+            "pipeline": {"mode": "integrated"},
+            "consolidation": {"input_dir": "../input", "output_dir": "./output"},
+            "clustering": {"enabled": True, "min_messages_for_clustering": 10, "skip_on_error": True},
+            "top_clusters": {
+                "enabled": False,
+                "count": 3,
+                "min_respondents": 10,
+                "llm_model": "flash",
+                "temperature": 0.0,
+                "skip_on_error": True,
             },
-            'consolidation': {
-                'input_dir': '../input',
-                'output_dir': './output'
-            },
-            'clustering': {
-                'enabled': True,
-                'min_messages_for_clustering': 10,
-                'skip_on_error': True
-            },
-            'top_clusters': {
-                'enabled': False,
-                'count': 3,
-                'min_respondents': 10,
-                'llm_model': 'flash',
-                'temperature': 0.0,
-                'skip_on_error': True
-            }
         }
 
     def _initialize_components(self) -> None:
         """Initialize pipeline components"""
         try:
             # Set input and output directories
-            consolidation_config = self.config.get('consolidation', {})
-            self.input_dir = consolidation_config.get('input_dir', '../input')
-            self.output_dir = consolidation_config.get('output_dir', './output')
+            consolidation_config = self.config.get("consolidation", {})
+            self.input_dir = consolidation_config.get("input_dir", "../input")
+            self.output_dir = consolidation_config.get("output_dir", "./output")
 
             logger.info(f"🔍 Input directory: {self.input_dir}")
             logger.info(f"🔍 Output directory: {self.output_dir}")
@@ -173,15 +164,15 @@ class V1PipelineOrchestrator:
                 Path(self.output_dir).mkdir(parents=True, exist_ok=True)
 
             # Initialize clusterer if enabled
-            if self.config.get('clustering', {}).get('enabled', True):
+            if self.config.get("clustering", {}).get("enabled", True):
                 self.clusterer = ClusteringAdapter()
 
-
             # Initialize SQS publisher if enabled
-            if self.config.get('sqs_events', {}).get('enabled', False):
+            if self.config.get("sqs_events", {}).get("enabled", False):
                 from serve.v1_pipeline.pipeline.sqs_publisher import SQSEventPublisher
-                sqs_config = self.config.get('sqs_events', {}).copy()
-                sqs_config['output_dir'] = self.output_dir
+
+                sqs_config = self.config.get("sqs_events", {}).copy()
+                sqs_config["output_dir"] = self.output_dir
                 self.sqs_publisher = SQSEventPublisher(sqs_config)
 
             logger.info("All pipeline components initialized successfully")
@@ -190,7 +181,9 @@ class V1PipelineOrchestrator:
             logger.error(f"Failed to initialize components: {e}", exc_info=True)
             raise
 
-    def _convert_to_consolidated_messages(self, df: pd.DataFrame, campaign_name: str, poll_id: str | None = None) -> list[ConsolidatedMessage]:
+    def _convert_to_consolidated_messages(
+        self, df: pd.DataFrame, campaign_name: str, poll_id: str | None = None
+    ) -> list[ConsolidatedMessage]:
         """
         Convert consolidated DataFrame to ConsolidatedMessage objects
         Supports bare-bones CSVs with only required fields: phone_number, message_text
@@ -200,37 +193,39 @@ class V1PipelineOrchestrator:
 
         for _, row in df.iterrows():
             try:
-                sent_at_raw = row.get('sent_at', row.get('Sent At', None))
-                sent_at = datetime.now(timezone.utc)
+                sent_at_raw = row.get("sent_at", row.get("Sent At", None))
+                sent_at = datetime.now(UTC)
 
                 if pd.notna(sent_at_raw) and sent_at_raw:
                     try:
                         timestamp_str = str(sent_at_raw)
-                        timestamp_str = timestamp_str.replace('.000Z', 'Z').replace('..', '.')
+                        timestamp_str = timestamp_str.replace(".000Z", "Z").replace("..", ".")
                         sent_at = pd.to_datetime(timestamp_str)
                     except Exception:
                         pass
 
                 # Handle both old format (Contact Phone Number) and new format (phone_number)
-                phone_number = str(row.get('phone_number', row.get('Contact Phone Number', ''))).strip()
+                phone_number = str(row.get("phone_number", row.get("Contact Phone Number", ""))).strip()
 
                 # Required: message_text
-                message_text = str(row.get('message_text', row.get('Message Text', '')))
+                message_text = str(row.get("message_text", row.get("Message Text", "")))
 
                 # Validate required fields
                 if not phone_number or not message_text:
-                    logger.warning(f"Skipping row: missing required fields (phone_number={phone_number}, message_text={message_text})")
+                    logger.warning(
+                        f"Skipping row: missing required fields (phone_number={phone_number}, message_text={message_text})"
+                    )
                     continue
 
                 # Determine poll_id: CSV poll_id column > filename > campaign_name
                 row_poll_id = poll_id
-                if pd.notna(row.get('poll_id')):
-                    row_poll_id = str(row.get('poll_id'))
+                if pd.notna(row.get("poll_id")):
+                    row_poll_id = str(row.get("poll_id"))
                 elif poll_id is None:
                     row_poll_id = campaign_name
 
                 # Optional: round (default to 'R1' if missing)
-                round_val = str(row.get('round', 'R1'))
+                round_val = str(row.get("round", "R1"))
 
                 message = ConsolidatedMessage(
                     phone_number=phone_number,
@@ -238,9 +233,9 @@ class V1PipelineOrchestrator:
                     sent_at=sent_at,
                     round=round_val,
                     campaign_id=campaign_name,
-                    campaign_name=str(row.get('Campaign Name', campaign_name)),
-                    carrier=str(row.get('Carrier')) if pd.notna(row.get('Carrier')) else None,
-                    poll_id=row_poll_id
+                    campaign_name=str(row.get("Campaign Name", campaign_name)),
+                    carrier=str(row.get("Carrier")) if pd.notna(row.get("Carrier")) else None,
+                    poll_id=row_poll_id,
                 )
 
                 messages.append(message)
@@ -281,13 +276,13 @@ class V1PipelineOrchestrator:
                 logger.info("✅ Pipeline completed with 0 messages to process")
 
                 sqs_result: dict[str, Any] = {}
-                if self.sqs_publisher and self.config.get('sqs_events', {}).get('enabled', False):
-                    poll_ids = [f['poll_id'] for f in consolidation_analysis.get('files', [])]
+                if self.sqs_publisher and self.config.get("sqs_events", {}).get("enabled", False):
+                    poll_ids = [f["poll_id"] for f in consolidation_analysis.get("files", [])]
                     if poll_ids:
                         sqs_result = await self.sqs_publisher.publish_poll_completion(
                             poll_ids=poll_ids, unified_records=[], campaign_name=campaign_name
                         )
-                        sqs_result['success'] = True
+                        sqs_result["success"] = True
                         logger.info(f"Published {len(poll_ids)} empty poll completion events")
 
                 processing_time = time.time() - start_time
@@ -298,10 +293,10 @@ class V1PipelineOrchestrator:
                     output_records=0,
                     processing_time=processing_time,
                     consolidation_result=consolidation_analysis,
-                    clustering_result={'success': True, 'processed_messages': 0},
+                    clustering_result={"success": True, "processed_messages": 0},
                     sqs_result=sqs_result,
                     errors=[],
-                    warnings=["No messages found in CSV files"]
+                    warnings=["No messages found in CSV files"],
                 )
 
             logger.info(f"✅ Consolidation completed in {consolidation_time:.2f}s")
@@ -309,11 +304,11 @@ class V1PipelineOrchestrator:
             # Extract poll_id from consolidation analysis (use first file's poll_id as fallback)
             # If CSV has poll_id or campaign_id column, that will override this in _convert_to_consolidated_messages
             poll_id_fallback: str | None = campaign_name
-            if consolidation_analysis.get('files'):
-                poll_id_fallback = consolidation_analysis['files'][0].get('poll_id', campaign_name)
+            if consolidation_analysis.get("files"):
+                poll_id_fallback = consolidation_analysis["files"][0].get("poll_id", campaign_name)
 
             # Check if CSV has poll_id column (normalized column names)
-            has_poll_id_column = 'poll_id' in consolidated_df.columns
+            has_poll_id_column = "poll_id" in consolidated_df.columns
             if has_poll_id_column:
                 logger.info("Found poll_id column in CSV - will use values from column")
                 poll_id_fallback = None  # Signal to use per-row values
@@ -328,7 +323,7 @@ class V1PipelineOrchestrator:
             clustering_result: dict[str, Any] = {}
             clustering_results = {}
 
-            if self.clusterer and self.config.get('clustering', {}).get('enabled', True):
+            if self.clusterer and self.config.get("clustering", {}).get("enabled", True):
                 logger.info("🔍 Stage 2: Message Clustering")
                 clustering_start = time.time()
 
@@ -349,27 +344,29 @@ class V1PipelineOrchestrator:
                             logger.info(f"🔍 DEBUG Sample clustering result for {sample_phone}: {type(sample_result)}")
                             if isinstance(sample_result, dict):
                                 logger.info(f"🔍 DEBUG Sample keys: {list(sample_result.keys())}")
-                                if 'cluster_data' in sample_result:
-                                    logger.info(f"🔍 DEBUG cluster_data keys: {list(sample_result['cluster_data'].keys())}")
+                                if "cluster_data" in sample_result:
+                                    logger.info(
+                                        f"🔍 DEBUG cluster_data keys: {list(sample_result['cluster_data'].keys())}"
+                                    )
                             logger.info(f"🔍 DEBUG Total clustering results: {len(clustering_results)}")
 
                     clustering_result = {
-                        'processed_messages': len(clustering_results),
-                        'processing_time': clustering_time,
-                        'success': True
+                        "processed_messages": len(clustering_results),
+                        "processing_time": clustering_time,
+                        "success": True,
                     }
                 except (ValueError, OSError, RuntimeError, ImportError, KeyError) as e:
                     logger.error(f"Clustering stage failed: {e}", exc_info=True)
                     self.errors.append(f"Clustering stage failed: {str(e)}")
                     clustering_results = {}
-                    clustering_result = {'success': False, 'error': str(e), 'processed_messages': 0}
-                    if not self.config.get('clustering', {}).get('skip_on_error', True):
+                    clustering_result = {"success": False, "error": str(e), "processed_messages": 0}
+                    if not self.config.get("clustering", {}).get("skip_on_error", True):
                         raise
                 except Exception as e:
                     logger.error(f"Clustering stage failed with unexpected error: {e}", exc_info=True)
                     self.errors.append(f"Clustering stage failed: {str(e)}")
                     clustering_results = {}
-                    clustering_result = {'success': False, 'error': str(e), 'processed_messages': 0}
+                    clustering_result = {"success": False, "error": str(e), "processed_messages": 0}
                     raise
             else:
                 clustering_results = {}
@@ -377,12 +374,13 @@ class V1PipelineOrchestrator:
             # Stage 3: Data Merging
             logger.info("🔄 Stage 3: Data Merging")
             import asyncio
+
             unified_records = await asyncio.to_thread(self._merge_all_data, messages, clustering_results, campaign_name)
 
             # Stage 3.5: LLM-Based Cluster Recommendations
             top_clusters_recommendations = None
             top_clusters_assessment = None
-            if self.config.get('top_clusters', {}).get('enabled', True) and unified_records:
+            if self.config.get("top_clusters", {}).get("enabled", True) and unified_records:
                 logger.info("🤖 Stage 3.5: Generating LLM-based cluster recommendations...")
                 recommendation_start = time.time()
 
@@ -393,38 +391,38 @@ class V1PipelineOrchestrator:
                     )
 
                     top_clusters_recommendations, top_clusters_assessment = await recommend_top_clusters_via_llm(
-                        unified_records,
-                        self.config
+                        unified_records, self.config
                     )
 
                     recommendation_time = time.time() - recommendation_start
 
                     if top_clusters_recommendations:
                         formatted_output = format_recommendations_for_logging(
-                            top_clusters_recommendations,
-                            top_clusters_assessment
+                            top_clusters_recommendations, top_clusters_assessment
                         )
                         logger.info(f"\n{formatted_output}")
                         logger.info(f"✅ Recommendations generated in {recommendation_time:.2f}s")
                     else:
                         logger.warning("⚠️ No cluster recommendations generated - no substantive clusters found")
                         logger.info("   This may occur if: (1) all messages were filtered out during clustering, or")
-                        logger.info(f"   (2) no clusters meet the minimum threshold ({self.config.get('top_clusters', {}).get('min_respondents', 10)} unique respondents)")
+                        logger.info(
+                            f"   (2) no clusters meet the minimum threshold ({self.config.get('top_clusters', {}).get('min_respondents', 10)} unique respondents)"
+                        )
 
                 except Exception as e:
                     logger.error(f"Cluster recommendation stage failed: {e}", exc_info=True)
                     self.errors.append(f"Cluster recommendation stage failed: {str(e)}")
-                    if not self.config.get('top_clusters', {}).get('skip_on_error', True):
+                    if not self.config.get("top_clusters", {}).get("skip_on_error", True):
                         raise
 
             # At this point, all stages completed successfully
             # Stage 4: Event Saving to S3 (validation mode - only runs on successful pipeline completion)
             sqs_result = {}
-            if self.sqs_publisher and self.config.get('sqs_events', {}).get('enabled', False):
+            if self.sqs_publisher and self.config.get("sqs_events", {}).get("enabled", False):
                 logger.info("💾 Stage 4: Event Publishing")
                 sqs_start = time.time()
 
-                poll_ids = [f['poll_id'] for f in consolidation_analysis.get('files', [])]
+                poll_ids = [f["poll_id"] for f in consolidation_analysis.get("files", [])]
                 sqs_stats = await self.sqs_publisher.publish_poll_completion(
                     poll_ids=poll_ids, unified_records=unified_records, campaign_name=campaign_name
                 )
@@ -434,11 +432,7 @@ class V1PipelineOrchestrator:
                 logger.info(f"Event publishing completed in {sqs_time:.2f}s")
                 logger.info(f"   Published {sqs_stats['complete_events_sent']} events")
 
-                sqs_result = {
-                    'success': True,
-                    'processing_time': float(sqs_time),
-                    **sqs_stats
-                }
+                sqs_result = {"success": True, "processing_time": float(sqs_time), **sqs_stats}
             else:
                 logger.info("⏭️ Skipping event saving (disabled in config)")
 
@@ -458,7 +452,7 @@ class V1PipelineOrchestrator:
                 clustering_result=clustering_result,
                 sqs_result=sqs_result,
                 errors=self.errors,
-                warnings=self.warnings
+                warnings=self.warnings,
             )
 
             logger.info("🎉 Pipeline completed successfully!")
@@ -477,10 +471,10 @@ class V1PipelineOrchestrator:
                 atomic_messages=0,
                 output_records=0,
                 processing_time=processing_time,
-                consolidation_result={'success': False, 'error': str(e)},
+                consolidation_result={"success": False, "error": str(e)},
                 clustering_result={},
                 errors=[str(e)] + self.errors,
-                warnings=self.warnings
+                warnings=self.warnings,
             )
 
     async def _run_consolidation_stage(self, campaign_name: str) -> tuple[pd.DataFrame, dict[str, Any]]:
@@ -498,10 +492,7 @@ class V1PipelineOrchestrator:
                 all_csv_files = list(input_dir.glob("*.csv"))
 
                 campaign_lower = campaign_name.lower()
-                csv_files = [
-                    f for f in all_csv_files
-                    if campaign_lower in f.stem.lower()
-                ]
+                csv_files = [f for f in all_csv_files if campaign_lower in f.stem.lower()]
 
                 if not csv_files:
                     logger.warning(f"No CSV files found matching campaign '{campaign_name}'")
@@ -563,7 +554,7 @@ class V1PipelineOrchestrator:
             # Check for phone_number column (various formats)
             has_phone = any(
                 col in columns_lower
-                for col in ['phone_number', 'contact phone number', 'phone', 'contact_phone_number']
+                for col in ["phone_number", "contact phone number", "phone", "contact_phone_number"]
             )
             if not has_phone:
                 raise ValueError(
@@ -573,8 +564,7 @@ class V1PipelineOrchestrator:
 
             # Check for message_text column (various formats)
             has_message = any(
-                col in columns_lower
-                for col in ['message_text', 'message text', 'message', 'text', 'body']
+                col in columns_lower for col in ["message_text", "message text", "message", "text", "body"]
             )
             if not has_message:
                 raise ValueError(
@@ -589,7 +579,9 @@ class V1PipelineOrchestrator:
                 "files": all_file_entries,
             }
 
-            logger.info(f"Loaded {len(combined_df)} rows from {len(loaded_files)} file(s), skipped {len(skipped_files)}")
+            logger.info(
+                f"Loaded {len(combined_df)} rows from {len(loaded_files)} file(s), skipped {len(skipped_files)}"
+            )
             logger.info(f"Poll IDs: {[f['poll_id'] for f in all_file_entries]}")
             return combined_df, analysis
 
@@ -603,13 +595,13 @@ class V1PipelineOrchestrator:
         Handles Serve CSV format with columns like 'Contact Phone Number', 'Message Text', 'Sent At'
         """
         column_mappings = {
-            'phone_number': ['phone_number', 'Contact Phone Number', 'phone', 'Phone', 'contact_phone'],
-            'message_text': ['message_text', 'Message Text', 'message', 'text', 'body', 'Message'],
-            'sent_at': ['sent_at', 'Sent At', 'timestamp', 'date', 'created_at'],
-            'round': ['round', 'Round', 'contact_round', 'Round Number'],
-            'poll_id': ['poll_id', 'Poll ID'],
-            'campaign_name': ['campaign_name', 'Campaign Name'],
-            'carrier': ['carrier', 'Carrier']
+            "phone_number": ["phone_number", "Contact Phone Number", "phone", "Phone", "contact_phone"],
+            "message_text": ["message_text", "Message Text", "message", "text", "body", "Message"],
+            "sent_at": ["sent_at", "Sent At", "timestamp", "date", "created_at"],
+            "round": ["round", "Round", "contact_round", "Round Number"],
+            "poll_id": ["poll_id", "Poll ID"],
+            "campaign_name": ["campaign_name", "Campaign Name"],
+            "carrier": ["carrier", "Carrier"],
         }
 
         for standard_name, possible_names in column_mappings.items():
@@ -621,7 +613,9 @@ class V1PipelineOrchestrator:
 
         return df
 
-    async def _run_clustering_stage(self, messages: list[ConsolidatedMessage], campaign_name: str) -> dict[str, dict[str, Any]]:
+    async def _run_clustering_stage(
+        self, messages: list[ConsolidatedMessage], campaign_name: str
+    ) -> dict[str, dict[str, Any]]:
         """Run the clustering stage"""
         if not self.output_dir:
             raise ValueError("Output directory not configured")
@@ -642,10 +636,9 @@ class V1PipelineOrchestrator:
         result = await self.clusterer.process_messages(messages, campaign_name, persistent_output_dir=str(output_dir))
         return result
 
-    def _merge_all_data(self,
-                       messages: list[ConsolidatedMessage],
-                       clustering_results: dict[str, dict[str, Any]],
-                       campaign_name: str) -> list[UnifiedCampaignRecord]:
+    def _merge_all_data(
+        self, messages: list[ConsolidatedMessage], clustering_results: dict[str, dict[str, Any]], campaign_name: str
+    ) -> list[UnifiedCampaignRecord]:
         """
         Merge all data sources into unified records
 
@@ -661,7 +654,7 @@ class V1PipelineOrchestrator:
         # Iterate over clustering results (keyed by atomic_id)
         for atomic_id, clustering in clustering_results.items():
             # Extract phone number from clustering result
-            phone_number = clustering.get('phone_number')
+            phone_number = clustering.get("phone_number")
             if not phone_number:
                 logger.warning(f"Clustering result {atomic_id} missing phone_number, skipping")
                 continue
@@ -669,23 +662,25 @@ class V1PipelineOrchestrator:
             # Find matching ConsolidatedMessage by phone number
             message = phone_map.get(phone_number)
             if not message:
-                logger.warning(f"No ConsolidatedMessage found for phone {phone_number} (atomic_id: {atomic_id}), skipping")
+                logger.warning(
+                    f"No ConsolidatedMessage found for phone {phone_number} (atomic_id: {atomic_id}), skipping"
+                )
                 continue
 
             # Create unified record (one per atomic message)
             unified_record = UnifiedCampaignRecord.from_consolidated_message(
-                consolidated=message,
-                campaign_id=campaign_name,
-                clustering_result=clustering
+                consolidated=message, campaign_id=campaign_name, clustering_result=clustering
             )
 
             unified_records.append(unified_record)
 
         logger.info(f"Created {len(unified_records)} unified records from {len(messages)} original messages")
         if len(unified_records) > len(messages):
-            logger.info(f"   → {len(unified_records) - len(messages)} additional records created from message splitting")
+            logger.info(
+                f"   → {len(unified_records) - len(messages)} additional records created from message splitting"
+            )
 
-        output_dir = Path(self.config.get('consolidation', {}).get('output_dir', './output/consolidated'))
+        output_dir = Path(self.config.get("consolidation", {}).get("output_dir", "./output/consolidated"))
         output_dir.mkdir(parents=True, exist_ok=True)
 
         try:
@@ -711,22 +706,22 @@ class V1PipelineOrchestrator:
         csv_rows = []
         for record in unified_records:
             row = {
-                'atomicId': record.atomic_id,
-                'phoneNumber': record.phone_number,
-                'receivedAt': record.sent_at.isoformat() if record.sent_at else '',
-                'originalMessage': record.original_message or record.message_text,
-                'atomicMessage': record.atomic_message if record.atomic_message else record.message_text,
-                'pollId': record.poll_id or record.campaign_id,
-                'clusterId': '',
-                'theme': '',
-                'category': '',
-                'summary': '',
-                'sentiment': '',
-                'isOptOut': record.is_opt_out,
+                "atomicId": record.atomic_id,
+                "phoneNumber": record.phone_number,
+                "receivedAt": record.sent_at.isoformat() if record.sent_at else "",
+                "originalMessage": record.original_message or record.message_text,
+                "atomicMessage": record.atomic_message if record.atomic_message else record.message_text,
+                "pollId": record.poll_id or record.campaign_id,
+                "clusterId": "",
+                "theme": "",
+                "category": "",
+                "summary": "",
+                "sentiment": "",
+                "isOptOut": record.is_opt_out,
             }
 
             if record.is_opt_out:
-                row['theme'] = 'Opt Out Request'
+                row["theme"] = "Opt Out Request"
             else:
                 cluster_data = {}
                 if record.multi_cluster_data:
@@ -734,24 +729,37 @@ class V1PipelineOrchestrator:
                     if first_key:
                         cluster_data = record.multi_cluster_data[first_key]
 
-                cluster_id = cluster_data.get('cluster_id', -1)
-                row['clusterId'] = cluster_id if cluster_id != -1 else ''
-                row['theme'] = cluster_data.get('cluster_theme', '')
-                row['category'] = cluster_data.get('cluster_category', '')
-                row['summary'] = cluster_data.get('issues_summary', '')
-                row['sentiment'] = cluster_data.get('cluster_sentiment', '')
+                cluster_id = cluster_data.get("cluster_id", -1)
+                row["clusterId"] = cluster_id if cluster_id != -1 else ""
+                row["theme"] = cluster_data.get("cluster_theme", "")
+                row["category"] = cluster_data.get("cluster_category", "")
+                row["summary"] = cluster_data.get("issues_summary", "")
+                row["sentiment"] = cluster_data.get("cluster_sentiment", "")
 
             csv_rows.append(row)
 
         if csv_rows:
-            fieldnames = ['atomicId', 'phoneNumber', 'receivedAt', 'originalMessage', 'atomicMessage', 'pollId', 'clusterId', 'theme', 'category', 'summary', 'sentiment', 'isOptOut']
-            with open(csv_file_path, 'w', newline='', encoding='utf-8') as f:
+            fieldnames = [
+                "atomicId",
+                "phoneNumber",
+                "receivedAt",
+                "originalMessage",
+                "atomicMessage",
+                "pollId",
+                "clusterId",
+                "theme",
+                "category",
+                "summary",
+                "sentiment",
+                "isOptOut",
+            ]
+            with open(csv_file_path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 writer.writerows(csv_rows)
 
-            json_file_path = csv_file_path.with_suffix('.json')
-            with open(json_file_path, 'w', encoding='utf-8') as f:
+            json_file_path = csv_file_path.with_suffix(".json")
+            with open(json_file_path, "w", encoding="utf-8") as f:
                 json.dump(csv_rows, f, indent=2)
 
             logger.info(f"Exported {len(csv_rows)} atomic messages (CSV + JSON)")

@@ -1,10 +1,9 @@
 import json
 import uuid
-from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -34,7 +33,7 @@ def _make_record(
         atomic_id=str(uuid.uuid4()),
         phone_number=phone_number,
         message_text="Fix the roads please",
-        sent_at=datetime.now(timezone.utc),
+        sent_at=datetime.now(UTC),
         round="R1",
         poll_id=poll_id,
         multi_cluster_data=cluster_data if not is_opt_out else None,
@@ -115,7 +114,7 @@ class TestContractCompliance:
     @pytest.mark.asyncio
     async def test_event_structure_matches_gp_api_schema(self, publisher, call_log):
         records = [_make_record("+1111111111", "poll-1")]
-        result = await publisher.publish_poll_completion(
+        await publisher.publish_poll_completion(
             poll_ids=["poll-1"], unified_records=records, campaign_name="test-campaign"
         )
 
@@ -263,7 +262,8 @@ class TestMultiPollCompleteness:
         assert "poll-2" in poll_ids_sent
 
         poll_2_body = next(
-            json.loads(c[1]["MessageBody"]) for c in sqs_calls
+            json.loads(c[1]["MessageBody"])
+            for c in sqs_calls
             if json.loads(c[1]["MessageBody"])["data"]["pollId"] == "poll-2"
         )
         assert poll_2_body["data"]["totalResponses"] == 0
@@ -346,9 +346,7 @@ class TestClusterRanking:
         pub = SQSEventPublisher(config, s3_client=mock_s3, sqs_client=mock_sqs)
 
         records = [_make_record(f"+{i:010d}", "poll-1", cluster_id=1, theme="Roads") for i in range(3)]
-        await pub.publish_poll_completion(
-            poll_ids=["poll-1"], unified_records=records, campaign_name="test-campaign"
-        )
+        await pub.publish_poll_completion(poll_ids=["poll-1"], unified_records=records, campaign_name="test-campaign")
         sqs_calls = [c for c in call_log if c[0] == "sqs_send_message"]
         body = json.loads(sqs_calls[0][1]["MessageBody"])
         assert body["data"]["issues"] == [], "Cluster with 3 respondents < min 5 should be excluded"
@@ -361,9 +359,7 @@ class TestLocalEventSaving:
         pub = SQSEventPublisher(config, s3_client=mock_s3)
 
         records = [_make_record("+1111111111", "poll-1")]
-        await pub.publish_poll_completion(
-            poll_ids=["poll-1"], unified_records=records, campaign_name="test-campaign"
-        )
+        await pub.publish_poll_completion(poll_ids=["poll-1"], unified_records=records, campaign_name="test-campaign")
 
         events_dir = tmp_path / "output" / "events"
         assert events_dir.exists()
@@ -394,9 +390,7 @@ class TestValidation:
         config = _make_config(tmp_path, publish_to_sqs=True)
         pub = SQSEventPublisher(config, s3_client=mock_s3, sqs_client=mock_sqs)
 
-        await pub.publish_poll_completion(
-            poll_ids=["poll-1"], unified_records=[], campaign_name="test-campaign"
-        )
+        await pub.publish_poll_completion(poll_ids=["poll-1"], unified_records=[], campaign_name="test-campaign")
         s3_calls = [c for c in call_log if c[0] == "s3_put_object"]
         body = s3_calls[0][1]["Body"]
         assert json.loads(body) == [], "Corrupted JSON should fall back to empty array"
@@ -420,9 +414,7 @@ class TestValidation:
         config["output_dir"] = str(consolidated_dir)
         pub = SQSEventPublisher(config, s3_client=mock_s3, sqs_client=mock_sqs)
 
-        await pub.publish_poll_completion(
-            poll_ids=["poll-1"], unified_records=[], campaign_name="test-campaign"
-        )
+        await pub.publish_poll_completion(poll_ids=["poll-1"], unified_records=[], campaign_name="test-campaign")
         s3_calls = [c for c in call_log if c[0] == "s3_put_object"]
         body = json.loads(s3_calls[0][1]["Body"])
         assert len(body) == 1, "Should upload real JSON, not empty array fallback"

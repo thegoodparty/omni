@@ -16,6 +16,7 @@ Living here (`control_plane/`) — not `runner/` — because the Lambda zip is
 the consumer that can't easily reach into the runner package; the runner can
 import down into `control_plane` without circularity.
 """
+
 from __future__ import annotations
 
 from jsonschema import Draft7Validator

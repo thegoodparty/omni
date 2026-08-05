@@ -5,6 +5,7 @@ from each AssistantMessage's usage. These lock down the pricing math (each
 token class priced at its own rate, dollars summed across turns) and the
 module-level accumulator helpers.
 """
+
 from __future__ import annotations
 
 from pmf_engine.runner.harness import claude_sdk
@@ -54,7 +55,5 @@ class TestAccumulator:
 
     def test_getter_reflects_current_state(self):
         claude_sdk.reset_accumulated_cost()
-        claude_sdk._accumulated_cost_usd += claude_sdk._price_turn(
-            "claude-sonnet-5", {"output_tokens": 2_000_000}
-        )
+        claude_sdk._accumulated_cost_usd += claude_sdk._price_turn("claude-sonnet-5", {"output_tokens": 2_000_000})
         assert claude_sdk.get_accumulated_cost() == 30.0

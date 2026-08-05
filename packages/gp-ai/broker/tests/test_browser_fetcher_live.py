@@ -85,9 +85,7 @@ async def test_cloudflare_challenged_pdf_via_alvin_gov():
         # path. Read magic bytes from disk.
         assert result.content_type == "application/pdf", result.content_type
         assert result.body is None, "PDF must go through the download path, not buffered"
-        assert result.body_path is not None, (
-            "expected download path (body_path), not inline body — fetcher routing bug"
-        )
+        assert result.body_path is not None, "expected download path (body_path), not inline body — fetcher routing bug"
         assert os.path.exists(result.body_path)
         try:
             file_size = os.path.getsize(result.body_path)
@@ -96,8 +94,7 @@ async def test_cloudflare_challenged_pdf_via_alvin_gov():
                 "likely broken (returned a challenge response instead)"
             )
             assert result.byte_size == file_size, (
-                f"BrowserFetchResult.byte_size ({result.byte_size}) must match "
-                f"on-disk size ({file_size})"
+                f"BrowserFetchResult.byte_size ({result.byte_size}) must match on-disk size ({file_size})"
             )
             with open(result.body_path, "rb") as f:
                 magic = f.read(4)

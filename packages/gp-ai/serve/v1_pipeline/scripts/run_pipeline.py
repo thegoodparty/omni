@@ -30,7 +30,7 @@ logger = get_logger(__name__)
 def parse_arguments():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(
-        description='V1 Message Analysis Pipeline Runner',
+        description="V1 Message Analysis Pipeline Runner",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -45,45 +45,22 @@ Examples:
 
   # Enable debug logging
   %(prog)s --campaign berkley --debug
-        """
+        """,
     )
 
     parser.add_argument(
-        '--campaign',
-        type=str,
-        required=True,
-        help='Campaign name to process (e.g., "berkley", "cara", "josh")'
+        "--campaign", type=str, required=True, help='Campaign name to process (e.g., "berkley", "cara", "josh")'
     )
 
-    parser.add_argument(
-        '--config',
-        type=str,
-        help='Path to pipeline configuration file'
-    )
+    parser.add_argument("--config", type=str, help="Path to pipeline configuration file")
 
-    parser.add_argument(
-        '--skip-clustering',
-        action='store_true',
-        help='Skip clustering stage'
-    )
+    parser.add_argument("--skip-clustering", action="store_true", help="Skip clustering stage")
 
-    parser.add_argument(
-        '--debug',
-        action='store_true',
-        help='Enable debug logging'
-    )
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
 
-    parser.add_argument(
-        '--output-dir',
-        type=str,
-        help='Override output directory'
-    )
+    parser.add_argument("--output-dir", type=str, help="Override output directory")
 
-    parser.add_argument(
-        '--save-results',
-        type=str,
-        help='Save pipeline results to JSON file'
-    )
+    parser.add_argument("--save-results", type=str, help="Save pipeline results to JSON file")
 
     return parser.parse_args()
 
@@ -94,14 +71,12 @@ def setup_logging(debug: bool = False):
 
     level = logging.DEBUG if debug else logging.INFO
     logging.basicConfig(
-        level=level,
-        format='%(asctime)s | %(name)s | %(levelname)s | %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        level=level, format="%(asctime)s | %(name)s | %(levelname)s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
     )
 
     # Reduce noise from external libraries
-    logging.getLogger('asyncio').setLevel(logging.WARNING)
-    logging.getLogger('aiohttp').setLevel(logging.WARNING)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
+    logging.getLogger("aiohttp").setLevel(logging.WARNING)
 
 
 def modify_config_for_arguments(config_path: str | None, args) -> str | None:
@@ -114,10 +89,10 @@ def modify_config_for_arguments(config_path: str | None, args) -> str | None:
     modifications = {}
 
     if args.skip_clustering:
-        modifications['clustering'] = {'enabled': False}
+        modifications["clustering"] = {"enabled": False}
 
     if args.output_dir:
-        modifications['consolidation'] = {'output_dir': args.output_dir}
+        modifications["consolidation"] = {"output_dir": args.output_dir}
 
     # If no modifications needed, return original config
     if not modifications:
@@ -140,7 +115,7 @@ def modify_config_for_arguments(config_path: str | None, args) -> str | None:
                 config[section] = updates
 
         # Create temporary config file
-        temp_config = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
+        temp_config = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
         yaml.dump(config, temp_config)
         temp_config.close()
 
@@ -177,28 +152,28 @@ async def main():
         result = await orchestrator.run_pipeline(args.campaign)
 
         # Print results summary
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("📊 PIPELINE RESULTS SUMMARY")
-        print("="*60)
+        print("=" * 60)
 
         summary = result.summary
         for key, value in summary.items():
             print(f"{key.replace('_', ' ').title()}: {value}")
 
-        print("="*60)
+        print("=" * 60)
 
         # Save results if requested
         if args.save_results:
             results_data = {
-                'campaign_id': result.campaign_id,
-                'summary': summary,
-                'consolidation': result.consolidation_result,
-                'clustering': result.clustering_result,
-                'errors': result.errors,
-                'warnings': result.warnings
+                "campaign_id": result.campaign_id,
+                "summary": summary,
+                "consolidation": result.consolidation_result,
+                "clustering": result.clustering_result,
+                "errors": result.errors,
+                "warnings": result.warnings,
             }
 
-            with open(args.save_results, 'w') as f:
+            with open(args.save_results, "w") as f:
                 json.dump(results_data, f, indent=2, default=str)
             logger.info(f"💾 Results saved to: {args.save_results}")
 
@@ -221,6 +196,7 @@ async def main():
         logger.error(f"💥 Pipeline failed: {e}")
         if args.debug:
             import traceback
+
             logger.error(f"Traceback:\n{traceback.format_exc()}")
         sys.exit(1)
 

@@ -202,7 +202,9 @@ class TestRejectIfPrivate:
         reject_if_private(ipaddress.ip_address("2001:4860:4860::8888"))
 
 
-def _response(status: int, headers: dict[str, str] | None = None, method: str = "GET", url: str = "https://example.com/") -> httpx.Response:
+def _response(
+    status: int, headers: dict[str, str] | None = None, method: str = "GET", url: str = "https://example.com/"
+) -> httpx.Response:
     return httpx.Response(
         status_code=status,
         headers=headers or {},
@@ -248,10 +250,12 @@ class TestResolveRedirects:
     async def test_resolve_redirects_follows_relative_location_via_urljoin(self, public_dns):
         start = "https://example.com/a/b"
         final = "https://example.com/c"
-        client = _make_client_sequence([
-            _response(302, {"location": "/c"}, "GET", start),
-            _response(200, {}, "GET", final),
-        ])
+        client = _make_client_sequence(
+            [
+                _response(302, {"location": "/c"}, "GET", start),
+                _response(200, {}, "GET", final),
+            ]
+        )
 
         resp, final_url = await resolve_redirects(client, "GET", start, timeout=30.0, max_redirects=5)
 
@@ -261,10 +265,12 @@ class TestResolveRedirects:
     @pytest.mark.asyncio
     async def test_resolve_redirects_follows_protocol_relative_location(self, public_dns):
         start = "https://example.com/x"
-        client = _make_client_sequence([
-            _response(302, {"location": "//other.example.com/y"}, "GET", start),
-            _response(200, {}, "GET", "https://other.example.com/y"),
-        ])
+        client = _make_client_sequence(
+            [
+                _response(302, {"location": "//other.example.com/y"}, "GET", start),
+                _response(200, {}, "GET", "https://other.example.com/y"),
+            ]
+        )
 
         resp, final_url = await resolve_redirects(client, "GET", start, timeout=30.0, max_redirects=5)
 
@@ -285,10 +291,7 @@ class TestResolveRedirects:
     @pytest.mark.asyncio
     async def test_resolve_redirects_rejects_too_many_hops(self, public_dns):
         start = "https://example.com/"
-        responses = [
-            _response(302, {"location": f"/hop{i}"}, "GET", start)
-            for i in range(10)
-        ]
+        responses = [_response(302, {"location": f"/hop{i}"}, "GET", start) for i in range(10)]
         client = _make_client_sequence(responses)
 
         with pytest.raises(HTTPException) as exc:
@@ -300,9 +303,11 @@ class TestResolveRedirects:
     @pytest.mark.asyncio
     async def test_resolve_redirects_re_validates_each_hop_for_ssrf(self, public_dns):
         start = "https://example.com/"
-        client = _make_client_sequence([
-            _response(302, {"location": "https://169.254.169.254/latest/meta-data/"}, "GET", start),
-        ])
+        client = _make_client_sequence(
+            [
+                _response(302, {"location": "https://169.254.169.254/latest/meta-data/"}, "GET", start),
+            ]
+        )
 
         with pytest.raises(HTTPException) as exc:
             await resolve_redirects(client, "GET", start, timeout=30.0, max_redirects=5)
@@ -325,9 +330,7 @@ class TestResolveRedirects:
 
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
         try:
-            await resolve_redirects(
-                client, "GET", "https://example.com/", timeout=30.0, max_redirects=5
-            )
+            await resolve_redirects(client, "GET", "https://example.com/", timeout=30.0, max_redirects=5)
         finally:
             await client.aclose()
 
@@ -344,9 +347,7 @@ class TestResolveRedirects:
 
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
         try:
-            await resolve_redirects(
-                client, "HEAD", "https://example.com/", timeout=10.0, max_redirects=5
-            )
+            await resolve_redirects(client, "HEAD", "https://example.com/", timeout=10.0, max_redirects=5)
         finally:
             await client.aclose()
 

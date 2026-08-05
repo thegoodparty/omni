@@ -1,8 +1,9 @@
 """Fetch a JS-rendered web page using Playwright. Saves HTML to a file and prints the path."""
-import sys
-import os
+
 import hashlib
 import logging
+import os
+import sys
 from datetime import datetime
 
 from playwright.sync_api import sync_playwright
@@ -28,10 +29,7 @@ def fetch(
             try:
                 page.wait_for_selector(selector, timeout=timeout)
             except Exception as sel_err:
-                logger.warning(
-                    f"Selector {selector!r} did not appear within {timeout}ms "
-                    f"on {url}: {sel_err}"
-                )
+                logger.warning(f"Selector {selector!r} did not appear within {timeout}ms on {url}: {sel_err}")
         if delay:
             page.wait_for_timeout(delay)
         html = page.content()
@@ -53,7 +51,7 @@ def _parse_arg(args: list[str], flag: str) -> tuple[str | None, list[str]]:
     if flag in args:
         idx = args.index(flag)
         val = args[idx + 1]
-        return val, args[:idx] + args[idx + 2:]
+        return val, args[:idx] + args[idx + 2 :]
     return None, args
 
 

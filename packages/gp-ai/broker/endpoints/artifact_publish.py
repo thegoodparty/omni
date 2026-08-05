@@ -67,18 +67,24 @@ def _emit_metric(metric_name: str, dimensions: list[dict]) -> None:
     try:
         _get_cw_client().put_metric_data(
             Namespace="Broker",
-            MetricData=[{
-                "MetricName": metric_name,
-                "Value": 1,
-                "Unit": "Count",
-                "Dimensions": dimensions,
-            }],
+            MetricData=[
+                {
+                    "MetricName": metric_name,
+                    "Value": 1,
+                    "Unit": "Count",
+                    "Dimensions": dimensions,
+                }
+            ],
         )
     except Exception as e:
         logger.warning(
             "MetricEmissionFailed metric=%s exc_type=%s: %s",
-            metric_name, type(e).__name__, e, exc_info=True,
+            metric_name,
+            type(e).__name__,
+            e,
+            exc_info=True,
         )
+
 
 def _is_precondition_failed(err: Exception) -> bool:
     """True iff a boto3/ClientError carries a PreconditionFailed (HTTP 412)
@@ -91,9 +97,7 @@ def _is_precondition_failed(err: Exception) -> bool:
     return code in ("PreconditionFailed", "412")
 
 
-_DANGEROUS_HTML_RE = re.compile(
-    r"<script|<img\b|javascript:", re.IGNORECASE
-)
+_DANGEROUS_HTML_RE = re.compile(r"<script|<img\b|javascript:", re.IGNORECASE)
 
 # The downstream agent's sanitizer.fence_content wraps artifact text in
 # <untrusted_web_content>...</untrusted_web_content> so the reading agent
@@ -151,17 +155,22 @@ class PublishResponse(BaseModel):
 def get_scope_ticket() -> ScopeTicket:  # pragma: no cover
     raise NotImplementedError
 
+
 def get_s3_client():  # pragma: no cover
     raise NotImplementedError
+
 
 def get_callback_sender() -> CallbackSender:  # pragma: no cover
     raise NotImplementedError
 
+
 def get_ticket_store() -> ScopeTicketStore:  # pragma: no cover
     raise NotImplementedError
 
+
 def get_broker_token_raw() -> str:  # pragma: no cover
     raise NotImplementedError
+
 
 def get_artifact_bucket() -> str:  # pragma: no cover
     raise NotImplementedError
@@ -243,21 +252,13 @@ def artifact_publish(
         # 500. Use .get() everywhere and fail safe: any malformed shape falls
         # back to today's strict gate behavior.
         carve_out = ticket.scope.get("data_required_unless")
-        carve_field = (
-            carve_out.get("field") if isinstance(carve_out, dict) else None
-        )
-        carve_values = (
-            carve_out.get("values") if isinstance(carve_out, dict) else None
-        )
+        carve_field = carve_out.get("field") if isinstance(carve_out, dict) else None
+        carve_values = carve_out.get("values") if isinstance(carve_out, dict) else None
         artifact_field_value = (
-            req.artifact.get(carve_field)
-            if isinstance(carve_field, str) and isinstance(req.artifact, dict)
-            else None
+            req.artifact.get(carve_field) if isinstance(carve_field, str) and isinstance(req.artifact, dict) else None
         )
         carve_applies = (
-            isinstance(carve_values, list)
-            and artifact_field_value is not None
-            and artifact_field_value in carve_values
+            isinstance(carve_values, list) and artifact_field_value is not None and artifact_field_value in carve_values
         )
         if not carve_applies:
             raise HTTPException(
@@ -300,12 +301,18 @@ def artifact_publish(
                 "qa_verdict_size_cap_exceeded run_id=%s experiment_id=%s "
                 "observed=%d cap=%d (fail-open: skipping durable verdict.json "
                 "write)",
-                ticket.run_id, ticket.experiment_id, verdict_bytes, MAX_QA_VERDICT_BYTES,
+                ticket.run_id,
+                ticket.experiment_id,
+                verdict_bytes,
+                MAX_QA_VERDICT_BYTES,
             )
-            _emit_metric("broker_qa_verdict_size_cap_exceeded", [
-                {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
-                {"Name": "experiment_id", "Value": ticket.experiment_id},
-            ])
+            _emit_metric(
+                "broker_qa_verdict_size_cap_exceeded",
+                [
+                    {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
+                    {"Name": "experiment_id", "Value": ticket.experiment_id},
+                ],
+            )
 
     # PMF QA gate (contract D / decision 13, fail-open): the raw main.py output
     # is written durably to S3 only (never the callback), with its own 1 MiB
@@ -321,12 +328,18 @@ def artifact_publish(
                 "qa_raw_output_size_cap_exceeded run_id=%s experiment_id=%s "
                 "observed=%d cap=%d (fail-open: skipping durable main_output.json "
                 "write; the aggregated verdict is unaffected)",
-                ticket.run_id, ticket.experiment_id, raw_bytes, MAX_QA_RAW_OUTPUT_BYTES,
+                ticket.run_id,
+                ticket.experiment_id,
+                raw_bytes,
+                MAX_QA_RAW_OUTPUT_BYTES,
             )
-            _emit_metric("broker_qa_raw_output_size_cap_exceeded", [
-                {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
-                {"Name": "experiment_id", "Value": ticket.experiment_id},
-            ])
+            _emit_metric(
+                "broker_qa_raw_output_size_cap_exceeded",
+                [
+                    {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
+                    {"Name": "experiment_id", "Value": ticket.experiment_id},
+                ],
+            )
 
     # PMF QA gate (eval transcript, fail-open): the per-turn evaluator-agent
     # JSONL transcript is written durably to S3 only (never the callback), with
@@ -345,13 +358,18 @@ def artifact_publish(
                 "qa_eval_transcript_size_cap_exceeded run_id=%s experiment_id=%s "
                 "observed=%d cap=%d (fail-open: skipping durable "
                 "eval_transcript.jsonl write; the aggregated verdict is unaffected)",
-                ticket.run_id, ticket.experiment_id, transcript_bytes,
+                ticket.run_id,
+                ticket.experiment_id,
+                transcript_bytes,
                 MAX_QA_EVAL_TRANSCRIPT_BYTES,
             )
-            _emit_metric("broker_qa_eval_transcript_size_cap_exceeded", [
-                {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
-                {"Name": "experiment_id", "Value": ticket.experiment_id},
-            ])
+            _emit_metric(
+                "broker_qa_eval_transcript_size_cap_exceeded",
+                [
+                    {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
+                    {"Name": "experiment_id", "Value": ticket.experiment_id},
+                ],
+            )
 
     artifact_json = json.dumps(req.artifact)
     latest_key = f"{ticket.experiment_id}/{ticket.organization_slug}/latest.json"
@@ -381,9 +399,9 @@ def artifact_publish(
                 pass
             if error_code in ("PreconditionFailed", "412"):
                 logger.warning(
-                    "duplicate publish blocked for run_id=%s experiment_id=%s "
-                    "(archive already exists)",
-                    ticket.run_id, ticket.experiment_id,
+                    "duplicate publish blocked for run_id=%s experiment_id=%s (archive already exists)",
+                    ticket.run_id,
+                    ticket.experiment_id,
                 )
                 raise HTTPException(
                     status_code=409,
@@ -405,7 +423,11 @@ def artifact_publish(
                 "latest.json update failed run_id=%s experiment_id=%s key=%s bucket=%s: %s. "
                 "Archive write succeeded; callback carries run-scoped key. latest.json is "
                 "a best-effort convenience pointer and is eventually consistent.",
-                ticket.run_id, ticket.experiment_id, latest_key, bucket, latest_err,
+                ticket.run_id,
+                ticket.experiment_id,
+                latest_key,
+                bucket,
+                latest_err,
                 exc_info=True,
             )
     except HTTPException:
@@ -413,12 +435,12 @@ def artifact_publish(
     except Exception:
         logger.error(
             "S3 publish failed run_id=%s experiment_id=%s bucket=%s",
-            ticket.run_id, ticket.experiment_id, bucket,
+            ticket.run_id,
+            ticket.experiment_id,
+            bucket,
             exc_info=True,
         )
-        raise HTTPException(
-            status_code=500, detail="Failed to publish artifact to S3"
-        ) from None
+        raise HTTPException(status_code=500, detail="Failed to publish artifact to S3") from None
 
     # PMF QA gate (contract D / decision 13): durable, observe-only S3 capture.
     # When a verdict is present, write it (and the raw main.py output, when the
@@ -462,14 +484,19 @@ def artifact_publish(
                     "qa verdict already captured run_id=%s experiment_id=%s key=%s "
                     "(duplicate publish; write-once guard held, keeping the "
                     "original per-run record)",
-                    ticket.run_id, ticket.experiment_id, qa_verdict_key,
+                    ticket.run_id,
+                    ticket.experiment_id,
+                    qa_verdict_key,
                 )
             else:
                 logger.warning(
                     "qa verdict S3 capture failed run_id=%s experiment_id=%s key=%s "
                     "bucket=%s. Best-effort durable capture; the verdict is still "
                     "recoverable from the Braintrust span.",
-                    ticket.run_id, ticket.experiment_id, qa_verdict_key, bucket,
+                    ticket.run_id,
+                    ticket.experiment_id,
+                    qa_verdict_key,
+                    bucket,
                     exc_info=True,
                 )
 
@@ -478,11 +505,7 @@ def artifact_publish(
     # main_output.json without a verdict.json) — preserving contract D's coupling
     # at the WRITE level, not just the request level. Its own size cap
     # (skip_qa_raw_write) is independent of the verdict's.
-    if (
-        verdict_written
-        and req.qa_raw_output is not None
-        and not skip_qa_raw_write
-    ):
+    if verdict_written and req.qa_raw_output is not None and not skip_qa_raw_write:
         qa_raw_key = f"{ticket.experiment_id}/{ticket.run_id}/qa/main_output.json"
         try:
             s3_client.put_object(
@@ -499,14 +522,19 @@ def artifact_publish(
                 logger.info(
                     "qa raw output already captured run_id=%s experiment_id=%s "
                     "key=%s (duplicate publish; write-once guard held)",
-                    ticket.run_id, ticket.experiment_id, qa_raw_key,
+                    ticket.run_id,
+                    ticket.experiment_id,
+                    qa_raw_key,
                 )
             else:
                 logger.warning(
                     "qa raw output S3 capture failed run_id=%s experiment_id=%s "
                     "key=%s bucket=%s. Best-effort durable capture; the aggregated "
                     "verdict.json was still captured.",
-                    ticket.run_id, ticket.experiment_id, qa_raw_key, bucket,
+                    ticket.run_id,
+                    ticket.experiment_id,
+                    qa_raw_key,
+                    bucket,
                     exc_info=True,
                 )
 
@@ -516,11 +544,7 @@ def artifact_publish(
     # verdict.json). Its own size cap (skip_qa_eval_transcript_write) is
     # independent of the verdict's and the raw's. The broker writes it VERBATIM
     # — redaction already happened runner-side in qa_gate._run_evaluator.
-    if (
-        verdict_written
-        and req.qa_eval_transcript is not None
-        and not skip_qa_eval_transcript_write
-    ):
+    if verdict_written and req.qa_eval_transcript is not None and not skip_qa_eval_transcript_write:
         qa_transcript_key = f"{ticket.experiment_id}/{ticket.run_id}/qa/eval_transcript.jsonl"
         try:
             s3_client.put_object(
@@ -537,14 +561,19 @@ def artifact_publish(
                 logger.info(
                     "qa eval transcript already captured run_id=%s experiment_id=%s "
                     "key=%s (duplicate publish; write-once guard held)",
-                    ticket.run_id, ticket.experiment_id, qa_transcript_key,
+                    ticket.run_id,
+                    ticket.experiment_id,
+                    qa_transcript_key,
                 )
             else:
                 logger.warning(
                     "qa eval transcript S3 capture failed run_id=%s experiment_id=%s "
                     "key=%s bucket=%s. Best-effort durable capture; the aggregated "
                     "verdict.json was still captured.",
-                    ticket.run_id, ticket.experiment_id, qa_transcript_key, bucket,
+                    ticket.run_id,
+                    ticket.experiment_id,
+                    qa_transcript_key,
+                    bucket,
                     exc_info=True,
                 )
 
@@ -572,7 +601,8 @@ def artifact_publish(
     except Exception:
         logger.error(
             "ticket/run-lock delete failed after publish run_id=%s broker_token_prefix=%s",
-            ticket.run_id, broker_token[:8],
+            ticket.run_id,
+            broker_token[:8],
             exc_info=True,
         )
 
@@ -585,7 +615,8 @@ def artifact_publish(
     except Exception:
         logger.warning(
             "tracker clear failed after publish run_id=%s",
-            ticket.run_id, exc_info=True,
+            ticket.run_id,
+            exc_info=True,
         )
 
     return PublishResponse(

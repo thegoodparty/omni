@@ -18,6 +18,7 @@ def _inject_client(handler):
 
 def _reset_config():
     import pmf_engine.runner.pmf_runtime.config as config_mod
+
     config_mod._config = None
 
 

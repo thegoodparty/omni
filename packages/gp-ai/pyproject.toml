@@ -70,6 +70,28 @@ packages = ["ai_generated_campaign_plan", "shared"]
 line-length = 120
 target-version = "py311"
 
+# Ruff has never run over this tree in CI — pre-commit only ever checked changed
+# files — so a full-tree `ruff check .` reports ~3900 errors. Rather than bury a
+# CI change under a 3900-line mechanical diff, the gate starts on the members it
+# can actually keep clean and the rest is excluded as tracked debt.
+#
+# Each entry below is debt, not a permanent exemption. The number is the error
+# count measured 2026-08-05; delete the line once that member is clean. Nothing
+# here is deployed except the three marked DEPLOYED, which are the priority.
+extend-exclude = [
+    "shared",                       # 623 (80 manual) — DEPLOYED, imported by every service; fix first
+    "serve/hierarchical_discovery", # 469 (98 manual) — DEPLOYED, ships in the serve-analyze image
+    "hubspot_ddhq_match",           # 377 (24 manual) — DEPLOYED, the ddhq-matcher service
+    "ai_generated_campaign_plan",   # 833 — not deployed, older module
+    "bronze_data",                  # 478 — not deployed, data drop / config
+    "stitch_golden_data",           # 441 — not deployed, script-style
+    "serve/classify",               # 237 — not deployed, script-style
+    "serve/analyze_texts",          # 150 — not deployed, script-style
+    "silver-to-gold-migration",     # 131 — not deployed, script-style
+    "braintrust_eval_sandbox",      # not deployed, experiment sandbox
+    "llm_deployment",               # not deployed
+]
+
 [tool.ruff.lint]
 select = [
     "E",   # pycodestyle errors
@@ -87,6 +109,18 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # unused imports in __init__.py
+
+# These modules insert the repo root into sys.path before importing from it, so
+# their imports genuinely cannot sit at the top of the file. Removing the
+# bootstrap is a packaging refactor, not a lint fix — until then E402 is noise
+# here rather than a finding.
+"serve/v1_pipeline/adapters/clustering_adapter.py" = ["E402"]
+"serve/v1_pipeline/pipeline/orchestrator.py" = ["E402"]
+"serve/v1_pipeline/pipeline/sqs_publisher.py" = ["E402"]
+"serve/v1_pipeline/scripts/run_pipeline.py" = ["E402"]
+"serve/v1_pipeline/stages/llm_cluster_recommender.py" = ["E402"]
+"campaign_plan_lambda/local_server.py" = ["E402"]
+"campaign_plan_lambda/test_sqs_harness.py" = ["E402"]
 
 [tool.mypy]
 python_version = "3.11"

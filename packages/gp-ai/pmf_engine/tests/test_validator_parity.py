@@ -8,6 +8,7 @@ codes, stdout format) by running the heredoc against the same cases the
 canonical `contract.py` is run against, and asserting the pass/fail verdict
 matches.
 """
+
 import json
 import os
 import subprocess
@@ -16,7 +17,7 @@ import tempfile
 
 import pytest
 
-from pmf_engine.runner.contract import validate_artifact_contract, ContractViolation
+from pmf_engine.runner.contract import ContractViolation, validate_artifact_contract
 from pmf_engine.runner.main import _VALIDATOR_SCRIPT
 
 
@@ -57,6 +58,7 @@ def _run_contract_py(data: dict, schema: dict) -> tuple[bool, str]:
 
 def _OBJ(required, **props):
     return {"type": "object", "required": required, "properties": props}
+
 
 _CASES = [
     (

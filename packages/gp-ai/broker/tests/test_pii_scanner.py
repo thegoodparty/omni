@@ -1,4 +1,4 @@
-from broker.pii_scanner import scan_for_pii, scan_artifact, PIIMatch
+from broker.pii_scanner import scan_artifact, scan_for_pii
 
 
 def test_detects_ssn():

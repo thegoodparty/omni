@@ -515,9 +515,7 @@ class TestAttachmentVersionIdPinning:
         }
         # Behavioral: HEAD was actually called against both attachment keys.
         for k in keys:
-            assert s3.calls_for_key(k) == [("head_object", BUCKET, k)], (
-                f"expected exactly one head_object call for {k}"
-            )
+            assert s3.calls_for_key(k) == [("head_object", BUCKET, k)], f"expected exactly one head_object call for {k}"
 
     def test_routing_omits_missing_attachment_but_keeps_others(self):
         """A single attachment 404 is benign: that basename is omitted, other
@@ -696,9 +694,7 @@ class TestQaVersionIdPinning:
         }
         # Behavioral: HEAD was actually called against the manifest + each qa key.
         for k in [qa_manifest_key, *qa_keys]:
-            assert s3.calls_for_key(k) == [("head_object", BUCKET, k)], (
-                f"expected exactly one head_object call for {k}"
-            )
+            assert s3.calls_for_key(k) == [("head_object", BUCKET, k)], f"expected exactly one head_object call for {k}"
 
     def test_routing_qa_version_ids_includes_manifest_on_versioned_bucket(self):
         """Contract G: on a versioned bucket the map MUST include manifest.json

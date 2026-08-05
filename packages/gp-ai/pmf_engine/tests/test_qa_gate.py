@@ -554,10 +554,7 @@ def test_main_py_invoked_with_artifact_and_workspace_args_in_gate_cwd(workspace,
 
 
 def test_pass_true_only_when_all_fragments_pass(workspace, gate_base):
-    main_src = (
-        "import json\n"
-        "print(json.dumps([{'name': 'a', 'passed': True}, {'name': 'b', 'passed': True}]))\n"
-    )
+    main_src = "import json\nprint(json.dumps([{'name': 'a', 'passed': True}, {'name': 'b', 'passed': True}]))\n"
     verdict = _verdict(
         run_qa_gate(
             artifact_bytes=ARTIFACT,
@@ -575,10 +572,7 @@ def test_pass_true_only_when_all_fragments_pass(workspace, gate_base):
 
 
 def test_pass_false_when_one_fragment_fails(workspace, gate_base):
-    main_src = (
-        "import json\n"
-        "print(json.dumps([{'name': 'a', 'passed': True}, {'name': 'b', 'passed': False}]))\n"
-    )
+    main_src = "import json\nprint(json.dumps([{'name': 'a', 'passed': True}, {'name': 'b', 'passed': False}]))\n"
     verdict = _verdict(
         run_qa_gate(
             artifact_bytes=ARTIFACT,
@@ -923,10 +917,7 @@ def test_verdict_summary_logged_at_info(workspace, gate_base, gate_info_logs):
         gate_base_dir=gate_base,
         run_id="run-info-1",
     )
-    info = [
-        r for r in gate_info_logs.records
-        if "qa_gate_verdict" in r.getMessage() and r.levelno == logging.INFO
-    ]
+    info = [r for r in gate_info_logs.records if "qa_gate_verdict" in r.getMessage() and r.levelno == logging.INFO]
     assert len(info) == 1
     msg = info[0].getMessage()
     assert "status=evaluated" in msg
@@ -947,10 +938,7 @@ def test_verdict_summary_logged_for_skipped(workspace, gate_base, gate_info_logs
         gate_base_dir=gate_base,
         run_id="run-skip-1",
     )
-    info = [
-        r for r in gate_info_logs.records
-        if "qa_gate_verdict" in r.getMessage() and r.levelno == logging.INFO
-    ]
+    info = [r for r in gate_info_logs.records if "qa_gate_verdict" in r.getMessage() and r.levelno == logging.INFO]
     assert len(info) == 1
     msg = info[0].getMessage()
     assert "status=skipped" in msg
@@ -1029,11 +1017,7 @@ def test_raw_output_capped_by_encoded_bytes_for_invalid_utf8(workspace, gate_bas
     # stdout, with NO valid JSON. Under errors='replace' this would decode to
     # ~3 MiB; the returned raw_output must encode to <= _MAIN_STDOUT_CAP.
     near_cap = qa_gate_mod._MAIN_STDOUT_CAP - 4096
-    main_src = (
-        "import sys\n"
-        f"sys.stdout.buffer.write(b'\\xff' * {near_cap})\n"
-        "sys.stdout.buffer.flush()\n"
-    )
+    main_src = f"import sys\nsys.stdout.buffer.write(b'\\xff' * {near_cap})\nsys.stdout.buffer.flush()\n"
     result = run_qa_gate(
         artifact_bytes=ARTIFACT,
         qa_envelope=_envelope(files={"main.py": main_src}),
@@ -1542,18 +1526,33 @@ def test_run_evaluator_threads_redacted_transcript_to_caller(workspace, gate_bas
     returned as the 3rd tuple element. The token must be gone; the result must
     still be parseable JSONL (redaction is value-only, structure-preserving)."""
     token = _broker_env()["BROKER_TOKEN"]  # "tok-123"
-    raw_transcript = "\n".join([
-        json.dumps({"turn": 1, "kind": "assistant", "text": "grading", "tools": []}),
-        json.dumps({
-            "turn": 1,
-            "kind": "tool_result",
-            "results": [{"tool_use_id": "t1", "is_error": False,
-                         "content": f'headers {{"X-Broker-Token": "{token}"}}'}],
-        }),
-        json.dumps({"turn": 0, "kind": "result", "status": "ok", "subtype": "result",
-                    "is_error": False, "num_turns": 2, "session_id": "sess-x",
-                    "cost_usd": 0.04, "duration_ms": 900}),
-    ])
+    raw_transcript = "\n".join(
+        [
+            json.dumps({"turn": 1, "kind": "assistant", "text": "grading", "tools": []}),
+            json.dumps(
+                {
+                    "turn": 1,
+                    "kind": "tool_result",
+                    "results": [
+                        {"tool_use_id": "t1", "is_error": False, "content": f'headers {{"X-Broker-Token": "{token}"}}'}
+                    ],
+                }
+            ),
+            json.dumps(
+                {
+                    "turn": 0,
+                    "kind": "result",
+                    "status": "ok",
+                    "subtype": "result",
+                    "is_error": False,
+                    "num_turns": 2,
+                    "session_id": "sess-x",
+                    "cost_usd": 0.04,
+                    "duration_ms": 900,
+                }
+            ),
+        ]
+    )
     fake = FakeEvaluator(
         fragments=[{"name": "faithfulness", "passed": True}],
         eval_transcript=raw_transcript,
@@ -1694,8 +1693,7 @@ def test_x_broker_token_json_shape_redacted_in_fragment_detail_even_when_not_liv
     other = "tok-OTHER-not-the-live-one-1234abcd"
     detail = f'headers were {{"X-Broker-Token": "{other}"}}'
     main_src = (
-        "import json\n"
-        f"print(json.dumps([{{'name': 'leaky', 'passed': False, 'detail': {json.dumps(detail)}}}]))\n"
+        f"import json\nprint(json.dumps([{{'name': 'leaky', 'passed': False, 'detail': {json.dumps(detail)}}}]))\n"
     )
     verdict = _verdict(
         run_qa_gate(

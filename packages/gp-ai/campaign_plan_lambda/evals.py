@@ -36,16 +36,10 @@ Environment configuration:
 import os
 import re
 from datetime import date
-from typing import Any, Optional
+from typing import Any
 
 from braintrust import Eval, init_dataset
 
-from shared.braintrust import (
-    flatten_prompt_messages,
-    init_braintrust,
-    trace_pipeline,
-)
-from shared.llm_gemini_3 import Gemini3Client
 from campaign_plan_lambda.event_generator import (
     FILTER_PROMPT_FALLBACK,
     SEARCH_PROMPT_FALLBACK,
@@ -53,6 +47,12 @@ from campaign_plan_lambda.event_generator import (
     _filter_and_structure_events,
     _search_community_events,
 )
+from shared.braintrust import (
+    flatten_prompt_messages,
+    init_braintrust,
+    trace_pipeline,
+)
+from shared.llm_gemini_3 import Gemini3Client
 
 PROJECT = "campaign-plan"
 DATASET_NAME = "campaign-plan-pipeline"
@@ -79,7 +79,7 @@ SEARCH_PROMPT_DEFAULT = _to_mustache(SEARCH_PROMPT_FALLBACK)
 FILTER_PROMPT_DEFAULT = _to_mustache(FILTER_PROMPT_FALLBACK)
 
 
-def _coerce_optional_str(v: Any) -> Optional[str]:
+def _coerce_optional_str(v: Any) -> str | None:
     if v is None:
         return None
     if isinstance(v, str):
@@ -159,7 +159,9 @@ async def pipeline_task(input: dict, hooks: Any) -> dict:
         with hooks.span.start_span(name="search") as search_span:
             search_span.log(input={"prompt": search_text})
             raw_events = await _search_community_events(
-                llm_client, variables, rendered_prompt=search_text,
+                llm_client,
+                variables,
+                rendered_prompt=search_text,
             )
             search_span.log(output={"raw_events": raw_events})
 
@@ -168,7 +170,11 @@ async def pipeline_task(input: dict, hooks: Any) -> dict:
         with hooks.span.start_span(name="filter") as filter_span:
             filter_span.log(input={"prompt": filter_text})
             tasks = await _filter_and_structure_events(
-                llm_client, variables, election_date, today, raw_events,
+                llm_client,
+                variables,
+                election_date,
+                today,
+                raw_events,
                 rendered_prompt=filter_text,
             )
             filter_span.log(output={"tasks": [t.model_dump() for t in tasks]})
@@ -185,7 +191,7 @@ async def pipeline_task(input: dict, hooks: Any) -> dict:
 # canonical scorer contract: (input, output, expected, **kwargs).
 
 
-def count_in_range(input: dict, output: dict, expected: Optional[dict] = None, **_: Any) -> float:
+def count_in_range(input: dict, output: dict, expected: dict | None = None, **_: Any) -> float:
     """Prompt asks for 5–8 events. Score 1 if in range, otherwise scaled by
     distance from the band."""
     n = len(output.get("tasks") or [])
@@ -198,7 +204,7 @@ def count_in_range(input: dict, output: dict, expected: Optional[dict] = None, *
     return max(0.0, 1.0 - (n - 8) / 8)
 
 
-def dates_in_range(input: dict, output: dict, expected: Optional[dict] = None, **_: Any) -> float:
+def dates_in_range(input: dict, output: dict, expected: dict | None = None, **_: Any) -> float:
     """Every task date must fall between today and the election date. The
     upper bound comes from the dataset row's electionDate; the lower bound
     is today (the day the eval runs) — events in the past don't help the
@@ -226,7 +232,7 @@ def dates_in_range(input: dict, output: dict, expected: Optional[dict] = None, *
     return ok / len(tasks)
 
 
-def urls_valid(input: dict, output: dict, expected: Optional[dict] = None, **_: Any) -> float:
+def urls_valid(input: dict, output: dict, expected: dict | None = None, **_: Any) -> float:
     """Non-null URLs must be http/https. Null URLs are fine."""
     tasks = output.get("tasks") or []
     if not tasks:
@@ -241,21 +247,13 @@ def urls_valid(input: dict, output: dict, expected: Optional[dict] = None, **_: 
     return ok / len(tasks)
 
 
-def title_overlap(input: dict, output: dict, expected: Optional[dict] = None, **_: Any) -> float:
+def title_overlap(input: dict, output: dict, expected: dict | None = None, **_: Any) -> float:
     """Jaccard of task titles (case-insensitive) vs expected. Skip if no
     expected (PM may curate inputs without writing gold outputs)."""
     if not expected or not expected.get("tasks"):
         return 0.0
-    out_titles = {
-        (t.get("title") or "").strip().lower()
-        for t in (output.get("tasks") or [])
-        if isinstance(t, dict)
-    }
-    exp_titles = {
-        (t.get("title") or "").strip().lower()
-        for t in expected["tasks"]
-        if isinstance(t, dict)
-    }
+    out_titles = {(t.get("title") or "").strip().lower() for t in (output.get("tasks") or []) if isinstance(t, dict)}
+    exp_titles = {(t.get("title") or "").strip().lower() for t in expected["tasks"] if isinstance(t, dict)}
     out_titles.discard("")
     exp_titles.discard("")
     if not out_titles or not exp_titles:

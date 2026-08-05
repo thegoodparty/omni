@@ -12,6 +12,7 @@ from a source whose quote doesn't appear in the page body.
 """
 
 from __future__ import annotations
+
 import json
 from unittest.mock import patch
 
@@ -22,13 +23,11 @@ from claude_agent_sdk import (
     TextBlock,
 )
 
+from pmf_engine.research import verify
 from pmf_engine.research.research_atom import (
     research_atom,
     research_atom_with_retry,
-    AtomResult,
 )
-from pmf_engine.research import verify
-
 
 # ---------------------------------------------------------------------------
 # verify.quote_in — the guardrail helper (used both by agent and post-verifier)
@@ -85,7 +84,7 @@ class TestVerifyQuoteIn:
     def test_aggressive_decodes_html_entities(self):
         """HTML-entity-encoded chars should decode before comparison."""
         body = "Support Transit &mdash; adopted 7&ndash;0 by a vote of 7&nbsp;yes, 0&nbsp;no."
-        quote = 'Support Transit - adopted 7-0 by a vote of 7 yes, 0 no'
+        quote = "Support Transit - adopted 7-0 by a vote of 7 yes, 0 no"
         assert verify.quote_in(body, quote, aggressive=True)["match"] is True
 
     def test_aggressive_strips_script_and_style_content(self):
@@ -183,10 +182,8 @@ async def test_atom_high_confidence_requires_gov_plus_two_verified():
         "reasoning_trace": "Cross-referenced Durham govt site and NC LINC; both agree.",
     }
     bodies = {
-        "https://durhamnc.gov/tax-rate":
-            "Durham Budget Office. The FY2026 property tax rate is $0.5551 per $100 of assessed value.",
-        "https://linc.nc.gov/durham-tax":
-            "NC State Data Portal. Durham property tax rate for fiscal year 2026: $0.5551.",
+        "https://durhamnc.gov/tax-rate": "Durham Budget Office. The FY2026 property tax rate is $0.5551 per $100 of assessed value.",
+        "https://linc.nc.gov/durham-tax": "NC State Data Portal. Durham property tax rate for fiscal year 2026: $0.5551.",
     }
 
     with (
@@ -224,10 +221,8 @@ async def test_atom_drops_fabricated_quote_in_post_verify():
         "reasoning_trace": "",
     }
     bodies = {
-        "https://durhamnc.gov/tax-rate":
-            "Durham Budget Office. The FY2026 property tax rate is $0.5551 per $100.",
-        "https://example.com/news":
-            "Durham news: new library branch opens downtown this weekend.",  # no mention of mayor/tax
+        "https://durhamnc.gov/tax-rate": "Durham Budget Office. The FY2026 property tax rate is $0.5551 per $100.",
+        "https://example.com/news": "Durham news: new library branch opens downtown this weekend.",  # no mention of mayor/tax
     }
 
     with (
@@ -359,8 +354,9 @@ async def test_atom_summary_strips_citations_for_unverified_sources():
         result = await research_atom("Q")
 
     # trace must call out the unverified citation
-    assert "s2" in (result["reasoning_trace"] or "").lower() or \
-           "unverified" in (result["reasoning_trace"] or "").lower()
+    assert (
+        "s2" in (result["reasoning_trace"] or "").lower() or "unverified" in (result["reasoning_trace"] or "").lower()
+    )
 
 
 @pytest.mark.asyncio

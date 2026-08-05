@@ -130,9 +130,7 @@ class ManifestRoutingLoader:
             entry.get("instruction_key", f"{experiment_id}/instruction.md"),
         )
         attachment_keys = entry.get("attachment_keys") or []
-        attachment_version_ids = self._fetch_attachment_version_ids(
-            experiment_id, attachment_keys
-        )
+        attachment_version_ids = self._fetch_attachment_version_ids(experiment_id, attachment_keys)
         # QA gate folder pins (contract F → G). When the index entry carries no
         # qa_manifest_key the experiment publishes no qa/ folder, so the map is
         # {} and the dispatch guard omits QA_VERSION_IDS — byte-identical no-qa.
@@ -313,8 +311,7 @@ class ManifestRoutingLoader:
             seen.add(k)
             if not k.startswith(expected_prefix):
                 logger.warning(
-                    "%s key has unexpected prefix — skipping: "
-                    "experiment_id=%s key=%r expected_prefix=%s",
+                    "%s key has unexpected prefix — skipping: experiment_id=%s key=%r expected_prefix=%s",
                     subdir,
                     experiment_id,
                     k,
@@ -363,9 +360,7 @@ class ManifestRoutingLoader:
         cache[experiment_id] = (result, now)
         return result
 
-    def _fetch_attachment_version_ids(
-        self, experiment_id: str, attachment_keys: list[str]
-    ) -> dict[str, str]:
+    def _fetch_attachment_version_ids(self, experiment_id: str, attachment_keys: list[str]) -> dict[str, str]:
         """HEAD each attachment key, return {basename: VersionId}.
 
         Thin wrapper over `_fetch_version_ids` (subdir="attachments"); see that

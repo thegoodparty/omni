@@ -346,10 +346,7 @@ class TestFailureLogging:
             headers={"X-Broker-Token": BROKER_TOKEN},
         )
         assert resp.status_code == 400
-        warnings = [
-            r for r in caplog.records
-            if r.levelno == logging.WARNING and "http_fetch failed" in r.getMessage()
-        ]
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "http_fetch failed" in r.getMessage()]
         assert len(warnings) == 1, f"expected one warning, got {[r.getMessage() for r in caplog.records]}"
         msg = warnings[0].getMessage()
         assert "run_id=run-http-001" in msg
@@ -368,10 +365,7 @@ class TestFailureLogging:
             headers={"X-Broker-Token": BROKER_TOKEN},
         )
         assert resp.status_code == 502
-        warnings = [
-            r for r in caplog.records
-            if r.levelno == logging.WARNING and "http_fetch failed" in r.getMessage()
-        ]
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "http_fetch failed" in r.getMessage()]
         assert len(warnings) == 1
         msg = warnings[0].getMessage()
         assert "status=502" in msg
@@ -388,10 +382,7 @@ class TestFailureLogging:
             headers={"X-Broker-Token": BROKER_TOKEN},
         )
         assert resp.status_code == 413
-        warnings = [
-            r for r in caplog.records
-            if r.levelno == logging.WARNING and "http_fetch failed" in r.getMessage()
-        ]
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "http_fetch failed" in r.getMessage()]
         assert len(warnings) == 1
         assert "status=413" in warnings[0].getMessage()
 
@@ -463,6 +454,7 @@ def _head_app(handler, monkeypatch, *, allow=lambda u: True):
     async def _validate(url: str) -> None:
         if not allow(url):
             raise HTTPException(status_code=400, detail="SSRF blocked")
+
     monkeypatch.setattr("broker.endpoints.http_fetch.validate_url", _validate)
     monkeypatch.setattr("broker.ssrf_guard.validate_url", _validate)
     app = FastAPI()
@@ -478,6 +470,7 @@ class TestHttpHead:
         def handler(req: httpx.Request) -> httpx.Response:
             assert req.method == "HEAD"  # no browser, no GET body
             return httpx.Response(200)
+
         app = _head_app(handler, monkeypatch)
         r = TestClient(app).post("/http/head", json={"url": "https://example.gov/page"})
         assert r.status_code == 200
@@ -490,6 +483,7 @@ class TestHttpHead:
         def handler(req: httpx.Request) -> httpx.Response:
             seen[req.method] = req.headers
             return httpx.Response(405) if req.method == "HEAD" else httpx.Response(200)
+
         app = _head_app(handler, monkeypatch)
         r = TestClient(app).post("/http/head", json={"url": "https://example.gov/p"})
         assert r.json()["status"] == 200
@@ -501,6 +495,7 @@ class TestHttpHead:
             if req.url.path == "/old":
                 return httpx.Response(301, headers={"location": "https://example.gov/new"})
             return httpx.Response(200)
+
         app = _head_app(handler, monkeypatch)
         r = TestClient(app).post("/http/head", json={"url": "https://example.gov/old"})
         assert r.json()["status"] == 200
@@ -511,6 +506,7 @@ class TestHttpHead:
             if "10.0.0.5" in str(req.url):
                 return httpx.Response(200)
             return httpx.Response(302, headers={"location": "http://10.0.0.5/internal"})
+
         # allow the public origin, block the private redirect target. If per-hop
         # validation were dropped, the 10.0.0.5 hop would return a clean 200
         # instead of a 400 — so a passing 400 here proves the guard fired on the
@@ -523,6 +519,7 @@ class TestHttpHead:
     def test_blocks_ssrf_on_initial_url(self, monkeypatch):
         def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(200)
+
         app = _head_app(handler, monkeypatch, allow=lambda u: False)
         r = TestClient(app).post("/http/head", json={"url": "http://169.254.169.254/"})
         assert r.status_code == 400
@@ -531,6 +528,7 @@ class TestHttpHead:
     def test_transport_connect_error_maps_to_502(self, monkeypatch):
         def handler(req: httpx.Request) -> httpx.Response:
             raise httpx.ConnectError("boom")
+
         app = _head_app(handler, monkeypatch)
         r = TestClient(app).post("/http/head", json={"url": "https://example.gov/down"})
         assert r.status_code == 502
@@ -540,6 +538,7 @@ class TestHttpHead:
     def test_transport_timeout_maps_to_504(self, monkeypatch):
         def handler(req: httpx.Request) -> httpx.Response:
             raise httpx.ConnectTimeout("slow")
+
         app = _head_app(handler, monkeypatch)
         r = TestClient(app).post("/http/head", json={"url": "https://example.gov/slow"})
         assert r.status_code == 504

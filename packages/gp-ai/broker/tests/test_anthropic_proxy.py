@@ -4,11 +4,10 @@ import time
 from unittest.mock import MagicMock
 
 import httpx
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from broker.auth import AuthError, BrokerTokenAuth
+from broker.auth import BrokerTokenAuth
 from broker.dynamodb_client import ScopeTicket, ScopeTicketStore
 from broker.endpoints.anthropic_proxy import (
     get_anthropic_api_key,
@@ -105,7 +104,11 @@ class TestAnthropicProxyNonStreaming:
 
         resp = client.post(
             "/anthropic/v1/messages",
-            json={"model": "claude-sonnet-4-20250514", "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 100},
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 100,
+            },
             headers={"x-api-key": VALID_BROKER_TOKEN},
         )
 
@@ -119,7 +122,11 @@ class TestAnthropicProxyNonStreaming:
 
         resp = client.post(
             "/anthropic/v1/messages",
-            json={"model": "claude-sonnet-4-20250514", "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 100},
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 100,
+            },
             headers={"x-api-key": VALID_BROKER_TOKEN},
         )
 
@@ -138,8 +145,7 @@ class TestAnthropicProxyNonStreaming:
             captured["anthropic-beta"] = request.headers.get("anthropic-beta")
             return httpx.Response(
                 200,
-                json={"id": "m", "type": "message", "role": "assistant",
-                      "content": [{"type": "text", "text": "ok"}]},
+                json={"id": "m", "type": "message", "role": "assistant", "content": [{"type": "text", "text": "ok"}]},
             )
 
         app = _create_test_app(upstream_transport=httpx.MockTransport(handler))
@@ -148,8 +154,12 @@ class TestAnthropicProxyNonStreaming:
 
         resp = client.post(
             "/anthropic/v1/messages",
-            json={"model": "claude-sonnet-4-6", "messages": [{"role": "user", "content": "Hi"}],
-                  "max_tokens": 16, "context_management": {"edits": []}},
+            json={
+                "model": "claude-sonnet-4-6",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 16,
+                "context_management": {"edits": []},
+            },
             headers={"x-api-key": VALID_BROKER_TOKEN, "anthropic-beta": beta},
         )
 
@@ -168,8 +178,7 @@ class TestAnthropicProxyNonStreaming:
             captured["anthropic-version"] = request.headers.get("anthropic-version")
             return httpx.Response(
                 200,
-                json={"id": "m", "type": "message", "role": "assistant",
-                      "content": [{"type": "text", "text": "ok"}]},
+                json={"id": "m", "type": "message", "role": "assistant", "content": [{"type": "text", "text": "ok"}]},
             )
 
         app = _create_test_app(upstream_transport=httpx.MockTransport(handler))
@@ -177,9 +186,7 @@ class TestAnthropicProxyNonStreaming:
 
         resp = client.post(
             "/anthropic/v1/messages",
-            json={"model": "claude-sonnet-4-6",
-                  "messages": [{"role": "user", "content": "Hi"}],
-                  "max_tokens": 16},
+            json={"model": "claude-sonnet-4-6", "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 16},
             headers={"x-api-key": VALID_BROKER_TOKEN, "anthropic-version": "2024-11-01"},
         )
 
@@ -195,8 +202,7 @@ class TestAnthropicProxyNonStreaming:
             captured["has_beta"] = "anthropic-beta" in request.headers
             return httpx.Response(
                 200,
-                json={"id": "m", "type": "message", "role": "assistant",
-                      "content": [{"type": "text", "text": "ok"}]},
+                json={"id": "m", "type": "message", "role": "assistant", "content": [{"type": "text", "text": "ok"}]},
             )
 
         app = _create_test_app(upstream_transport=httpx.MockTransport(handler))
@@ -249,7 +255,11 @@ class TestAnthropicProxyAuth:
 
         resp = client.post(
             "/anthropic/v1/messages",
-            json={"model": "claude-sonnet-4-20250514", "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 100},
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 100,
+            },
         )
 
         assert resp.status_code == 401
@@ -264,7 +274,11 @@ class TestAnthropicProxyAuth:
 
         resp = client.post(
             "/anthropic/v1/messages",
-            json={"model": "claude-sonnet-4-20250514", "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 100},
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 100,
+            },
             headers={"x-api-key": "expired-token"},
         )
 
@@ -278,7 +292,11 @@ class TestAnthropicProxyHeaderConsistency:
 
         resp = client.post(
             "/anthropic/v1/messages",
-            json={"model": "claude-sonnet-4-20250514", "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 100},
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 100,
+            },
             headers={
                 "x-api-key": VALID_BROKER_TOKEN,
                 "x-broker-token": "some-other-token-xyz",
@@ -295,7 +313,11 @@ class TestAnthropicProxyHeaderConsistency:
 
         resp = client.post(
             "/anthropic/v1/messages",
-            json={"model": "claude-sonnet-4-20250514", "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 100},
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 100,
+            },
             headers={
                 "x-api-key": VALID_BROKER_TOKEN,
                 "x-broker-token": VALID_BROKER_TOKEN,
@@ -315,7 +337,11 @@ class TestAnthropicProxyUpstreamErrors:
 
         resp = client.post(
             "/anthropic/v1/messages",
-            json={"model": "claude-sonnet-4-20250514", "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 100},
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 100,
+            },
             headers={"x-api-key": VALID_BROKER_TOKEN},
         )
 
@@ -334,7 +360,11 @@ class TestAnthropicProxyUpstreamTransportFailures:
         with caplog.at_level(logging.WARNING, logger="broker.endpoints.anthropic_proxy"):
             resp = client.post(
                 "/anthropic/v1/messages",
-                json={"model": "claude-sonnet-4-20250514", "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 100},
+                json={
+                    "model": "claude-sonnet-4-20250514",
+                    "messages": [{"role": "user", "content": "Hi"}],
+                    "max_tokens": 100,
+                },
                 headers={"x-api-key": VALID_BROKER_TOKEN},
             )
 
@@ -345,8 +375,7 @@ class TestAnthropicProxyUpstreamTransportFailures:
         assert "anthropic upstream failed" in detail.lower()
 
         warning_records = [
-            r for r in caplog.records
-            if r.levelno == logging.WARNING and r.name == "broker.endpoints.anthropic_proxy"
+            r for r in caplog.records if r.levelno == logging.WARNING and r.name == "broker.endpoints.anthropic_proxy"
         ]
         assert len(warning_records) >= 1, "expected a WARNING log on upstream failure"
         combined = " ".join(r.getMessage() for r in warning_records)
@@ -364,7 +393,11 @@ class TestAnthropicProxyUpstreamTransportFailures:
         with caplog.at_level(logging.WARNING, logger="broker.endpoints.anthropic_proxy"):
             resp = client.post(
                 "/anthropic/v1/messages",
-                json={"model": "claude-sonnet-4-20250514", "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 100},
+                json={
+                    "model": "claude-sonnet-4-20250514",
+                    "messages": [{"role": "user", "content": "Hi"}],
+                    "max_tokens": 100,
+                },
                 headers={"x-api-key": VALID_BROKER_TOKEN},
             )
 
@@ -374,8 +407,7 @@ class TestAnthropicProxyUpstreamTransportFailures:
         assert "read timed out" not in detail
 
         warning_records = [
-            r for r in caplog.records
-            if r.levelno == logging.WARNING and r.name == "broker.endpoints.anthropic_proxy"
+            r for r in caplog.records if r.levelno == logging.WARNING and r.name == "broker.endpoints.anthropic_proxy"
         ]
         assert len(warning_records) >= 1
         combined = " ".join(r.getMessage() for r in warning_records)
@@ -421,10 +453,7 @@ class TestAnthropicProxyStreamTruncation:
 
         class _TruncatingByteStream(httpx.AsyncByteStream):
             async def __aiter__(self):
-                yield (
-                    b"event: content_block_start\n"
-                    b'data: {"type":"content_block_start","index":0}\n\n'
-                )
+                yield (b'event: content_block_start\ndata: {"type":"content_block_start","index":0}\n\n')
                 raise httpx.RemoteProtocolError("peer closed mid-stream")
 
             async def aclose(self):
@@ -463,16 +492,14 @@ class TestAnthropicProxyStreamTruncation:
 
         # Synthetic SSE error event is appended so the agent SDK sees a loud
         # failure rather than silently accepting a truncated message as done.
-        assert 'event: error' in resp.text, (
+        assert "event: error" in resp.text, (
             f"expected synthetic SSE error event on stream truncation; got body:\n{resp.text}"
         )
-        assert 'upstream_stream_truncated' in resp.text
+        assert "upstream_stream_truncated" in resp.text
 
         # ERROR (not WARN) with full context for on-call correlation.
         errs = [
-            r for r in caplog.records
-            if r.levelno >= logging.ERROR
-            and r.name == "broker.endpoints.anthropic_proxy"
+            r for r in caplog.records if r.levelno >= logging.ERROR and r.name == "broker.endpoints.anthropic_proxy"
         ]
         assert errs, (
             f"expected ERROR-level log from anthropic_proxy on stream truncation; "

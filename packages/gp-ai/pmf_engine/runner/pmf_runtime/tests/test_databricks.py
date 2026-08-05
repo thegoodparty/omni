@@ -1,11 +1,12 @@
 import json
+
 import httpx
 import pytest
 
-from pmf_engine.runner.pmf_runtime.config import PMFRuntimeConfig, init_config
+from pmf_engine.runner.pmf_runtime.config import init_config
 from pmf_engine.runner.pmf_runtime.databricks import (
-    Cursor,
     Connection,
+    Cursor,
     ScopeViolation,
     UpstreamError,
     connect,
@@ -20,6 +21,7 @@ def _make_client(handler):
 def _query_response(columns, rows, status=200):
     def handler(request):
         return httpx.Response(status, json={"columns": columns, "rows": rows})
+
     return handler
 
 
@@ -63,10 +65,13 @@ class TestCursor:
 
     def test_execute_400_raises_scope_violation(self):
         def handler(request):
-            return httpx.Response(400, json={
-                "reason_code": "WRITE_DENIED",
-                "detail": "INSERT not allowed",
-            })
+            return httpx.Response(
+                400,
+                json={
+                    "reason_code": "WRITE_DENIED",
+                    "detail": "INSERT not allowed",
+                },
+            )
 
         client = _make_client(handler)
         cursor = Cursor(client)
@@ -78,12 +83,15 @@ class TestCursor:
 
     def test_execute_400_unwraps_fastapi_nested_detail(self):
         def handler(request):
-            return httpx.Response(400, json={
-                "detail": {
-                    "reason_code": "scope_forbidden_function",
-                    "detail": "explode() not allowed",
+            return httpx.Response(
+                400,
+                json={
+                    "detail": {
+                        "reason_code": "scope_forbidden_function",
+                        "detail": "explode() not allowed",
+                    },
                 },
-            })
+            )
 
         client = _make_client(handler)
         cursor = Cursor(client)
@@ -149,12 +157,11 @@ class TestConnection:
 class TestConnect:
     def setup_method(self):
         import pmf_engine.runner.pmf_runtime.config as config_mod
+
         config_mod._config = None
 
     def test_connect_uses_config_client(self):
-        transport = httpx.MockTransport(
-            lambda r: httpx.Response(200, json={"columns": ["x"], "rows": [{"x": 1}]})
-        )
+        transport = httpx.MockTransport(lambda r: httpx.Response(200, json={"columns": ["x"], "rows": [{"x": 1}]}))
         client = httpx.Client(transport=transport, base_url="http://broker")
         cfg = init_config("http://broker", "tok")
         cfg._client = client

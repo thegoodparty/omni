@@ -22,7 +22,7 @@ import json
 import os
 import sys
 import uuid
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from threading import Thread
 
@@ -30,6 +30,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from dotenv import load_dotenv
+
 load_dotenv(project_root / ".env")
 
 PORT = int(os.environ.get("LOCAL_SERVER_PORT", "8089"))
@@ -90,7 +91,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             return
 
         print(f"\n{'=' * 60}")
-        print(f"Received request:")
+        print("Received request:")
         print(json.dumps(body, indent=2))
         print(f"{'=' * 60}\n")
 
@@ -126,13 +127,13 @@ def main():
         print("Set them in .env before starting the local server.", file=sys.stderr)
         raise SystemExit(1)
 
-    print(f"Campaign Plan Local Server")
+    print("Campaign Plan Local Server")
     print(f"  Port: {PORT}")
     print(f"  S3 Bucket: {os.environ.get('S3_RESULTS_BUCKET')}")
     print(f"  Output Queue: {os.environ['OUTPUT_SQS_QUEUE_URL']}")
-    print(f"\nSet in gp-api .env:")
+    print("\nSet in gp-api .env:")
     print(f"  CAMPAIGN_PLAN_LOCAL_URL=http://localhost:{PORT}/generate")
-    print(f"\nWaiting for requests...\n")
+    print("\nWaiting for requests...\n")
 
     server = HTTPServer(("localhost", PORT), RequestHandler)
     try:

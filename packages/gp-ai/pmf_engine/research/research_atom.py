@@ -19,16 +19,18 @@ labeled analysis, not fact.
 """
 
 from __future__ import annotations
+
 import json
 import re
+from datetime import UTC
 from typing import Literal, TypedDict
 
 from claude_agent_sdk import (
-    query,
-    ClaudeAgentOptions,
     AssistantMessage,
-    TextBlock,
+    ClaudeAgentOptions,
     ResultMessage,
+    TextBlock,
+    query,
 )
 
 from pmf_engine.research import verify
@@ -140,6 +142,7 @@ async def _fetch_for_verify(url: str) -> str:
     the broker runs in-process on the same loop (local dev / integration tests),
     where blocking would deadlock — and harmless otherwise."""
     import asyncio
+
     from pmf_engine.runner.pmf_runtime import http
 
     r = await asyncio.to_thread(http.get, url, "atom post-verify")
@@ -188,7 +191,9 @@ async def _run_atom_query(question: str, model: str, max_turns: int) -> tuple[di
         model=model,
     )
 
-    prompt = f"Research this question and return the JSON schema described in your instructions.\n\nQuestion: {question}"
+    prompt = (
+        f"Research this question and return the JSON schema described in your instructions.\n\nQuestion: {question}"
+    )
 
     text_blocks: list[str] = []
     result_text: str | None = None
@@ -237,10 +242,10 @@ async def _run_atom_query(question: str, model: str, max_turns: int) -> tuple[di
 async def _verify_sources(sources: list[dict]) -> list[Source]:
     """Re-fetch each source URL and verify quote literally appears. Defense-in-depth
     against the atom falsely reporting a successful self-verification."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     verified: list[Source] = []
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     for raw in sources:
         url = raw.get("url", "")
         quote = raw.get("quote", "")
@@ -250,13 +255,15 @@ async def _verify_sources(sources: list[dict]) -> list[Source]:
         except Exception as e:  # noqa: BLE001 — fetch failure = unverifiable
             logger.warning(f"Atom verify re-fetch failed for {url}: {e}")
             match = False
-        verified.append({
-            "url": url,
-            "type": raw.get("type", "web"),
-            "quote": quote,
-            "fetched_at": raw.get("fetched_at", now),
-            "verified": bool(match),
-        })
+        verified.append(
+            {
+                "url": url,
+                "type": raw.get("type", "web"),
+                "quote": quote,
+                "fetched_at": raw.get("fetched_at", now),
+                "verified": bool(match),
+            }
+        )
     return verified
 
 
