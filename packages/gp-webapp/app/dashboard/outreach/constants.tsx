@@ -71,6 +71,8 @@ export const AUDIENCE_LABELS_MAPPING: Record<AudienceLabelKey, string> = {
   audienceLikelyVoters: 'Likely',
   audienceUnreliableVoters: 'Unreliable',
   audienceUnlikelyVoters: 'Unlikely',
+  // 'Unknown Voters', not 'Unknown': genderUnknown below maps to 'Unknown'
+  // too, and formatAudienceLabels flattens both into one chip list.
   audienceUnknown: 'Unknown Voters',
   partyIndependent: 'Independent',
   partyDemocrat: 'Democrat',

@@ -356,15 +356,15 @@ export class ContactsService {
     // Map the selection back to its seed value(s) so the seed side of the
     // filter agrees with what a no-override person's own record displays.
     // One-to-one since Unreliable gained its own member.
-    const expandedSeedValues = [...selected].flatMap(
+    const selectedSeedValues = [...selected].flatMap(
       (value) => VOTER_LIKELIHOOD_TO_SEED_VALUES[value],
     )
     const updatedFilters: FilterObject = {
       ...filters,
       voterStatus:
-        expandedSeedValues.length === 1
-          ? { eq: expandedSeedValues[0] }
-          : { in: expandedSeedValues },
+        selectedSeedValues.length === 1
+          ? { eq: selectedSeedValues[0] }
+          : { in: selectedSeedValues },
     }
 
     const excludedValues = VoterLikelihoodSchema.options.filter(
