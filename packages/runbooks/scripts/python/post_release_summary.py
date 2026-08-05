@@ -152,6 +152,12 @@ def post_slack(text: str) -> None:
         raise RuntimeError(f"Slack chat.postMessage failed: {body.get('error', 'unknown')}")
 
 
+def slack_escape(s: str) -> str:
+    # Slack mrkdwn link labels <url|label> close at a literal '>'; escape the
+    # HTML-special chars so titles like "a -> b" or "A & B" don't break the link.
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def main() -> None:
     deployments = successful_prod_deployments()
     if not deployments:
@@ -188,18 +194,18 @@ def main() -> None:
     date_str = datetime.now(timezone.utc).astimezone().strftime("%b %-d, %Y")
     lines = [f"*Shipped to prod — {date_str}*", ""]
     if summary:
-        lines += [summary, ""]
+        lines += [slack_escape(summary), ""]
 
     if tickets:
         lines.append("*Tickets*")
         for tag, (name, url) in tickets.items():
-            text = f"{tag}: {name}" if name else tag
+            text = f"{tag}: {slack_escape(name)}" if name else tag
             lines.append(f"- <{url}|*{text}*>" if url else f"- *{text}*")
         lines.append("")
 
     lines.append("*Pull Requests*")
     for pr in prs:
-        lines.append(f"- <{pr['url']}|*#{pr['number']}: {pr['title']}*>")
+        lines.append(f"- <{pr['url']}|*#{pr['number']}: {slack_escape(pr['title'])}*>")
 
     post_slack("\n".join(lines).strip())
     print(f"Posted release summary: {len(prs)} PR(s), {len(tickets)} ticket(s).")
