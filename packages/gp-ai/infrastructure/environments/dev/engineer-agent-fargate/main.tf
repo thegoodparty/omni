@@ -43,14 +43,13 @@ variable "failure_notification_email" {
   default     = ""
 }
 
-data "terraform_remote_state" "shared_ecr" {
-  backend = "s3"
-
-  config = {
-    bucket = "goodparty-terraform-state-us-west-2"
-    key    = "shared/ecr/terraform.tfstate"
-    region = "us-west-2"
-  }
+# Looked up live rather than read from terraform state. The ECR repo is the one
+# resource here with no environment dimension, so it does not belong to any
+# env's deploy and is managed outside Terraform. A remote_state read would break
+# the moment that root is retired (the state file survives with no outputs), and
+# it coupled six roots to a state file nothing writes.
+data "aws_ecr_repository" "ai_projects" {
+  name = "gp-ai-projects"
 }
 
 module "engineer_agent_fargate" {
@@ -59,7 +58,7 @@ module "engineer_agent_fargate" {
   environment                = "dev"
   vpc_id                     = var.vpc_id
   private_subnet_ids         = var.private_subnet_ids
-  ecr_repository_url         = data.terraform_remote_state.shared_ecr.outputs.repository_url
+  ecr_repository_url         = data.aws_ecr_repository.ai_projects.repository_url
   docker_image_tag           = "engineer-agent-dev"
   failure_notification_email = var.failure_notification_email
 }
