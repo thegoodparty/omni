@@ -84,7 +84,8 @@ packages/gp-ai/                  # uv workspace root
 ## Testing
 
 - Framework: **pytest** with `asyncio_mode = auto` (declared in root `pyproject.toml`).
-- Top-level `conftest.py` autouse-disables Braintrust telemetry — every test runs with `BRAINTRUST_API_KEY=""` so no test pollutes a live Braintrust project.
+- Top-level `conftest.py` carries two autouse fixtures. One disables Braintrust telemetry — every test runs with `BRAINTRUST_API_KEY=""` so no test pollutes a live Braintrust project. The other sets a default `AWS_DEFAULT_REGION`, because application code builds boto3 clients without an explicit region (correct in ECS, and it happens to work on a laptop with a profile configured, but a bare CI runner raises `NoRegionError`).
+- **Assume Linux.** This suite ran only on macOS until CI existed, which hid failures: an unset region, and assertions that a path is not under `/tmp` (true on macOS, where temp dirs are `/var/folders/...`, false on Linux). Don't assert on temp-dir _locations_ — assert the invariant the code actually guarantees.
 - Single test: `uv run pytest <path>::TestClass::test_case -v`.
 - Per-member: each workspace member has its own `tests/` and runs them with `cd <member> && uv run pytest tests/`.
 - **There is no repo-root `tests/` directory.** Find the real suites with `git ls-files '*test_*.py' | xargs -n1 dirname | sort -u`. The set CI runs is: `broker/tests`, `pmf_engine/tests`, `shared/tests`, `serve/v1_pipeline/tests`, `clickup_bot/tests`, `engineer_agent/tests`, `campaign_plan_lambda/tests`.
@@ -103,5 +104,5 @@ packages/gp-ai/                  # uv workspace root
 - **Python `3.13`** runtime via `uv` (`.python-version`).
 - **Package manager: `uv`** (`uv sync` / `uv add` / `uv run`). The `.venv/` lives at the repo root; **don't make per-member venvs**.
 - **Required env vars:** see `.env.example`. Real `.env` is gitignored — local-only.
-- **AWS / Lambda:** Deployment is via Terraform under `infrastructure/`, plus the per-member Docker→ECR build workflows in `.github/workflows/build-*.yml`. Secrets come from AWS Secrets Manager (e.g., `AI_SECRETS_<ENV>`); never check creds in.
+- **AWS / Lambda:** Deployment is via Terraform under `infrastructure/`. Images are built by omni's single `.github/workflows/gp-ai.yml` (the old per-member `build-*.yml` files did not come across). Secrets come from AWS Secrets Manager (e.g., `AI_SECRETS_<ENV>`); never check creds in.
 - `ai-rules/` lives at the omni repo root, not here; omni's `npm install` initializes it.
