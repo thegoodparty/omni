@@ -215,13 +215,29 @@ The committed durable artifacts are the longitudinal log and the diff state. The
 report (`--json`) and the remediation payloads are gitignored transients. Route rank-1/2
 flags + their stage-2 verdicts to Eng/PM.
 
-### Post the digest to Slack (`--slack`, DATA-2057)
+### Post the digest to Slack (`--slack`, DATA-2057 + DATA-2174)
 
-Pass `--slack` to also push a delta-led digest to the analytics event-lifecycle Slack
-channel: a parent message with the status transitions + newly flagged/resolved events, the
-anomaly/proposal headline, and the status breakdown, plus a threaded reply with per-event
-anomaly numbers and the watchlist proposals. It is **quiet** — nothing posts when no event
-was newly flagged, escalated, or resolved and no new anomaly appeared. The post happens
+Pass `--slack` to also push a priority-tiered digest to the analytics event-lifecycle Slack
+channel: a parent message with **🔴 needs action**, **🟡 worth watching**, and an **ℹ️
+informational** rollup, plus a threaded reply with the full detail (per-event anomaly
+numbers, watchlist proposals, informational transitions, and the status breakdown). Each
+item's tier comes from `digest_triage.py`: a deterministic rules pass (OKR flag, watchlist
+membership, health rank) that a rubric-guided Claude judge may then move by one tier —
+never demoting an OKR-anchored red item. The judge needs `ANTHROPIC_API_KEY` and reads its
+model from `DIGEST_TRIAGE_MODEL` (default `claude-sonnet-5`); when the key is unset or the
+judge call fails, the digest posts anyway on the deterministic rules tier, with a
+`⚙️ triage judgment unavailable this run` line in the parent.
+
+It is **quiet with one override**: nothing posts when no event was newly flagged, escalated,
+or resolved, no new anomaly appeared, and no new instrumentation gap landed — **except** an
+OKR-anchored event sitting in a breaking state, which posts every run until it resolves (a
+one-time transition line scrolling away while the OKR sat broken for a month is exactly how
+DATA-2174 happened). Mark an event's OKR anchor via the `okr:` field on its
+`monitored_events.yaml` row — that field is the top-tier source the red-persistence rule and
+the rules-tier judge both key off of.
+
+The `<!here>` mention on a red section can be overridden with `SLACK_EVENT_ALERT_MENTION`
+(e.g. a subteam handle) so paging doesn't always go to the whole channel. The post happens
 inline **before** the state file is advanced (the diff is consumed once state is written),
 and is **non-fatal**: a Slack error prints a warning and never changes the monitor's exit
 code. Needs `SLACK_APP_BOT_TOKEN` + `SLACK_EVENT_LIFECYCLE_CHANNEL_ID` in `scripts/.env`;
