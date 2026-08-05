@@ -12,9 +12,13 @@ const NUM_USERS = 20
 
 const ADMIN_STRIPE_CUSTOMER_ID = 'cus_RWKP2JnywRA590'
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@test.local'
+// Clerk rejects `.local` addresses (422 form_param_format_invalid), which left
+// every seeded environment without a Clerk-backed admin or candidate to log in
+// as. `example.com` is IANA-reserved, so it validates without being routable,
+// and unlike `@test.goodparty.org` it is not swept by `deleteTestUsers`.
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@example.com'
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'testPassword123'
-const CANDIDATE_EMAIL = process.env.CANDIDATE_EMAIL || 'candidate@test.local'
+const CANDIDATE_EMAIL = process.env.CANDIDATE_EMAIL || 'candidate@example.com'
 const CANDIDATE_PASSWORD = process.env.CANDIDATE_PASSWORD || 'testPassword123'
 
 const ADMIN_FIRST_NAME = 'Test'

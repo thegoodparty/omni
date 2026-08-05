@@ -136,7 +136,13 @@ export function createService({
     deregistrationDelay: isProd ? 120 : 15,
     healthCheck: {
       path: '/v1/health',
-      interval: 60,
+      // `deploymentMinimumHealthyPercent: 100` keeps the old task serving until
+      // the new one is healthy, so `interval * healthyThreshold` is on the
+      // critical path of every deploy. At 60s that alone was two of the five
+      // minutes Pulumi waits for the service to stabilize, and preview deploys
+      // failed the wait by seconds. Non-prod trades probe volume for a 30s
+      // handover; prod keeps 60s.
+      interval: isProd ? 60 : 15,
       timeout: 5,
       healthyThreshold: 2,
       unhealthyThreshold: 3,
@@ -308,7 +314,10 @@ export function createService({
           containerPort: 80,
         },
       ],
-      healthCheckGracePeriodSeconds: 120,
+      // Must exceed the slowest boot, or the faster non-prod probe interval
+      // starts failing tasks mid-startup. Preview containers are the slow case:
+      // ensure-database, `prisma migrate deploy`, seed, then ~45s of Nest boot.
+      healthCheckGracePeriodSeconds: 300,
       deploymentCircuitBreaker: {
         enable: true,
         rollback: false,
@@ -326,7 +335,10 @@ export function createService({
       enableEcsManagedTags: true,
       waitForSteadyState: true,
     },
-    { customTimeouts: { create: '5m', update: '5m' } },
+    // Headroom, not a gate: a real crash-on-boot is caught by the deployment
+    // circuit breaker, so the only thing a tight wait buys is a red deploy on a
+    // service that stabilizes seconds later.
+    { customTimeouts: { create: '10m', update: '10m' } },
   )
 
   // Preview stacks are ephemeral and their per-PR DNS records routinely drift
