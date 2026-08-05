@@ -143,8 +143,22 @@ jobs:
 
   build:
     name: Build ${{ matrix.service }}
-    needs: changes
-    if: needs.changes.outputs.services != '[]'
+    # Must wait on validate, not just changes. This job pushes ECR tags and
+    # force-redeploys broker-dev on main, so running it in parallel with
+    # validate would let a failing lint/test still land an image on dev — the
+    # aggregation gate failing afterwards does not un-deploy it. Mirrors
+    # gp-api.yml, where deploy needs validate.
+    #
+    # `skipped` is an allowed validate result: a Dockerfile-only change trips
+    # no Python filter, so validate legitimately does not run. Only `failure`
+    # and `cancelled` block the build.
+    needs: [changes, validate]
+    if: >-
+      always()
+      && needs.changes.result == 'success'
+      && needs.changes.outputs.services != '[]'
+      && needs.validate.result != 'failure'
+      && needs.validate.result != 'cancelled'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -243,10 +257,19 @@ jobs:
     steps:
       - name: Check needed jobs
         env:
+          CHANGES: ${{ needs.changes.result }}
           VALIDATE: ${{ needs.validate.result }}
           BUILD: ${{ needs.build.result }}
         run: |
           set -euo pipefail
+          # `changes` has no `if`, so it always runs — anything other than
+          # success means change detection never completed, and validate/build
+          # were skipped for the wrong reason. Without this the gate would read
+          # those skips as "nothing to do" and go green on a broken run.
+          if [ "$CHANGES" != "success" ]; then
+            echo "::error::gp-ai changes concluded '$CHANGES'; cannot trust the skip decisions below"
+            exit 1
+          fi
           failed=0
           for pair in "validate:$VALIDATE" "build:$BUILD"; do
             name=${pair%%:*}
