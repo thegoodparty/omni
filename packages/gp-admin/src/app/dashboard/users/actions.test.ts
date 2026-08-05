@@ -25,7 +25,7 @@ vi.mock('@/shared/util/gpClient.util', () => ({
 // --- GP Environment mock ---
 vi.mock('@/shared/util/gpEnvironment', () => ({
   resolveEnvironment: vi.fn().mockReturnValue('dev'),
-  GP_ENVIRONMENT: { DEV: 'dev', QA: 'qa', PROD: 'prod' },
+  GP_ENVIRONMENT: { DEV: 'dev', PROD: 'prod' },
 }))
 
 function makeAuthResult(overrides: Record<string, unknown> = {}) {
