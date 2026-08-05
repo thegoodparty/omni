@@ -5,7 +5,7 @@ import {
   MODELS,
 } from 'src/prisma/util/prisma.util'
 import { PersonFilterDto } from './persons.schema'
-import { Prisma } from '../generated/prisma'
+import { PositionLevel, Prisma } from '../generated/prisma'
 
 // Candidacy carries PII (`email`); never expose it when nesting candidacies
 // under a Person on this public endpoint. The Race's `electionDate` is pulled
@@ -15,6 +15,29 @@ const CANDIDACY_INCLUDE = {
   omit: { email: true },
   include: { Race: { select: { electionDate: true } } },
 } as const
+
+// Reaches the office's own Race so each term can carry the position slug the
+// public profile's breadcrumb is built from (see attachOfficeContext). Narrow
+// selects only — a whole Position/Race per term would balloon the payload.
+const OFFICE_HOLDER_INCLUDE = {
+  include: {
+    Position: {
+      select: {
+        level: true,
+        Races: {
+          select: { slug: true, positionLevel: true },
+          orderBy: { electionDate: 'desc' },
+          take: 1,
+        },
+      },
+    },
+  },
+} as const
+
+type OfficeHolderPositionContext = {
+  level: PositionLevel | null
+  Races: { slug: string; positionLevel: PositionLevel }[]
+} | null
 
 @Injectable()
 export class PersonsService extends createPrismaBase(MODELS.Person) {
@@ -68,14 +91,55 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
       where: { id: personId },
       omit: { email: true, phone: true, gpApiUserId: true },
       include: {
-        OfficeHolders: true,
+        OfficeHolders: OFFICE_HOLDER_INCLUDE,
         Candidacies: CANDIDACY_INCLUDE,
       },
     })
     if (!person) {
       throw new NotFoundException(`Person not found for id=${personId}`)
     }
-    return person
+    return this.attachOfficeContext(person)
+  }
+
+  // gp-marketing builds the /people breadcrumb (`Elections > State > County >
+  // City > Position > Name`) by splitting a slug shaped
+  // `tx/hidalgo/mission/county-sheriff` into its place path and office segment.
+  // Candidates get that slug from Candidacy.Race.slug, but a pure officeholder
+  // has no candidacy, so their trail collapsed to `Elections > State > Name`.
+  //
+  // The office's own Race already carries exactly that slug, so surface it
+  // verbatim instead of recomposing one. A hand-built slug would drift: the dbt
+  // slugify macro strips `-ccd`, and a place that loses a slug collision gets a
+  // geoid suffix (`tx/hidalgo/mission-4848072`), so a recomposed slug would
+  // silently point at a 404. Position.placeId is not an alternative either — it
+  // was dropped in 20260722000000_drop_position_place_id, never having been
+  // populated by the position mart.
+  //
+  // Every hop is optional: OfficeHolder.positionId is a nullable FK that the
+  // officeholder mart fills with a lossy left join, and a Position need not have
+  // a Race. An unresolvable term degrades to nulls rather than throwing. The
+  // nested Position is dropped again here — it was only pulled to reach the
+  // race, and the previous shape exposed no Position at all.
+  private attachOfficeContext<
+    T extends { OfficeHolders: { Position: OfficeHolderPositionContext }[] },
+  >(person: T) {
+    return {
+      ...person,
+      OfficeHolders: person.OfficeHolders.map(
+        ({ Position, ...officeHolder }) => {
+          // Races for one Position share a place and normalized office name, so
+          // the most recent election is a stable pick. Race.positionLevel is
+          // non-null where Position.level is nullable, and the marketing parser
+          // needs the level to route CITY/LOCAL offices, so prefer the race's.
+          const race = Position?.Races[0]
+          return {
+            ...officeHolder,
+            positionSlug: race?.slug ?? null,
+            positionLevel: race?.positionLevel ?? Position?.level ?? null,
+          }
+        },
+      ),
+    }
   }
 
   // Resolves the L2 voter-join district for a person, for the voter-density
@@ -192,7 +256,7 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
       where: { id: this.idPrefixRange(idPrefix) },
       omit: { email: true, phone: true, gpApiUserId: true },
       include: {
-        OfficeHolders: true,
+        OfficeHolders: OFFICE_HOLDER_INCLUDE,
         Candidacies: CANDIDACY_INCLUDE,
       },
     })
@@ -207,7 +271,7 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
     if (!person) {
       throw new NotFoundException(`Person not found for slug=${slug}`)
     }
-    return person
+    return this.attachOfficeContext(person)
   }
 
   // Half-open UUID range [<prefix>-0…, <next>-0…) covering every id whose text
