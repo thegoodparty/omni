@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { SqlRejected } from './districtInsights.tool'
+import { HS_SCORE_SEMANTICS } from './hsScoreSemantics'
 import {
   buildDescribeConstituentDataTool,
   buildQueryConstituentDataTool,
@@ -512,14 +513,33 @@ describe('buildDescribeConstituentDataTool', () => {
   })
 })
 
-describe('tool description — score semantics', () => {
+describe('tool description — score semantics follows the scope', () => {
   const provider = new InMemoryDatabricksProvider(new Map())
+  // Mirrors the serve production scope, which sets catalogCarriesScoreMarks
+  // because its catalog carries the marks HS_SCORE_SEMANTICS refers to.
+  const markedScope: ConstituentDataScope = {
+    ...scope,
+    catalogCarriesScoreMarks: true,
+  }
 
   it('states the percentile-rank basis so score averages are never read as absolute shares', () => {
-    const tool = buildQueryConstituentDataTool({ provider, scope })
+    const tool = buildQueryConstituentDataTool({ provider, scope: markedScope })
+    // The whole constant, not fragments — partial pastes and drift between
+    // the constant and the rendered description must fail.
+    expect(tool.description).toContain(HS_SCORE_SEMANTICS)
     expect(tool.description).toMatch(/percentile rank/i)
     expect(tool.description).toMatch(/deviation from 50/i)
     expect(tool.description).not.toContain('likelihood')
+  })
+
+  it('keeps the legacy wording for scopes whose catalog has no marks (win)', () => {
+    const tool = buildQueryConstituentDataTool({ provider, scope })
+    expect(tool.description).toContain('0-100 likelihood')
+    expect(tool.description).toContain(
+      "Categorical flag columns hold string values (e.g. 'support', 'oppose'), not 1/0.",
+    )
+    expect(tool.description).not.toContain(HS_SCORE_SEMANTICS)
+    expect(tool.description).not.toMatch(/percentile rank/i)
   })
 })
 
