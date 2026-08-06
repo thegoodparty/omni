@@ -994,8 +994,9 @@ export default function ChiefOfStaffChatBody({
     // highlight within one paragraph but not across the whole message).
     // select-text restores the CSS; stopping pointerdown propagation keeps the
     // capture from happening at all (data-vaul-no-drag only blocks the drag, not
-    // the capture), so users can highlight and copy a whole message. Dragging
-    // the body no longer dismisses the drawer — the overlay and close button do.
+    // the capture), so users can highlight and copy a whole message. This is
+    // scoped to the transcript+composer: the drawer header sits outside it, so
+    // drag-to-dismiss still works from there (as do the overlay and close X).
     <div
       className="flex min-h-0 flex-1 flex-col select-text"
       data-vaul-no-drag
