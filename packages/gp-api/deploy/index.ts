@@ -327,69 +327,57 @@ export = async () => {
       })
     : undefined
 
-  let voterCluster: aws.rds.Cluster | aws.rds.GetClusterResult
+  // Retired (ENG-5032): no code reads gp-voter-db any more. These clusters
+  // stay declared for exactly one deploy with deletionProtection off, because
+  // Pulumi cannot delete a cluster that still has deletion protection on — the
+  // follow-up PR drops this block and that deploy destroys them.
+  if (environment === 'dev' || environment === 'prod') {
+    const voterDbBaseConfig = {
+      engine: aws.rds.EngineType.AuroraPostgresql,
+      engineMode: aws.rds.EngineMode.Provisioned,
+      engineVersion: '16.8',
+      databaseName: 'voters',
+      masterUsername: 'postgres',
+      masterPassword: pulumi.secret(secret.VOTER_DB_PASSWORD),
+      dbSubnetGroupName: subnetGroup!.name,
+      vpcSecurityGroupIds: [rdsSecurityGroup!.id],
+      storageEncrypted: true,
+      deletionProtection: false,
+      backupRetentionPeriod: environment === 'prod' ? 14 : 7,
+      serverlessv2ScalingConfiguration: {
+        maxCapacity: 128,
+        minCapacity: 0.5,
+      },
+    }
 
-  switch (environment) {
-    case 'dev':
-    case 'prod':
-      const voterDbBaseConfig = {
-        engine: aws.rds.EngineType.AuroraPostgresql,
-        engineMode: aws.rds.EngineMode.Provisioned,
-        engineVersion: '16.8',
-        databaseName: 'voters',
-        masterUsername: 'postgres',
-        masterPassword: pulumi.secret(secret.VOTER_DB_PASSWORD),
-        dbSubnetGroupName: subnetGroup!.name,
-        vpcSecurityGroupIds: [rdsSecurityGroup!.id],
-        storageEncrypted: true,
-        deletionProtection: true,
-        finalSnapshotIdentifier: `gp-voter-db-${stage}-final-snapshot`,
-        backupRetentionPeriod: environment === 'prod' ? 14 : 7,
-        serverlessv2ScalingConfiguration: {
-          maxCapacity: 128,
-          minCapacity: 0.5,
-        },
-      }
+    const voterCluster = new aws.rds.Cluster('voterCluster', {
+      ...voterDbBaseConfig,
+      clusterIdentifier:
+        environment === 'prod' ? 'gp-voter-db' : `gp-voter-db-${stage}`,
+      finalSnapshotIdentifier: `gp-voter-db-${stage}-final-snapshot`,
+    })
 
-      voterCluster = new aws.rds.Cluster('voterCluster', {
+    new aws.rds.ClusterInstance('voterInstance', {
+      clusterIdentifier: voterCluster.id,
+      instanceClass: 'db.serverless',
+      engine: aws.rds.EngineType.AuroraPostgresql,
+      engineVersion: voterCluster.engineVersion,
+    })
+
+    if (environment === 'prod') {
+      const voterClusterLatest = new aws.rds.Cluster('voterClusterLatest', {
         ...voterDbBaseConfig,
-        clusterIdentifier:
-          environment === 'prod' ? 'gp-voter-db' : `gp-voter-db-${stage}`,
-        finalSnapshotIdentifier: `gp-voter-db-${stage}-final-snapshot`,
+        clusterIdentifier: 'gp-voter-db-20250728',
+        finalSnapshotIdentifier: `gp-voter-db-${stage}-20250728-final-snapshot`,
       })
 
-      new aws.rds.ClusterInstance('voterInstance', {
-        clusterIdentifier: voterCluster.id,
+      new aws.rds.ClusterInstance('voterInstanceLatest', {
+        clusterIdentifier: voterClusterLatest.id,
         instanceClass: 'db.serverless',
         engine: aws.rds.EngineType.AuroraPostgresql,
-        engineVersion: voterCluster.engineVersion,
+        engineVersion: voterClusterLatest.engineVersion,
       })
-
-      if (environment === 'prod') {
-        const voterClusterLatest = new aws.rds.Cluster('voterClusterLatest', {
-          ...voterDbBaseConfig,
-          clusterIdentifier: 'gp-voter-db-20250728',
-          finalSnapshotIdentifier: `gp-voter-db-${stage}-20250728-final-snapshot`,
-        })
-
-        new aws.rds.ClusterInstance('voterInstanceLatest', {
-          clusterIdentifier: voterClusterLatest.id,
-          instanceClass: 'db.serverless',
-          engine: aws.rds.EngineType.AuroraPostgresql,
-          engineVersion: voterClusterLatest.engineVersion,
-        })
-        voterCluster = voterClusterLatest
-
-        voterCluster = await aws.rds.getCluster({
-          clusterIdentifier: 'gp-voter-db-20260420',
-        })
-      }
-      break
-    case 'preview':
-      voterCluster = await aws.rds.getCluster({
-        clusterIdentifier: 'gp-voter-db-develop',
-      })
-      break
+    }
   }
 
   const productDomain = select({
@@ -589,9 +577,6 @@ export = async () => {
       DB_NAME: sharedPreviewCluster
         ? `gpdb_pr_${prNumber}`
         : rdsCluster!.databaseName,
-      VOTER_DB_HOST: voterCluster.endpoint,
-      VOTER_DB_USER: voterCluster.masterUsername,
-      VOTER_DB_NAME: voterCluster.databaseName,
       SECRET_NAMES: Object.keys(secret).join(','),
       ...(environment === 'preview'
         ? {
