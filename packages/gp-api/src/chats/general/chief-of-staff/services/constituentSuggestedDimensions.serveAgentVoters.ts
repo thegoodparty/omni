@@ -255,12 +255,12 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_civil_liberties_oppose',
     label:
-      "Believes anti-terror policies don't go far enough to protect us (limited coverage: data exists in only 12 states; null elsewhere)",
+      'More concerned that law enforcement is not going far enough to protect us (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_civil_liberties_support',
     label:
-      'Believes anti-terror policies go too far restricting civil liberties (limited coverage: data exists in only 12 states; null elsewhere)',
+      'More concerned that law enforcement goes too far restricting civil liberties (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_climate_change_believer',
@@ -311,12 +311,12 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_conspiracy_believer',
     label:
-      'Open to conspiracy theories (limited coverage: data exists in only 12 states; null elsewhere)',
+      'Does not rule out that the 2024 hurricanes were artificially created — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_conspiracy_nonbeliever',
     label:
-      'Firmly rejects conspiracy theories (limited coverage: data exists in only 12 states; null elsewhere)',
+      'Firmly rejects the claim that the 2024 hurricanes were artificially created — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_consumer_value_brand_savings',
@@ -386,17 +386,17 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_despondency_ahead',
     label:
-      'Feels ahead of where they expected to be in life (limited coverage: data exists in only 12 states; null elsewhere)',
+      'Feels ahead of where they expected to be in life — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_despondency_far_behind',
     label:
-      'Feels far behind where they expected to be in life (limited coverage: data exists in only 12 states; null elsewhere)',
+      'Feels far behind where they expected to be in life — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_despondency_on_pace',
     label:
-      'Feels on pace with where they expected to be in life (limited coverage: data exists in only 12 states; null elsewhere)',
+      'Feels on pace with where they expected to be in life — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_doge_oppose',
@@ -436,12 +436,12 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_economic_despondency_ahead',
     label:
-      'Feels ahead of where they expected to be at this stage of life (limited coverage: no data in 12 states; null there)',
+      'Feels ahead of where they expected to be at this stage of life — newer survey vintage (limited coverage: no data in 12 states; null there)',
   },
   {
     name: 'hs_economic_despondency_far_behind',
     label:
-      'Feels far behind where they expected to be at this stage of life (limited coverage: no data in 12 states; null there)',
+      'Feels far behind where they expected to be at this stage of life — newer survey vintage (limited coverage: no data in 12 states; null there)',
   },
   {
     name: 'hs_electric_vehicle_likely_buyer',
@@ -516,9 +516,12 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     name: 'hs_gig_work_make_employees',
     label: 'Believes gig companies should treat workers as employees',
   },
-  { name: 'hs_gig_worker_ever', label: 'Has ever done gig economy work' },
+  {
+    name: 'hs_gig_worker_ever',
+    label: 'Has done or considered gig economy work',
+  },
   { name: 'hs_gig_worker_now', label: 'Currently does gig economy work' },
-  { name: 'hs_gig_worker_unlikely', label: 'Unlikely to do gig economy work' },
+  { name: 'hs_gig_worker_unlikely', label: 'Has never done gig economy work' },
   { name: 'hs_green_new_deal_oppose', label: 'Opposes the Green New Deal' },
   { name: 'hs_green_new_deal_support', label: 'Supports the Green New Deal' },
   { name: 'hs_gun_control_oppose', label: 'Opposes gun control' },
@@ -793,8 +796,8 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     name: 'hs_pipeline_fracking_support',
     label: 'Supports pipelines/fracking',
   },
-  { name: 'hs_podcast_listener_no', label: 'Does not listen to podcasts' },
-  { name: 'hs_podcast_listener_yes', label: 'Listens to podcasts' },
+  { name: 'hs_podcast_listener_no', label: 'Never listens to podcasts' },
+  { name: 'hs_podcast_listener_yes', label: 'Listens to podcasts often' },
   { name: 'hs_police_trust_no', label: 'Does not trust the police' },
   { name: 'hs_police_trust_yes', label: 'Trusts the police' },
   {
@@ -855,12 +858,12 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_right_wing_conspiracy_believer',
     label:
-      'Believes right-wing conspiracy theories (limited coverage: no data in 12 states; null there)',
+      'Does not rule out that the 2024 hurricanes were artificially created — newer survey vintage (limited coverage: no data in 12 states; null there)',
   },
   {
     name: 'hs_right_wing_conspiracy_nonbeliever',
     label:
-      'Rejects right-wing conspiracy theories (limited coverage: no data in 12 states; null there)',
+      'Firmly rejects the claim that the 2024 hurricanes were artificially created — newer survey vintage (limited coverage: no data in 12 states; null there)',
   },
   { name: 'hs_same_sex_marriage_oppose', label: 'Opposes same-sex marriage' },
   { name: 'hs_same_sex_marriage_support', label: 'Supports same-sex marriage' },
@@ -995,12 +998,12 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_trust_science_always',
     label:
-      'Always trusts science (limited coverage: data exists in only 12 states; null elsewhere)',
+      'Almost always trusts the scientific and medical communities (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_trust_science_rarely',
     label:
-      'Rarely trusts scientific consensus (limited coverage: data exists in only 12 states; null elsewhere)',
+      'Rarely trusts the scientific and medical communities (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_tv_most_trusted_news_cnn',
@@ -1081,7 +1084,7 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_voting_fraud_concern_barriers',
     label:
-      'More concerned about barriers to voting (limited coverage: no data in 12 states; null there)',
+      'More concerned about barriers to voting than voter fraud — newer survey vintage (limited coverage: no data in 12 states; null there)',
   },
   {
     name: 'hs_voting_fraud_concern_fraud',
@@ -1090,16 +1093,16 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_voting_fraud_concern_oppression',
     label:
-      'Concerned about voter suppression (limited coverage: data exists in only 12 states; null elsewhere)',
+      'More concerned about voter suppression than voter fraud — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_wealth_acquired_advantages',
     label:
-      'Believes wealth is acquired through advantages people are handed (limited coverage: data exists in only 12 states; null elsewhere)',
+      'Believes the top 1% acquired their wealth through advantages they were handed (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_wealth_acquired_hardwork',
     label:
-      'Believes wealth is acquired through hard work (limited coverage: data exists in only 12 states; null elsewhere)',
+      'Believes the top 1% acquired their wealth through hard work (limited coverage: data exists in only 12 states; null elsewhere)',
   },
 ]
