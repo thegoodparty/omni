@@ -70,9 +70,6 @@ gp-api (53 controllers, 20+ Prisma models)
   │     streamPeopleCsv (cursor-based CSV streaming)
   │     getStats (pre-computed district demographics)
   │     findPerson (single voter lookup)
-  │   — falls back to HTTP + S2S JWT → legacy people-api service otherwise:
-  │     POST /v1/people, POST /v1/people/sample, POST /v1/people/download,
-  │     GET /v1/people/stats, GET /v1/people/:id
   │
   ├── HTTP + Clerk JWT M2M → election-api
   │     GET /v1/positions/by-ballotready-id/:id  (gold flow: BR position → district → turnout)
@@ -576,7 +573,7 @@ Before a campaign can send P2P texts, it must complete 10DLC (10-digit long code
 ## Polling System — End to End
 
 1. **Create poll**: gp-webapp → gp-api `POST /polls` → enqueues `POLL_CREATION` to SQS
-2. **Sample voters**: Queue consumer calls people-api `POST /v1/people/sample` (hash-bucketed random sampling)
+2. **Sample voters**: Queue consumer calls `ContactsService.sampleContacts` → `VoterQueryService.samplePeople` (hash-bucketed random sampling, direct people-db access in-process)
 3. **Build CSV**: Generates CSV (id, firstName, lastName, cellPhone), uploads to S3 (`tevyn-poll-csvs-{stage}`)
 4. **Send to Tevyn**: Posts CSV + poll message to Slack channel for Tevyn (SMS delivery service)
 5. **Expand poll** (optional): `POLL_EXPANSION` message — samples more contacts, excludes already-sent
