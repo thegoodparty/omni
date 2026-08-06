@@ -45,6 +45,11 @@ export interface ContactsLabels {
   wizardActivityBranchDescription: string
   // crm/assistant/CrmAssistant.tsx's conversation-drawer heading (ENG-10737).
   assistantTitle: string
+  // crm/VoterDataUnavailableState.tsx — shown when the org has no resolvable
+  // district, so there is no voter file to show at all.
+  unavailableTitle: string
+  unavailableBody: string
+  unavailableBodyWithOffice: (office: string) => string
 }
 
 export const getContactsLabels = (isWin: boolean): ContactsLabels =>
@@ -73,6 +78,11 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
         wizardActivityBranchDescription:
           "Use this option to select voters who you've previously interacted with.",
         assistantTitle: 'Voter list assistant',
+        unavailableTitle: "Voter data isn't available for this office yet",
+        unavailableBody:
+          "We couldn't match your office to a district in our voter file. Our team can set this up for you.",
+        unavailableBodyWithOffice: (office: string) =>
+          `We couldn't match "${office}" to a district in our voter file. Our team can set this up for you.`,
       }
     : {
         dataTitle: CONTACTS_DATA_TITLE.serve,
@@ -97,4 +107,10 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
         wizardActivityBranchDescription:
           "Use this option to select constituents who you've previously interacted with.",
         assistantTitle: 'Constituent list assistant',
+        unavailableTitle:
+          "Constituent data isn't available for this office yet",
+        unavailableBody:
+          "We couldn't match your office to a district in our constituent file. Our team can set this up for you.",
+        unavailableBodyWithOffice: (office: string) =>
+          `We couldn't match "${office}" to a district in our constituent file. Our team can set this up for you.`,
       }
