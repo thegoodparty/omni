@@ -40,6 +40,11 @@ variable "bootstrap" {
   description = "Skip the agent_run_inputs remote_state lookup so plan succeeds before that stack exists. Mirrors the qa/prod bootstrap flag; on dev it gates only this lookup (the rest of the stack is already applied). The broker module's count-guarded attachment leaves the IAM grant unset until the variable flips back to false on the second apply."
 }
 
+variable "docker_image_tag" {
+  description = "Immutable, SHA-pinned image tag (e.g. broker-a1b2c3d4). CI passes this per deploy; there is no default so a missing value fails loudly instead of silently shipping a mutable tag."
+  type        = string
+}
+
 data "terraform_remote_state" "fargate" {
   backend = "s3"
   config = {
@@ -111,7 +116,7 @@ module "broker" {
   vpc_id             = "vpc-0763fa52c32ebcf6a"
   private_subnet_ids = ["subnet-053357b931f0524d4", "subnet-0bb591861f72dcb7f"]
   ecr_repository_url = "333022194791.dkr.ecr.us-west-2.amazonaws.com/gp-ai-projects"
-  docker_image_tag   = "broker-dev"
+  docker_image_tag   = var.docker_image_tag
 
   # Cross-SG references: empty on first apply (count-guarded rules skipped),
   # populated on re-apply after fargate + control-plane have been applied.
