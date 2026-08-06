@@ -284,7 +284,9 @@ export const ContactsTableProvider = ({
       clientRequest('GET /v1/contacts/:id', {
         id: currentlySelectedPersonId!,
       }).then((res) => res.data),
-    enabled: Boolean(currentlySelectedPersonId),
+    // findPerson resolves a district server-side, and the person path is
+    // deep-linkable, so this has to be gated independently of the page's branch.
+    enabled: !isDistrictUnresolvable && Boolean(currentlySelectedPersonId),
   })
 
   const issuesInfiniteQuery = useInfiniteQuery({

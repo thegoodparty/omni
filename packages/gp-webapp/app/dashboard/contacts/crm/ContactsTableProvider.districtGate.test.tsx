@@ -28,10 +28,13 @@ const orgFixture = (district: Organization['district']): Organization => ({
 })
 
 let mockOrg: Organization | undefined = orgFixture(districtFixture)
+// Mutable so a test can put a person id on the path — the provider derives the
+// selected person from usePathname(), not from route params.
+let mockPathname = '/dashboard/contacts'
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
-  usePathname: () => '/dashboard/contacts',
+  usePathname: () => mockPathname,
   useSearchParams: () => new URLSearchParams(),
 }))
 
@@ -51,8 +54,15 @@ const listResponse = {
   },
 }
 
+// A "no request fired" assertion must not use waitFor: its callback succeeds on
+// the first synchronous check at t=0, before the query could have fired, so the
+// test would pass with or without the gate. Every case below waits the same
+// macrotask, and the enabled counterpart proves that wait is long enough.
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+
 beforeEach(() => {
   mockOrg = orgFixture(districtFixture)
+  mockPathname = '/dashboard/contacts'
 })
 
 const Probe = () => {
@@ -142,5 +152,41 @@ describe('ContactsTableProvider — district gate', () => {
       expect(screen.getByTestId('loading')).toHaveTextContent('false'),
     )
     expect(screen.getByTestId('unavailable')).toHaveTextContent('false')
+  })
+})
+
+// /dashboard/contacts/<personId> is deep-linkable and PersonOverlay mounts
+// outside the empty-state branch, so an unresolvable org landing on a person link
+// still reached findPerson, which resolves a district server-side.
+describe('ContactsTableProvider — person deep link', () => {
+  const mockPerson = () => {
+    const onRequest = vi.fn()
+    api.mock('GET /v1/contacts/:id', () => {
+      onRequest()
+      return { status: 200, data: makePerson() }
+    })
+    api.mock('GET /v1/contacts', { status: 200, data: listResponse })
+    return onRequest
+  }
+
+  it('fires the person request when a district resolves', async () => {
+    const onRequest = mockPerson()
+    mockPathname = '/dashboard/contacts/person-123'
+
+    renderProvider()
+    await flush()
+
+    expect(onRequest).toHaveBeenCalled()
+  })
+
+  it('fires no person request when the district is unresolvable', async () => {
+    const onRequest = mockPerson()
+    mockOrg = orgFixture(null)
+    mockPathname = '/dashboard/contacts/person-123'
+
+    renderProvider()
+    await flush()
+
+    expect(onRequest).not.toHaveBeenCalled()
   })
 })
