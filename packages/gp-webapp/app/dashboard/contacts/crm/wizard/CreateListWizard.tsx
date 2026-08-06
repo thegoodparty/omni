@@ -63,6 +63,7 @@ export default function CreateListWizard({
     refreshCustomSegments,
     selectList,
     customSegments,
+    voterDataUnavailable,
   } = useContactsTable()
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -168,8 +169,11 @@ export default function CreateListWizard({
   const { count, isLoading, isStale, isError, isCapError, errorMessage } =
     useListWizardCount(
       backendPayload,
-      activeBranch === 'voterFile' ||
-        (activeBranch === 'activity' && isConditionsStepValid),
+      // The voter-file count fires on every pill toggle, so an org with no
+      // resolvable district produced one 400 per keystroke-debounced change.
+      !voterDataUnavailable &&
+        (activeBranch === 'voterFile' ||
+          (activeBranch === 'activity' && isConditionsStepValid)),
     )
 
   // ENG-10781: a selection that RESOLVES to zero matches must not advance —
@@ -194,7 +198,7 @@ export default function CreateListWizard({
     isError: isOverlapError,
   } = useListWizardOverlapCount(
     backendPayload,
-    isConditionsStepValid && hasSavedLists,
+    !voterDataUnavailable && isConditionsStepValid && hasSavedLists,
   )
 
   // Render only once every input has settled: the live count backs the
