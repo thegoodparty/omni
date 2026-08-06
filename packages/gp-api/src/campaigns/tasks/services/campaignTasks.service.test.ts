@@ -963,8 +963,12 @@ describe('CampaignTasksService', () => {
       const slackBody = (slackCall[0] as any).blocks[0].text.text as string
       expect(slackBody).toContain('Jane Doe')
       expect(slackBody).toContain('Outreach Tasks (2)')
-      expect(slackBody).toContain('TEXT: Introduction Text')
-      expect(slackBody).toContain('ROBOCALL: Persuasion Robocall')
+      // The stored UTC-midnight date must render as its calendar date in any
+      // process timezone — the ClickUp automation parses this exact string.
+      expect(slackBody).toContain('TEXT: Introduction Text (Due: Jun 15, 2025)')
+      expect(slackBody).toContain(
+        'ROBOCALL: Persuasion Robocall (Due: No date set)',
+      )
       expect(slackBody).not.toContain('Education Task')
     })
 

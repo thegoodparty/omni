@@ -1,9 +1,15 @@
 # Omni — GoodParty product monorepo
 
 Omni is GoodParty.org's product code in one npm-workspaces monorepo: the candidate
-web app, the API monolith, two data microservices, the admin console, the candidate
+web app, the API monolith, a data microservice, the admin console, the candidate
 sites, and the shared SDK/contracts. One repo means agents and humans share one
 context, deploys are unified, and shared code is de-duplicated.
+
+Voter/people data access used to be its own microservice (`packages/people-api`);
+it was absorbed into `gp-api` (`src/peopleDb/`, direct people-db access) and the
+package was removed from this repo. The people-api ECS service and its Aurora
+cluster remain deployed and reachable during the rollout — see
+`packages/gp-api/src/peopleDb/CLAUDE.md`.
 
 **This repo is built to be worked through coding agents.** Almost every change here
 is made by an engineer driving an agent. So every doc is an agent-context surface.
@@ -24,7 +30,7 @@ demand when you open files in that package) and in `docs/`. Follow the pointers.
 | `packages/gp-webapp`       | Product app for candidates & elected officials                    | Next.js 16        | 4000 |
 | `packages/prototypes`      | Public backend-free UI prototyping surface                        | Next.js           | 4002 |
 | `packages/election-api`    | Election/race/candidacy data microservice                         | NestJS + Fastify  | 3001 |
-| `packages/people-api`      | Voter/people data microservice (L2 records)                       | NestJS + Fastify  | 3002 |
+| `packages/gp-ai`           | Python AI/data services + their Terraform                         | Python + uv       | —    |
 | `packages/gp-admin`        | Internal staff admin console (uses the SDK)                       | Next.js 16        | 3500 |
 | `packages/candidate-sites` | Per-candidate static sites                                        | Next.js           | 4001 |
 | `packages/styleguide`      | `@goodparty_org/styleguide` — shared design system (Radix/shadcn) | TypeScript        | —    |
@@ -41,6 +47,7 @@ demand when you open files in that package) and in `docs/`. Follow the pointers.
 | Our AI agent platform (CAP) — overview | `docs/cap.md`                                 |
 | Background agents / PMF Engine / evals | `docs/cap-background-agents.md`               |
 | Interactive AI chat (the `ai` SDK)     | `docs/cap-interactive-agents.md`              |
+| The Python AI services + their infra   | `packages/gp-ai/CLAUDE.md`                    |
 | Setting up / running locally           | `docs/development.md`                         |
 | Writing or fixing a test               | `docs/testing.md`                             |
 | Deploys, branches, CI                  | `docs/deployment.md`                          |
@@ -73,9 +80,11 @@ These apply across all TypeScript packages. Per-package docs add detail and may
 tighten them (e.g. gp-api enforces an 80-char line width via `.cursor/rules/`); when
 a nested rule conflicts with this list, the nested rule wins for that package.
 
-`packages/runbooks` is the one polyglot exception: its `scripts/python/` is a
-uv-managed Python project (its own `pyproject.toml`/`uv.lock`), independent of the
-npm workspace graph. npm owns the TS packages; uv owns that subtree.
+There are two polyglot exceptions: `packages/runbooks/scripts/python` and
+`packages/gp-ai`. Each is a uv-managed Python project with its own
+`pyproject.toml`/`uv.lock`, independent of the npm workspace graph. npm owns the TS
+packages; uv owns those subtrees. `packages/gp-ai` has no `package.json`, so the
+`packages/*` workspace glob skips it.
 
 - **TypeScript style:** no semicolons, single quotes, trailing commas. Arrow
   functions over `function` declarations. No `any` (and avoid `unknown`) in new code.
@@ -87,7 +96,9 @@ npm workspace graph. npm owns the TS packages; uv owns that subtree.
 - **Validation:** Zod everywhere. API responses validated at runtime via response
   schemas; never `.passthrough()` input schemas.
 - **Services:** Prisma-backed services extend `createPrismaBase(MODELS.ModelName)`
-  (gp-api, people-api, election-api).
+  (gp-api, election-api). gp-api's `src/peopleDb/` (the absorbed voter engine)
+  mirrors this with `createPeopleDbBase(PEOPLE_MODELS.ModelName)` against a
+  second, read-only Prisma client for people-db.
 - **Contracts are the cross-service source of truth.** Any shape that crosses a
   service boundary (S2S payloads, SQS messages, webhook bodies) lives in
   `@goodparty_org/contracts`. Change the contract in the _same_ PR as the
@@ -101,9 +112,16 @@ npm workspace graph. npm owns the TS packages; uv owns that subtree.
 
 ## Branches and deploys
 
-`develop -> qa -> master` map to `dev / qa / prod` (people-api is `dev`/`prod`
-only). Backends deploy via Docker/ECR/Pulumi to ECS Fargate; frontends deploy via
-Vercel with deterministic PR-preview aliases. Detail in `docs/deployment.md`.
+One long-lived branch, `main` (the default branch). Every PR targets `main`;
+pushing to `main` deploys the dev environment and runs full CI. Prod is reached
+only by automated promotion: the `promote.yml` workflow waits for a commit's
+required checks to go green on dev, confirms it is serving there, then deploys the
+same commit to prod. There is no manual promotion and no `qa`/`master` branch.
+Backends deploy via Docker/ECR/Pulumi to ECS Fargate; frontends deploy via Vercel
+with deterministic PR-preview aliases. Detail in `docs/deployment.md`. The
+deployed people-api service (`dev`/`prod` only) no longer has a
+repo package or CI pipeline here — it stays up as a frozen, manually
+decommissioned service until it's torn down.
 
 ## Worktrees
 
@@ -128,22 +146,24 @@ When investigating a bug or incident, use the MCP tools rather than guessing.
   Datasource UIDs: Loki `grafanacloud-logs`, Tempo `grafanacloud-traces`,
   Prometheus `grafanacloud-prom`. Narrow logs with labels `service_name`
   (`gp-api` | `election-api` | `people-api`) and `deployment_environment_name`
-  (`dev` | `qa` | `prod`), e.g.
+  (`dev` | `prod`), e.g.
   `{service_name="gp-api", deployment_environment_name="prod"}`.
 - **Sentry MCP** for frontend errors. Org slug `goodparty`, region
   `https://us.sentry.io`.
-- **Debugging deployed behavior?** Deployed code is whatever is on the remote
-  branch (`develop`→dev, `qa`→qa, `master`→prod), not your local tree — and this
-  checkout is shared, so `HEAD` may be stale. `git fetch origin <branch>` and read
-  `origin/<branch>` before forming any hypothesis.
+- **Debugging deployed behavior?** Deployed code is whatever is on `origin/main`
+  (dev) or, for prod, the last commit automated promotion shipped from `main`. It is
+  not your local tree, and this checkout is shared, so `HEAD` may be stale. `git fetch
+origin main` and read `origin/main` before forming any hypothesis.
 
 Full label reference, example queries, and an incident playbook: `docs/observability.md`.
 
 ## MCP tools
 
 Project-scoped MCP servers are configured in `.mcp.json` (Grafana, Sentry,
-Playwright, ClickUp). They need a few environment variables set in your shell — see
-`docs/mcp.md` for the list and what each server is for.
+Playwright, ClickUp, Amplitude). They need a few environment variables set in your
+shell — see `docs/mcp.md` for the list and what each server is for. Claude Code
+plugins that ship their own tools (currently Slack) are enabled repo-wide in
+`.claude/settings.json` under `enabledPlugins`, also documented in `docs/mcp.md`.
 
 ## Output rules
 

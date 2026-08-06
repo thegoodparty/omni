@@ -3,7 +3,8 @@ import {
   PersonProfileIssueStatus,
   PrioritySource,
 } from '../../generated/prisma'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ElectionsService } from '@/elections/services/elections.service'
 
 const service = useTestService()
 
@@ -29,7 +30,21 @@ const createOwnProfile = async () => {
 }
 
 describe('GET /v1/person-profiles/mine', () => {
+  // Spy only the election-api client. useTestService installs a persistent spy
+  // on the auth provider, so restore ONLY this spy (never vi.restoreAllMocks,
+  // which would tear down session verification for every later HTTP test).
+  let electionsSpy: ReturnType<typeof vi.spyOn>
+  beforeEach(() => {
+    electionsSpy = vi.spyOn(
+      service.app.get(ElectionsService),
+      'getPersonIdByGpApiUserId',
+    )
+  })
+  afterEach(() => electionsSpy.mockRestore())
+
   it('reports no profile and canCreate=false before a person is minted', async () => {
+    // Election-api has no link yet → the lazy backfill is a graceful no-op.
+    electionsSpy.mockResolvedValue(null)
     const res = await service.client.get(MINE)
     expect(res.status).toBe(200)
     expect(res.data.profile).toBeNull()
@@ -38,9 +53,25 @@ describe('GET /v1/person-profiles/mine', () => {
 
   it('reports canCreate=true once the user has a personId', async () => {
     await setPersonId(PERSON_ID)
+    // A user who already has a personId short-circuits — no election-api call.
+    electionsSpy.mockResolvedValue(PERSON_ID)
     const res = await service.client.get(MINE)
     expect(res.status).toBe(200)
     expect(res.data.canCreate).toBe(true)
+    expect(electionsSpy).not.toHaveBeenCalled()
+  })
+
+  it('lazily backfills User.person_id from election-api and unlocks canCreate', async () => {
+    // Simulate the data platform having populated person.gp_api_user_id.
+    electionsSpy.mockResolvedValue(PERSON_ID)
+    const res = await service.client.get(MINE)
+    expect(res.status).toBe(200)
+    expect(res.data.canCreate).toBe(true)
+    // Persisted onto the user's own row — gp-api owns the write.
+    const user = await service.prisma.user.findUnique({
+      where: { id: service.user.id },
+    })
+    expect(user?.personId).toBe(PERSON_ID)
   })
 })
 

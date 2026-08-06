@@ -330,7 +330,7 @@ cert, scope-ticket DynamoDB, secrets), `pmf-engine-fargate` (runner cluster + em
 task role + quarantine SG + Slack failure topic), and `pmf-engine-control-plane`
 (the three Lambdas, dispatch FIFO + DLQ, job-queue DynamoDB, metadata + inputs S3
 buckets, SSM cap param, EventBridge rules). CI builds the broker and pmf-engine
-images on merge to `develop`/`qa`/`prod`. Ops detail: `broker/RUNBOOK.md`.
+images on merge to `main`. Ops detail: `broker/RUNBOOK.md`.
 
 ## Part 3 — the eval system
 

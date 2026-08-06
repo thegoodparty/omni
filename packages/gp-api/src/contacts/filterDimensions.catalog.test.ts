@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { SupportStatusRollupSchema } from '@goodparty_org/contracts'
 import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
 import { ACTIVITY_CONDITION_CHANNEL_ACTIONS } from '@/shared/schemas/activityCondition.schema'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { PinoLogger } from 'nestjs-pino'
-import type { HttpService } from '@nestjs/axios'
 import type { Organization } from '../generated/prisma'
 import { FILTER_DIMENSIONS } from './filterDimensions.catalog'
 import { ContactsService } from './services/contacts.service'
@@ -86,12 +84,20 @@ describe('FILTER_DIMENSIONS catalog', () => {
     }
   })
 
-  it('sources supportStatus values from the contracts rollup enum', () => {
+  // ENG-10837: the catalog advertises all five SupportStatusRollup values —
+  // SupportStatusService.personIdsByEffectiveStatus resolves undecided/
+  // refused (override-only, ENG-10833) alongside the three derivable ones,
+  // so the assistant/wizard can safely build a filter on any of them.
+  it('sources supportStatus values from the full SupportStatusRollup vocabulary', () => {
     const supportStatus = FILTER_DIMENSIONS.find(
       (d) => d.key === 'supportStatus',
     )
     expect(supportStatus?.values.map((value) => value.key)).toEqual([
-      ...SupportStatusRollupSchema.options,
+      'supporter',
+      'non_supporter',
+      'unknown',
+      'undecided',
+      'refused',
     ])
   })
 
@@ -110,7 +116,11 @@ describe('FILTER_DIMENSIONS catalog', () => {
 describe('ContactsService.getFilterDimensions', () => {
   const buildService = () =>
     new ContactsService(
-      { post: () => undefined, get: () => undefined } as unknown as HttpService,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -141,12 +151,15 @@ describe('ContactsService.getFilterDimensions', () => {
   })
 
   it('returns the shared dimensions for both modes', () => {
+    const winOnlyKeys = new Set(
+      FILTER_DIMENSIONS.filter((d) => d.modes === 'win').map((d) => d.key),
+    )
     const winKeys = buildService()
       .getFilterDimensions(organization('win-campaign'))
       .map((d) => d.key)
     const serveKeys = buildService()
       .getFilterDimensions(organization('eo-city-council'))
       .map((d) => d.key)
-    expect(winKeys.filter((key) => key !== 'party')).toEqual(serveKeys)
+    expect(winKeys.filter((key) => !winOnlyKeys.has(key))).toEqual(serveKeys)
   })
 })

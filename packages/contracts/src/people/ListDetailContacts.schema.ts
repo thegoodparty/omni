@@ -11,13 +11,6 @@ export const ListDetailDemographicsSchema = z.object({
   people: z.number().int().min(0),
   avgAge: z.number().nullable(),
   avgIncome: z.number().nullable(),
-  // True when people-api's aggregates fence fired (ENG-10775): `people` is a
-  // FENCE_LIMIT-capped lower bound, not the list's true membership, and
-  // avgAge/avgIncome are a sample over that capped set rather than exact.
-  // Optional so an old webapp bundle (pre-ENG-10775) still validates a
-  // response that carries it, and a deploy-skew gp-api still validates
-  // without it.
-  fenced: z.boolean().optional(),
 })
 export type ListDetailDemographics = z.infer<
   typeof ListDetailDemographicsSchema
@@ -33,20 +26,6 @@ export const ListDetailReachabilitySchema = z.object({
   doorKnocking: z.number().int().min(0).nullable(),
   // Polls are delivered by text, so reachability mirrors sms 1:1.
   polls: z.number().int().min(0).nullable(),
-  // Per-channel mirror of demographics.fenced (ENG-10805): each channel's
-  // count comes from its own people-api aggregates call, so it can be
-  // fenced independently of the base count and of the other channels.
-  // Optional (and every leaf optional) so an old webapp bundle or a
-  // deploy-skew gp-api still validates a response with or without it.
-  fenced: z
-    .object({
-      sms: z.boolean().optional(),
-      robocall: z.boolean().optional(),
-      phoneBanking: z.boolean().optional(),
-      doorKnocking: z.boolean().optional(),
-      polls: z.boolean().optional(),
-    })
-    .optional(),
 })
 export type ListDetailReachability = z.infer<
   typeof ListDetailReachabilitySchema

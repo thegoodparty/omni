@@ -22,6 +22,22 @@ describe('voterFileFilterToAudience', () => {
     expect(audience).toEqual({ gender_unknown: true })
   })
 
+  it('maps audienceUnknown to the audience_unknown filter', async () => {
+    const audience = await service.voterFileFilterToAudience(
+      filter({ audienceUnknown: true }),
+    )
+
+    expect(audience).toEqual({ audience_unknown: true })
+  })
+
+  it('maps partyOther to the party_other filter', async () => {
+    const audience = await service.voterFileFilterToAudience(
+      filter({ partyOther: true }),
+    )
+
+    expect(audience).toEqual({ party_other: true })
+  })
+
   it('maps the rich list fields backed by an L2 column', async () => {
     const audience = await service.voterFileFilterToAudience(
       filter({

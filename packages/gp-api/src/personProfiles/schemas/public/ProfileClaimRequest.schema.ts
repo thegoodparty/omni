@@ -10,6 +10,9 @@ const CreateProfileClaimRequestSchema = z
     personId: z.guid('personId must be a valid UUID'),
     requesterEmail: z.string().email(),
     requesterName: z.string().max(200).nullable().optional(),
+    // Opt-in to GoodParty.org marketing comms from the modal checkbox. Absent
+    // means no consent; we only record the boolean (no HubSpot sync here).
+    marketingConsent: z.boolean().optional().default(false),
   })
   .strict()
 

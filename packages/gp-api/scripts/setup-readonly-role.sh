@@ -1,10 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-VALID_ENVS=("dev" "qa" "prod")
+VALID_ENVS=("dev" "prod")
 
 if [[ $# -ne 1 ]] || [[ ! " ${VALID_ENVS[*]} " =~ " $1 " ]]; then
-  echo "Usage: $0 <dev|qa|prod>"
+  echo "Usage: $0 <dev|prod>"
   exit 1
 fi
 
@@ -34,7 +34,6 @@ fi
 
 case "$ENV" in
   dev)  CLUSTER_ID="gp-api-db" ;;
-  qa)   CLUSTER_ID="gp-api-db-qa" ;;
   prod) CLUSTER_ID="gp-api-db-prod" ;;
 esac
 

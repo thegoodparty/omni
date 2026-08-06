@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   personColumns,
   personFilterSchema,
+  PERSON_INTERNAL_COLUMNS,
   PERSON_PII_COLUMNS,
 } from './persons.schema'
 
@@ -11,6 +12,11 @@ describe('person column allowlist', () => {
     expect(PERSON_PII_COLUMNS).toContain('phone')
     expect(personColumns).not.toContain('email')
     expect(personColumns).not.toContain('phone')
+  })
+
+  it('excludes the internal gpApiUserId linkage from selectable columns', () => {
+    expect(PERSON_INTERNAL_COLUMNS).toContain('gpApiUserId')
+    expect(personColumns).not.toContain('gpApiUserId')
   })
 
   it('still allows non-PII person columns', () => {
@@ -36,9 +42,32 @@ describe('personFilterSchema', () => {
     )
   })
 
+  it('rejects a columns request that includes the internal gpApiUserId', () => {
+    expect(
+      personFilterSchema.safeParse({ columns: 'id,gp_api_user_id' }).success,
+    ).toBe(false)
+    expect(
+      personFilterSchema.safeParse({ columns: 'id,gpApiUserId' }).success,
+    ).toBe(false)
+  })
+
   it('rejects a non-UUID personId', () => {
     expect(
       personFilterSchema.safeParse({ personId: 'not-a-uuid' }).success,
+    ).toBe(false)
+  })
+
+  it('accepts a numeric-string gpApiUserId filter', () => {
+    const result = personFilterSchema.safeParse({ gpApiUserId: '12345' })
+    expect(result.success).toBe(true)
+    expect(result.data?.gpApiUserId).toBe('12345')
+  })
+
+  it('rejects a non-numeric gpApiUserId (e.g. a UUID)', () => {
+    expect(
+      personFilterSchema.safeParse({
+        gpApiUserId: '11111111-1111-1111-1111-111111111111',
+      }).success,
     ).toBe(false)
   })
 

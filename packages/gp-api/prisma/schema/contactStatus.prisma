@@ -1,0 +1,69 @@
+// Layered status model (ENG-10833): every editable per-contact status has a
+// seed/derived value (voter-likelihood from people-api's Voter_Status,
+// support-status from SupportStatusService's interaction rollup) and an
+// optional org-scoped manual override stored here. Effective value = override
+// ?? seed/derived — computed in ContactsService, never persisted redundantly.
+// Opt In Status has no field member — it is not editable (TCPA product
+// decision, 2026-07-28): a manual override on a texted STOP has no safe
+// semantics.
+enum VoterLikelihood {
+  unknown
+  unlikely
+  unreliable
+  likely
+  super
+}
+
+enum ContactStatusField {
+  voter_likelihood
+  support_status
+}
+
+enum ContactStatusSource {
+  manual
+  door_knock
+  phone_banking
+}
+
+// Append-only change log. `fromValue` snapshots the *effective* value at
+// change time (derived/seed or prior override) so the feed can render
+// before->after without re-deriving history. `sourceId` is the idempotency
+// key for activity-sourced writes (a later ticket); null for manual edits —
+// Postgres treats NULLs as distinct, so manual rows never collide on the
+// unique below (mirrors ContactInteractionDoorKnock.sourceId).
+model ContactStatusEvent {
+  id               String              @id @default(uuid(7))
+  createdAt        DateTime            @default(now()) @map("created_at")
+  organizationSlug String              @map("organization_slug")
+  organization     Organization        @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  personId         String              @map("person_id")
+  field            ContactStatusField
+  fromValue        String?             @map("from_value")
+  toValue          String              @map("to_value")
+  source           ContactStatusSource
+  actorUserId      Int?                @map("actor_user_id")
+  actor            User?               @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  sourceId         String?             @map("source_id")
+
+  @@unique([organizationSlug, field, sourceId])
+  @@index([organizationSlug, personId, createdAt])
+  @@map("contact_status_event")
+}
+
+// Current-state projection maintained in the same transaction as each event
+// insert. Absence of a row means "no override — use the derived/seed value".
+// The (organizationSlug, field, value) index is what person-id-set resolution
+// (a later ticket, mirroring SupportStatusService.personIdsByStatus) queries.
+model ContactCurrentStatus {
+  id               String             @id @default(uuid(7))
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+  organizationSlug String             @map("organization_slug")
+  organization     Organization       @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  personId         String             @map("person_id")
+  field            ContactStatusField
+  value            String
+
+  @@unique([organizationSlug, personId, field])
+  @@index([organizationSlug, field, value])
+  @@map("contact_current_status")
+}

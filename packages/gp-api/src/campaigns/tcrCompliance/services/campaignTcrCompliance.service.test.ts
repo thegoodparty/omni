@@ -40,10 +40,22 @@ import {
   createMockCampaign,
 } from '@/shared/test-utils/mockData.util'
 
+// Passes the dispatch gate's publishability check: genuine bio (over
+// MIN_BIO_LENGTH plain chars, not the template) + one genuine issue.
+const publishableContent = {
+  about: {
+    bio: `<p>${'a'.repeat(250)}</p>`,
+    issues: [{ title: 'Roads', description: 'Fix the roads' }],
+  },
+}
+
 describe('CampaignTcrComplianceService - createAgentic', () => {
   let service: CampaignTcrComplianceService
   let mockPeerly: { getIdentities: ReturnType<typeof vi.fn> }
-  let mockWebsites: { findFirstOrThrow: ReturnType<typeof vi.fn> }
+  let mockWebsites: {
+    findFirstOrThrow: ReturnType<typeof vi.fn>
+    getContentForCampaign: ReturnType<typeof vi.fn>
+  }
   let mockCampaigns: {
     updateJsonFields: ReturnType<typeof vi.fn>
     findUnique: ReturnType<typeof vi.fn>
@@ -79,6 +91,9 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
     formattedAddress: '123 Main St',
     isPro: true,
   })
+  // What the dispatch gate's own campaign fetch resolves (user +
+  // campaignPositions included).
+  const campaignForGate = { ...campaign, user, campaignPositions: [] }
 
   const basePayload = {
     ein: '12-3456789',
@@ -94,10 +109,13 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
 
   beforeEach(async () => {
     mockPeerly = { getIdentities: vi.fn() }
-    mockWebsites = { findFirstOrThrow: vi.fn() }
+    mockWebsites = {
+      findFirstOrThrow: vi.fn(),
+      getContentForCampaign: vi.fn().mockResolvedValue(publishableContent),
+    }
     mockCampaigns = {
       updateJsonFields: vi.fn().mockResolvedValue(campaign),
-      findUnique: vi.fn().mockResolvedValue(campaign),
+      findUnique: vi.fn().mockResolvedValue(campaignForGate),
     }
     mockCrm = { trackCampaign: vi.fn().mockResolvedValue(undefined) }
     mockComplianceState = { findStateForCampaign: vi.fn() }
@@ -175,6 +193,50 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
       mockPrisma,
     )
     expect(mockCrm.trackCampaign).toHaveBeenCalledWith(campaign.id)
+  })
+
+  it('persists a manual filing address on the record without touching the campaign address', async () => {
+    const {
+      placeId: _placeId,
+      formattedAddress: _formatted,
+      ...rest
+    } = basePayload
+    await service.createAgentic(user, campaign, {
+      ...rest,
+      manualAddress: {
+        addressLine1: 'PO Box 621',
+        city: 'Toledo',
+        state: 'WA',
+        zip: '98591',
+      },
+    })
+
+    // campaign.placeId/formattedAddress stay untouched (undefined is skipped
+    // by updateJsonFields): they may carry an address other features read.
+    expect(mockCampaigns.updateJsonFields).toHaveBeenCalledWith(
+      campaign.id,
+      {
+        details: {
+          einNumber: basePayload.ein,
+          campaignCommittee: basePayload.committeeName,
+        },
+        placeId: undefined,
+        formattedAddress: undefined,
+      },
+      false,
+      undefined,
+      mockPrisma,
+    )
+    expect(mockModel.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        postalAddress: 'PO Box 621, Toledo, WA 98591',
+        filingAddressLine1: 'PO Box 621',
+        filingAddressLine2: null,
+        filingCity: 'Toledo',
+        filingState: 'WA',
+        filingZip: '98591',
+      }),
+    })
   })
 
   it('does not call CRM tracking if the transaction throws', async () => {
@@ -452,6 +514,57 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
     expect(mockQueue.sendMessage).not.toHaveBeenCalled()
   })
 
+  it('defers the kickoff when the profile cannot pass the publish gate', async () => {
+    // No genuine bio/issues and no real positions: a dispatched run would
+    // fail terminally at publish_website (profile_incomplete). The record is
+    // created but kickoffSentAt is never claimed, leaving it in the
+    // stranded-kickoff sweep's candidate set for the self-heal loop.
+    mockWebsites.getContentForCampaign.mockResolvedValue({})
+
+    const result = await service.createAgentic(user, campaign, basePayload)
+
+    expect(result.created).toBe(true)
+    expect(mockModel.create).toHaveBeenCalledTimes(1)
+    expect(mockModel.updateMany).not.toHaveBeenCalled()
+    expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('leaves the record submitted and unclaimed when the gate fetch fails', async () => {
+    // A transient DB failure while evaluating the gate must defer (sweep
+    // retries next cycle), not propagate — createAgentic's catch would mark
+    // the record `error`, removing it from the sweep's `submitted` set with
+    // kickoffSentAt still null.
+    mockWebsites.getContentForCampaign.mockRejectedValue(new Error('db down'))
+
+    const result = await service.createAgentic(user, campaign, basePayload)
+
+    expect(result.created).toBe(true)
+    expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    expect(mockModel.updateMany).not.toHaveBeenCalled()
+    expect(mockModel.update).not.toHaveBeenCalled()
+  })
+
+  it('does not defer a profile publishable only via position-seeded issues', async () => {
+    // Genuine bio but no website issues; the campaign has real positions the
+    // kickoff's fallbacks will seed — the gate must honor that seeding.
+    mockWebsites.getContentForCampaign.mockResolvedValue({
+      about: { bio: `<p>${'b'.repeat(250)}</p>` },
+    })
+    mockCampaigns.findUnique.mockResolvedValue({
+      ...campaignForGate,
+      campaignPositions: [
+        {
+          topIssue: { name: 'Housing' },
+          description: 'Build more affordable housing in every district',
+        },
+      ],
+    })
+
+    await service.createAgentic(user, campaign, basePayload)
+
+    expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
+  })
+
   describe('enqueueAgenticKickoffIfNeeded', () => {
     const paidRecord = {
       id: 'tcr-paid',
@@ -510,6 +623,17 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
       expect(mockModel.updateMany).not.toHaveBeenCalled()
       expect(mockQueue.sendMessage).not.toHaveBeenCalled()
     })
+
+    it('defers the webhook-path kickoff when the profile cannot pass the publish gate', async () => {
+      mockModel.findUnique.mockResolvedValueOnce(paidRecord)
+      mockCampaigns.findUnique.mockResolvedValueOnce(campaignWithClerk)
+      mockWebsites.getContentForCampaign.mockResolvedValue({})
+
+      await service.enqueueAgenticKickoffIfNeeded(campaign.id)
+
+      expect(mockModel.updateMany).not.toHaveBeenCalled()
+      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    })
   })
 
   describe('sweepStrandedAgenticKickoffs', () => {
@@ -525,7 +649,10 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_stranded' } },
+        campaign: {
+          user: { clerkId: 'clerk_stranded' },
+          campaignPositions: [],
+        },
       }
       mockModel.findMany.mockResolvedValueOnce([stranded])
 
@@ -589,7 +716,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_a' } },
+        campaign: { user: { clerkId: 'clerk_a' }, campaignPositions: [] },
       }
       const b = {
         id: 'tcr-b',
@@ -597,7 +724,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_b' } },
+        campaign: { user: { clerkId: 'clerk_b' }, campaignPositions: [] },
       }
       mockModel.findMany.mockResolvedValueOnce([a, b])
       mockQueue.sendMessage
@@ -621,6 +748,78 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
 
       expect(mockQueue.sendMessage).not.toHaveBeenCalled()
       expect(mockModel.update).not.toHaveBeenCalled()
+    })
+
+    it('skips deferred records (profile incomplete) and dispatches the rest', async () => {
+      // The deferral self-heal loop: a record deferred by the dispatch gate
+      // sits in this sweep's candidate set (kickoffSentAt null). Each cycle
+      // skips it while the profile is incomplete and dispatches it the cycle
+      // after the candidate completes the profile — modeled here as two
+      // records whose website content differs.
+      const deferred = {
+        id: 'tcr-deferred',
+        campaignId: 7,
+        status: TcrComplianceStatus.submitted,
+        peerlyIdentityId: null,
+        kickoffSentAt: null,
+        campaign: { user: { clerkId: 'clerk_d' }, campaignPositions: [] },
+      }
+      const completed = {
+        id: 'tcr-completed',
+        campaignId: 8,
+        status: TcrComplianceStatus.submitted,
+        peerlyIdentityId: null,
+        kickoffSentAt: null,
+        campaign: { user: { clerkId: 'clerk_c' }, campaignPositions: [] },
+      }
+      mockModel.findMany.mockResolvedValueOnce([deferred, completed])
+      mockWebsites.getContentForCampaign.mockImplementation(
+        (campaignId: number) =>
+          Promise.resolve(campaignId === 8 ? publishableContent : {}),
+      )
+
+      await sweep(service)
+
+      expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
+      const [message] = firstOrThrow(mockQueue.sendMessage.mock.calls)
+      expect(message.data.tcrComplianceId).toBe('tcr-completed')
+      expect(mockModel.update).toHaveBeenCalledTimes(1)
+      expect(mockModel.update).toHaveBeenCalledWith({
+        where: { id: 'tcr-completed' },
+        data: { kickoffSentAt: expect.any(Date) },
+      })
+    })
+
+    it('continues past a record whose content fetch fails', async () => {
+      const broken = {
+        id: 'tcr-broken',
+        campaignId: 11,
+        status: TcrComplianceStatus.submitted,
+        peerlyIdentityId: null,
+        kickoffSentAt: null,
+        campaign: { user: { clerkId: 'clerk_x' }, campaignPositions: [] },
+      }
+      const healthy = {
+        id: 'tcr-healthy',
+        campaignId: 12,
+        status: TcrComplianceStatus.submitted,
+        peerlyIdentityId: null,
+        kickoffSentAt: null,
+        campaign: { user: { clerkId: 'clerk_y' }, campaignPositions: [] },
+      }
+      mockModel.findMany.mockResolvedValueOnce([broken, healthy])
+      mockWebsites.getContentForCampaign.mockImplementation(
+        (campaignId: number) =>
+          campaignId === 11
+            ? Promise.reject(new Error('db hiccup'))
+            : Promise.resolve(publishableContent),
+      )
+
+      await sweep(service)
+
+      expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
+      const [message] = firstOrThrow(mockQueue.sendMessage.mock.calls)
+      expect(message.data.tcrComplianceId).toBe('tcr-healthy')
     })
 
     it('only sweeps Pro campaigns so pre-payment submissions are not dispatched', async () => {
@@ -652,6 +851,7 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
   let mockPrisma: { tcrCompliance: typeof mockModel }
   let mockWebsites: {
     ensureCompliancePublishableWebsite: ReturnType<typeof vi.fn>
+    getContentForCampaign: ReturnType<typeof vi.fn>
   }
 
   const kickoff = {
@@ -659,11 +859,13 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
     tcrComplianceId: 'tcr-abc',
     clerkUserId: 'user_clerk_abc',
   }
+  const kickoffClaimedAt = new Date('2026-07-30T12:00:00Z')
   const tcrRecord = {
     id: kickoff.tcrComplianceId,
     campaignId: kickoff.campaignId,
     agenticRunId: null,
     agenticDispatchAttemptedAt: null,
+    kickoffSentAt: kickoffClaimedAt,
   }
   const campaignUser = createMockUser({
     firstName: 'Jane',
@@ -697,6 +899,7 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
     mockPrisma = { tcrCompliance: mockModel }
     mockWebsites = {
       ensureCompliancePublishableWebsite: vi.fn().mockResolvedValue(undefined),
+      getContentForCampaign: vi.fn().mockResolvedValue(publishableContent),
     }
 
     const module: TestingModule = await Test.createTestingModule({
@@ -732,6 +935,57 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
     mockModel.update.mockResolvedValue(tcrRecord)
     mockModel.updateMany.mockResolvedValue({ count: 1 })
     mockWebsites.ensureCompliancePublishableWebsite.mockResolvedValue(undefined)
+    mockWebsites.getContentForCampaign.mockResolvedValue(publishableContent)
+  })
+
+  it('defers (no dispatch) and rolls the kickoff claim back when the profile is still incomplete after fallbacks', async () => {
+    // A message enqueued before the producer-side gate shipped (or via a
+    // path that skips it) for a profile the fallbacks can't complete must
+    // not burn a run — and must not strand either: kickoffSentAt returns to
+    // null so the record re-enters the deferral loop.
+    mockWebsites.getContentForCampaign.mockResolvedValue({})
+
+    await service.handleAgenticKickoff(kickoff)
+
+    expect(mockExperimentRuns.dispatchRun).not.toHaveBeenCalled()
+    expect(mockModel.updateMany).toHaveBeenCalledTimes(1)
+    expect(mockModel.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: kickoff.tcrComplianceId,
+        agenticRunId: null,
+        kickoffSentAt: kickoffClaimedAt,
+      },
+      data: { kickoffSentAt: null },
+    })
+  })
+
+  it('does not defer a record with a prior run even when content is generic', async () => {
+    // The deferral re-check is first-pass only: a redelivery for a record
+    // whose earlier run FAILED must reach the retake logic below
+    // (re-dispatch), not the deferral return — that return's rollback would
+    // no-op against the stamped agenticRunId and strand the record with
+    // kickoffSentAt set, invisible to the sweep.
+    const recordWithRun = { ...tcrRecord, agenticRunId: 'run-prior' }
+    mockWebsites.getContentForCampaign.mockResolvedValue({})
+    mockModel.updateMany
+      .mockResolvedValueOnce({ count: 0 }) // initial claim
+      .mockResolvedValueOnce({ count: 1 }) // retake
+      .mockResolvedValueOnce({ count: 1 }) // success stamp
+    mockModel.findUnique
+      .mockResolvedValueOnce(recordWithRun)
+      .mockResolvedValueOnce(recordWithRun)
+    mockExperimentRuns.findUnique.mockResolvedValueOnce({
+      runId: 'run-prior',
+      status: ExperimentRunStatus.FAILED,
+    })
+
+    await service.handleAgenticKickoff(kickoff)
+
+    expect(mockExperimentRuns.dispatchRun).toHaveBeenCalledTimes(1)
+    const rollbackCalls = mockModel.updateMany.mock.calls.filter(
+      ([arg]) => arg.data?.kickoffSentAt === null,
+    )
+    expect(rollbackCalls).toEqual([])
   })
 
   it('provisions a publishable website before dispatching the agent', async () => {
@@ -1270,6 +1524,56 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     }).compile()
 
     service = module.get(CampaignTcrComplianceService)
+  })
+
+  it('forwards a persisted manual filing address to both Peerly submits and keeps the composed postal address', async () => {
+    const manualRecord = {
+      ...existingRecord,
+      postalAddress: 'PO Box 621, Toledo, WA 98591',
+      filingAddressLine1: 'PO Box 621',
+      filingAddressLine2: null,
+      filingCity: 'Toledo',
+      filingState: 'WA',
+      filingZip: '98591',
+    }
+    mockTcrModel.findUnique.mockResolvedValue(manualRecord)
+
+    await service.submitToPeerlyForAgent(user, campaign)
+
+    expect(mockPeerly.submit10DlcBrand).toHaveBeenCalledWith(
+      'peerly-id-1',
+      expect.objectContaining({
+        manualAddress: {
+          addressLine1: 'PO Box 621',
+          addressLine2: undefined,
+          city: 'Toledo',
+          state: 'WA',
+          zip: '98591',
+        },
+      }),
+      campaign,
+      'janedoe.com',
+    )
+    expect(mockPeerly.submitCampaignVerifyRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filingAddressLine1: 'PO Box 621',
+        filingCity: 'Toledo',
+        filingState: 'WA',
+        filingZip: '98591',
+      }),
+      user,
+      campaign,
+      'janedoe.com',
+    )
+    // The write-back must not clobber the composed manual postal address
+    // with campaign.formattedAddress (which can hold an unrelated address).
+    expect(mockTcrModel.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          postalAddress: 'PO Box 621, Toledo, WA 98591',
+        }),
+      }),
+    )
   })
 
   it('throws NotFoundException when no TcrCompliance exists', async () => {
@@ -2031,17 +2335,6 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
       expect(mockPeerly.verifyCampaignVerifyPin).not.toHaveBeenCalled()
       expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
       expect(mockModel.findFirstOrThrow).not.toHaveBeenCalled()
-    })
-  })
-
-  it('retrieveCampaignVerifyToken short-circuits in qa too', async () => {
-    await withEnv('qa', async () => {
-      const token = await service.retrieveCampaignVerifyToken(
-        'any-pin',
-        tcrCompliance,
-      )
-      expect(token).toBe('non-prod-bypass-cv-token')
-      expect(mockPeerly.verifyCampaignVerifyPin).not.toHaveBeenCalled()
     })
   })
 

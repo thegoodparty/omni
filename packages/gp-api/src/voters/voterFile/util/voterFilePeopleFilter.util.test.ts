@@ -10,6 +10,7 @@ describe('buildVoterFilePeopleFilter', () => {
         filters: [
           'audience_superVoters',
           'party_independent',
+          'party_other',
           'age_18_25',
           'gender_female',
           'ethnicity_hispanic',
@@ -20,11 +21,23 @@ describe('buildVoterFilePeopleFilter', () => {
     expect(filterInput).toEqual({
       audienceSuperVoters: true,
       partyIndependent: true,
+      partyOther: true,
       age18_25: true,
       genderFemale: true,
       ethnicityHispanic: true,
     })
     expect(groupByHousehold).toBe(false)
+  })
+
+  it('maps audience_unknown to audienceUnknown', () => {
+    const { filterInput } = buildVoterFilePeopleFilter(VoterFileType.sms, {
+      filters: ['audience_unknown'],
+    })
+
+    expect(filterInput).toEqual({
+      audienceUnknown: true,
+      hasCellPhone: true,
+    })
   })
 
   it('ignores the audience_request UI sentinel', () => {

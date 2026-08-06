@@ -6,7 +6,7 @@ import { personProfilesDashboardConfigJson } from './personProfilesDashboard'
 import { CONTROLLER_NAMES } from '../../src/generated/route-types'
 
 export interface GrafanaConfig {
-  environment: 'dev' | 'qa' | 'prod'
+  environment: 'dev' | 'prod'
   domain: string
 }
 

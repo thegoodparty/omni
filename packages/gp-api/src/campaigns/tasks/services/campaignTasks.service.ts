@@ -12,7 +12,6 @@ import {
   differenceInCalendarDays,
   differenceInMilliseconds,
   differenceInWeeks,
-  format,
   getDate,
   getDay,
   isAfter,
@@ -22,6 +21,7 @@ import {
   startOfWeek,
   subWeeks,
 } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import { Observable, Subscriber } from 'rxjs'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { isTestCampaign } from '@/users/util/users.util'
@@ -483,8 +483,10 @@ export class CampaignTasksService extends createPrismaBase(
     )
 
     const taskLines = outreachTasks.map((task) => {
+      // Stored dates are UTC-midnight instants; format from UTC parts so the
+      // date the ClickUp automation parses never shifts with the process TZ.
       const dueDate = task.date
-        ? format(task.date, 'MMM d, yyyy')
+        ? formatInTimeZone(task.date, 'UTC', 'MMM d, yyyy')
         : 'No date set'
       return `- ${task.flowType!.toUpperCase()}: ${task.title} (Due: ${dueDate})`
     })

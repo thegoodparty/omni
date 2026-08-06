@@ -15,6 +15,9 @@
 #   family:      taxonomy family the event belongs to
 #   floor:       optional absolute daily floor; null = use only zero + median checks
 #   owner:       team/person, TBD until assigned
+#   okr:         optional OKR metric name(s) anchored on this event (string or list).
+#                Marks the event as top-tier for the governance digest (DATA-2174):
+#                a breaking signal on an okr: row renders as 🔴 needs-action.
 
 # Families the monitor treats as "in scope" for coverage-drift / new-event detection.
 watched_families:
@@ -31,17 +34,18 @@ events:
   - {event: "Onboarding - Candidate Office Searched",   product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - Office Step: Office Selected", product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - Candidate Office Completed",  product: win, family: win_onboarding, floor: null, owner: TBD}
-  - {event: "Onboarding - Registration Completed",      product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Onboarding - Registration Completed",      product: win, family: win_onboarding, floor: null, owner: TBD, okr: "Onboarded"}
   - {event: "Onboarding - User Created",                product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - Candidate Affiliation Completed", product: win, family: win_onboarding, floor: null, owner: TBD}
-  - {event: "Onboarding - Candidate Pledge Completed",  product: win, family: win_onboarding, floor: null, owner: TBD}
-  - {event: "onboarding_complete",                      product: win, family: win_onboarding, floor: null, owner: TBD}
+  # Pledge-union okr flags are doc-level confidence (knowledge-doc definition, no dbt model).
+  - {event: "Onboarding - Candidate Pledge Completed",  product: win, family: win_onboarding, floor: null, owner: TBD, okr: "Onboarding Completed (pledge)"}
+  - {event: "onboarding_complete",                      product: win, family: win_onboarding, floor: null, owner: TBD, okr: "Onboarding Completed (legacy)"}
   # Win onboarding V2 (first seen 2026-05-07)
   - {event: "Onboarding - Welcome Completed",           product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - Ballot Status Completed",     product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - Party Selection Completed",   product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - Office Selection Completed",  product: win, family: win_onboarding, floor: null, owner: TBD}
-  - {event: "Onboarding - Pledge Completed",            product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Onboarding - Pledge Completed",            product: win, family: win_onboarding, floor: null, owner: TBD, okr: "Onboarding Completed (pledge)"}
   - {event: "Onboarding - Path To Victory Completed",   product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - Know Your Voters Completed",  product: win, family: win_onboarding, floor: null, owner: TBD}
   # Magic-link auth funnel (replaced Serve/Win Onboarding - Magic Link *; first seen 2026-06)
@@ -49,28 +53,31 @@ events:
   - {event: "Onboarding - Magic Link Clicked",          product: win, family: win_onboarding, floor: null, owner: TBD}
 
   # ---- Win · activation: dashboard ----
-  - {event: "Dashboard - Candidate Dashboard Viewed",   product: win, family: win_dashboard, floor: null, owner: TBD}
-  - {event: "Dashboard - Campaign Plan Viewed",         product: win, family: win_dashboard, floor: null, owner: TBD}
+  # Candidate Dashboard Viewed is code-retired (PR #732) but still anchors the OKR until
+  # DATA-2173 re-anchors it — the okr flag documents the (currently broken) dependency.
+  - {event: "Dashboard - Candidate Dashboard Viewed",   product: win, family: win_dashboard, floor: null, owner: TBD, okr: "Active Candidates"}
+  - {event: "Dashboard - Campaign Plan Viewed",         product: win, family: win_dashboard, floor: null, owner: TBD, okr: ["Active Candidates", "Onboarded"]}
   - {event: "Dashboard - Campaign Plan Generation Completed", product: win, family: win_dashboard, floor: null, owner: TBD}
 
   # ---- Win · activation: voter outreach (campaign sent) ----
   - {event: "Schedule Text Campaign - Audience: Enter Audience Request", product: win, family: win_outreach_scheduling, floor: null, owner: TBD}
   - {event: "Schedule Text Campaign: Submit",           product: win, family: win_outreach_scheduling, floor: null, owner: TBD}
-  - {event: "Voter Outreach - Campaign Completed",      product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  - {event: "Voter Outreach - Campaign Completed",      product: win, family: win_voter_outreach, floor: null, owner: TBD, okr: ["Activated Candidates", "Outreach Intensity"]}
   - {event: "Voter Outreach - 10DLC Compliance Completed", product: win, family: win_voter_outreach, floor: null, owner: TBD}
   - {event: "Voter Outreach - 10DLC Compliance PIN Sent", product: win, family: win_voter_outreach, floor: null, owner: TBD}
 
   # ---- Win · activation: pro upgrade ----
   - {event: "Pro Upgrade - Modal: Modal Shown",         product: win, family: win_pro_upgrade, floor: null, owner: TBD}
   - {event: "Pro Upgrade - Splash Page: Click upgrade", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
-  - {event: "pro_upgrade_complete",                     product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  # Pro count of record is the Stripe webhook; this event is the client-side timing signal.
+  - {event: "pro_upgrade_complete",                     product: win, family: win_pro_upgrade, floor: null, owner: TBD, okr: "Pro Conversions"}
 
   # ---- Serve · onboarding funnel ----
   - {event: "Serve Onboarding - Getting Started Viewed", product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Serve Onboarding - Constituency Profile Viewed", product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Serve Onboarding - Meet Your Constituents Viewed", product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Serve Onboarding - Poll Strategy Viewed",  product: serve, family: serve, floor: null, owner: TBD}
-  - {event: "Serve Onboarding - SMS Poll Sent",         product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Serve Onboarding - SMS Poll Sent",         product: serve, family: serve, floor: null, owner: TBD, okr: ["Active Serve Users", "People Served", "Serve Onboarding Completed"]}
   - {event: "Serve Onboarding - Success Page Viewed",   product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Serve Onboarding - Sworn In Completed",    product: serve, family: serve, floor: null, owner: TBD}
   # Serve net-new onboarding (magic link + OTP, PR #198; first seen 2026-06)
@@ -84,3 +91,13 @@ events:
   - {event: "Polls - Create Poll Clicked",              product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Polls - Poll Question Completed",          product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Poll - Results Synthesis Complete",        product: serve, family: serve, floor: null, owner: TBD}
+
+# Proposals a human reviewed and rejected (DATA-2152). The self-healing proposal queue
+# skips these permanently — a dismissed event never re-proposes (it would otherwise keep
+# surfacing every run while it is still inside the 90-day first-seen proposal window). Set
+# via the /triage-instrumentation-gaps skill; hand-editable. The `date` is informational
+# (an audit note); dismissal is not time-bounded.
+#   event:  exact Amplitude event_type
+#   reason: why it was dismissed (e.g. "UI micro-interaction, not a funnel milestone")
+#   date:   YYYY-MM-DD the decision was made
+dismissed: []

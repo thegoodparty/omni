@@ -18,6 +18,7 @@ import {
   VerifyLiveResponse,
 } from '../schemas/VerifyLive.schema'
 import { isGenuineIssue } from '@goodparty_org/contracts'
+import { isGenericComplianceContent } from '../util/genericContent.util'
 
 const dnsLookup = promisify(dns.lookup)
 
@@ -112,6 +113,23 @@ export const applyCompliancePublishFallbacks = (
   return changed
     ? { ...content, main: nextMain, about: nextAbout, contact: nextContact }
     : null
+}
+
+// Whether an agentic kickoff for this campaign would produce a publishable
+// website. Mirrors exactly what the kickoff does (apply the fallbacks above,
+// then the compliance publish gate) rather than testing the raw content —
+// a campaign with no website-authored issues but real positions passes,
+// because the fallbacks seed those positions. Used by the dispatch gate so a
+// run that would fail terminally at publish_website (profile_incomplete) is
+// deferred instead of burned.
+export const wouldBePublishableAfterFallbacks = (
+  content: PrismaJson.WebsiteContent | null | undefined,
+  user: User,
+  campaign: CampaignWith<'campaignPositions'>,
+): boolean => {
+  const base = content ?? {}
+  const patched = applyCompliancePublishFallbacks(base, user, campaign)
+  return !isGenericComplianceContent(patched ?? base)
 }
 
 @Injectable()

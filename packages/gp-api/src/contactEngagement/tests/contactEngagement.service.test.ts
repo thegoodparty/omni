@@ -16,6 +16,7 @@ import { VoterOutreachActivityService } from '@/voterOutreachActivity/services/v
 import { ContactInteractionDoorKnockService } from '@/contactInteraction/services/contactInteractionDoorKnock.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactInteractionRobocallService } from '@/contactInteraction/services/contactInteractionRobocall.service'
+import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 
 describe('ContactEngagementService', () => {
   describe('getIndividualActivities', () => {
@@ -36,6 +37,9 @@ describe('ContactEngagementService', () => {
       getActivityForVoter: ReturnType<typeof vi.fn>
       findMany: ReturnType<typeof vi.fn>
     }
+    let mockContactStatusService: {
+      findEventsForFeed: ReturnType<typeof vi.fn>
+    }
 
     beforeEach(() => {
       mockPollIndividualMessageService = {
@@ -54,6 +58,9 @@ describe('ContactEngagementService', () => {
         getActivityForVoter: vi.fn().mockResolvedValue([]),
         findMany: vi.fn().mockResolvedValue([]),
       }
+      mockContactStatusService = {
+        findEventsForFeed: vi.fn().mockResolvedValue([]),
+      }
 
       // Direct instantiation (not the mock-object-plus-prototype-bind style
       // the other describe blocks use) — getPollActivities is a private
@@ -65,6 +72,7 @@ describe('ContactEngagementService', () => {
         mockContactInteractionDoorKnockService as unknown as ContactInteractionDoorKnockService,
         mockContactInteractionTextService as unknown as ContactInteractionTextService,
         mockContactInteractionRobocallService as unknown as ContactInteractionRobocallService,
+        mockContactStatusService as unknown as ContactStatusService,
       )
     })
 

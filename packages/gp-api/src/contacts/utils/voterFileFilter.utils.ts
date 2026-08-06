@@ -79,8 +79,21 @@ export const AUDIENCE_VOTER_STATUS_VALUES = [
   { field: 'audienceLikelyVoters', value: 'Likely' },
   { field: 'audienceUnreliableVoters', value: 'Unreliable' },
   { field: 'audienceUnlikelyVoters', value: 'Unlikely' },
-  { field: 'audienceFirstTimeVoters', value: 'First Time' },
   { field: 'audienceUnknown', value: 'Unknown' },
+] as const
+
+// Contacts-made boolean -> bucket (ENG-10839). 5 means "5+" (>= 5 logged
+// interactions). Resolved by ContactsMadeResolutionService, never sent to
+// people-api as a raw filter key (see fieldsHandledSeparately below) — kept
+// here so the filter-dimensions catalog and the resolution service share one
+// vocabulary, mirroring AUDIENCE_VOTER_STATUS_VALUES above.
+export const CONTACTS_MADE_BUCKET_FIELDS = [
+  { field: 'contactsMade0', bucket: 0 },
+  { field: 'contactsMade1', bucket: 1 },
+  { field: 'contactsMade2', bucket: 2 },
+  { field: 'contactsMade3', bucket: 3 },
+  { field: 'contactsMade4', bucket: 4 },
+  { field: 'contactsMade5Plus', bucket: 5 },
 ] as const
 
 // languageCodes entry -> the people-api language filter value (also the
@@ -110,7 +123,6 @@ export const convertVoterFileFilterToFilters = (
     'updatedAt',
     'name',
     'search',
-    'voterCount',
     'campaignId',
     'campaign',
     'outreaches',
@@ -133,12 +145,11 @@ export const convertVoterFileFilterToFilters = (
     'audienceLikelyVoters',
     'audienceUnreliableVoters',
     'audienceUnlikelyVoters',
-    'audienceFirstTimeVoters',
     'audienceUnknown',
     'partyIndependent',
     'partyDemocrat',
     'partyRepublican',
-    'partyUnknown',
+    'partyOther',
     'genderMale',
     'genderFemale',
     'genderUnknown',
@@ -182,6 +193,12 @@ export const convertVoterFileFilterToFilters = (
     'homeownerNo',
     'homeownerUnknown',
     'incomeUnknown',
+    'contactsMade0',
+    'contactsMade1',
+    'contactsMade2',
+    'contactsMade3',
+    'contactsMade4',
+    'contactsMade5Plus',
   ])
 
   for (const [key, value] of Object.entries(segment)) {
@@ -204,8 +221,9 @@ export const convertVoterFileFilterToFilters = (
             ? { eq: normalizedLanguages[0] }
             : { in: normalizedLanguages }
       } else if (key === 'voterStatus') {
+        const values = value.map(String)
         filters['voterStatus'] =
-          value.length === 1 ? { eq: value[0] } : { in: value }
+          values.length === 1 ? { eq: values[0] } : { in: values }
       } else if (key === 'incomeRanges') {
         // Income ranges are handled separately after the loop
         // to allow combining with incomeUnknown using _includeNull
@@ -231,7 +249,7 @@ export const convertVoterFileFilterToFilters = (
   if (segment.partyIndependent) politicalPartyValues.push('Independent')
   if (segment.partyDemocrat) politicalPartyValues.push('Democratic')
   if (segment.partyRepublican) politicalPartyValues.push('Republican')
-  if (segment.partyUnknown) politicalPartyValues.push('Unknown')
+  if (segment.partyOther) politicalPartyValues.push('Other')
   if (politicalPartyValues.length > 0) {
     filters['politicalParty'] =
       politicalPartyValues.length === 1

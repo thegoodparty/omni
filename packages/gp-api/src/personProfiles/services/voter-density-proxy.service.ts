@@ -1,20 +1,11 @@
 import { HttpService } from '@nestjs/axios'
 import { BadGatewayException, Injectable } from '@nestjs/common'
 import { isAxiosError } from 'axios'
-import jwt from 'jsonwebtoken'
 import { PinoLogger } from 'nestjs-pino'
 import { lastValueFrom } from 'rxjs'
 import { VoterDensityResponse } from '../schemas/public/VoterDensity.schema'
 
-const { ELECTION_API_URL, PEOPLE_API_URL, PEOPLE_API_S2S_SECRET } = process.env
-
-// Shape people-api returns from GET /v1/people/voter-density. We consume only
-// coverage + cells; the rest (districtId, resolution, minCellCount) is dropped
-// before the public boundary.
-interface PeopleApiVoterDensity {
-  coverage: number | null
-  cells: { lat: number; lng: number; count: number }[]
-}
+const { ELECTION_API_URL } = process.env
 
 interface ElectionApiVoterDistrict {
   personId: string
@@ -23,20 +14,23 @@ interface ElectionApiVoterDistrict {
 }
 
 /**
- * Resolves a person's L2 district (via election-api) and proxies the precomputed
- * voter-density cells (from people-api, S2S) to the public /people page. This is
- * the ONLY path by which the read-only, S2S-only people-api density data reaches
- * an unauthenticated caller — no raw PII ever transits (people-api emits only
- * aggregated, k-anonymized centroid cells).
+ * Resolves a person's L2 district (via election-api) for the public /people
+ * page's voter-density heat map.
  *
- * Returns null when the person maps to no L2 district (federal/statewide, or a
- * person the data team hasn't reconciled) so the controller can 404 and the
- * page simply renders no map.
+ * The density cells themselves were previously proxied from a people-api
+ * `/v1/people/voter-density` endpoint over S2S. people-api has been removed
+ * (its data access now lives in gp-api's `peopleDb` module), and that density
+ * endpoint was never implemented on the people-api side — so there is no
+ * source to port. Until a people-db voter-density query exists, this returns
+ * no cells and the page renders no map (the same behavior production had, since
+ * the upstream endpoint always 404'd). A future people-db density query is the
+ * intended home; wire it into `getVoterDensity` when it lands.
+ *
+ * Returns null when the person maps to no L2 district so the controller 404s
+ * and the page renders no map.
  */
 @Injectable()
 export class VoterDensityProxyService {
-  private cachedS2SToken: string | null = null
-
   constructor(
     private readonly httpService: HttpService,
     private readonly logger: PinoLogger,
@@ -50,8 +44,9 @@ export class VoterDensityProxyService {
     const districtId = await this.resolveDistrictId(personId)
     if (!districtId) return null
 
-    const density = await this.fetchDensityFromPeopleApi(districtId)
-    return { coverage: density.coverage, cells: density.cells }
+    // No people-db voter-density query exists yet; render no map. See the
+    // class doc for the migration note.
+    return { coverage: null, cells: [] }
   }
 
   // election-api owns the person -> office/candidacy -> position -> district
@@ -81,68 +76,6 @@ export class VoterDensityProxyService {
         'Failed to resolve voter district from election API',
       )
       throw new BadGatewayException('Failed to resolve district')
-    }
-  }
-
-  private async fetchDensityFromPeopleApi(
-    districtId: string,
-  ): Promise<PeopleApiVoterDensity> {
-    if (!PEOPLE_API_URL) {
-      throw new Error('Please set PEOPLE_API_URL in your .env')
-    }
-
-    try {
-      const response = await lastValueFrom(
-        this.httpService.get<PeopleApiVoterDensity>(
-          `${PEOPLE_API_URL}/v1/people/voter-density`,
-          {
-            headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
-            params: { districtId },
-          },
-        ),
-      )
-      // Defend against a 2xx body that omits cells/coverage (malformed or 204
-      // upstream): the caller counts result.cells.length, so an undefined cells
-      // would throw a 500 outside the controller's degrade-to-no-map contract.
-      const data: PeopleApiVoterDensity | null = response.data
-      return { coverage: data?.coverage ?? null, cells: data?.cells ?? [] }
-    } catch (error) {
-      this.logger.error(
-        { error, districtId },
-        'Failed to fetch voter density from people API',
-      )
-      throw new BadGatewayException(
-        'Failed to fetch voter density from people API',
-      )
-    }
-  }
-
-  // S2S token mint/cache — mirrors ContactsService: HS256 over
-  // PEOPLE_API_S2S_SECRET, iss gp-api / aud people-api, 5m lifetime.
-  private getValidS2SToken(): string {
-    if (!PEOPLE_API_S2S_SECRET) {
-      throw new Error('Please set PEOPLE_API_S2S_SECRET in your .env')
-    }
-    if (this.cachedS2SToken && this.isTokenValid(this.cachedS2SToken)) {
-      return this.cachedS2SToken
-    }
-    const now = Math.floor(Date.now() / 1000)
-    this.cachedS2SToken = jwt.sign(
-      { iss: 'gp-api', aud: 'people-api', iat: now, exp: now + 300 },
-      PEOPLE_API_S2S_SECRET,
-    )
-    return this.cachedS2SToken
-  }
-
-  private isTokenValid(token: string): boolean {
-    try {
-      // jwt.decode returns string | JwtPayload | null
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-      const decoded = jwt.decode(token) as { exp?: number } | null
-      if (!decoded?.exp) return false
-      return decoded.exp > Math.floor(Date.now() / 1000) + 60
-    } catch {
-      return false
     }
   }
 }

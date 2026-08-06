@@ -8,6 +8,9 @@ import CampaignStrategySection from './CampaignStrategySection'
 
 const mockTasks = vi.fn<() => TrackerTasksResult>()
 const mockToggle = vi.fn()
+const mockGenerate = vi.fn()
+let mockIsGenerating = false
+let mockIsProd = false
 // Keep the real isVoterContactFlowType; stub only the data + mutation hooks.
 vi.mock('./useTrackerTasks', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./useTrackerTasks')>()),
@@ -16,6 +19,16 @@ vi.mock('./useTrackerTasks', async (importOriginal) => ({
     mutate: mockToggle,
     isPending: false,
   }),
+  useGenerateTrackerTasks: () => ({
+    generate: mockGenerate,
+    isGenerating: mockIsGenerating,
+  }),
+}))
+vi.mock('appEnv', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('appEnv')>()),
+  get IS_PROD() {
+    return mockIsProd
+  },
 }))
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [{ details: {}, electionDate: null }],
@@ -64,6 +77,9 @@ const settled = (tasks: CampaignTrackerTask[]): TrackerTasksResult => ({
 
 beforeEach(() => {
   mockToggle.mockClear()
+  mockGenerate.mockClear()
+  mockIsGenerating = false
+  mockIsProd = false
 })
 
 describe('CampaignStrategySection — completing tasks', () => {
@@ -99,5 +115,31 @@ describe('CampaignStrategySection — completing tasks', () => {
     await user.click(screen.getByRole('button', { name: 'Mark task complete' }))
     expect(mockToggle).toHaveBeenCalledWith({ id: 't2', completed: true })
     expect(screen.queryByText(/count-modal/)).not.toBeInTheDocument()
+  })
+})
+
+describe('CampaignStrategySection — manual generation override', () => {
+  it('hides the Generate tasks button in prod', () => {
+    mockIsProd = true
+    mockTasks.mockReturnValue(settled([task({ id: 't1' })]))
+    render(<CampaignStrategySection />)
+    expect(
+      screen.queryByRole('button', { name: 'Generate tasks' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('dispatches a generation when clicked in non-prod', async () => {
+    mockTasks.mockReturnValue(settled([task({ id: 't1' })]))
+    const user = userEvent.setup()
+    render(<CampaignStrategySection />)
+    await user.click(screen.getByRole('button', { name: 'Generate tasks' }))
+    expect(mockGenerate).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the generating banner while a run is in flight', () => {
+    mockIsGenerating = true
+    mockTasks.mockReturnValue(settled([task({ id: 't1' })]))
+    render(<CampaignStrategySection />)
+    expect(screen.getByText(/Finding local events/)).toBeInTheDocument()
   })
 })

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { PhoneSchema } from '@goodparty_org/contracts'
 import {
   EinSchema,
+  StateSchema,
   UrlOrDomainSchema,
   WriteEmailSchema,
 } from '../../../shared/schemas'
@@ -17,18 +18,61 @@ const logger = new Logger('TcrComplianceDto')
 
 export const FEC_COMMITTEE_ID_PATTERN = /^C\d{8}$/
 
+// Google Places autocomplete never suggests PO Boxes (and misses some rural
+// addresses), yet election filings commonly use them — so a Google match
+// cannot be a hard requirement. A candidate who can't get a suggestion
+// submits these structured components instead, and the Peerly submissions
+// read them directly rather than resolving campaign.placeId.
+export const ManualFilingAddressSchema = z.object({
+  addressLine1: z.string().trim().min(1, 'A street or PO Box is required'),
+  addressLine2: z
+    .string()
+    .trim()
+    .transform((value) => (value === '' ? undefined : value))
+    .optional(),
+  city: z.string().trim().min(1, 'A city is required'),
+  state: StateSchema().transform((value) => value.toUpperCase()),
+  zip: z
+    .string()
+    .trim()
+    .regex(/^\d{5}(-\d{4})?$/, 'A valid ZIP code is required'),
+})
+
+export type ManualFilingAddress = z.infer<typeof ManualFilingAddressSchema>
+
+export const formatManualFilingAddress = (
+  address: ManualFilingAddress,
+): string =>
+  [
+    address.addressLine1,
+    address.addressLine2,
+    `${address.city}, ${address.state} ${address.zip}`,
+  ]
+    .filter(Boolean)
+    .join(', ')
+
 export const tcrComplianceBaseShape = {
   ein: EinSchema,
   // A resolved address is a hard precondition: the Peerly submission derives
-  // the candidate's postal address from placeId, so starting compliance with a
-  // blank address only fails several paid steps later at the submit. Reject it
-  // at the boundary. `.trim()` runs before `.min(1)` so a whitespace-only value
-  // can't slip through and get persisted to the campaign by createAgentic ahead
-  // of the service-level `.trim()` guards. Only the create DTOs pick these
-  // fields; the submit path has no request body — it reuses the persisted
-  // address.
-  placeId: z.string().trim().min(1, 'A candidate address is required'),
-  formattedAddress: z.string().trim().min(1, 'A candidate address is required'),
+  // the candidate's postal address from placeId (or the manual components
+  // above), so starting compliance with a blank address only fails several
+  // paid steps later at the submit. The one-of requirement is enforced in
+  // tcrComplianceSuperRefine. `.trim()` runs before `.min(1)` so a
+  // whitespace-only value can't slip through and get persisted to the
+  // campaign by createAgentic ahead of the service-level `.trim()` guards.
+  // Only the create DTOs pick these fields; the submit path has no request
+  // body — it reuses the persisted address.
+  placeId: z
+    .string()
+    .trim()
+    .min(1, 'A candidate address is required')
+    .optional(),
+  formattedAddress: z
+    .string()
+    .trim()
+    .min(1, 'A candidate address is required')
+    .optional(),
+  manualAddress: ManualFilingAddressSchema.optional(),
   // committeeName is sent to Peerly's 10DLC brand approval and interpolated
   // into the sample SMS messages, so a whitespace-only value produces a
   // malformed sample that fails the paid Peerly step. Trim + min like the
@@ -58,6 +102,9 @@ type TcrComplianceBaseData = {
   fecCommitteeId?: string
   committeeType?: CommitteeType
   filingUrl: string
+  placeId?: string
+  formattedAddress?: string
+  manualAddress?: ManualFilingAddress
 }
 
 export const addFilingUrlIssues = (filingUrl: string, ctx: z.RefinementCtx) => {
@@ -127,6 +174,20 @@ export const tcrComplianceSuperRefine = <T extends TcrComplianceBaseData>(
   const { requireFecCommitteeId = true } = options
 
   addFilingUrlIssues(data.filingUrl, ctx)
+
+  // Address one-of: a Google-resolved (placeId + formattedAddress) pair or a
+  // manual structured address. Neither means the paid Peerly submit would
+  // fail later with no address to send.
+  const hasResolvedAddress = Boolean(data.placeId && data.formattedAddress)
+  if (!hasResolvedAddress && !data.manualAddress) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        'A candidate address is required — select an address suggestion ' +
+        'or enter the address manually',
+      path: ['placeId'],
+    })
+  }
 
   const isFederal = data.officeLevel === OfficeLevel.federal
 

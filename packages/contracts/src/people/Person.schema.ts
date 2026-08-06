@@ -3,6 +3,7 @@ import {
   SupportStatusRollupSchema as GeneratedSupportStatusRollupSchema,
   type SupportStatusRollup as GeneratedSupportStatusRollup,
 } from '../generated/enums'
+import { VoterLikelihoodSchema } from './ContactStatus.schema'
 
 // Support-status rollup vocabulary shown on the person detail response
 // (ENG-10696). Sourced from the Prisma `SupportStatusRollup` enum (ENG-10700)
@@ -81,9 +82,7 @@ export const PersonSchema = z.object({
     .optional(),
   registeredVoter: z.enum(['Yes', 'No']),
   estimatedIncomeAmount: z.number().nullable(),
-  voterStatus: z
-    .enum(['Super', 'Likely', 'Unreliable', 'Unlikely', 'First Time'])
-    .nullable(),
+  voterStatus: z.enum(['Super', 'Likely', 'Unreliable', 'Unlikely']).nullable(),
   maritalStatus: z
     .enum(['Likely Married', 'Likely Single', 'Married', 'Single'])
     .nullable(),
@@ -126,6 +125,11 @@ export const PersonSchema = z.object({
   // boolean) so the UI can show recency later without a contract change
   // (ENG-10732).
   optedOutAt: z.string().nullable().optional(),
+  // Effective value (manual override ?? seed mapping from `voterStatus`
+  // above) — override ownership lives in gp-api's ContactStatusService
+  // (ENG-10833). Detail-only, like supportStatus/optedOutAt; omitted for
+  // `eo-` (Serve) orgs, which don't get this status at all.
+  voterLikelihood: VoterLikelihoodSchema.optional(),
 })
 
 export type Person = z.infer<typeof PersonSchema>
@@ -133,11 +137,6 @@ export type Person = z.infer<typeof PersonSchema>
 // Response-side pagination metadata returned alongside a people list. Distinct
 // from the request-side PaginationSchema in shared/Pagination.schema.ts (which
 // carries offset/limit/sortOrder), so it lives here rather than reusing that.
-// `fenced` (ENG-10804) mirrors PeopleAggregatesResponseSchema's field: true
-// when people-api's statement-timeout guard fired and totalResults is a
-// FENCE_LIMIT floor, not an exact count. Optional so a producer/consumer on
-// either side of a deploy window (people-api and gp-api deploy
-// independently) still validates without the field.
 export const PeopleListPaginationSchema = z.object({
   totalResults: z.number(),
   currentPage: z.number(),
@@ -145,7 +144,6 @@ export const PeopleListPaginationSchema = z.object({
   totalPages: z.number(),
   hasNextPage: z.boolean(),
   hasPreviousPage: z.boolean(),
-  fenced: z.boolean().optional(),
 })
 
 export type PeopleListPagination = z.infer<typeof PeopleListPaginationSchema>

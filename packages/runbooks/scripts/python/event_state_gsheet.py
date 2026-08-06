@@ -113,6 +113,45 @@ def write_gaps_sheet(state: dict, *, service: Any, spreadsheet_id: str, tab: str
     return len(values) - 1
 
 
+META_TAB = "meta"
+
+
+def event_state_clickup_url() -> str | None:
+    """Link back to the ClickUp page that embeds this sheet. None when unset — the meta tab
+    then omits the row, same optional-link pattern as the gap browse/feedback links."""
+    return os.environ.get("GP_EVENT_STATE_CLICKUP_URL") or None
+
+
+def build_meta_values(meta: dict, *, clickup_url: str | None = None) -> list[list[str]]:
+    """A small key/value 'meta' tab: when the sheet was last refreshed, how many events it
+    covers, the provenance source, and (optionally) a link back to the ClickUp page."""
+    rows = [
+        ["key", "value"],
+        ["last_refreshed", str(meta.get("refreshed_at", ""))],
+        ["event_count", str(meta.get("event_count", ""))],
+        ["provenance_path", str(meta.get("provenance_path", ""))],
+    ]
+    if clickup_url:
+        rows.append(["clickup_page", clickup_url])
+    return rows
+
+
+def write_meta_sheet(
+    meta: dict, *, service: Any, spreadsheet_id: str, clickup_url: str | None = None,
+    tab: str = META_TAB,
+) -> int:
+    """Full-overwrite the `meta` tab; returns the data-row count. Same write-then-clear order
+    as write_sheet/write_gaps_sheet so a failed update never leaves an empty tab."""
+    values = build_meta_values(meta, clickup_url=clickup_url)
+    sheets = service.spreadsheets()
+    sheets.values().update(
+        spreadsheetId=spreadsheet_id, range=f"{tab}!A1",
+        valueInputOption="RAW", body={"values": values},
+    ).execute()
+    sheets.values().clear(spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ").execute()
+    return len(values) - 1
+
+
 def write_sheet(rows: list[dict], *, service: Any, spreadsheet_id: str, tab: str = SHEET_TAB) -> int:
     """Full-overwrite `tab` with the assembled rows. Returns the data row count (excl. header).
     `service` is a googleapiclient Sheets resource (injected in tests).
@@ -261,6 +300,10 @@ def main(argv: list[str] | None = None) -> int:
     service = get_sheets_service(client_secrets_file=args.client_secrets)
     count = write_sheet(rows, service=service, spreadsheet_id=args.spreadsheet_id)
     print(f"wrote {count} events to sheet {args.spreadsheet_id}")
+    write_meta_sheet(
+        result["meta"], service=service, spreadsheet_id=args.spreadsheet_id,
+        clickup_url=event_state_clickup_url(),
+    )
     return 0
 
 

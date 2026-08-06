@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { startOfDay, subDays, subWeeks } from 'date-fns'
-import { CAMPAIGN_TASK_CATALOG } from '@goodparty_org/contracts'
+import {
+  CAMPAIGN_TASK_CATALOG,
+  VOTER_CONTACT_SCHEDULE,
+} from '@goodparty_org/contracts'
 import {
   buildOutreachTrackerTaskRows,
   buildStaticTrackerTaskRows,
@@ -61,12 +64,12 @@ describe('buildOutreachTrackerTaskRows', () => {
     expect(rows.every((r) => r.campaignId === 7)).toBe(true)
   })
 
-  it('dates each send election-relative', () => {
+  it('dates each send per the canonical contact schedule', () => {
     const rows = buildOutreachTrackerTaskRows(7, start, election, false)
-    // intro is 4 weeks out, election-day reminder is 1 day out (from the catalog)
     const dates = rows.map((r) => r.date as Date)
-    expect(dates).toContainEqual(subWeeks(election, 4))
-    expect(dates).toContainEqual(subDays(election, 1))
+    for (const send of VOTER_CONTACT_SCHEDULE) {
+      expect(dates).toContainEqual(subDays(election, send.daysBeforeElection))
+    }
   })
 
   it('suppresses all outreach when the candidate lost their primary', () => {

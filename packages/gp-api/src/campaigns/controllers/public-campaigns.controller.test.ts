@@ -112,6 +112,43 @@ describe('GET /v1/public-campaigns', () => {
     expect(res.status).toBe(404)
   })
 
+  it('matches a campaign whose slug carries a collision counter (mike-vick1)', async () => {
+    await seedCampaign({
+      id: 10,
+      slug: 'mike-vick1',
+      raceId: 'race-vick',
+      isActive: true,
+    })
+
+    const res = await find({
+      raceId: 'race-vick',
+      firstName: 'Mike',
+      lastName: 'Vick',
+    })
+
+    expect(res.status).toBe(200)
+    expect(res.data.slug).toBe('mike-vick1')
+  })
+
+  // Exercises the stripping path itself: the counter is stripped off `vic2`,
+  // and the resulting `vic` must still not satisfy a lookup for `vick`.
+  it('does not let the collision-counter fallback match an unrelated last name', async () => {
+    await seedCampaign({
+      id: 11,
+      slug: 'mike-vic2',
+      raceId: 'race-vic2',
+      isActive: true,
+    })
+
+    const res = await find({
+      raceId: 'race-vic2',
+      firstName: 'Mike',
+      lastName: 'Vick',
+    })
+
+    expect(res.status).toBe(404)
+  })
+
   it('disambiguates by first name when two active campaigns share raceId + last name', async () => {
     await seedCampaign({
       id: 4,

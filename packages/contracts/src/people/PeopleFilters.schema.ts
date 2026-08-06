@@ -60,15 +60,9 @@ export const PEOPLE_FILTER_VALUE_ENUMS = {
     'Likely',
     'Unreliable',
     'Unlikely',
-    'First Time',
     'Unknown',
   ] as const,
-  politicalParty: [
-    'Independent',
-    'Democratic',
-    'Republican',
-    'Unknown',
-  ] as const,
+  politicalParty: ['Independent', 'Democratic', 'Republican', 'Other'] as const,
   maritalStatus: [
     'Inferred Married',
     'Inferred Single',
@@ -147,6 +141,19 @@ export const createIdFilterSchema = () => {
       return operatorCount === 1
     }, 'Exactly one operator (in or notIn) must be specified')
 }
+
+// Override-aware Voter Likelihood filtering (ENG-10838): a top-level sibling
+// of `filters` (not a `PeopleFilters` field) on the list/download/aggregates/
+// overlap-count request shapes. gp-api resolves `include`/`exclude` person-id
+// sets from ContactStatusService overrides; people-api composes them as an OR
+// scoped to ONLY the voterStatus clause — never the whole filter conjunction,
+// so an override-included person still respects every other selected filter.
+// Reuses the id-filter's 100k cap and single-array-param bind rationale.
+export const IdOverridesSchema = z.object({
+  include: z.array(z.guid()).min(1).max(MAX_ID_FILTER_VALUES).optional(),
+  exclude: z.array(z.guid()).min(1).max(MAX_ID_FILTER_VALUES).optional(),
+})
+export type IdOverrides = z.infer<typeof IdOverridesSchema>
 
 export const createNumericFilterSchema = () => {
   return z

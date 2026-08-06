@@ -87,6 +87,22 @@ export {
 } from './people/Person.schema'
 
 export {
+  VoterLikelihoodSchema,
+  type VoterLikelihood,
+  ContactStatusFieldSchema,
+  type ContactStatusField,
+  ContactStatusSourceSchema,
+  type ContactStatusSource,
+  UpdateContactStatusInputSchema,
+  type UpdateContactStatusInput,
+  ContactStatusesSchema,
+  type ContactStatuses,
+  VOTER_LIKELIHOOD_LABELS,
+  SUPPORT_STATUS_ROLLUP_LABELS,
+  resolveContactStatusLabel,
+} from './people/ContactStatus.schema'
+
+export {
   ContactNoteSchema,
   type ContactNote,
   ContactNoteInputSchema,
@@ -112,6 +128,8 @@ export {
   type TextConstituentActivity,
   RobocallConstituentActivitySchema,
   type RobocallConstituentActivity,
+  StatusChangeConstituentActivitySchema,
+  type StatusChangeConstituentActivity,
   ConstituentActivitySchema,
   type ConstituentActivity,
   GetIndividualActivitiesResponseSchema,
@@ -324,6 +342,12 @@ export {
 } from './campaigns/CampaignTaskCatalog.schema'
 
 export { CAMPAIGN_TASK_CATALOG } from './campaigns/CampaignTaskCatalog.data'
+
+export {
+  VOTER_CONTACT_SCHEDULE,
+  voterContactSendOffsetDays,
+  type VoterContactSend,
+} from './campaigns/VoterContactSchedule.data'
 
 export {
   CampaignWithPositionNameSchema,
@@ -676,7 +700,17 @@ export {
   createNumericFilterSchema,
   PeopleFiltersSchema,
   type PeopleFilters,
+  IdOverridesSchema,
+  type IdOverrides,
 } from './people/PeopleFilters.schema'
+
+export {
+  MAX_OVERLAP_SAVED_FILTER_SETS,
+  PeopleOverlapCountRequestSchema,
+  type PeopleOverlapCountRequest,
+  PeopleOverlapCountResponseSchema,
+  type PeopleOverlapCountResponse,
+} from './people/PeopleOverlapCount.schema'
 
 export {
   DoorKnockingEvaluateRequestSchema,

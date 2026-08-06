@@ -41,12 +41,11 @@ Next.js 16 App Router (Turbopack) deployed on Vercel. Calls gp-api (NestJS backe
 
 ### Deployment
 
-Vercel auto-deploys on push. Branch mapping:
+Single trunk: `main` is the one long-lived branch and the default branch; all PRs target it. Vercel auto-deploys on push.
 
-- `develop` → `dev.goodparty.org` (API: `gp-api-dev.goodparty.org`)
-- `qa` → `qa.goodparty.org` (API: `gp-api-qa.goodparty.org`)
-- `master` → `goodparty.org` (API: `api.goodparty.org`)
+- `main` → `dev.goodparty.org` (API: `gp-api-dev.goodparty.org`)
 - PR branches → Vercel preview environments
+- `goodparty.org` (API: `api.goodparty.org`) is reached only by automated promotion — the `promote.yml` workflow waits for `main`'s checks to go green on dev, then deploys the same commit to prod. There is no manual promotion and no `qa` / `master` branch.
 
 ### Environment Config
 
@@ -99,9 +98,9 @@ Other patterns (`mockOrdered`, dynamic handlers): `docs/testing.md`.
 
 - **Never** edit `middleware.ts` or `app/api/revalidate/route.ts` without explicit confirmation — they affect every request. `gpApi/api-endpoints.ts` is a cross-repo contract with `gp-api`; keep request/response shapes in sync with the API, but you don't need to ask before editing it.
 - **Never** commit env files. `.env.example` only.
-- **Never** push to `develop` directly — open a PR.
+- **Never** push to `main` directly — open a PR.
 - **Ask first** before adding new utilities to `helpers/` (it is already a 50+ file dumping ground; check whether the helper exists). See `gpApi/CLAUDE.md` for fetch-helper rules.
-- **Deploys** are automatic via Vercel on push to `develop` / `qa` / `master`. There is no manual deploy command.
+- **Deploys** are automatic via Vercel on push to `main` (dev); prod is reached only via the `promote.yml` promote-on-green workflow. There is no manual deploy command.
 
 ## Navigation
 
@@ -110,7 +109,7 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 ## Observability
 
 - **Frontend errors → Sentry.** Org slug `goodparty`. https://goodparty.sentry.io.
-- **Backend logs → Grafana Cloud Loki.** `{service_name="gp-api", deployment_environment_name="dev|qa|prod"}`. https://goodparty.grafana.net.
+- **Backend logs → Grafana Cloud Loki.** `{service_name="gp-api", deployment_environment_name="dev|prod"}`. https://goodparty.grafana.net.
 - Recipe for reproducing a Sentry issue locally: `docs/debugging.md`.
 
 ## Pointer table — when in doubt

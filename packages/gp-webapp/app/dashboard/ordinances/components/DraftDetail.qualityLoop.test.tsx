@@ -36,6 +36,14 @@ vi.mock('@shared/experiments/ordinanceQualityLoopFlag', () => ({
   useOrdinanceQualityLoopFlag: mocks.useOrdinanceQualityLoopFlag,
 }))
 
+vi.mock('@shared/utils/Snackbar', () => ({
+  useSnackbar: () => ({
+    successSnackbar: vi.fn(),
+    errorSnackbar: vi.fn(),
+    displaySnackbar: vi.fn(),
+  }),
+}))
+
 vi.mock('./DraftChat', () => ({
   default: () => null,
 }))

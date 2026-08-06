@@ -43,7 +43,7 @@ It assumes that repo uses the standard GoodParty flow: a per-package "Verify"
 section in its `CLAUDE.md`, a PR-shipping skill (`ship-pr` in omni — drives the
 delegate-reviewer bot to `Approved.` and every required GitHub check to green),
 and PRs that
-target the repo's integration branch (`develop` in omni). Outside that setup, the
+target the repo's integration branch (`main` in omni). Outside that setup, the
 PR step degrades to `gh pr create` + the repo's normal review process.
 
 ## Run modes
@@ -191,7 +191,7 @@ User input may be passed as a ClickUp **Epic** task ID, a full URL
    call is genuinely ambiguous, prefer the safer (sequential) ordering and say why.
 
 8. **Present the execution plan for the single approval.** Label every ticket by
-   name + ID. The waves are the *expected* order, not a gate — scheduling is
+   name + ID. The waves are the _expected_ order, not a gate — scheduling is
    per-ticket (see Phase 3):
 
    ```
@@ -257,13 +257,13 @@ traffic stay manageable; when a slot frees, dispatch the next ready ticket.
 
 - **Merged** — always sufficient.
 - **Delegate-approved with auto-merge armed** (automated mode) or **handed to the
-  user to merge** (controlled mode) — sufficient to *start* the dependent. Don't
+  user to merge** (controlled mode) — sufficient to _start_ the dependent. Don't
   wait for E2E + the actual merge to begin implementing; that adds a ~45–60 min
   deploy wait per dependency edge. Base the dependent's worktree on the
   dependency's branch (stacked — step 10). The dependent's own **PR still waits**:
   open it only after the dependency has actually merged and the integration branch
   has been merged into the dependent's worktree, so its PR diff is against
-  `develop` only.
+  `main` only.
 - If an approved dependency later gets a forced change (rare after approval),
   merge its updated branch into the dependent's worktree and re-verify before
   shipping the dependent.
@@ -393,7 +393,7 @@ For each ready ticket (skip any already in a closed/done status):
       from plan honestly ("did X instead of Y because Z"), resolve/adjust the plan's
       Open Questions, bump `lastEdited:`.
     - **Pull the integration branch into the still-open worktrees** (both modes).
-      A merge advances `develop`; refresh it locally and merge it into every
+      A merge advances `main`; refresh it locally and merge it into every
       still-in-flight ticket's branch so later PRs build on the latest and
       conflicts surface early instead of at merge time:
       ```bash
@@ -456,7 +456,7 @@ For each ready ticket (skip any already in a closed/done status):
   user confirms the Epic's tickets are all very well defined.
 - **Schedule per ticket, never per phase.** The ready-queue + unblock rules
   (Phase 3) are the main speed lever — a slow ticket must never gate ready,
-  unrelated work. Stacked branches accelerate *implementation* only; every PR
+  unrelated work. Stacked branches accelerate _implementation_ only; every PR
   still opens against a base that includes its merged dependencies, and delegate +
   required checks still gate every merge.
 - **Gates depend on the mode.** In **automated** mode the Phase 2 plan approval is
@@ -470,7 +470,7 @@ For each ready ticket (skip any already in a closed/done status):
   bot never merges: it drives the PR to delegate `Approved.` and every required
   check green, hands it to the user, and continues once the user has merged.
 - **Pull the integration branch after every merge** (both modes). Once a PR merges,
-  refresh local `develop` and merge it into the still-open worktree branches
+  refresh local `main` and merge it into the still-open worktree branches
   (step 13) so later tickets build on the latest and conflicts surface early.
 - **Move to `done` only after merge.** A PR being approved is not done — the ticket
   moves to `done` only once its branch has actually merged (step 13).

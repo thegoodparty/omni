@@ -1,8 +1,7 @@
-import { HttpService } from '@nestjs/axios'
-import { Readable } from 'stream'
-import { of, throwError } from 'rxjs'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DoorKnockingPackRequest } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
+import { DoorKnockingPeopleApiService } from '../services/doorKnockingPeopleApi.service'
 import {
   Campaign,
   OutreachStatus,
@@ -105,10 +104,10 @@ const geoapifyPlan = (body: PostBody) => {
   }
 }
 
-// people-api rides HttpService/axios; the Geoapify SDK rides global fetch —
-// two seams. stubVendors sets both and returns the FETCH spy, whose first
-// call arg is the routeplanner URL (the geoapify-call-count assertions
-// filter on it, same as the old HttpService spy).
+// people-db targeting rides the in-process DoorKnockingPeopleApiService; the
+// Geoapify SDK rides global fetch — two seams. stubVendors sets both and
+// returns the FETCH spy, whose first call arg is the routeplanner URL (the
+// geoapify-call-count assertions filter on it).
 // Captured before any spy replaces it — a later capture inside stubVendors
 // would grab the previous test's spy and recurse.
 const realFetch = globalThis.fetch.bind(globalThis)
@@ -120,21 +119,13 @@ const stubVendors = (
     residents?: { addresses: Array<Record<string, unknown>> }
   } = {},
 ) => {
-  vi.spyOn(service.app.get(HttpService), 'post').mockImplementation(((
-    url: string,
-  ) => {
-    if (url.includes('/v1/door-knocking/evaluate')) {
-      return of({
-        data: {
-          people: overrides.people ?? [...insidePeople, bboxOnlyPerson],
-        },
-      })
-    }
-    if (url.includes('/v1/door-knocking/residents')) {
-      return of({ data: overrides.residents ?? { addresses: [] } })
-    }
-    return of({ data: {} })
-  }) as never)
+  const peopleApi = service.app.get(DoorKnockingPeopleApiService)
+  vi.spyOn(peopleApi, 'evaluate').mockResolvedValue({
+    people: overrides.people ?? [...insidePeople, bboxOnlyPerson],
+  } as never)
+  vi.spyOn(peopleApi, 'residents').mockResolvedValue(
+    (overrides.residents ?? { addresses: [] }) as never,
+  )
   return vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
     if (String(url).includes('/v1/routing')) {
       return new Response(
@@ -393,14 +384,10 @@ describe('door-knocking routes', () => {
 
     it('a vendor failure mid-knock leaves zero rows and the next knock succeeds', async () => {
       const turf = await createTurf()
-      vi.spyOn(service.app.get(HttpService), 'post').mockImplementation(((
-        url: string,
-      ) => {
-        if (url.includes('/v1/door-knocking/evaluate')) {
-          return of({ data: { people: insidePeople } })
-        }
-        return throwError(() => new Error('vendor down'))
-      }) as never)
+      vi.spyOn(
+        service.app.get(DoorKnockingPeopleApiService),
+        'evaluate',
+      ).mockResolvedValue({ people: insidePeople } as never)
       vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('vendor down'))
 
       const failed = await knock(turf.id)
@@ -793,15 +780,16 @@ describe('door-knocking routes', () => {
       expect(res.status).toBe(200)
       expect(res.data.stops[0].addresses).toEqual([])
       expect(res.data.stops[0].knockStatus).toBe('unknown')
-      // No vendor traffic: neither Geoapify (fetch) nor people-api
-      // (HttpService — the fetch spy only sees passthrough Clerk calls).
+      // No vendor traffic: neither Geoapify (fetch) nor the people-db
+      // residents lookup (the shim).
       expect(
         spy.mock.calls.filter(([url]) =>
           String(url).includes('api.geoapify.com'),
         ),
       ).toHaveLength(0)
       expect(
-        vi.mocked(service.app.get(HttpService).post).mock.calls,
+        vi.mocked(service.app.get(DoorKnockingPeopleApiService).residents).mock
+          .calls,
       ).toHaveLength(0)
     })
 
@@ -1021,6 +1009,164 @@ describe('door-knocking routes', () => {
         targets.find((t) => t.personId === target.personId)?.knockStatus,
       ).toBe('non_supporter')
     })
+    describe('willVote -> voter_likelihood override events (ENG-10841)', () => {
+      const recordWillVote = async (willVote: string) => {
+        const target = await knockAndGetTarget()
+        const res = await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          willVote,
+        })
+        expect(res.status).toBe(201)
+        return target
+      }
+
+      it('yes writes a likely voter_likelihood event, sourced door_knock with the clientKey and no actor', async () => {
+        const target = await recordWillVote('yes')
+
+        const event = await service.prisma.contactStatusEvent.findFirstOrThrow({
+          where: { organizationSlug: orgSlug, personId: target.personId },
+        })
+        expect(event).toMatchObject({
+          field: 'voter_likelihood',
+          toValue: 'likely',
+          source: 'door_knock',
+          actorUserId: null,
+          sourceId: CLIENT_KEY,
+        })
+
+        const current =
+          await service.prisma.contactCurrentStatus.findFirstOrThrow({
+            where: {
+              organizationSlug: orgSlug,
+              personId: target.personId,
+              field: 'voter_likelihood',
+            },
+          })
+        expect(current.value).toBe('likely')
+      })
+
+      it('no writes an unlikely voter_likelihood event', async () => {
+        const target = await recordWillVote('no')
+
+        const event = await service.prisma.contactStatusEvent.findFirstOrThrow({
+          where: { organizationSlug: orgSlug, personId: target.personId },
+        })
+        expect(event).toMatchObject({
+          toValue: 'unlikely',
+          source: 'door_knock',
+        })
+      })
+
+      it('unsure writes no status event', async () => {
+        const target = await recordWillVote('unsure')
+
+        const events = await service.prisma.contactStatusEvent.findMany({
+          where: { organizationSlug: orgSlug, personId: target.personId },
+        })
+        expect(events).toHaveLength(0)
+        const current = await service.prisma.contactCurrentStatus.findFirst({
+          where: {
+            organizationSlug: orgSlug,
+            personId: target.personId,
+            field: 'voter_likelihood',
+          },
+        })
+        expect(current).toBeNull()
+      })
+
+      // Proves the ContactStatusService no-op (not just the trivial
+      // fromValue===toValue skip): sourceId is keyed to the physical knock,
+      // so even a corrected answer on the same clientKey can't create a
+      // second event — an accepted limitation, not a re-derivation of
+      // "latest wins".
+      it('replaying the same clientKey with a changed answer still writes no duplicate event', async () => {
+        const target = await knockAndGetTarget()
+
+        const first = await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          willVote: 'yes',
+        })
+        const corrected = await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          willVote: 'no',
+        })
+
+        expect(first.status).toBe(201)
+        expect(corrected.status).toBe(201)
+        const events = await service.prisma.contactStatusEvent.findMany({
+          where: { organizationSlug: orgSlug, personId: target.personId },
+        })
+        expect(events).toHaveLength(1)
+        expect(events[0]).toMatchObject({ toValue: 'likely' })
+        const current =
+          await service.prisma.contactCurrentStatus.findFirstOrThrow({
+            where: {
+              organizationSlug: orgSlug,
+              personId: target.personId,
+              field: 'voter_likelihood',
+            },
+          })
+        expect(current.value).toBe('likely')
+      })
+
+      it('does not write a voter_likelihood event for an eo- (Serve) organization', async () => {
+        const suffix = Date.now()
+        const eoSlug = `eo-dk-willvote-${suffix}`
+        await service.prisma.organization.create({
+          data: {
+            slug: eoSlug,
+            ownerId: service.user.id,
+            overrideDistrictId: DISTRICT_ID,
+          },
+        })
+        const eoFilter = await service.prisma.voterFileFilter.create({
+          data: { organizationSlug: eoSlug, name: 'EO willVote audience' },
+        })
+        const turfRes = await service.client.post(
+          '/v1/door-knocking/turfs',
+          {
+            voterFileFilterId: eoFilter.id,
+            name: 'EO willVote turf',
+            color: '#3355ff',
+            geoPoly: GEO_POLY,
+          },
+          { headers: { 'x-organization-slug': eoSlug } },
+        )
+        stubVendors()
+        await service.client.post(
+          `/v1/door-knocking/turfs/${turfRes.data.id}/knock`,
+          { mode: 'walk', loop: false },
+          { headers: { 'x-organization-slug': eoSlug } },
+        )
+        const eoTarget =
+          await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+            orderBy: { id: 'asc' },
+          })
+
+        const res = await service.client.post(
+          '/v1/door-knocking/interactions',
+          {
+            stopTargetId: eoTarget.id,
+            clientKey: CLIENT_KEY,
+            outcome: 'answered',
+            willVote: 'yes',
+          },
+          { headers: { 'x-organization-slug': eoSlug } },
+        )
+
+        expect(res.status).toBe(201)
+        const events = await service.prisma.contactStatusEvent.findMany({
+          where: { organizationSlug: eoSlug },
+        })
+        expect(events).toHaveLength(0)
+      })
+    })
   })
   describe('pack', () => {
     it('proxies the binary and threads org knock statuses', async () => {
@@ -1035,17 +1181,14 @@ describe('door-knocking routes', () => {
         },
       })
       const packBytes = Buffer.from([1, 2, 3, 4])
-      let packBody: Record<string, unknown> | undefined
-      vi.spyOn(service.app.get(HttpService), 'post').mockImplementation(((
-        url: string,
-        body: Record<string, unknown>,
-      ) => {
-        if (url.includes('/v1/door-knocking/pack')) {
-          packBody = body
-          return of({ data: Readable.from([packBytes]) })
-        }
-        return of({ data: {} })
-      }) as never)
+      let packRequest: DoorKnockingPackRequest | undefined
+      vi.spyOn(
+        service.app.get(DoorKnockingPeopleApiService),
+        'pack',
+      ).mockImplementation((request: DoorKnockingPackRequest) => {
+        packRequest = request
+        return Promise.resolve(packBytes)
+      })
 
       const res = await service.client.get('/v1/door-knocking/pack', {
         ...orgHeaders(),
@@ -1056,10 +1199,10 @@ describe('door-knocking routes', () => {
       expect(res.status).toBe(200)
       expect(res.headers['content-type']).toContain('application/octet-stream')
       expect(Buffer.from(res.data as ArrayBuffer)).toEqual(packBytes)
-      expect(packBody?.knockStatuses).toEqual([
+      expect(packRequest?.knockStatuses).toEqual([
         { personId, status: 'supporter' },
       ])
-      expect(packBody?.districtId).toBe(DISTRICT_ID)
+      expect(packRequest?.districtId).toBe(DISTRICT_ID)
     })
   })
 })

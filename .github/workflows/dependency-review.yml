@@ -10,7 +10,6 @@ name: dependency-review
 
 on:
   pull_request:
-    branches-ignore: [qa, master]
 
 permissions:
   contents: read

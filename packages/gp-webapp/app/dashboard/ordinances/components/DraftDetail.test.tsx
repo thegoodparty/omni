@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   fetchOrdinanceBySlug: vi.fn(),
   cancelQualityLoop: vi.fn(),
   fetchQualityIterations: vi.fn(),
+  createOrdinanceBugReport: vi.fn(),
+  successSnackbar: vi.fn(),
   draftChatProps: {
     current: null as {
       seedText?: string
@@ -38,6 +40,14 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   }
 })
 
+vi.mock('@shared/utils/Snackbar', () => ({
+  useSnackbar: () => ({
+    successSnackbar: mocks.successSnackbar,
+    errorSnackbar: vi.fn(),
+    displaySnackbar: vi.fn(),
+  }),
+}))
+
 vi.mock('../data/ordinances-api', () => ({
   updateOrdinance: mocks.updateOrdinance,
   startQualityReport: mocks.startQualityReport,
@@ -47,6 +57,7 @@ vi.mock('../data/ordinances-api', () => ({
   fetchOrdinanceBySlug: mocks.fetchOrdinanceBySlug,
   cancelQualityLoop: mocks.cancelQualityLoop,
   fetchQualityIterations: mocks.fetchQualityIterations,
+  createOrdinanceBugReport: mocks.createOrdinanceBugReport,
 }))
 
 // Stub the chat so the selection-toolbar tests can assert what the drawer
@@ -275,6 +286,9 @@ describe('DraftDetail selection toolbar', () => {
   beforeEach(() => {
     mocks.updateOrdinance.mockReset()
     mocks.updateOrdinance.mockResolvedValue(makeOrdinance())
+    mocks.createOrdinanceBugReport.mockReset()
+    mocks.createOrdinanceBugReport.mockResolvedValue(undefined)
+    mocks.successSnackbar.mockReset()
     mocks.draftChatProps.current = null
   })
   afterEach(() => {
@@ -331,16 +345,34 @@ describe('DraftDetail selection toolbar', () => {
     expect(mocks.draftChatProps.current?.autoDictate).toBe(false)
   })
 
-  it('"Flag a bug" seeds the chat with the problem template', () => {
+  it('"Flag a bug" opens the report sheet and submits a bug report, not the chat', async () => {
+    const user = userEvent.setup()
     render(<DraftDetail ordinance={makeOrdinance()} />)
 
     selectPassage('a 30-day retention limit')
     fireEvent.click(screen.getByRole('button', { name: /flag a bug/i }))
 
-    expect(mocks.draftChatProps.current?.seedText).toBe(
-      'I think there\'s a problem with this passage: "a 30-day retention limit"\n\n',
+    // The report sheet opens (its own composer), and the chat is untouched.
+    const description = await screen.findByPlaceholderText(
+      'Describe the problem…',
     )
-    expect(mocks.draftChatProps.current?.seedNonce ?? 0).toBeGreaterThan(0)
+    expect(mocks.draftChatProps.current).toBeNull()
+
+    await user.type(description, 'The retention window is wrong.')
+    await user.click(screen.getByRole('button', { name: 'Submit' }))
+
+    await waitFor(() => {
+      expect(mocks.createOrdinanceBugReport).toHaveBeenCalledWith(
+        'public-safety-cameras',
+        {
+          description: 'The retention window is wrong.',
+          excerpt: 'a 30-day retention limit',
+        },
+      )
+    })
+    expect(mocks.successSnackbar).toHaveBeenCalledWith(
+      'Thanks — your bug report was submitted',
+    )
   })
 })
 

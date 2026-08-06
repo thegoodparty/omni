@@ -24,7 +24,7 @@ select event_type, govern_display_name, family, first_seen_date, last_seen_date,
 from {CATALOG_TABLE}
 """
 
-# 18 columns, render order. See the design doc for the rationale behind the set.
+# 20 columns, render order. See the design doc for the rationale behind the set.
 COLUMNS = [
     "event",
     "status",
@@ -44,6 +44,8 @@ COLUMNS = [
     "retired_pr",
     "retired_date",
     "retired_author_email",
+    "watchlist_status",
+    "okr",
 ]
 
 
@@ -113,6 +115,8 @@ def build_rows(
                 "retired_pr": _blank(prov.get("retired_pr")),
                 "retired_date": _blank(prov.get("retired_date")),
                 "retired_author_email": _blank(prov.get("retired_author_email")),
+                "watchlist_status": rec.get("watchlist_status", "—"),
+                "okr": _blank(rec.get("okr")),
                 "_sort_date": prov.get("last_code_change_date") or "",
             }
         )
@@ -175,14 +179,23 @@ def assemble(
     overrides: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict:
     """Load the catalog + provenance, derive status via the shared reconcile(), and project
-    into the 18-column table. weekly_rows=[] skips the monitor's anomaly query — irrelevant
+    into the 19-column table. weekly_rows=[] skips the monitor's anomaly query — irrelevant
     to this surface — while still yielding the authoritative status for every event.
     ``overrides`` maps event_type -> {govern_*} to overlay Amplitude-direct metadata onto
     (or inject rows into) the Databricks catalog (DATA-2053)."""
     catalog = fetch_catalog(run_query)
     catalog = _apply_overrides(catalog, overrides)
     code_map = aeh.load_code_axis(code_csv) if code_csv else aeh.load_code_axis()
-    reconciled = aeh.reconcile(catalog, weekly_rows=[], code=code_map, today=today)
+    # aeh.WATCHLIST looked up by attribute (not as reconcile's own default) so tests can
+    # monkeypatch it (DATA-2152).
+    families, watchlist_events, dismissed_events, okr_by_event = aeh.load_watchlist(
+        aeh.WATCHLIST
+    )
+    reconciled = aeh.reconcile(
+        catalog, weekly_rows=[], code=code_map, today=today,
+        watchlist_events=watchlist_events, watched_families=families,
+        dismissed_events=dismissed_events, okr_by_event=okr_by_event,
+    )
     catalog_by_type = {row["event_type"]: row for row in catalog}
     rows = build_rows(reconciled["records"], catalog_by_type, code_map)
     return {

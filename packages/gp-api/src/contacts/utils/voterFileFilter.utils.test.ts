@@ -101,3 +101,32 @@ describe('convertVoterFileFilterToFilters age ranges', () => {
     ).toEqual({ ageInt: { gte: 65, _includeNull: true } })
   })
 })
+
+describe('convertVoterFileFilterToFilters voter status', () => {
+  it('maps an Unreliable selection to Unreliable alone', () => {
+    expect(
+      convertVoterFileFilterToFilters({ audienceUnreliableVoters: true }),
+    ).toEqual({ voterStatus: { eq: 'Unreliable' } })
+  })
+
+  it('keeps Unreliable and Unknown distinct when both are selected', () => {
+    expect(
+      convertVoterFileFilterToFilters({
+        audienceUnreliableVoters: true,
+        audienceUnknown: true,
+      }),
+    ).toEqual({ voterStatus: { in: ['Unreliable', 'Unknown'] } })
+  })
+
+  it('maps a single non-Unreliable selection with eq', () => {
+    expect(
+      convertVoterFileFilterToFilters({ audienceSuperVoters: true }),
+    ).toEqual({ voterStatus: { eq: 'Super' } })
+  })
+
+  it('passes a raw voterStatus array through unexpanded', () => {
+    expect(
+      convertVoterFileFilterToFilters({ voterStatus: ['Unreliable'] }),
+    ).toEqual({ voterStatus: { eq: 'Unreliable' } })
+  })
+})

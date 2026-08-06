@@ -1,12 +1,15 @@
 name: Setup Node workspace
 description: >-
-  Install the monorepo root npm-workspaces dependencies on Node 22, with
-  app-scoped node_modules caching, optional contracts build, and optional
+  Install the monorepo root npm-workspaces dependencies on Node 22, with shared
+  workspace node_modules caching, optional contracts build, and optional
   root-aware Prisma generation.
 
 inputs:
   app:
-    description: App name used to scope the node_modules cache key.
+    description: >-
+      App name the calling job serves. Labelling only: the dependency cache is
+      shared across apps because the root workspace install is identical for
+      every one of them.
     required: true
   workspace:
     description: Workspace path, for app-local follow-up commands.
@@ -42,7 +45,6 @@ runs:
       uses: actions/setup-node@v6
       with:
         node-version-file: .nvmrc
-        cache: npm
 
     - name: Restore node_modules
       id: node-modules-cache
@@ -51,12 +53,33 @@ runs:
         path: |
           node_modules
           packages/*/node_modules
-        key: ${{ inputs.app }}-node-modules-v2-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+        key: workspace-node-modules-v3-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+    - name: Restore npm cache
+      id: npm-cache
+      if: steps.node-modules-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.npm
+        key: npm-cache-v1-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+        restore-keys: |
+          npm-cache-v1-${{ runner.os }}-
 
     - name: Install dependencies
       if: steps.node-modules-cache.outputs.cache-hit != 'true'
       shell: bash
       run: npm ci --prefer-offline --no-audit --no-fund
+
+    # Save ~/.npm only after a real install populated it. Letting the cache
+    # action save unconditionally lets a node_modules-hit job write an empty
+    # ~/.npm under the lockfile-hashed key, which is then immutable and forces
+    # every later miss to refetch the whole registry.
+    - name: Save npm cache
+      if: steps.node-modules-cache.outputs.cache-hit != 'true' && steps.npm-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ~/.npm
+        key: npm-cache-v1-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
     - name: Build contracts
       if: inputs.build-contracts == 'true'

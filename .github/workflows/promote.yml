@@ -1,0 +1,418 @@
+name: promote
+
+# Automated prod promotion (single-trunk). Rides the same push:main event as the
+# rest of CI, waits for THIS commit's required dev checks (E2E + every prod-bound
+# service deploy) to go green on dev, confirms dev is actually serving the commit,
+# then deploys the SAME commit to prod by reusing the composite deploy actions
+# with prod inputs. A final job records a GitHub Deployment (environment
+# `production`) at the promoted SHA — the source of truth for what shipped.
+# There is no qa and no master. Break glass: workflow_dispatch with force=true
+# skips the gate and freeze and promotes anyway (see docs/deployment.md).
+#
+# Safety: freeze-switch gated (vars.PROMOTION_FROZEN), forward-only (ECS
+# deployment circuit breaker auto-reverts a crash-on-boot image; no rollback
+# here). See docs/deployment.md and
+# docs/automated-prod-promotion-design.md.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Commit SHA to promote (defaults to the current main tip)
+        required: false
+      force:
+        description: Break glass — skip the dev-green gate, serving check, and freeze
+        required: false
+        type: boolean
+        default: false
+
+# Only one promotion at a time. A burst of merges queues here; the superseded
+# check in the gate lets the older ones bail so prod converges to the newest
+# green commit. Never cancel-in-progress: a cancelled deploy can orphan a Pulumi
+# state lock.
+concurrency:
+  group: promote-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+  actions: read
+
+env:
+  AWS_REGION: us-west-2
+
+jobs:
+  gate:
+    name: Promotion gate
+    runs-on: ubuntu-latest
+    outputs:
+      promote: ${{ steps.decide.outputs.promote }}
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Resolve break-glass force flag
+        id: force
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.force }}" = "true" ]; then
+            echo "::warning::FORCE promotion: bypassing the dev-green gate, serving check, and freeze switch."
+            echo "force=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "force=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check freeze switch
+        id: freeze
+        env:
+          FROZEN: ${{ vars.PROMOTION_FROZEN }}
+        run: |
+          if [ "${{ steps.force.outputs.force }}" = "true" ]; then
+            echo "frozen=false" >> "$GITHUB_OUTPUT"
+          elif [ "$FROZEN" = "true" ]; then
+            echo "::notice::Promotion is frozen (vars.PROMOTION_FROZEN=true). Skipping."
+            echo "frozen=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "frozen=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve target SHA
+        id: resolve
+        if: steps.freeze.outputs.frozen != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          INPUT_SHA: ${{ github.event.inputs.sha }}
+        run: |
+          if [ -n "$INPUT_SHA" ]; then
+            SHA="$INPUT_SHA"
+          else
+            SHA="${{ github.sha }}"
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Promotion candidate: $SHA"
+
+      - name: Wait for dev checks to go green (bail if superseded)
+        id: wait
+        if: steps.freeze.outputs.frozen != 'true' && steps.force.outputs.force != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ steps.resolve.outputs.sha }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          # Workflow runs whose green-ness gates a prod ship. These have no path
+          # filters, so they run on every main push. E2E lives inside gp-webapp.yml.
+          # Every workflow here runs on every push to main (none is path-filtered),
+          # so each has a run for the commit. E2E lives inside gp-webapp.yml.
+          REQUIRED="gp-api.yml election-api.yml gp-webapp.yml gp-admin.yml candidate-sites.yml publish-experiments.yml"
+          # Budget must exceed a slow-but-healthy E2E path: E2E Wait (45m job
+          # timeout) + shards (30m) + summary (15m). 120m clears it with margin.
+          DEADLINE=$(( $(date +%s) + 120*60 ))
+
+          while :; do
+            # Superseded check (push only): if a newer commit is main's tip, this
+            # older commit's promotion is moot — the newer one's run handles it.
+            if [ "$EVENT" = "push" ]; then
+              TIP=$(gh api "repos/$REPO/commits/main" --jq '.sha')
+              if [ "$TIP" != "$SHA" ]; then
+                echo "::notice::$SHA was superseded by $TIP on main. Skipping this promotion."
+                echo "superseded=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+
+            pending=0
+            failed=""
+            for wf in $REQUIRED; do
+              # `// empty` so a not-yet-registered run yields an empty string (not
+              # base64 of a null-valued object), so the no-run guard below fires.
+              run=$(gh api "repos/$REPO/actions/workflows/$wf/runs?head_sha=$SHA&event=push&per_page=1" \
+                --jq '.workflow_runs[0] // empty | {status, conclusion} | @base64' 2>/dev/null || echo "")
+              if [ -z "$run" ]; then
+                pending=$((pending+1)); continue # run not registered yet — keep waiting
+              fi
+              decoded=$(echo "$run" | base64 --decode)
+              status=$(echo "$decoded" | jq -r '.status')
+              conclusion=$(echo "$decoded" | jq -r '.conclusion')
+              if [ "$status" != "completed" ]; then
+                pending=$((pending+1))
+              elif [ "$conclusion" != "success" ]; then
+                failed="$failed $wf($conclusion)"
+              fi
+            done
+
+            if [ -n "$failed" ]; then
+              echo "::error::Dev checks failed for $SHA:$failed. Not promoting."
+              exit 1
+            fi
+            if [ "$pending" -eq 0 ]; then
+              echo "All required dev checks are green for $SHA."
+              echo "superseded=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+              echo "::error::Timed out waiting for dev checks on $SHA ($pending still pending)."
+              exit 1
+            fi
+            echo "Waiting: $pending required workflow(s) not yet complete for $SHA..."
+            sleep 30
+          done
+
+      - name: Confirm dev is serving this commit
+        id: serving
+        if: steps.freeze.outputs.frozen != 'true' && steps.wait.outputs.superseded != 'true' && steps.force.outputs.force != 'true'
+        env:
+          SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          SERVING=$(curl -fsS https://gp-api-dev.goodparty.org/v1/version | jq -r '.commit')
+          if [ "$SERVING" != "$SHA" ]; then
+            echo "::error::Dev is serving $SERVING, not the candidate $SHA. Not promoting."
+            exit 1
+          fi
+          echo "Dev is serving $SHA."
+
+      - name: Decide
+        id: decide
+        run: |
+          if [ "${{ steps.force.outputs.force }}" = "true" ]; then
+            echo "promote=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.freeze.outputs.frozen }}" = "true" ]; then
+            echo "promote=false" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.wait.outputs.superseded }}" = "true" ]; then
+            echo "promote=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "promote=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Prod deploys ──────────────────────────────────────────────────────────
+  # Each job mirrors the service's former master-branch deploy, calling the same
+  # composite action with prod inputs, against the promoted SHA. Images were
+  # already built + pushed (SHA-tagged, immutable) by the dev deploy, so backends
+  # just repoint prod at the existing image. Not atomic across services: a single
+  # failure leaves prod mixed until the next promotion or a manual re-run.
+
+  gp-api:
+    name: Promote gp-api
+    needs: gate
+    if: needs.gate.outputs.promote == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: gp-api-deploy-prod
+      cancel-in-progress: false
+    env:
+      IMAGE_URI: 333022194791.dkr.ecr.us-west-2.amazonaws.com/gp-api:${{ needs.gate.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-api
+          workspace: packages/gp-api
+          build-contracts: 'true'
+          build-nest-common: 'true'
+          prisma-generate-script: generate:prisma:gp-api
+          route-types: 'true'
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Deploy (Pulumi)
+        uses: ./.github/actions/pulumi-deploy
+        with:
+          working-directory: packages/gp-api
+          command: npm run infra deploy prod
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  election-api:
+    name: Promote election-api
+    needs: gate
+    if: needs.gate.outputs.promote == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: election-api-deploy-prod
+      cancel-in-progress: false
+    env:
+      IMAGE_URI: 333022194791.dkr.ecr.us-west-2.amazonaws.com/election-api:${{ needs.gate.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: election-api
+          workspace: packages/election-api
+          build-contracts: 'true'
+          build-nest-common: 'true'
+          prisma-generate-script: generate:prisma:election-api
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Deploy (Pulumi)
+        uses: ./.github/actions/pulumi-deploy
+        with:
+          working-directory: packages/election-api/deploy
+          command: ./deploy.sh prod
+
+  gp-webapp:
+    name: Promote gp-webapp
+    needs: gate
+    if: needs.gate.outputs.promote == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-webapp
+          build-contracts: 'true'
+      - name: Deploy to Vercel
+        uses: ./.github/actions/vercel-deploy
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_GP_WEBAPP }}
+          target: production
+
+  gp-admin:
+    name: Promote gp-admin
+    needs: gate
+    if: needs.gate.outputs.promote == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-admin
+          build-contracts: 'true'
+      - name: Build SDK
+        run: npm run build -w packages/gp-sdk
+      - name: Deploy to Vercel
+        uses: ./.github/actions/vercel-deploy
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_GP_ADMIN }}
+          target: production
+
+  candidate-sites:
+    name: Promote candidate-sites
+    needs: gate
+    if: needs.gate.outputs.promote == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: candidate-sites
+      - name: Deploy to Vercel
+        uses: ./.github/actions/vercel-deploy
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_CANDIDATE_SITES }}
+          target: production
+
+  publish-experiments:
+    name: Promote experiment manifests
+    needs: gate
+    if: needs.gate.outputs.promote == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: latest
+      - name: Install runtime deps
+        working-directory: packages/runbooks/scripts/python
+        run: uv sync --frozen
+      - name: Configure AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-pulumi-deploy
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Publish manifests to S3
+        working-directory: packages/runbooks/scripts/python
+        run: uv run python publish_experiments.py --env=prod
+
+  # Records the promotion as a GitHub Deployment in the `production` environment,
+  # at the PROMOTED SHA (needs.gate.outputs.sha) — not github.sha, which differs on
+  # a workflow_dispatch that passes a custom sha (incl. force). We create it via the
+  # API rather than a job-level `environment:` for two reasons the auto-create can't
+  # satisfy: it must record the promoted sha, and the auto-create needs the same
+  # deployments:write anyway. `needs` every deploy job, so a Deployment is recorded
+  # only when the whole promotion succeeded — the source of truth for what shipped
+  # (post_release_summary.py reads it).
+  finalize:
+    name: Record prod deployment
+    needs:
+      [
+        gate,
+        gp-api,
+        election-api,
+        gp-webapp,
+        gp-admin,
+        candidate-sites,
+        publish-experiments,
+      ]
+    # An explicit `if` drops the implicit success() of `needs`, so check each
+    # deploy job's result — otherwise a partial promotion records a false success.
+    if: |
+      needs.gate.outputs.promote == 'true' &&
+      needs.gp-api.result == 'success' &&
+      needs.election-api.result == 'success' &&
+      needs.gp-webapp.result == 'success' &&
+      needs.gp-admin.result == 'success' &&
+      needs.candidate-sites.result == 'success' &&
+      (needs.publish-experiments.result == 'success' || needs.publish-experiments.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - name: Record production deployment for the promoted SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ needs.gate.outputs.sha }}
+        run: |
+          dep_id=$(jq -n --arg ref "$SHA" '{
+              ref: $ref,
+              environment: "production",
+              production_environment: true,
+              auto_merge: false,
+              required_contexts: [],
+              description: "Automated promotion"
+            }' | gh api "repos/$REPO/deployments" --input - --jq '.id')
+          gh api "repos/$REPO/deployments/$dep_id/statuses" \
+            -f state=success -f environment=production \
+            -f description="Promoted to prod"

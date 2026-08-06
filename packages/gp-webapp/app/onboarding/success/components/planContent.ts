@@ -1,3 +1,4 @@
+import { VOTER_CONTACT_SCHEDULE } from '@goodparty_org/contracts'
 import { dateUsHelper } from 'helpers/dateHelper'
 import type {
   CommunityEventsData,
@@ -594,65 +595,15 @@ const buildTimeline = (
   return { timeline, keyDates }
 }
 
+// The send offsets/tactics/purposes come from the shared canonical schedule so
+// this section, the tracker's outreach tasks, and the CAS ClickUp feed always
+// show identical dates.
 const buildContactSchedule = (electionDate: Date | null): ContactSend[] => {
   if (!electionDate) return []
-  const sends: { offset: number; data: Omit<ContactSend, 'date'> }[] = [
-    {
-      offset: -56,
-      data: {
-        tactic: 'Text',
-        purpose: 'Introduce yourself to voters with cellphones.',
-      },
-    },
-    {
-      offset: -49,
-      data: {
-        tactic: 'Robocall',
-        purpose: 'Introduce yourself to voters with landlines.',
-      },
-    },
-    {
-      offset: -35,
-      data: {
-        tactic: 'Text',
-        purpose:
-          'Build trust and persuade voters with cellphones to vote for you.',
-      },
-    },
-    {
-      offset: -28,
-      data: {
-        tactic: 'Robocall',
-        purpose:
-          'Build trust and persuade voters with landlines to vote for you.',
-      },
-    },
-    {
-      offset: -14,
-      data: {
-        tactic: 'Text',
-        purpose: 'Encourage voters with cellphones to vote early.',
-      },
-    },
-    {
-      offset: -1,
-      data: {
-        tactic: 'Robocall',
-        purpose: 'Get out the vote on election day.',
-      },
-    },
-    {
-      offset: 0,
-      data: {
-        tactic: 'Text',
-        purpose: 'Get out the vote on election day.',
-      },
-    },
-  ]
-
-  return sends.map(({ offset, data }) => ({
-    date: formatDate(addDays(electionDate, offset)),
-    ...data,
+  return VOTER_CONTACT_SCHEDULE.map((send) => ({
+    date: formatDate(addDays(electionDate, -send.daysBeforeElection)),
+    tactic: send.tactic,
+    purpose: send.purpose,
   }))
 }
 

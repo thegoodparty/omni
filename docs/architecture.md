@@ -4,7 +4,7 @@ How the pieces fit together. For per-package detail, read that package's `CLAUDE
 
 ## Shape of the system
 
-A Next.js frontend, a NestJS API monolith, two specialized data microservices, an
+A Next.js frontend, a NestJS API monolith, one specialized data microservice, an
 admin console, and a typed SDK/contracts layer. Boring, deliberately: Postgres,
 Vercel, Next.js, NestJS, background workers on SQS. We spend novelty only when
 nothing boring would work.
@@ -20,11 +20,11 @@ nothing boring would work.
                      │            gp-api            │
                      │      (NestJS, ECS Fargate)   │
                      └───┬───────────┬──────────┬───┘
-              S2S JWT    │           │ HTTP     │ HTTP
-                         ▼           ▼          ▼
+              Prisma     │           │ HTTP     │ HTTP
+           (people-db)   ▼           ▼          ▼
                 ┌─────────────┐ ┌──────────────┐ ┌────────────────┐
-                │ people-api  │ │ election-api │ │ gp-ai-projects │
-                │   (ECS)     │ │    (ECS)     │ │  (ext. Python) │
+                │  people-db  │ │ election-api │ │ gp-ai-projects │
+                │  (Aurora)   │ │    (ECS)     │ │  (ext. Python) │
                 └─────────────┘ └──────────────┘ └────────────────┘
 ```
 
@@ -32,22 +32,27 @@ nothing boring would work.
   cookie, `credentials: 'include'`.
 - **gp-admin -> gp-api:** via `@goodparty_org/sdk`, authenticated with a
   per-environment Clerk M2M secret (no cookie flow). One Vercel deploy fronts
-  dev/qa/prod by switching the active Clerk org.
-- **gp-api -> people-api:** S2S JWT signed with `PEOPLE_API_S2S_SECRET`. Voter
-  queries, demographics, CSV exports.
+  dev/prod by switching the active Clerk org.
+- **gp-api -> people-db:** direct Prisma access to the people-db Postgres cluster
+  (`packages/gp-api/src/peopleDb/`, ported from the retired `people-api` repo
+  package) for voter queries, demographics, and CSV exports, behind the
+  `USE_LOCAL_PEOPLE_DB` flag. Until that rollout finishes, `false` falls back to
+  the legacy people-api HTTP service (S2S JWT, `PEOPLE_API_S2S_SECRET`) — still
+  deployed, but no longer has a repo package or CI pipeline in omni.
 - **gp-api -> election-api:** direct HTTP for election/race data.
 - **gp-api -> gp-ai-projects:** HTTP for AI campaign-plan generation (external repo).
 
 ## Auth flows
 
-| Flow                        | Mechanism           | Notes                                            |
-| --------------------------- | ------------------- | ------------------------------------------------ |
-| User -> gp-webapp -> gp-api | JWT cookie          | HTTP-only cookie, `credentials: 'include'`       |
-| Staff -> gp-admin -> gp-api | Clerk org + M2M     | Active Clerk org selects env; per-env M2M secret |
-| gp-api -> people-api        | S2S JWT             | `PEOPLE_API_S2S_SECRET`                          |
-| gp-api -> election-api      | HTTP                | Internal network / public data                   |
-| M2M caller -> gp-api        | Bearer `mt_*` token | `ClerkM2MAuthGuard`                              |
-| External -> gp-webapp       | Public              | Public election/candidate pages                  |
+| Flow                            | Mechanism           | Notes                                                        |
+| ------------------------------- | ------------------- | ------------------------------------------------------------ |
+| User -> gp-webapp -> gp-api     | JWT cookie          | HTTP-only cookie, `credentials: 'include'`                   |
+| Staff -> gp-admin -> gp-api     | Clerk org + M2M     | Active Clerk org selects env; per-env M2M secret             |
+| gp-api -> people-db             | Prisma (SSM creds)  | Direct DB connection; see `PeopleDbUrlProvider`              |
+| gp-api -> people-api (fallback) | S2S JWT             | `PEOPLE_API_S2S_SECRET`; kept until the HTTP path is removed |
+| gp-api -> election-api          | HTTP                | Internal network / public data                               |
+| M2M caller -> gp-api            | Bearer `mt_*` token | `ClerkM2MAuthGuard`                                          |
+| External -> gp-webapp           | Public              | Public election/candidate pages                              |
 
 gp-api runs three global guards in order: `ClerkM2MAuthGuard`, `SessionGuard`,
 `RolesGuard`. Detail and decorators: `packages/gp-api/src/authentication/CLAUDE.md`.
@@ -81,9 +86,10 @@ Each backend owns its own Postgres database, managed by Prisma with modular
 `prisma/schema/*.prisma` files.
 
 - **gp-api:** user, campaign, pathToVictory, aiChat, website, outreach, payments,
-  etc. See `packages/gp-api/prisma/CLAUDE.md`.
-- **people-api:** Voter (partitioned by state), District, DistrictStats. Mostly raw
-  SQL. ~200M+ L2 records — treat voter data as restricted.
+  etc. See `packages/gp-api/prisma/CLAUDE.md`. It also holds a second, read-only
+  Prisma client for people-db (`src/peopleDb/`) — Voter (partitioned by state),
+  District, DistrictStats. Mostly raw SQL. ~200M+ L2 records — treat voter data as
+  restricted. See `packages/gp-api/src/peopleDb/CLAUDE.md`.
 - **election-api:** Race, Place, District, Position, Candidacy, ProjectedTurnout.
 
 Never edit an applied migration under `prisma/schema/migrations/<timestamp>/`.
@@ -91,12 +97,14 @@ Never edit an applied migration under `prisma/schema/migrations/<timestamp>/`.
 ### Voter / people data path (unified)
 
 Both products that surface voter data — Serve (elected office) and Win (campaign) —
-now read it from **people-api** through gp-api, via the same `/dashboard/contacts`
-experience in gp-webapp. The browser calls gp-api (`GET /v1/contacts`, the
-voter-file filter endpoints, and the contact-engagement endpoints); gp-api fans out
-to people-api over the S2S JWT. people-api owns the L2 records and runs its own
-queries (mostly raw SQL) against its partitioned `Voter` table — that raw SQL is an
-internal people-api implementation detail, not something gp-webapp talks to.
+read it through gp-api, via the same `/dashboard/contacts` experience in
+gp-webapp. The browser calls gp-api (`GET /v1/contacts`, the voter-file filter
+endpoints, and the contact-engagement endpoints); gp-api runs its own queries
+(mostly raw SQL) against the partitioned `Voter` table in people-db, in-process
+via `src/peopleDb/` (`USE_LOCAL_PEOPLE_DB`), or falls back to the legacy
+people-api HTTP service until that rollout finishes. Either way, the raw SQL is
+an internal gp-api/people-db implementation detail, not something gp-webapp
+talks to.
 
 - **Serve** has been on this People-API path.
 - **Win** is now on it too, gated by the `win-voter-data` flag + `campaign.isPro`.

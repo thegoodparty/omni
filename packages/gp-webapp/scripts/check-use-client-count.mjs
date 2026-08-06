@@ -146,11 +146,22 @@ import { dirname, join, relative } from 'node:path'
 // (mode/loop form + knock mutation), WalkView (route query + per-stop
 // expand/record state), RecordKnockForm (answer state + interaction
 // mutation) — all interactive, all inside the client-only map page.
-// 2026-07-28: 557 -> 559 for the demo-parity pass: PersonSheet (household
-// switcher + record flow state) and TurfDetailsSheet (route/list queries)
-// replace inline expansions; both are interactive sheets inside the
-// client-only map page (SaveTurfDialog was removed in the same PR).
-const BASELINE = 559
+// ENG-10836: +1 for crm/person/StatusRow.tsx — the person-record status row
+// needs client hooks (useMutation/useQueryClient for the PATCH + optimistic
+// update, useCrmEnabled for self-gating, Radix Select interactivity), so it
+// can't render as a server component.
+// ENG-10858: +1 for campaignManager/TextingSetupBanner.tsx — self-gates on
+// useCampaign and fires a view event in an effect, like its sibling
+// ProUpgradeBanner.
+// +1 for ordinances/components/OrdinanceBugReportSheet.tsx — the draft's
+// "Flag a bug" sheet manages description/submit state and opens a Vaul drawer,
+// so it must be a client component.
+// 2026-07-28: 560 -> 562 for the demo-parity pass: PersonSheet (household
+// switcher + record flow state), TurfDetailsSheet (route/list queries), and
+// createFlow/CreateListFlow (filter/draw/confirm step state) replace inline
+// expansions; all are interactive surfaces inside the client-only map page.
+// Net +2 after deleting SaveTurfDialog.
+const BASELINE = 562
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

@@ -1,4 +1,5 @@
 'use client'
+import { useEffect, useState } from 'react'
 import {
   queryOptions,
   useMutation,
@@ -157,4 +158,58 @@ export function useToggleTrackerTaskComplete() {
       }
     },
   })
+}
+
+// Highest generation index across dynamic rows (0 if none yet). Each generation
+// is appended as a higher `week`; default rows (static + outreach) use `week`
+// as a calendar offset, so they are excluded here.
+const maxDynamicGeneration = (tasks: CampaignTrackerTask[]): number =>
+  tasks.reduce((max, t) => (!t.isDefaultTask && t.week > max ? t.week : max), 0)
+
+export type GenerateTrackerTasksResult = {
+  generate: () => void
+  // Mutation in flight OR the dispatched run has not yet appended its
+  // generation — either way the tracker is still producing tasks.
+  isGenerating: boolean
+}
+
+// Manual, non-prod-only generation trigger (the button in CampaignStrategySection;
+// gp-api 404s this route in prod). A regen appends a NEW generation (a higher
+// max dynamic `week`) rather than emptying the list, so isTrackerGenerating
+// can't detect it. Capture the pre-dispatch generation as a baseline and treat
+// the tracker as "generating" until a dynamic row past that baseline lands,
+// fast-polling meanwhile so it surfaces without a manual refresh.
+export function useGenerateTrackerTasks(): GenerateTrackerTasksResult {
+  const queryClient = useQueryClient()
+  const { data } = useQuery(trackerTasksQueryOptions())
+  const maxDynamicWeek = maxDynamicGeneration(data ?? EMPTY_TASKS)
+  const [baseline, setBaseline] = useState<number | null>(null)
+
+  const isRegenerating = baseline !== null && maxDynamicWeek <= baseline
+
+  useEffect(() => {
+    if (baseline !== null && maxDynamicWeek > baseline) setBaseline(null)
+  }, [baseline, maxDynamicWeek])
+
+  useEffect(() => {
+    if (!isRegenerating) return
+    const interval = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: TRACKER_TASKS_QUERY_KEY })
+    }, POLL_INTERVAL_MS)
+    return () => clearInterval(interval)
+  }, [isRegenerating, queryClient])
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      clientRequest('POST /v1/campaigns/tracker-tasks/generate', {}),
+    onSuccess: () => {
+      setBaseline(maxDynamicWeek)
+      queryClient.invalidateQueries({ queryKey: TRACKER_TASKS_QUERY_KEY })
+    },
+  })
+
+  return {
+    generate: () => mutation.mutate(),
+    isGenerating: mutation.isPending || isRegenerating,
+  }
 }

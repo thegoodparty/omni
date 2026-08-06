@@ -4,7 +4,7 @@ Guidance for Claude Code and other AI agents working in `gp-admin`. Keep this fi
 
 ## Project
 
-Internal staff admin console (Next.js 16 App Router, port 3500). Talks to `gp-api` through `@goodparty_org/sdk` with Clerk M2M auth. Access is gated by Clerk **Organizations** (Development / QA / Production) — a single deployment targets all three environments via org switch. Roles: `org:admin`, `org:sales`, `org:read_only`. See `README.md` for the auth/role/permission tables and E2E test-user setup.
+Internal staff admin console (Next.js 16 App Router, port 3500). Talks to `gp-api` through `@goodparty_org/sdk` with Clerk M2M auth. Access is gated by Clerk **Organizations** (Development / Production) — a single deployment targets both environments via org switch. Roles: `org:admin`, `org:sales`, `org:read_only`. See `README.md` for the auth/role/permission tables and E2E test-user setup.
 
 ## Commands (most-used first)
 

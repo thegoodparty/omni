@@ -35,7 +35,6 @@ import { PhoneListInput } from 'helpers/createP2pPhoneList'
 import { AUTO_VOTER_FILTER_NAME_PATTERN } from 'app/dashboard/components/tasks/flows/util/flowHandlers.util'
 import { fetchListDetail } from 'app/dashboard/contacts/crm/lists/useListRowDetail'
 import type { ListDetailReachability } from 'app/dashboard/contacts/crm/shared/contacts-types'
-import { formatFencedCount } from 'app/dashboard/contacts/crm/shared/formatFencedCount.util'
 import { REACHABILITY_CHANNELS } from 'app/dashboard/contacts/crm/shared/reachabilityChannels'
 
 const TEXT_PRICE = 0.035
@@ -45,12 +44,8 @@ const CALL_W_VOICEMAIL_PRICE = 0.055
 const NEW_FROM_FILTERS = '__new__'
 
 // ENG-10799: the reachability leaves a saved-list outreach flow can map to
-// (excludes 'fenced' and 'polls' — no flow here sends polls, which mirrors
-// sms 1:1 anyway).
-type ReachabilityCountKey = keyof Omit<
-  ListDetailReachability,
-  'fenced' | 'polls'
->
+// (excludes 'polls' — no flow here sends polls, which mirrors sms 1:1 anyway).
+type ReachabilityCountKey = keyof Omit<ListDetailReachability, 'polls'>
 
 interface SavedList {
   id: number
@@ -123,9 +118,6 @@ export default function AudienceStep({
   const [campaign] = useCampaign()
   const { p2pUxEnabled } = useP2pUxEnabled()
   const [count, setCount] = useState(0)
-  // Whether `count` is a FENCE_LIMIT-capped lower bound (ENG-10775/10805)
-  // rather than an exact figure — only ever true for the saved-list branch.
-  const [countFenced, setCountFenced] = useState(false)
   // ENG-10808: the saved list's raw membership (demographics.people),
   // tracked alongside the channel-eligible `count` so the audience step can
   // show a "7,032 people in this list · 1,607 reachable by robocall"
@@ -133,7 +125,6 @@ export default function AudienceStep({
   // expecting to text/call their whole list needs to see why they're
   // quoted a smaller number. Only ever set on the saved-list branch.
   const [listSize, setListSize] = useState<number | null>(null)
-  const [listSizeFenced, setListSizeFenced] = useState(false)
   const [loading, setLoading] = useState(false)
   const [countError, setCountError] = useState<CountVoterFileError | null>(null)
   // Tracks the latest count request so out-of-order responses can be dropped.
@@ -340,9 +331,7 @@ export default function AudienceStep({
       if (!reachabilityKey) {
         setCountError(null)
         setCount(0)
-        setCountFenced(false)
         setListSize(null)
-        setListSizeFenced(false)
         setLoading(false)
         onChangeCallback('voterCount', 0)
         return
@@ -370,24 +359,16 @@ export default function AudienceStep({
           if (eligibleCount === null) {
             setCountError({ ok: false, message: GENERIC_COUNT_ERROR_MESSAGE })
             setCount(0)
-            setCountFenced(false)
             setListSize(null)
-            setListSizeFenced(false)
             onChangeCallback('voterCount', 0)
             return
           }
           setCount(eligibleCount)
-          // A fenced count (ENG-10775/10805) is a capped lower bound, not
-          // exact membership — still the safest number to bill/persist
-          // (never an overcount), but flagged for display so it renders
-          // with a trailing "+" instead of reading as exact.
-          setCountFenced(!!data.reachability.fenced?.[reachabilityKey])
           // ENG-10808: the same response's demographics.people is the raw
           // list size — kept alongside the eligible count purely for the
           // breakdown sentence below (never sent to onChangeCallback; the
           // persisted voterCount stays the channel-eligible number).
           setListSize(data.demographics.people)
-          setListSizeFenced(!!data.demographics.fenced)
           onChangeCallback('voterCount', eligibleCount)
         })
         .catch(() => {
@@ -397,9 +378,7 @@ export default function AudienceStep({
           // against an uncounted (possibly large) saved list.
           setCountError({ ok: false, message: GENERIC_COUNT_ERROR_MESSAGE })
           setCount(0)
-          setCountFenced(false)
           setListSize(null)
-          setListSizeFenced(false)
           onChangeCallback('voterCount', 0)
         })
         .finally(() => {
@@ -412,7 +391,6 @@ export default function AudienceStep({
     if (!hasValues) {
       setCountError(null)
       setCount(0)
-      setCountFenced(false)
       setLoading(false)
       onChangeCallback('voterCount', 0)
       return
@@ -440,12 +418,10 @@ export default function AudienceStep({
       if (typeof res === 'number') {
         setCountError(null)
         setCount(res)
-        setCountFenced(false)
         onChangeCallback('voterCount', res)
       } else {
         setCountError(res)
         setCount(0)
-        setCountFenced(false)
         onChangeCallback('voterCount', 0)
       }
       setLoading(false)
@@ -512,9 +488,7 @@ export default function AudienceStep({
 
   // Shared by the checkbox-built audience and the saved-list branch (every
   // channel now fetches its own channel-eligible count — ENG-10799 — see the
-  // count useEffect above). `countFenced` is only ever set on the saved-list
-  // branch; formatFencedCount renders the same as numberFormatter unless
-  // that count is a capped lower bound, in which case it appends "+".
+  // count useEffect above).
   const votersAndCostSummary = (
     <div className="p-4 text-sm">
       Voters selected:
@@ -525,7 +499,7 @@ export default function AudienceStep({
             className="inline-block align-middle animate-spin"
           />
         ) : (
-          formatFencedCount(count, countFenced)
+          count.toLocaleString()
         )}
       </span>
       {price && (
@@ -596,20 +570,15 @@ export default function AudienceStep({
                 {votersAndCostSummary}
                 {/* ENG-10808: only worth a second line when the channel
                 excludes someone — if the whole list is reachable, "Voters
-                selected" above already says the one number that matters.
-                A fenced value on either side can coincidentally equal the
-                other at the shared FENCE_LIMIT cap without the true
-                (uncapped) numbers actually matching, so equality alone
-                can't collapse the line unless neither side is fenced. */}
+                selected" above already says the one number that matters. */}
                 {!loading &&
                   !hasCountError &&
                   listSize !== null &&
-                  (listSize !== count || listSizeFenced || countFenced) && (
+                  listSize !== count && (
                     <div className="px-4 -mt-2 pb-2 text-sm text-muted-foreground text-left">
-                      {formatFencedCount(listSize, listSizeFenced)} people in
-                      this list
+                      {listSize.toLocaleString()} people in this list
                       <span className="mx-1">·</span>
-                      {formatFencedCount(count, countFenced)} reachable by{' '}
+                      {count.toLocaleString()} reachable by{' '}
                       {reachabilityChannelLabel}
                     </div>
                   )}

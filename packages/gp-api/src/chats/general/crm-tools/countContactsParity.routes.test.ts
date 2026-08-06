@@ -1,14 +1,19 @@
-import { HttpService } from '@nestjs/axios'
-import { of } from 'rxjs'
 import { describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { buildCountContactsTool } from './countContacts.tool'
 
 const service = useTestService()
 
 const ORG_SLUG_HEADER = 'X-Organization-Slug'
-const DISTRICT_ID = 'district-crm-tool-parity-uuid'
+// districtId and the resolved activity-condition/support-status id set both
+// now flow through the real people-db Zod DTOs (ListPeopleDTO etc.), which
+// require GUID-shaped strings — unlike the legacy people-api HTTP path, which
+// just serialized these into a JSON body with no format validation.
+const DISTRICT_ID = '40000000-0000-0000-0000-000000000000'
+const PERSON_RESPONDED = '00000000-0000-0000-0000-000000000001'
+const PERSON_SILENT = '00000000-0000-0000-0000-000000000002'
 
 // The tool must produce the same count as POST /v1/contacts/count for the
 // identical payload because it calls the same service method — this pins
@@ -31,25 +36,36 @@ describe('count_contacts tool ↔ POST /v1/contacts/count parity', () => {
       data: [
         {
           organizationSlug: slug,
-          personId: 'person-responded-1',
+          personId: PERSON_RESPONDED,
           occurredAt: new Date('2026-07-01T12:00:00.000Z'),
           respondedAt: new Date('2026-07-02T12:00:00.000Z'),
           manual: false,
         },
         {
           organizationSlug: slug,
-          personId: 'person-silent-1',
+          personId: PERSON_SILENT,
           occurredAt: new Date('2026-07-01T12:00:00.000Z'),
           manual: false,
         },
       ],
     })
 
+    // People data resolves through the in-process VoterQueryService now
+    // instead of the legacy people-api HTTP client — this suite doesn't run
+    // a real people-db, so the local service call is stubbed directly.
     const postSpy = vi
-      .spyOn(service.app.get(HttpService), 'post')
-      .mockReturnValue(
-        of({ data: { pagination: { totalResults: 7 } } }) as never,
-      )
+      .spyOn(service.app.get(VoterQueryService), 'findPeople')
+      .mockResolvedValue({
+        people: [],
+        pagination: {
+          totalResults: 7,
+          currentPage: 1,
+          pageSize: 1,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      } as never)
 
     const filter = {
       hasCellPhone: true,
@@ -66,7 +82,7 @@ describe('count_contacts tool ↔ POST /v1/contacts/count parity', () => {
       { headers: { [ORG_SLUG_HEADER]: slug } },
     )
     expect(routeResponse.status).toBe(201)
-    expect(routeResponse.data).toEqual({ count: 7, fenced: false })
+    expect(routeResponse.data).toEqual({ count: 7 })
 
     const organization = await service.prisma.organization.findUniqueOrThrow({
       where: { slug },
@@ -79,56 +95,10 @@ describe('count_contacts tool ↔ POST /v1/contacts/count parity', () => {
 
     expect(toolResult).toEqual(routeResponse.data)
 
-    // Both paths must have sent people-api the exact same request body —
+    // Both paths must have sent the people-db query the exact same request —
     // same resolved id filter, same demographic filters, same search.
     expect(postSpy).toHaveBeenCalledTimes(2)
     const [routeCall, toolCall] = postSpy.mock.calls
-    expect(routeCall?.[0]).toBe(toolCall?.[0])
-    expect(routeCall?.[1]).toEqual(toolCall?.[1])
-  })
-
-  // ENG-10804: when people-api's statement-timeout guard floors the count at
-  // FENCE_LIMIT, both the UI count route and the assistant tool must agree
-  // it's a floor, not an exact figure — same shared service call, so a
-  // divergence here would mean one path lost the flag on the way out.
-  it('returns fenced:true parity when the people-api count is fenced', async () => {
-    const slug = `eo-crm-parity-fenced-${Date.now()}`
-    await service.prisma.organization.create({
-      data: {
-        slug,
-        ownerId: service.user.id,
-        overrideDistrictId: DISTRICT_ID,
-      },
-    })
-
-    const postSpy = vi
-      .spyOn(service.app.get(HttpService), 'post')
-      .mockReturnValue(
-        of({
-          data: { pagination: { totalResults: 10000, fenced: true } },
-        }) as never,
-      )
-
-    const filter = { hasCellPhone: true }
-
-    const routeResponse = await service.client.post(
-      '/v1/contacts/count',
-      filter,
-      { headers: { [ORG_SLUG_HEADER]: slug } },
-    )
-    expect(routeResponse.status).toBe(201)
-    expect(routeResponse.data).toEqual({ count: 10000, fenced: true })
-
-    const organization = await service.prisma.organization.findUniqueOrThrow({
-      where: { slug },
-    })
-    const tool = buildCountContactsTool({
-      contacts: service.app.get(ContactsService),
-      organization,
-    })
-    const toolResult = await tool.execute(tool.inputSchema.parse(filter))
-
-    expect(toolResult).toEqual(routeResponse.data)
-    expect(postSpy).toHaveBeenCalledTimes(2)
+    expect(routeCall?.[0]).toEqual(toolCall?.[0])
   })
 })

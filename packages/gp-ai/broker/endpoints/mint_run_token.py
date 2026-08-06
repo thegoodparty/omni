@@ -1,0 +1,213 @@
+import logging
+import os
+import time
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
+from broker.auth import get_service_token, verify_service_token
+from broker.dynamodb_client import (
+    InputFileRef,
+    ScopeTicket,
+    ScopeTicketStore,
+    TicketAlreadyExistsError,
+)
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/internal", tags=["internal"])
+
+# 48h ceiling supports long-running campaign-plan and similar runs. The actual
+# ceiling is bounded by the Clerk session lifetime (default 7 days), not what
+# we set here — so 48h is comfortably within Clerk's bounds.
+MAX_TTL_SECONDS = 172800
+# The ticket must outlive the experiment's timeout so the agent's final
+# publish/report_status calls don't get 401'd mid-stride (which leaves the
+# DB row stuck RUNNING forever). Buffer covers validation + upload + callback.
+TTL_BUFFER_SECONDS = 300
+
+
+IDENTIFIER_PATTERN = r"^[a-zA-Z0-9_-]{1,64}$"
+
+
+class MintRequest(BaseModel):
+    run_id: str = Field(..., pattern=IDENTIFIER_PATTERN)
+    organization_slug: str = Field(..., pattern=IDENTIFIER_PATTERN)
+    experiment_id: str = Field(..., pattern=IDENTIFIER_PATTERN)
+    scope: dict
+    params: dict
+    # Optional: when omitted, mint skips the Clerk actor-token round trip and
+    # the resulting ticket has clerk_session_id=None. Routes that need MCP-proxy
+    # auth (agent_mcp_proxy) will reject such tickets with a clear error;
+    # /http/fetch, /pdf/fetch, artifact_* don't need Clerk and work fine.
+    clerk_user_id: str | None = None
+    exp_ttl_seconds: int = 3600
+    # Optional — when provided, mint floors exp_ttl_seconds at
+    # timeout_seconds + TTL_BUFFER_SECONDS so ticket survives the whole run.
+    timeout_seconds: int | None = None
+    # Optional — map of dependency experiment_id -> pinned S3 artifact key.
+    # When set, artifact_read enforces that dependents read the exact snapshot
+    # dispatched against, preserving the STALE invariant for any experiment
+    # with downstream dependencies.
+    prior_artifact_versions: dict[str, str] | None = None
+    # Optional — enumerated S3 refs the runner is authorized to pre-fetch on
+    # behalf of the agent (e.g. user-uploaded agenda PDFs). Each entry is a
+    # {bucket, key, dest} ref; /inputs/read enforces exact (bucket, key) match
+    # against this list. Refs travel through gp-api's dispatch and dispatch
+    # handler strips the `_input_files` envelope key from params before
+    # validating against the manifest input_schema.
+    input_files: list[InputFileRef] | None = None
+
+
+class MintResponse(BaseModel):
+    broker_token: str
+    exp: int
+    params_clean: dict
+
+
+def _expected_inputs_bucket() -> str:
+    """The only S3 bucket `input_files` refs may name in this environment.
+
+    The broker task role also holds GetObject on the artifact and
+    experiment-metadata buckets, so without this gate a caller with a valid
+    SERVICE_TOKEN could mint a ticket whose input_files point /inputs/read at
+    those buckets and read another run's data. Mirrors the dispatch handler's
+    `_expected_inputs_bucket` and the agent-run-inputs Terraform bucket name.
+    Defaults to `dev` when ENVIRONMENT is unset, matching the broker's other
+    env-derived bucket names (see main.py); a wrong default only ever rejects
+    a mismatched ref, never widens access.
+    """
+    env = os.environ.get("ENVIRONMENT", "dev").strip().lower()
+    return f"gp-agent-run-inputs-{env}"
+
+
+def _validate_input_files_bucket(request_input_files, run_id: str) -> None:
+    if not request_input_files:
+        return
+    expected_bucket = _expected_inputs_bucket()
+    for ref in request_input_files:
+        if ref.bucket != expected_bucket:
+            logger.warning(
+                "mint_run_token input_file_bucket_rejected run_id=%s bucket=%r expected=%r",
+                run_id,
+                ref.bucket,
+                expected_bucket,
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"input_files bucket {ref.bucket!r} not allowed; "
+                    f"only {expected_bucket!r} may be referenced for this run"
+                ),
+            )
+
+
+def get_ticket_store():
+    raise NotImplementedError("must be overridden via dependency_overrides")  # pragma: no cover
+
+
+def get_service_token_hash():
+    raise NotImplementedError("must be overridden via dependency_overrides")  # pragma: no cover
+
+
+@router.post("/mint-run-token", response_model=MintResponse)
+async def mint_run_token(
+    request: MintRequest,
+    service_token: str = Depends(get_service_token),
+    token_hash: str = Depends(get_service_token_hash),
+    store: ScopeTicketStore = Depends(get_ticket_store),
+):
+    if not verify_service_token(service_token, token_hash):
+        logger.warning(
+            "mint_run_token invalid_service_token run_id=%s experiment_id=%s",
+            getattr(request, "run_id", "unknown"),
+            getattr(request, "experiment_id", "unknown"),
+        )
+        raise HTTPException(status_code=401, detail="Invalid service token")
+
+    _validate_input_files_bucket(request.input_files, request.run_id)
+
+    broker_token = str(uuid.uuid4())
+    now = int(time.time())
+
+    if request.exp_ttl_seconds > MAX_TTL_SECONDS:
+        logger.warning(
+            "mint_run_token ttl_above_cap run_id=%s experiment_id=%s exp_ttl_seconds=%d max=%d",
+            request.run_id,
+            request.experiment_id,
+            request.exp_ttl_seconds,
+            MAX_TTL_SECONDS,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"exp_ttl_seconds={request.exp_ttl_seconds} exceeds "
+                f"MAX_TTL_SECONDS ({MAX_TTL_SECONDS}s); silent clamping would "
+                "let an agent 401 mid-run and leave the row stuck RUNNING"
+            ),
+        )
+
+    effective_ttl = request.exp_ttl_seconds
+    if request.timeout_seconds is not None:
+        required_ttl = request.timeout_seconds + TTL_BUFFER_SECONDS
+        if required_ttl > MAX_TTL_SECONDS:
+            logger.warning(
+                "mint_run_token timeout_plus_buffer_above_cap run_id=%s "
+                "experiment_id=%s timeout_seconds=%d buffer=%d max=%d",
+                request.run_id,
+                request.experiment_id,
+                request.timeout_seconds,
+                TTL_BUFFER_SECONDS,
+                MAX_TTL_SECONDS,
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"timeout_seconds={request.timeout_seconds} + buffer "
+                    f"({TTL_BUFFER_SECONDS}s) exceeds MAX_TTL_SECONDS "
+                    f"({MAX_TTL_SECONDS}s); this experiment is misconfigured"
+                ),
+            )
+        effective_ttl = max(effective_ttl, required_ttl)
+
+    exp = now + effective_ttl
+
+    ticket = ScopeTicket(
+        pk=broker_token,
+        run_id=request.run_id,
+        organization_slug=request.organization_slug,
+        experiment_id=request.experiment_id,
+        scope=request.scope,
+        params=request.params,
+        exp=exp,
+        issued_at=now,
+        issued_by="dispatch_lambda",
+        prior_artifact_versions=request.prior_artifact_versions,
+        clerk_user_id=request.clerk_user_id,
+        input_files=request.input_files,
+    )
+
+    try:
+        store.put_ticket(ticket)
+    except TicketAlreadyExistsError:
+        logger.warning(
+            "mint_run_token ticket_already_exists run_id=%s experiment_id=%s",
+            request.run_id,
+            request.experiment_id,
+        )
+        raise HTTPException(status_code=409, detail="Ticket already exists") from None
+
+    logger.info(
+        "mint_run_token ok run_id=%s experiment_id=%s exp=%d clerk_user=%s",
+        request.run_id,
+        request.experiment_id,
+        exp,
+        "present" if request.clerk_user_id else "absent",
+    )
+
+    return MintResponse(
+        broker_token=broker_token,
+        exp=exp,
+        params_clean=request.params,
+    )

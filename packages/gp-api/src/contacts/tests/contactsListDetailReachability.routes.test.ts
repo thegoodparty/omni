@@ -1,18 +1,27 @@
-import { HttpService } from '@nestjs/axios'
-import { of, throwError } from 'rxjs'
-import { describe, expect, it, vi } from 'vitest'
+import { randomUUID } from 'node:crypto'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
-import type { FilterObject } from '../utils/voterFileFilter.utils'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
+import type { PeopleAggregatesResponse } from '../contacts.types'
 
 const service = useTestService()
 
 const ORG_SLUG_HEADER = 'X-Organization-Slug'
 
+const agg = (count: number): PeopleAggregatesResponse => ({
+  count,
+  avgAge: null,
+  avgIncome: null,
+})
+
 // ENG-10798/ENG-10805: GET /v1/contacts/list-detail's reachability block is
-// built from four concurrent people-api aggregates calls (base, cellphone,
-// landline, address). Each fixture below uses a distinct count per aggregate
-// so a wrong channel<->aggregate mapping fails the test, not just a wrong
-// number.
+// built from people-db aggregate queries in a fixed order (base, cellphone,
+// landline, address). The load-bearing `base` is resolved FIRST and gates the
+// three channel scans (skipped when base fails); the three channels then still
+// settle INDEPENDENTLY via Promise.allSettled (ENG-10806), so one slow channel
+// can't blank the others. Each fixture below uses a distinct count per
+// aggregate so a wrong channel<->aggregate mapping fails the test, not just a
+// wrong number.
 describe('GET /v1/contacts/list-detail reachability', () => {
   const setupOrg = async (suffix: string) => {
     const slug = `eo-list-detail-reach-${suffix}-${Date.now()}`
@@ -20,41 +29,47 @@ describe('GET /v1/contacts/list-detail reachability', () => {
       data: {
         slug,
         ownerId: service.user.id,
-        overrideDistrictId: `district-list-detail-reach-${suffix}`,
+        // The ported people-db services run their DTOs through Zod, whose
+        // districtId field is z.guid() — a non-UUID placeholder would fail
+        // validation before the aggregate query runs.
+        overrideDistrictId: randomUUID(),
       },
     })
     return slug
   }
 
+  // vitest.config sets clearMocks:true, which clears CALL state before each
+  // test but does NOT reset queued mock*Once IMPLEMENTATIONS. With
+  // load-shedding a base-failure test consumes only the base mock (the 3
+  // channel scans are skipped), so its unconsumed channel mockResolvedValueOnce
+  // would otherwise bleed into the next test's getAggregates queue. Reset the
+  // spy's implementation queue after every test so each test is order-independent.
+  afterEach(() => {
+    vi.spyOn(service.app.get(VoterQueryService), 'getAggregates').mockReset()
+  })
+
+  // getAggregates runs once per channel in a fixed order — base, cellphone,
+  // landline, address — so the mock returns them in that order.
   const mockAggregates = (aggregates: {
-    base: { count: number; fenced?: boolean }
-    cellphone: { count: number; fenced?: boolean }
-    landline: { count: number; fenced?: boolean }
-    address: { count: number; fenced?: boolean }
+    base: PeopleAggregatesResponse
+    cellphone: PeopleAggregatesResponse
+    landline: PeopleAggregatesResponse
+    address: PeopleAggregatesResponse
   }) =>
     vi
-      .spyOn(service.app.get(HttpService), 'post')
-      .mockImplementation((_url, body) => {
-        const filters = (body as { filters: FilterObject }).filters
-        const match = filters.hasCellPhone
-          ? aggregates.cellphone
-          : filters.hasLandline
-            ? aggregates.landline
-            : filters.hasAddress
-              ? aggregates.address
-              : aggregates.base
-        return of({
-          data: { avgAge: null, avgIncome: null, ...match },
-        }) as never
-      })
+      .spyOn(service.app.get(VoterQueryService), 'getAggregates')
+      .mockResolvedValueOnce(aggregates.base)
+      .mockResolvedValueOnce(aggregates.cellphone)
+      .mockResolvedValueOnce(aggregates.landline)
+      .mockResolvedValueOnce(aggregates.address)
 
   it('maps robocall reachability from the landline aggregate, not cellphone', async () => {
     const slug = await setupOrg('mapping')
     mockAggregates({
-      base: { count: 999 },
-      cellphone: { count: 777 },
-      landline: { count: 222 },
-      address: { count: 111 },
+      base: agg(999),
+      cellphone: agg(777),
+      landline: agg(222),
+      address: agg(111),
     })
 
     const response = await service.client.get('/v1/contacts/list-detail', {
@@ -76,54 +91,17 @@ describe('GET /v1/contacts/list-detail reachability', () => {
     )
   })
 
-  it('surfaces each channel fenced flag from its own aggregate', async () => {
-    const slug = await setupOrg('fenced')
-    mockAggregates({
-      base: { count: 500, fenced: false },
-      cellphone: { count: 400, fenced: true },
-      landline: { count: 300, fenced: false },
-      address: { count: 200, fenced: false },
-    })
-
-    const response = await service.client.get('/v1/contacts/list-detail', {
-      headers: { [ORG_SLUG_HEADER]: slug },
-    })
-
-    expect(response.status).toBe(200)
-    expect(response.data.demographics.fenced).toBe(false)
-    expect(response.data.reachability.fenced).toEqual({
-      sms: true,
-      robocall: false,
-      phoneBanking: false,
-      doorKnocking: false,
-      // Polls mirrors sms's count, so it mirrors sms's fenced-ness too.
-      polls: true,
-    })
-  })
-
   // ENG-10806: the tester's "counts = unavailable" bug — one failed
-  // people-api aggregate call used to fail the whole route, flipping every
-  // tile to "Unavailable" at once. The four calls now settle independently.
+  // aggregate query used to fail the whole route, flipping every tile to
+  // "Unavailable" at once. The four queries now settle independently.
   it('degrades only the failed channel when one non-base aggregate fails', async () => {
     const slug = await setupOrg('degraded')
-    vi.spyOn(service.app.get(HttpService), 'post').mockImplementation(
-      (_url, body) => {
-        const filters = (body as { filters: FilterObject }).filters
-        if (filters.hasLandline) {
-          return throwError(
-            () => new Error('people-api landline aggregate unavailable'),
-          ) as never
-        }
-        const match = filters.hasCellPhone
-          ? { count: 777 }
-          : filters.hasAddress
-            ? { count: 111 }
-            : { count: 999 }
-        return of({
-          data: { avgAge: null, avgIncome: null, ...match },
-        }) as never
-      },
-    )
+    // base, cellphone, (landline fails), address — in call order.
+    vi.spyOn(service.app.get(VoterQueryService), 'getAggregates')
+      .mockResolvedValueOnce(agg(999))
+      .mockResolvedValueOnce(agg(777))
+      .mockRejectedValueOnce(new Error('landline aggregate query failed'))
+      .mockResolvedValueOnce(agg(111))
 
     const response = await service.client.get('/v1/contacts/list-detail', {
       headers: { [ORG_SLUG_HEADER]: slug },
@@ -143,28 +121,44 @@ describe('GET /v1/contacts/list-detail reachability', () => {
     )
   })
 
-  it('still 502s the whole route when the base aggregate fails', async () => {
+  it('fails the whole route when the base aggregate fails', async () => {
     const slug = await setupOrg('base-fail')
-    vi.spyOn(service.app.get(HttpService), 'post').mockImplementation(
-      (_url, body) => {
-        const filters = (body as { filters: FilterObject }).filters
-        const isBase =
-          !filters.hasCellPhone && !filters.hasLandline && !filters.hasAddress
-        if (isBase) {
-          return throwError(
-            () => new Error('people-api base aggregate unavailable'),
-          ) as never
-        }
-        return of({
-          data: { avgAge: null, avgIncome: null, count: 1 },
-        }) as never
-      },
-    )
+    // The base (first) query fails; there's nothing to render without it, so
+    // the route surfaces the error rather than a partial tile set. An
+    // in-process query failure propagates as a 500 — there is no external
+    // gateway to attribute a 502 to. Only the base mock is queued: load-shedding
+    // means the three channel scans are never fired on the base-failure path
+    // (asserted directly in the next test).
+    vi.spyOn(
+      service.app.get(VoterQueryService),
+      'getAggregates',
+    ).mockRejectedValueOnce(new Error('base aggregate query failed'))
 
     const response = await service.client.get('/v1/contacts/list-detail', {
       headers: { [ORG_SLUG_HEADER]: slug },
     })
 
-    expect(response.status).toBe(502)
+    expect(response.status).toBe(500)
+  })
+
+  // Load-shedding: the base tile is resolved first and gates the three channel
+  // scans. When base fails, the route can't render anything anyway, so the
+  // channel aggregates are NOT fired — during a people-db statement-timeout
+  // incident this stops a failing list-detail from launching 3 extra doomed
+  // DistrictVoter->Voter scans that only deepen the overload. So getAggregates
+  // runs exactly once on the base-failure path.
+  it('does not fire the channel aggregates when the base aggregate fails', async () => {
+    const slug = await setupOrg('base-fail-loadshed')
+    const spy = vi
+      .spyOn(service.app.get(VoterQueryService), 'getAggregates')
+      .mockRejectedValueOnce(new Error('base aggregate query failed'))
+      .mockResolvedValue(agg(1))
+
+    const response = await service.client.get('/v1/contacts/list-detail', {
+      headers: { [ORG_SLUG_HEADER]: slug },
+    })
+
+    expect(response.status).toBe(500)
+    expect(spy).toHaveBeenCalledTimes(1)
   })
 })

@@ -30,6 +30,10 @@ const winDatabricksProviderFactory = (): DatabricksProvider | null => {
     ...conn,
     catalog: 'goodparty_data_catalog',
     schema: 'mart_win_agents',
+    // Batch recompute runs heavy voter-mart aggregates — the chat-oriented
+    // 60s default would fail the whole snapshot; keep the driver's former
+    // 15-minute worst-case envelope.
+    queryTimeoutMs: 900_000,
   })
 }
 

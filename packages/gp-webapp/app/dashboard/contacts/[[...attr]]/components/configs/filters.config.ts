@@ -41,7 +41,22 @@ const filterSections = [
           { key: 'partyDemocrat', label: 'Democrat' },
           { key: 'partyIndependent', label: 'Independent' },
           { key: 'partyRepublican', label: 'Republican' },
-          { key: 'partyUnknown', label: 'Unknown' },
+          { key: 'partyOther', label: 'Other' },
+        ],
+      },
+      {
+        // Win-only (campaign activity): the wizard hides this for Serve
+        // (VoterFileStep.tsx strips it like political_party) and pulls it out
+        // to render above Support status instead of inline here (ENG-10839).
+        key: 'contacts_made',
+        label: 'Contacts Made',
+        options: [
+          { key: 'contactsMade0', label: '0' },
+          { key: 'contactsMade1', label: '1' },
+          { key: 'contactsMade2', label: '2' },
+          { key: 'contactsMade3', label: '3' },
+          { key: 'contactsMade4', label: '4' },
+          { key: 'contactsMade5Plus', label: '5+' },
         ],
       },
     ],
@@ -78,8 +93,8 @@ const filterSections = [
         label: 'Voter Likelihood',
         options: [
           { key: 'audienceUnknown', label: 'Unknown' },
-          { key: 'audienceFirstTimeVoters', label: 'First Time' },
           { key: 'audienceUnlikelyVoters', label: 'Unlikely' },
+          { key: 'audienceUnreliableVoters', label: 'Unreliable' },
           { key: 'audienceLikelyVoters', label: 'Likely' },
           { key: 'audienceSuperVoters', label: 'Super' },
         ],

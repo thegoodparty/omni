@@ -17,7 +17,7 @@ const FILTER_KEY_TO_DIM: Record<string, { dim: string; candidates: string[] }> =
     partyDemocrat: { dim: 'party', candidates: ['Democratic', 'Democrat'] },
     partyRepublican: { dim: 'party', candidates: ['Republican'] },
     partyIndependent: { dim: 'party', candidates: ['Independent'] },
-    partyUnknown: { dim: 'party', candidates: ['Unknown', 'unknown', 'Other'] },
+    partyOther: { dim: 'party', candidates: ['Unknown', 'unknown', 'Other'] },
     age18_24: { dim: 'age', candidates: ['18_25', '18-25'] },
     age25_34: { dim: 'age', candidates: ['25_35', '25-35'] },
     age35_49: { dim: 'age', candidates: ['35_50', '35-50'] },

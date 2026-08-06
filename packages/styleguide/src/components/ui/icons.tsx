@@ -16,6 +16,7 @@ export {
   Bold as BoldIcon,
   Bot as BotIcon,
   Briefcase as BriefcaseIcon,
+  Bug as BugIcon,
   Construction as ConstructionIcon,
   GraduationCap as GraduationCapIcon,
   HeartPulse as HeartPulseIcon,

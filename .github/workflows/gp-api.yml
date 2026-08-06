@@ -2,17 +2,21 @@ name: gp-api
 
 on:
   pull_request:
-    branches-ignore: [qa, master]
   push:
-    branches: [develop, qa, master]
+    branches: [main]
 
 permissions:
   contents: read
   id-token: write
   pull-requests: write
 
+# Scoped per-PR only. On main this resolves to github.run_id — unique per run,
+# so pushes never serialize here: lint/typecheck/test share no state across
+# commits, and a shared group made every merge wait a full CI cycle for the
+# previous one before it even checked out. Deploys are still serialized, by the
+# deploy job's own gp-api-deploy-<ref> group.
 concurrency:
-  group: gp-api-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: gp-api-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: false
 
 env:
@@ -99,7 +103,7 @@ jobs:
       - name: Test
         run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/2
 
-  # Empty aggregation gate. The develop branch ruleset requires a status check
+  # Empty aggregation gate. The main branch ruleset requires a status check
   # named exactly "Validate"; this job preserves that name while the real work
   # fans out across the checks + sharded test jobs. It is green iff all of its
   # needs succeeded, so it gates merge on Checks plus every Test shard.
@@ -115,7 +119,7 @@ jobs:
     needs: validate
     if: >-
       github.event_name == 'push'
-      && contains(fromJSON('["develop", "qa", "master"]'), github.ref_name)
+      && github.ref_name == 'main'
     runs-on: ubuntu-latest
     concurrency:
       group: gp-api-deploy-${{ github.ref_name }}
@@ -138,9 +142,7 @@ jobs:
         id: ctx
         run: |
           case "${{ github.ref_name }}" in
-            develop) echo "environment=dev" >> "$GITHUB_OUTPUT" ;;
-            qa) echo "environment=qa" >> "$GITHUB_OUTPUT" ;;
-            master) echo "environment=prod" >> "$GITHUB_OUTPUT" ;;
+            main) echo "environment=dev" >> "$GITHUB_OUTPUT" ;;
           esac
 
       - name: Configure AWS Credentials

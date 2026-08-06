@@ -13,7 +13,7 @@ const extractDbCredentials = (dbUrl: string) => {
 export = async () => {
   const config = new pulumi.Config()
 
-  const environment = config.require('environment') as 'dev' | 'qa' | 'prod'
+  const environment = config.require('environment') as 'dev' | 'prod'
   const imageUri = config.require('imageUri')
 
   const vpcId = 'vpc-0763fa52c32ebcf6a'
@@ -24,14 +24,13 @@ export = async () => {
   }
   const vpcSecurityGroupIds = ['sg-01de8d67b0f0ec787']
 
-  const stage = { dev: 'develop', qa: 'qa', prod: 'master' }[environment]
+  const stage = { dev: 'develop', prod: 'master' }[environment]
 
-  const select = <T>(values: Record<'dev' | 'qa' | 'prod', T>): T =>
+  const select = <T>(values: Record<'dev' | 'prod', T>): T =>
     values[environment]
 
   const secretName = select({
     dev: 'ELECTION_API_DEV',
-    qa: 'ELECTION_API_DEV',
     prod: 'ELECTION_API_PROD',
   })
 
@@ -43,57 +42,51 @@ export = async () => {
     secretVersion.secretString || '{}',
   ) as Record<string, string>
 
-  if (environment !== 'qa') {
-    const { username, password, database } = extractDbCredentials(
-      secret.DATABASE_URL,
-    )
-    const rdsCluster = new aws.rds.Cluster('rdsCluster', {
-      clusterIdentifier: select({
-        dev: 'election-api-db-develop',
-        qa: 'NOT_APPLICABLE',
-        prod: 'election-api-db-prod',
+  const { username, password, database } = extractDbCredentials(
+    secret.DATABASE_URL,
+  )
+  const rdsCluster = new aws.rds.Cluster('rdsCluster', {
+    clusterIdentifier: select({
+      dev: 'election-api-db-develop',
+      prod: 'election-api-db-prod',
+    }),
+    engine: aws.rds.EngineType.AuroraPostgresql,
+    engineMode: aws.rds.EngineMode.Provisioned,
+    engineVersion: '16.8',
+    databaseName: database,
+    masterUsername: username,
+    masterPassword: pulumi.secret(password),
+    dbSubnetGroupName: select({
+      dev: 'api-rds-subnet-group',
+      prod: 'api-master-rds-subnet-group',
+    }),
+    vpcSecurityGroupIds: [
+      select({
+        dev: 'sg-0b834a3f7b64950d0',
+        prod: 'sg-03783e4adbbee87dc',
       }),
-      engine: aws.rds.EngineType.AuroraPostgresql,
-      engineMode: aws.rds.EngineMode.Provisioned,
-      engineVersion: '16.8',
-      databaseName: database,
-      masterUsername: username,
-      masterPassword: pulumi.secret(password),
-      dbSubnetGroupName: select({
-        dev: 'api-rds-subnet-group',
-        qa: 'api-qa-rds-subnet-group',
-        prod: 'api-master-rds-subnet-group',
-      }),
-      vpcSecurityGroupIds: [
-        select({
-          dev: 'sg-0b834a3f7b64950d0',
-          qa: 'sg-0b0a0d163267de5d5',
-          prod: 'sg-03783e4adbbee87dc',
-        }),
-      ],
-      storageEncrypted: true,
-      serverlessv2ScalingConfiguration: {
-        minCapacity: environment === 'prod' ? 1 : 0.5,
-        maxCapacity: 64,
-      },
-      backupRetentionPeriod: select({ dev: 7, qa: 7, prod: 14 }),
-      deletionProtection: true,
-      skipFinalSnapshot: false,
-      finalSnapshotIdentifier: `election-api-db-${stage}-final-snapshot`,
-    })
+    ],
+    storageEncrypted: true,
+    serverlessv2ScalingConfiguration: {
+      minCapacity: environment === 'prod' ? 1 : 0.5,
+      maxCapacity: 64,
+    },
+    backupRetentionPeriod: select({ dev: 7, prod: 14 }),
+    deletionProtection: true,
+    skipFinalSnapshot: false,
+    finalSnapshotIdentifier: `election-api-db-${stage}-final-snapshot`,
+  })
 
-    new aws.rds.ClusterInstance('rdsInstance', {
-      identifier: select({
-        dev: 'tf-20250328152646832200000003',
-        qa: 'NOT_APPLICABLE',
-        prod: 'tf-20250422023552728500000001',
-      }),
-      clusterIdentifier: rdsCluster.id,
-      instanceClass: 'db.serverless',
-      engine: aws.rds.EngineType.AuroraPostgresql,
-      engineVersion: rdsCluster.engineVersion,
-    })
-  }
+  new aws.rds.ClusterInstance('rdsInstance', {
+    identifier: select({
+      dev: 'tf-20250328152646832200000003',
+      prod: 'tf-20250422023552728500000001',
+    }),
+    clusterIdentifier: rdsCluster.id,
+    instanceClass: 'db.serverless',
+    engine: aws.rds.EngineType.AuroraPostgresql,
+    engineVersion: rdsCluster.engineVersion,
+  })
 
   createService({
     environment,
@@ -106,12 +99,10 @@ export = async () => {
     hostedZoneId,
     domain: select({
       dev: 'election-api-dev.goodparty.org',
-      qa: 'election-api-qa.goodparty.org',
       prod: 'election-api.goodparty.org',
     }),
     certificateArn: select({
       dev: 'arn:aws:acm:us-west-2:333022194791:certificate/b430e283-fcee-4846-9d6c-424e53ea13c4',
-      qa: 'arn:aws:acm:us-west-2:333022194791:certificate/b91d5ab5-c547-444b-8fe9-9aacb7f1f361',
       prod: 'arn:aws:acm:us-west-2:333022194791:certificate/b9583af3-ad5d-4efe-8477-31261252e993',
     }),
     secrets: Object.fromEntries(
@@ -128,7 +119,6 @@ export = async () => {
       SECRET_NAMES: Object.keys(secret).join(','),
       CORS_ORIGIN: select({
         dev: 'https://dev.goodparty.org',
-        qa: 'https://qa.goodparty.org',
         prod: 'https://goodparty.org',
       }),
       AWS_REGION: 'us-west-2',
@@ -136,7 +126,7 @@ export = async () => {
       // fan-out bursts (P2024 "Timed out fetching a connection" → 502s on the
       // org list); 2 prod tasks x 25 = 50 connections, well within Aurora
       // Serverless v2 capacity.
-      PRISMA_CONNECTION_LIMIT: select({ dev: '10', qa: '10', prod: '25' }),
+      PRISMA_CONNECTION_LIMIT: select({ dev: '10', prod: '25' }),
     },
     permissions: [
       {

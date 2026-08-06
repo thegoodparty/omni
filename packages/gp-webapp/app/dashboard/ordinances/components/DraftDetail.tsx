@@ -26,11 +26,11 @@ import {
 } from '@styleguide'
 import {
   ArrowLeftIcon,
+  BugIcon,
   CheckIcon,
   ChevronDownIcon,
   DownloadIcon,
   FileTextIcon,
-  FlagIcon,
   LoaderCircleIcon,
   MicIcon,
   SparklesIcon,
@@ -42,11 +42,13 @@ import type {
   UpdateOrdinanceRequest,
 } from '@goodparty_org/contracts'
 import { useOrdinanceQualityLoopFlag } from '@shared/experiments/ordinanceQualityLoopFlag'
+import { useSnackbar } from '@shared/utils/Snackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ConfirmDeleteDialog } from '../../shared/ConfirmDeleteDialog'
 import ChatPill from '../../shared/ai-chat/ChatPill'
 import {
   cancelQualityLoop,
+  createOrdinanceBugReport,
   deleteOrdinance,
   downloadOrdinanceExport,
   fetchOrdinanceBySlug,
@@ -55,6 +57,7 @@ import {
 } from '../data/ordinances-api'
 import { ORDINANCE_STATUS_META, ORDINANCE_STATUS_ORDER } from '../data/statuses'
 import DraftChat from './DraftChat'
+import OrdinanceBugReportSheet from './OrdinanceBugReportSheet'
 import QualityReport from './QualityReport'
 import SourceLine from './SourceLine'
 
@@ -108,6 +111,8 @@ export default function DraftDetail({
   // mirror only updates on React's deferred re-render, which is too late here.
   const lastSaveFailedRef = useRef(false)
   const [selection, setSelection] = useState<Selection | null>(null)
+  // The passage flagged for a bug report; non-null opens the report sheet.
+  const [bugReportExcerpt, setBugReportExcerpt] = useState<string | null>(null)
   // True once the draft is edited this session, so the quality report can show
   // a stale banner without refetching. Cleared when a fresh report is run.
   const [draftDirty, setDraftDirty] = useState(false)
@@ -558,6 +563,28 @@ export default function DraftDetail({
     setSelection(null)
   }, [])
 
+  // Open the bug-report sheet for the highlighted passage. The excerpt is
+  // capped to the API's limit; the passage is what makes the report reviewable
+  // since no positional highlight is persisted on the editable draft.
+  const openBugReport = useCallback((passage: string): void => {
+    setBugReportExcerpt(passage.slice(0, 10_000))
+    window.getSelection()?.removeAllRanges()
+    setSelection(null)
+  }, [])
+
+  const { successSnackbar } = useSnackbar()
+
+  const submitBugReport = useCallback(
+    async (description: string): Promise<void> => {
+      await createOrdinanceBugReport(ordinance.slug, {
+        description,
+        excerpt: bugReportExcerpt ?? '',
+      })
+      successSnackbar('Thanks — your bug report was submitted')
+    },
+    [ordinance.slug, bugReportExcerpt, successSnackbar],
+  )
+
   return (
     <div className="flex h-full w-full flex-col bg-background">
       <header className="border-b border-border py-3">
@@ -850,17 +877,20 @@ export default function DraftDetail({
             type="button"
             size="small"
             variant="outline"
-            onClick={() =>
-              openChat(
-                `I think there's a problem with this passage: "${selection.text}"\n\n`,
-              )
-            }
+            onClick={() => openBugReport(selection.text)}
           >
-            <FlagIcon className="size-3.5" aria-hidden />
+            <BugIcon className="size-3.5" aria-hidden />
             Flag a bug
           </Button>
         </div>
       ) : null}
+
+      <OrdinanceBugReportSheet
+        open={bugReportExcerpt !== null}
+        excerpt={bugReportExcerpt ?? ''}
+        onClose={() => setBugReportExcerpt(null)}
+        onSubmit={submitBugReport}
+      />
 
       <ConfirmDeleteDialog
         open={deleteOpen}

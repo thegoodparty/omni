@@ -1,7 +1,10 @@
 import { clientFetch } from 'gpApi/clientFetch'
 import type { ApiRoute } from 'gpApi/routes'
 import type { FormDataState } from '@shared/hooks/useFormData'
-import { mapFormData } from 'app/dashboard/profile/texting-compliance/util/mapFormData.util'
+import {
+  mapFormData,
+  type ManualAddress,
+} from 'app/dashboard/profile/texting-compliance/util/mapFormData.util'
 
 export interface RegistrationFormData {
   electionFilingLink: string
@@ -10,6 +13,7 @@ export interface RegistrationFormData {
   ein: string
   phone: string
   address: { formatted_address: string; place_id: string }
+  manualAddress?: ManualAddress
   website: string
   email: string
   fecCommitteeId?: string
@@ -26,6 +30,18 @@ export const isAddressValue = (
     'place_id' in value,
   )
 
+export const isManualAddressValue = (
+  value: FormDataState[keyof FormDataState] | undefined,
+): value is ManualAddress =>
+  Boolean(
+    value &&
+    typeof value === 'object' &&
+    'addressLine1' in value &&
+    'city' in value &&
+    'state' in value &&
+    'zip' in value,
+  )
+
 export const toRegistrationFormData = (
   formData: FormDataState,
 ): RegistrationFormData => ({
@@ -37,6 +53,9 @@ export const toRegistrationFormData = (
   address: isAddressValue(formData.address)
     ? formData.address
     : { formatted_address: '', place_id: '' },
+  manualAddress: isManualAddressValue(formData.manualAddress)
+    ? formData.manualAddress
+    : undefined,
   website: String(formData.website || ''),
   email: String(formData.email || ''),
   fecCommitteeId: formData.fecCommitteeId
