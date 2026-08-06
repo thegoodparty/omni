@@ -36,5 +36,10 @@ export const checkAmendmentFidelity = (
 ): AmendmentFidelityResult => {
   const baseline = normalize(verbatimBaseline)
   const reconstructed = normalize(redlineToOriginal(draftBody))
-  return { ok: baseline === reconstructed, reconstructed, baseline }
+  // An empty baseline is nothing to check against, never a pass.
+  return {
+    ok: baseline !== '' && baseline === reconstructed,
+    reconstructed,
+    baseline,
+  }
 }

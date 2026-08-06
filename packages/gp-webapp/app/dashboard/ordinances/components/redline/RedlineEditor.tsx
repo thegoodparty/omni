@@ -21,8 +21,9 @@ interface RedlineEditorProps {
 // underlined insertions) using the shared markup parser. Statute-only styling:
 // the rich-text formatting StarterKit ships (headings, lists, bold, etc.) is
 // disabled so the editor stays plain legislative text plus the two redline
-// marks. Editing behaviour (suggesting mode) lands in a later slice; for now it
-// renders the redline and round-trips the markup.
+// marks. With `suggesting`, editing tracks changes in place: typed text becomes
+// an insertion and deleting baseline text strikes it (first pass: typing over a
+// selection replaces rather than strikes, and paste isn't tracked yet).
 export const RedlineEditor = ({
   value,
   onChange,

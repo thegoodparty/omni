@@ -55,7 +55,11 @@ describe('checkAmendmentFidelity', () => {
   })
 
   it('treats an empty baseline as nothing to check against, not a pass', () => {
-    const draft = 'Sec 1. Some new content.'
-    expect(checkAmendmentFidelity(draft, '').ok).toBe(false)
+    expect(checkAmendmentFidelity('Sec 1. Some new content.', '').ok).toBe(
+      false,
+    )
+    // Even when the draft also normalizes to empty, an empty baseline can't pass.
+    expect(checkAmendmentFidelity('', '').ok).toBe(false)
+    expect(checkAmendmentFidelity('   ', '').ok).toBe(false)
   })
 })

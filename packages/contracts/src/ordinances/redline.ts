@@ -56,6 +56,25 @@ export const parseRedline = (body: string): RedlineSegment[] => {
   return segments
 }
 
+// Splits the markup into lines of segments (one line per newline). A marker
+// that spans a line break yields one segment per line. Shared by the exporter
+// and the editor so their line handling can't drift.
+export const parseRedlineLines = (body: string): RedlineSegment[][] => {
+  const lines: RedlineSegment[][] = []
+  let current: RedlineSegment[] = []
+  lines.push(current)
+  for (const seg of parseRedline(body)) {
+    seg.text.split('\n').forEach((part, idx) => {
+      if (idx > 0) {
+        current = []
+        lines.push(current)
+      }
+      if (part) current.push({ type: seg.type, text: part })
+    })
+  }
+  return lines
+}
+
 export const serializeRedline = (segments: RedlineSegment[]): string =>
   segments
     .map((s) =>
@@ -71,12 +90,5 @@ export const serializeRedline = (segments: RedlineSegment[]): string =>
 export const redlineToOriginal = (body: string): string =>
   parseRedline(body)
     .filter((s) => s.type !== 'insertion')
-    .map((s) => s.text)
-    .join('')
-
-// The clean amended result: keep unchanged and inserted text, drop deletions.
-export const redlineToAmended = (body: string): string =>
-  parseRedline(body)
-    .filter((s) => s.type !== 'deletion')
     .map((s) => s.text)
     .join('')

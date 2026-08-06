@@ -3,7 +3,6 @@ import JSZip from 'jszip'
 import { Ordinance } from '../../generated/prisma'
 import {
   OrdinanceExportService,
-  bodyToRedlineLines,
   checkRowHeaderFits,
   tallySummary,
 } from './ordinanceExport.service'
@@ -107,26 +106,6 @@ describe('OrdinanceExportService', () => {
     const result = await service.render(amendment, 'pdf')
     expect(result.buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-')
     expect(result.buffer.length).toBeGreaterThan(500)
-  })
-
-  it('splits body into styled runs, one run list per line', () => {
-    expect(bodyToRedlineLines('a {-x-}{+y+} b\n\n(c) plain')).toEqual([
-      [
-        { type: 'unchanged', text: 'a ' },
-        { type: 'deletion', text: 'x' },
-        { type: 'insertion', text: 'y' },
-        { type: 'unchanged', text: ' b' },
-      ],
-      [],
-      [{ type: 'unchanged', text: '(c) plain' }],
-    ])
-  })
-
-  it('splits a marker spanning a newline into one run per line', () => {
-    expect(bodyToRedlineLines('{-line1\nline2-}')).toEqual([
-      [{ type: 'deletion', text: 'line1' }],
-      [{ type: 'deletion', text: 'line2' }],
-    ])
   })
 
   it('formats the tally summary with singular/plural checks', () => {

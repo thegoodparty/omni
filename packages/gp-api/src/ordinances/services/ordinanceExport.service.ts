@@ -23,7 +23,7 @@ import {
   ORDINANCE_DRAFT_DISCLAIMER,
   OrdinanceQualityReportSchema,
   OrdinanceSourceSchema,
-  parseRedline,
+  parseRedlineLines,
 } from '@goodparty_org/contracts'
 import { Ordinance } from '../../generated/prisma'
 import { OrdinanceExportFormat } from '../schemas/ordinances.schema'
@@ -45,27 +45,6 @@ const DIVIDER = 'E5E7EB'
 const LINK = '1155CC'
 const REDLINE_INSERT = '15803D'
 const REDLINE_DELETE = 'B91C1C'
-
-type RedlineRun = { type: RedlineSegmentType; text: string }
-
-// Split the draft body into lines of styled runs so both renderers show the
-// {-/+} amendment markup as redline instead of literal braces. A run's text
-// never spans a line; a marker crossing a newline yields one run per line.
-export const bodyToRedlineLines = (body: string): RedlineRun[][] => {
-  const lines: RedlineRun[][] = []
-  let current: RedlineRun[] = []
-  lines.push(current)
-  for (const seg of parseRedline(body)) {
-    seg.text.split('\n').forEach((part, idx) => {
-      if (idx > 0) {
-        current = []
-        lines.push(current)
-      }
-      if (part) current.push({ type: seg.type, text: part })
-    })
-  }
-  return lines
-}
 
 const pdfRedlineColor = (type: RedlineSegmentType): string =>
   type === 'insertion'
@@ -212,7 +191,7 @@ const renderPdf = (content: ExportContent): Promise<Buffer> => {
   doc.font('Helvetica-Bold').fontSize(18).fillColor('black').text(content.title)
   doc.moveDown()
   doc.font('Helvetica').fontSize(11).fillColor('black')
-  for (const runs of bodyToRedlineLines(content.body)) {
+  for (const runs of parseRedlineLines(content.body)) {
     const lineText = runs.map((r) => r.text).join('')
     if (lineText.trim().length === 0) {
       doc.moveDown()
@@ -374,7 +353,7 @@ const docxBodyParagraphs = (body: string): Paragraph[] => {
     nextId += 1
     return id
   }
-  return bodyToRedlineLines(body).map(
+  return parseRedlineLines(body).map(
     (runs) =>
       new Paragraph({
         children: runs.map((run) =>

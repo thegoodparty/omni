@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Schema, type Mark } from '@tiptap/pm/model'
 import { EditorState } from '@tiptap/pm/state'
-import { planDeletion } from './redlineSuggesting'
+import { deletionTransaction, planDeletion } from './redlineSuggesting'
 
 // Minimal schema mirroring the redline marks, so planDeletion is testable
 // without booting a full TipTap editor.
@@ -16,8 +16,9 @@ const schema = new Schema({
     deletion: { toDOM: () => ['del', 0] },
   },
 })
-const insMark = schema.marks.insertion!
-const delMark = schema.marks.deletion!
+const insMark = schema.marks.insertion
+const delMark = schema.marks.deletion
+if (!insMark || !delMark) throw new Error('schema is missing the redline marks')
 
 // Build a one-paragraph doc from segments. In the resulting doc the first text
 // character sits at position 1 (position 0 is before the paragraph).
@@ -65,5 +66,28 @@ describe('planDeletion', () => {
       strikes: [[1, 2]],
       removals: [[2, 3]],
     })
+  })
+})
+
+describe('deletionTransaction', () => {
+  it('strikes baseline text with the deletion mark, keeping the text', () => {
+    const state = stateFrom([{ text: 'abc' }])
+    const tr = deletionTransaction(state, 1, 4)
+    if (!tr) throw new Error('expected a deletion transaction')
+    const next = state.apply(tr)
+    expect(next.doc.textContent).toBe('abc')
+    expect(next.doc.rangeHasMark(1, 4, delMark)).toBe(true)
+  })
+
+  it("removes the user's own insertion text", () => {
+    const state = stateFrom([{ text: 'x' }, { text: 'yz', mark: 'insertion' }])
+    const tr = deletionTransaction(state, 2, 4)
+    if (!tr) throw new Error('expected a deletion transaction')
+    expect(state.apply(tr).doc.textContent).toBe('x')
+  })
+
+  it('returns null when there is nothing to strike or remove', () => {
+    const state = stateFrom([{ text: 'gone', mark: 'deletion' }])
+    expect(deletionTransaction(state, 1, 5)).toBeNull()
   })
 })

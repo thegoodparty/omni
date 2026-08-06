@@ -1,4 +1,7 @@
-import { parseRedline, type RedlineSegmentType } from '@goodparty_org/contracts'
+import {
+  parseRedlineLines,
+  type RedlineSegmentType,
+} from '@goodparty_org/contracts'
 
 // Conversion between the stored {-/+} amendment markup and the ProseMirror doc
 // the TipTap editor edits. Kept pure and separate from the React editor so the
@@ -37,38 +40,23 @@ export interface RedlineJsonNode {
 const markName = (type: RedlineSegmentType): string | null =>
   type === 'insertion' ? 'insertion' : type === 'deletion' ? 'deletion' : null
 
-// Text is placed directly into text nodes (never parsed from HTML) so statute
-// indentation and internal spacing survive exactly. Paragraphs are split on
-// newlines, so a marker spanning a line break yields one marked node per line.
-export const markupToDoc = (body: string): RedlineDoc => {
-  const lines: RedlineTextNode[][] = []
-  let current: RedlineTextNode[] = []
-  lines.push(current)
-  for (const seg of parseRedline(body)) {
-    const mark = markName(seg.type)
-    seg.text.split('\n').forEach((part, idx) => {
-      if (idx > 0) {
-        current = []
-        lines.push(current)
-      }
-      if (part) {
-        current.push(
-          mark
-            ? { type: 'text', text: part, marks: [{ type: mark }] }
-            : { type: 'text', text: part },
-        )
-      }
+// Uses the shared line splitter (one segment list per line) and places text
+// directly into text nodes — never parsed from HTML — so statute indentation
+// and internal spacing survive exactly.
+export const markupToDoc = (body: string): RedlineDoc => ({
+  type: 'doc',
+  content: parseRedlineLines(body).map((segments) => {
+    const nodes: RedlineTextNode[] = segments.map((seg) => {
+      const mark = markName(seg.type)
+      return mark
+        ? { type: 'text', text: seg.text, marks: [{ type: mark }] }
+        : { type: 'text', text: seg.text }
     })
-  }
-  return {
-    type: 'doc',
-    content: lines.map((nodes) =>
-      nodes.length
-        ? { type: 'paragraph', content: nodes }
-        : { type: 'paragraph' },
-    ),
-  }
-}
+    return nodes.length
+      ? { type: 'paragraph', content: nodes }
+      : { type: 'paragraph' }
+  }),
+})
 
 const nodeToMarkup = (node: RedlineJsonNode): string => {
   const text = node.text ?? ''

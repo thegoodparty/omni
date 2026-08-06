@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   hasRedline,
   parseRedline,
-  redlineToAmended,
+  parseRedlineLines,
   redlineToOriginal,
   serializeRedline,
   type RedlineSegment,
@@ -80,26 +80,40 @@ describe('serializeRedline round-trips', () => {
   })
 })
 
-describe('redlineToOriginal / redlineToAmended', () => {
-  const body =
-    'The disclaimer {-must-}{+shall+} appear for {-3-}{+[3]+} seconds.'
-
+describe('redlineToOriginal', () => {
   it('reconstructs the before text (keeps deletions, drops insertions)', () => {
+    const body =
+      'The disclaimer {-must-}{+shall+} appear for {-3-}{+[3]+} seconds.'
     expect(redlineToOriginal(body)).toBe(
       'The disclaimer must appear for 3 seconds.',
     )
   })
 
-  it('reconstructs the amended text (keeps insertions, drops deletions)', () => {
-    expect(redlineToAmended(body)).toBe(
-      'The disclaimer shall appear for [3] seconds.',
-    )
-  })
-
-  it('leaves a plain draft unchanged in both directions', () => {
+  it('leaves a plain draft unchanged', () => {
     const plain = 'A brand-new ordinance with no markup.'
     expect(redlineToOriginal(plain)).toBe(plain)
-    expect(redlineToAmended(plain)).toBe(plain)
+  })
+})
+
+describe('parseRedlineLines', () => {
+  it('splits into one segment list per line, marked runs intact', () => {
+    expect(parseRedlineLines('a {-x-}{+y+} b\n\n(c) plain')).toEqual([
+      [
+        { type: 'unchanged', text: 'a ' },
+        { type: 'deletion', text: 'x' },
+        { type: 'insertion', text: 'y' },
+        { type: 'unchanged', text: ' b' },
+      ],
+      [],
+      [{ type: 'unchanged', text: '(c) plain' }],
+    ])
+  })
+
+  it('splits a marker that spans a newline into one segment per line', () => {
+    expect(parseRedlineLines('{-line1\nline2-}')).toEqual([
+      [{ type: 'deletion', text: 'line1' }],
+      [{ type: 'deletion', text: 'line2' }],
+    ])
   })
 })
 

@@ -4,6 +4,7 @@ import {
   PluginKey,
   TextSelection,
   type EditorState,
+  type Transaction,
 } from '@tiptap/pm/state'
 import { type EditorView } from '@tiptap/pm/view'
 
@@ -44,14 +45,19 @@ export const planDeletion = (
   return { removals, strikes }
 }
 
-const applyDeletion = (view: EditorView, from: number, to: number): boolean => {
-  const { state } = view
+// Builds the transaction for a delete range: strikes baseline text with the
+// deletion mark and removes the user's own insertions. Returns null when
+// there's nothing to do (a block boundary or an already-struck run), so the
+// editor handles it. Pure, so it's unit-testable without a live editor view.
+export const deletionTransaction = (
+  state: EditorState,
+  from: number,
+  to: number,
+): Transaction | null => {
   const del = state.schema.marks.deletion
-  if (!del) return false
+  if (!del) return null
   const { removals, strikes } = planDeletion(state, from, to)
-  // Nothing baseline to strike and nothing of the user's own to remove (e.g. a
-  // block boundary or an already-struck run): let the editor handle it.
-  if (removals.length === 0 && strikes.length === 0) return false
+  if (removals.length === 0 && strikes.length === 0) return null
   const tr = state.tr
   // Marks first (positions are stable under addMark), then delete right-to-left
   // so earlier ranges keep their positions.
@@ -59,8 +65,15 @@ const applyDeletion = (view: EditorView, from: number, to: number): boolean => {
   for (const [start, end] of [...removals].sort((a, b) => b[0] - a[0])) {
     tr.delete(start, end)
   }
-  const cursor = Math.min(from, tr.doc.content.size)
-  tr.setSelection(TextSelection.create(tr.doc, cursor))
+  tr.setSelection(
+    TextSelection.create(tr.doc, Math.min(from, tr.doc.content.size)),
+  )
+  return tr
+}
+
+const applyDeletion = (view: EditorView, from: number, to: number): boolean => {
+  const tr = deletionTransaction(view.state, from, to)
+  if (!tr) return false
   view.dispatch(tr)
   return true
 }
