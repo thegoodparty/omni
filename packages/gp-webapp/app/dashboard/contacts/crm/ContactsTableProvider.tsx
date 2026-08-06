@@ -112,6 +112,8 @@ interface ContactsTableState {
   pagination: ListContactsResponse['pagination'] | null
   isLoading: boolean
   isVoterDataUnavailable: boolean
+  isDistrictUnresolvable: boolean
+  voterDataUnavailable: boolean
   isCustomSegment: boolean
   totalSegmentContacts: number
   canUseProFeatures: boolean
@@ -193,7 +195,8 @@ export const ContactsTableProvider = ({
   // org's slug as X-Organization-Slug from the cookie. The slug is in every
   // query key below so a Win org can never read a Serve org's cached rows or
   // detail when the active org changes outside the org picker (ENG-10511).
-  const orgSlug = useOrganization()?.slug
+  const organization = useOrganization()
+  const orgSlug = organization?.slug
   const { data: electedOffice } = useElectedOffice()
   // Single source of the Win-vs-Serve decision (shared with the menu, mobile
   // title, and page copy). Picks the engagement :id below and the page labels.
@@ -203,6 +206,15 @@ export const ContactsTableProvider = ({
   const searchParams = useSearchParams()
 
   const segments = defaultSegments
+
+  // gp-api resolves an org's district as `overrideDistrict ?? position?.district`
+  // (OrganizationsService.makeFriendly) — the same precedence
+  // ContactsService.resolveDistrictInfoFromOrg uses to decide whether to 400. So a
+  // null district predicts that 400 without spending the request. Undefined means
+  // the org list hasn't resolved yet, which must not read as unavailable.
+  const isDistrictUnresolvable = organization
+    ? organization.district === null
+    : false
 
   const canUseProFeatures = useMemo(() => {
     return !!campaign?.isPro || !!electedOffice
@@ -244,15 +256,18 @@ export const ContactsTableProvider = ({
     [pathname],
   )
 
-  const contactsQuery = useQuery(
-    contactTableQueryOptions({
+  const contactsQuery = useQuery({
+    ...contactTableQueryOptions({
       orgSlug,
       page: currentPage,
       resultsPerPage: pageSize,
       segment: currentSegment,
       search: searchTerm,
     }),
-  )
+    // Gated on the proactive predicate only. Gating on the union would let this
+    // query's own error disable the query that produced it.
+    enabled: !isDistrictUnresolvable,
+  })
 
   // Prefetch the next page, but only once we know there is one. Without this
   // guard the prefetch fires a second /v1/contacts request on every view —
@@ -266,7 +281,8 @@ export const ContactsTableProvider = ({
       segment: currentSegment,
       search: searchTerm,
     }),
-    enabled: !!contactsQuery.data?.pagination?.hasNextPage,
+    enabled:
+      !isDistrictUnresolvable && !!contactsQuery.data?.pagination?.hasNextPage,
   })
 
   const personQuery = useQuery({
@@ -444,6 +460,11 @@ export const ContactsTableProvider = ({
     )
   }, [contactsQuery.error])
 
+  // The reactive branch still carries assertVoterDataEligibility (the
+  // federal/state voter-file rule), which needs campaign, district, and
+  // ballotLevel together and so can't be predicted client-side.
+  const voterDataUnavailable = isDistrictUnresolvable || isVoterDataUnavailable
+
   const updateURL = useCallback(
     (updates: Record<string, string | number | null | undefined>) => {
       const params = new URLSearchParams(searchParams?.toString() || '')
@@ -593,6 +614,8 @@ export const ContactsTableProvider = ({
       pagination,
       isLoading,
       isVoterDataUnavailable,
+      isDistrictUnresolvable,
+      voterDataUnavailable,
       isCustomSegment: isCustomSegmentValue,
       totalSegmentContacts,
       canUseProFeatures,
@@ -622,6 +645,8 @@ export const ContactsTableProvider = ({
       pagination,
       isLoading,
       isVoterDataUnavailable,
+      isDistrictUnresolvable,
+      voterDataUnavailable,
       isCustomSegmentValue,
       totalSegmentContacts,
       canUseProFeatures,
