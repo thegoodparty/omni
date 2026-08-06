@@ -34,6 +34,7 @@ import { isCustomSegment, findCustomSegment } from './shared/segments.util'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { useOrganization } from '@shared/organization-picker'
+import { useDistrictResolution } from '../../shared/useDistrictResolution'
 import { useWinVoterContext } from '../../shared/useWinVoterContext'
 
 const CONTACTS_BASE_PATH = '/dashboard/contacts'
@@ -195,8 +196,7 @@ export const ContactsTableProvider = ({
   // org's slug as X-Organization-Slug from the cookie. The slug is in every
   // query key below so a Win org can never read a Serve org's cached rows or
   // detail when the active org changes outside the org picker (ENG-10511).
-  const organization = useOrganization()
-  const orgSlug = organization?.slug
+  const orgSlug = useOrganization()?.slug
   const { data: electedOffice } = useElectedOffice()
   // Single source of the Win-vs-Serve decision (shared with the menu, mobile
   // title, and page copy). Picks the engagement :id below and the page labels.
@@ -207,14 +207,7 @@ export const ContactsTableProvider = ({
 
   const segments = defaultSegments
 
-  // gp-api resolves an org's district as `overrideDistrict ?? position?.district`
-  // (OrganizationsService.makeFriendly) — the same precedence
-  // ContactsService.resolveDistrictInfoFromOrg uses to decide whether to 400. So a
-  // null district predicts that 400 without spending the request. Undefined means
-  // the org list hasn't resolved yet, which must not read as unavailable.
-  const isDistrictUnresolvable = organization
-    ? organization.district === null
-    : false
+  const { isUnresolvable: isDistrictUnresolvable } = useDistrictResolution()
 
   const canUseProFeatures = useMemo(() => {
     return !!campaign?.isPro || !!electedOffice
