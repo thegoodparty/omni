@@ -27,6 +27,8 @@ Door-knocking / canvassing dashboard. Tracks volunteer interactions logged in th
 
 - "Door-knocking" data is sourced from third-party canvassing tools (eCanvasser etc.) via gp-api — there's no in-app way to log a knock from this UI.
 - `components/interactionsColors.ts` is the only place colors should be defined for charts in this feature.
+- **The voter pack and every turf read resolve a district server-side** (`resolveEligibleDistrictId` in gp-api's `doorKnockingPack` / `doorKnockingKnock` services), so an org with no resolvable district can only 400. `NativeDoorKnockingPage` gates both queries on `useDistrictResolution` (`app/dashboard/shared/`) and explains instead. Gating at the shell also covers the write paths (`POST turfs`, `POST turfs/:id/knock`, `POST interactions`) because their affordances never render. The unavailable branch has to come **before** `packQuery.isPending`, or that branch claims to be loading forever.
+- `doorKnockingServe.service.ts` in gp-api is about **serving a route** to a canvasser — it is not the Serve product. Door knocking is Win-only (`v2Category: 'campaign'` in `DashboardMenu.tsx`).
 
 ## Related
 
