@@ -3,6 +3,7 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { dateUsHelper } from 'helpers/dateHelper'
 import { deleteCookie, getCookie } from 'helpers/cookieHelper'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useDistrictResolution } from '../../../shared/useDistrictResolution'
 
 // Exported (not just used internally) so downloadVoterList.util's saved-list
 // branch (ENG-10765) can poll the same cookie on the same schedule instead of
@@ -42,6 +43,7 @@ export function useContactsDownload({
   onProGated,
 }: UseContactsDownloadOptions) {
   const { successSnackbar, errorSnackbar } = useSnackbar()
+  const { isUnresolvable } = useDistrictResolution()
   const [isPreparing, setIsPreparing] = useState(false)
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const fallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -88,6 +90,17 @@ export function useContactsDownload({
   ): void => {
     if (!canUseProFeatures) {
       onProGated?.()
+      return
+    }
+
+    // downloadContacts resolves a district server-side, so without one this can
+    // only 400. Not the Pro upsell — upgrading doesn't fix a missing district.
+    // Gated here rather than at the two call sites so both are covered.
+    if (isUnresolvable) {
+      errorSnackbar(
+        'Voter data is not available for this office yet. Contact support at help@goodparty.org.',
+        { autoHideDuration: 6000 },
+      )
       return
     }
 

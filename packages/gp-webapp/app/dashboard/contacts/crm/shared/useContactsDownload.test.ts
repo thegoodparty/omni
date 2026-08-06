@@ -15,6 +15,16 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),
 }))
+const mockOrg = vi.hoisted(() => ({
+  current: {
+    slug: 'campaign-1',
+    positionName: 'Mayor',
+    district: { id: 'd1', l2Type: 'City', l2Name: 'Austin' },
+  } as unknown,
+}))
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => mockOrg.current,
+}))
 
 const mockedUseSnackbar = vi.mocked(useSnackbar)
 const mockedGetCookie = vi.mocked(getCookie)
@@ -31,10 +41,40 @@ describe('useContactsDownload', () => {
       displaySnackbar: vi.fn(),
     })
     mockedGetCookie.mockReturnValue(false)
+    mockOrg.current = {
+      slug: 'campaign-1',
+      positionName: 'Mayor',
+      district: { id: 'd1', l2Type: 'City', l2Name: 'Austin' },
+    }
   })
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  // downloadContacts resolves a district server-side. The download is a
+  // top-level navigation rather than a fetch, so the refusal has to happen
+  // before the anchor click — there is no request to intercept.
+  it('unresolvable district: refuses, explains, and never sets isPreparing', () => {
+    mockOrg.current = {
+      slug: 'campaign-1',
+      positionName: 'Mayor',
+      district: null,
+    }
+    const onProGated = vi.fn()
+    const { result } = renderHook(() =>
+      useContactsDownload({ canUseProFeatures: true, onProGated }),
+    )
+
+    act(() => {
+      result.current.download('42', {})
+    })
+
+    expect(result.current.isPreparing).toBe(false)
+    expect(successSnackbar).not.toHaveBeenCalled()
+    expect(errorSnackbar).toHaveBeenCalledTimes(1)
+    // Not the Pro upsell — a district problem is not something upgrading fixes.
+    expect(onProGated).not.toHaveBeenCalled()
   })
 
   it('non-pro (canUseProFeatures=false): calls onProGated and never sets isPreparing', () => {
