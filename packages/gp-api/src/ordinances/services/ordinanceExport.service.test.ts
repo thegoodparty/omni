@@ -3,6 +3,7 @@ import JSZip from 'jszip'
 import { Ordinance } from '../../generated/prisma'
 import {
   OrdinanceExportService,
+  bodyToRedlineLines,
   checkRowHeaderFits,
   tallySummary,
 } from './ordinanceExport.service'
@@ -85,6 +86,47 @@ describe('OrdinanceExportService', () => {
     expect(xml).toContain('PASS')
     expect(xml).toContain('DCFCE7')
     expect(xml).toContain('w:val="clear"')
+  })
+
+  it('renders amendment redline as Word tracked changes (ins/del)', async () => {
+    const amendment = record({
+      draftBody:
+        'Section 1. {-Use of AI-}{+AI Disclosure+} required.\n\n(a) Kept.',
+    })
+    const xml = await docxText((await service.render(amendment, 'docx')).buffer)
+    // Native Word revisions an attorney can accept or reject.
+    expect(xml).toContain('<w:ins')
+    expect(xml).toContain('<w:del')
+    expect(xml).toContain('AI Disclosure')
+    expect(xml).toContain('Use of AI')
+    expect(xml).toContain('Kept.')
+  })
+
+  it('renders an amendment redline PDF without throwing', async () => {
+    const amendment = record({ draftBody: 'Section 1. {-old-}{+new+} text.' })
+    const result = await service.render(amendment, 'pdf')
+    expect(result.buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-')
+    expect(result.buffer.length).toBeGreaterThan(500)
+  })
+
+  it('splits body into styled runs, one run list per line', () => {
+    expect(bodyToRedlineLines('a {-x-}{+y+} b\n\n(c) plain')).toEqual([
+      [
+        { type: 'unchanged', text: 'a ' },
+        { type: 'deletion', text: 'x' },
+        { type: 'insertion', text: 'y' },
+        { type: 'unchanged', text: ' b' },
+      ],
+      [],
+      [{ type: 'unchanged', text: '(c) plain' }],
+    ])
+  })
+
+  it('splits a marker spanning a newline into one run per line', () => {
+    expect(bodyToRedlineLines('{-line1\nline2-}')).toEqual([
+      [{ type: 'deletion', text: 'line1' }],
+      [{ type: 'deletion', text: 'line2' }],
+    ])
   })
 
   it('formats the tally summary with singular/plural checks', () => {
