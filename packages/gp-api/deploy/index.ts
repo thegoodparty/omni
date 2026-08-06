@@ -70,7 +70,12 @@ export = async () => {
     throw new Error('DB_PASSWORD must be set in the secret.')
   }
 
-  if (!secret.VOTER_DB_PASSWORD) {
+  // Only the retiring voter clusters (dev/prod) still need this, so preview
+  // keeps deploying once the key is dropped from the secret.
+  if (
+    (environment === 'dev' || environment === 'prod') &&
+    !secret.VOTER_DB_PASSWORD
+  ) {
     throw new Error('VOTER_DB_PASSWORD must be set in the secret.')
   }
 
