@@ -35,24 +35,23 @@ nothing boring would work.
   dev/prod by switching the active Clerk org.
 - **gp-api -> people-db:** direct Prisma access to the people-db Postgres cluster
   (`packages/gp-api/src/peopleDb/`, ported from the retired `people-api` repo
-  package) for voter queries, demographics, and CSV exports, behind the
-  `USE_LOCAL_PEOPLE_DB` flag. Until that rollout finishes, `false` falls back to
-  the legacy people-api HTTP service (S2S JWT, `PEOPLE_API_S2S_SECRET`) — still
-  deployed, but no longer has a repo package or CI pipeline in omni.
+  package) for voter queries, demographics, and CSV exports. This is the only
+  path — the HTTP fallback and the flag that gated it are gone. The people-api
+  service is still deployed but frozen, with no repo package or CI pipeline in
+  omni.
 - **gp-api -> election-api:** direct HTTP for election/race data.
 - **gp-api -> gp-ai-projects:** HTTP for AI campaign-plan generation (external repo).
 
 ## Auth flows
 
-| Flow                            | Mechanism           | Notes                                                        |
-| ------------------------------- | ------------------- | ------------------------------------------------------------ |
-| User -> gp-webapp -> gp-api     | JWT cookie          | HTTP-only cookie, `credentials: 'include'`                   |
-| Staff -> gp-admin -> gp-api     | Clerk org + M2M     | Active Clerk org selects env; per-env M2M secret             |
-| gp-api -> people-db             | Prisma (SSM creds)  | Direct DB connection; see `PeopleDbUrlProvider`              |
-| gp-api -> people-api (fallback) | S2S JWT             | `PEOPLE_API_S2S_SECRET`; kept until the HTTP path is removed |
-| gp-api -> election-api          | HTTP                | Internal network / public data                               |
-| M2M caller -> gp-api            | Bearer `mt_*` token | `ClerkM2MAuthGuard`                                          |
-| External -> gp-webapp           | Public              | Public election/candidate pages                              |
+| Flow                        | Mechanism           | Notes                                            |
+| --------------------------- | ------------------- | ------------------------------------------------ |
+| User -> gp-webapp -> gp-api | JWT cookie          | HTTP-only cookie, `credentials: 'include'`       |
+| Staff -> gp-admin -> gp-api | Clerk org + M2M     | Active Clerk org selects env; per-env M2M secret |
+| gp-api -> people-db         | Prisma (SSM creds)  | Direct DB connection; see `PeopleDbUrlProvider`  |
+| gp-api -> election-api      | HTTP                | Internal network / public data                   |
+| M2M caller -> gp-api        | Bearer `mt_*` token | `ClerkM2MAuthGuard`                              |
+| External -> gp-webapp       | Public              | Public election/candidate pages                  |
 
 gp-api runs three global guards in order: `ClerkM2MAuthGuard`, `SessionGuard`,
 `RolesGuard`. Detail and decorators: `packages/gp-api/src/authentication/CLAUDE.md`.
@@ -101,10 +100,9 @@ read it through gp-api, via the same `/dashboard/contacts` experience in
 gp-webapp. The browser calls gp-api (`GET /v1/contacts`, the voter-file filter
 endpoints, and the contact-engagement endpoints); gp-api runs its own queries
 (mostly raw SQL) against the partitioned `Voter` table in people-db, in-process
-via `src/peopleDb/` (`USE_LOCAL_PEOPLE_DB`), or falls back to the legacy
-people-api HTTP service until that rollout finishes. Either way, the raw SQL is
-an internal gp-api/people-db implementation detail, not something gp-webapp
-talks to.
+via `src/peopleDb/` — the sole path, now that the legacy people-api HTTP
+fallback is gone. The raw SQL is an internal gp-api/people-db implementation
+detail, not something gp-webapp talks to.
 
 - **Serve** has been on this People-API path.
 - **Win** is now on it too, gated by the `win-voter-data` flag + `campaign.isPro`.
