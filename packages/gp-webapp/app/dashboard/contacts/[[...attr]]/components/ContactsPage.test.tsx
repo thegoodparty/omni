@@ -37,7 +37,9 @@ vi.mock('app/dashboard/shared/ProUpgradeModal', () => ({
   ProUpgradeModal: () => null,
   VARIANTS: { Second_NonViable: 'second-nonviable' },
 }))
-vi.mock('../../crm/person/PersonOverlay', () => ({ default: () => null }))
+vi.mock('../../crm/person/PersonOverlay', () => ({
+  default: () => <div data-testid="person-overlay" />,
+}))
 vi.mock('./ContactsTable', () => ({
   default: () => <div data-testid="contacts-table" />,
 }))
@@ -257,5 +259,20 @@ describe('ContactsPage — ineligible (voter data unavailable) state', () => {
     ).toBeInTheDocument()
     expect(screen.queryByTestId('contacts-table')).not.toBeInTheDocument()
     expect(screen.queryByTestId('stats')).not.toBeInTheDocument()
+  })
+
+  // The overlay opens purely off the URL, and a district-gated personQuery reports
+  // pending/idle, so neither its loading nor its error branch fires — a deep link
+  // would drop a dataless sheet over the ineligible message.
+  it('mounts no person overlay when voter data is unavailable', () => {
+    setContext({
+      isVoterDataUnavailable: false,
+      isDistrictUnresolvable: true,
+      voterDataUnavailable: true,
+    })
+
+    render(<ContactsPage />)
+
+    expect(screen.queryByTestId('person-overlay')).not.toBeInTheDocument()
   })
 })

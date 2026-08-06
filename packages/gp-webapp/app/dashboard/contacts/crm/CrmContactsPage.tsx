@@ -174,15 +174,22 @@ export const CrmContactsPage = () => {
             )}
           </div>
         )}
-        <PersonOverlay />
-        <CreateListWizard open={wizardOpen} onOpenChange={setWizardOpen} />
-        <ListDetailSheet
-          listId={currentlySelectedListId}
-          onClose={() => selectList(null)}
-        />
-        {/* The assistant's CRM tools call the same district-gated services, so
-            they would fail the same way. */}
-        {!voterDataUnavailable && <CrmAssistant />}
+        {/* Both sheets open purely off the URL, and a district-gated query reports
+            pending/idle — so isLoading (isPending && isFetching) and isError are
+            both false and neither guard branch fires. Left mounted, a deep link
+            drops a dataless sheet straight over the empty state. The assistant's
+            CRM tools hit the same gated services. */}
+        {!voterDataUnavailable && (
+          <>
+            <PersonOverlay />
+            <CreateListWizard open={wizardOpen} onOpenChange={setWizardOpen} />
+            <ListDetailSheet
+              listId={currentlySelectedListId}
+              onClose={() => selectList(null)}
+            />
+            <CrmAssistant />
+          </>
+        )}
       </DashboardLayout>
       {campaign && (
         <ProUpgradeModal

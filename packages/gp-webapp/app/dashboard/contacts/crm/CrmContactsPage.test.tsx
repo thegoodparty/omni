@@ -390,6 +390,26 @@ describe('CrmContactsPage — voter data unavailable', () => {
     ).not.toBeInTheDocument()
   })
 
+  // The sheets open purely off the URL, and a district-gated query reports
+  // pending/idle — so isLoading (isPending && isFetching) and isError are BOTH
+  // false and neither guard branch fires. A deep link would drop a dataless sheet
+  // straight over the empty state.
+  it('mounts no person overlay on a deep link', () => {
+    setContext({ voterDataUnavailable: true })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.queryByTestId('person-overlay')).not.toBeInTheDocument()
+  })
+
+  it('mounts no list-detail sheet on a deep link', () => {
+    setContext({ voterDataUnavailable: true, currentlySelectedListId: '42' })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.queryByTestId('list-detail-sheet')).not.toBeInTheDocument()
+  })
+
   it('keeps the nav header so the page still reads as Contacts', () => {
     setContext({ voterDataUnavailable: true })
 

@@ -117,7 +117,11 @@ export default function ContactsPage() {
             </>
           )}
         </Paper>
-        <PersonOverlay />
+        {/* The overlay opens purely off the URL, and a district-gated personQuery
+            reports pending/idle, so neither its loading nor its error branch
+            fires — left mounted it drops a dataless sheet over the message
+            above. */}
+        {!voterDataUnavailable && <PersonOverlay />}
       </DashboardLayout>
       {campaign && (
         <ProUpgradeModal
