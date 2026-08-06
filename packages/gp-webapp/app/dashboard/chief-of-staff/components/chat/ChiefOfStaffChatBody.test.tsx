@@ -103,6 +103,31 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(screen.getByText('What is on my agenda?')).toBeInTheDocument()
   })
 
+  it('returns focus to the composer after a turn completes', async () => {
+    const user = userEvent.setup()
+    createMock.mockResolvedValue({ conversationId: 'conv_1' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'All set.' },
+        { type: 'done', assistantMessageId: 'asst_1' },
+      ]),
+    )
+
+    render(<ChiefOfStaffChatBody active />)
+
+    const input = screen.getByLabelText(/ask a question/i)
+    await user.type(input, 'anything?')
+    // Clicking send moves focus off the input; the composer also disables while
+    // the turn runs. Once it completes the input should regain focus so the
+    // candidate can keep chatting without clicking back in.
+    await user.click(screen.getByRole('button', { name: /send/i }))
+
+    await waitFor(() =>
+      expect(screen.getByText('All set.')).toBeInTheDocument(),
+    )
+    await waitFor(() => expect(input).toHaveFocus())
+  })
+
   it('renders tool calls as human-readable status lines', async () => {
     const user = userEvent.setup()
     createMock.mockResolvedValue({ conversationId: 'conv_1' })

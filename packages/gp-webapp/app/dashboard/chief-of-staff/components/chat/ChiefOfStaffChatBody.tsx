@@ -302,6 +302,16 @@ export default function ChiefOfStaffChatBody({
   const creatingRef = useRef(false)
   const sendingRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  // Local handle on the composer input (merged with the optional caller ref) so
+  // a completed turn can return focus to it — see the refocus effect below.
+  const composerInputRef = useRef<HTMLInputElement | null>(null)
+  const assignComposerRef = useCallback(
+    (node: HTMLInputElement | null) => {
+      composerInputRef.current = node
+      if (composerRef) composerRef.current = node
+    },
+    [composerRef],
+  )
   const revealedRef = useRef(0)
   const liveTextTotalRef = useRef(0)
   // Set while a finished reply's reveal is still draining; invoking it commits
@@ -944,6 +954,18 @@ export default function ChiefOfStaffChatBody({
   }, [error, executeUserTurn, loadExisting])
 
   const busy = sending || creating
+  // The composer is disabled while a turn runs (busy), which blurs it. When the
+  // turn finishes and the input re-enables, return focus so the candidate can
+  // keep chatting without clicking back in. Gated on active !== false so a
+  // background turn on a closed surface can't steal focus.
+  const prevBusyRef = useRef(busy)
+  useEffect(() => {
+    const wasBusy = prevBusyRef.current
+    prevBusyRef.current = busy
+    if (wasBusy && !busy && active !== false) {
+      composerInputRef.current?.focus()
+    }
+  }, [busy, active])
   const showIntro =
     (opener !== undefined || isFirstChat) &&
     history.length === 0 &&
@@ -967,10 +989,18 @@ export default function ChiefOfStaffChatBody({
 
   return (
     // vaul disables text selection on the drawer (user-select:none on fine
-    // pointers) and treats pointer-drags as drawer-drags. select-text restores
-    // selection and data-vaul-no-drag stops a select-drag from moving the
-    // sheet, so users can highlight and copy chat text.
-    <div className="flex min-h-0 flex-1 flex-col select-text" data-vaul-no-drag>
+    // pointers) and, on pointerdown, pointer-captures the target — which cancels
+    // any native drag-selection that spans more than one element (so you can
+    // highlight within one paragraph but not across the whole message).
+    // select-text restores the CSS; stopping pointerdown propagation keeps the
+    // capture from happening at all (data-vaul-no-drag only blocks the drag, not
+    // the capture), so users can highlight and copy a whole message. Dragging
+    // the body no longer dismisses the drawer — the overlay and close button do.
+    <div
+      className="flex min-h-0 flex-1 flex-col select-text"
+      data-vaul-no-drag
+      onPointerDown={(e) => e.stopPropagation()}
+    >
       <div
         ref={scrollRef}
         className={
@@ -1182,7 +1212,7 @@ export default function ChiefOfStaffChatBody({
               />
             )}
             <Input
-              ref={composerRef}
+              ref={assignComposerRef}
               value={composer}
               onChange={(e) => setComposer(e.target.value)}
               onKeyDown={(e) => {
