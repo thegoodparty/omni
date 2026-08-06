@@ -3,6 +3,7 @@ import pageMetaData from 'helpers/metadataHelper'
 import { serverRequest } from 'gpApi/server-request'
 import type { Priority } from '@goodparty_org/contracts'
 import DashboardLayout from '../shared/DashboardLayout'
+import { NAV_LABELS } from '../shared/navLabels'
 import PublicProfileEditor from './components/PublicProfileEditor'
 import publicProfileAccess from './publicProfileAccess'
 import type { GetMinePersonProfileResponse } from './shared/types'
@@ -36,6 +37,13 @@ export default async function Page(): Promise<JSX.Element> {
       pathname="/dashboard/public-profile"
       showAlert={false}
       wrapperClassName="!p-0"
+      // hasAction: the editor's publish toggle + Save changes portal into the
+      // bar (PublicProfileEditor).
+      navHeader={{
+        icon: 'profile',
+        label: NAV_LABELS.publicProfile,
+        hasAction: true,
+      }}
     >
       <PublicProfileEditor
         product={product}

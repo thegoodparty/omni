@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { stripHtml } from 'string-strip-html'
 import DashboardLayout from '../../shared/DashboardLayout'
+import DashboardNavHeaderAction from '../../shared/DashboardNavHeaderAction'
+import { NAV_LABELS } from '../../shared/navLabels'
 import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 import { Button, Card, CheckIcon } from '@styleguide'
 import { CAMPAIGN_STORY_FLAG_KEY } from '@shared/experiments/campaignStoryFlag'
@@ -34,30 +36,15 @@ interface CampaignStoryPageProps {
   pathname?: string
 }
 
-// The page-title + Save band. It sits on the gray content surface (no white
-// background — the full-bleed white header component is a follow-up); the
-// negative margins cancel DashboardLayout's content padding (`p-2 md:p-4`) so
-// the band + its bottom border run edge-to-edge. Rendered by both the
-// loading/error states and the editable form so the header stays put while the
-// body swaps.
-const StoryHeaderBar = ({
-  action,
-}: {
-  action?: React.ReactNode
-}): React.JSX.Element => (
-  <div className="sticky top-0 z-10 -mx-2 -mt-2 flex items-center justify-between gap-3 border-b border-base-border bg-base-muted px-4 py-3 sm:px-8 md:-mx-4 md:-mt-4">
-    <h2 className="text-xl font-semibold leading-snug text-foreground">
-      Your story
-    </h2>
-    {action}
-  </div>
-)
-
 // The standalone "Your story" dashboard page. Reuses the same onboarding story
 // cards (StoryIntakeCard for why/background, StoryIssuesCard for the policy
 // priorities). Unlike onboarding, it's a single editable page: one page-level
-// Save in the header commits every field at once, and a "Start over" clears
+// Save in the title bar commits every field at once, and a "Start over" clears
 // them (Save still being the only thing that persists).
+//
+// The page title comes from DashboardLayout's navHeader — the shared bar every
+// main nav page uses — so it carries the same icon and name as the sidebar tab.
+// The form's Save portals into that bar (see StoryEditorForm).
 const CampaignStoryPage = ({
   pathname,
 }: CampaignStoryPageProps): React.JSX.Element => {
@@ -67,6 +54,11 @@ const CampaignStoryPage = ({
         pathname={pathname}
         wrapperClassName="w-full"
         showAlert={false}
+        navHeader={{
+          icon: 'book',
+          label: NAV_LABELS.campaignStory,
+          hasAction: true,
+        }}
       >
         <StoryEditor />
       </DashboardLayout>
@@ -101,26 +93,20 @@ const StoryEditor = (): React.JSX.Element => {
 
   if (isError) {
     return (
-      <>
-        <StoryHeaderBar />
-        <StoryBody>
-          <p className="text-sm text-destructive">
-            We couldn&apos;t load your saved story. Check your connection and
-            refresh the page to try again.
-          </p>
-        </StoryBody>
-      </>
+      <StoryBody>
+        <p className="text-sm text-destructive">
+          We couldn&apos;t load your saved story. Check your connection and
+          refresh the page to try again.
+        </p>
+      </StoryBody>
     )
   }
 
   if (!isReady) {
     return (
-      <>
-        <StoryHeaderBar />
-        <StoryBody>
-          <p className="text-sm text-muted-foreground">Loading your story…</p>
-        </StoryBody>
-      </>
+      <StoryBody>
+        <p className="text-sm text-muted-foreground">Loading your story…</p>
+      </StoryBody>
     )
   }
 
@@ -248,20 +234,20 @@ export function StoryEditorForm({
 
   return (
     <>
-      <StoryHeaderBar
-        action={
-          <Button
-            className="rounded-full"
-            icon={<CheckIcon />}
-            loading={anySaving}
-            loadingText="Saving…"
-            disabled={!anyDirty || anySaving}
-            onClick={() => void saveAll()}
-          >
-            Save
-          </Button>
-        }
-      />
+      {/* Scaled to the title bar's fixed height (h-14): a small button clears
+          the 56px bar without growing it. */}
+      <DashboardNavHeaderAction>
+        <Button
+          size="small"
+          icon={<CheckIcon />}
+          loading={anySaving}
+          loadingText="Saving…"
+          disabled={!anyDirty || anySaving}
+          onClick={() => void saveAll()}
+        >
+          Save
+        </Button>
+      </DashboardNavHeaderAction>
 
       <StoryBody>
         <p className="text-base text-muted-foreground">

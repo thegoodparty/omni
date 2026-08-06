@@ -6,7 +6,10 @@ import type { User } from 'helpers/types'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import { useCampaignStrategyFlag } from '@shared/experiments/campaignStrategyFlag'
 import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
-import DashboardLayout from '../../shared/DashboardLayout'
+import DashboardLayout, {
+  type DashboardNavHeaderConfig,
+} from '../../shared/DashboardLayout'
+import { NAV_LABELS } from '../../shared/navLabels'
 import CampaignPlanPage from './CampaignPlanPage'
 import CampaignPlanStoryGate from './CampaignPlanStoryGate'
 
@@ -26,8 +29,12 @@ interface CampaignPlanRouterProps {
 const GENERATE_REQUESTED_KEY = 'campaignPlanGenerateRequestedAt'
 const GENERATE_REQUESTED_WINDOW_MS = 15 * 60 * 1000
 
-const Spinner = (): React.JSX.Element => (
-  <DashboardLayout>
+const Spinner = ({
+  navHeader,
+}: {
+  navHeader: DashboardNavHeaderConfig
+}): React.JSX.Element => (
+  <DashboardLayout navHeader={navHeader}>
     <div className="flex h-[60vh] items-center justify-center">
       <div className="size-8 animate-spin rounded-full border-b-2 border-primary" />
     </div>
@@ -88,6 +95,17 @@ const CampaignPlanRouter = ({
     if (planExists) sessionStorage.removeItem(GENERATE_REQUESTED_KEY)
   }, [planExists])
 
+  // Icon + name are the sidebar tab's, resolved the same way DashboardMenu
+  // resolves the label (story cohort reads "Campaign Tracker", the legacy
+  // cohort "Campaign Plan"), so the title bar can't disagree with the rail.
+  // Only the tracker puts a CTA in the bar — the legacy plan keeps its own
+  // bottom download bar.
+  const navHeader: DashboardNavHeaderConfig = {
+    icon: 'scroll',
+    label: storyEnabled ? NAV_LABELS.campaignTracker : NAV_LABELS.campaignPlan,
+    hasAction: storyEnabled,
+  }
+
   const requestGenerate = (): void => {
     sessionStorage.setItem(GENERATE_REQUESTED_KEY, String(Date.now()))
     setGenerateRequested(true)
@@ -113,24 +131,24 @@ const CampaignPlanRouter = ({
   // Redirect wins over a persisted generate request: a user whose flag was
   // turned off must still go to /dashboard, even if sessionStorage holds a
   // stale generate flag — otherwise they'd render the plan and fire generation.
-  if (redirectToDashboard) return <Spinner />
+  if (redirectToDashboard) return <Spinner navHeader={navHeader} />
 
   // Rendering CampaignPlanView (inside CampaignPlanPage) fires the generation
   // POSTs and streams sections in as they're ready — so "generate" lands on
   // the same view as an existing plan, no blocking spinner.
   if (showPlan) {
-    return <CampaignPlanPage initialUser={initialUser} />
+    return <CampaignPlanPage initialUser={initialUser} navHeader={navHeader} />
   }
 
-  if (!ready) return <Spinner />
+  if (!ready) return <Spinner navHeader={navHeader} />
 
   // Story cohort: wait until the story/website the completeness check needs have
   // resolved before choosing gate vs plan, so a complete-story user with a plan
   // doesn't briefly flash the gate before the plan renders.
-  if (storyEnabled && storyLoading) return <Spinner />
+  if (storyEnabled && storyLoading) return <Spinner navHeader={navHeader} />
 
   return (
-    <DashboardLayout>
+    <DashboardLayout navHeader={navHeader}>
       <CampaignPlanStoryGate onGenerate={requestGenerate} />
     </DashboardLayout>
   )

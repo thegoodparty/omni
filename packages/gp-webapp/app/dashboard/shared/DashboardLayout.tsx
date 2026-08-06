@@ -1,8 +1,10 @@
 'use client'
-import { ReactNode, useEffect } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 import Link from 'next/link'
 import DashboardMenu from './DashboardMenu'
-import DashboardNavHeader, { type NavHeaderIconKey } from './DashboardNavHeader'
+import DashboardNavHeader from './DashboardNavHeader'
+import { NavHeaderActionSlotContext } from './DashboardNavHeaderAction'
+import { NAV_LABELS, type NavHeaderIconKey } from './navLabels'
 import { EcanvasserProvider } from '@shared/hooks/EcanvasserProvider'
 import { useUser } from '@shared/hooks/useUser'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -19,7 +21,18 @@ import { useIsImpersonating } from '@shared/hooks/useIsImpersonating'
 import { isElectionResultDismissed } from '../election-result/dismissal'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
 import { useWinVoterContext } from './useWinVoterContext'
+import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import { DashboardCampaignManagerChat } from '../campaign-manager/CampaignManagerChatProvider'
+
+export interface DashboardNavHeaderConfig {
+  icon: NavHeaderIconKey
+  label: string
+  centered?: boolean
+  // Set by pages that put a CTA in the bar via DashboardNavHeaderAction. The
+  // bar can't detect the portalled node itself, and it needs to know: a bar
+  // with a CTA also renders on mobile (see DashboardNavHeader).
+  hasAction?: boolean
+}
 
 interface DashboardLayoutProps {
   children: ReactNode
@@ -28,7 +41,7 @@ interface DashboardLayoutProps {
   showAlert?: boolean
   wrapperClassName?: string
   hideMenu?: boolean
-  navHeader?: { icon: NavHeaderIconKey; label: string; centered?: boolean }
+  navHeader?: DashboardNavHeaderConfig
 }
 
 const DashboardLayout = ({
@@ -45,6 +58,8 @@ const DashboardLayout = ({
   const router = useRouter()
   const hookPathname = usePathname()
   const isImpersonating = useIsImpersonating()
+  const [navHeaderActionSlot, setNavHeaderActionSlot] =
+    useState<HTMLDivElement | null>(null)
 
   const currentPath = pathname || hookPathname
   const activeCampaign = campaign || hookCampaign
@@ -103,19 +118,23 @@ const DashboardLayout = ({
               icon={navHeader.icon}
               label={navHeader.label}
               centered={navHeader.centered}
+              hasAction={navHeader.hasAction}
+              actionSlotRef={setNavHeaderActionSlot}
             />
           )}
-          <DashboardCampaignManagerChat>
-            <div className={`flex-1 p-2 md:p-4 ${wrapperClassName}`}>
-              <ProUpgradePrompt
-                campaign={activeCampaign}
-                user={user}
-                pathname={currentPath || undefined}
-                isElectedOffice={!!organization?.electedOfficeId}
-              />
-              {children}
-            </div>
-          </DashboardCampaignManagerChat>
+          <NavHeaderActionSlotContext.Provider value={navHeaderActionSlot}>
+            <DashboardCampaignManagerChat>
+              <div className={`flex-1 p-2 md:p-4 ${wrapperClassName}`}>
+                <ProUpgradePrompt
+                  campaign={activeCampaign}
+                  user={user}
+                  pathname={currentPath || undefined}
+                  isElectedOffice={!!organization?.electedOfficeId}
+                />
+                {children}
+              </div>
+            </DashboardCampaignManagerChat>
+          </NavHeaderActionSlotContext.Provider>
         </SidebarInset>
       </SidebarProvider>
     </EcanvasserProvider>
@@ -129,9 +148,10 @@ const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/dashboard/chief-of-staff', 'Chief of Staff'],
   ['/dashboard/briefings', 'Briefing Assistant'],
   ['/dashboard/community-issues', 'Community Issues'],
-  ['/dashboard/public-profile', 'Public Profile'],
+  ['/dashboard/public-profile', NAV_LABELS.publicProfile],
   ['/dashboard/ordinances', 'Ordinances'],
-  ['/dashboard/race-opponent', 'Know Your Opponent'],
+  ['/dashboard/race-opponent', NAV_LABELS.knowYourOpponent],
+  ['/dashboard/campaign-story', NAV_LABELS.campaignStory],
   ['/dashboard/outreach', 'Voter Outreach'],
   // /dashboard/contacts is intentionally absent: its title depends on Win vs
   // Serve, so MobileMenuTrigger resolves it from the org instead.
@@ -147,8 +167,21 @@ const isContactsPath = (pathname: string): boolean =>
   pathname === '/dashboard/contacts' ||
   pathname.startsWith('/dashboard/contacts/')
 
-const getMobilePageTitle = (pathname: string | null): string | null => {
+const getMobilePageTitle = (
+  pathname: string | null,
+  campaignStoryEnabled: boolean,
+): string | null => {
   if (!pathname) return null
+  // Exact matches, ahead of the table: a '/dashboard' entry in it would prefix-
+  // match (and mistitle) every dashboard subroute that isn't listed, and the
+  // plan tab's name depends on the campaign-story flag exactly as it does in
+  // DashboardMenu.
+  if (pathname === '/dashboard') return NAV_LABELS.campaignManager
+  if (pathname === '/dashboard/campaign-plan') {
+    return campaignStoryEnabled
+      ? NAV_LABELS.campaignTracker
+      : NAV_LABELS.campaignPlan
+  }
   for (const [prefix, title] of MOBILE_PAGE_TITLES) {
     if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return title
   }
@@ -163,12 +196,15 @@ const MobileMenuTrigger = () => {
   // (useWinVoterContext) so the header and content always agree — and wait for
   // isReady so a Win user never flashes "Constituent Data" during load.
   const { isWin, isReady } = useWinVoterContext()
+  // Same trackExposure=false read DashboardMenu uses to label the plan tab —
+  // the mobile title must not disagree with the sidebar item it mirrors.
+  const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
   const pageTitle =
     pathname && isContactsPath(pathname)
       ? isReady
         ? CONTACTS_DATA_TITLE[isWin ? 'win' : 'serve']
         : null
-      : getMobilePageTitle(pathname)
+      : getMobilePageTitle(pathname, campaignStoryEnabled)
   return (
     <>
       <div className="flex lg:hidden items-center justify-between h-16 px-4 bg-sidebar border-b border-sidebar-border">

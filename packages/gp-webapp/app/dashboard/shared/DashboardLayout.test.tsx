@@ -43,6 +43,9 @@ vi.mock('@styleguide/components/ui/icons', () => ({
   UsersRoundIcon: () => null,
   SwordsIcon: () => null,
   ScrollTextIcon: () => null,
+  LayoutDashboardIcon: () => null,
+  BookOpenIcon: () => null,
+  CircleUserRoundIcon: () => null,
 }))
 vi.mock('@styleguide', () => ({
   Sidebar: ({ children }: { children: React.ReactNode }) => children,
