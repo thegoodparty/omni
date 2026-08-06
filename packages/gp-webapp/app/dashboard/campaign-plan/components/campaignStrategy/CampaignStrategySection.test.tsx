@@ -31,7 +31,12 @@ vi.mock('appEnv', async (importOriginal) => ({
   },
 }))
 vi.mock('@shared/hooks/useCampaign', () => ({
-  useCampaign: () => [{ details: {}, electionDate: null }],
+  useCampaign: () => [{ id: 55, details: {}, electionDate: null }],
+}))
+const mockTrackEvent = vi.fn()
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: (...args: unknown[]) => mockTrackEvent(...args),
 }))
 // Stub the count modal to a submit button, mirroring the manager test.
 vi.mock('../../../components/tasks/CountModal', () => ({
@@ -78,6 +83,7 @@ const settled = (tasks: CampaignTrackerTask[]): TrackerTasksResult => ({
 beforeEach(() => {
   mockToggle.mockClear()
   mockGenerate.mockClear()
+  mockTrackEvent.mockClear()
   mockIsGenerating = false
   mockIsProd = false
 })
@@ -141,5 +147,42 @@ describe('CampaignStrategySection — manual generation override', () => {
     mockTasks.mockReturnValue(settled([task({ id: 't1' })]))
     render(<CampaignStrategySection />)
     expect(screen.getByText(/Finding local events/)).toBeInTheDocument()
+  })
+})
+
+describe('CampaignStrategySection — tracker viewed event', () => {
+  it('fires once the tracker renders, with its task counts and phase', () => {
+    mockTasks.mockReturnValue(
+      settled([
+        task({ id: 't1', phase: 'launch' }),
+        task({ id: 't2', phase: 'launch', completed: true }),
+      ]),
+    )
+    const { rerender } = render(<CampaignStrategySection />)
+
+    expect(mockTrackEvent).toHaveBeenCalledTimes(1)
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      'Campaign Plan - Campaign Tracker Viewed',
+      {
+        taskCount: 2,
+        tasksCompleted: 1,
+        activePhase: 'launch',
+        isPersonalizing: false,
+      },
+    )
+
+    // A poll refetch re-renders the section; the event stays once per campaign.
+    rerender(<CampaignStrategySection />)
+    expect(mockTrackEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not fire while the tracker is still bootstrapping', () => {
+    mockTasks.mockReturnValue(settled([]))
+    render(<CampaignStrategySection />)
+
+    expect(
+      screen.getByText(/Setting up your campaign tracker/),
+    ).toBeInTheDocument()
+    expect(mockTrackEvent).not.toHaveBeenCalled()
   })
 })

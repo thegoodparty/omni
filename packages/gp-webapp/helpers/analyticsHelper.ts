@@ -193,7 +193,10 @@ export const EVENTS = {
   Dashboard: {
     CampaignPlan: {
       GenerationCompleted: 'Dashboard - Campaign Plan Generation Completed',
+      // The legacy dashboard task checklist (story-off cohort only). The
+      // campaign tracker that replaced it fires CampaignTrackerViewed below.
       Viewed: 'Dashboard - Campaign Plan Viewed',
+      CampaignTrackerViewed: 'Campaign Plan - Campaign Tracker Viewed',
       WeekNavigated: 'Dashboard - Campaign Plan Week Navigated',
       TaskCTAClicked: 'Dashboard - Campaign Plan Task CTA Clicked',
       TaskStatusUpdated: 'Dashboard - Campaign Task Status Updated',

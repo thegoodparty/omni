@@ -1,10 +1,11 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { Accordion, Button, Card } from '@styleguide'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import { IS_PROD } from 'appEnv'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { buildTrackerStrategy } from './buildTrackerStrategy'
 import {
   isVoterContactFlowType,
@@ -73,6 +74,29 @@ const CampaignStrategySection = (): React.JSX.Element => {
       : null
     return buildTrackerStrategy(tasks, { electionDate })
   }, [tasks, electionDateIso])
+
+  // Fires only once `strategy` exists, so it means "the candidate actually saw
+  // their tasks" — not merely that the route loaded (the page view already
+  // covers that, and it can't tell the rendered tracker from the loading,
+  // error, or still-bootstrapping states). Once per campaign: the hook polls,
+  // so an effect keyed on the counts would re-fire on every refetch.
+  const trackedCampaignRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!strategy || !campaign?.id) return
+    if (trackedCampaignRef.current === campaign.id) return
+    trackedCampaignRef.current = campaign.id
+    const rendered = strategy.phases.flatMap((phase) =>
+      phase.groups.flatMap((group) => group.tasks),
+    )
+    trackEvent(EVENTS.Dashboard.CampaignPlan.CampaignTrackerViewed, {
+      taskCount: rendered.length,
+      tasksCompleted: rendered.filter((task) => task.completed).length,
+      activePhase:
+        strategy.phases.find((phase) => phase.status === 'active')?.key ??
+        'none',
+      isPersonalizing: isGeneratingDynamic,
+    })
+  }, [strategy, campaign?.id, isGeneratingDynamic])
 
   // Open the phase(s) the candidate is in now; fall back to the first phase.
   const openPhases = (strategy?.phases ?? [])

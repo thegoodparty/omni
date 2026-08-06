@@ -24,9 +24,14 @@ select event_type, govern_display_name, family, first_seen_date, last_seen_date,
 from {CATALOG_TABLE}
 """
 
-# 20 columns, render order. See the design doc for the rationale behind the set.
+# 21 columns, render order. See the design doc for the rationale behind the set.
+# `event` renders the Amplitude display name when one is set, so it can diverge
+# from the name in code; `event_type` carries the ingested name alongside it so a
+# reader can always map a row back to the string in the codebase, the provenance
+# CSV, and HubSpot.
 COLUMNS = [
     "event",
+    "event_type",
     "status",
     "declared_intent",
     "intent_date",
@@ -96,6 +101,7 @@ def build_rows(
         rows.append(
             {
                 "event": cat.get("govern_display_name") or event_type,
+                "event_type": event_type,
                 "status": rec["status"],
                 "declared_intent": {"in_use": "in use", "not_in_use": "not in use"}.get(
                     gpmeta.get("intent"), ""
