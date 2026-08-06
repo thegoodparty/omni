@@ -37,10 +37,6 @@ const FILTER_KEY_TO_DIM: Record<string, { dim: string; candidates: string[] }> =
       candidates: ['Unreliable'],
     },
     audienceUnlikelyVoters: { dim: 'voterStatus', candidates: ['Unlikely'] },
-    audienceFirstTimeVoters: {
-      dim: 'voterStatus',
-      candidates: ['First Time'],
-    },
     audienceUnknown: { dim: 'voterStatus', candidates: ['Unknown', 'unknown'] },
     hasCellPhone: { dim: 'hasCellPhone', candidates: ['Yes', 'true', 'Has'] },
     hasLandline: { dim: 'hasLandline', candidates: ['Yes', 'true', 'Has'] },
