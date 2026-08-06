@@ -433,4 +433,47 @@ describe('CrmContactsPage — voter data unavailable', () => {
       screen.queryByText(/isn't available for this office yet/),
     ).not.toBeInTheDocument()
   })
+
+  it('fires the unavailable event once, with the settled context', () => {
+    setContext({ voterDataUnavailable: true })
+
+    const { rerender } = render(<CrmContactsPage />)
+    rerender(<CrmContactsPage />)
+
+    const calls = vi
+      .mocked(trackEvent)
+      .mock.calls.filter(
+        ([name]) => name === EVENTS.Contacts.VoterDataUnavailable,
+      )
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.[1]).toMatchObject({ context: 'win' })
+  })
+
+  it('does not fire the unavailable event when voter data is available', () => {
+    setContext({ voterDataUnavailable: false })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([name]) => name === EVENTS.Contacts.VoterDataUnavailable,
+        ),
+    ).toHaveLength(0)
+  })
+
+  it('waits for the Win/Serve mode to settle before firing', () => {
+    setContext({ voterDataUnavailable: true, isWinContextReady: false })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([name]) => name === EVENTS.Contacts.VoterDataUnavailable,
+        ),
+    ).toHaveLength(0)
+  })
 })

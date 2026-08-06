@@ -52,6 +52,19 @@ export const CrmContactsPage = () => {
     })
   }, [isWinContextReady, isWinContext])
 
+  // Same ready-gate and latch as the Viewed event above: isWinContext reads
+  // false until the elected-office query settles, so firing early would label a
+  // Win user as Serve.
+  const hasFiredUnavailableRef = useRef(false)
+  useEffect(() => {
+    if (!isWinContextReady || !voterDataUnavailable) return
+    if (hasFiredUnavailableRef.current) return
+    hasFiredUnavailableRef.current = true
+    trackEvent(EVENTS.Contacts.VoterDataUnavailable, {
+      context: isWinContext ? 'win' : 'serve',
+    })
+  }, [isWinContextReady, isWinContext, voterDataUnavailable])
+
   const handleCreateList = () => {
     if (!canUseProFeatures) {
       setShowProModal(true)
