@@ -16,6 +16,7 @@ import { PickSendDateStep } from './steps/PickSendDateStep'
 import { format } from 'date-fns'
 import { useQuery } from '@tanstack/react-query'
 import { districtStatsQueryOptions } from 'app/dashboard/polls/shared/queries'
+import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 import { Button } from '@styleguide'
 
 interface Step {
@@ -126,6 +127,36 @@ const NotEnoughConstituents: React.FC<{
   )
 }
 
+// Sibling of NotEnoughConstituents: the other reason polls cannot run at all.
+// Routes to contacts rather than repeating a support handoff here — the contacts
+// page already explains the missing district and offers help@goodparty.org.
+const ConstituentDataUnavailable: React.FC = () => {
+  const router = useRouter()
+
+  return (
+    <div className="flex flex-col">
+      <main className="flex-1 pb-140 md:pb-0">
+        <section className="max-w-screen-md mx-auto bg-white md:border md:border-slate-200 md:rounded-xl md:mt-12 xs:pt-4 md:mb-16">
+          <div className="p-4 sm:p-8 lg:p-16 lg:pb-4">
+            <div className="flex flex-col items-center md:justify-center md:mb-4 gap-6">
+              <h1 className="text-left text-center font-semibold text-2xl md:text-4xl w-full">
+                We don&apos;t have constituent data for this office yet, so a
+                poll can&apos;t be sent.
+              </h1>
+              <p className="text-left md:text-center ext-lg font-normal text-muted-foreground">
+                Visit Contacts and our team can set this up for you
+              </p>
+              <Button onClick={() => router.push('/dashboard/contacts')}>
+                Visit Contacts
+              </Button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  )
+}
+
 export default function OnboardingPage() {
   const router = useRouter()
   const {
@@ -138,7 +169,13 @@ export default function OnboardingPage() {
     demoMessageText,
   } = useOnboardingContext()
 
-  const statsQuery = useQuery(districtStatsQueryOptions)
+  // Serve has no Pro gate, so the district predicate is the only thing standing
+  // between an unresolvable office and a 400 on step 1 of onboarding.
+  const { isUnresolvable } = useDistrictResolution()
+  const statsQuery = useQuery({
+    ...districtStatsQueryOptions,
+    enabled: !isUnresolvable,
+  })
 
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
   const [showError, setShowError] = useState(false)
@@ -218,6 +255,13 @@ export default function OnboardingPage() {
     if (backStepIndex !== -1 && currentStepIndex > 0) {
       setCurrentStepIndex(backStepIndex)
     }
+  }
+
+  // Checked before the < 500 viability guard: that guard requires statsQuery.data,
+  // which never arrives without a district, so these orgs used to fall straight
+  // through it into a flow whose send-size math resolves to NaN.
+  if (isUnresolvable) {
+    return <ConstituentDataUnavailable />
   }
 
   if (statsQuery.data && statsQuery.data.totalConstituentsWithCellPhone < 500) {

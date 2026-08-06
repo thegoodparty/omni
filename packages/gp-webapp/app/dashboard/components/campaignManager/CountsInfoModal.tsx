@@ -6,6 +6,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ModalOrDrawer } from '@shared/ui/ModalOrDrawer'
 import { reportErrorToSentry } from '@shared/sentry'
 import { districtStatsQueryOptions } from 'app/dashboard/polls/shared/queries'
+import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 import { RaceTargetMetrics } from 'helpers/types'
 
 interface CountsInfoModalProps {
@@ -23,9 +24,13 @@ export const CountsInfoModal = ({
   // Shared with the other contacts-stats consumers (queryKey
   // ['contacts-stats']); lazy-gated so the fetch only runs while the modal is
   // open, preserving the original hand-rolled hook's behavior.
+  // An org with no resolvable district can only 400 here, and the row below
+  // already hides when the count is null — so the fetch is pure waste plus a
+  // Sentry report for an expected product state.
+  const { isUnresolvable } = useDistrictResolution()
   const { data, error } = useQuery({
     ...districtStatsQueryOptions,
-    enabled: open,
+    enabled: open && !isUnresolvable,
   })
   const registeredVoters = data?.totalConstituents ?? null
   const showRegisteredVoters = registeredVoters !== null && registeredVoters > 0

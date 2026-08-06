@@ -1,10 +1,20 @@
-import { it } from 'vitest'
+import { it, vi } from 'vitest'
 import { fireEvent, screen } from '@testing-library/react'
 import ExpandPollPage from './ExpandPollPage'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { PollProvider } from '../../../shared/hooks/PollProvider'
 import { Poll, PollStatus } from '../../../shared/poll-types'
+
+// The audience query now reads the org's resolved district (Serve has no Pro gate,
+// so that predicate is its only protection).
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({
+    slug: 'eo-1',
+    positionName: 'City Council',
+    district: { id: 'd1', l2Type: 'City', l2Name: 'Austin' },
+  }),
+}))
 
 const poll: Poll = {
   id: '1234',

@@ -19,6 +19,15 @@ vi.mock('@shared/ui/ModalOrDrawer', () => ({
   }) => (open ? <div role="dialog">{children}</div> : null),
 }))
 
+// CountsInfoModal now reads the org's resolved district so it can skip a fetch
+// that could only 400 (and skip the Sentry report for that expected state).
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({
+    slug: 'campaign-1',
+    positionName: 'Mayor',
+    district: { id: 'd1', l2Type: 'City', l2Name: 'Austin' },
+  }),
+}))
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({ errorSnackbar: vi.fn() }),
 }))
