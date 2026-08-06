@@ -992,15 +992,25 @@ export default function ChiefOfStaffChatBody({
     // pointers) and, on pointerdown, pointer-captures the target — which cancels
     // any native drag-selection that spans more than one element (so you can
     // highlight within one paragraph but not across the whole message).
-    // select-text restores the CSS; stopping pointerdown propagation keeps the
-    // capture from happening at all (data-vaul-no-drag only blocks the drag, not
-    // the capture), so users can highlight and copy a whole message. This is
-    // scoped to the transcript+composer: the drawer header sits outside it, so
-    // drag-to-dismiss still works from there (as do the overlay and close X).
+    // select-text restores the CSS; releasing the capture restores the drag
+    // (data-vaul-no-drag only blocks vaul's drag, not its capture). The release
+    // is queued because vaul sets the capture from its own handler on an
+    // ancestor, which runs after this one. Do NOT stop propagation instead:
+    // Radix dismisses popovers from a document-level pointerdown listener, so
+    // that would strand ChatHistoryPopover open on any click in here.
     <div
       className="flex min-h-0 flex-1 flex-col select-text"
       data-vaul-no-drag
-      onPointerDown={(e) => e.stopPropagation()}
+      onPointerDown={(e) => {
+        const target = e.target
+        if (!(target instanceof Element)) return
+        const { pointerId } = e
+        queueMicrotask(() => {
+          if (target.hasPointerCapture(pointerId)) {
+            target.releasePointerCapture(pointerId)
+          }
+        })
+      }}
     >
       <div
         ref={scrollRef}
