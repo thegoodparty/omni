@@ -148,7 +148,7 @@ with a small page; person detail adds derived `supportStatus` and
 `optedOutAt` (`ContactInteractionTextService.latestOptOutAt`). The count
 endpoint runs the identical translation with `resultsPerPage: 1` and
 returns `{ count, fenced }` — `fenced` (ENG-10804) mirrors
-`pagination.fenced`: true when people-api's statement-timeout guard
+`pagination.fenced`: true when the people-db query layer's statement-timeout guard
 floored the total at `FENCE_LIMIT` (10k), a lower bound rather than an
 exact figure. `GET /v1/contacts`'s own `pagination.fenced` carries the
 same signal for the list total. The webapp renders a fenced count via
@@ -203,7 +203,7 @@ their seed value (one-to-one since `Unreliable` gained its own member — see
 the propensity vocabulary section above), then resolves `include` (overridden
 TO one of the selected values) and `exclude`
 (overridden to something else) person-id sets via two
-`ContactStatusService.personIdsByFieldValue` calls. Both travel to people-api
+`ContactStatusService.personIdsByFieldValue` calls. Both travel to the people-db query layer
 as a new top-level `idOverrides: { include?, exclude? }` sibling of `filters`
 (NOT a `PeopleFilters` field — `IdOverridesSchema` in
 `@goodparty_org/contracts`), which `buildVoterFiltersSql` composes as an OR
@@ -239,7 +239,7 @@ a 3-attempt door-knock sync that logs 3 rows counts as 3. Six booleans on
 `20260729042120_add_contacts_made_filter_columns`) and excluded from
 `convertVoterFileFilterToFilters`'s generic loop (`fieldsHandledSeparately`,
 same treatment as the `audience*` booleans) since they resolve through
-`ContactsMadeResolutionService.resolveContactsMade`, not a people-api
+`ContactsMadeResolutionService.resolveContactsMade`, not a
 `PeopleFilters` key.
 
 Resolution (`ContactsMadeResolutionService`, contactInteraction) runs one
@@ -257,7 +257,7 @@ contacted> } }` — enumerating "everyone NOT contacted" directly isn't
 - **`S = {0, …non-zero}`**: `{ kind: 'override', idOverrides: { include:
 <bucket ids>, exclude: <everyone contacted> } }` — bucket ids are a
   subset of the contacted set, so this can't collapse to a single
-  in/notIn operator. It reuses people-api's `composeIdOverridesClause`
+  in/notIn operator. It reuses `src/peopleDb`'s `composeIdOverridesClause`
   (ENG-10838) with an **absent base clause** (`composeIdOverridesClause(null,
 …)` already falls back to `TRUE`), traveling as a second, independent
   top-level sibling `contactsMadeIdOverrides: { include?, exclude? }` —
@@ -271,7 +271,7 @@ contacted> } }` — enumerating "everyone NOT contacted" directly isn't
 
 `ContactsService.resolveIdFilterWithContactsMade` composes this with the
 existing `ActivityConditionResolutionService.resolveIdFilter` call: both can
-produce a plain `id` in/notIn constraint destined for the same people-api
+produce a plain `id` in/notIn constraint destined for the same `PeopleFilters`
 `id` key, so the two are AND-intersected first via the exported
 `intersectIdFilterResolutions` (activityConditionResolution.service.ts) —
 two `notIn` sets union their exclusions, an `in`/`notIn` pair subtracts, two
@@ -308,7 +308,7 @@ there without a separate manual/sync branch. `source: door_knock`,
 `sourceId` is the interaction's own `sourceId` (the sync's `clientKey`) or its
 row `id` for manual writes. `fallbackFromValue` is `null` — no cheap local
 seed value is available at knock-sync time (unlike the manual status PATCH
-endpoint, which already has a fresh people-api read), and the field is
+endpoint, which already has a fresh people-db read), and the field is
 advisory-only (decorates the very first override's feed "before" label,
 non-null for every write after the first since the row-locked current-state
 read then supplies the real fromValue).
@@ -376,7 +376,7 @@ org-wide opted-out person (`ContactInteractionTextService.findOptedOutPersonIds`
 phone-list build via `findContactsForFilter`'s `excludePersonIds` param, which
 folds into whatever `id` resolution activity conditions/support status already
 produced (`ContactsService.excludePersonIdsFromResolution`). Over the
-people-api 100k id-filter cap (`MAX_RESOLVED_ID_SET_SIZE`), the scrub is
+people-db 100k id-filter cap (`MAX_RESOLVED_ID_SET_SIZE`), the scrub is
 skipped and logged loudly rather than blocking the send. The excluded count is
 persisted on `PeerlyPhoneList.excludedOptedOutCount` for a later UI ticket
 (ENG-10808) to surface. The materialization fallback above (re-resolving the
@@ -387,7 +387,7 @@ it.
 **Phone dedup (ENG-10801).** `P2pPhoneListUploadService.buildPhoneList` keeps
 one CSV row per phone number: a `Set` of seen numbers spans the whole
 pagination loop, and a person whose number was already kept is skipped
-(first-seen wins — deterministic given people-api's stable ordering). This
+(first-seen wins — deterministic given the people-db query's stable ordering). This
 also fixes the inbound sweep's phone->person mapping (`PeerlyPhoneListRecipient`),
 which was ambiguous whenever two people shared a captured phone. The skipped
 count is persisted on `PeerlyPhoneList.excludedDuplicatePhoneCount`, alongside
@@ -438,8 +438,7 @@ scope.
 ## Debugging playbook
 
 First stop for prod issues: Grafana Loki
-`{service_name="gp-api", deployment_environment_name="prod"}` (people-api
-under its own `service_name`). Frontend errors: Sentry org `goodparty`.
+`{service_name="gp-api", deployment_environment_name="prod"}`. Frontend errors: Sentry org `goodparty`.
 
 | Symptom                                                      | Where to look                                                                                                                                                                                                                                                          |
 | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -475,7 +474,7 @@ over interaction rows with a non-null `support_answer`; a "list" =
 - Reachability has five channels: sms, robocall, phoneBanking, doorKnocking,
   polls. `email`/`metaAds` were removed (ENG-10783, no data source ever
   existed for them); `polls` mirrors the sms (has-cell-phone) count 1:1.
-- `fetchListDetailAggregates`'s four people-api calls (base, cellphone,
+- `fetchListDetailAggregates`'s four people-db aggregate calls (base, cellphone,
   landline, address) settle independently (ENG-10806, `Promise.allSettled`):
   a failed cellphone/landline/address call nulls only the reachability
   channels it backs (`ListDetailReachabilitySchema`'s channels are

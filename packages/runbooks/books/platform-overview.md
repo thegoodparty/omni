@@ -106,7 +106,7 @@ gp-ai-projects (external — uv workspace monorepo)
 gp-data-platform (external — dbt + Databricks)
   ├── Airbyte → Databricks       (9 sources: HubSpot, BallotReady, Amplitude, Stripe, gp-api DB, DDHQ, TechSpeed, BallotReady S3, L2)
   ├── dbt transforms             (387 staging → 52 intermediate → 23 marts)
-  └── 4 PySpark write models →   election-api PG, people-api PG, gp-api voter PG
+  └── 4 PySpark write models →   election-api PG, people-db PG, retired voter PG
 ```
 
 ### Auth Between Services
@@ -121,7 +121,6 @@ gp-data-platform (external — dbt + Databricks)
 | gp-marketing → election-api   | Clerk M2M (JWT)     | Server-only; mints JWT-format M2M token with `GP_MARKETING_MACHINE_SECRET` (`tokenFormat: 'jwt'`, cached), sends `Authorization: Bearer eyJ...`                                                                                               |
 | M2M caller → gp-api           | Bearer `mt_*` token | `ClerkM2MAuthGuard`                                                                                                                                                                                                                           |
 | gp-api guards                 | —                   | Three global guards in order: `ClerkM2MAuthGuard` → `SessionGuard` → `RolesGuard`                                                                                                                                                             |
-| people-api (legacy fallback)  | —                   | `S2SAuthGuard` (global), verifies JWT with shared secret, localhost bypass in dev                                                                                                                                                             |
 | election-api                  | —                   | Global `M2MAuthGuard` (default-deny), verifies JWT-format M2M tokens against `ELECTION_API_MACHINE_SECRET` (networkless); only `/v1/health` is `@PublicAccess`. Enforcement gated by `ELECTION_API_AUTH_ENFORCED` (observe-only until `true`) |
 | Admin impersonation           | —                   | `impersonateToken`/`impersonateUser` cookies override normal auth                                                                                                                                                                             |
 
@@ -439,7 +438,7 @@ Other election-api marts: `m_election_api__place`, `m_election_api__race`, `m_el
 3. election-api resolves the chain: `Position` (matched by Gemini LLM, confidence >= 90/95%) → `District` (L2 district type/name) → `ProjectedTurnout` (ML model prediction, filtered by election year + code)
 4. gp-api calculates: `winNumber = ceil(projectedTurnout * 0.5) + 1`, `voterContactGoal = winNumber * 5`
 5. If turnout unavailable, returns sentinel values (-1) — partial match, district known but turnout not predicted
-6. The matched `district.L2DistrictType` and `district.L2DistrictName` are stored in the campaign's `PathToVictory` record — these are the same keys used by people-api to scope voter contacts
+6. The matched `district.L2DistrictType` and `district.L2DistrictName` are stored in the campaign's `PathToVictory` record — these are the same keys used to scope voter contacts in people-db
 
 ### Silver Flow (fallback, via SQS)
 
@@ -604,9 +603,9 @@ HubSpot, BallotReady, Amplitude, Stripe, gp-api PG, DDHQ (Google Drive), TechSpe
 | Model                                | Target DB               | Tables Written                                                               | Logic                                                                                                                                                    |
 | ------------------------------------ | ----------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `write__election_api_db`             | election-api PG         | Place, Race, Candidacy, Issue, Stance, District, Position, Projected_Turnout | FK-safe order. Incremental by `updated_at`. Filters races to 1 day past → 2 years future. Cleans old races + orphaned candidacies.                       |
-| `write__people_api_db`               | people-api PG           | Voter, District, DistrictVoter                                               | State-by-state ascending by row count. Incremental by `updated_at`. Non-prod downsampled to 6 small states (WY, ND, VT, DC, AK, SD). ~375 voter columns. |
+| `write__people_api_db`               | people-db PG            | Voter, District, DistrictVoter                                               | State-by-state ascending by row count. Incremental by `updated_at`. Non-prod downsampled to 6 small states (WY, ND, VT, DC, AK, SD). ~375 voter columns. |
 | `write__l2_databricks_to_gp_api`     | Retired voter datastore | `Voter{STATE}` (per-state tables)                                            | No consumer left in gp-api — pending retirement in gp-data-platform, ahead of the cluster teardown.                                                      |
-| `write__l2_databricks_to_people_api` | people-api PG           | Voter                                                                        | Similar to write\_\_people_api_db, different upsert strategy. Non-prod: WY, ND, VT only. 2-second buffer for microsecond rounding.                       |
+| `write__l2_databricks_to_people_api` | people-db PG            | Voter                                                                        | Similar to write\_\_people_api_db, different upsert strategy. Non-prod: WY, ND, VT only. 2-second buffer for microsecond rounding.                       |
 
 ### District → Voter Mapping Pipeline
 
@@ -617,15 +616,15 @@ L2 voter records in Databricks have 200+ district columns (`City_Ward`, `County`
 1. `m_people_api__district` — unpivots L2 district columns into distinct District records (type + name + state). UUID generated from `(state, type, name)`.
 2. `m_people_api__districtvoter` — creates junction rows linking each voter to their districts based on the L2 column values.
 3. `m_people_api__districtstats` — pre-computes per-district aggregates (total constituents, cell phone counts, demographic buckets) to avoid `COUNT(*)` on 200M+ rows.
-4. `write__people_api_db` — writes all three tables to people-api PG, state-by-state.
+4. `write__people_api_db` — writes all three tables to people-db PG, state-by-state.
 
 **How the app uses districts**:
 
 - **P2V gold flow** sets `L2DistrictType` + `L2DistrictName` on the campaign's PathToVictory record (e.g., `City_Ward` / `OVERLAND CITY WARD 1`)
-- **Contacts** (`findPeople`/`POST /v1/people`, direct people-db or legacy people-api) filters voters by district via DistrictVoter joins
-- **Polls** sample voters from the district via `POST /v1/people/sample`
+- **Contacts** (`findPeople`, in-process people-db access via `src/peopleDb/`) filters voters by district via DistrictVoter joins
+- **Polls** sample voters from the district via `VoterQueryService.samplePeople`
 - **Outreach/P2P** builds phone lists from voters in the district
-- **DistrictStats** powers the contacts stats endpoint (`GET /v1/people/stats`) without scanning the full Voter table
+- **DistrictStats** powers the contacts stats endpoint without scanning the full Voter table
 
 **Sync gap**: District records can be created by newer dbt mart builds independently of the DistrictVoter write. If new districts appear after the last `write__people_api_db` run for a state, those districts will exist with zero voters until re-run. Diagnose by comparing `District.created_at` vs `MAX(DistrictVoter.created_at)` for the state.
 
@@ -710,8 +709,8 @@ On-demand ECS (Lambda-triggered, gp-ai-projects): `serve-analyze-{dev,prod}`, `d
 | `gp-api-pr-*`             | PR previews (ephemeral) | db.serverless                                      |
 | `election-api-db-prod`    | election-api prod       | Serverless v2 (1-64 ACU, 14-day backup)            |
 | `election-api-db-develop` | election-api dev        | Serverless v2 (0.5-64 ACU, 7-day backup)           |
-| `gp-people-db-prod`       | people-api prod         | db.r6g.4xlarge (x2), Performance Insights advanced |
-| `gp-people-db-dev`        | people-api dev          | db.t4g.medium                                      |
+| `gp-people-db-prod`       | gp-api (people-db) prod | db.r6g.4xlarge (x2), Performance Insights advanced |
+| `gp-people-db-dev`        | gp-api (people-db) dev  | db.t4g.medium                                      |
 
 The retired `gp-voter-db*` clusters are not listed — nothing reads them and they are being torn down.
 
@@ -833,7 +832,7 @@ aws ec2 describe-security-groups --filters "Name=vpc-id,Values=<vpc-id>" --query
 | Contentful      | gp-api (CMS), gp-webapp (rich text rendering)                                                    | `CONTENTFUL_SPACE_ID`, `CONTENTFUL_ACCESS_TOKEN` in gp-api .env            |
 | BallotReady     | gp-data-platform (primary election data source via Airbyte + dbt) → election-api                 | `BALLOT_READY_KEY` in gp-api .env; GraphQL API                             |
 | DDHQ            | gp-ai-projects (matcher), gp-data-platform (Airbyte source)                                      | Via Databricks tables                                                      |
-| L2 (voter data) | gp-data-platform → people-api (200M+ voter records)                                              | `L2_DATA_KEY` in gp-api .env; SFTP → S3 → Databricks → PG                  |
+| L2 (voter data) | gp-data-platform → people-db (200M+ voter records)                                               | `L2_DATA_KEY` in gp-api .env; SFTP → S3 → Databricks → PG                  |
 | Databricks      | gp-data-platform (warehouse), gp-ai-projects (read-only queries)                                 | `DATABRICKS_API_KEY`, `DATABRICKS_SERVER_HOSTNAME`, `DATABRICKS_HTTP_PATH` |
 | Gemini AI       | gp-ai-projects (all LLM calls — no OpenAI)                                                       | `GEMINI_API_KEY`                                                           |
 | Anthropic       | gp-ai-projects/engineer_agent (Claude coding agent)                                              | `ANTHROPIC_API_KEY`                                                        |

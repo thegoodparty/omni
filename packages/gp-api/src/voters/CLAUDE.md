@@ -6,16 +6,16 @@ This module does not store the voter file itself — L2 is the source of truth. 
 
 ## Key files
 
-| Path                                  | Purpose                                                                                       |
-| ------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `voters.module.ts`                    | Module wiring; exports `VoterFileService`, `VotersService`, `VoterFileFilterService`          |
-| `voterFile/voterFile.controller.ts`   | HTTP: list/create/update/delete `VoterFileFilter`, voter-file counts + CSV                    |
-| `voterFile/voterFile.service.ts`      | `GET /voters/voter-file` counts/CSV via `ContactsService` → people-db / people-api (ENG-5032) |
-| `services/voters.service.ts`          | L2 API client (counts, demographic breakdowns)                                                |
-| `services/voterFileFilter.service.ts` | Filter persistence + per-campaign filter listing                                              |
-| `services/voterOutreach.service.ts`   | Bridges voter filters to outreach campaigns                                                   |
-| `schemas/`                            | Zod input schemas for filter create/update                                                    |
-| `voters.types.ts`                     | `VoterCounts`, `EthnicityCounts`, `GenderCounts`, `PartisanCounts`, `VoterHistoryColumn`      |
+| Path                                  | Purpose                                                                                  |
+| ------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `voters.module.ts`                    | Module wiring; exports `VoterFileService`, `VotersService`, `VoterFileFilterService`     |
+| `voterFile/voterFile.controller.ts`   | HTTP: list/create/update/delete `VoterFileFilter`, voter-file counts + CSV               |
+| `voterFile/voterFile.service.ts`      | `GET /voters/voter-file` counts/CSV via `ContactsService` → people-db (ENG-5032)         |
+| `services/voters.service.ts`          | L2 API client (counts, demographic breakdowns)                                           |
+| `services/voterFileFilter.service.ts` | Filter persistence + per-campaign filter listing                                         |
+| `services/voterOutreach.service.ts`   | Bridges voter filters to outreach campaigns                                              |
+| `schemas/`                            | Zod input schemas for filter create/update                                               |
+| `voters.types.ts`                     | `VoterCounts`, `EthnicityCounts`, `GenderCounts`, `PartisanCounts`, `VoterHistoryColumn` |
 
 ## Patterns
 

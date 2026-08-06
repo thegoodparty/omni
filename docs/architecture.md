@@ -104,12 +104,11 @@ via `src/peopleDb/` — the sole path, now that the legacy people-api HTTP
 fallback is gone. The raw SQL is an internal gp-api/people-db implementation
 detail, not something gp-webapp talks to.
 
-- **Serve** has been on this People-API path.
+- **Serve** has been on this contacts path from the start.
 - **Win** is now on it too, gated by the `win-voter-data` flag + `campaign.isPro`.
   This replaces the older Win voter-file experience at `dashboard/voter-records/`,
-  which read the pre-People-API `voters.voterFile.*` endpoints. That legacy page is
-  **not removed yet** — it still serves un-migrated Win users until the post-rollout
-  cleanup (ENG-10436). New Win voter work goes through `dashboard/contacts/`.
+  which read the older `voters.voterFile.*` endpoints. That page is now just a
+  redirect stub to `dashboard/contacts/`; all Win voter work goes there.
 
 Adoption of the unified path is measured via the `Contacts` analytics events, which
 carry a `context: 'win' | 'serve'` property. Detail:
