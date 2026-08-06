@@ -29,6 +29,15 @@ const detailResponse = {
   outreachHistory: [],
 }
 
+// Waiting on `isGated` would be the wrong anchor even though it currently works:
+// isGated is `!enabled`, true synchronously on first render, so waitFor resolves
+// on its first check. That check happens to land AFTER the fetch because
+// renderHook wraps mount in act() and React Query starts the request in that
+// flush — verified by removing the gate and watching this test fail. But relying
+// on when act() flushes is fragile, so anchor on an explicit macrotask instead,
+// matching the sibling gate tests.
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+
 describe('useListRowDetail', () => {
   it('fires no request when disabled', async () => {
     const onRequest = vi.fn()
@@ -40,8 +49,9 @@ describe('useListRowDetail', () => {
     const { result } = renderHook(() => useListRowDetail(42, false), {
       wrapper,
     })
+    await flush()
 
-    await waitFor(() => expect(result.current.isGated).toBe(true))
+    expect(result.current.isGated).toBe(true)
     expect(onRequest).not.toHaveBeenCalled()
     expect(result.current.peopleCount).toBeUndefined()
   })
