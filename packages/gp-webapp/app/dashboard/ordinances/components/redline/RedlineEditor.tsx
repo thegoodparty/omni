@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { DeletionMark, InsertionMark } from './redlineMarks'
@@ -54,6 +55,12 @@ export const RedlineEditor = ({
     content: markupToDoc(value),
     onUpdate: ({ editor: e }) => onChange?.(docToMarkup(e.getJSON())),
   })
+
+  // Keep editability in sync with the prop, e.g. the draft locks while the
+  // quality loop runs.
+  useEffect(() => {
+    editor?.setEditable(editable)
+  }, [editor, editable])
 
   return (
     <EditorContent

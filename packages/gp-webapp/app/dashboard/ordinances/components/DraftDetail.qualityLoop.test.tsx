@@ -612,29 +612,32 @@ describe('DraftDetail quality panel (design: refresh only, loop is auto)', () =>
   })
 })
 
-describe('DraftDetail redline preview', () => {
-  it('renders an amendment as redline, with a toggle to raw editing', async () => {
+describe('DraftDetail amendment editor', () => {
+  it('edits an amendment in the tracked-changes editor, not the raw box', async () => {
     render(
       <DraftDetail
         ordinance={makeOrdinance({ draftBody: 'Sec 1. {-old-}{+new+} end.' })}
       />,
     )
 
-    // Amendments open in redline preview: struck deletion, inserted addition.
+    // The redline renders: struck deletion, underlined insertion.
     expect((await screen.findByText('old')).closest('del')).not.toBeNull()
     expect(screen.getByText('new').closest('ins')).not.toBeNull()
 
-    // The toggle drops to the raw editor, which still holds the {-/+} markup.
-    fireEvent.click(screen.getByRole('button', { name: /edit text/i }))
-    expect(bodyEditor().innerText).toContain('{-old-}{+new+}')
+    // The raw contentEditable body is not used for an amendment.
+    expect(
+      screen.queryByRole('textbox', { name: 'Ordinance draft body' }),
+    ).not.toBeInTheDocument()
   })
 
-  it('shows no redline toggle for a plain, non-amendment draft', () => {
+  it('keeps a plain, non-amendment draft in the raw contentEditable', () => {
     render(
       <DraftDetail ordinance={makeOrdinance({ draftBody: 'A plain body.' })} />,
     )
+
     expect(
-      screen.queryByRole('button', { name: /preview redline|edit text/i }),
-    ).not.toBeInTheDocument()
+      screen.getByRole('textbox', { name: 'Ordinance draft body' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('old')).not.toBeInTheDocument()
   })
 })

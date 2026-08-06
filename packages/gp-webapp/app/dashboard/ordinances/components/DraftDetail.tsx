@@ -131,16 +131,25 @@ export default function DraftDetail({
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [status, setStatus] = useState<OrdinanceStatus>(ordinance.status)
   const [exportError, setExportError] = useState<string | null>(null)
-  // The draft body as a plain string for the read-only redline preview, kept in
-  // sync with server reseeds. Editing still happens in the contentEditable
-  // below; this only renders the {-/+} amendment markup as a real redline.
-  const [previewBody, setPreviewBody] = useState(ordinance.draftBody ?? '')
-  // Amendments open in redline preview; the toggle drops to the raw editor.
-  const [redlineView, setRedlineView] = useState(() =>
-    hasRedline(ordinance.draftBody ?? ''),
+  // Amendments — a linked source, or a body already carrying {-/+} markup —
+  // edit in the tracked-changes RedlineEditor instead of the plain
+  // contentEditable, so the user's edits also show as redline.
+  const isAmendment =
+    Boolean(ordinance.sourceLink) || hasRedline(ordinance.draftBody ?? '')
+  // Live markup from the RedlineEditor's onChange; the amendment-path
+  // equivalent of the contentEditable's innerText.
+  const editorBodyRef = useRef(ordinance.draftBody ?? '')
+  // Remounts the editor with server truth on a loop reseed. Changes only then,
+  // not per keystroke, so the caret survives normal typing.
+  const [editorSeed, setEditorSeed] = useState(ordinance.draftBody ?? '')
+  // The current body markup regardless of edit surface, so every save path can
+  // stay identical and the plain contentEditable branch is byte-for-byte
+  // unchanged.
+  const readBody = useCallback(
+    (): string =>
+      isAmendment ? editorBodyRef.current : (bodyRef.current?.innerText ?? ''),
+    [isAmendment],
   )
-  const bodyHasRedline = hasRedline(previewBody)
-  const showRedlinePreview = redlineView && bodyHasRedline
   // Exposure-only read: the draft page IS the treatment surface (loop banner,
   // locked editor, What-changed panel), so mounting it must register Amplitude
   // exposure even though no UI branches on the flag here anymore — the loop
@@ -180,18 +189,27 @@ export default function DraftDetail({
 
   const router = useRouter()
 
-  const seedEditorsFrom = useCallback((next: Ordinance): void => {
-    if (titleRef.current) {
-      titleRef.current.innerText =
-        next.draftTitle ?? next.goalText ?? 'Untitled ordinance'
-    }
-    if (bodyRef.current) bodyRef.current.innerText = next.draftBody ?? ''
-    setPreviewBody(next.draftBody ?? '')
-    // Snapshot the read-back (not the assigned string): the setter/getter
-    // round-trip is the serialization future input events will produce.
-    lastSavedTitleRef.current = titleRef.current?.innerText ?? null
-    lastSavedBodyRef.current = bodyRef.current?.innerText ?? null
-  }, [])
+  const seedEditorsFrom = useCallback(
+    (next: Ordinance): void => {
+      if (titleRef.current) {
+        titleRef.current.innerText =
+          next.draftTitle ?? next.goalText ?? 'Untitled ordinance'
+      }
+      const body = next.draftBody ?? ''
+      if (bodyRef.current) bodyRef.current.innerText = body
+      if (isAmendment) {
+        editorBodyRef.current = body
+        setEditorSeed(body)
+      }
+      // Snapshot the read-back (not the assigned string): the setter/getter
+      // round-trip is the serialization future input events will produce.
+      lastSavedTitleRef.current = titleRef.current?.innerText ?? null
+      lastSavedBodyRef.current = isAmendment
+        ? body
+        : (bodyRef.current?.innerText ?? null)
+    },
+    [isAmendment],
+  )
 
   // Bumped by any user action that changes loop/draft state (stop, restore):
   // a fetch that started before the bump carries a stale snapshot — applying
@@ -357,7 +375,9 @@ export default function DraftDetail({
     // Baseline snapshot of the seeded read-back, so the very first input
     // event can already tell a real edit from a reserialization.
     lastSavedTitleRef.current = titleRef.current?.innerText ?? null
-    lastSavedBodyRef.current = bodyRef.current?.innerText ?? null
+    lastSavedBodyRef.current = isAmendment
+      ? (ordinance.draftBody ?? '')
+      : (bodyRef.current?.innerText ?? null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -413,7 +433,7 @@ export default function DraftDetail({
     if (bodyTimerRef.current) {
       clearTimeout(bodyTimerRef.current)
       bodyTimerRef.current = null
-      const body = bodyRef.current?.innerText ?? ''
+      const body = readBody()
       if (body !== lastSavedBodyRef.current && body.trim().length > 0) {
         lastSavedBodyRef.current = body
         update.draftBody = body
@@ -433,7 +453,7 @@ export default function DraftDetail({
     // transient failure instead of dead-ending (we don't know which field
     // failed, so persist both).
     if (lastSaveFailedRef.current) {
-      const body = bodyRef.current?.innerText ?? ''
+      const body = readBody()
       if (body.trim().length > 0) update.draftBody = body
       const next = titleRef.current?.innerText.trim() ?? ''
       if (next.length > 0) update.draftTitle = next
@@ -447,7 +467,7 @@ export default function DraftDetail({
     if (lastSaveFailedRef.current) {
       throw new Error('Draft could not be saved before running quality checks')
     }
-  }, [save])
+  }, [save, readBody])
 
   // Read innerText only when typing pauses, not on every keystroke (each read
   // forces a synchronous layout reflow). Empty fields are skipped: the contract
@@ -459,7 +479,7 @@ export default function DraftDetail({
     if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current)
     bodyTimerRef.current = setTimeout(() => {
       bodyTimerRef.current = null
-      const body = bodyRef.current?.innerText ?? ''
+      const body = readBody()
       // Reserialized-but-identical text is not an edit: no save, and no
       // draftDirty — flagging it would stale a hash-fresh report the user
       // could only clear with a pointless paid re-grade.
@@ -470,7 +490,17 @@ export default function DraftDetail({
         save({ draftBody: body })
       }
     }, AUTOSAVE_DELAY_MS)
-  }, [save])
+  }, [save, readBody])
+
+  // The RedlineEditor reports its markup here; mirror it and reuse the same
+  // debounced autosave the contentEditable uses.
+  const handleEditorChange = useCallback(
+    (markup: string): void => {
+      editorBodyRef.current = markup
+      onBodyInput()
+    },
+    [onBodyInput],
+  )
 
   const onTitleInput = useCallback((): void => {
     if (loopRunningRef.current) return
@@ -502,7 +532,9 @@ export default function DraftDetail({
       if (bodyTimerRef.current) {
         clearTimeout(bodyTimerRef.current)
         bodyTimerRef.current = null
-        const body = bodyNode?.innerText ?? ''
+        const body = isAmendment
+          ? editorBodyRef.current
+          : (bodyNode?.innerText ?? '')
         if (body !== lastSavedBodyRef.current && body.trim().length > 0) {
           lastSavedBodyRef.current = body
           update.draftBody = body
@@ -519,7 +551,7 @@ export default function DraftDetail({
       }
       if (Object.keys(update).length > 0) save(update)
     }
-  }, [save])
+  }, [save, isAmendment])
 
   // Position the ask/flag toolbar at the selection inside the draft body.
   // Recompute on selection change and on scroll of the editor's overflow
@@ -751,41 +783,27 @@ export default function DraftDetail({
               onInput={onTitleInput}
               className="mb-4 text-xl font-bold text-foreground outline-none"
             />
-            {bodyHasRedline ? (
-              <div className="mb-2 flex justify-end">
-                <Button
-                  variant="ghost"
-                  size="small"
-                  onClick={() => {
-                    if (redlineView) {
-                      setRedlineView(false)
-                    } else {
-                      setPreviewBody(bodyRef.current?.innerText ?? previewBody)
-                      setRedlineView(true)
-                    }
-                  }}
-                >
-                  {redlineView ? 'Edit text' : 'Preview redline'}
-                </Button>
-              </div>
-            ) : null}
-            {showRedlinePreview ? (
-              <RedlineEditor value={previewBody} editable={false} />
-            ) : null}
-            <div
-              ref={bodyRef}
-              contentEditable={!loopRunning}
-              suppressContentEditableWarning
-              role="textbox"
-              aria-multiline="true"
-              aria-label="Ordinance draft body"
-              aria-readonly={loopRunning ? 'true' : undefined}
-              onInput={onBodyInput}
-              className={cn(
-                'min-h-40 whitespace-pre-wrap text-base leading-relaxed text-foreground outline-none',
-                showRedlinePreview && 'hidden',
-              )}
-            />
+            {isAmendment ? (
+              <RedlineEditor
+                key={editorSeed}
+                value={editorSeed}
+                editable={!loopRunning}
+                suggesting
+                onChange={handleEditorChange}
+              />
+            ) : (
+              <div
+                ref={bodyRef}
+                contentEditable={!loopRunning}
+                suppressContentEditableWarning
+                role="textbox"
+                aria-multiline="true"
+                aria-label="Ordinance draft body"
+                aria-readonly={loopRunning ? 'true' : undefined}
+                onInput={onBodyInput}
+                className="min-h-40 whitespace-pre-wrap text-base leading-relaxed text-foreground outline-none"
+              />
+            )}
             <QualityReport
               key={loopReport?.ranAgainstBodyHash ?? 'no-report'}
               slug={ordinance.slug}
