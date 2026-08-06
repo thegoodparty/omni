@@ -26,7 +26,7 @@ export interface AudienceState {
   audience_likelyVoters?: boolean
   audience_unreliableVoters?: boolean
   audience_unlikelyVoters?: boolean
-  audience_firstTimeVoters?: boolean
+  audience_unknown?: boolean
   party_independent?: boolean
   party_democrat?: boolean
   party_republican?: boolean

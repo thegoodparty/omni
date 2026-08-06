@@ -104,11 +104,9 @@ jobs:
           set -euo pipefail
           # Workflow runs whose green-ness gates a prod ship. These have no path
           # filters, so they run on every main push. E2E lives inside gp-webapp.yml.
-          REQUIRED="gp-api.yml election-api.yml gp-webapp.yml gp-admin.yml candidate-sites.yml"
-          # Path-filtered: publish-experiments only runs when a commit touches
-          # experiment files, so most commits produce no run for it. Gate on it
-          # only when a run actually exists; a missing run is not a blocker.
-          CONDITIONAL="publish-experiments.yml"
+          # Every workflow here runs on every push to main (none is path-filtered),
+          # so each has a run for the commit. E2E lives inside gp-webapp.yml.
+          REQUIRED="gp-api.yml election-api.yml gp-webapp.yml gp-admin.yml candidate-sites.yml publish-experiments.yml"
           # Budget must exceed a slow-but-healthy E2E path: E2E Wait (45m job
           # timeout) + shards (30m) + summary (15m). 120m clears it with margin.
           DEADLINE=$(( $(date +%s) + 120*60 ))
@@ -127,16 +125,13 @@ jobs:
 
             pending=0
             failed=""
-            for wf in $REQUIRED $CONDITIONAL; do
+            for wf in $REQUIRED; do
+              # `// empty` so a not-yet-registered run yields an empty string (not
+              # base64 of a null-valued object), so the no-run guard below fires.
               run=$(gh api "repos/$REPO/actions/workflows/$wf/runs?head_sha=$SHA&event=push&per_page=1" \
-                --jq '.workflow_runs[0] | {status, conclusion} | @base64' 2>/dev/null || echo "")
-              if [ -z "$run" ] || [ "$run" = "null" ]; then
-                # No run for this commit. Required workflows always run, so keep
-                # waiting; a path-filtered CONDITIONAL one legitimately never ran.
-                case " $CONDITIONAL " in
-                  *" $wf "*) continue ;;
-                  *) pending=$((pending+1)); continue ;;
-                esac
+                --jq '.workflow_runs[0] // empty | {status, conclusion} | @base64' 2>/dev/null || echo "")
+              if [ -z "$run" ]; then
+                pending=$((pending+1)); continue # run not registered yet — keep waiting
               fi
               decoded=$(echo "$run" | base64 --decode)
               status=$(echo "$decoded" | jq -r '.status')

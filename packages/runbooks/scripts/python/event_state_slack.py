@@ -199,12 +199,22 @@ def build_gap_thread_blocks(gap: dict) -> list[dict]:
     ) if b]
     if links:
         blocks.append(_context(" · ".join(links)))
-    # run_date is omitted only for older payloads that predate the field, so triage
-    # still works untargeted (defaults to the latest run) rather than erroring.
-    run_date = gap.get("run_date")
-    triage = f"🛠 Triage: `/triage-instrumentation-gaps{(' ' + run_date) if run_date else ''}`"
-    blocks.append(_context(triage))
     return blocks
+
+
+def build_triage_invocation(result: dict, gap: dict | None) -> str | None:
+    """Copy-ready `/triage-instrumentation-gaps` line (DATA-2152). The skill reviews two
+    queues — new instrumentation gaps AND watchlist proposals — so the entry point renders
+    whenever either has work. It used to live inside the gaps thread block, which is
+    skipped entirely on a no-new-gaps run, hiding it exactly when the proposal queue is
+    the whole backlog (the 2026-08-05 first-run regression). run_date prefers the gap
+    payload, falling back to the health result, and is omitted only for older payloads
+    that predate both — triage then runs untargeted (defaults to the latest run)."""
+    proposals = result.get("proposals") or []
+    if not gap_has_news(gap) and not proposals:
+        return None
+    run_date = (gap or {}).get("run_date") or result.get("run_date")
+    return f"🛠 Triage: `/triage-instrumentation-gaps{(' ' + str(run_date)) if run_date else ''}`"
 
 
 def should_post(
@@ -425,6 +435,9 @@ def build_digest_blocks(
     if gap is not None:
         parent.append(_context(build_gap_summary_line(gap)))
         thread.extend(build_gap_thread_blocks(gap))
+    triage_line = build_triage_invocation(result, gap)
+    if triage_line:
+        thread.append(_context(triage_line))
 
     return parent, thread
 
@@ -501,6 +514,9 @@ def _build_tiered_blocks(
         thread.append(_section("No additional detail."))
     if gap is not None:
         thread.extend(build_gap_thread_blocks(gap))
+    triage_line = build_triage_invocation(result, gap)
+    if triage_line:
+        thread.append(_context(triage_line))
     return parent, thread
 
 

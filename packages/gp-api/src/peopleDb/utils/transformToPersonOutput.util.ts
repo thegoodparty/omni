@@ -127,7 +127,6 @@ const VOTER_STATUS_VALUES = [
   'Likely',
   'Unreliable',
   'Unlikely',
-  'First Time',
 ] as const satisfies ReadonlyArray<
   NonNullable<PersonOutputFormat['voterStatus']>
 >

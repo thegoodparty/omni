@@ -130,7 +130,7 @@ describe('POST /v1/contacts/count — Voter Likelihood override resolution', () 
     })
   })
 
-  it('a person overridden to Super still appears in a Super-filtered count, absent from an Unlikely-filtered one — including the seed-Unreliable expansion', async () => {
+  it('a person overridden to Super still appears in a Super-filtered count, absent from an Unlikely-filtered one', async () => {
     const slug = await setupWinProOrg('seed-mismatch')
     const overriddenPersonId = randomUUID()
     await setOverride(slug, overriddenPersonId, 'super')
@@ -142,20 +142,20 @@ describe('POST /v1/contacts/count — Voter Likelihood override resolution', () 
       { headers: { [ORG_SLUG_HEADER]: slug } },
     )
     const dto = findPeopleSpy.mock.calls[0]?.[0]
-    // The seed side of the filter is corrected to include the collapsed
-    // Unreliable seed value alongside Unlikely (ENG-10838's fix), and the
-    // Super-overridden person is excluded despite never matching either seed
-    // value in the first place — proves exclude is populated from the
-    // override table, not derived from "would the seed filter have matched".
+    // The seed side of the filter is a straight one-to-one 'Unlikely' match
+    // now that Unreliable has its own member (no more expand-to-the-
+    // collapsed-seed-values fix), and the Super-overridden person is
+    // excluded despite never matching that seed value in the first place —
+    // proves exclude is populated from the override table, not derived from
+    // "would the seed filter have matched".
     expect(dto?.filters.filterOperators.voterStatus).toEqual({
-      operator: 'in',
-      values: ['Unlikely', 'Unreliable'],
-      includeNull: false,
+      operator: 'eq',
+      value: 'Unlikely',
     })
     expect(dto?.idOverrides).toEqual({ exclude: [overriddenPersonId] })
   })
 
-  it('a person with no override is unaffected — no idOverrides sent, seed filter still expands Unlikely to include Unreliable', async () => {
+  it('a person with no override is unaffected — no idOverrides sent, seed filter matches only Unlikely', async () => {
     const slug = await setupWinProOrg('no-override')
     const findPeopleSpy = spyOnFindPeople()
 
@@ -167,9 +167,8 @@ describe('POST /v1/contacts/count — Voter Likelihood override resolution', () 
 
     const dto = findPeopleSpy.mock.calls[0]?.[0]
     expect(dto?.filters.filterOperators.voterStatus).toEqual({
-      operator: 'in',
-      values: ['Unlikely', 'Unreliable'],
-      includeNull: false,
+      operator: 'eq',
+      value: 'Unlikely',
     })
     expect(dto?.idOverrides).toBeUndefined()
   })

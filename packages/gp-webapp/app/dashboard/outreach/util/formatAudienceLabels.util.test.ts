@@ -60,11 +60,11 @@ describe('formatAudienceLabels', () => {
   it('mixes audience, party, and age labels in key order', () => {
     expect(
       formatAudienceLabels({
-        audienceFirstTimeVoters: true,
+        audienceUnknown: true,
         partyIndependent: true,
         age65Plus: true,
         genderFemale: true,
       }),
-    ).toEqual(['First Time', 'Independent', '65+', 'Female'])
+    ).toEqual(['Unknown Voters', 'Independent', '65+', 'Female'])
   })
 })

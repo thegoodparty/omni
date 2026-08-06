@@ -1,9 +1,9 @@
 variable "environment" {
-  description = "Environment (dev/qa/prod)"
+  description = "Environment (dev/prod)"
   type        = string
   validation {
-    condition     = contains(["dev", "qa", "prod"], var.environment)
-    error_message = "Environment must be 'dev', 'qa', or 'prod'."
+    condition     = contains(["dev", "prod"], var.environment)
+    error_message = "Environment must be 'dev' or 'prod'."
   }
 }
 

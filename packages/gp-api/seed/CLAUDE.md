@@ -28,7 +28,7 @@ Entry point is `seed/seed.ts`. `npm run migrate:reset` invokes it after wiping t
 
 ## Patterns
 
-- **CSV seeds run unconditionally in dev/qa/prod**; factory seeds run only with `NODE_ENV=development` and `SKIP_MTFCC_SEED=true`. This prevents fake users from leaking into hosted envs.
+- **CSV seeds run unconditionally in dev/prod**; factory seeds run only with `NODE_ENV=development` and `SKIP_MTFCC_SEED=true`. This prevents fake users from leaking into hosted envs.
 - **Factories return Prisma create input**, not saved rows. The caller decides whether to `create` or batch.
 - **`fixedCampaigns.json`** holds known IDs/slugs used by tests and demo flows — treat it as a contract, not a sample. Adding a campaign here is a code change, not a data change.
 - **Scenarios are CLI-arg driven**: `seed/scenarios.ts <name>`. Add a new branch in the `switch` instead of adding a new file when possible.
@@ -36,6 +36,8 @@ Entry point is `seed/seed.ts`. `npm run migrate:reset` invokes it after wiping t
 ## Gotchas
 
 - **`IS_PREVIEW=true`** flips the seed path: factory seeds run even in production-mode containers so PR preview envs have data. Don't put expensive seeds in the factory path without checking the preview impact.
+- **A preview database is seeded once, not once per boot.** `docker-entrypoint.sh` runs the seed on every container start, but `gpdb_pr_<n>` survives redeploys on the shared cluster, so `seed.ts` returns early when campaigns already exist. The factory seeds are not idempotent (campaigns collide on `slug`), so if you need them to re-run against a live preview, drop the database rather than making the seed upsert-everything.
+- **Seeded emails must be Clerk-registrable.** `ensureClerkUser` creates real Clerk users, and Clerk rejects unroutable TLDs like `.local` with a 422. Use `@example.com`; avoid `@test.goodparty.org`, which the `deleteTestUsers` cron sweeps from both the DB and Clerk after 24h.
 - **`getTypeArg()` parses `process.argv`** — running `seed.ts` programmatically from another script needs to set `argv` carefully or call helpers directly.
 - **Contentful seed depends on live API access.** It'll silently no-op if creds are missing; check the logs if your local DB is missing CMS-derived rows.
 - **CSV files in `data/` are large** and committed to git — don't regenerate them casually. They're authoritative reference data, not derived.

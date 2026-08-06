@@ -856,7 +856,7 @@ The `serve` directory implements a **production-ready, serverless, cost-optimize
 ✅ **Cost-effective** - ARM64 Graviton saves 20%, ~$15-20/month for 300 runs (we could probably switch down to spot to save more, since these are not time sensitive and if they are )
 ✅ **Secure** - Private subnets, Secrets Manager, encrypted S3, IAM least privilege
 ✅ **Scalable** - Fargate auto-scales, no server management
-✅ **Infrastructure as Code** - Terraform for all environments (dev/qa/prod)
+✅ **Infrastructure as Code** - Terraform for all environments (dev/prod)
 ✅ **Research-to-Production** - Modular adapter pattern for swapping algorithms
 
 The architecture supports both **research** (local development) and **production** (ECS Fargate) workflows with the same Docker container, ensuring consistency across environments.

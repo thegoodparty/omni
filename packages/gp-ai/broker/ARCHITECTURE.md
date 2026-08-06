@@ -48,7 +48,7 @@ The broker is the **only** TCP destination the runner can reach for application 
 
 | Stack | What it owns | Scope |
 |---|---|---|
-| `environments/dev/pmf-vpc-endpoints` | ECR api/dkr + CloudWatch Logs interface endpoints, S3 gateway endpoint, `pmf-vpce-sg`. | **Shared across all PMF envs** in the same VPC — one ~$44/mo bill covers dev/qa/prod. |
+| `environments/dev/pmf-vpc-endpoints` | ECR api/dkr + CloudWatch Logs interface endpoints, S3 gateway endpoint, `pmf-vpce-sg`. | **Shared across all PMF envs** in the same VPC — one ~$44/mo bill covers dev/prod. |
 | `environments/dev/broker` | Broker ECS cluster/service/task-def, public ACM cert + Route53 ALIAS at `broker-{env}.ai.goodparty.org`, DynamoDB scope tickets table, `broker-*` + `broker-service-tokens-*` secrets, broker task role (DynamoDB + S3 + SQS + Logs), broker SG, alarms. | Per env. |
 | `environments/dev/pmf-engine-fargate` | Runner ECS cluster + task definition, empty task role, quarantined agent SG with 3 narrow egress rules, SNS failure topic wired to Slack. | Per env. |
 | `environments/dev/pmf-engine-control-plane` | Dispatch Lambda (VPC-attached), dispatch + results SQS queues, S3 artifacts bucket, dispatch Lambda SG. | Per env. |
@@ -225,6 +225,6 @@ Note: runner → broker traffic inside the VPC is HTTP (no TLS). Not a leak — 
 1. **Image tagging for CI.** Current manual `docker build && docker push` is fine for dev iteration. QA/prod need CI-driven tagging (e.g. `broker-{env}-{commit_sha}` with service redeployment).
 2. **Braintrust tracing.** Done (PR #119): per-run traces route through the broker's `/braintrust` proxy (two legs — `app`→www.braintrust.dev, `api`→api.braintrust.dev). The broker swaps the run scope-ticket for the real Braintrust key and tags requests to per-env `pmf-engine-{env}` projects, so the runner never holds Braintrust creds and the quarantine is preserved.
 3. **gp-api integration.** Done: dispatch-error callbacks now route to the gp-api results queue (`{branch}-Queue.fifo`) and the standalone `agent-results-{env}.fifo` has been retired. Remaining experiment endpoint schema work is tracked separately.
-4. **Dedicated PMF VPC (Phase 3 hardening).** Move PMF to its own VPC so Route53 DNS Firewall can attach with a block-all-except-broker rule. Not blocking for dev/qa/prod MVP.
+4. **Dedicated PMF VPC (Phase 3 hardening).** Move PMF to its own VPC so Route53 DNS Firewall can attach with a block-all-except-broker rule. Not blocking for dev/prod MVP.
 5. **SSRF hardening (batch 1b).** `broker/endpoints/http_fetch.py` does SSRF URL validation via `getaddrinfo` then lets httpx re-resolve — DNS rebinding window. Pending: resolve once, pin to safe IP via custom httpx resolver. IPv4-mapped IPv6 (`::ffff:169.254.169.254`) is already handled (`ssrf_guard.py` `reject_if_private` unwraps `ip.ipv4_mapped`; covered by tests).
 6. **Secret split.** Broker secret currently holds all 6 API keys + `SERVICE_TOKEN_HASH` in one ARN. Splitting `SERVICE_TOKEN_HASH` into its own secret narrows blast radius if the broker container ever leaks its env.

@@ -9,8 +9,13 @@ permissions:
   contents: read
   id-token: write
 
+# Scoped per-PR only. On main this resolves to github.run_id — unique per run,
+# so pushes never serialize here: validate shares no state across commits, and a
+# shared group made every merge wait a full CI cycle for the previous one before
+# it even checked out. Deploys are still serialized, by the deploy job's own
+# election-api-deploy-<ref> group.
 concurrency:
-  group: election-api-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: election-api-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: false
 
 env:

@@ -237,7 +237,6 @@ export interface VoterFileFilters {
   audienceLikelyVoters?: boolean
   audienceUnreliableVoters?: boolean
   audienceUnlikelyVoters?: boolean
-  audienceFirstTimeVoters?: boolean
   audienceUnknown?: boolean
   partyIndependent?: boolean
   partyDemocrat?: boolean

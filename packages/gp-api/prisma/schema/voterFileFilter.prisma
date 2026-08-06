@@ -8,7 +8,6 @@ model VoterFileFilter {
   audienceLikelyVoters       Boolean?                           @default(false) @map("audience_likely_voters")
   audienceUnreliableVoters   Boolean?                           @default(false) @map("audience_unreliable_voters")
   audienceUnlikelyVoters     Boolean?                           @default(false) @map("audience_unlikely_voters")
-  audienceFirstTimeVoters    Boolean?                           @default(false) @map("audience_first_time_voters")
   audienceUnknown            Boolean?                           @default(false) @map("audience_unknown")
   partyIndependent           Boolean?                           @default(false) @map("party_independent")
   partyDemocrat              Boolean?                           @default(false) @map("party_democrat")

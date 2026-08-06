@@ -49,9 +49,9 @@ export const SnackbarProvider = ({ children }: { children: ReactNode }) => {
       if (isError) {
         toast.error(message, options)
       } else {
-        // Plain toast() — the styleguide card is title + description with no
-        // icon and no richColors fill (see Sonner.stories.tsx).
-        toast(message, options)
+        // Success variant adds a check icon; the green accent is applied via
+        // the Toaster's toastOptions below so the card stays neutral/opaque.
+        toast.success(message, options)
       }
     },
     [],
@@ -74,6 +74,13 @@ export const SnackbarProvider = ({ children }: { children: ReactNode }) => {
         mobileOffset={
           hasFooterChatBar ? CRM_ASSISTANT_BAR_CLEARANCE : undefined
         }
+        toastOptions={{
+          classNames: {
+            // Make success confirmations read as clearly positive: a green
+            // left accent + tinted check icon, keeping the card neutral.
+            success: 'border-l-2 border-l-success [&_[data-icon]]:text-success',
+          },
+        }}
       />
     </SnackbarContext.Provider>
   )

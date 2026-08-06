@@ -36,6 +36,7 @@ import {
 } from '../schemas/PersonProfileRemoval.schema'
 import { PersonProfilesService } from '../services/person-profiles.service'
 import { MarketingRevalidationService } from '../services/marketing-revalidation.service'
+import { PersonIdBackfillService } from '../services/person-id-backfill.service'
 import { recordProfileMutation } from '../observability/person-profiles.metrics'
 
 // Upper bound for an avatar/cover upload. The interceptor buffers the file in
@@ -54,6 +55,7 @@ export class PersonProfilesController {
     private readonly personProfilesService: PersonProfilesService,
     private readonly revalidation: MarketingRevalidationService,
     private readonly s3: S3Service,
+    private readonly personIdBackfill: PersonIdBackfillService,
   ) {}
 
   private requireUser(user: User | undefined): User {
@@ -69,9 +71,16 @@ export class PersonProfilesController {
   async getMine(@ReqUser() user: User) {
     const owner = this.requireUser(user)
     const profile = await this.personProfilesService.findByUserId(owner.id)
+    // Lazily unlock the editor: if the user has no personId yet, best-effort
+    // pull the civics link from election-api and backfill User.person_id. This
+    // never throws and is a graceful no-op (returns null) until the data
+    // platform populates the linkage — so canCreate is identical to today when
+    // the election-api column is empty.
+    const personId =
+      owner.personId ?? (await this.personIdBackfill.linkUserIfMissing(owner))
     // canCreate tells the editor whether the person is known to the civics
     // graph yet (i.e. whether POST would succeed).
-    return { profile, canCreate: Boolean(owner.personId) }
+    return { profile, canCreate: Boolean(personId) }
   }
 
   @Post()

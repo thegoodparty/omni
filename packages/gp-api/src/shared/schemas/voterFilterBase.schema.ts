@@ -11,7 +11,6 @@ export const voterFilterBaseSchema = z.object({
   audienceLikelyVoters: z.boolean().optional(),
   audienceUnreliableVoters: z.boolean().optional(),
   audienceUnlikelyVoters: z.boolean().optional(),
-  audienceFirstTimeVoters: z.boolean().optional(),
   audienceUnknown: z.boolean().optional(),
   partyIndependent: z.boolean().optional(),
   partyDemocrat: z.boolean().optional(),

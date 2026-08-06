@@ -96,13 +96,7 @@ describe('politicalParty.rules table', () => {
 
 describe('mapVoterStatus', () => {
   it('passes through every known voterStatus value', () => {
-    for (const value of [
-      'Super',
-      'Likely',
-      'Unreliable',
-      'Unlikely',
-      'First Time',
-    ]) {
+    for (const value of ['Super', 'Likely', 'Unreliable', 'Unlikely']) {
       expect(mapVoterStatus(value)).toBe(value)
     }
   })

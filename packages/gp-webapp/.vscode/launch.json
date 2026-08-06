@@ -4,20 +4,6 @@
 		{
 			"type": "node",
 			"request": "launch",
-			"name": "Run Playwright QA Tests",
-			"program": "${workspaceFolder}/e2e-tests/node_modules/@playwright/test/cli.js",
-			"args": ["test", "--project=QA"],
-			"cwd": "${workspaceFolder}/e2e-tests",
-			"env": {
-				"BASE_URL": "https://qa.goodparty.org",
-				"PROJECT_ENV": "qa"
-			},
-			"console": "integratedTerminal",
-			"internalConsoleOptions": "neverOpen"
-		},
-		{
-			"type": "node",
-			"request": "launch",
 			"name": "Run Playwright Default Tests",
 			"program": "${workspaceFolder}/e2e-tests/node_modules/@playwright/test/cli.js",
 			"args": ["test"],

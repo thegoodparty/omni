@@ -22,6 +22,14 @@ describe('voterFileFilterToAudience', () => {
     expect(audience).toEqual({ gender_unknown: true })
   })
 
+  it('maps audienceUnknown to the audience_unknown filter', async () => {
+    const audience = await service.voterFileFilterToAudience(
+      filter({ audienceUnknown: true }),
+    )
+
+    expect(audience).toEqual({ audience_unknown: true })
+  })
+
   it('maps partyOther to the party_other filter', async () => {
     const audience = await service.voterFileFilterToAudience(
       filter({ partyOther: true }),

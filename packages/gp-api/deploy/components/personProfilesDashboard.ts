@@ -5,7 +5,7 @@
 // underscores, counters get a _total suffix, the ms histogram gets
 // _milliseconds_{bucket,sum,count}).
 export interface PersonProfilesDashboardConfig {
-  environment: 'dev' | 'qa' | 'prod'
+  environment: 'dev' | 'prod'
   promDatasourceUid: string
 }
 

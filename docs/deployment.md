@@ -25,6 +25,28 @@ newer ones within a concurrency group, so rapid pushes don't pile up — the
 trade-off is only that an in-flight stale run finishes before the newest one
 starts.
 
+### Serialize deploys, not checks
+
+Workflow-level concurrency groups are scoped **per PR only**. On `main` they key
+off `github.run_id`, which is unique per run, so pushes to `main` never share a
+group at workflow level. Serialization on `main` happens at the **deploy job**
+(`gp-api-deploy-<ref>`, `election-api-deploy-<ref>`) — the only part that touches
+shared state (ECR tags, one Pulumi stack, one ECS service).
+
+This matters for how fast a commit reaches prod. Lint, typecheck, and tests share
+nothing across commits, so a workflow-level group on `main` bought no safety and
+cost real time: a second merge sat fully idle — no checkout, no jobs — until the
+first commit's entire run finished, then paid its own full cycle. That turned the
+delay a close merge imposes on the earlier commit from "the gap between the two
+merges" into "one whole CI cycle" (~20 min, observed 2026-08-05). Since prod
+promotion waits on dev checks going green, that delay lands on the promotion too.
+
+The coalescing behavior is unchanged and intentional: when two commits land close
+together, the older one's deploy job is superseded while pending and the newer
+commit ships both (`main` is linear, so the older commit's code is already in the
+newer tree). `gp-webapp.yml`'s "Wait for gp-api deploy" step and `promote.yml`'s
+gate both detect that case and skip cleanly rather than failing.
+
 ## Frontends (Vercel)
 
 gp-webapp, gp-admin, and candidate-sites deploy to Vercel imperatively via the

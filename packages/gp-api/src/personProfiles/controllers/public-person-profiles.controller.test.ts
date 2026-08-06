@@ -290,6 +290,7 @@ describe('POST /v1/public-person-profiles/claim-request', () => {
       personId: PERSON_ID,
       requesterEmail: EMAIL,
       requesterName: 'Curious Voter',
+      marketingConsent: true,
     })
 
     expect(res.status).toBe(201)
@@ -304,6 +305,8 @@ describe('POST /v1/public-person-profiles/claim-request', () => {
     })
     expect(stored?.requesterEmail).toBe(EMAIL)
     expect(stored?.requesterName).toBe('Curious Voter')
+    // The opt-in checkbox value is recorded verbatim.
+    expect(stored?.marketingConsent).toBe(true)
   })
 
   it('persists a claim request with just an email (name optional)', async () => {
@@ -317,6 +320,8 @@ describe('POST /v1/public-person-profiles/claim-request', () => {
       where: { personId: PERSON_ID },
     })
     expect(stored?.requesterName).toBeNull()
+    // Absent consent defaults to opted out (no marketing).
+    expect(stored?.marketingConsent).toBe(false)
   })
 
   it('400s on a missing email', async () => {

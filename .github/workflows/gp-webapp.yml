@@ -196,10 +196,11 @@ jobs:
           IS_PUSH: ${{ github.event_name == 'push' }}
         run: |
           # On main, gp-api's deploy concurrency group (gp-api-deploy-main)
-          # serializes deploys and drops the older *pending* run when a newer
+          # serializes deploys and drops the older *pending* one when a newer
           # push queues. So a rapid second merge can cancel the first commit's
-          # gp-api deploy run (cancelled while pending => the run has no Deploy
-          # job at all), and the edge ends up serving the newer commit. Neither
+          # gp-api Deploy job (cancelled while pending => that job, and so its
+          # run, concludes cancelled), and the edge ends up serving the newer
+          # commit — which is why both conclusions are checked below. Neither
           # is a real failure for the older commit: the newer commit's gp-api
           # deploy + E2E cover the current dev stack. Detect that "superseded"
           # case and skip cleanly instead of hard-failing. A genuinely failed

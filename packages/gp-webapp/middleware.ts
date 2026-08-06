@@ -10,7 +10,7 @@ const isPublicRoute = createRouteMatcher([
   '/sign-up(.*)',
   '/impersonate(.*)',
   // Dev-only local briefing gallery. Both the page and its API route hard-return
-  // 404 when NODE_ENV !== 'development', so they never exist in dev/qa/prod; making
+  // 404 when NODE_ENV !== 'development', so they never exist in dev/prod; making
   // them public only affects local runs (Clerk is keyless locally, so gating them
   // behind auth just blocks the tool with no security benefit).
   '/dev/(.*)',

@@ -11,7 +11,7 @@ LOCAL_IMAGE="engineer-agent"
 TAG="${1:-latest}"
 
 case "$TAG" in
-  main|master|prod|qa|dev|release)
+  main|master|prod|dev|release)
     ECR_TAG="engineer-agent-${TAG}"
     echo -e "${GREEN}Environment tag detected: ${YELLOW}${ECR_TAG}${NC} (never expires)${NC}"
     ;;

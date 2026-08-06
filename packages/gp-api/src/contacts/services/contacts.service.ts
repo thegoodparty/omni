@@ -103,20 +103,16 @@ export const PRO_FILTERING_REQUIRED_MESSAGE =
 // list is scoped to the CRM download (downloadContacts) below (ENG-10830).
 const PARTY_DOWNLOAD_COLUMN = 'Parties_Description'
 
-// people-api's Voter_Status seed vocabulary has six values; the editable
-// voter-likelihood vocabulary (ENG-10833) has five, so `Unreliable` needs a
-// mapping decision. `unlikely` is the recommendation the ticket shipped with
-// (keeps the five-value UI intact) — a product default, not yet confirmed
-// with Nigel/product; this map is the one line to change if that flips.
+// people-api's Voter_Status vocabulary and the editable voter-likelihood
+// vocabulary (ENG-10833) are one-to-one.
 const VOTER_LIKELIHOOD_SEED_MAP: Record<
   NonNullable<PersonOutput['voterStatus']>,
   VoterLikelihood
 > = {
   Super: 'super',
   Likely: 'likely',
-  Unreliable: 'unlikely',
+  Unreliable: 'unreliable',
   Unlikely: 'unlikely',
-  'First Time': 'first_time',
 }
 
 const seedVoterLikelihood = (
@@ -135,23 +131,19 @@ const seedVoterLikelihood = (
 const SEED_VOTER_STATUS_TO_LIKELIHOOD: Record<string, VoterLikelihood> = {
   Super: 'super',
   Likely: 'likely',
-  Unreliable: 'unlikely',
+  Unreliable: 'unreliable',
   Unlikely: 'unlikely',
-  'First Time': 'first_time',
   Unknown: 'unknown',
 }
 
 // The inverse: an override-vocabulary value expands to every seed value that
-// displays as that bucket absent an override. 'unlikely' expands to BOTH
-// seed values it collapses (Unlikely + Unreliable) — this is what makes the
-// filter's seed side agree with what a no-override person's own record
-// displays; selecting just "Unlikely" in the wizard today misses real
-// Unreliable-seed rows.
+// displays as that bucket absent an override. One-to-one since Unreliable
+// gained its own member.
 const VOTER_LIKELIHOOD_TO_SEED_VALUES: Record<VoterLikelihood, string[]> = {
   super: ['Super'],
   likely: ['Likely'],
-  unlikely: ['Unlikely', 'Unreliable'],
-  first_time: ['First Time'],
+  unreliable: ['Unreliable'],
+  unlikely: ['Unlikely'],
   unknown: ['Unknown'],
 }
 
@@ -361,18 +353,18 @@ export class ContactsService {
       return { filters }
     }
 
-    // Expand the selection back out to every seed value it collapses (the
-    // 'unlikely' -> [Unlikely, Unreliable] fix) so the seed side of the
+    // Map the selection back to its seed value(s) so the seed side of the
     // filter agrees with what a no-override person's own record displays.
-    const expandedSeedValues = [...selected].flatMap(
+    // One-to-one since Unreliable gained its own member.
+    const selectedSeedValues = [...selected].flatMap(
       (value) => VOTER_LIKELIHOOD_TO_SEED_VALUES[value],
     )
     const updatedFilters: FilterObject = {
       ...filters,
       voterStatus:
-        expandedSeedValues.length === 1
-          ? { eq: expandedSeedValues[0] }
-          : { in: expandedSeedValues },
+        selectedSeedValues.length === 1
+          ? { eq: selectedSeedValues[0] }
+          : { in: selectedSeedValues },
     }
 
     const excludedValues = VoterLikelihoodSchema.options.filter(
