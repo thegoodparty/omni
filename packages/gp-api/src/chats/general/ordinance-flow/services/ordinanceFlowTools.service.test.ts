@@ -293,6 +293,7 @@ describe('OrdinanceFlowToolsService', () => {
       sourceUrl: 'https://library.municode.com/nc/hendersonville/ch12',
       chapterLabel: 'Chapter 12, Public Safety Surveillance',
       text: 'Allows cameras in public rights-of-way; no retention limit.',
+      verbatimText: 'Sec. 12-1. Cameras may be installed in public places.',
     })
     const read = await tools.readSection(
       ordinanceId,
@@ -303,6 +304,7 @@ describe('OrdinanceFlowToolsService', () => {
       sourceUrl: 'https://library.municode.com/nc/hendersonville/ch12',
       chapterLabel: 'Chapter 12, Public Safety Surveillance',
       text: 'Allows cameras in public rights-of-way; no retention limit.',
+      verbatimText: 'Sec. 12-1. Cameras may be installed in public places.',
     })
     const law = read.currentLaw as { fetchedAt: string }
     expect(new Date(law.fetchedAt).getTime()).not.toBeNaN()

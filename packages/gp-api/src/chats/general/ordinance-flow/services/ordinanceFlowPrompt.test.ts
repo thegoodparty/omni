@@ -468,6 +468,8 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(updating).toContain('UPDATING AN EXISTING ORDINANCE')
     // The update rule reuses the same redline markup the draft step expects.
     expect(updating).toContain('{-struck old text-}{+inserted new text+}')
+    // ...and captures the verbatim current law as the redline baseline.
+    expect(updating).toContain('verbatimText')
 
     const fromScratch = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx({ step: 'current_law', sourceLink: null }),

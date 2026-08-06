@@ -270,7 +270,12 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
   async saveExistingLaw(
     ordinanceId: string,
     electedOfficeId: string,
-    law: { sourceUrl: string; chapterLabel?: string; text: string },
+    law: {
+      sourceUrl: string
+      chapterLabel?: string
+      text: string
+      verbatimText?: string
+    },
   ): Promise<{ saved: true }> {
     const o = await this.findOwned(ordinanceId, electedOfficeId)
     const existingLaw = OrdinanceExistingLawSchema.parse({
