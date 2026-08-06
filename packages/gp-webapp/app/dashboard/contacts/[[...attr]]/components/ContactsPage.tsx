@@ -24,7 +24,7 @@ export default function ContactsPage() {
     isCustomSegment,
     searchTerm,
     totalSegmentContacts,
-    isVoterDataUnavailable,
+    voterDataUnavailable,
     isWinContext,
     isWinContextReady,
   } = useContactsTable()
@@ -72,7 +72,10 @@ export default function ContactsPage() {
             </div>
           )}
 
-          {isVoterDataUnavailable ? (
+          {/* The union, not the reactive flag alone: the proactive predicate
+              gates the contacts query, so the 400 that used to set
+              isVoterDataUnavailable never fires. */}
+          {voterDataUnavailable ? (
             <div className="mt-6">
               <H2>Voter data not available for your district</H2>
               <Body2 className="mt-2 text-muted-foreground">
