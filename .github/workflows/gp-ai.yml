@@ -376,13 +376,34 @@ jobs:
             // four 55k plans would produce a 220k body and a hard API failure.
             const MAX_BODY = 60000
 
-            const roots = fs.readdirSync(dir).filter(f => f.endsWith('.code'))
-              .map(f => f.replace(/\.code$/, '')).sort()
+            // Expected roots come from the filesystem, NOT from whatever happened
+            // to land in PLAN_DIR. Trusting PLAN_DIR means a run where every plan
+            // step died before writing output reports "0 roots" and exits GREEN —
+            // a gate that passes because nothing was checked. Deriving the list
+            // also catches the inverse: a new environments/dev/<root> directory
+            // that nobody added a background step for.
+            const envDir = 'packages/gp-ai/infrastructure/environments/dev'
+            const expected = fs.readdirSync(envDir, { withFileTypes: true })
+              .filter(d => d.isDirectory()).map(d => `dev-${d.name}`).sort()
+
+            let produced = []
+            try {
+              produced = fs.readdirSync(dir).filter(f => f.endsWith('.code'))
+                .map(f => f.replace(/\.code$/, ''))
+            } catch (e) {
+              core.setFailed(`plan output dir ${dir} unreadable (${e.code}); every plan step failed before writing output`)
+              return
+            }
+            const missing = expected.filter(r => !produced.includes(r))
+            const roots = expected
 
             const rows = roots.map(slug => {
               const read = ext => { try { return fs.readFileSync(`${dir}/${slug}.${ext}`, 'utf8').trim() } catch { return '' } }
+              const code = read('code')
               return {
-                slug, code: read('code'), text: read('txt'),
+                slug,
+                code: code === '' ? 'missing' : code,
+                text: code === '' ? 'No plan output was produced for this root. Its background step did not run, or died before writing a result.' : read('txt'),
                 destroys: parseInt(read('destroy') || '0', 10),
                 replaces: parseInt(read('replace') || '0', 10),
               }
@@ -395,6 +416,7 @@ jobs:
 
             const label = r => {
               if (r.code === '0') return 'no changes'
+              if (r.code === 'missing') return '**no result**'
               if (r.code !== '2') return '**error**'
               const bits = []
               if (r.destroys) bits.push(`**${r.destroys} to destroy**`)
@@ -446,7 +468,9 @@ jobs:
             else await github.rest.issues.createComment({ ...payload, issue_number: context.issue.number })
 
             core.info(`comment body: ${body.length} chars (limit ${MAX_BODY})`)
-            if (errored.length) {
+            if (missing.length) {
+              core.setFailed(`no plan output for: ${missing.join(', ')} — these roots exist under ${envDir} but produced no result`)
+            } else if (errored.length) {
               core.setFailed(`terraform plan failed for: ${errored.map(r => r.slug).join(', ')}`)
             }
 
