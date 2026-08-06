@@ -26,6 +26,14 @@ import type { PolygonStats } from '../filterEngine'
 const PILL_CLASSNAME =
   'rounded-full border border-components-input-border bg-transparent px-3.5 py-1.5 text-sm font-normal text-foreground data-[state=on]:border-tertiary-dark data-[state=on]:bg-tertiary-dark data-[state=on]:text-tertiary-foreground data-[state=on]:hover:bg-tertiary-dark/90'
 
+// Contacts made resolves to an id-set override rather than a column
+// predicate, and voterDoorKnocking.evaluate doesn't pass overrides — a
+// selection here would be recorded on the filter but silently ignored when
+// the route freezes. It also counts contact_interaction_door_knock rows, so
+// knocking moves the value it filters on. Excluded until evaluate carries
+// the overrides.
+const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
+
 export type CreateFlowStep = 'filters' | 'draw' | 'confirm'
 
 interface CreateListFlowProps {
@@ -325,32 +333,34 @@ export default function CreateListFlow({
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
           {step === 'filters' &&
             filterSections.map((section) =>
-              section.fields.map((field) => (
-                <div key={field.key} className="flex flex-col gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
-                    {field.label}
-                  </span>
-                  <ToggleGroup
-                    type="multiple"
-                    value={toggleGroupValues(field.options)}
-                    onValueChange={(values) =>
-                      setGroupValues(field.options, values)
-                    }
-                    aria-label={field.label}
-                    className="flex flex-wrap justify-start gap-2"
-                  >
-                    {field.options.map((option) => (
-                      <ToggleGroupItem
-                        key={option.key}
-                        value={option.key}
-                        className={PILL_CLASSNAME}
-                      >
-                        {option.label}
-                      </ToggleGroupItem>
-                    ))}
-                  </ToggleGroup>
-                </div>
-              )),
+              section.fields
+                .filter((field) => field.key !== CONTACTS_MADE_FIELD_KEY)
+                .map((field) => (
+                  <div key={field.key} className="flex flex-col gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
+                      {field.label}
+                    </span>
+                    <ToggleGroup
+                      type="multiple"
+                      value={toggleGroupValues(field.options)}
+                      onValueChange={(values) =>
+                        setGroupValues(field.options, values)
+                      }
+                      aria-label={field.label}
+                      className="flex flex-wrap justify-start gap-2"
+                    >
+                      {field.options.map((option) => (
+                        <ToggleGroupItem
+                          key={option.key}
+                          value={option.key}
+                          className={PILL_CLASSNAME}
+                        >
+                          {option.label}
+                        </ToggleGroupItem>
+                      ))}
+                    </ToggleGroup>
+                  </div>
+                )),
             )}
 
           {step === 'confirm' && (

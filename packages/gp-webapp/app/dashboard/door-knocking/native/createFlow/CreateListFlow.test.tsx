@@ -192,4 +192,11 @@ describe('CreateListFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     expect(onStepChange).toHaveBeenCalledWith('draw')
   })
+
+  it('omits the contacts-made group, which evaluate would ignore', () => {
+    render(<CreateListFlow {...baseProps} step="filters" />)
+
+    expect(screen.queryByLabelText('Contacts Made')).toBeNull()
+    expect(screen.getByLabelText('Political Party')).toBeTruthy()
+  })
 })
