@@ -72,6 +72,15 @@ vi.mock('helpers/useSnackbar', () => ({
     displaySnackbar: vi.fn(),
   }),
 }))
+// AudienceStep's count effect reads the org's resolved district (both count paths
+// resolve one server-side, so without it they could only 400).
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({
+    slug: 'campaign-1',
+    positionName: 'Mayor',
+    district: { id: 'd1', l2Type: 'City', l2Name: 'Austin' },
+  }),
+}))
 vi.mock('@shared/hooks/VoterContactsProvider', () => ({
   getVoterContactField: () => 'calls',
 }))
