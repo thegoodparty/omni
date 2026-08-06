@@ -178,7 +178,8 @@ export const comparablesRubric: RubricDimension[] = [
 ]
 
 // Step 5 — Draft. Gate: every provision traces to a settled answer/prior step,
-// no invented statute. Score: bracketed open calls; municipal-code voice.
+// no invented statute. Score: bracketed open calls; amendment completeness
+// (whole section reprinted, existing values carried forward); municipal voice.
 export const draftRubric: RubricDimension[] = [
   {
     key: 'draft_provisions_trace',
@@ -202,6 +203,21 @@ export const draftRubric: RubricDimension[] = [
       'silently invented figures. 5 = every unsettled value is a visible',
       'placeholder; 1 = the draft fills unsettled values with fabricated',
       'numbers.',
+    ].join(' '),
+  },
+  {
+    key: 'draft_amendment_completeness',
+    kind: 'score',
+    prompt: [
+      'Applies only when the draft AMENDS existing law (its body carries',
+      '{-struck-}/{+inserted+} redline markup); score 5 for a new,',
+      'standalone draft. Judge whether the amendment reproduces the entire',
+      'existing section with every unchanged provision carried through',
+      "verbatim, keeps the source's numbering and headings, and carries",
+      'forward values the current law already fixes instead of bracketing',
+      'them. 5 = whole section reprinted and existing values preserved; 1 =',
+      'only the changed paragraphs shown, or settled values regressed to',
+      'blank placeholders.',
     ].join(' '),
   },
   {
