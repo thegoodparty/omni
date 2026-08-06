@@ -98,6 +98,9 @@ export default function DraftDetail({
   ordinance: Ordinance
 }): React.JSX.Element {
   const bodyRef = useRef<HTMLDivElement>(null)
+  // Wraps whichever body surface is active (the contentEditable or the redline
+  // editor) so the selection toolbar positions against either.
+  const bodyContainerRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLHeadingElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const bodyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -560,7 +563,7 @@ export default function DraftDetail({
   useEffect(() => {
     const updatePosition = (): void => {
       const sel = window.getSelection()
-      const editor = bodyRef.current
+      const editor = bodyContainerRef.current
       if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !editor) {
         setSelection(null)
         return
@@ -783,27 +786,29 @@ export default function DraftDetail({
               onInput={onTitleInput}
               className="mb-4 text-xl font-bold text-foreground outline-none"
             />
-            {isAmendment ? (
-              <RedlineEditor
-                key={editorSeed}
-                value={editorSeed}
-                editable={!loopRunning}
-                suggesting
-                onChange={handleEditorChange}
-              />
-            ) : (
-              <div
-                ref={bodyRef}
-                contentEditable={!loopRunning}
-                suppressContentEditableWarning
-                role="textbox"
-                aria-multiline="true"
-                aria-label="Ordinance draft body"
-                aria-readonly={loopRunning ? 'true' : undefined}
-                onInput={onBodyInput}
-                className="min-h-40 whitespace-pre-wrap text-base leading-relaxed text-foreground outline-none"
-              />
-            )}
+            <div ref={bodyContainerRef}>
+              {isAmendment ? (
+                <RedlineEditor
+                  key={editorSeed}
+                  value={editorSeed}
+                  editable={!loopRunning}
+                  suggesting
+                  onChange={handleEditorChange}
+                />
+              ) : (
+                <div
+                  ref={bodyRef}
+                  contentEditable={!loopRunning}
+                  suppressContentEditableWarning
+                  role="textbox"
+                  aria-multiline="true"
+                  aria-label="Ordinance draft body"
+                  aria-readonly={loopRunning ? 'true' : undefined}
+                  onInput={onBodyInput}
+                  className="min-h-40 whitespace-pre-wrap text-base leading-relaxed text-foreground outline-none"
+                />
+              )}
+            </div>
             <QualityReport
               key={loopReport?.ranAgainstBodyHash ?? 'no-report'}
               slug={ordinance.slug}
