@@ -106,6 +106,7 @@ Contacts - Segment Created,contacts_segment_created,e54c02097e3c70880d05b8a7479f
 Contacts - Segment Deleted,contacts_segment_deleted,e54c02097e3c70880d05b8a7479f7889f87cdd99,https://github.com/thegoodparty/omni/pull/958,2025-09-14,tomer@goodparty.org,,,,,2025-09-14,2,,2026-06-30T20:12:33
 Contacts - Segment Updated,contacts_segment_updated,e54c02097e3c70880d05b8a7479f7889f87cdd99,https://github.com/thegoodparty/omni/pull/958,2025-09-14,tomer@goodparty.org,,,,,2025-09-14,2,,2026-06-30T20:12:33
 Contacts - Segment Viewed,contacts_segment_viewed,e54c02097e3c70880d05b8a7479f7889f87cdd99,https://github.com/thegoodparty/omni/pull/958,2025-09-14,tomer@goodparty.org,,,,,2025-09-14,2,,2026-06-30T20:12:33
+Contacts - Voter Data Unavailable,contacts_voter_data_unavailable,,,2026-08-06,,,,,,2026-08-06,,,2026-08-06T17:25:33
 Content Builder - Editor: Click Copy,content_builder_editor_click_copy,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,,,,,2025-02-26,,,2026-06-30T20:12:33
 Content Builder - Editor: Click Delete,content_builder_editor_click_delete,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,,,,,2025-02-26,,,2026-06-30T20:12:33
 Content Builder - Editor: Click Regenerate,content_builder_editor_click_regenerate,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,,,,,2025-02-26,,,2026-06-30T20:12:33
