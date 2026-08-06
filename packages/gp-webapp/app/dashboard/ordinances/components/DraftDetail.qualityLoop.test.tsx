@@ -611,3 +611,30 @@ describe('DraftDetail quality panel (design: refresh only, loop is auto)', () =>
     }
   })
 })
+
+describe('DraftDetail redline preview', () => {
+  it('renders an amendment as redline, with a toggle to raw editing', async () => {
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({ draftBody: 'Sec 1. {-old-}{+new+} end.' })}
+      />,
+    )
+
+    // Amendments open in redline preview: struck deletion, inserted addition.
+    expect((await screen.findByText('old')).closest('del')).not.toBeNull()
+    expect(screen.getByText('new').closest('ins')).not.toBeNull()
+
+    // The toggle drops to the raw editor, which still holds the {-/+} markup.
+    fireEvent.click(screen.getByRole('button', { name: /edit text/i }))
+    expect(bodyEditor().innerText).toContain('{-old-}{+new+}')
+  })
+
+  it('shows no redline toggle for a plain, non-amendment draft', () => {
+    render(
+      <DraftDetail ordinance={makeOrdinance({ draftBody: 'A plain body.' })} />,
+    )
+    expect(
+      screen.queryByRole('button', { name: /preview redline|edit text/i }),
+    ).not.toBeInTheDocument()
+  })
+})

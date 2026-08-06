@@ -41,6 +41,8 @@ import type {
   OrdinanceStatus,
   UpdateOrdinanceRequest,
 } from '@goodparty_org/contracts'
+import { hasRedline } from '@goodparty_org/contracts'
+import { RedlineEditor } from './redline/RedlineEditor'
 import { useOrdinanceQualityLoopFlag } from '@shared/experiments/ordinanceQualityLoopFlag'
 import { useSnackbar } from '@shared/utils/Snackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -129,6 +131,16 @@ export default function DraftDetail({
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [status, setStatus] = useState<OrdinanceStatus>(ordinance.status)
   const [exportError, setExportError] = useState<string | null>(null)
+  // The draft body as a plain string for the read-only redline preview, kept in
+  // sync with server reseeds. Editing still happens in the contentEditable
+  // below; this only renders the {-/+} amendment markup as a real redline.
+  const [previewBody, setPreviewBody] = useState(ordinance.draftBody ?? '')
+  // Amendments open in redline preview; the toggle drops to the raw editor.
+  const [redlineView, setRedlineView] = useState(() =>
+    hasRedline(ordinance.draftBody ?? ''),
+  )
+  const bodyHasRedline = hasRedline(previewBody)
+  const showRedlinePreview = redlineView && bodyHasRedline
   // Exposure-only read: the draft page IS the treatment surface (loop banner,
   // locked editor, What-changed panel), so mounting it must register Amplitude
   // exposure even though no UI branches on the flag here anymore — the loop
@@ -174,6 +186,7 @@ export default function DraftDetail({
         next.draftTitle ?? next.goalText ?? 'Untitled ordinance'
     }
     if (bodyRef.current) bodyRef.current.innerText = next.draftBody ?? ''
+    setPreviewBody(next.draftBody ?? '')
     // Snapshot the read-back (not the assigned string): the setter/getter
     // round-trip is the serialization future input events will produce.
     lastSavedTitleRef.current = titleRef.current?.innerText ?? null
@@ -738,6 +751,27 @@ export default function DraftDetail({
               onInput={onTitleInput}
               className="mb-4 text-xl font-bold text-foreground outline-none"
             />
+            {bodyHasRedline ? (
+              <div className="mb-2 flex justify-end">
+                <Button
+                  variant="ghost"
+                  size="small"
+                  onClick={() => {
+                    if (redlineView) {
+                      setRedlineView(false)
+                    } else {
+                      setPreviewBody(bodyRef.current?.innerText ?? previewBody)
+                      setRedlineView(true)
+                    }
+                  }}
+                >
+                  {redlineView ? 'Edit text' : 'Preview redline'}
+                </Button>
+              </div>
+            ) : null}
+            {showRedlinePreview ? (
+              <RedlineEditor value={previewBody} editable={false} />
+            ) : null}
             <div
               ref={bodyRef}
               contentEditable={!loopRunning}
@@ -747,7 +781,10 @@ export default function DraftDetail({
               aria-label="Ordinance draft body"
               aria-readonly={loopRunning ? 'true' : undefined}
               onInput={onBodyInput}
-              className="min-h-40 whitespace-pre-wrap text-base leading-relaxed text-foreground outline-none"
+              className={cn(
+                'min-h-40 whitespace-pre-wrap text-base leading-relaxed text-foreground outline-none',
+                showRedlinePreview && 'hidden',
+              )}
             />
             <QualityReport
               key={loopReport?.ranAgainstBodyHash ?? 'no-report'}
