@@ -160,8 +160,10 @@ Full label reference, example queries, and an incident playbook: `docs/observabi
 ## MCP tools
 
 Project-scoped MCP servers are configured in `.mcp.json` (Grafana, Sentry,
-Playwright, ClickUp). They need a few environment variables set in your shell — see
-`docs/mcp.md` for the list and what each server is for.
+Playwright, ClickUp, Amplitude). They need a few environment variables set in your
+shell — see `docs/mcp.md` for the list and what each server is for. Claude Code
+plugins that ship their own tools (currently Slack) are enabled repo-wide in
+`.claude/settings.json` under `enabledPlugins`, also documented in `docs/mcp.md`.
 
 ## Output rules
 
