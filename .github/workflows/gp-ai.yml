@@ -432,8 +432,12 @@ jobs:
               }
             }
 
+            // Must paginate. listComments returns oldest-first, 100 per page, so
+            // on a long-running PR the marker comment falls off page 1 and the
+            // upsert silently degrades into "post a new comment every push" —
+            // which then adds comments and makes itself worse.
             const marker = '<!-- gp-ai-tf-plan -->'
-            const { data: comments } = await github.rest.issues.listComments({
+            const comments = await github.paginate(github.rest.issues.listComments, {
               issue_number: context.issue.number, owner: context.repo.owner, repo: context.repo.repo, per_page: 100,
             })
             const existing = comments.find(c => c.body?.includes(marker))

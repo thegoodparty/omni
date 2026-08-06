@@ -28,10 +28,21 @@ if [ ! -d "$dir" ]; then
   echo "no such root: $root" >"$plan_dir/$slug.txt"
   echo 1 >"$plan_dir/$slug.code"
   echo 0 >"$plan_dir/$slug.destroy"
+  echo 0 >"$plan_dir/$slug.replace"
   exit 0
 fi
 
-cd "$dir"
+# Guarded because this script deliberately omits `set -e` (see header). An
+# unchecked cd that fails would leave terraform running in whatever directory we
+# happened to be in — quite possibly a different root — and report that plan
+# under this root's name. -d above tests existence, not traversability.
+if ! cd "$dir"; then
+  echo "cannot cd into $dir" >"$plan_dir/$slug.txt"
+  echo 1 >"$plan_dir/$slug.code"
+  echo 0 >"$plan_dir/$slug.destroy"
+  echo 0 >"$plan_dir/$slug.replace"
+  exit 0
+fi
 
 # Providers are pinned by the committed .terraform.lock.hcl in each env wrapper,
 # so init is reproducible. -input=false so a missing variable fails instead of
@@ -39,6 +50,7 @@ cd "$dir"
 if ! terraform init -input=false -no-color >"$plan_dir/$slug.txt" 2>&1; then
   echo 1 >"$plan_dir/$slug.code"
   echo 0 >"$plan_dir/$slug.destroy"
+  echo 0 >"$plan_dir/$slug.replace"
   exit 0
 fi
 
