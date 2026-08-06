@@ -17,12 +17,16 @@ export const fetchListDetail = (segmentId: number) =>
     segment: segmentId,
   }).then((res) => res.data)
 
-export const useListRowDetail = (segmentId: number) => {
+// `enabled` is required, not defaulted: this hook ran unconditionally for every
+// saved list, and getListDetail is pro-gated, so a non-pro user 400d once per row
+// on mount without touching anything. A default would let that reappear silently.
+export const useListRowDetail = (segmentId: number, enabled: boolean) => {
   const orgSlug = useOrganization()?.slug
 
   const query = useQuery({
     queryKey: ['list-detail', orgSlug, segmentId],
     queryFn: () => fetchListDetail(segmentId),
+    enabled,
   })
 
   return {
@@ -30,5 +34,8 @@ export const useListRowDetail = (segmentId: number) => {
     lastOutreach: query.data?.outreachHistory[0],
     isLoading: query.isLoading,
     isError: query.isError,
+    // Lets the row distinguish "not allowed to know" from "still loading", so it
+    // renders an upsell rather than an em-dash that never resolves.
+    isGated: !enabled,
   }
 }

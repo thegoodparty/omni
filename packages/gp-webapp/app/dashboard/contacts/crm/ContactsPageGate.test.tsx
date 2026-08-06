@@ -74,6 +74,8 @@ beforeEach(() => {
     searchTerm: '',
     totalSegmentContacts: 0,
     isVoterDataUnavailable: false,
+    isDistrictUnresolvable: false,
+    voterDataUnavailable: false,
     isWinContext: true,
     isWinContextReady: true,
     customSegments: [],

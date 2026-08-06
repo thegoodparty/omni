@@ -62,6 +62,8 @@ const setContext = (overrides: Partial<ContextValue>) => {
     searchTerm: '',
     totalSegmentContacts: 0,
     isVoterDataUnavailable: false,
+    isDistrictUnresolvable: false,
+    voterDataUnavailable: false,
     isWinContext: false,
     isWinContextReady: true,
     ...overrides,
