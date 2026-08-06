@@ -1,5 +1,3 @@
-'use client'
-
 import { Button, Card, MapPinIcon } from '@styleguide'
 import { getContactsLabels } from '../../shared/contactsLabels'
 
