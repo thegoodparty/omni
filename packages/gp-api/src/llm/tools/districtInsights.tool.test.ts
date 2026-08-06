@@ -418,6 +418,22 @@ describe('validateInsightsSql', () => {
 })
 
 describe('scrubResults', () => {
+  it('suppresses small cells keyed on unknown_count, the alias the score-semantics guidance recommends', () => {
+    const res = scrubResults([{ unknown_count: 42 }], { minCellSize: 100 })
+    expect(res.kept).toHaveLength(0)
+    expect(res.suppressed).toBe(1)
+    expect(res.reason).toBe('cell_size')
+  })
+
+  it('masks a sub-threshold secondary count column on rows kept by the primary count', () => {
+    const res = scrubResults([{ count: 5000, unknown_count: 12 }], {
+      minCellSize: 100,
+    })
+    expect(res.kept).toHaveLength(1)
+    expect(res.kept[0].count).toBe(5000)
+    expect(res.kept[0].unknown_count).toBeNull()
+  })
+
   it('returns empty result with reason null when given no rows', () => {
     expect(scrubResults([], { minCellSize: 100 })).toEqual({
       kept: [],
@@ -574,13 +590,13 @@ describe('scrubResults', () => {
     })
   })
 
-  it('uses the first matching alias when multiple aliases exist on a row', () => {
+  it('keys row suppression on the first matching alias and masks sub-threshold secondary count columns', () => {
     const rows = [
       { party: 'D', count: 150, n: 5 },
       { party: 'R', count: 50, n: 500 },
     ]
     expect(scrubResults(rows, { minCellSize: 100 })).toEqual({
-      kept: [{ party: 'D', count: 150, n: 5 }],
+      kept: [{ party: 'D', count: 150, n: null }],
       suppressed: 1,
       reason: 'cell_size',
     })

@@ -424,6 +424,24 @@ describe('buildQueryConstituentDataTool — wiring + suppression', () => {
     expect(out.truncated).toBe(false)
   })
 
+  it('masks a sub-threshold unknown_count next to a healthy group count', async () => {
+    // The score semantics teach SUM(CASE WHEN col IS NULL ...) AS unknown_count.
+    // A small unknown segment must not reach the model as an exact figure just
+    // because the row's primary count clears the floor.
+    const provider = fakeProvider([
+      { age_band: '25-34', n: 800, unknown_count: 3 },
+      { age_band: '35-44', n: 900, unknown_count: 450 },
+    ])
+    const tool = buildQueryConstituentDataTool({ provider, scope })
+    const out = await tool.execute({ sql: happySql })
+
+    expect(out.rowsReturned).toBe(2)
+    expect(out.rows).toEqual([
+      { age_band: '25-34', n: 800, unknown_count: null },
+      { age_band: '35-44', n: 900, unknown_count: 450 },
+    ])
+  })
+
   it('fails closed when the result has no recognized count column', async () => {
     // Unrecognized count alias -> scrubResults can't enforce the cell-size
     // floor, so the tool must reject rather than return possibly-small cells.

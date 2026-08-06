@@ -151,7 +151,7 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_any_home_buyer',
     label:
-      'Has ever bought a home (not centered at 50 — statewide baseline is about 60; read leans against that baseline)',
+      'Likely recent home buyer, first-time or repeat (modeled from actual 2024 buyers) (not centered at 50 — statewide baseline is about 60; read leans against that baseline)',
   },
   {
     name: 'hs_area_identity_rural',
@@ -316,7 +316,8 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   {
     name: 'hs_consumer_value_brand_savings',
-    label: 'Values brand savings when shopping (exact meaning unclear)',
+    label:
+      'Prioritizes long-term cost savings when shopping for big-ticket items (vs low upfront cost or environmental impact)',
   },
   {
     name: 'hs_consumer_value_environment',
@@ -486,9 +487,12 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     label: 'Supports raising the gas tax to fund road repairs',
   },
   {
+    // Direction confirmed from the vendor model card: the positive class is
+    // respondents answering 'required' vs all softer answers (encouraged,
+    // family choice, discouraged, unsure). Model: general_anti_vax_str_pro_vax.
     name: 'hs_general_anti_vax_pro_vax',
     label:
-      'Attitude toward mandating childhood vaccinations, separate from Covid (which end is pro-mandate is not documented; do not use without confirming direction)',
+      'Believes childhood vaccinations (e.g. MMR) should be required, not merely encouraged or left to family choice (asked separately from Covid)',
   },
   { name: 'hs_gentrification_oppose', label: 'Opposes gentrification' },
   { name: 'hs_gentrification_support', label: 'Supports gentrification' },
@@ -625,8 +629,7 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   {
     name: 'hs_likely_ev',
-    label:
-      'Likely to vote early (EV; presumed early voting — the vendor does not document the voting mode)',
+    label: 'Likely to vote early (EV)',
   },
   { name: 'hs_likely_mid_term_voter', label: 'Likely to vote in midterms' },
   {
@@ -647,7 +650,7 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_listen_podcaster_daily',
     label:
-      'Listens to The Daily podcast (interpretation uncertain) (limited coverage: no data in 12 states; null there)',
+      'Most likely to listen to The Daily among political podcasts (limited coverage: no data in 12 states; null there)',
   },
   {
     name: 'hs_listen_podcaster_left_leaning',
@@ -738,7 +741,7 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_new_home_buyer',
     label:
-      'New home buyer — recent purchase vs newly built home is not documented (not centered at 50 — statewide baseline is about 60; read leans against that baseline)',
+      'Likely first-time home buyer (modeled from actual 2024 buyers) (not centered at 50 — statewide baseline is about 60; read leans against that baseline)',
   },
   {
     name: 'hs_news_independent',
@@ -978,37 +981,37 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_tv_most_trusted_news_cnn',
     label:
-      'Trusts CNN most for TV news (limited coverage: data exists in only 12 states; null elsewhere)',
+      'Trusts CNN most for TV news — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_tv_most_trusted_news_fox',
     label:
-      'Trusts Fox most for TV news (limited coverage: data exists in only 12 states; null elsewhere)',
+      'Trusts Fox most for TV news — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_tv_most_trusted_news_msnbc',
     label:
-      'Trusts MSNBC most for TV news (limited coverage: data exists in only 12 states; null elsewhere)',
+      'Trusts MSNBC most for TV news — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_tv_news_source_most_trusted_cnn',
     label:
-      'Trusts CNN most for TV news (limited coverage: no data in 12 states; null there)',
+      'Trusts CNN most for TV news — newer survey vintage (limited coverage: no data in 12 states; null there)',
   },
   {
     name: 'hs_tv_news_source_most_trusted_fox',
     label:
-      'Trusts Fox most for TV news (limited coverage: no data in 12 states; null there)',
+      'Trusts Fox most for TV news — newer survey vintage (limited coverage: no data in 12 states; null there)',
   },
   {
     name: 'hs_tv_news_source_most_trusted_msnbc',
     label:
-      'Trusts MSNBC most for TV news (limited coverage: no data in 12 states; null there)',
+      'Trusts MSNBC most for TV news — newer survey vintage (limited coverage: no data in 12 states; null there)',
   },
   {
     name: 'hs_tv_news_source_most_trusted_newsmax',
     label:
-      'Trusts Newsmax most for TV news (limited coverage: no data in 12 states; null there)',
+      'Trusts Newsmax most for TV news — newer survey vintage (limited coverage: no data in 12 states; null there)',
   },
   {
     name: 'hs_tv_viewer_free_streaming',
