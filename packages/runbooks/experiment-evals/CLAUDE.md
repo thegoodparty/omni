@@ -14,7 +14,7 @@ Each `experiment-evals/<id>/` holds:
   first (eligibility, then faithfulness), a spine dimension, anchored 1-5 dimensions.
   Applied by cold-judge subagents; **not** a fact-check (faithfulness gates are
   internal-grounding — see the rubric's own Gate-B note). A top-of-file comment stamps
-  the **environment** (dev/qa/prod) whose artifacts the rubric was validated against —
+  the **environment** (dev/prod) whose artifacts the rubric was validated against —
   reliability is established for that env only and does not automatically carry to another
   (prompt/data/contract differ across envs); re-validate on a target-env held-out batch
   before applying cross-env.

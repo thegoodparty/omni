@@ -1,7 +1,7 @@
 import * as aws from '@pulumi/aws'
 
 export interface CampaignPlanSharesBucketConfig {
-  environment: 'dev' | 'qa' | 'prod'
+  environment: 'dev' | 'prod'
 }
 
 /**
@@ -13,7 +13,7 @@ export interface CampaignPlanSharesBucketConfig {
  *
  * The dev bucket is adopted from one created via CLI during development;
  * Pulumi takes it over on first deploy (one-time `pulumi import` if the
- * create errors out as "already owned"). qa/prod buckets are created fresh
+ * create errors out as "already owned"). The prod bucket is created fresh
  * on their first deploy.
  */
 export function createCampaignPlanSharesBucket({

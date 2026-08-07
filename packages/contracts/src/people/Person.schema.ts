@@ -82,9 +82,7 @@ export const PersonSchema = z.object({
     .optional(),
   registeredVoter: z.enum(['Yes', 'No']),
   estimatedIncomeAmount: z.number().nullable(),
-  voterStatus: z
-    .enum(['Super', 'Likely', 'Unreliable', 'Unlikely', 'First Time'])
-    .nullable(),
+  voterStatus: z.enum(['Super', 'Likely', 'Unreliable', 'Unlikely']).nullable(),
   maritalStatus: z
     .enum(['Likely Married', 'Likely Single', 'Married', 'Single'])
     .nullable(),

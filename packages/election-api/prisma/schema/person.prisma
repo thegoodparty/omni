@@ -54,6 +54,18 @@ model Person {
   // any candidacy). Read-only, not PII — flows through default responses.
   isPledged Boolean @default(false) @map("is_pledged")
 
+  // gp-api User.id that originated this person (GP-native / self-registered
+  // people BallotReady never knew about). The gp-api User.id is a numeric
+  // autoincrement, stored here as text — NOT a UUID. Populated by the
+  // gp-data-platform person mart from the ER linkage
+  // (elected_officials.gp_api_user_id / candidacy→campaign); read-only for the
+  // API, exactly like is_pledged. Lets gp-api pull its own User.person_id
+  // without the data platform writing to gp-api. Filter-only: never returned in
+  // any response and never selectable via ?columns= (see persons.schema /
+  // persons.service). Nullable; null for BallotReady-anchored persons with no
+  // gp-api user.
+  gpApiUserId String? @map("gp_api_user_id")
+
   // Relations
   Candidacies   Candidacy[]
   OfficeHolders OfficeHolder[]
@@ -61,4 +73,5 @@ model Person {
   // Non-unique: the base slug collides for common names. Kept for the by-slug
   // collision tiebreak and any name-based filtering; the unique key stays `id`.
   @@index([slug])
+  @@index([gpApiUserId])
 }

@@ -17,7 +17,6 @@ import type {
 function getWebappUrl(env: GpEnvironment): string {
   const urls: Record<GpEnvironment, string | undefined> = {
     [GP_ENVIRONMENT.DEV]: process.env.NEXT_PUBLIC_GP_DEV_WEBAPP_URL,
-    [GP_ENVIRONMENT.QA]: process.env.NEXT_PUBLIC_GP_QA_WEBAPP_URL,
     [GP_ENVIRONMENT.PROD]: process.env.NEXT_PUBLIC_GP_WEBAPP_URL,
   }
   const url = urls[env]

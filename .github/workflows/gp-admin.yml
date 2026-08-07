@@ -49,7 +49,7 @@ jobs:
           path: packages/gp-admin/coverage/
           retention-days: 30
 
-  # gp-admin is a single deployment that targets dev/qa/prod at runtime via
+  # gp-admin is a single deployment that targets dev/prod at runtime via
   # Clerk org switch, so it has no per-branch env vars or domains: PRs get a
   # preview. The production deploy is handled by promote.yml, not here.
   deploy:

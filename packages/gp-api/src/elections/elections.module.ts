@@ -1,6 +1,7 @@
 import { HttpModule } from '@nestjs/axios'
 import { Module } from '@nestjs/common'
 import { SlackModule } from 'src/vendors/slack/slack.module'
+import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { LlmModule } from '@/llm/llm.module'
 import { EmailModule } from '../email/email.module'
 import { ElectionsController } from './elections.controller'
@@ -18,6 +19,6 @@ import { RacesService } from './services/races.service'
     ElectionsService,
   ],
   exports: [RacesService, ElectionsService, BallotReadyService],
-  imports: [LlmModule, EmailModule, HttpModule, SlackModule],
+  imports: [LlmModule, EmailModule, HttpModule, SlackModule, ClerkModule],
 })
 export class ElectionsModule {}

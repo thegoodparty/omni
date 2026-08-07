@@ -109,7 +109,7 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 ## Observability
 
 - **Frontend errors → Sentry.** Org slug `goodparty`. https://goodparty.sentry.io.
-- **Backend logs → Grafana Cloud Loki.** `{service_name="gp-api", deployment_environment_name="dev|qa|prod"}`. https://goodparty.grafana.net.
+- **Backend logs → Grafana Cloud Loki.** `{service_name="gp-api", deployment_environment_name="dev|prod"}`. https://goodparty.grafana.net.
 - Recipe for reproducing a Sentry issue locally: `docs/debugging.md`.
 
 ## Pointer table — when in doubt

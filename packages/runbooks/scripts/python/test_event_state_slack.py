@@ -278,17 +278,56 @@ def test_gap_thread_blocks_omits_absent_link_label():
     assert "Set disposition" not in text
 
 
-def test_gap_thread_shows_triage_invocation():
-    gap = {
-        "status": "ok", "run_date": "2026-08-03", "new_count": 1,
+def _gap_with_new(run_date="2026-08-03"):
+    return {
+        "status": "ok", "run_date": run_date, "new_count": 1,
         "new_gaps": [{"rank": 1, "id": "a", "surface_type": "route",
                       "rubric_rule": "flow", "dashboard_question": "q",
                       "location": "app/x/page.tsx"}],
         "browse_url": "https://sheet", "feedback_url": "https://gh",
     }
-    blocks = slk.build_gap_thread_blocks(gap)
-    flat = json.dumps(blocks)
-    assert "/triage-instrumentation-gaps 2026-08-03" in flat
+
+
+def test_thread_shows_triage_invocation_when_new_gaps():
+    quiet = {"new": ["X"], "escalated": [], "resolved": [], "still_open": []}
+    result = {"run_date": "2026-08-03", "flagged": [], "proposals": [],
+              "status_counts": {}, "total_events": 0}
+    _, thread = slk.build_digest_blocks(result, quiet, {}, set(), gap=_gap_with_new())
+    assert "/triage-instrumentation-gaps 2026-08-03" in json.dumps(thread)
+
+
+def test_thread_shows_triage_invocation_on_proposals_only_run():
+    # DATA-2152's entry point must render whenever EITHER triage queue has work.
+    # The first live run (2026-08-05) had 112 proposals and zero new gaps, and the
+    # line vanished with the gaps block — this is the regression test for that.
+    changes = {"new": ["X"], "escalated": [], "resolved": [], "still_open": []}
+    result = {"run_date": "2026-08-05", "flagged": [],
+              "proposals": [{"event_type": "E", "family": "serve"}],
+              "status_counts": {}, "total_events": 1}
+    no_new_gap = {"status": "ok", "run_date": "2026-08-05", "new_count": 0, "new_gaps": []}
+    # legacy layout
+    _, thread = slk.build_digest_blocks(result, changes, {}, set(), gap=no_new_gap)
+    assert "/triage-instrumentation-gaps 2026-08-05" in json.dumps(thread)
+    # tiered layout
+    triage = {"status": "ok", "items": [
+        {"id": "X", "event_type": "X", "tier": "fyi", "rules_tier": "fyi",
+         "headline": "h", "action": "", "okr": None, "change": "new",
+         "prior_status": None, "status": "dormant", "instrumented_pr": None}]}
+    _, thread = slk.build_digest_blocks(result, changes, {}, set(), gap=no_new_gap,
+                                        triage=triage)
+    assert "/triage-instrumentation-gaps 2026-08-05" in json.dumps(thread)
+    # proposals but no gap payload at all (monitor-only local run)
+    _, thread = slk.build_digest_blocks(result, changes, {}, set(), gap=None)
+    assert "/triage-instrumentation-gaps 2026-08-05" in json.dumps(thread)
+
+
+def test_thread_omits_triage_invocation_when_no_queue_work():
+    changes = {"new": ["X"], "escalated": [], "resolved": [], "still_open": []}
+    result = {"run_date": "2026-08-05", "flagged": [], "proposals": [],
+              "status_counts": {}, "total_events": 1}
+    no_new_gap = {"status": "ok", "run_date": "2026-08-05", "new_count": 0, "new_gaps": []}
+    _, thread = slk.build_digest_blocks(result, changes, {}, set(), gap=no_new_gap)
+    assert "/triage-instrumentation-gaps" not in json.dumps(thread)
 
 
 def test_should_post_true_on_gap_news_even_if_health_quiet():

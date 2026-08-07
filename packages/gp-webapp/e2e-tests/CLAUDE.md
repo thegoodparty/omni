@@ -1,6 +1,6 @@
 # e2e-tests/
 
-End-to-end tests using Playwright. Runs against a deployed environment (local app, dev, qa, prod). Separate from Vitest unit/component tests under `helpers/test-utils/`.
+End-to-end tests using Playwright. Runs against a deployed environment (local app, dev, prod). Separate from Vitest unit/component tests under `helpers/test-utils/`.
 
 ## Key files
 

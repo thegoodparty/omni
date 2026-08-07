@@ -116,13 +116,14 @@ with one branch, one promote file, and unchanged deploy primitives.
 ### Prod record and access control
 
 We do not keep a `master` branch or a `prod` tag for bookkeeping. The record of
-what was promoted is the `promote.yml` run history. If a queryable "what is in
-prod" view is wanted later, emit a GitHub Deployment marker from `promote.yml`
-(one API call, no branch, no tag). Deferred; not needed for v1.
+what was promoted is a GitHub Deployment: `promote.yml`'s final job records one
+Deployment per successful promotion (environment `production`, at the promoted
+SHA) via the API. That deployment history is the queryable "what is in prod" view,
+and the daily release summary diffs it to report exactly what shipped.
 
 Access control moves from "branch protection on `master`" to controlling who can
-push to `main` and who can trigger the promote workflow (`workflow_dispatch`) and
-toggle the freeze variable.
+push to `main` and who can trigger the promote workflow (`workflow_dispatch`,
+including the `force` break-glass) and toggle the freeze variable.
 
 ### Operational properties to accept
 
@@ -169,6 +170,16 @@ Make "promote" mean one hop before automating it.
   This is real infra teardown, not just YAML. Sequence: stop deploying to qa,
   verify nothing depends on it, `pulumi destroy` the qa stacks, remove secrets
   and DNS.
+
+  **Done 2026-08-04.** Both omni Pulumi stacks (`gp-api-qa`, `election-api-qa`)
+  and all ten gp-ai-projects qa Terraform roots were destroyed, along with the
+  qa Vercel domains/env vars, DNS, ACM certs, and secrets. Two ordering
+  constraints worth remembering if this is ever repeated: security-group
+  cross-references, not `terraform_remote_state` reads, dictate teardown order
+  (`broker` must precede `pmf-engine-control-plane`), and
+  `pmf-engine-control-plane` looks up gp-api's `qa-Queue.fifo` **by name**, so
+  destroying the gp-api stack first breaks its plan.
+
 - Retire the `develop -> qa -> master` release runbook.
 - Leave `master` in place for now; prod still deploys from `master` until
   Phase 2 cuts over. This keeps Phase 1 low-risk and independently shippable.

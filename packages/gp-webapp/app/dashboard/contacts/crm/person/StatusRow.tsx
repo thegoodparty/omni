@@ -23,11 +23,11 @@ import type {
 } from '../shared/contacts-types'
 
 // The five Voter Likelihood options, color-coded per the prototype (Unknown
-// neutral, First time amber, Unlikely red, Likely blue, Super green).
+// neutral, Unlikely red, Unreliable amber, Likely blue, Super green).
 const VOTER_LIKELIHOOD_OPTIONS: { value: VoterLikelihood; label: string }[] = [
   { value: 'unknown', label: 'Unknown' },
-  { value: 'first_time', label: 'First time' },
   { value: 'unlikely', label: 'Unlikely' },
+  { value: 'unreliable', label: 'Unreliable' },
   { value: 'likely', label: 'Likely' },
   { value: 'super', label: 'Super' },
 ]
@@ -37,8 +37,8 @@ const VOTER_LIKELIHOOD_OPTIONS: { value: VoterLikelihood; label: string }[] = [
 // neutral — no color chip, per the prototype.
 const VOTER_LIKELIHOOD_PILL_CLASSES: Record<VoterLikelihood, string> = {
   unknown: '',
-  first_time: 'border-warning/40 bg-warning/10 text-warning-dark',
   unlikely: 'border-destructive/40 bg-destructive/10 text-destructive-dark',
+  unreliable: 'border-warning/40 bg-warning/10 text-warning-dark',
   likely: 'border-info/40 bg-info/10 text-info-dark',
   super: 'border-success/40 bg-success/10 text-success-dark',
 }

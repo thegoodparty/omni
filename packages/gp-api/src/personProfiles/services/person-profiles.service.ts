@@ -193,6 +193,7 @@ export class PersonProfilesService extends createPrismaBase(
         personId: input.personId,
         requesterEmail: input.requesterEmail,
         requesterName: input.requesterName ?? null,
+        marketingConsent: input.marketingConsent,
       },
     })
   }

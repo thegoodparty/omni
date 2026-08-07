@@ -9,6 +9,9 @@ model ProfileClaimRequest {
   personId       String   @map("person_id") // subject Person being asked to claim (gp_candidate_id)
   requesterName  String?  @map("requester_name")
   requesterEmail String   @map("requester_email")
+  // Opt-in to GoodParty.org marketing communications from the claim/notify
+  // modal checkbox. Recorded only; no downstream sync (e.g. HubSpot) here.
+  marketingConsent Boolean @default(false) @map("marketing_consent")
   createdAt      DateTime @default(now()) @map("created_at")
 
   @@index([personId])

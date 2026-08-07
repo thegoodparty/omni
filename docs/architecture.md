@@ -32,7 +32,7 @@ nothing boring would work.
   cookie, `credentials: 'include'`.
 - **gp-admin -> gp-api:** via `@goodparty_org/sdk`, authenticated with a
   per-environment Clerk M2M secret (no cookie flow). One Vercel deploy fronts
-  dev/qa/prod by switching the active Clerk org.
+  dev/prod by switching the active Clerk org.
 - **gp-api -> people-db:** direct Prisma access to the people-db Postgres cluster
   (`packages/gp-api/src/peopleDb/`, ported from the retired `people-api` repo
   package) for voter queries, demographics, and CSV exports, behind the

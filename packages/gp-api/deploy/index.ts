@@ -17,7 +17,6 @@ export = async () => {
   const environment = config.require('environment') as
     | 'preview'
     | 'dev'
-    | 'qa'
     | 'prod'
   const imageUri = config.require('imageUri')
 
@@ -36,11 +35,10 @@ export = async () => {
   const stage = {
     preview: `pr-${prNumber}`,
     dev: 'develop',
-    qa: 'qa',
     prod: 'master',
   }[environment]
 
-  const select = <T>(values: Record<'preview' | 'dev' | 'qa' | 'prod', T>): T =>
+  const select = <T>(values: Record<'preview' | 'dev' | 'prod', T>): T =>
     values[environment]
 
   // Production deploy manages the VPC. The actual VPC details are hard-coded above as individual variables.
@@ -51,7 +49,6 @@ export = async () => {
   const secretName = select({
     preview: 'GP_API_DEV',
     dev: 'GP_API_DEV',
-    qa: 'GP_API_QA',
     prod: 'GP_API_PROD',
   })
 
@@ -161,8 +158,8 @@ export = async () => {
   // Shared bucket between the external meeting_pipeline (writes briefings)
   // and gp-api TextToSpeechService (caches Polly audio under speech/synth/,
   // then hands the browser presigned GETs). Dev bucket exists out-of-band
-  // and is not Pulumi-owned, so preview/dev just reference its name. QA and
-  // prod buckets are created here.
+  // and is not Pulumi-owned, so preview/dev just reference its name. The
+  // prod bucket is created here.
   const meetingPipelineBucketName =
     environment === 'preview' || environment === 'dev'
       ? 'meeting-pipeline-dev'
@@ -236,7 +233,6 @@ export = async () => {
                 securityGroups: ['sg-05a21af11aacbe60b'],
               },
             ],
-            qa: [],
             prod: [
               // Airbyte reaches prod Postgres through this bastion; it lost
               // access when the whole-VPC-CIDR rule was removed.
@@ -279,7 +275,6 @@ export = async () => {
         clusterIdentifier: select({
           preview: `gp-api-${stage}`,
           dev: 'gp-api-db',
-          qa: 'gp-api-db-qa',
           prod: 'gp-api-db-prod',
         }),
         engine: aws.rds.EngineType.AuroraPostgresql,
@@ -298,7 +293,6 @@ export = async () => {
         backupRetentionPeriod: select({
           preview: 1,
           dev: 7,
-          qa: 7,
           prod: 14,
         }),
         deletionProtection: true,
@@ -396,24 +390,17 @@ export = async () => {
         clusterIdentifier: 'gp-voter-db-develop',
       })
       break
-    case 'qa':
-      voterCluster = await aws.rds.getCluster({
-        clusterIdentifier: 'gp-voter-db-20260420',
-      })
-      break
   }
 
   const productDomain = select({
     preview: 'dev.goodparty.org',
     dev: 'dev.goodparty.org',
-    qa: 'qa.goodparty.org',
     prod: 'goodparty.org',
   })
 
   const domain = select({
     preview: `${stage}.preview.goodparty.org`,
     dev: 'gp-api-dev.goodparty.org',
-    qa: 'gp-api-qa.goodparty.org',
     prod: 'gp-api.goodparty.org',
   })
 
@@ -426,8 +413,8 @@ export = async () => {
   const region = 'us-west-2'
   const accountId = '333022194791'
 
-  // qa/preview share the dev people-db connection string — no per-env SSM
-  // parameter exists for them (people-api only ran dev/prod).
+  // preview shares the dev people-db connection string — no per-env SSM
+  // parameter exists for it (people-api only ran dev/prod).
   const peopleDbEnv = environment === 'prod' ? 'prod' : 'dev'
   const peopleDbParameterName = `people-db-connection-string-${peopleDbEnv}`
   const peopleDbParameterArn = `arn:aws:ssm:${region}:${accountId}:parameter/${peopleDbParameterName}`
@@ -438,13 +425,11 @@ export = async () => {
   const assetsBucketName = select({
     preview: 'assets-dev.goodparty.org',
     dev: 'assets-dev.goodparty.org',
-    qa: 'assets-qa.goodparty.org',
     prod: 'assets.goodparty.org',
   })
   const campaignPlanResultsBucketName = select({
     preview: '',
     dev: 'campaign-plan-results-dev',
-    qa: 'campaign-plan-results-qa',
     prod: '',
   })
 
@@ -484,7 +469,6 @@ export = async () => {
   const campaignPlanInputQueueName = select({
     preview: '',
     dev: 'campaign-plan-input-dev.fifo',
-    qa: 'campaign-plan-input-qa.fifo',
     // IAM grant provisioned ahead of the (currently disabled) prod
     // CAMPAIGN_PLAN_INPUT_QUEUE_URL env var so enabling prod later doesn't
     // 403 on SQS. An Allow on an unused queue ARN is harmless.
@@ -493,7 +477,6 @@ export = async () => {
   const agentDispatchQueueName = select({
     preview: '',
     dev: 'agent-dispatch-dev.fifo',
-    qa: 'agent-dispatch-qa.fifo',
     prod: 'agent-dispatch-prod.fifo',
   })
   const staticQueueArns = [campaignPlanInputQueueName, agentDispatchQueueName]
@@ -520,7 +503,6 @@ export = async () => {
       preview:
         'arn:aws:acm:us-west-2:333022194791:certificate/b009d1a6-68ff-4d24-84f7-93683ca3f786',
       dev: 'arn:aws:acm:us-west-2:333022194791:certificate/227d8028-477a-4d75-999f-60587a8a11e3',
-      qa: 'arn:aws:acm:us-west-2:333022194791:certificate/29de1de7-6ab0-4f62-baf1-235c2a92cfe2',
       prod: 'arn:aws:acm:us-west-2:333022194791:certificate/e1969507-2514-4585-a225-917883d8ffef',
     }),
     secrets: Object.fromEntries(
@@ -539,10 +521,19 @@ export = async () => {
       ASSET_DOMAIN: select({
         preview: 'assets-dev.goodparty.org',
         dev: 'assets-dev.goodparty.org',
-        qa: 'assets-qa.goodparty.org',
         prod: 'assets.goodparty.org',
       }),
       WEBAPP_ROOT_URL: `https://${productDomain}`,
+      // Optional marketing-revalidate endpoint override. In prod
+      // WEBAPP_ROOT_URL is already the marketing origin, so leaving this empty
+      // makes the service fall back to WEBAPP_ROOT + /api/revalidate-person. In
+      // non-prod WEBAPP_ROOT_URL is the Clerk-protected product webapp, so dev
+      // must point revalidation explicitly at the marketing deployment.
+      MARKETING_REVALIDATE_URL: select({
+        preview: '',
+        dev: 'https://gp-marketing-git-develop-good-party.vercel.app/api/revalidate-person',
+        prod: '',
+      }),
       AI_MODELS: 'claude-sonnet-4-6',
       LLAMA_AI_ASSISTANT: 'asst_GP_AI_1.0',
       SQS_QUEUE: queue.name,
@@ -550,7 +541,6 @@ export = async () => {
       CAMPAIGN_PLAN_INPUT_QUEUE_URL: select({
         preview: '',
         dev: 'https://sqs.us-west-2.amazonaws.com/333022194791/campaign-plan-input-dev.fifo',
-        qa: 'https://sqs.us-west-2.amazonaws.com/333022194791/campaign-plan-input-qa.fifo',
         // prod disabled until we're ready to generate events in prod
         // prod: 'https://sqs.us-west-2.amazonaws.com/333022194791/campaign-plan-input-prod.fifo',
         prod: '',
@@ -558,7 +548,6 @@ export = async () => {
       CAMPAIGN_PLAN_RESULTS_BUCKET: select({
         preview: '',
         dev: 'campaign-plan-results-dev',
-        qa: 'campaign-plan-results-qa',
         // prod disabled until we're ready to generate events in prod
         // prod: 'campaign-plan-results-prod',
         prod: '',
@@ -567,22 +556,19 @@ export = async () => {
         // Preview intentionally omitted — dispatch fails at runtime with a log
         preview: '',
         dev: 'agent-dispatch-dev.fifo',
-        qa: 'agent-dispatch-qa.fifo',
         prod: 'agent-dispatch-prod.fifo',
       }),
       MEETINGS_AUTOMATION_ENABLED: select({
         preview: '',
         dev: '',
-        qa: '',
         prod: 'true',
       }),
       // Prod-only on purpose: each weekly regen dispatches a paid CAP run per
-      // eligible campaign, so enabling dev/qa would accumulate spend for no
+      // eligible campaign, so enabling dev would accumulate spend for no
       // audience. Cost was cohort-checked before enabling (Jul 2026).
       CAMPAIGN_TRACKER_AUTOMATION_ENABLED: select({
         preview: '',
         dev: '',
-        qa: '',
         prod: 'true',
       }),
       SERVE_ANALYSIS_BUCKET_NAME: `serve-analyze-data-${environment === 'preview' ? 'dev' : environment}`,

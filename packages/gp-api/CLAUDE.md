@@ -23,7 +23,7 @@ npm run lint                   # ESLint + prettier --check
 npm run lint:fix               # auto-fix
 npm run build                  # production build (builds contracts first)
 
-npm run infra diff <env>       # preview infra changes (dev|qa|prod|preview)
+npm run infra diff <env>       # preview infra changes (dev|prod|preview)
 npm run infra deploy <env>     # deploy via Pulumi
 ```
 

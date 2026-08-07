@@ -46,7 +46,6 @@ This app uses [Clerk](https://clerk.com/) for authentication with **Organization
 | Organization | Description                   |
 | ------------ | ----------------------------- |
 | Development  | Dev environment access        |
-| QA           | QA environment access         |
 | Production   | Production environment access |
 
 | Role      | Key             | Permissions                                          |

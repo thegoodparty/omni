@@ -46,12 +46,12 @@ const readVotersMatchCount = async (sheet: Locator): Promise<number | null> => {
 }
 
 // The canonical Voter Likelihood option order (least → most likely), read from
-// filters.config.ts ("Voter Likelihood" field): Unknown, First Time, Unlikely,
+// filters.config.ts ("Voter Likelihood" field): Unknown, Unlikely, Unreliable,
 // Likely, Super. This is the ENG-10516 ordering the builder must render.
 const VOTER_LIKELY_ORDER = [
   'Unknown',
-  'First Time',
   'Unlikely',
+  'Unreliable',
   'Likely',
   'Super',
 ]
