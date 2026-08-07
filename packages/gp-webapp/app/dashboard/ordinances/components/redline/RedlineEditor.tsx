@@ -106,6 +106,11 @@ export const RedlineEditor = ({
   const [change, setChange] = useState<HoveredChange | null>(null)
   const rafRef = useRef(0)
   const hideRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // True while the pointer is over the floating toolbar. The editor's
+  // mousemove still fires there (the event bubbles), and that point is not
+  // over a change — without this guard it would schedule the hide and the
+  // toolbar would vanish as the user reaches for it.
+  const overToolbarRef = useRef(false)
 
   const cancelHide = useCallback((): void => {
     if (hideRef.current) {
@@ -113,11 +118,11 @@ export const RedlineEditor = ({
       hideRef.current = null
     }
   }, [])
-  // Small delay so moving the pointer off the change and onto its floating
-  // toolbar (a brief gap over non-change text) doesn't flicker it away.
+  // Grace delay so crossing the small gap from the change to its floating
+  // toolbar doesn't flicker it away.
   const scheduleHide = useCallback((): void => {
     cancelHide()
-    hideRef.current = setTimeout(() => setChange(null), 120)
+    hideRef.current = setTimeout(() => setChange(null), 250)
   }, [cancelHide])
 
   useEffect(
@@ -135,6 +140,8 @@ export const RedlineEditor = ({
       const { clientX, clientY } = e
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = 0
+        // Over the toolbar: leave the current change (and its toolbar) as-is.
+        if (overToolbarRef.current) return
         const { view } = editor
         const at = view.posAtCoords({ left: clientX, top: clientY })
         const range = at && changeRangeAt(view.state, at.pos)
@@ -192,8 +199,14 @@ export const RedlineEditor = ({
           aria-label="Change actions"
           className="fixed z-40 flex -translate-y-full items-center gap-1 rounded-full border border-border bg-card p-1 shadow-md"
           style={{ top: Math.max(8, change.top - 4), left: change.left }}
-          onMouseEnter={cancelHide}
-          onMouseLeave={scheduleHide}
+          onMouseEnter={() => {
+            overToolbarRef.current = true
+            cancelHide()
+          }}
+          onMouseLeave={() => {
+            overToolbarRef.current = false
+            scheduleHide()
+          }}
           onMouseDown={(e) => e.preventDefault()}
         >
           <Button
