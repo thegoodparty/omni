@@ -379,10 +379,11 @@ jobs:
   # this is a safety net rather than routine control flow. It still earns its
   # place for two cases:
   #
-  #   workflow_dispatch of an older SHA — commits from before unconditional
-  #   builds have no images, and pinning terraform to tags that were never
-  #   pushed would make ECS fail the pull, trip the circuit breaker, and churn
-  #   prod task definitions for nothing.
+  #   workflow_dispatch of an older SHA — commits predating unconditional builds
+  #   have no images, and pinning terraform to tags that were never pushed would
+  #   make ECS fail the pull, trip the circuit breaker, and churn prod task
+  #   definitions for nothing. This is the ONLY legitimate zero-image case; on a
+  #   recent main push it means the build failed, hence a warning not a notice.
   #
   #   a PARTIAL set — one build failed. That is NOT a skip: promoting would
   #   leave prod running a mix of new and stale services, so it fails loudly.
@@ -423,7 +424,7 @@ jobs:
             echo "All 5 gp-ai images present for $SHA; promoting gp-ai."
           elif [ "$found" -eq 0 ]; then
             echo "deploy=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No gp-ai images for $SHA — this commit did not touch packages/gp-ai. Nothing to promote for gp-ai."
+            echo "::warning::No gp-ai images for $SHA. gp-ai.yml builds all five on every main push, so for a recent main commit this is UNEXPECTED and means the build failed or never pushed — investigate. It is only expected for a workflow_dispatch of a SHA predating unconditional builds. Skipping gp-ai promotion."
           else
             echo "::error::Partial gp-ai image set for $SHA ($found present,$absent missing). A build failed; refusing to promote a mixed set."
             exit 1
