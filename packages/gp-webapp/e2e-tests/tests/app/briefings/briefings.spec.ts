@@ -126,6 +126,20 @@ const noteSheet = (page: Page) =>
 
 type CreatedAnnotation = { id: string }
 
+/**
+ * Escape every open Radix layer. Saving a note swaps the add-note sheet for
+ * the notes cycler, so the surfaces stack — and while any of them is open the
+ * shell is aria-hidden and pointer events don't reach the briefing cards.
+ */
+const closeAllLayers = async (page: Page) => {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if ((await page.getByRole('dialog').count()) === 0) return
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(250)
+  }
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+}
+
 test.describe('Briefings', () => {
   test.beforeEach(async ({ page }) => {
     // HighlightToolbar positions itself from the selection rect (rect.top - 48,
@@ -234,7 +248,10 @@ test.describe('Briefings', () => {
     )
     await sheet.getByRole('button', { name: 'Add Note', exact: true }).click()
     const passageResponse = await passageCreate
-    expect(passageResponse.ok()).toBeTruthy()
+    expect(
+      passageResponse.status(),
+      `create passage note: ${await passageResponse.text()}`,
+    ).toBe(201)
 
     // 4. The wire assertion. Not "an anchor was sent" — the exact pointer and
     // the exact half-open offsets for the substring that was selected. If
@@ -253,8 +270,11 @@ test.describe('Briefings', () => {
     expect(passageNote.id).toBeTruthy()
     const passageNoteId = passageNote.id!
 
-    await page.keyboard.press('Escape')
-    await expect(sheet).toBeHidden()
+    // On success AnnotationsScope hands off from the add-note sheet to the
+    // notes cycler, so one Escape leaves a second layer open — and an open
+    // Radix layer swallows the card click the next step depends on. Close
+    // until nothing is left.
+    await closeAllLayers(page)
 
     // 6. A card-level note: the second legal anchor shape in
     // AnnotationAnchorSchema (json_path set, both offsets null). The desktop
@@ -279,13 +299,16 @@ test.describe('Briefings', () => {
       .getByRole('button', { name: 'Add Note', exact: true })
       .click()
     const cardResponse = await cardCreate
-    expect(cardResponse.ok()).toBeTruthy()
+    expect(
+      cardResponse.status(),
+      `create card note: ${await cardResponse.text()}`,
+    ).toBe(201)
     expect(cardResponse.request().postDataJSON()).toMatchObject({
       kind: 'note',
       anchor: { json_path: CARD_PATH, start: null, end: null },
     })
 
-    await page.keyboard.press('Escape')
+    await closeAllLayers(page)
 
     // 5. Persistence. Reload and assert the passage note repaints over the
     // exact words it was anchored to — the text, not a count. A highlight

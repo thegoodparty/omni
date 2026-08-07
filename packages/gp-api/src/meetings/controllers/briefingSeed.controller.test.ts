@@ -161,6 +161,10 @@ describe('POST /v1/meetings/briefings/seed', () => {
       where: { electedOfficeId: eoId },
     })
     expect(rows).toHaveLength(1)
+    const runs = await service.prisma.experimentRun.findMany({
+      where: { organizationSlug: eoOrgSlug },
+    })
+    expect(runs).toHaveLength(1)
   })
 
   it('returns 403 when OTEL_SERVICE_ENVIRONMENT is a customer env (prod)', async () => {

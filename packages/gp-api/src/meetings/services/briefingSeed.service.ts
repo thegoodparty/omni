@@ -44,15 +44,33 @@ export class BriefingSeedService extends createPrismaBase(
       throw new ForbiddenException('Seeding is disabled in this environment')
     }
 
-    const run = await this.client.experimentRun.create({
-      data: {
-        organizationSlug: electedOffice.organizationSlug,
-        experimentType: 'meeting_briefing',
-        status: ExperimentRunStatus.COMPLETED,
-        artifactBucket: SEED_BUCKET,
-        artifactKey: `briefing-seed/${electedOffice.id}/${body.meetingDate}.json`,
+    // Re-seeding a date repoints the briefing's experimentRunId, and nothing
+    // cascades from MeetingBriefing back to ExperimentRun — so minting a new
+    // run every time would leave the previous one dereferenced forever.
+    const existing = await this.model.findUnique({
+      where: {
+        electedOfficeId_meetingDate: {
+          electedOfficeId: electedOffice.id,
+          meetingDate: parseIsoDateAsUTC(body.meetingDate),
+        },
       },
+      select: { experimentRunId: true },
     })
+
+    const runData = {
+      organizationSlug: electedOffice.organizationSlug,
+      experimentType: 'meeting_briefing',
+      status: ExperimentRunStatus.COMPLETED,
+      artifactBucket: SEED_BUCKET,
+      artifactKey: `briefing-seed/${electedOffice.id}/${body.meetingDate}.json`,
+    }
+
+    const run = existing?.experimentRunId
+      ? await this.client.experimentRun.update({
+          where: { runId: existing.experimentRunId },
+          data: runData,
+        })
+      : await this.client.experimentRun.create({ data: runData })
 
     const artifact = buildArtifact(body)
     const serialized = JSON.stringify(artifact)
