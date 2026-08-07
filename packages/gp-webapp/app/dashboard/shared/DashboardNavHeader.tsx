@@ -1,54 +1,57 @@
 import { cn } from '@styleguide'
-import {
-  ClipboardListIcon,
-  FlagIcon,
-  ScrollTextIcon,
-  SendIcon,
-  SparklesIcon,
-  SwordsIcon,
-  UsersRoundIcon,
-} from '@styleguide/components/ui/icons'
+import { NAV_HEADER_ICONS, type NavHeaderIconKey } from './navLabels'
 
-// Keyed by a serializable string rather than taking the icon component itself:
-// the Serve pages that set navHeader (chief-of-staff, briefings) are Server
-// Components, and a function/component prop can't cross the RSC boundary into
-// the client DashboardLayout. A string key can.
-const NAV_HEADER_ICONS = {
-  sparkles: SparklesIcon,
-  clipboard: ClipboardListIcon,
-  flag: FlagIcon,
-  scroll: ScrollTextIcon,
-  send: SendIcon,
-  users: UsersRoundIcon,
-  swords: SwordsIcon,
-}
-
-export type NavHeaderIconKey = keyof typeof NAV_HEADER_ICONS
-
-// Full-bleed page header (icon + tab name) that mirrors the active sidebar nav
-// item. Rendered by DashboardLayout above the padded content wrapper so it sits
-// flush against the layout edges, matching the Serve nav prototype. Desktop only
-// (hidden below lg): on mobile the title lives in the top bar (MobileMenuTrigger)
-// instead, so it isn't shown twice.
+// Full-bleed page title bar (icon + tab name) that mirrors the active sidebar
+// nav item — the Voter Data page's bar is the reference every other main nav
+// page copies. Rendered by DashboardLayout above the padded content wrapper so
+// it sits flush against the layout edges.
+//
+// Height is fixed at h-14 (the 56px the icon + title already came to at py-4)
+// so a page whose bar carries a CTA reads at exactly the same height as one
+// that doesn't — the CTA scales to fit the bar, the bar never grows around it.
+//
+// Desktop only by default: on mobile the title lives in the top bar
+// (MobileMenuTrigger), so rendering it here too would show it twice. A bar with
+// a CTA does stay on mobile, as an action-only strip (title hidden, CTA shown)
+// — the CTA has nowhere else to go.
 const DashboardNavHeader = ({
   icon,
   label,
   centered = false,
+  hasAction = false,
+  actionSlotRef,
 }: {
   icon: NavHeaderIconKey
   label: string
   centered?: boolean
+  hasAction?: boolean
+  actionSlotRef?: (node: HTMLDivElement | null) => void
 }): React.JSX.Element => {
   const Icon = NAV_HEADER_ICONS[icon]
   return (
     <div
       className={cn(
-        'hidden items-center gap-2 border-b border-border bg-background px-6 py-4 lg:flex',
+        'h-14 shrink-0 items-center gap-2 border-b border-border bg-background px-6',
+        hasAction ? 'flex' : 'hidden lg:flex',
         centered && 'justify-center',
       )}
     >
-      <Icon className="size-5 text-foreground" aria-hidden />
-      <h1 className="text-base font-semibold text-foreground">{label}</h1>
+      <div
+        className={cn(
+          'items-center gap-2',
+          hasAction ? 'hidden lg:flex' : 'flex',
+        )}
+      >
+        <Icon className="size-5 text-foreground" aria-hidden />
+        <h1 className="text-base font-semibold text-foreground">{label}</h1>
+      </div>
+      {/* DashboardNavHeaderAction portals a page's primary action in here, so
+          every page's title bar stays this one component. */}
+      <div
+        ref={actionSlotRef}
+        data-slot="nav-header-action"
+        className="ml-auto flex items-center gap-3"
+      />
     </div>
   )
 }

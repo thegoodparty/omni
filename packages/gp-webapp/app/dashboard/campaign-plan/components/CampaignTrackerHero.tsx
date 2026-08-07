@@ -1,6 +1,7 @@
 'use client'
 
 import { Button, DownloadIcon } from '@styleguide'
+import DashboardNavHeaderAction from '../../shared/DashboardNavHeaderAction'
 
 interface CampaignTrackerHeroProps {
   candidateName: string
@@ -13,9 +14,11 @@ interface CampaignTrackerHeroProps {
   canDownload: boolean
 }
 
-// Lovable-style campaign-tracker hero: eyebrow, candidate + race headline,
-// district / election-day line, intro copy, and a download action. Replaces
-// the old centered "Campaign Plan" HeroCard on the dashboard plan page.
+// Lovable-style campaign-tracker hero: candidate + race headline, district /
+// election-day line, and intro copy. The "Campaign tracker" eyebrow is gone —
+// the page's title bar (DashboardLayout's navHeader) carries the tab name now,
+// so the eyebrow only repeated it — and the download action portals up into
+// that bar, aligned top right.
 const CampaignTrackerHero = ({
   candidateName,
   race,
@@ -40,14 +43,13 @@ const CampaignTrackerHero = ({
 
   return (
     <section className="mb-8">
-      <div className="flex items-start justify-between gap-4">
-        <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
-          Campaign tracker
-        </p>
+      {/* size="small" so the CTA clears the title bar's fixed h-14 without
+          growing it past the other pages' bars. */}
+      <DashboardNavHeaderAction>
         <Button
           type="button"
           variant="outline"
-          size="medium"
+          size="small"
           icon={<DownloadIcon className="size-4" />}
           onClick={onDownload}
           loading={downloading}
@@ -56,8 +58,8 @@ const CampaignTrackerHero = ({
         >
           Download Campaign Plan
         </Button>
-      </div>
-      <h1 className="text-foreground mt-2 text-3xl font-bold sm:text-4xl">
+      </DashboardNavHeaderAction>
+      <h1 className="text-foreground text-3xl font-bold sm:text-4xl">
         {headline}
       </h1>
       {metaLine && (
