@@ -373,10 +373,71 @@ jobs:
   # only when the whole promotion succeeded — the source of truth for what shipped
   # (post_release_summary.py reads it).
 
-  gp-ai:
-    name: Promote gp-ai
+  # Does a full set of gp-ai images exist for the promoted commit?
+  #
+  # gp-ai.yml builds all five on every main push, so the normal answer is yes and
+  # this is a safety net rather than routine control flow. It still earns its
+  # place for two cases:
+  #
+  #   workflow_dispatch of an older SHA — commits predating unconditional builds
+  #   have no images, and pinning terraform to tags that were never pushed would
+  #   make ECS fail the pull, trip the circuit breaker, and churn prod task
+  #   definitions for nothing. This is the ONLY legitimate zero-image case; on a
+  #   recent main push it means the build failed, hence a warning not a notice.
+  #
+  #   a PARTIAL set — one build failed. That is NOT a skip: promoting would
+  #   leave prod running a mix of new and stale services, so it fails loudly.
+  gp-ai-images:
+    name: Check gp-ai images
     needs: gate
     if: needs.gate.outputs.promote == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      deploy: ${{ steps.check.outputs.deploy }}
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check for a full image set
+        id: check
+        env:
+          SHA: ${{ needs.gate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          found=0; missing=0; absent=""
+          # KEEP IN SYNC with the "Build service matrix" step in gp-ai.yml, which
+          # holds the same five names. A service added there but not here is
+          # never image-checked, so promotion would pin terraform to a tag that
+          # may not exist and let ECS fail the pull in prod.
+          for s in broker pmf-engine serve-analyze ddhq-matcher engineer-agent; do
+            if aws ecr describe-images --repository-name gp-ai-projects \
+                 --image-ids "imageTag=$s-$SHA" --region "$AWS_REGION" >/dev/null 2>&1; then
+              found=$((found+1))
+            else
+              missing=$((missing+1)); absent="$absent $s"
+            fi
+          done
+          if [ "$missing" -eq 0 ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            echo "All 5 gp-ai images present for $SHA; promoting gp-ai."
+          elif [ "$found" -eq 0 ]; then
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No gp-ai images for $SHA. gp-ai.yml builds all five on every main push, so for a recent main commit this is UNEXPECTED and means the build failed or never pushed — investigate. It is only expected for a workflow_dispatch of a SHA predating unconditional builds. Skipping gp-ai promotion."
+          else
+            echo "::error::Partial gp-ai image set for $SHA ($found present,$absent missing). A build failed; refusing to promote a mixed set."
+            exit 1
+          fi
+
+  gp-ai:
+    name: Promote gp-ai
+    needs: [gate, gp-ai-images]
+    if: needs.gate.outputs.promote == 'true' && needs.gp-ai-images.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -534,10 +595,22 @@ jobs:
         gp-admin,
         candidate-sites,
         publish-experiments,
+        gp-ai-images,
         gp-ai,
       ]
     # An explicit `if` drops the implicit success() of `needs`, so check each
     # deploy job's result — otherwise a partial promotion records a false success.
+    #
+    # gp-ai needs BOTH clauses. A skipped gp-ai is legitimate on its own (nothing
+    # to promote), but it is also what happens when gp-ai-images does not produce
+    # outputs — whether it FAILED (partial image set) or was CANCELLED (runner
+    # timeout, infra). Either way gp-ai's `if` is false and it skips, and
+    # accepting that skip alone would record a successful production deployment
+    # precisely when the image gate never cleared.
+    #
+    # Allowlist rather than `!= 'failure'`: the negative form lets `cancelled`
+    # through. gp-ai-images can only legitimately be `skipped` when promotion is
+    # off entirely, which the first clause already blocks.
     if: |
       needs.gate.outputs.promote == 'true' &&
       needs.gp-api.result == 'success' &&
@@ -546,7 +619,8 @@ jobs:
       needs.gp-admin.result == 'success' &&
       needs.candidate-sites.result == 'success' &&
       (needs.publish-experiments.result == 'success' || needs.publish-experiments.result == 'skipped') &&
-      needs.gp-ai.result == 'success'
+      (needs.gp-ai-images.result == 'success' || needs.gp-ai-images.result == 'skipped') &&
+      (needs.gp-ai.result == 'success' || needs.gp-ai.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read
