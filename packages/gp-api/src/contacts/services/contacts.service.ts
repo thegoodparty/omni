@@ -894,7 +894,7 @@ export class ContactsService {
   // Ad-hoc filter set, paged full-row export. The Peerly phone-list capture
   // path (ENG-10728) resolves its request through the same
   // activityConditions/supportStatus/search engine as list/count instead of
-  // the legacy voter-DB export, so an activity-built list's send can no
+  // the retired legacy export, so an activity-built list's send can no
   // longer include people the filter excludes. Channel-specific overrides
   // (e.g. forcing hasCellPhone for SMS) are the caller's concern, not this
   // shared resolution's — pass them already merged into filterInput. The

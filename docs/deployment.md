@@ -139,7 +139,7 @@ Both paths call the same composite deploy action, only with different env inputs
 people-api's repo package and `.github/workflows/people-api.yml` pipeline were
 removed once gp-api absorbed direct people-db access (`packages/gp-api/src/peopleDb/`).
 The people-api ECS service and its Aurora cluster remain deployed as a frozen,
-manually decommissioned service during the `USE_LOCAL_PEOPLE_DB` rollout — see
+manually decommissioned service pending teardown — see
 `packages/gp-api/src/peopleDb/CLAUDE.md`.
 
 - ECR tags are **immutable**. Deploy jobs check whether the SHA's tag already

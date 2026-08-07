@@ -28,22 +28,21 @@ ClickUp Comment (analysis) OR GitHub PR (implementation)
 
 ## Tag Configuration
 
-| Tag | Action | Model | Result |
-|-----|--------|-------|--------|
-| `gpbot-analyze` | Analyze and report | opus | Posts bug analysis as [GP-Bot] comment |
-| `gpbot-work` | Implement and create PR | opus | Creates PR and posts link to ClickUp |
+| Tag             | Action                  | Model | Result                                 |
+| --------------- | ----------------------- | ----- | -------------------------------------- |
+| `gpbot-analyze` | Analyze and report      | opus  | Posts bug analysis as [GP-Bot] comment |
+| `gpbot-work`    | Implement and create PR | opus  | Creates PR and posts link to ClickUp   |
 
 ## Available Repositories
 
 The agent can clone repos based on context:
 
-| Repo | Description | When to Clone |
-|------|-------------|---------------|
-| gp-webapp | Next.js frontend | UI bugs, frontend errors |
-| gp-api | NestJS backend API | API errors, backend logic bugs |
-| gp-ai-projects | AI services (this repo) | AI/ML bugs, campaign planning issues |
-| gp-people-api | People/voter data API | Voter data issues, P2V bugs |
-| gp-data-platform | Data platform | Data pipeline issues |
+| Repo             | Description                                                        | When to Clone                                               |
+| ---------------- | ------------------------------------------------------------------ | ----------------------------------------------------------- |
+| gp-webapp        | Next.js frontend                                                   | UI bugs, frontend errors                                    |
+| gp-api           | NestJS backend API (also owns people/voter data via src/peopleDb/) | API errors, backend logic bugs, voter data issues, P2V bugs |
+| gp-ai-projects   | AI services (this repo)                                            | AI/ML bugs, campaign planning issues                        |
+| gp-data-platform | Data platform                                                      | Data pipeline issues                                        |
 
 ## Agent Capabilities
 
@@ -58,31 +57,31 @@ The agent can clone repos based on context:
 
 ### Helper Scripts
 
-| Script | Description |
-|--------|-------------|
-| `python -m engineer_agent.scripts.query_db` | Query Databricks (read-only) |
+| Script                                             | Description                      |
+| -------------------------------------------------- | -------------------------------- |
+| `python -m engineer_agent.scripts.query_db`        | Query Databricks (read-only)     |
 | `python -m engineer_agent.scripts.post_to_clickup` | Post [GP-Bot] comment to ClickUp |
 
 ## Environment Variables (Fargate)
 
 Passed via container overrides from Lambda:
 
-| Variable | Description |
-|----------|-------------|
-| `CLICKUP_TASK_ID` | ClickUp task ID |
-| `INSTRUCTION` | Task instruction (analyze or implement) |
-| `AGENT_MODEL` | Model to use (opus) |
-| `WORKSPACE_DIR` | Working directory (/workspace) |
+| Variable          | Description                             |
+| ----------------- | --------------------------------------- |
+| `CLICKUP_TASK_ID` | ClickUp task ID                         |
+| `INSTRUCTION`     | Task instruction (analyze or implement) |
+| `AGENT_MODEL`     | Model to use (opus)                     |
+| `WORKSPACE_DIR`   | Working directory (/workspace)          |
 
 Injected from Secrets Manager:
 
-| Secret | Description |
-|--------|-------------|
-| `ANTHROPIC_API_KEY` | Claude API key |
-| `CLICKUP_API_KEY` | ClickUp API key |
+| Secret                   | Description                                                                                                                                                     |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ANTHROPIC_API_KEY`      | Claude API key                                                                                                                                                  |
+| `CLICKUP_API_KEY`        | ClickUp API key                                                                                                                                                 |
 | `GITHUB_APP_PRIVATE_KEY` | Delegate GitHub App key; an installation token is minted at startup and exported as `GITHUB_TOKEN` for cloning private repos (fallback: pre-set `GITHUB_TOKEN`) |
-| `DATABRICKS_API_KEY` | Databricks access |
-| `SLACK_BOT_TOKEN` | Slack notifications |
+| `DATABRICKS_API_KEY`     | Databricks access                                                                                                                                               |
+| `SLACK_BOT_TOKEN`        | Slack notifications                                                                                                                                             |
 
 ## Directory Structure
 
@@ -109,11 +108,13 @@ engineer_agent/
 ## Infrastructure (Terraform)
 
 **clickup-bot** (`infrastructure/modules/clickup-bot/`):
+
 - Lambda function for webhook handling
 - Secrets Manager access
 - ECS RunTask permissions
 
 **engineer-agent-fargate** (`infrastructure/modules/engineer-agent-fargate/`):
+
 - ECS cluster and Fargate task definition
 - IAM roles (task execution, task role)
 - Security groups (HTTPS, SSH, DNS egress)

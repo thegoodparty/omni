@@ -156,7 +156,10 @@ import { dirname, join, relative } from 'node:path'
 // +1 for ordinances/components/OrdinanceBugReportSheet.tsx — the draft's
 // "Flag a bug" sheet manages description/submit state and opens a Vaul drawer,
 // so it must be a client component.
-const BASELINE = 560
+// +1 for ordinances/components/redline/RedlineEditor.tsx — the amendment
+// tracked-changes editor is a TipTap/ProseMirror instance, which is inherently
+// client-only, so it can't render on the server.
+const BASELINE = 561
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

@@ -4,9 +4,11 @@ import { z } from 'zod'
 import PDFDocument from 'pdfkit'
 import {
   BorderStyle,
+  DeletedTextRun,
   Document,
   ExternalHyperlink,
   HeadingLevel,
+  InsertedTextRun,
   Packer,
   Paragraph,
   ShadingType,
@@ -17,9 +19,11 @@ import {
   type OrdinanceQualityCheck,
   type OrdinanceQualityReport,
   type OrdinanceSource,
+  type RedlineSegmentType,
   ORDINANCE_DRAFT_DISCLAIMER,
   OrdinanceQualityReportSchema,
   OrdinanceSourceSchema,
+  parseRedlineLines,
 } from '@goodparty_org/contracts'
 import { Ordinance } from '../../generated/prisma'
 import { OrdinanceExportFormat } from '../schemas/ordinances.schema'
@@ -39,12 +43,21 @@ const MUTED = '6B7280'
 const NOTE = '333333'
 const DIVIDER = 'E5E7EB'
 const LINK = '1155CC'
+const REDLINE_INSERT = '15803D'
+const REDLINE_DELETE = 'B91C1C'
+
+const pdfRedlineColor = (type: RedlineSegmentType): string =>
+  type === 'insertion'
+    ? `#${REDLINE_INSERT}`
+    : type === 'deletion'
+      ? `#${REDLINE_DELETE}`
+      : 'black'
 
 type OrdinanceTally = OrdinanceQualityReport['tally']
 
 type ExportContent = {
   title: string
-  bodyLines: string[]
+  body: string
   sources: OrdinanceSource[]
   checks: OrdinanceQualityCheck[]
   tally: OrdinanceTally
@@ -82,7 +95,7 @@ const buildContent = (record: Ordinance): ExportContent => {
   const sources = z.array(OrdinanceSourceSchema).safeParse(record.draftSources)
   return {
     title: record.draftTitle ?? record.goalText ?? 'Untitled ordinance',
-    bodyLines: (record.draftBody ?? '').split('\n'),
+    body: record.draftBody ?? '',
     sources: sources.success ? sources.data : [],
     checks: report.success ? report.data.checks : [],
     // Reuse the persisted tally rather than recomputing it here.
@@ -178,9 +191,21 @@ const renderPdf = (content: ExportContent): Promise<Buffer> => {
   doc.font('Helvetica-Bold').fontSize(18).fillColor('black').text(content.title)
   doc.moveDown()
   doc.font('Helvetica').fontSize(11).fillColor('black')
-  for (const line of content.bodyLines) {
-    if (line.trim().length === 0) doc.moveDown()
-    else doc.text(line)
+  for (const runs of parseRedlineLines(content.body)) {
+    const lineText = runs.map((r) => r.text).join('')
+    if (lineText.trim().length === 0) {
+      doc.moveDown()
+      continue
+    }
+    runs.forEach((run, idx) => {
+      doc.fillColor(pdfRedlineColor(run.type))
+      doc.text(run.text, {
+        continued: idx !== runs.length - 1,
+        underline: run.type === 'insertion',
+        strike: run.type === 'deletion',
+      })
+    })
+    doc.fillColor('black')
   }
 
   doc.addPage()
@@ -312,6 +337,46 @@ const pdfCheckRow = (
 
 const RIGHT_TAB = 9350
 
+const REVISION_AUTHOR = 'GoodParty'
+// Word stamps each tracked change with a date; the export is not
+// time-sensitive, so a fixed date keeps output deterministic and avoids a
+// runtime clock in the renderer.
+const REVISION_DATE = '2024-01-01T00:00:00Z'
+
+// Render the draft body as native Word tracked changes so an attorney can
+// accept or reject each edit. Insertions and deletions each need a unique
+// revision id across the document.
+const docxBodyParagraphs = (body: string): Paragraph[] => {
+  let nextId = 0
+  const revisionId = (): number => {
+    const id = nextId
+    nextId += 1
+    return id
+  }
+  return parseRedlineLines(body).map(
+    (runs) =>
+      new Paragraph({
+        children: runs.map((run) =>
+          run.type === 'insertion'
+            ? new InsertedTextRun({
+                text: run.text,
+                id: revisionId(),
+                author: REVISION_AUTHOR,
+                date: REVISION_DATE,
+              })
+            : run.type === 'deletion'
+              ? new DeletedTextRun({
+                  text: run.text,
+                  id: revisionId(),
+                  author: REVISION_AUTHOR,
+                  date: REVISION_DATE,
+                })
+              : new TextRun({ text: run.text }),
+        ),
+      }),
+  )
+}
+
 const docxDivider = (): Paragraph =>
   new Paragraph({
     spacing: { after: 120 },
@@ -373,7 +438,7 @@ const docxCheckParagraphs = (check: OrdinanceQualityCheck): Paragraph[] => {
 const renderDocx = (content: ExportContent): Promise<Buffer> => {
   const body: Paragraph[] = [
     new Paragraph({ text: content.title, heading: HeadingLevel.HEADING_1 }),
-    ...content.bodyLines.map((line) => new Paragraph({ text: line })),
+    ...docxBodyParagraphs(content.body),
   ]
 
   // Review disclaimer at the top of the appendix page (carries the page break

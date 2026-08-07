@@ -151,7 +151,7 @@ describe('VoterFileStep — prototype filter order', () => {
       .map((heading) => heading.textContent)
 
     expect(headings).toEqual([
-      'Contacts made',
+      'Prior contacts made',
       'Support status',
       'Voter likelihood',
       'Political party',
@@ -227,7 +227,7 @@ describe('VoterFileStep — Contacts Made section', () => {
       .getAllByRole('heading', { level: 4 })
       .map((heading) => heading.textContent)
 
-    const contactsMadeIndex = headings.indexOf('Contacts made')
+    const contactsMadeIndex = headings.indexOf('Prior contacts made')
     const supportStatusIndex = headings.indexOf('Support status')
 
     expect(contactsMadeIndex).toBeGreaterThan(-1)
@@ -246,7 +246,7 @@ describe('VoterFileStep — Contacts Made section', () => {
     )
 
     const contactsMadeGroup = screen.getByRole('toolbar', {
-      name: 'Contacts Made',
+      name: 'Prior Contacts Made',
     })
     expect(contactsMadeGroup).toBeInTheDocument()
     ;['0', '1', '2', '3', '4', '5+'].forEach((label) => {
@@ -271,7 +271,7 @@ describe('VoterFileStep — Contacts Made section', () => {
     )
 
     const contactsMadeGroup = screen.getByRole('toolbar', {
-      name: 'Contacts Made',
+      name: 'Prior Contacts Made',
     })
     await user.click(
       within(contactsMadeGroup).getByRole('button', { name: '0' }),
@@ -296,9 +296,9 @@ describe('VoterFileStep — Contacts Made section', () => {
     const headings = screen
       .getAllByRole('heading', { level: 4 })
       .map((heading) => heading.textContent)
-    expect(headings).not.toContain('Contacts made')
+    expect(headings).not.toContain('Prior contacts made')
     expect(
-      screen.queryByRole('toolbar', { name: 'Contacts Made' }),
+      screen.queryByRole('toolbar', { name: 'Prior Contacts Made' }),
     ).not.toBeInTheDocument()
   })
 })
