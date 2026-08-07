@@ -3,7 +3,13 @@
 // the action), so this module is always pulled into the client graph through
 // one of them. The RSC page shells only pass the serializable navHeader prop
 // and never touch this file.
-import { createContext, useContext, useEffect, type ReactNode } from 'react'
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  type ReactNode,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { noop } from '@shared/utils/noop'
 
@@ -41,6 +47,13 @@ export const NavHeaderActionSlotContext = createContext<NavHeaderActionSlot>({
 // With no slot in context the action renders in place, so a page that doesn't
 // set navHeader still shows its CTA and a component test can render the owning
 // component without the layout around it.
+// useLayoutEffect on the client, useEffect on the server — this component is
+// server-rendered (that's why the portal has an in-place fallback at all), and
+// useLayoutEffect warns during SSR. Same guard as TasksList / DraftDetail /
+// breadcrumb-nav.
+const useIsomorphicLayoutEffect =
+  typeof window === 'undefined' ? useEffect : useLayoutEffect
+
 const DashboardNavHeaderAction = ({
   children,
 }: {
@@ -48,7 +61,13 @@ const DashboardNavHeaderAction = ({
 }): React.JSX.Element => {
   const { element, register } = useContext(NavHeaderActionSlotContext)
 
-  useEffect(() => {
+  // Layout effect, not a passive one: the bar hands back its slot from a ref
+  // callback, which runs in the commit phase. A passive effect would register
+  // one paint later, so there'd be a frame where the CTA has already portalled
+  // into a bar that is still `hidden` on mobile — the CTA would blink out and
+  // back. Registering in the same commit lets React flush both state updates
+  // before paint, so only the settled state is ever visible.
+  useIsomorphicLayoutEffect(() => {
     register(1)
     return () => register(-1)
   }, [register])
