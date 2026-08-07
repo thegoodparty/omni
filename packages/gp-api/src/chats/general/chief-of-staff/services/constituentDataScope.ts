@@ -57,4 +57,8 @@ export const buildConstituentDataScope = (
   forbiddenColumns: FORBIDDEN_COLUMNS,
   mandatoryFilters: districtFilters,
   minCellSize: CONSTITUENT_MIN_CELL_SIZE,
+  // The serve catalog carries meaning labels, value tokens, and the coverage /
+  // off-center marks that HS_SCORE_SEMANTICS refers to (verified against
+  // serve_agent_voters, 2026-08-04).
+  catalogCarriesScoreMarks: true,
 })
