@@ -130,9 +130,7 @@ test('win: publishing from the editor makes the profile public, unpublishing hid
 
   // The gate opened, and it carries what the owner authored — this is the exact
   // payload gp-marketing renders the claimed profile from.
-  await expect
-    .poll(publicProfile, { timeout: 30_000 })
-    .toBe(200)
+  await expect.poll(publicProfile, { timeout: 30_000 }).toBe(200)
   const { data: live } = await client.get<{
     displayName: string
     publishedAt: string | null
