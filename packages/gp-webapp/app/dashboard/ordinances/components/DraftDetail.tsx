@@ -97,9 +97,7 @@ export default function DraftDetail({
 }: {
   ordinance: Ordinance
 }): React.JSX.Element {
-  const bodyRef = useRef<HTMLDivElement>(null)
-  // Wraps whichever body surface is active (the contentEditable or the redline
-  // editor) so the selection toolbar positions against either.
+  // Wraps the redline editor so the selection toolbar positions against it.
   const bodyContainerRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLHeadingElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -134,25 +132,20 @@ export default function DraftDetail({
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [status, setStatus] = useState<OrdinanceStatus>(ordinance.status)
   const [exportError, setExportError] = useState<string | null>(null)
-  // Amendments — a linked source, or a body already carrying {-/+} markup —
-  // edit in the tracked-changes RedlineEditor instead of the plain
-  // contentEditable, so the user's edits also show as redline.
+  // Every draft edits in the RedlineEditor now, new or amendment. Amendments
+  // (a linked source, or a body already carrying {-/+} markup) additionally
+  // turn on suggesting mode so the user's own edits track as redline; a new
+  // ordinance edits plainly. This flag drives only that mode, not the surface.
   const isAmendment =
     Boolean(ordinance.sourceLink) || hasRedline(ordinance.draftBody ?? '')
-  // Live markup from the RedlineEditor's onChange; the amendment-path
-  // equivalent of the contentEditable's innerText.
+  // Live markup from the RedlineEditor's onChange — the sole body source now
+  // that the editor backs every draft.
   const editorBodyRef = useRef(ordinance.draftBody ?? '')
   // Remounts the editor with server truth on a loop reseed. Changes only then,
   // not per keystroke, so the caret survives normal typing.
   const [editorSeed, setEditorSeed] = useState(ordinance.draftBody ?? '')
-  // The current body markup regardless of edit surface, so every save path can
-  // stay identical and the plain contentEditable branch is byte-for-byte
-  // unchanged.
-  const readBody = useCallback(
-    (): string =>
-      isAmendment ? editorBodyRef.current : (bodyRef.current?.innerText ?? ''),
-    [isAmendment],
-  )
+  // The current body markup, read the same way on every save path.
+  const readBody = useCallback((): string => editorBodyRef.current, [])
   // Exposure-only read: the draft page IS the treatment surface (loop banner,
   // locked editor, What-changed panel), so mounting it must register Amplitude
   // exposure even though no UI branches on the flag here anymore — the loop
@@ -179,40 +172,35 @@ export default function DraftDetail({
     loopRunningRef.current = loopRunning
   }, [loopRunning])
 
-  // The editors' last serialization known to match the persisted draft, as
-  // innerText reads it. contentEditable's innerText set/get round-trip is not
-  // byte-identical (nbsp/newline normalization), so an input event can fire
-  // with text that only *reserializes* the same content — saving it would
-  // byte-shuffle the body, change the quality report's input hash, and stale
-  // a fresh report (observed right after a loop reseed). Every save path
-  // skips when the text equals this snapshot. Null forces the next save
-  // through (after a failed PATCH the server copy is behind the snapshot).
+  // The editors' last serialization known to match the persisted draft. Both
+  // surfaces can reserialize the same content without a real edit — the title
+  // contentEditable's innerText round-trip is not byte-identical (nbsp/newline
+  // normalization), and the body editor canonicalizes a marker spanning a line
+  // break on reseed — so an input event can fire with text that only
+  // reserializes: saving it would byte-shuffle the draft, change the quality
+  // report's input hash, and stale a fresh report (observed right after a loop
+  // reseed). Every save path skips when the text equals this snapshot. Null
+  // forces the next save through (after a failed PATCH the server copy is
+  // behind the snapshot).
   const lastSavedTitleRef = useRef<string | null>(null)
   const lastSavedBodyRef = useRef<string | null>(null)
 
   const router = useRouter()
 
-  const seedEditorsFrom = useCallback(
-    (next: Ordinance): void => {
-      if (titleRef.current) {
-        titleRef.current.innerText =
-          next.draftTitle ?? next.goalText ?? 'Untitled ordinance'
-      }
-      const body = next.draftBody ?? ''
-      if (bodyRef.current) bodyRef.current.innerText = body
-      if (isAmendment) {
-        editorBodyRef.current = body
-        setEditorSeed(body)
-      }
-      // Snapshot the read-back (not the assigned string): the setter/getter
-      // round-trip is the serialization future input events will produce.
-      lastSavedTitleRef.current = titleRef.current?.innerText ?? null
-      lastSavedBodyRef.current = isAmendment
-        ? body
-        : (bodyRef.current?.innerText ?? null)
-    },
-    [isAmendment],
-  )
+  const seedEditorsFrom = useCallback((next: Ordinance): void => {
+    if (titleRef.current) {
+      titleRef.current.innerText =
+        next.draftTitle ?? next.goalText ?? 'Untitled ordinance'
+    }
+    const body = next.draftBody ?? ''
+    editorBodyRef.current = body
+    setEditorSeed(body)
+    // Snapshot the title read-back (not the assigned string): the setter/getter
+    // round-trip is the serialization future input events will produce. The
+    // body markup snapshots verbatim.
+    lastSavedTitleRef.current = titleRef.current?.innerText ?? null
+    lastSavedBodyRef.current = body
+  }, [])
 
   // Bumped by any user action that changes loop/draft state (stop, restore):
   // a fetch that started before the bump carries a stale snapshot — applying
@@ -369,18 +357,16 @@ export default function DraftDetail({
   const statusMeta = ORDINANCE_STATUS_META[status]
   const sources = ordinance.draftSources ?? []
 
-  // Uncontrolled contentEditable fields: seed once on mount so typing never
-  // resets the caret. The saved values are the source of truth from here on, so
-  // we don't re-sync from props after mount.
+  // Seed the title contentEditable once on mount so typing never resets the
+  // caret; the editor body seeds itself from `editorSeed`. The saved values are
+  // the source of truth from here on, so we don't re-sync from props after
+  // mount.
   useEffect(() => {
     if (titleRef.current) titleRef.current.innerText = title
-    if (bodyRef.current) bodyRef.current.innerText = ordinance.draftBody ?? ''
-    // Baseline snapshot of the seeded read-back, so the very first input
-    // event can already tell a real edit from a reserialization.
+    // Baseline snapshot so the very first input event can already tell a real
+    // edit from a reserialization.
     lastSavedTitleRef.current = titleRef.current?.innerText ?? null
-    lastSavedBodyRef.current = isAmendment
-      ? (ordinance.draftBody ?? '')
-      : (bodyRef.current?.innerText ?? null)
+    lastSavedBodyRef.current = ordinance.draftBody ?? ''
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -472,8 +458,8 @@ export default function DraftDetail({
     }
   }, [save, readBody])
 
-  // Read innerText only when typing pauses, not on every keystroke (each read
-  // forces a synchronous layout reflow). Empty fields are skipped: the contract
+  // Debounce the body autosave so a burst of edits collapses into one PATCH
+  // rather than firing per keystroke. Empty fields are skipped: the contract
   // requires draftTitle/draftBody be non-empty, so gp-api 400s on ''.
   const onBodyInput = useCallback((): void => {
     // The editor is locked while the loop runs; belt-and-braces mute the
@@ -495,8 +481,8 @@ export default function DraftDetail({
     }, AUTOSAVE_DELAY_MS)
   }, [save, readBody])
 
-  // The RedlineEditor reports its markup here; mirror it and reuse the same
-  // debounced autosave the contentEditable uses.
+  // The RedlineEditor reports its markup here; mirror it into the body ref and
+  // drive the same debounced body autosave.
   const handleEditorChange = useCallback(
     (markup: string): void => {
       editorBodyRef.current = markup
@@ -529,15 +515,12 @@ export default function DraftDetail({
   // with a pending timer are flushed, so an untouched field is never re-sent.
   useIsomorphicLayoutEffect(() => {
     const titleNode = titleRef.current
-    const bodyNode = bodyRef.current
     return () => {
       const update: UpdateOrdinanceRequest = {}
       if (bodyTimerRef.current) {
         clearTimeout(bodyTimerRef.current)
         bodyTimerRef.current = null
-        const body = isAmendment
-          ? editorBodyRef.current
-          : (bodyNode?.innerText ?? '')
+        const body = editorBodyRef.current
         if (body !== lastSavedBodyRef.current && body.trim().length > 0) {
           lastSavedBodyRef.current = body
           update.draftBody = body
@@ -554,7 +537,7 @@ export default function DraftDetail({
       }
       if (Object.keys(update).length > 0) save(update)
     }
-  }, [save, isAmendment])
+  }, [save])
 
   // Position the ask/flag toolbar at the selection inside the draft body.
   // Recompute on selection change and on scroll of the editor's overflow
@@ -787,27 +770,14 @@ export default function DraftDetail({
               className="mb-4 text-xl font-bold text-foreground outline-none"
             />
             <div ref={bodyContainerRef}>
-              {isAmendment ? (
-                <RedlineEditor
-                  key={editorSeed}
-                  value={editorSeed}
-                  editable={!loopRunning}
-                  suggesting
-                  onChange={handleEditorChange}
-                />
-              ) : (
-                <div
-                  ref={bodyRef}
-                  contentEditable={!loopRunning}
-                  suppressContentEditableWarning
-                  role="textbox"
-                  aria-multiline="true"
-                  aria-label="Ordinance draft body"
-                  aria-readonly={loopRunning ? 'true' : undefined}
-                  onInput={onBodyInput}
-                  className="min-h-40 whitespace-pre-wrap text-base leading-relaxed text-foreground outline-none"
-                />
-              )}
+              <RedlineEditor
+                key={editorSeed}
+                value={editorSeed}
+                editable={!loopRunning}
+                suggesting={isAmendment}
+                ariaLabel="Ordinance draft body"
+                onChange={handleEditorChange}
+              />
             </div>
             <QualityReport
               key={loopReport?.ranAgainstBodyHash ?? 'no-report'}

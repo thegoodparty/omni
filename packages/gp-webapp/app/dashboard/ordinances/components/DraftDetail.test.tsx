@@ -73,6 +73,42 @@ vi.mock('./DraftChat', () => ({
   },
 }))
 
+// Stand in for the TipTap body editor with an uncontrolled contentEditable that
+// mirrors it: same role/name, lock via `editable`, and reporting innerText on
+// input. These tests exercise DraftDetail's save orchestration, not TipTap; the
+// real editor's rendering is covered by RedlineEditor.test.tsx. Seed once per
+// mount (a reseed remounts via `key`) so a re-render never wipes typed text.
+vi.mock('./redline/RedlineEditor', () => ({
+  RedlineEditor: ({
+    value,
+    onChange,
+    editable = true,
+    ariaLabel,
+  }: {
+    value: string
+    onChange?: (markup: string) => void
+    editable?: boolean
+    suggesting?: boolean
+    ariaLabel?: string
+  }) => (
+    <div
+      role="textbox"
+      aria-multiline="true"
+      aria-label={ariaLabel}
+      contentEditable={editable}
+      aria-readonly={editable ? undefined : 'true'}
+      suppressContentEditableWarning
+      ref={(el) => {
+        if (el && el.dataset.seeded !== '1') {
+          el.innerText = value
+          el.dataset.seeded = '1'
+        }
+      }}
+      onInput={(e) => onChange?.((e.currentTarget as HTMLElement).innerText)}
+    />
+  ),
+}))
+
 const AUTOSAVE_DELAY_MS = 800
 
 const makeOrdinance = (overrides: Partial<Ordinance> = {}): Ordinance =>

@@ -15,6 +15,9 @@ interface RedlineEditorProps {
   // Suggesting mode: typed text becomes an insertion, deleting baseline text
   // strikes it. Only meaningful when editable.
   suggesting?: boolean
+  // Accessible name for the editable region, exposed on the ProseMirror element
+  // so it's reachable as a named textbox (the plain draft body relies on this).
+  ariaLabel?: string
 }
 
 // Renders an ordinance amendment as an inline redline (struck deletions,
@@ -29,12 +32,21 @@ export const RedlineEditor = ({
   onChange,
   editable = true,
   suggesting = false,
+  ariaLabel,
 }: RedlineEditorProps) => {
   const editor = useEditor({
     editable,
     // Required under Next SSR: defer creation to the client to avoid a
     // hydration mismatch.
     immediatelyRender: false,
+    editorProps: {
+      attributes: {
+        role: 'textbox',
+        'aria-multiline': 'true',
+        ...(ariaLabel ? { 'aria-label': ariaLabel } : {}),
+        ...(editable ? {} : { 'aria-readonly': 'true' }),
+      },
+    },
     extensions: [
       StarterKit.configure({
         heading: false,
@@ -58,15 +70,21 @@ export const RedlineEditor = ({
   })
 
   // Keep editability in sync with the prop, e.g. the draft locks while the
-  // quality loop runs.
+  // quality loop runs. Mirror the lock into aria-readonly too (matching the
+  // raw contentEditable this replaced); editorProps.attributes is fixed at
+  // creation, so the live toggle has to be imperative.
   useEffect(() => {
-    editor?.setEditable(editable)
+    if (!editor) return
+    editor.setEditable(editable)
+    const dom = editor.view.dom
+    if (editable) dom.removeAttribute('aria-readonly')
+    else dom.setAttribute('aria-readonly', 'true')
   }, [editor, editable])
 
   return (
     <EditorContent
       editor={editor}
-      className="text-base leading-relaxed text-foreground [&_.ProseMirror]:whitespace-pre-wrap [&_.ProseMirror]:outline-none"
+      className="text-base leading-relaxed text-foreground [&_.ProseMirror]:min-h-40 [&_.ProseMirror]:whitespace-pre-wrap [&_.ProseMirror]:outline-none"
     />
   )
 }

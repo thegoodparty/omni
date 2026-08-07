@@ -19,6 +19,9 @@ const mocks = vi.hoisted(() => ({
   cancelQualityLoop: vi.fn(),
   fetchQualityIterations: vi.fn(),
   useOrdinanceQualityLoopFlag: vi.fn(),
+  redlineProps: {
+    current: null as { suggesting?: boolean; value?: string } | null,
+  },
 }))
 
 vi.mock('../data/ordinances-api', () => ({
@@ -46,6 +49,46 @@ vi.mock('@shared/utils/Snackbar', () => ({
 
 vi.mock('./DraftChat', () => ({
   default: () => null,
+}))
+
+// Stand in for the TipTap body editor (see DraftDetail.test.tsx for the
+// rationale): an uncontrolled contentEditable that mirrors the real body's
+// role/name, lock, reseed-via-key, and innerText reporting, so the loop's
+// lock/reseed/autosave assertions keep working. Also records the props
+// DraftDetail chose (suggesting on/off) for the amendment-mode tests.
+vi.mock('./redline/RedlineEditor', () => ({
+  RedlineEditor: ({
+    value,
+    onChange,
+    editable = true,
+    suggesting,
+    ariaLabel,
+  }: {
+    value: string
+    onChange?: (markup: string) => void
+    editable?: boolean
+    suggesting?: boolean
+    ariaLabel?: string
+  }) => {
+    mocks.redlineProps.current = { suggesting, value }
+    return (
+      <div
+        role="textbox"
+        aria-multiline="true"
+        aria-label={ariaLabel}
+        contentEditable={editable}
+        aria-readonly={editable ? undefined : 'true'}
+        suppressContentEditableWarning
+        ref={(el) => {
+          if (el && el.dataset.seeded !== '1') {
+            el.innerText = value
+            el.dataset.seeded = '1'
+          }
+        }}
+        onInput={(e) => onChange?.((e.currentTarget as HTMLElement).innerText)}
+      />
+    )
+  },
 }))
 
 const AUTOSAVE_DELAY_MS = 800
@@ -613,24 +656,23 @@ describe('DraftDetail quality panel (design: refresh only, loop is auto)', () =>
 })
 
 describe('DraftDetail amendment editor', () => {
-  it('edits an amendment in the tracked-changes editor, not the raw box', async () => {
+  // The body now edits in the same RedlineEditor for every draft; only
+  // suggesting mode differs. Whether the redline actually renders is covered by
+  // RedlineEditor.test.tsx — here we assert only what DraftDetail decides.
+  it('turns on suggesting mode for an amendment (body carries redline markup)', () => {
     render(
       <DraftDetail
         ordinance={makeOrdinance({ draftBody: 'Sec 1. {-old-}{+new+} end.' })}
       />,
     )
 
-    // The redline renders: struck deletion, underlined insertion.
-    expect((await screen.findByText('old')).closest('del')).not.toBeNull()
-    expect(screen.getByText('new').closest('ins')).not.toBeNull()
-
-    // The raw contentEditable body is not used for an amendment.
     expect(
-      screen.queryByRole('textbox', { name: 'Ordinance draft body' }),
-    ).not.toBeInTheDocument()
+      screen.getByRole('textbox', { name: 'Ordinance draft body' }),
+    ).toBeInTheDocument()
+    expect(mocks.redlineProps.current?.suggesting).toBe(true)
   })
 
-  it('keeps a plain, non-amendment draft in the raw contentEditable', () => {
+  it('leaves suggesting off for a plain, non-amendment draft', () => {
     render(
       <DraftDetail ordinance={makeOrdinance({ draftBody: 'A plain body.' })} />,
     )
@@ -638,6 +680,6 @@ describe('DraftDetail amendment editor', () => {
     expect(
       screen.getByRole('textbox', { name: 'Ordinance draft body' }),
     ).toBeInTheDocument()
-    expect(screen.queryByText('old')).not.toBeInTheDocument()
+    expect(mocks.redlineProps.current?.suggesting).toBe(false)
   })
 })

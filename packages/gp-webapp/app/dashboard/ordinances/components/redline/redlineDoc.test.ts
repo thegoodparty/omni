@@ -37,6 +37,25 @@ describe('redline doc conversion', () => {
     expect(roundTrip('    (a) indented clause')).toBe('    (a) indented clause')
   })
 
+  // A new (non-amendment) ordinance carries no markup, but it now edits in the
+  // same editor as amendments, so its plain body must survive the doc round-trip
+  // byte-for-byte or an untouched load would churn the saved text and stale the
+  // quality-report hash. These cover the shapes real drafts actually contain.
+  it('round-trips a realistic plain new-ordinance body byte-for-byte', () => {
+    for (const s of [
+      'ORDINANCE NO. ____\n\nAN ORDINANCE OF THE CITY OF EXAMPLE',
+      'Section 1. Purpose.\n\n    (a) The purpose of this ordinance is to\n' +
+        '        protect public health.\n    (b) It applies citywide.\n\n' +
+        'Section 2. Definitions.\n\n    "Person" means any individual.',
+      'Trailing newline stays.\n',
+      'Line one\n\n\nLine four after two blank lines',
+      '   \nleading whitespace-only line above',
+      '',
+    ]) {
+      expect(roundTrip(s)).toBe(s)
+    }
+  })
+
   it('serializes the redline mark even when another mark is also present', () => {
     const doc = {
       content: [
