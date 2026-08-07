@@ -9,6 +9,7 @@ export const ORDINANCE_TOOL_LABELS: Record<string, string | undefined> = {
   read_ordinance: 'Reviewing your ordinance',
   get_code_source: 'Checking the current code',
   fetch_url: 'Reading the municipal code',
+  apply_draft_edit: 'Applying your change',
 }
 
 export const ordinanceToolLabel = (name: string): string | null =>

@@ -41,7 +41,7 @@ import type {
   OrdinanceStatus,
   UpdateOrdinanceRequest,
 } from '@goodparty_org/contracts'
-import { hasRedline } from '@goodparty_org/contracts'
+import { hasRedline, redlineToAmended } from '@goodparty_org/contracts'
 import { RedlineEditor } from './redline/RedlineEditor'
 import { useOrdinanceQualityLoopFlag } from '@shared/experiments/ordinanceQualityLoopFlag'
 import { useSnackbar } from '@shared/utils/Snackbar'
@@ -132,18 +132,28 @@ export default function DraftDetail({
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [status, setStatus] = useState<OrdinanceStatus>(ordinance.status)
   const [exportError, setExportError] = useState<string | null>(null)
-  // Every draft edits in the RedlineEditor now, new or amendment. Amendments
-  // (a linked source, or a body already carrying {-/+} markup) additionally
-  // turn on suggesting mode so the user's own edits track as redline; a new
-  // ordinance edits plainly. This flag drives only that mode, not the surface.
+  // Every draft edits in the RedlineEditor now, new or amendment. An amendment
+  // (it amends existing law) additionally turns on suggesting mode so the
+  // user's own edits track as redline; a new ordinance edits plainly. Signalled
+  // by a source link or a stored verbatim baseline — NOT by `existingLaw` being
+  // present (the flow saves a current-law *summary* for new ordinances too, so
+  // that would misclassify them), and NOT by markup in the body (a new draft
+  // can carry chat-applied redline). Misclassifying would hide the Accept
+  // action and wrongly turn on suggesting.
   const isAmendment =
-    Boolean(ordinance.sourceLink) || hasRedline(ordinance.draftBody ?? '')
+    Boolean(ordinance.sourceLink) || ordinance.existingLaw?.verbatimText != null
   // Live markup from the RedlineEditor's onChange — the sole body source now
   // that the editor backs every draft.
   const editorBodyRef = useRef(ordinance.draftBody ?? '')
   // Remounts the editor with server truth on a loop reseed. Changes only then,
   // not per keystroke, so the caret survives normal typing.
   const [editorSeed, setEditorSeed] = useState(ordinance.draftBody ?? '')
+  // Whether the body currently carries {-/+} markup, tracked reactively so the
+  // Accept-changes action (new ordinances only) can show/hide. Updated on edit
+  // and on reseed; a same-value set is a no-op re-render.
+  const [bodyHasRedline, setBodyHasRedline] = useState(
+    hasRedline(ordinance.draftBody ?? ''),
+  )
   // The current body markup, read the same way on every save path.
   const readBody = useCallback((): string => editorBodyRef.current, [])
   // Exposure-only read: the draft page IS the treatment surface (loop banner,
@@ -195,6 +205,7 @@ export default function DraftDetail({
     const body = next.draftBody ?? ''
     editorBodyRef.current = body
     setEditorSeed(body)
+    setBodyHasRedline(hasRedline(body))
     // Snapshot the title read-back (not the assigned string): the setter/getter
     // round-trip is the serialization future input events will produce. The
     // body markup snapshots verbatim.
@@ -486,10 +497,64 @@ export default function DraftDetail({
   const handleEditorChange = useCallback(
     (markup: string): void => {
       editorBodyRef.current = markup
+      setBodyHasRedline(hasRedline(markup))
       onBodyInput()
     },
     [onBodyInput],
   )
+
+  // A review-chat turn may have applied an edit to the draft body via
+  // apply_draft_edit. Pull the server copy once the turn settles and, if the
+  // body diverged from the editor, reseed so the tracked change appears. Guard
+  // against clobbering: skip while the loop owns the draft, or while a local
+  // edit is still unsaved or in flight.
+  const refreshDraftAfterChat = useCallback(async (): Promise<void> => {
+    if (loopRunningRef.current) return
+    if (
+      bodyTimerRef.current ||
+      savingRef.current ||
+      lastSaveFailedRef.current
+    ) {
+      return
+    }
+    const next = await fetchOrdinanceBySlug(ordinance.slug).catch(() => null)
+    if (!next) return
+    // Re-check after the await: an edit begun during the fetch would leave a
+    // pending timer / in-flight save whose text we must not reseed over.
+    if (
+      loopRunningRef.current ||
+      bodyTimerRef.current ||
+      savingRef.current ||
+      lastSaveFailedRef.current
+    ) {
+      return
+    }
+    const body = next.draftBody ?? ''
+    if (body === editorBodyRef.current) return
+    editorBodyRef.current = body
+    setEditorSeed(body)
+    setBodyHasRedline(hasRedline(body))
+    lastSavedBodyRef.current = body
+    // The body changed under the report; mark it stale so the user re-runs.
+    setDraftDirty(true)
+  }, [ordinance.slug])
+
+  // Accept all tracked changes on a new ordinance: collapse the {-/+} redline
+  // to clean final text (drop deletions, keep insertions) and save. Offered
+  // only for a non-amendment draft carrying redline — an amendment's redline is
+  // the deliverable, so it is never collapsed here.
+  const acceptChanges = useCallback((): void => {
+    const clean = redlineToAmended(editorBodyRef.current)
+    if (clean === editorBodyRef.current) return
+    editorBodyRef.current = clean
+    setEditorSeed(clean)
+    setBodyHasRedline(false)
+    if (clean.trim().length > 0 && clean !== lastSavedBodyRef.current) {
+      setDraftDirty(true)
+      lastSavedBodyRef.current = clean
+      save({ draftBody: clean })
+    }
+  }, [save])
 
   const onTitleInput = useCallback((): void => {
     if (loopRunningRef.current) return
@@ -769,6 +834,22 @@ export default function DraftDetail({
               onInput={onTitleInput}
               className="mb-4 text-xl font-bold text-foreground outline-none"
             />
+            {!isAmendment && bodyHasRedline && !loopRunning ? (
+              <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-2">
+                <span className="text-sm text-muted-foreground">
+                  Suggested changes are shown as tracked edits.
+                </span>
+                <Button
+                  type="button"
+                  size="small"
+                  onClick={acceptChanges}
+                  className="ml-auto rounded-full"
+                >
+                  <CheckIcon className="size-3.5" aria-hidden />
+                  Accept changes
+                </Button>
+              </div>
+            ) : null}
             <div ref={bodyContainerRef}>
               <RedlineEditor
                 key={editorSeed}
@@ -880,6 +961,7 @@ export default function DraftDetail({
               seedText={chatSeed}
               seedNonce={seedNonce}
               autoDictate={autoDictate}
+              onTurnComplete={refreshDraftAfterChat}
             />
           </div>
         </DrawerContent>

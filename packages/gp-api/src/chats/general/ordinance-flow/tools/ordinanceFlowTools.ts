@@ -275,6 +275,46 @@ export const buildPresentDraftTool = (
     }),
 })
 
+const applyDraftEditInput = z.object({
+  summary: z
+    .string()
+    .min(1)
+    .describe(
+      'One short, plain-language sentence naming the change you applied, ' +
+        'shown to the user (e.g. "Changed the retention period to 45 days").',
+    ),
+  body: z
+    .string()
+    .min(1)
+    .describe(
+      'The ENTIRE draft body, reprinted in full, with ONLY the requested ' +
+        'change expressed as redline: {-deleted text-}{+inserted text+}. ' +
+        'Every other character stays byte-for-byte identical — do not ' +
+        'rephrase, reformat, or "improve" anything the user did not ask you ' +
+        'to change. For an amendment, layer the new change onto the existing ' +
+        'redline; never strip or restate the amendment markup already there.',
+    ),
+})
+
+export const buildApplyDraftEditTool = (
+  deps: OrdinanceToolDeps,
+): LlmStreamTool<typeof applyDraftEditInput> => ({
+  description:
+    'Apply a specific change the user asked for to the draft body, in place, ' +
+    'as a tracked change. Re-emit the whole body with only the requested ' +
+    'edit wrapped in {-old-}{+new+} redline and everything else unchanged. ' +
+    'The edit shows as redline in the editor for the user to review and ' +
+    'accept or undo — so use this for a concrete, unambiguous wording change ' +
+    'the user clearly requested. If the request is vague or you are unsure ' +
+    'what to write, ask a clarifying question or propose wording in prose ' +
+    'instead of guessing. Does not change the title or sources.',
+  inputSchema: applyDraftEditInput,
+  execute: ({ body }) =>
+    deps.service.applyDraftEdit(deps.ordinanceId, deps.electedOfficeId, {
+      body,
+    }),
+})
+
 export const buildOfferNextStepTool = (): LlmStreamTool<
   typeof OrdinanceNextStepOfferSchema
 > => ({

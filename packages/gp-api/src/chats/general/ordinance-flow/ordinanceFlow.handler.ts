@@ -25,6 +25,7 @@ import { OrdinanceFlowToolsService } from './services/ordinanceFlowTools.service
 import { OrdinanceFlowFetchService } from './services/ordinanceFlowFetch.service'
 import { OrdinanceFlowSearchService } from './services/ordinanceFlowSearch.service'
 import {
+  buildApplyDraftEditTool,
   buildAskClarifyQuestionTool,
   buildBraveSearchTool,
   buildFetchUrlTool,
@@ -255,6 +256,12 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
       // one) — so even that question rides the widget and persists as a
       // clarify answer instead of a prose interview the record never sees.
       tools.ask_clarify_question = buildAskClarifyQuestionTool()
+    }
+
+    // The post-draft review chat can apply a specific requested edit to the
+    // draft in place, as tracked-change redline the user reviews in the editor.
+    if (ctx.step === 'review') {
+      tools.apply_draft_edit = buildApplyDraftEditTool(deps)
     }
 
     // A numbered flow step can offer a button to advance. The terminal draft

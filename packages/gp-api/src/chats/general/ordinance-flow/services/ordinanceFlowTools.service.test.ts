@@ -389,9 +389,36 @@ describe('OrdinanceFlowToolsService', () => {
     expect(row.status).toBe('draft')
   })
 
+  it('applyDraftEdit writes the body in place, leaving status, title, and sources untouched', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: {
+        status: OrdinanceStatus.proposed,
+        draftTitle: 'Keep this title',
+        draftBody: 'The fee shall be $50.',
+        draftSources: [{ id: 's1', title: 'Chapter 12' }],
+      },
+    })
+
+    await tools.applyDraftEdit(ordinanceId, electedOfficeId, {
+      body: 'The fee shall be {-$50-}{+$75+}.',
+    })
+
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe('The fee shall be {-$50-}{+$75+}.')
+    expect(row.draftTitle).toBe('Keep this title')
+    expect(row.status).toBe(OrdinanceStatus.proposed)
+    expect(row.draftSources).toEqual([{ id: 's1', title: 'Chapter 12' }])
+  })
+
   it('scopes every operation to the owning office', async () => {
     await expect(
       tools.appendNote(ordinanceId, 'someone-elses-office', 'clarify', 'x'),
+    ).rejects.toBeInstanceOf(NotFoundException)
+    await expect(
+      tools.applyDraftEdit(ordinanceId, 'someone-elses-office', { body: 'b' }),
     ).rejects.toBeInstanceOf(NotFoundException)
     await expect(
       tools.readSection(ordinanceId, 'someone-elses-office', 'draft'),
@@ -619,6 +646,30 @@ describe('ordinance-flow present_* tool builders', () => {
           body: 'Section 1.',
         }),
       ).resolves.toEqual({ saved: true })
+    })
+
+    it('applyDraftEdit does not auto-start a loop (unlike saveDraft)', async () => {
+      const startSpy = vi
+        .spyOn(service.app.get(OrdinanceQualityLoopService), 'start')
+        .mockResolvedValue({ started: true })
+
+      await tools.applyDraftEdit(ordinanceId, electedOfficeId, {
+        body: 'Section 1. {-old-}{+new+}.',
+      })
+
+      expect(startSpy).not.toHaveBeenCalled()
+    })
+
+    it('applyDraftEdit supersedes a running loop', async () => {
+      await seedRunningLoop()
+
+      await tools.applyDraftEdit(ordinanceId, electedOfficeId, {
+        body: 'Section 1. {-Existing text-}{+Edited text+}.',
+      })
+
+      expect(await loopStatus()).toBe(
+        OrdinanceQualityLoopStatus.superseded_by_edit,
+      )
     })
 
     it('saveAuthority supersedes a running loop', async () => {

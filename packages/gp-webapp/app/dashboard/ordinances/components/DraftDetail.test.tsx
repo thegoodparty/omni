@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
       seedText?: string
       seedNonce?: number
       autoDictate?: boolean
+      onTurnComplete?: () => void
     } | null,
   },
 }))
@@ -67,6 +68,7 @@ vi.mock('./DraftChat', () => ({
     seedText?: string
     seedNonce?: number
     autoDictate?: boolean
+    onTurnComplete?: () => void
   }) => {
     mocks.draftChatProps.current = props
     return null
@@ -409,6 +411,64 @@ describe('DraftDetail selection toolbar', () => {
     expect(mocks.successSnackbar).toHaveBeenCalledWith(
       'Thanks — your bug report was submitted',
     )
+  })
+})
+
+// Real timers: refreshDraftAfterChat is an async refetch + reseed with no
+// debounce, so awaiting it inside act() is enough.
+describe('DraftDetail chat-applied edits', () => {
+  it('reseeds the editor with a chat-applied redline after a turn completes', async () => {
+    mocks.fetchOrdinanceBySlug.mockResolvedValue(
+      makeOrdinance({ draftBody: 'The fee is {-$50-}{+$75+}.' }),
+    )
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({ draftBody: 'The fee is $50.' })}
+      />,
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Ask about this draft' }),
+    )
+    expect(mocks.draftChatProps.current?.onTurnComplete).toBeTypeOf('function')
+
+    await act(async () => {
+      await mocks.draftChatProps.current?.onTurnComplete?.()
+    })
+
+    // The chat drawer is open, so the editor behind it is aria-hidden; it has
+    // still been reseeded with the applied redline.
+    const body = screen.getByRole('textbox', {
+      name: 'Ordinance draft body',
+      hidden: true,
+    })
+    expect(body.innerText).toContain('{-$50-}{+$75+}')
+    expect(
+      screen.getByRole('button', { name: /accept changes/i, hidden: true }),
+    ).toBeInTheDocument()
+  })
+
+  it('leaves the editor untouched when the turn changed nothing', async () => {
+    mocks.fetchOrdinanceBySlug.mockResolvedValue(
+      makeOrdinance({ draftBody: 'The fee is $50.' }),
+    )
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({ draftBody: 'The fee is $50.' })}
+      />,
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Ask about this draft' }),
+    )
+    await act(async () => {
+      await mocks.draftChatProps.current?.onTurnComplete?.()
+    })
+
+    expect(
+      screen.queryByRole('button', { name: /accept changes/i, hidden: true }),
+    ).not.toBeInTheDocument()
+    expect(mocks.updateOrdinance).not.toHaveBeenCalled()
   })
 })
 

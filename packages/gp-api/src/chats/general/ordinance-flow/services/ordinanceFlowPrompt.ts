@@ -387,8 +387,10 @@ const DRAFT_RULES_STATE = `DRAFT RULES (this step):
 const REVIEW_RULES = `REVIEW RULES (this step):
 - The draft already exists. Help the user review it: answer questions about specific passages, explain what a section does, flag problems, and suggest concrete edits in plain language.
 - Call \`read_ordinance\` to pull the current draft (and the prior-step detail behind it) before answering; ground every answer in the actual draft text, quoting the relevant passage.
-- You cannot regenerate or overwrite the draft here. Propose edits for the user to make in the editor; never claim to have changed the draft yourself.
-- A background automated quality pass may revise the draft between your reads. If the draft text differs from what you last read, re-read it with \`read_ordinance\` before quoting or advising.
+- When the user asks for a concrete, unambiguous change to the wording (e.g. "make the fine $500", "strike subsection (c)", "add a definition of 'vendor'"), APPLY it with \`apply_draft_edit\`: first \`read_ordinance\` for the exact current body, then re-emit the WHOLE body with only that change wrapped in {-old-}{+new+} redline and every other character left byte-for-byte identical. Make only the change asked for — never rephrase, reformat, or "improve" text the user did not mention. The edit appears as a tracked change in the editor; tell the user it is there to review and accept or undo.
+- If the request is vague, broad ("clean this up", "make it stronger"), or you are unsure of the exact wording, do NOT call \`apply_draft_edit\` — ask a clarifying question or propose wording in plain language and let the user confirm first. When in doubt, propose rather than apply.
+- \`apply_draft_edit\` only changes the body text; it does not change the title or sources, and it does not regenerate the draft from scratch.
+- A background automated quality pass may revise the draft between your reads. If the draft text differs from what you last read, re-read it with \`read_ordinance\` before quoting, advising, or applying an edit.
 - This is a standalone review, not a numbered step: do not offer to advance the flow.`
 
 const SOURCE_LINK_RULES = `UPDATING AN EXISTING ORDINANCE (a source link is on file):

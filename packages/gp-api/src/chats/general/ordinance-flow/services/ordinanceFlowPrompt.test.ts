@@ -537,9 +537,18 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     })
     expect(prompt).toContain('REVIEW RULES')
     expect(prompt).toContain('automated quality pass')
-    // The step itself still may not change the draft; only the background
-    // loop does.
-    expect(prompt).toContain('You cannot regenerate or overwrite the draft')
+  })
+
+  it('directs the review step to apply concrete edits as tracked-change redline', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'review' }),
+      toolNames: [],
+    })
+    expect(prompt).toContain('apply_draft_edit')
+    // Only the requested change is redlined; everything else stays verbatim.
+    expect(prompt).toContain('byte-for-byte identical')
+    // Vague requests are proposed, not applied blind.
+    expect(prompt).toContain('When in doubt, propose rather than apply')
   })
 
   it('directs the current_law step to actively research and present the history timeline', () => {

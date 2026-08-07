@@ -3,6 +3,7 @@ import { OrdinanceFlowToolsService } from '../services/ordinanceFlowTools.servic
 import { OrdinanceFlowFetchService } from '../services/ordinanceFlowFetch.service'
 import { OrdinanceFlowSearchService } from '../services/ordinanceFlowSearch.service'
 import {
+  buildApplyDraftEditTool,
   buildBraveSearchTool,
   type OrdinanceToolDeps,
 } from './ordinanceFlowTools'
@@ -48,5 +49,25 @@ describe('buildBraveSearchTool', () => {
 
     await buildBraveSearchTool(deps).execute({ query: 'q', count: 3 })
     expect(spy).toHaveBeenCalledWith('q', 3)
+  })
+})
+
+describe('buildApplyDraftEditTool', () => {
+  const deps: OrdinanceToolDeps = {
+    service: {} as OrdinanceFlowToolsService,
+    fetch: {} as OrdinanceFlowFetchService,
+    search: {} as OrdinanceFlowSearchService,
+    ordinanceId: 'ord-1',
+    electedOfficeId: 'eo-1',
+    organizationSlug: 'org-1',
+    step: 'review',
+  }
+
+  it('requires both a non-empty summary and body', () => {
+    const schema = buildApplyDraftEditTool(deps).inputSchema
+    expect(schema.safeParse({ summary: 's', body: 'b' }).success).toBe(true)
+    expect(schema.safeParse({ summary: 's' }).success).toBe(false)
+    expect(schema.safeParse({ body: 'b' }).success).toBe(false)
+    expect(schema.safeParse({ summary: '', body: 'b' }).success).toBe(false)
   })
 })

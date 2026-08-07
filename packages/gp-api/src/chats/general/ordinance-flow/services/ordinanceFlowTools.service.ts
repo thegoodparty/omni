@@ -19,6 +19,7 @@ import {
   OrdinanceResearchSchema,
   OrdinanceScratchpadSchema,
   OrdinanceSourceSchema,
+  hasRedline,
   type OrdinanceAuthority,
   type OrdinanceClarify,
   type OrdinanceComparables,
@@ -86,6 +87,27 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
       throw new NotFoundException('Ordinance not found')
     }
     return ordinance
+  }
+
+  // Deterministic amend-fidelity check: when the verbatim current law is on
+  // file, warn if the draft's redline misrepresents it (paraphrased, omitted,
+  // or invented "existing" text). Non-blocking; observable in logs. Shared by
+  // every path that writes draftBody (full draft and in-place chat edit).
+  private warnOnAmendmentDrift(ordinance: Ordinance, body: string): void {
+    const currentLaw = OrdinanceExistingLawSchema.safeParse(
+      ordinance.existingLaw,
+    )
+    if (!currentLaw.success || !currentLaw.data.verbatimText) return
+    const fidelity = checkAmendmentFidelity(body, currentLaw.data.verbatimText)
+    if (fidelity.ok) return
+    this.logger.warn(
+      {
+        ordinanceId: ordinance.id,
+        verbatimBaseline: fidelity.baseline,
+        draftClaimsOriginal: fidelity.reconstructed,
+      },
+      'amendment redline drifts from the verbatim current law',
+    )
   }
 
   async readSection(
@@ -250,26 +272,7 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
       },
       include: { electedOffice: true },
     })
-    // Deterministic amend-fidelity check: when the verbatim current law is on
-    // file, warn if the draft's redline misrepresents it (paraphrased, omitted,
-    // or invented "existing" text). Non-blocking; observable in logs.
-    const currentLaw = OrdinanceExistingLawSchema.safeParse(o.existingLaw)
-    if (currentLaw.success && currentLaw.data.verbatimText) {
-      const fidelity = checkAmendmentFidelity(
-        draft.body,
-        currentLaw.data.verbatimText,
-      )
-      if (!fidelity.ok) {
-        this.logger.warn(
-          {
-            ordinanceId: o.id,
-            verbatimBaseline: fidelity.baseline,
-            draftClaimsOriginal: fidelity.reconstructed,
-          },
-          'amendment redline drifts from the verbatim current law',
-        )
-      }
-    }
+    this.warnOnAmendmentDrift(o, draft.body)
     // Fire-and-forget: the chat turn must never block on or fail with the
     // background loop. start() itself supersedes and restarts a running loop
     // for a re-draft, and guards flag/env/status/redline internally.
@@ -286,6 +289,37 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
         ),
       )
     return { saved: true }
+  }
+
+  // Apply one user-requested edit from the review chat to the draft body, in
+  // place. Unlike saveDraft this is not a (re)generation: it never touches
+  // title/sources/status and never kicks the quality loop — the edit lands as
+  // {-/+} redline for the user to review, accept, or undo in the editor.
+  // Fidelity is still checked so an amendment edit that misstates the current
+  // law stays observable.
+  async applyDraftEdit(
+    ordinanceId: string,
+    electedOfficeId: string,
+    edit: { body: string },
+  ): Promise<{ applied: true }> {
+    const o = await this.findOwned(ordinanceId, electedOfficeId)
+    await this.model.update({
+      where: { id: o.id },
+      data: { draftBody: edit.body },
+    })
+    this.warnOnAmendmentDrift(o, edit.body)
+    // A compliant edit always wraps its change in {-/+} redline. If the body
+    // changed but carries none, the model rewrote in place without tracking it
+    // — the fidelity check above only covers amendments (verbatim baseline on
+    // file), so log this so new-ordinance prompt drift stays observable.
+    if (o.draftBody && edit.body !== o.draftBody && !hasRedline(edit.body)) {
+      this.logger.warn(
+        { ordinanceId: o.id },
+        'apply_draft_edit changed the draft without redline markup',
+      )
+    }
+    await this.supersedeRunningLoop(o)
+    return { applied: true }
   }
 
   async saveExistingLaw(
