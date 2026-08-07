@@ -164,11 +164,42 @@ dev:
 2. It confirms the commit is actually serving on dev via `GET /v1/version`
    (`{ commit }`), so promotion follows real deployed state, not just check status.
 3. It then deploys the **same** commit to prod by calling the existing composite
-   deploy actions with prod inputs (same images, same SHA, prod env).
+   deploy actions with prod inputs (same images, same SHA, prod env). For
+   `packages/gp-ai` this means applying its 11 prod Terraform roots pinned to the
+   SHA-tagged images the dev deploy already proved — nothing is rebuilt at
+   promotion time.
 4. A final job records a GitHub **Deployment** (environment `production`) at the
    promoted SHA, once every deploy job has succeeded. That deployment history is
    the source of truth for "what is in prod" and is what the daily release summary
    (`post_release_summary.py`) reads.
+
+### gp-ai specifics
+
+The Python AI services deploy by Terraform apply, not by repointing a service at
+an image, so their promotion looks slightly different from the TypeScript ones:
+
+- **Applies run in parallel, not in dependency order.** The roots read each
+  other's `terraform_remote_state` and that graph is *cyclic*
+  (`broker` ↔ `pmf-engine-control-plane` ↔ `pmf-engine-fargate`), so no
+  topological order exists. Ordering would be false comfort.
+- **A convergence pass follows.** Every root is re-planned after the applies and
+  must come back clean. That is what catches a stale cross-root read — an apply
+  that consumed a value another apply then changed.
+- **Deploy verification is a hard gate.** A successful apply does *not* prove the
+  code is running: broker sets `deployment_circuit_breaker { rollback = true }`,
+  so a crash-on-boot image is rolled back, the service settles on the *previous*
+  revision, and the apply still reports success.
+  `ci-verify-deployed.sh` reads the actually-deployed state — broker's `PRIMARY`
+  deployment plus `rolloutState == COMPLETED`, and the newest `ACTIVE` revision
+  for the RunTask families — and fails promotion if anything is not on the
+  promoted SHA.
+- **E2E waits for gp-ai's dev deploy.** The broker and PMF runner sit behind the
+  same dev stack Playwright exercises, so `gp-webapp.yml`'s `e2e-wait` blocks on
+  gp-ai's `Deploy dev` before the shards start. Otherwise a green E2E could
+  describe a half-updated stack.
+- **Every main commit builds every gp-ai image**, even unchanged services.
+  Terraform pins `<service>-<sha>`, so a service without an image at that commit
+  would point at a tag that was never pushed. Unchanged services are cache hits.
 
 Details worth knowing:
 

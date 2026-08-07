@@ -167,8 +167,9 @@ jobs:
     # 17x10s), before gh-api/curl latency and runner provisioning — so keep the
     # 45-min headroom the single-job version had. It fails fast if gp-api's
     # deploy fails, so the full budget is only ever spent when gp-api is
-    # genuinely still deploying.
-    timeout-minutes: 45
+    # genuinely still deploying. The gp-ai wait that follows adds up to 15 min of
+    # polling on top, hence 60 rather than 45.
+    timeout-minutes: 60
     permissions:
       contents: read
       actions: read
@@ -279,6 +280,51 @@ jobs:
             exit 0
           fi
           echo "::error::gp-api deploy succeeded but $API_BASE not serving $EXPECTED_SHA"
+          exit 1
+
+      # gp-ai's services (the broker and the PMF runner) sit behind the same dev
+      # stack this suite exercises. If E2E starts while they are still on the
+      # previous images, a green run does not mean "this commit works on dev" —
+      # which is exactly what promote.yml gates prod on. So wait for gp-ai's
+      # Deploy dev to settle too.
+      #
+      # Most commits do not touch packages/gp-ai, in which case that job is
+      # skipped and this returns on the first poll. PR runs skip it entirely:
+      # gp-ai only deploys from main.
+      - name: Wait for gp-ai deploy
+        if: github.event_name == 'push' && steps.wait.outputs.skip != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_SHA: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          for i in $(seq 1 90); do
+            run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RUN_SHA&event=push" \
+              --jq '[.workflow_runs[] | select(.name=="gp-ai")] | sort_by(.run_started_at) | last | .id // empty')
+            if [ -z "$run_id" ]; then
+              echo "  attempt $i/90: no gp-ai run yet for $RUN_SHA"
+              sleep 10
+              continue
+            fi
+            jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs" --paginate \
+              --jq '[.jobs[] | select(.name == "Deploy dev")] | map(.conclusion // "running")')
+            # No Deploy dev job at all means the commit did not touch gp-ai, so
+            # there is nothing to wait for. An empty array is a pass, not a hang.
+            pending=$(jq -r '[.[] | select(. == "running")] | length' <<<"$jobs")
+            failed=$(jq -r '[.[] | select(. == "failure" or . == "timed_out" or . == "cancelled")] | length' <<<"$jobs")
+            if [ "$failed" != "0" ]; then
+              echo "::error::gp-ai Deploy dev did not succeed for $RUN_SHA"
+              exit 1
+            fi
+            if [ "$pending" = "0" ]; then
+              echo "gp-ai dev deploy settled for $RUN_SHA ($(jq -r 'length' <<<"$jobs") Deploy dev job(s))"
+              exit 0
+            fi
+            echo "  attempt $i/90: $pending gp-ai Deploy dev job(s) still running"
+            sleep 10
+          done
+          echo "::error::timed out waiting for gp-ai dev deploy on $RUN_SHA"
           exit 1
 
   e2e-shard:
