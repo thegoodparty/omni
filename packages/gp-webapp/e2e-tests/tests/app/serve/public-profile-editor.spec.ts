@@ -13,13 +13,20 @@ import { WaitHelper } from 'src/helpers/wait.helper'
  * → the page's server-side `GET /v1/person-profiles/mine` fetch → the editor
  * shell rendering (never a bounce to /dashboard). We assert exactly that.
  *
- * We deliberately do NOT drive create/edit/publish here: publishing requires a
- * data-team-minted `user.personId` (the civics-spine link), which the ephemeral
- * per-PR preview never has — so a fresh user always lands in the pre-mint
- * "still setting up" state. The mutation flows are covered end-to-end where they
- * can be exercised deterministically: the write endpoints in the gp-api real-DB
- * e2e (person-profiles.controller*.test.ts) and the serve/win form logic in the
- * component test (PublicProfileEditor.test.tsx).
+ * Publishing requires a `user.personId` (the civics-spine link the data platform
+ * mints), which a synthetic @test.goodparty.org user is by construction without
+ * — so the publish spec below provisions one through the test-only, non-prod,
+ * own-record `POST /v1/person-profiles/mine/test-set-person-id`, the same
+ * affordance pattern as `test-set-pro` for Pro campaigns. Everything after that
+ * is the real flow: the real editor, the real toggle, the real endpoints.
+ *
+ * What is NOT asserted here is the rendered marketing page. gp-marketing is a
+ * separate deployment with no per-PR preview, and `MARKETING_REVALIDATE_URL` is
+ * deliberately empty for `preview`, so a PR-preview publish has nowhere to bust.
+ * We assert the payload the marketing site consumes instead — the public render
+ * gate flipping 404 → 200 → 404. Its rendering is covered on the other side by
+ * gp-marketing's peopleProfile.states.test.ts (all 12 profile states) and the
+ * revalidation seam by its revalidate-person route test.
  */
 
 const EDITOR_PATH = '/dashboard/public-profile'
@@ -73,4 +80,69 @@ test('win: a candidate reaches their public-profile editor (not bounced)', async
   await expect(
     page.getByRole('heading', { level: 1, name: /public profile/i }),
   ).toBeVisible()
+})
+
+test('win: publishing from the editor makes the profile public, unpublishing hides it', async ({
+  page,
+}) => {
+  test.setTimeout(180_000)
+
+  const { client } = await authenticateTestUser(page, {
+    isolated: true,
+    race: { zip: '82001', office: 'Cheyenne City Council - Ward 1' },
+  })
+
+  // Stand in for the data platform's mint so the editor unlocks; see the file
+  // header. Everything below this line is the production flow.
+  const { data: minted } = await client.post<{ personId: string }>(
+    '/v1/person-profiles/mine/test-set-person-id',
+  )
+  expect(minted.personId).toBeTruthy()
+
+  const publicProfile = async (): Promise<number> => {
+    const res = await client.get('/v1/public-person-profiles', {
+      params: { personId: minted.personId },
+      validateStatus: () => true,
+    })
+    return res.status
+  }
+
+  // Nothing published yet, so the marketing render gate must 404 rather than
+  // leak a draft.
+  expect(await publicProfile()).toBe(404)
+
+  await page.goto(EDITOR_PATH, { waitUntil: 'domcontentloaded' })
+  await NavigationHelper.dismissOverlays(page)
+  await WaitHelper.waitForPageReady(page)
+
+  await page.getByRole('button', { name: /create my public profile/i }).click()
+
+  const displayName = `E2E Candidate ${minted.personId.slice(0, 8)}`
+  await page.getByLabel('Display name').fill(displayName)
+  await page.getByRole('button', { name: /save changes/i }).click()
+
+  // Addressed by testid, not role: the Serve variant of this page also renders a
+  // Switch per publishable priority.
+  const publishToggle = page.getByTestId('publish-toggle')
+  await expect(publishToggle).not.toBeChecked()
+  await publishToggle.click()
+  await expect(publishToggle).toBeChecked()
+
+  // The gate opened, and it carries what the owner authored — this is the exact
+  // payload gp-marketing renders the claimed profile from.
+  await expect
+    .poll(publicProfile, { timeout: 30_000 })
+    .toBe(200)
+  const { data: live } = await client.get<{
+    displayName: string
+    publishedAt: string | null
+  }>('/v1/public-person-profiles', { params: { personId: minted.personId } })
+  expect(live.displayName).toBe(displayName)
+  expect(live.publishedAt).not.toBeNull()
+
+  await publishToggle.click()
+  await expect(publishToggle).not.toBeChecked()
+
+  // Unpublishing has to close the gate, not merely hide the page in the UI.
+  await expect.poll(publicProfile, { timeout: 30_000 }).toBe(404)
 })
