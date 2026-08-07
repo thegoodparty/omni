@@ -167,13 +167,28 @@ describe('CampaignStrategySection — tracker viewed event', () => {
         taskCount: 2,
         tasksCompleted: 1,
         activePhase: 'launch',
-        isPersonalizing: false,
       },
     )
 
     // A poll refetch re-renders the section; the event stays once per campaign.
     rerender(<CampaignStrategySection />)
     expect(mockTrackEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('still fires for a static-only view, before the dynamic tasks land', () => {
+    mockTasks.mockReturnValue({
+      ...settled([task({ id: 's1', phase: 'launch', isDefaultTask: true })]),
+      isGeneratingDynamic: true,
+    })
+    render(<CampaignStrategySection />)
+
+    // The candidate saw their tracker even though it is not fully personalized
+    // yet; taskCount is what marks the view as static-only.
+    expect(mockTrackEvent).toHaveBeenCalledTimes(1)
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      'Campaign Plan - Campaign Tracker Viewed',
+      expect.objectContaining({ taskCount: 1 }),
+    )
   })
 
   it('does not fire while the tracker is still bootstrapping', () => {

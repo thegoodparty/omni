@@ -78,8 +78,12 @@ const CampaignStrategySection = (): React.JSX.Element => {
   // Fires only once `strategy` exists, so it means "the candidate actually saw
   // their tasks" — not merely that the route loaded (the page view already
   // covers that, and it can't tell the rendered tracker from the loading,
-  // error, or still-bootstrapping states). Once per campaign: the hook polls,
-  // so an effect keyed on the counts would re-fire on every refetch.
+  // error, or still-bootstrapping states). A candidate who reads their static
+  // rows and leaves before the dynamic ones land still saw the tracker, so this
+  // deliberately does not wait for `isGeneratingDynamic` to clear; `taskCount`
+  // is what distinguishes a static-only view from a fully populated one. Once
+  // per campaign: the hook polls, so an effect keyed on the counts would
+  // re-fire on every refetch.
   const trackedCampaignRef = useRef<number | null>(null)
   useEffect(() => {
     if (!strategy || !campaign?.id) return
@@ -94,9 +98,8 @@ const CampaignStrategySection = (): React.JSX.Element => {
       activePhase:
         strategy.phases.find((phase) => phase.status === 'active')?.key ??
         'none',
-      isPersonalizing: isGeneratingDynamic,
     })
-  }, [strategy, campaign?.id, isGeneratingDynamic])
+  }, [strategy, campaign?.id])
 
   // Open the phase(s) the candidate is in now; fall back to the first phase.
   const openPhases = (strategy?.phases ?? [])
