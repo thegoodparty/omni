@@ -19,7 +19,6 @@ import {
   DoorClosed,
   ExternalLink,
   FileText,
-  LayoutDashboard,
   LogOut,
   Send,
   Settings,
@@ -39,6 +38,9 @@ import { useCampaign } from '@shared/hooks/useCampaign'
 import { useCampaignStrategyExists } from './useCampaignStrategyExists'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
+// Labels and icons shared with each tab's page title bar (DashboardNavHeader),
+// so the left rail and the top of the page can never read differently.
+import { NAV_HEADER_ICONS, NAV_LABELS } from './navLabels'
 import { CIRCLE_COMMUNITY_BASE } from 'appEnv'
 import {
   Avatar,
@@ -59,11 +61,7 @@ import {
   SidebarSeparator,
   useSidebar,
 } from '@styleguide'
-import {
-  BookOpenIcon,
-  FlagIcon,
-  ScrollTextIcon,
-} from '@styleguide/components/ui/icons'
+import { FlagIcon, ScrollTextIcon } from '@styleguide/components/ui/icons'
 import {
   OrganizationPicker,
   useOrganization,
@@ -99,9 +97,9 @@ const VOTER_DATA_UPGRADE_ITEM: MenuItem = {
 
 const DEFAULT_MENU_ITEMS: MenuItem[] = [
   {
-    label: 'Campaign Manager',
+    label: NAV_LABELS.campaignManager,
     icon: <MdFactCheck />,
-    v2Icon: LayoutDashboard,
+    v2Icon: NAV_HEADER_ICONS.dashboard,
     link: '/dashboard',
     v2Category: 'campaign',
     id: 'campaign-tracker-dashboard',
@@ -233,10 +231,10 @@ const CHIEF_OF_STAFF_MENU_ITEM: MenuItem = {
 
 const PUBLIC_PROFILE_MENU_ITEM: MenuItem = {
   id: 'public-profile-dashboard',
-  label: 'Public Profile',
+  label: NAV_LABELS.publicProfile,
   link: '/dashboard/public-profile',
   icon: <MdFactCheck />,
-  v2Icon: CircleUserRound,
+  v2Icon: NAV_HEADER_ICONS.profile,
   v2Category: 'elected-office',
 }
 
@@ -251,29 +249,29 @@ const ORDINANCES_MENU_ITEM: MenuItem = {
 
 const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   id: 'campaign-plan-dashboard',
-  label: 'Campaign Plan',
+  label: NAV_LABELS.campaignPlan,
   link: '/dashboard/campaign-plan',
   icon: <MdFileOpen />,
-  v2Icon: ScrollTextIcon,
+  v2Icon: NAV_HEADER_ICONS.scroll,
   v2Category: 'campaign',
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignPlan),
 }
 
 const CAMPAIGN_STORY_MENU_ITEM: MenuItem = {
   id: 'campaign-story-dashboard',
-  label: 'Your story',
+  label: NAV_LABELS.campaignStory,
   link: '/dashboard/campaign-story',
   icon: <MdMenuBook />,
-  v2Icon: BookOpenIcon,
+  v2Icon: NAV_HEADER_ICONS.book,
   v2Category: 'campaign',
 }
 
 const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
   id: 'race-opponent-dashboard',
-  label: 'Know Your Opponent',
+  label: NAV_LABELS.knowYourOpponent,
   link: '/dashboard/race-opponent',
   icon: <MdFactCheck />,
-  v2Icon: FlagIcon,
+  v2Icon: NAV_HEADER_ICONS.flag,
   v2Category: 'campaign',
 }
 
@@ -350,7 +348,7 @@ export const getDashboardMenuItems = (
     menuItems.splice(afterCampaignManager, 0, {
       ...CAMPAIGN_PLAN_MENU_ITEM,
       label: campaignStoryEnabled
-        ? 'Campaign Tracker'
+        ? NAV_LABELS.campaignTracker
         : CAMPAIGN_PLAN_MENU_ITEM.label,
     })
   }

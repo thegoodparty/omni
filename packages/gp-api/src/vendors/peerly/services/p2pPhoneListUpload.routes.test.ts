@@ -214,8 +214,8 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
 
     // The activity condition genuinely reached the people-db query — only
     // the non-responder's id, intersected with hasCellPhone, is requested.
-    // This is the exact defect the legacy voter-DB path had (it ignored
-    // activityConditions entirely).
+    // This is the exact defect the retired legacy export path had (it
+    // ignored activityConditions entirely).
     const peopleCall = post.mock.calls[0]
     const sentFilterOperators = peopleCall?.[0].filters.filterOperators
     expect(sentFilterOperators).toMatchObject({

@@ -178,12 +178,8 @@ docker push ${ECR_REPO}:serve-analyze-dev
 ```bash
 cd infrastructure/environments/dev/serve-analyze-fargate
 
-# Create terraform.tfvars
-cat > terraform.tfvars <<EOF
-vpc_id             = "vpc-01fed488c4047eaae"
-private_subnet_ids = ["subnet-xxx", "subnet-yyy"]
-failure_notification_email = "team@example.com"
-EOF
+# No tfvars to create — terraform.auto.tfvars is committed and loaded
+# automatically. Do not hand-write terraform.tfvars here.
 
 AWS_PROFILE=work terraform init
 AWS_PROFILE=work terraform apply
@@ -200,16 +196,8 @@ AWS_PROFILE=work terraform apply
 ```bash
 cd infrastructure/environments/dev/shared-infra
 
-# Create terraform.tfvars
-cat > terraform.tfvars <<EOF
-aws_region         = "us-west-2"
-environment        = "dev"
-vpc_id             = "vpc-01fed488c4047eaae"
-public_subnet_ids  = ["subnet-aaa", "subnet-bbb"]
-certificate_arn    = "arn:aws:acm:us-west-2:333022194791:certificate/xxx"
-route53_zone_id    = "Z123456789ABC"
-custom_domain_name = "ai-dev.goodparty.org"
-EOF
+# No tfvars to create — terraform.auto.tfvars is committed and loaded
+# automatically. Do not hand-write terraform.tfvars here.
 
 AWS_PROFILE=work terraform init
 AWS_PROFILE=work terraform apply

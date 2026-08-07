@@ -44,12 +44,16 @@ def _parse_ts(iso: str) -> datetime:
 
 
 def successful_prod_deployments() -> list[tuple[str, datetime]]:
-    """(sha, created_at) for successful `production` deployments, newest first."""
+    """(sha, created_at) for `production` deployments that ever succeeded, newest first."""
     deps = gh_api(f"repos/{REPO}/deployments?environment=production&per_page=100")
     out: list[tuple[str, datetime]] = []
     for d in deps:
-        statuses = gh_api(f"repos/{REPO}/deployments/{d['id']}/statuses?per_page=1")
-        if statuses and statuses[0].get("state") == "success":
+        # Check the whole status history, not just the latest: GitHub's
+        # auto_inactive appends an `inactive` status to a deployment when a newer
+        # one supersedes it, so only the newest would ever read as `success` if we
+        # looked at statuses[0] — collapsing the timeline to a single deployment.
+        statuses = gh_api(f"repos/{REPO}/deployments/{d['id']}/statuses?per_page=100")
+        if any(s.get("state") == "success" for s in statuses):
             out.append((d["sha"], _parse_ts(d["created_at"])))
     return out
 

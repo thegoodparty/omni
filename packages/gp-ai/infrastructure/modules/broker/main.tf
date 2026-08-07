@@ -24,9 +24,8 @@ variable "ecr_repository_url" {
 }
 
 variable "docker_image_tag" {
-  description = "Docker image tag for the broker"
+  description = "Immutable, SHA-pinned image tag (e.g. broker-a1b2c3d). No default on purpose: CI always passes it, and a default silently ships the wrong image — these modules previously defaulted to *-prod tags, so a dev root that omitted the variable would have deployed the prod image."
   type        = string
-  default     = "broker-dev"
 }
 
 variable "agent_security_group_id" {
@@ -751,6 +750,13 @@ resource "aws_ecs_service" "broker" {
     enable   = true
     rollback = true
   }
+
+  # Terraform apply becomes the deploy once the task def pins a SHA-tagged image,
+  # so the apply must not report success until the new tasks are actually
+  # healthy. Without this, Terraform returns as soon as ECS accepts the
+  # deployment and a failed rollout looks like a successful deploy. Mirrors
+  # gp-api's Pulumi service (waitForSteadyState: true).
+  wait_for_steady_state = true
 
   # desired_count is managed by application-autoscaling after initial apply.
   # Without this, terraform plan will always want to reset it to 1.

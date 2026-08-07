@@ -5,7 +5,7 @@ exist** (restored under the `campaign-story` flag). The page
 (`components/CampaignStoryPage.tsx`) renders the **onboarding** story cards
 (`app/onboarding/components/StoryIntakeCard` for why/background,
 `StoryIssuesCard` for the policy priorities). Unlike onboarding it's a single
-editable page: one **Save** in the page header (`StoryHeaderBar`) commits every
+editable page: one **Save** in the page title bar commits every
 dirty field at once (`saveAll`), and a **Start over** at the bottom (shown once
 any field has content) clears the fields in memory — Save stays the only thing
 that persists, so Start over deletes nothing until the candidate Saves the empty
@@ -63,7 +63,7 @@ already round-trips through `Website.content.about`.
 
 | File | Role |
 |------|------|
-| `components/CampaignStoryPage.tsx` | The "Your story" dashboard page — renders the onboarding `StoryIntakeCard` (why/background) + `StoryIssuesCard` (policies); one header Save commits all dirty fields, a bottom Start over clears them |
+| `components/CampaignStoryPage.tsx` | The "Your story" dashboard page — renders the onboarding `StoryIntakeCard` (why/background) + `StoryIssuesCard` (policies); one Save commits all dirty fields, a bottom Start over clears them. Its title comes from `DashboardLayout`'s shared `navHeader` (icon + tab name from `shared/navLabels.ts`), and `StoryEditorForm`'s Save portals into that bar via `DashboardNavHeaderAction` — the feature-local `StoryHeaderBar` band (gray `bg-base-muted`, `text-xl`, sticky) is gone |
 | `components/useStoryRewrite.ts` | Shared "Improve with AI" logic (request, apply-in-place, undo, the 403 limit, analytics) — used by the onboarding cards (`StoryFieldBar`) |
 | `sections.ts` | Owns the `CampaignStorySection` type + `CAMPAIGN_STORY_SECTIONS` (the `background` prompt), read by the plan-tab `CampaignPlanStoryGate` |
 

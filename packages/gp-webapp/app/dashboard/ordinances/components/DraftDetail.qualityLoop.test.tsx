@@ -611,3 +611,33 @@ describe('DraftDetail quality panel (design: refresh only, loop is auto)', () =>
     }
   })
 })
+
+describe('DraftDetail amendment editor', () => {
+  it('edits an amendment in the tracked-changes editor, not the raw box', async () => {
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({ draftBody: 'Sec 1. {-old-}{+new+} end.' })}
+      />,
+    )
+
+    // The redline renders: struck deletion, underlined insertion.
+    expect((await screen.findByText('old')).closest('del')).not.toBeNull()
+    expect(screen.getByText('new').closest('ins')).not.toBeNull()
+
+    // The raw contentEditable body is not used for an amendment.
+    expect(
+      screen.queryByRole('textbox', { name: 'Ordinance draft body' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps a plain, non-amendment draft in the raw contentEditable', () => {
+    render(
+      <DraftDetail ordinance={makeOrdinance({ draftBody: 'A plain body.' })} />,
+    )
+
+    expect(
+      screen.getByRole('textbox', { name: 'Ordinance draft body' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('old')).not.toBeInTheDocument()
+  })
+})

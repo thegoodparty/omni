@@ -7,9 +7,9 @@ context, deploys are unified, and shared code is de-duplicated.
 
 Voter/people data access used to be its own microservice (`packages/people-api`);
 it was absorbed into `gp-api` (`src/peopleDb/`, direct people-db access) and the
-package was removed from this repo. The people-api ECS service and its Aurora
-cluster remain deployed and reachable during the rollout — see
-`packages/gp-api/src/peopleDb/CLAUDE.md`.
+package was removed from this repo. Nothing calls it any more; the people-api
+ECS service and its Aurora cluster remain deployed but frozen, pending
+teardown — see `packages/gp-api/src/peopleDb/CLAUDE.md`.
 
 **This repo is built to be worked through coding agents.** Almost every change here
 is made by an engineer driving an agent. So every doc is an agent-context surface.
