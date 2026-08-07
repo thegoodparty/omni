@@ -26,6 +26,7 @@ import {
 } from '@goodparty_org/contracts'
 
 import { estimateCostUsd } from '@/ordinances/services/ordinanceCost.util'
+import { checkAmendmentFidelity } from '@/ordinances/services/ordinanceFidelity.util'
 
 export const ORDINANCE_READ_SECTIONS = [
   'clarify',
@@ -249,6 +250,26 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
       },
       include: { electedOffice: true },
     })
+    // Deterministic amend-fidelity check: when the verbatim current law is on
+    // file, warn if the draft's redline misrepresents it (paraphrased, omitted,
+    // or invented "existing" text). Non-blocking; observable in logs.
+    const currentLaw = OrdinanceExistingLawSchema.safeParse(o.existingLaw)
+    if (currentLaw.success && currentLaw.data.verbatimText) {
+      const fidelity = checkAmendmentFidelity(
+        draft.body,
+        currentLaw.data.verbatimText,
+      )
+      if (!fidelity.ok) {
+        this.logger.warn(
+          {
+            ordinanceId: o.id,
+            verbatimBaseline: fidelity.baseline,
+            draftClaimsOriginal: fidelity.reconstructed,
+          },
+          'amendment redline drifts from the verbatim current law',
+        )
+      }
+    }
     // Fire-and-forget: the chat turn must never block on or fail with the
     // background loop. start() itself supersedes and restarts a running loop
     // for a re-draft, and guards flag/env/status/redline internally.
@@ -270,7 +291,12 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
   async saveExistingLaw(
     ordinanceId: string,
     electedOfficeId: string,
-    law: { sourceUrl: string; chapterLabel?: string; text: string },
+    law: {
+      sourceUrl: string
+      chapterLabel?: string
+      text: string
+      verbatimText?: string
+    },
   ): Promise<{ saved: true }> {
     const o = await this.findOwned(ordinanceId, electedOfficeId)
     const existingLaw = OrdinanceExistingLawSchema.parse({
