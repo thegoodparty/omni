@@ -70,15 +70,6 @@ export = async () => {
     throw new Error('DB_PASSWORD must be set in the secret.')
   }
 
-  // Only the retiring voter clusters (dev/prod) still need this, so preview
-  // keeps deploying once the key is dropped from the secret.
-  if (
-    (environment === 'dev' || environment === 'prod') &&
-    !secret.VOTER_DB_PASSWORD
-  ) {
-    throw new Error('VOTER_DB_PASSWORD must be set in the secret.')
-  }
-
   const dlq = new aws.sqs.Queue('main-dlq', {
     name: `${stage}-DLQ.fifo`,
     fifoQueue: true,
@@ -331,59 +322,6 @@ export = async () => {
         clusterIdentifier: 'gp-api-preview-shared-db',
       })
     : undefined
-
-  // Retired (ENG-5032): no code reads gp-voter-db any more. These clusters
-  // stay declared for exactly one deploy with deletionProtection off, because
-  // Pulumi cannot delete a cluster that still has deletion protection on — the
-  // follow-up PR drops this block and that deploy destroys them.
-  if (environment === 'dev' || environment === 'prod') {
-    const voterDbBaseConfig = {
-      engine: aws.rds.EngineType.AuroraPostgresql,
-      engineMode: aws.rds.EngineMode.Provisioned,
-      engineVersion: '16.8',
-      databaseName: 'voters',
-      masterUsername: 'postgres',
-      masterPassword: pulumi.secret(secret.VOTER_DB_PASSWORD),
-      dbSubnetGroupName: subnetGroup!.name,
-      vpcSecurityGroupIds: [rdsSecurityGroup!.id],
-      storageEncrypted: true,
-      deletionProtection: false,
-      backupRetentionPeriod: environment === 'prod' ? 14 : 7,
-      serverlessv2ScalingConfiguration: {
-        maxCapacity: 128,
-        minCapacity: 0.5,
-      },
-    }
-
-    const voterCluster = new aws.rds.Cluster('voterCluster', {
-      ...voterDbBaseConfig,
-      clusterIdentifier:
-        environment === 'prod' ? 'gp-voter-db' : `gp-voter-db-${stage}`,
-      finalSnapshotIdentifier: `gp-voter-db-${stage}-final-snapshot`,
-    })
-
-    new aws.rds.ClusterInstance('voterInstance', {
-      clusterIdentifier: voterCluster.id,
-      instanceClass: 'db.serverless',
-      engine: aws.rds.EngineType.AuroraPostgresql,
-      engineVersion: voterCluster.engineVersion,
-    })
-
-    if (environment === 'prod') {
-      const voterClusterLatest = new aws.rds.Cluster('voterClusterLatest', {
-        ...voterDbBaseConfig,
-        clusterIdentifier: 'gp-voter-db-20250728',
-        finalSnapshotIdentifier: `gp-voter-db-${stage}-20250728-final-snapshot`,
-      })
-
-      new aws.rds.ClusterInstance('voterInstanceLatest', {
-        clusterIdentifier: voterClusterLatest.id,
-        instanceClass: 'db.serverless',
-        engine: aws.rds.EngineType.AuroraPostgresql,
-        engineVersion: voterClusterLatest.engineVersion,
-      })
-    }
-  }
 
   const productDomain = select({
     preview: 'dev.goodparty.org',

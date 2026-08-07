@@ -61,25 +61,6 @@ to carry the legacy `gp-api` IAM user's static creds, which shadowed the task
 role and caused the 2026-07-29 contacts outage; those creds and the user were
 retired.)
 
-## Retiring the voter clusters (in progress)
-
-Nothing reads `gp-voter-db*` any more (ENG-5032), so the app-side plumbing —
-the `VOTER_DB_*` entrypoint guards, `VOTER_DATASTORE`, and the task-definition
-env vars — is gone. The `aws.rds.Cluster` declarations survive in `index.ts`
-for one more deploy with `deletionProtection: false`, because Pulumi cannot
-delete a cluster that still has deletion protection on: it issues
-`DeleteDBCluster` without first clearing the flag, and the call fails. Once
-that deploy has landed in **both dev and prod**, delete the block (and the
-`secret.VOTER_DB_PASSWORD` guard) and the next deploy destroys the clusters,
-taking a final snapshot via `finalSnapshotIdentifier`. Retire the
-`write__l2_databricks_to_gp_api` dbt model in gp-data-platform first — it still
-writes to these clusters nightly.
-
-Pulumi owns three of them: `gp-voter-db-develop` (dev) plus `gp-voter-db` and
-`gp-voter-db-20250728` (prod). `gp-voter-db-20260420` — the cluster prod
-actually read from — was only ever a `getCluster` lookup, never a managed
-resource, so no deploy will ever delete it. Take it down by hand.
-
 ## Gotchas
 
 - VPC ID, subnet IDs, security group IDs, and the hosted zone are **hardcoded** in `index.ts`. They reference the existing AWS account and aren't created by Pulumi. Don't try to make them dynamic.
