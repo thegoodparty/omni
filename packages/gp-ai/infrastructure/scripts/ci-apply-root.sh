@@ -50,12 +50,18 @@ esac
 # deploy, so counting it as destructive would refuse to ever deploy anything.
 # It is the ONLY type exempted; a replace of a bucket, table, role or anything
 # else still stops the apply.
-json=$(terraform show -json tfplan 2>/dev/null || echo '{}')
-destroys=$(jq '[.resource_changes[]? | select(.change.actions == ["delete"])] | length' <<<"$json" 2>/dev/null || echo 0)
+# Fails CLOSED. ci-plan-root.sh can afford to default these to 0 — the worst
+# outcome there is a wrong annotation on a PR comment. Here a silent 0 would let
+# a destructive plan apply unreviewed, so a missing jq or unexpected terraform
+# output must stop the apply rather than wave it through.
+json=$(terraform show -json tfplan 2>&1) || fail "terraform show failed: $json"
+destroys=$(jq '[.resource_changes[]? | select(.change.actions == ["delete"])] | length' <<<"$json") \
+  || fail "could not evaluate the destroy guard (jq failed); refusing to apply"
 replaces=$(jq '[.resource_changes[]?
                 | select(.type != "aws_ecs_task_definition")
                 | select((.change.actions | index("delete")) and (.change.actions | index("create")))]
-               | length' <<<"$json" 2>/dev/null || echo 0)
+               | length' <<<"$json") \
+  || fail "could not evaluate the replace guard (jq failed); refusing to apply"
 if [ "${destroys:-0}" != "0" ] || [ "${replaces:-0}" != "0" ]; then
   terraform show -no-color tfplan >>"$log" 2>&1
   fail "plan would destroy ${destroys} and replace ${replaces} resource(s); refusing to apply automatically"
