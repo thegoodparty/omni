@@ -114,7 +114,7 @@ describe('off-center baseline marker coupling', () => {
 
   it('carries the off-center marker on a known shifted-baseline column', () => {
     const housing = DISTRICT_TOPICS_CATALOG.housing
-    const col = housing.columns.find((c) => c.name === 'hs_new_home_buyer')
+    const col = housing?.columns.find((c) => c.name === 'hs_new_home_buyer')
     expect(col?.meaning).toContain(OFFCENTER_MARKER)
   })
 

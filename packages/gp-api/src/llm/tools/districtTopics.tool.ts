@@ -11,10 +11,15 @@ export interface CatalogTopic {
   columns: CatalogColumn[]
 }
 
-// Source each `meaning` from the column-documentation seed in gp-data-platform
-// (seeds/l2_column_classification.csv) rather than paraphrasing the column
-// name. Scale/threshold framing lives in HS_SCORE_SEMANTICS — keep `meaning`
-// strings to the stance itself, no scale text.
+// Source each `meaning` from the code-book-verified Chief of Staff catalog
+// (chats/general/chief-of-staff/services/constituentSuggestedDimensions.
+// serveAgentVoters.ts) when the column exists there — that catalog's labels
+// were verified against the vendor's per-model cards and supersede the
+// gp-data-platform seed. Columns advertised only here (ideology, party,
+// religion, tribalism, ticket-splitting, view-of-opposition) have NOT had
+// that verification; treat their meanings as name/seed-derived until the
+// data team confirms them. Scale/threshold framing lives in
+// HS_SCORE_SEMANTICS — keep `meaning` strings to the stance itself.
 export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
   housing: {
     description:
@@ -33,12 +38,12 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       {
         name: 'hs_new_home_buyer',
         meaning:
-          'recently bought a home (not centered at 50 — statewide baseline is about 60; read leans against that baseline)',
+          'likely first-time home buyer (modeled from actual 2024 buyers) (not centered at 50 — statewide baseline is about 60; read leans against that baseline)',
       },
       {
         name: 'hs_any_home_buyer',
         meaning:
-          'has ever bought a home (not centered at 50 — statewide baseline is about 60; read leans against that baseline)',
+          'likely recent home buyer, first-time or repeat (modeled from actual 2024 buyers) (not centered at 50 — statewide baseline is about 60; read leans against that baseline)',
       },
     ],
   },
@@ -47,8 +52,14 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
     columns: [
       { name: 'hs_tax_cuts_support', meaning: 'supports tax cuts' },
       { name: 'hs_tax_cuts_oppose', meaning: 'opposes tax cuts' },
-      { name: 'hs_gas_tax_support', meaning: 'supports the gas tax' },
-      { name: 'hs_gas_tax_oppose', meaning: 'opposes the gas tax' },
+      {
+        name: 'hs_gas_tax_support',
+        meaning: 'supports raising the gas tax to fund road repairs',
+      },
+      {
+        name: 'hs_gas_tax_oppose',
+        meaning: 'opposes raising the gas tax to fund road repairs',
+      },
       {
         name: 'hs_social_security_tax_increase_support',
         meaning:
@@ -91,7 +102,7 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       },
       {
         name: 'hs_school_funding_less',
-        meaning: 'favors less school funding',
+        meaning: 'opposes increasing school funding',
       },
       {
         name: 'hs_charter_schools_support',
@@ -183,16 +194,21 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       },
       {
         name: 'hs_electric_vehicle_likely_buyer',
-        meaning: 'likely to buy an electric vehicle',
+        meaning:
+          'owns an electric vehicle or is likely to buy one in the next three years',
       },
       {
         name: 'hs_electric_vehicle_not_likely',
         meaning: 'unlikely to buy an electric vehicle',
       },
-      { name: 'hs_solar_panel_buyer_yes', meaning: 'has bought solar panels' },
+      {
+        name: 'hs_solar_panel_buyer_yes',
+        meaning:
+          'considering buying solar panels within two years, or already has them',
+      },
       {
         name: 'hs_solar_panel_buyer_no',
-        meaning: 'has not bought solar panels',
+        meaning: 'owns a home but is not interested in buying solar panels',
       },
       {
         name: 'hs_pipeline_fracking_support',
@@ -361,11 +377,11 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       {
         name: 'hs_likely_polling_turnout',
         meaning:
-          'likely to physically show up at a polling place (limited coverage: data exists in only 12 states; null elsewhere)',
+          'likely to turn out to vote in presidential-year elections (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_likely_ev',
-        meaning: 'likely to vote early (in-person early voting)',
+        meaning: 'likely to vote early (EV)',
       },
       {
         name: 'hs_likely_vbm',
@@ -383,7 +399,7 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       },
       {
         name: 'hs_responsiveness_live',
-        meaning: 'responsive to live phone or door-knock contact',
+        meaning: 'responsive to live phone outreach',
       },
       {
         name: 'hs_responsiveness_email',
@@ -452,21 +468,22 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       {
         name: 'hs_trust_science_always',
         meaning:
-          'always or usually trusts scientific consensus (limited coverage: data exists in only 12 states; null elsewhere)',
+          'almost always trusts the scientific and medical communities (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_trust_science_rarely',
         meaning:
-          'rarely trusts scientific consensus (limited coverage: data exists in only 12 states; null elsewhere)',
+          'rarely trusts the scientific and medical communities (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_voting_fraud_concern_fraud',
-        meaning: 'concerned about voter fraud',
+        meaning:
+          'more concerned about voter fraud than about barriers to voting',
       },
       {
         name: 'hs_voting_fraud_concern_oppression',
         meaning:
-          'concerned about voter suppression (limited coverage: data exists in only 12 states; null elsewhere)',
+          'more concerned about voter suppression than voter fraud — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_view_of_opposition_dangerous',
@@ -483,12 +500,12 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       {
         name: 'hs_conspiracy_believer',
         meaning:
-          'leans toward conspiracy theories (limited coverage: data exists in only 12 states; null elsewhere)',
+          'does not rule out that the 2024 hurricanes were artificially created — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_conspiracy_nonbeliever',
         meaning:
-          'rejects conspiracy theories (limited coverage: data exists in only 12 states; null elsewhere)',
+          'firmly rejects the claim that the 2024 hurricanes were artificially created — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
       },
     ],
   },
@@ -498,21 +515,21 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       {
         name: 'hs_tv_most_trusted_news_fox',
         meaning:
-          'trusts Fox most for TV news (limited coverage: data exists in only 12 states; null elsewhere)',
+          'trusts Fox most for TV news — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_tv_most_trusted_news_cnn',
         meaning:
-          'trusts CNN most for TV news (limited coverage: data exists in only 12 states; null elsewhere)',
+          'trusts CNN most for TV news — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_tv_most_trusted_news_msnbc',
         meaning:
-          'trusts MSNBC most for TV news (limited coverage: data exists in only 12 states; null elsewhere)',
+          'trusts MSNBC most for TV news — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_tv_viewer_watch_any_tv',
-        meaning: 'watches any TV regularly',
+        meaning: 'watches traditional TV (cable, satellite, or over the air)',
       },
       {
         name: 'hs_tv_viewer_watch_paid_streaming',
@@ -527,10 +544,13 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
         name: 'hs_social_media_user_no_or_infrequent',
         meaning: 'not an active social media user',
       },
-      { name: 'hs_podcast_listener_yes', meaning: 'listens to podcasts' },
+      {
+        name: 'hs_podcast_listener_yes',
+        meaning: 'listens to podcasts often',
+      },
       {
         name: 'hs_podcast_listener_no',
-        meaning: 'does not listen to podcasts',
+        meaning: 'never listens to podcasts',
       },
     ],
   },
@@ -547,10 +567,14 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
         name: 'Voters_Age',
         meaning: 'integer age; bucket into bands in SQL if useful',
       },
-      { name: 'Voters_Gender', meaning: 'reported gender (M / F)' },
+      {
+        name: 'Voters_Gender',
+        meaning: "reported gender (values 'M', 'F', or blank)",
+      },
       {
         name: 'Voters_VotingPerformanceEvenYearGeneral',
-        meaning: 'rolled-up turnout-performance score for even-year generals',
+        meaning:
+          'observed even-year general-election turnout (%) — a true percentage of past elections voted, not an hs_ score',
       },
     ],
   },
