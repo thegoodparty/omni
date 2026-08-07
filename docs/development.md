@@ -37,7 +37,7 @@ npm run dev       -w candidate-sites # :4001
 `npm`'s `-w` resolves either a workspace name or its path; the path form
 `-w packages/<dir>` always works and is unambiguous.
 
-gp-api also talks directly to people-db (`src/peopleDb/`, `USE_LOCAL_PEOPLE_DB`)
+gp-api also talks directly to people-db (`src/peopleDb/`)
 via a second Prisma client — set `PEOPLE_DATABASE_URL` in gp-api's local env to
 point it at a people-db instance; see `packages/gp-api/src/peopleDb/CLAUDE.md`.
 
