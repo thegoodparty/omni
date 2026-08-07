@@ -11,6 +11,16 @@ export interface CatalogTopic {
   columns: CatalogColumn[]
 }
 
+// Source each `meaning` from the code-book-verified Chief of Staff catalog in
+// chats/general/chief-of-staff/services/
+// constituentSuggestedDimensions.serveAgentVoters.ts when the column exists
+// there — that catalog's labels were verified against the vendor's per-model
+// cards and supersede the gp-data-platform seed. Columns advertised only here
+// (`hs_ideology_*`, `hs_religion_*`, `hs_ticket_splitter_*`,
+// `hs_tribalism_team_dem`/`_gop`, `hs_view_of_opposition_*`) have NOT had
+// that verification; treat their meanings as name/seed-derived until the
+// data team confirms them. Scale/threshold framing lives in
+// HS_SCORE_SEMANTICS — keep `meaning` strings to the stance itself.
 export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
   housing: {
     description:
@@ -26,8 +36,16 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       },
       { name: 'hs_gentrification_support', meaning: 'supports gentrification' },
       { name: 'hs_gentrification_oppose', meaning: 'opposes gentrification' },
-      { name: 'hs_new_home_buyer', meaning: 'recently bought a home' },
-      { name: 'hs_any_home_buyer', meaning: 'has ever bought a home' },
+      {
+        name: 'hs_new_home_buyer',
+        meaning:
+          'likely first-time home buyer (modeled from actual 2024 buyers) (not centered at 50 — statewide baseline is about 60; read leans against that baseline)',
+      },
+      {
+        name: 'hs_any_home_buyer',
+        meaning:
+          'likely recent home buyer, first-time or repeat (modeled from actual 2024 buyers) (not centered at 50 — statewide baseline is about 60; read leans against that baseline)',
+      },
     ],
   },
   taxes: {
@@ -35,23 +53,33 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
     columns: [
       { name: 'hs_tax_cuts_support', meaning: 'supports tax cuts' },
       { name: 'hs_tax_cuts_oppose', meaning: 'opposes tax cuts' },
-      { name: 'hs_gas_tax_support', meaning: 'supports the gas tax' },
-      { name: 'hs_gas_tax_oppose', meaning: 'opposes the gas tax' },
+      {
+        name: 'hs_gas_tax_support',
+        meaning: 'supports raising the gas tax to fund road repairs',
+      },
+      {
+        name: 'hs_gas_tax_oppose',
+        meaning: 'opposes raising the gas tax to fund road repairs',
+      },
       {
         name: 'hs_social_security_tax_increase_support',
-        meaning: 'supports raising social security taxes',
+        meaning:
+          'supports raising Social Security taxes (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_social_security_tax_increase_oppose',
-        meaning: 'opposes raising social security taxes',
+        meaning:
+          'opposes raising Social Security taxes (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_min_wage_15_increase_support',
-        meaning: 'supports raising min wage to $15',
+        meaning:
+          'supports raising the minimum wage to $15 (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_min_wage_15_increase_oppose',
-        meaning: 'opposes raising min wage to $15',
+        meaning:
+          'opposes raising the minimum wage to $15 (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_ideology_fiscal_conserv',
@@ -75,7 +103,7 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       },
       {
         name: 'hs_school_funding_less',
-        meaning: 'favors less school funding',
+        meaning: 'opposes increasing school funding',
       },
       {
         name: 'hs_charter_schools_support',
@@ -95,11 +123,13 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       },
       {
         name: 'hs_community_college_free_support',
-        meaning: 'supports free community college',
+        meaning:
+          'supports free community college (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_community_college_free_oppose',
-        meaning: 'opposes free community college',
+        meaning:
+          'opposes free community college (limited coverage: data exists in only 12 states; null elsewhere)',
       },
     ],
   },
@@ -109,11 +139,11 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
     columns: [
       {
         name: 'hs_medicaid_expansion_support',
-        meaning: 'supports medicaid expansion',
+        meaning: 'supports Medicaid expansion',
       },
       {
         name: 'hs_medicaid_expansion_oppose',
-        meaning: 'opposes medicaid expansion',
+        meaning: 'opposes Medicaid expansion',
       },
       {
         name: 'hs_medicare_for_all_support',
@@ -131,19 +161,23 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       { name: 'hs_obamacare_aca_oppose', meaning: 'opposes the ACA' },
       {
         name: 'hs_family_medical_leave_support',
-        meaning: 'supports paid family/medical leave',
+        meaning:
+          'supports paid family/medical leave (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_family_medical_leave_oppose',
-        meaning: 'opposes paid family/medical leave',
+        meaning:
+          'opposes paid family/medical leave (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_opioid_crisis_treat',
-        meaning: 'treats opioid crisis as a health issue',
+        meaning:
+          'treats opioid crisis as a health issue (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_opioid_crisis_enforce',
-        meaning: 'treats opioid crisis as a law-enforcement issue',
+        meaning:
+          'treats opioid crisis as a law-enforcement issue (limited coverage: data exists in only 12 states; null elsewhere)',
       },
     ],
   },
@@ -161,16 +195,21 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       },
       {
         name: 'hs_electric_vehicle_likely_buyer',
-        meaning: 'likely to buy an electric vehicle',
+        meaning:
+          'owns an electric vehicle or is likely to buy one in the next three years',
       },
       {
         name: 'hs_electric_vehicle_not_likely',
         meaning: 'unlikely to buy an electric vehicle',
       },
-      { name: 'hs_solar_panel_buyer_yes', meaning: 'has bought solar panels' },
+      {
+        name: 'hs_solar_panel_buyer_yes',
+        meaning:
+          'considering buying solar panels within two years, or already has them',
+      },
       {
         name: 'hs_solar_panel_buyer_no',
-        meaning: 'has not bought solar panels',
+        meaning: 'owns a home but is not interested in buying solar panels',
       },
       {
         name: 'hs_pipeline_fracking_support',
@@ -190,11 +229,13 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       },
       {
         name: 'hs_sell_federal_lands_support',
-        meaning: 'supports selling federal lands',
+        meaning:
+          'supports selling federal lands (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_sell_federal_lands_oppose',
-        meaning: 'opposes selling federal lands',
+        meaning:
+          'opposes selling federal lands (limited coverage: data exists in only 12 states; null elsewhere)',
       },
     ],
   },
@@ -203,21 +244,25 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
     columns: [
       {
         name: 'hs_mass_deporations_support',
-        meaning: 'supports mass deportations',
+        meaning:
+          'supports mass deportations (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_mass_deporations_oppose',
-        meaning: 'opposes mass deportations',
+        meaning:
+          'opposes mass deportations (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       { name: 'hs_mexican_wall_support', meaning: 'supports a border wall' },
       { name: 'hs_mexican_wall_oppose', meaning: 'opposes a border wall' },
       {
         name: 'hs_immigration_process_unfair',
-        meaning: 'sees the immigration process as unfair',
+        meaning:
+          'sees the immigration process as unfair (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_immigration_undesirable',
-        meaning: 'sees more immigration as undesirable',
+        meaning:
+          'sees more immigration as undesirable (limited coverage: data exists in only 12 states; null elsewhere)',
       },
     ],
   },
@@ -227,7 +272,8 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
     columns: [
       {
         name: 'hs_violent_crime_very_worried',
-        meaning: 'very worried about violent crime',
+        meaning:
+          'very worried about violent crime (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_violent_crime_not_worried',
@@ -331,11 +377,12 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       },
       {
         name: 'hs_likely_polling_turnout',
-        meaning: 'likely to physically show up at a polling place',
+        meaning:
+          'likely to turn out to vote in presidential-year elections (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_likely_ev',
-        meaning: 'likely to vote early (in-person early voting)',
+        meaning: 'likely to vote early (EV)',
       },
       {
         name: 'hs_likely_vbm',
@@ -353,7 +400,7 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       },
       {
         name: 'hs_responsiveness_live',
-        meaning: 'responsive to live phone or door-knock contact',
+        meaning: 'responsive to live phone outreach',
       },
       {
         name: 'hs_responsiveness_email',
@@ -402,7 +449,8 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       { name: 'hs_tribalism_team_gop', meaning: 'team-Republican tribalism' },
       {
         name: 'hs_tribalism_open_minded',
-        meaning: 'open-minded, low partisan tribalism',
+        meaning:
+          'open-minded, low partisan tribalism (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_ticket_splitter_yes',
@@ -420,19 +468,23 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
     columns: [
       {
         name: 'hs_trust_science_always',
-        meaning: 'always or usually trusts scientific consensus',
+        meaning:
+          'almost always trusts the scientific and medical communities (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_trust_science_rarely',
-        meaning: 'rarely trusts scientific consensus',
+        meaning:
+          'rarely trusts the scientific and medical communities (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_voting_fraud_concern_fraud',
-        meaning: 'concerned about voter fraud',
+        meaning:
+          'more concerned about voter fraud than about barriers to voting',
       },
       {
         name: 'hs_voting_fraud_concern_oppression',
-        meaning: 'concerned about voter suppression',
+        meaning:
+          'more concerned about voter suppression than voter fraud — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_view_of_opposition_dangerous',
@@ -448,11 +500,13 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       },
       {
         name: 'hs_conspiracy_believer',
-        meaning: 'leans toward conspiracy theories',
+        meaning:
+          'does not rule out that the 2024 hurricanes were artificially created — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_conspiracy_nonbeliever',
-        meaning: 'rejects conspiracy theories',
+        meaning:
+          'firmly rejects the claim that the 2024 hurricanes were artificially created — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
       },
     ],
   },
@@ -461,19 +515,22 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
     columns: [
       {
         name: 'hs_tv_most_trusted_news_fox',
-        meaning: 'trusts Fox most for TV news',
+        meaning:
+          'trusts Fox most for TV news — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_tv_most_trusted_news_cnn',
-        meaning: 'trusts CNN most for TV news',
+        meaning:
+          'trusts CNN most for TV news — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_tv_most_trusted_news_msnbc',
-        meaning: 'trusts MSNBC most for TV news',
+        meaning:
+          'trusts MSNBC most for TV news — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_tv_viewer_watch_any_tv',
-        meaning: 'watches any TV regularly',
+        meaning: 'watches traditional TV (cable, satellite, or over the air)',
       },
       {
         name: 'hs_tv_viewer_watch_paid_streaming',
@@ -481,16 +538,20 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       },
       {
         name: 'hs_social_media_user',
-        meaning: 'active social media user',
+        meaning:
+          'active social media user (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_social_media_user_no_or_infrequent',
         meaning: 'not an active social media user',
       },
-      { name: 'hs_podcast_listener_yes', meaning: 'listens to podcasts' },
+      {
+        name: 'hs_podcast_listener_yes',
+        meaning: 'listens to podcasts often',
+      },
       {
         name: 'hs_podcast_listener_no',
-        meaning: 'does not listen to podcasts',
+        meaning: 'never listens to podcasts',
       },
     ],
   },
@@ -507,10 +568,14 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
         name: 'Voters_Age',
         meaning: 'integer age; bucket into bands in SQL if useful',
       },
-      { name: 'Voters_Gender', meaning: 'reported gender (M / F)' },
+      {
+        name: 'Voters_Gender',
+        meaning: "reported gender (values 'M', 'F', or blank)",
+      },
       {
         name: 'Voters_VotingPerformanceEvenYearGeneral',
-        meaning: 'rolled-up turnout-performance score for even-year generals',
+        meaning:
+          'observed even-year general-election turnout (%) — a true percentage of past elections voted, not an hs_ score',
       },
     ],
   },
