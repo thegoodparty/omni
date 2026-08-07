@@ -141,7 +141,7 @@ direction. Grouped into 9 topics:
 
 **regulation_economy** — `hs_regulations_too_harsh`, `hs_regulations_good`, `hs_capitalism_believe_sound`, `hs_capitalism_believe_flawed`, `hs_unions_beneficial`, `hs_unions_not_beneficial`, `hs_income_inequality_serious`, `hs_income_inequality_no_issue`, `hs_infrastructure_funding_fund_more`, `hs_infrastructure_funding_enough_spent`
 
-`INLINE_HAYSTAQ_COLUMNS` (Step 4's `ALLOWED_COLS`) is the set of every `hs_*` name listed above. Note: coverage varies by state — some columns return near-zero `cov_*` and are dropped in Step 4 (informative, not a gap).
+`INLINE_HAYSTAQ_COLUMNS` (Step 4's `ALLOWED_COLS`) is the set of every `hs_*` name listed above — except `hs_new_home_buyer`/`hs_any_home_buyer`, which appear only inside the housing exclusion note and are NOT in the set. Note: coverage varies by state — some columns return near-zero `cov_*` and are dropped in Step 4 (informative, not a gap).
 
 **Web (`WebSearch` + `pmf_runtime.http`)**:
 

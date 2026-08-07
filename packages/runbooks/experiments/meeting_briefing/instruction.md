@@ -153,7 +153,7 @@ Concise. Priority items get full depth across all sections. Non-priority items g
 - **Conditional counts use `SUM(CASE WHEN ... THEN 1 ELSE 0 END)`.** Postgres `COUNT(*) FILTER (WHERE ...)` is a syntax error in Databricks.
 - **`GROUP BY` queries are silently truncated at `scope.max_rows`.** The broker injects/clamps `LIMIT max_rows` on every query. If your `GROUP BY <high-cardinality-column>` produces more groups than the cap, the broker returns the first N groups in unspecified order — there is NO truncation signal in the response. **Always add `ORDER BY count DESC LIMIT N` to GROUP BY queries.**
 - **Use named placeholders** when parameterizing: `cursor.execute("... WHERE col = :foo", {"foo": value})`. Positional `?` raises a SQL error.
-- **Named placeholders bind VALUES, not IDENTIFIERS.** Column names, table names, and the L2 district column all have to be string-interpolated into the SQL (e.g. f-string). Whitelist-validate any identifier before interpolating it (`assert col in ALLOWED_COLS`) — the broker scope check enforces table allowlisting but doesn't validate ad-hoc column names you f-string in.
+- **Named placeholders bind VALUES, not IDENTIFIERS.** Column names, table names, and the L2 district column all have to be string-interpolated into the SQL (e.g. f-string). Whitelist-validate any identifier before interpolating it (`assert col in ALLOWED_COLS`, where `ALLOWED_COLS` is the set of column names in the Step 6 inline catalog tables — the excluded home-buyer pair is not in it) — the broker scope check enforces table allowlisting but doesn't validate ad-hoc column names you f-string in.
 - **Every query must reference an allowed table.** Bare `SELECT 1` (no FROM) is rejected.
 - **The L2 district column name is the VALUE of `PARAMS.l2DistrictType`** (e.g. `City_Ward`, `City_Council_Commissioner_District`). The value to match is `PARAMS.l2DistrictName`. Backtick-quote the column: `` `City_Council_Commissioner_District` = '25' ``.
 
@@ -696,6 +696,7 @@ Collect the picked columns across every priority item that found a topic match. 
 ```sql
 -- Whitelist-validate each picked column before interpolation (ASCII-only):
 --   re.fullmatch(r"hs_[a-z0-9_]{1,60}", col)
+--   and col in ALLOWED_COLS (the Step 6 inline-catalog column set)
 -- Then assemble the column list dynamically.
 -- District scope:
 SELECT
