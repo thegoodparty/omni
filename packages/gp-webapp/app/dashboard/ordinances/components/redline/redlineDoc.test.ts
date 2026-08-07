@@ -69,6 +69,22 @@ describe('redline doc conversion', () => {
     expect(docToMarkup(doc)).toBe('{+x+}')
   })
 
+  it('serializes a hard break as a newline instead of dropping it', () => {
+    const doc = {
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'line one' },
+            { type: 'hardBreak' },
+            { type: 'text', text: 'line two' },
+          ],
+        },
+      ],
+    }
+    expect(docToMarkup(doc)).toBe('line one\nline two')
+  })
+
   it('represents a blank line as an empty paragraph', () => {
     const doc = markupToDoc('A\n\nB')
     expect(doc.content).toEqual([
