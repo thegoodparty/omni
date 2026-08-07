@@ -33,6 +33,11 @@ variable "bootstrap" {
   description = "First-pass apply: skip cross-stack remote_state lookups for stacks that don't exist yet."
 }
 
+variable "docker_image_tag" {
+  description = "Immutable, SHA-pinned image tag (e.g. broker-a1b2c3d4). CI passes this per deploy; there is no default so a missing value fails loudly instead of silently shipping a mutable tag."
+  type        = string
+}
+
 data "terraform_remote_state" "broker" {
   count = var.bootstrap ? 0 : 1
 
@@ -60,7 +65,7 @@ module "pmf_engine_fargate" {
   vpc_id             = "vpc-0763fa52c32ebcf6a"
   private_subnet_ids = ["subnet-053357b931f0524d4", "subnet-0bb591861f72dcb7f"]
   ecr_repository_url = "333022194791.dkr.ecr.us-west-2.amazonaws.com/gp-ai-projects"
-  docker_image_tag   = "pmf-engine-prod"
+  docker_image_tag   = var.docker_image_tag
   task_cpu           = "1024"
   task_memory        = "2048"
 
