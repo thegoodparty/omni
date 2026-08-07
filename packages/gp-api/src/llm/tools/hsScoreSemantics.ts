@@ -1,8 +1,10 @@
 // Shared semantics for the hs_* modeled-score columns in serve_agent_voters.
 // Import this into any tool description that lets the model query them.
-// DISTRICT_INSIGHTS_RULES (briefing-chat system prompt) carries a deliberately
-// condensed restatement as defense-in-depth across prompt layers — edit the
-// two together.
+// DISTRICT_INSIGHTS_RULES (briefing-chat system prompt) carries only
+// suppression/presentation rules today; fix/briefing-score-framing adds a
+// deliberately condensed restatement of these semantics there as
+// defense-in-depth across prompt layers — once it lands, edit the two
+// together.
 //
 // Basis: scores arrive from the vendor as within-state percentile ranks
 // (verified against the mart: per-state means ~50 with SD ~28.9, the SD of a
