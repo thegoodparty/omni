@@ -112,9 +112,9 @@ WHERE `<L2_TYPE>` = :district_name
 
 Pass `{"district_name": L2_NAME}`. Substitute `<L2_TYPE>` literally into the SQL string (it's a column identifier, not a value — placeholders can't bind identifiers).
 
-If `max <= 1` for any column → it's binary; use `= 1` for that column. If `max ~= 100` → continuous; use `>= 50`. If `max` is NULL → the column has no coverage in this state (~106 columns exist only in a 12- or 39-state vendor vintage and are null elsewhere); exclude it and pick a replacement candidate from Step 2. The runbook's experience says continuous is overwhelmingly the case; if you see binary, log a note in your reasoning and adjust thresholds for that specific column.
+If `max <= 1` for any column → it's binary; use `= 1` for that column. If `max ~= 100` → continuous; use `>= 50`. If `max` is NULL → the column has no coverage in this state (~106 columns exist only in a 12- or 39-state vendor vintage and are null elsewhere); exclude it and pick a replacement candidate from Step 2, widening the Step 2 pool if exclusions leave fewer than 5 viable issues (the artifact requires exactly 5). The runbook's experience says continuous is overwhelmingly the case; if you see binary, log a note in your reasoning and adjust thresholds for that specific column.
 
-### Step 4 — Batched per-issue support query
+### Step 4 — Batched per-issue alignment query
 
 ONE query, all 10-12 candidates at once. Build the SUM aggregations programmatically:
 
