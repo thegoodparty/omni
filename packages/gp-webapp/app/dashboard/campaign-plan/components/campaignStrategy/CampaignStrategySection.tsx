@@ -75,13 +75,16 @@ const CampaignStrategySection = (): React.JSX.Element => {
   }, [tasks, electionDateIso])
 
   // Open the phase(s) the candidate is in now; fall back to the first phase.
-  const openPhases = (strategy?.phases ?? [])
+  const autoOpenable = (strategy?.phases ?? []).filter(
+    (phase) => phase.key !== 'preLaunch',
+  )
+  const openPhases = autoOpenable
     .filter((phase) => phase.status === 'active')
     .map((phase) => phase.key)
   const defaultOpen =
     openPhases.length > 0
       ? openPhases
-      : strategy?.phases[0]
+      : strategy?.phases[0] && strategy.phases[0].key !== 'preLaunch'
         ? [strategy.phases[0].key]
         : []
 
@@ -111,9 +114,6 @@ const CampaignStrategySection = (): React.JSX.Element => {
               Generate tasks
             </Button>
           )}
-          <span className="text-primary mt-1 text-xs font-semibold tracking-wide uppercase">
-            You are here
-          </span>
         </div>
       </div>
       {isPending ? (

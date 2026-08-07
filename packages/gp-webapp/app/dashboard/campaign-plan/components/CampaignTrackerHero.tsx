@@ -1,6 +1,6 @@
 'use client'
 
-import { Button, DownloadIcon } from '@styleguide'
+import { DownloadIcon, IconButton } from '@styleguide'
 import DashboardNavHeaderAction from '../../shared/DashboardNavHeaderAction'
 
 interface CampaignTrackerHeroProps {
@@ -46,18 +46,18 @@ const CampaignTrackerHero = ({
       {/* size="small" so the CTA clears the title bar's fixed h-14 without
           growing it past the other pages' bars. */}
       <DashboardNavHeaderAction>
-        <Button
+        <IconButton
           type="button"
           variant="outline"
           size="small"
-          icon={<DownloadIcon className="size-4" />}
           onClick={onDownload}
           loading={downloading}
           disabled={!canDownload}
+          aria-label="Download Campaign Plan"
           className="shrink-0"
         >
-          Download Campaign Plan
-        </Button>
+          <DownloadIcon className="size-4" aria-hidden />
+        </IconButton>
       </DashboardNavHeaderAction>
       <h1 className="text-foreground text-3xl font-bold sm:text-4xl">
         {headline}
