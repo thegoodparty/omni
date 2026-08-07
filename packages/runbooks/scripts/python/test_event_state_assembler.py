@@ -26,14 +26,23 @@ def test_event_state_sql_reads_mart_analytics_catalog():
     assert "dbt." not in esa.EVENT_STATE_SQL
 
 
-def test_columns_are_the_twenty_in_order():
+def test_columns_are_the_twentyone_in_order():
     assert esa.COLUMNS == [
-        "event", "status", "declared_intent", "intent_date", "supersession",
+        "event", "event_type", "status", "declared_intent", "intent_date", "supersession",
         "family", "first_seen_date",
         "last_seen_date", "event_count_30d", "event_count", "description", "tags",
         "instrumented_pr", "instrumented_date", "instrumented_author_email",
         "retired_pr", "retired_date", "retired_author_email", "watchlist_status", "okr",
     ]
+
+
+def test_event_type_carries_the_ingested_name_when_display_name_diverges():
+    records = [_record("session_start", "active")]
+    catalog = {"session_start": {"govern_display_name": "[Amplitude] Start Session"}}
+    rows = esa.build_rows(records, catalog, {})
+
+    assert rows[0]["event"] == "[Amplitude] Start Session"
+    assert rows[0]["event_type"] == "session_start"
 
 
 def test_build_rows_projects_and_orders_by_last_code_change_desc():
