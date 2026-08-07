@@ -24,7 +24,7 @@ export default function ContactsPage() {
     isCustomSegment,
     searchTerm,
     totalSegmentContacts,
-    isVoterDataUnavailable,
+    voterDataUnavailable,
     isWinContext,
     isWinContextReady,
   } = useContactsTable()
@@ -72,7 +72,10 @@ export default function ContactsPage() {
             </div>
           )}
 
-          {isVoterDataUnavailable ? (
+          {/* The union, not the reactive flag alone: the proactive predicate
+              gates the contacts query, so the 400 that used to set
+              isVoterDataUnavailable never fires. */}
+          {voterDataUnavailable ? (
             <div className="mt-6">
               <H2>Voter data not available for your district</H2>
               <Body2 className="mt-2 text-muted-foreground">
@@ -114,7 +117,11 @@ export default function ContactsPage() {
             </>
           )}
         </Paper>
-        <PersonOverlay />
+        {/* The overlay opens purely off the URL, and a district-gated personQuery
+            reports pending/idle, so neither its loading nor its error branch
+            fires — left mounted it drops a dataless sheet over the message
+            above. */}
+        {!voterDataUnavailable && <PersonOverlay />}
       </DashboardLayout>
       {campaign && (
         <ProUpgradeModal

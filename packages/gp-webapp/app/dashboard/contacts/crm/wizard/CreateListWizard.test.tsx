@@ -1199,3 +1199,55 @@ describe('CreateListWizard — dismissed mid-mutation (vaul swipe-close path)', 
     expect(successSnackbar).toHaveBeenCalledTimes(1)
   })
 })
+
+// The voter-file count fires on every pill toggle (deliberately, ENG-10751), so
+// one session on an org with no resolvable district produced 54 of the 107
+// district 400s on its own.
+describe('CreateListWizard — district gating', () => {
+  const openVoterFileStep = async (
+    user: ReturnType<typeof userEvent.setup>,
+  ) => {
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build a list using voter demographics and data/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
+  }
+
+  it('fires the count when a district resolves', async () => {
+    const onCount = vi.fn()
+    api.mock('POST /v1/contacts/count', () => {
+      onCount()
+      return { status: 200, data: { count: 250 } }
+    })
+    setContext({ voterDataUnavailable: false })
+    const user = userEvent.setup()
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+    await openVoterFileStep(user)
+
+    await vi.waitFor(() => expect(onCount).toHaveBeenCalled(), {
+      timeout: 3000,
+    })
+  })
+
+  // Waits well past the hook's 600ms debounce; the control above proves the
+  // request lands inside that window when the gate is open.
+  it('fires no count when the district is unresolvable', async () => {
+    const onCount = vi.fn()
+    api.mock('POST /v1/contacts/count', () => {
+      onCount()
+      return { status: 200, data: { count: 250 } }
+    })
+    setContext({ voterDataUnavailable: true })
+    const user = userEvent.setup()
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+    await openVoterFileStep(user)
+    await new Promise((resolve) => setTimeout(resolve, 900))
+
+    expect(onCount).not.toHaveBeenCalled()
+  })
+})

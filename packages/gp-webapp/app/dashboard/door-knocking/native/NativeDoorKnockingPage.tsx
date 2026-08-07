@@ -23,6 +23,7 @@ import SaveTurfDialog from './SaveTurfDialog'
 import TurfList from './TurfList'
 import WalkView from './WalkView'
 import type { PolygonRing } from './VoterMapCanvas'
+import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 
 const VoterMapCanvas = dynamic(() => import('./VoterMapCanvas'), {
   ssr: false,
@@ -71,8 +72,18 @@ export default function NativeDoorKnockingPage({
   pathname,
   campaign,
 }: NativeDoorKnockingPageProps) {
-  const packQuery = useQuery(voterPackQueryOptions)
-  const turfsQuery = useQuery(turfsQueryOptions)
+  // The pack and every turf read resolve a district server-side
+  // (resolveEligibleDistrictId), so without one they can only 400 — and a turf
+  // cannot be drawn against a district we can't identify.
+  const { isUnresolvable } = useDistrictResolution()
+  const packQuery = useQuery({
+    ...voterPackQueryOptions,
+    enabled: !isUnresolvable,
+  })
+  const turfsQuery = useQuery({
+    ...turfsQueryOptions,
+    enabled: !isUnresolvable,
+  })
   const [selections, setSelections] = useState<DimSelections>(new Map())
   const [ring, setRing] = useState<PolygonRing | null>(null)
   const [saveOpen, setSaveOpen] = useState(false)
@@ -122,7 +133,17 @@ export default function NativeDoorKnockingPage({
       <div className="flex h-[calc(100dvh-4rem)] w-full">
         <aside className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto border-r border-border bg-background p-4">
           <h1 className="text-lg font-semibold">Door knocking</h1>
-          {packQuery.isPending && (
+          {/* Before the isPending branch: a district-gated query is neither
+              pending-with-a-request nor errored, so that branch would otherwise
+              claim to be loading forever. */}
+          {isUnresolvable && (
+            <p className="text-sm text-muted-foreground">
+              Voter data is not available for this office yet, so there is no
+              map to draw turfs on. Contact support at help@goodparty.org and
+              our team can set this up for you.
+            </p>
+          )}
+          {!isUnresolvable && packQuery.isPending && (
             <p className="text-sm text-muted-foreground">
               Loading your voter map…
             </p>

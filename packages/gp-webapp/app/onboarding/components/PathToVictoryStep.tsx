@@ -15,6 +15,7 @@ import {
 import { clientRequest } from 'gpApi/typed-request'
 import { numberFormatter } from 'helpers/numberHelper'
 import { reportErrorToSentry } from '@shared/sentry'
+import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 import type { Campaign } from 'helpers/types'
 
 const OFFICE_TEMPLATE_TOKEN = '{office}'
@@ -72,8 +73,17 @@ const formatOfficeName = (campaign: Campaign | null): string =>
 
 const useRegisteredVoters = (campaignId: number | undefined) => {
   const [registeredVoters, setRegisteredVoters] = useState<number | null>(null)
+  const { isUnresolvable } = useDistrictResolution()
 
   useEffect(() => {
+    // A write-in office can never resolve a district, so this could only 400 —
+    // and the catch below reports every one of those to Sentry. The checklist
+    // already degrades to null, which is the same thing the catch produces.
+    if (isUnresolvable) {
+      setRegisteredVoters(null)
+      return
+    }
+
     let cancelled = false
     clientRequest(CONTACTS_STATS_ROUTE, {})
       .then((res) => {
@@ -91,7 +101,7 @@ const useRegisteredVoters = (campaignId: number | undefined) => {
     return () => {
       cancelled = true
     }
-  }, [campaignId])
+  }, [campaignId, isUnresolvable])
 
   return registeredVoters
 }

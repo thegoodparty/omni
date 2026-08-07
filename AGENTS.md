@@ -77,7 +77,15 @@ change. Read what the task touches.
 Docs here are living context, not archive. **When a change alters behavior,
 architecture, or a convention, update the nearest relevant `AGENTS.md` and/or
 `docs/` file in the same change.** A PR that changes how something works and leaves
-its doc stale is incomplete. Update docs in place; never leave them to rot.
+its doc stale is incomplete. Update _or delete_ in place; never leave them to rot.
+
+**When a change removes something, delete its docs — don't rewrite them into a
+tombstone.** No "X is retired" or "X no longer exists" sections. A reader who never
+knew X existed should not have to learn about it in order to un-learn it, and git
+history already keeps the story. The test: a change that simplifies the system
+should leave this repo with _less_ documentation, not the same amount reworded. The
+only prose a removal earns is a live, actionable leftover — a manual step someone
+still has to take — and that goes in the PR body or a ticket, not a `CLAUDE.md`.
 
 ## Repo-wide conventions
 

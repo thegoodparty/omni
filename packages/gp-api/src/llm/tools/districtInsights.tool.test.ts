@@ -659,6 +659,11 @@ describe('buildDistrictInsightsTool', () => {
     )
     // Must hint at useful column families.
     expect(tool.description).toMatch(/hs_/)
+    // Must state the score scale and its relative (percentile-rank) basis so
+    // score averages are never presented as absolute shares of constituents.
+    expect(tool.description).toMatch(/percentile rank/i)
+    expect(tool.description).toMatch(/deviation from 50/i)
+    expect(tool.description).toMatch(/nulls mean unknown/i)
     // Must remind the LLM not to echo to the user (defense in depth — the
     // system prompt also enforces this).
     expect(tool.description).toMatch(/never echo|plain language/i)

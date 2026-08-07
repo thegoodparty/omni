@@ -712,8 +712,6 @@ On-demand ECS (Lambda-triggered, gp-ai-projects): `serve-analyze-{dev,prod}`, `d
 | `gp-people-db-prod`       | gp-api (people-db) prod | db.r6g.4xlarge (x2), Performance Insights advanced |
 | `gp-people-db-dev`        | gp-api (people-db) dev  | db.t4g.medium                                      |
 
-The retired `gp-voter-db*` clusters are not listed — nothing reads them and they are being torn down.
-
 ### S3 Buckets (key ones)
 
 | Bucket                                  | Purpose                                   |

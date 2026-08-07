@@ -598,10 +598,14 @@ describe('<ChiefOfStaffChatBody>', () => {
     )
 
     // The prior kickoff reply loads (assistant messages, no user turn)...
-    await waitFor(() =>
-      expect(
-        screen.getByText('Here is what I found for your week.'),
-      ).toBeInTheDocument(),
+    // Both bubbles type in on a real interval (~900ms for these two), which
+    // overruns waitFor's 1s default on a loaded CI box.
+    await waitFor(
+      () =>
+        expect(
+          screen.getByText('Here is what I found for your week.'),
+        ).toBeInTheDocument(),
+      { timeout: 6000 },
     )
     // ...and the starter chips do not re-appear.
     expect(
