@@ -63,7 +63,7 @@ district is unknown or Haystaq has no coverage.
 - **The L2 district column name is the VALUE of `PARAMS.l2_district_type`** (e.g. `City`, `City_Ward`). The value to match is `PARAMS.l2_district_name`. Backtick-quote the column: `` `City` = 'HENDERSONVILLE CITY' ``.
 - **`Voters_Active` is a STRING.** Use `Voters_Active = 'A'`. `Voters_Active = 1` matches zero rows.
 - **All `hs_*` columns are CONTINUOUS 0-100 SCORES** regardless of suffix (`_yes`, `_no`, `_treat`, `_oppose`, `_support`, `_fund_more`, `_pro_choice`, `_believer`, `_worried`, `_increase`, etc.). Threshold with `>= 50` (leans) or `>= 70` (leans strongly). Using `= 1` because the name "looks binary" inverts your rankings — you will get all counts at <5%. Exception: if the Step 4 distribution check shows `max <= 1` for a column, that column really is binary — use `= 1` for that column only.
-- **Scores are within-state percentile ranks (mean ~50).** A district where ~50% clear the `>= 50` threshold is at the state average; the informative signal is the deviation from 50% (61.8% is a real lean toward, 39.7% a real lean away). A score is not a percentage of supporters, an observed survey answer, or a comparison across states, and a sub-50% share is a lean away, not an opposition count. Prefer card angles where the share deviates meaningfully from 50%. Exception: `hs_new_home_buyer`/`hs_any_home_buyer` are propensity models baselined at ~60, not survey-stance percentile ranks — the percentile reading and `>= 50`/`>= 70` thresholds do not apply; if one of these columns surfaces as the best match for an issue, skip it and mark the card numberless rather than citing an inflated share.
+- **Scores are within-state percentile ranks (mean ~50).** A district where ~50% clear the `>= 50` threshold is at the state average; the informative signal is the deviation from 50% (61.8% is a real lean toward, 39.7% a real lean away). A score is not a percentage of supporters, an observed survey answer, or a comparison across states, and a sub-50% share is a lean away, not an opposition count. Prefer card angles where the share deviates meaningfully from 50%. Exception: `hs_new_home_buyer`/`hs_any_home_buyer` are propensity models baselined at ~60, not survey-stance percentile ranks — the percentile reading and `>= 50`/`>= 70` thresholds do not apply; they are excluded from the inline catalog and `ALLOWED_COLS`, so if a home-buying angle is the only match, treat it as no coverage and mark the card numberless rather than citing an inflated share.
 - **Conditional counts use `SUM(CASE WHEN ... THEN 1 ELSE 0 END)`.** Postgres `COUNT(*) FILTER (WHERE ...)` is a syntax error in Databricks.
 - **`CAST(col AS DOUBLE)`** before comparing or averaging `hs_*` columns.
 - **Use named placeholders** when parameterizing: `cursor.execute("... WHERE col = :foo", {"foo": value})`. Positional `?` raises a SQL error.
@@ -81,7 +81,7 @@ dictionary/metadata table at runtime. Columns are continuous 0-100 within-state
 percentile ranks (see the score rule above); the entry names encode direction.
 Grouped into 9 topics:
 
-**housing** — `hs_affordable_housing_gov_has_role` (gov has a role in affordable housing), `hs_affordable_housing_gov_no_role` (opposes gov role), `hs_gentrification_support`, `hs_gentrification_oppose`, `hs_new_home_buyer`, `hs_any_home_buyer` (the two home-buyer columns are ~60-baseline propensity scores — see the score rule above)
+**housing** — `hs_affordable_housing_gov_has_role` (gov has a role in affordable housing), `hs_affordable_housing_gov_no_role` (opposes gov role), `hs_gentrification_support`, `hs_gentrification_oppose` (`hs_new_home_buyer`/`hs_any_home_buyer` are deliberately excluded: ~60-baseline propensity models, not sentiment — never select them as a card column; see the score rule above)
 
 **taxes** — `hs_tax_cuts_support`, `hs_tax_cuts_oppose`, `hs_gas_tax_support`, `hs_gas_tax_oppose`, `hs_social_security_tax_increase_support`, `hs_social_security_tax_increase_oppose`, `hs_min_wage_15_increase_support`, `hs_min_wage_15_increase_oppose`, `hs_ideology_fiscal_conserv`, `hs_ideology_fiscal_liberal`
 
@@ -198,7 +198,7 @@ def run(q, p):
 ALLOWED_COLS = {
     "hs_abortion_pro_choice", "hs_abortion_pro_life",
     "hs_affordable_housing_gov_has_role", "hs_affordable_housing_gov_no_role",
-    "hs_any_home_buyer", "hs_capitalism_believe_flawed",
+    "hs_capitalism_believe_flawed",
     "hs_capitalism_believe_sound", "hs_charter_schools_oppose",
     "hs_charter_schools_support", "hs_climate_change_believer",
     "hs_climate_change_nonbeliever", "hs_community_college_free_oppose",
@@ -219,7 +219,7 @@ ALLOWED_COLS = {
     "hs_medicaid_expansion_support", "hs_medicare_for_all_oppose",
     "hs_medicare_for_all_support", "hs_mexican_wall_oppose",
     "hs_mexican_wall_support", "hs_min_wage_15_increase_oppose",
-    "hs_min_wage_15_increase_support", "hs_new_home_buyer",
+    "hs_min_wage_15_increase_support",
     "hs_obamacare_aca_expand", "hs_obamacare_aca_oppose",
     "hs_obamacare_aca_protect", "hs_opioid_crisis_enforce",
     "hs_opioid_crisis_treat", "hs_pipeline_fracking_oppose",
