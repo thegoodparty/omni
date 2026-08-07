@@ -77,6 +77,7 @@ export default function ListDetailSheet({
     isElectedOfficial,
     isWinContext,
     isWinContextReady,
+    voterDataUnavailable,
   } = useContactsTable()
 
   const [renameOpen, setRenameOpen] = useState(false)
@@ -115,8 +116,14 @@ export default function ListDetailSheet({
         'GET /v1/contacts/list-detail',
         isUniverse ? {} : { segment: segmentIdNumber },
       ).then((res) => res.data),
+    // getListDetail's own pro check runs before its segment branch, so a non-pro
+    // request can only 400 — including the direct-URL path, which has no upsell
+    // modal wired here.
     enabled:
-      listId !== null && (isUniverse || Number.isFinite(segmentIdNumber)),
+      canUseProFeatures &&
+      !voterDataUnavailable &&
+      listId !== null &&
+      (isUniverse || Number.isFinite(segmentIdNumber)),
   })
 
   // A non-pro user reaching this URL directly has no upsell modal wired

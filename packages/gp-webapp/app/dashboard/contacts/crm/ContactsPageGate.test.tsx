@@ -16,6 +16,9 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   trackEvent: vi.fn(),
 }))
 vi.mock('@shared/hooks/useCampaign', () => ({ useCampaign: () => [null] }))
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'campaign-1', positionName: 'Mayor' }),
+}))
 vi.mock('../../shared/DashboardLayout', () => ({
   default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
@@ -71,6 +74,8 @@ beforeEach(() => {
     searchTerm: '',
     totalSegmentContacts: 0,
     isVoterDataUnavailable: false,
+    isDistrictUnresolvable: false,
+    voterDataUnavailable: false,
     isWinContext: true,
     isWinContextReady: true,
     customSegments: [],
