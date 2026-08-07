@@ -597,10 +597,15 @@ jobs:
     # deploy job's result — otherwise a partial promotion records a false success.
     #
     # gp-ai needs BOTH clauses. A skipped gp-ai is legitimate on its own (nothing
-    # to promote), but it is also what happens when gp-ai-images FAILS: the failed
-    # job produces no outputs, so gp-ai's `if` is false and it skips. Accepting
-    # that skip alone would record a successful production deployment precisely
-    # when the partial-image guard fired to stop one.
+    # to promote), but it is also what happens when gp-ai-images does not produce
+    # outputs — whether it FAILED (partial image set) or was CANCELLED (runner
+    # timeout, infra). Either way gp-ai's `if` is false and it skips, and
+    # accepting that skip alone would record a successful production deployment
+    # precisely when the image gate never cleared.
+    #
+    # Allowlist rather than `!= 'failure'`: the negative form lets `cancelled`
+    # through. gp-ai-images can only legitimately be `skipped` when promotion is
+    # off entirely, which the first clause already blocks.
     if: |
       needs.gate.outputs.promote == 'true' &&
       needs.gp-api.result == 'success' &&
@@ -609,7 +614,7 @@ jobs:
       needs.gp-admin.result == 'success' &&
       needs.candidate-sites.result == 'success' &&
       (needs.publish-experiments.result == 'success' || needs.publish-experiments.result == 'skipped') &&
-      needs.gp-ai-images.result != 'failure' &&
+      (needs.gp-ai-images.result == 'success' || needs.gp-ai-images.result == 'skipped') &&
       (needs.gp-ai.result == 'success' || needs.gp-ai.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
