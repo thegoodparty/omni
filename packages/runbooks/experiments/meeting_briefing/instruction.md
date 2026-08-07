@@ -149,6 +149,7 @@ Concise. Priority items get full depth across all sections. Non-priority items g
 - The broker auto-injects `WHERE Residence_Addresses_State = '<state>'` into every query that touches `int__l2_nationwide_uniform_w_haystaq`. **DO NOT add a state clause yourself.** Adding one returns HTTP 422 `ScopeViolation: scope_predicate_override`. The only WHERE clauses your L2 query needs are the L2 district column (when `l2DistrictType` is set) and `Voters_Active = 'A'`. Do NOT add a `Residence_Addresses_City` clause — there is no city in PARAMS and the broker does not auto-inject one; scope is state-wide unless an L2 district narrows it.
 - **`Voters_Active` is a STRING.** Use `Voters_Active = 'A'`. `Voters_Active = 1` matches zero rows.
 - **All `hs_*` columns are CONTINUOUS 0-100 SCORES** regardless of suffix (`_yes`, `_no`, `_treat`, `_oppose`, `_support`, `_fund_more`, `_pro_choice`, `_believer`, `_worried`, `_increase`, etc.). Threshold with `>= 50` (moderate) or `>= 70` (strong). Using `= 1` because the name "looks binary" inverts your rankings — you will get all top issues at <5%.
+- **Scores are within-state percentile ranks (mean ~50).** A `mean_score` near 50 means "typical for the state" — NOT a 50/50 opinion split and NOT absolute issue support; the informative signal is the deviation from 50 (61.8 is a real lean toward, 39.7 a real lean away). A score is not a percentage of supporters, an observed survey answer, or a comparison across states, and a sub-50 mean is a lean away from the stance, not an opposition count. Never present a score as "X% of constituents support Y". Exception: `hs_new_home_buyer`/`hs_any_home_buyer` are propensity models baselined at ~60, not survey-stance percentile ranks — they are excluded from the Step 6 catalog; never select or cite them as constituent sentiment.
 - **Conditional counts use `SUM(CASE WHEN ... THEN 1 ELSE 0 END)`.** Postgres `COUNT(*) FILTER (WHERE ...)` is a syntax error in Databricks.
 - **`GROUP BY` queries are silently truncated at `scope.max_rows`.** The broker injects/clamps `LIMIT max_rows` on every query. If your `GROUP BY <high-cardinality-column>` produces more groups than the cap, the broker returns the first N groups in unspecified order — there is NO truncation signal in the response. **Always add `ORDER BY count DESC LIMIT N` to GROUP BY queries.**
 - **Use named placeholders** when parameterizing: `cursor.execute("... WHERE col = :foo", {"foo": value})`. Positional `?` raises a SQL error.
@@ -528,7 +529,7 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 
 #### Inline Haystaq catalog (L2-verified)
 
-**housing** — Housing affordability, gentrification views, homeownership status
+**housing** — Housing affordability, gentrification views
 
 | Column                               | Meaning                                            |
 | ------------------------------------ | -------------------------------------------------- |
@@ -536,8 +537,8 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 | `hs_affordable_housing_gov_no_role`  | opposes government role in affordable housing      |
 | `hs_gentrification_support`          | supports gentrification                            |
 | `hs_gentrification_oppose`           | opposes gentrification                             |
-| `hs_new_home_buyer`                  | recently bought a home                             |
-| `hs_any_home_buyer`                  | has ever bought a home                             |
+
+`hs_new_home_buyer`/`hs_any_home_buyer` are deliberately excluded: ~60-baseline propensity models (recently/ever bought a home), not polarized sentiment — never select or cite them as constituent sentiment (see the score rule in CRITICAL RULES).
 
 **taxes** — Tax cuts, gas tax, social security tax, minimum wage, fiscal ideology
 
@@ -1065,7 +1066,7 @@ For each featured/queued item where Step 6/6b picked a column from the inline ca
 
 Fields:
 
-- `summary` — short plain-English prose using the direction (from the column's `meaning`) and the `mean_score`, attributed to GoodParty.org's data. Always label as a modeled estimate. Never name the underlying column or data source (see "Constituent-data framing" in CRITICAL RULES). Example: `"GoodParty.org's data shows a modeled lean toward supporting gun control: 62.4 on a 0-100 scale."`
+- `summary` — short plain-English prose using the direction (from the column's `meaning`) and the `mean_score`, attributed to GoodParty.org's data. Always label as a modeled estimate. Frame the number as a lean relative to the ~50 state-typical anchor (see the score rule in CRITICAL RULES), never as a percentage of constituents who support the position. Never name the underlying column or data source (see "Constituent-data framing" in CRITICAL RULES). Example: `"GoodParty.org's data shows a modeled lean toward supporting gun control: 62.4 on a 0-100 scale."`
 - `detail` — one plain-English sentence describing what the modeled estimate measures, attributed to GoodParty.org's constituent data, not a survey result. Do NOT name the `hs_*` column, "Haystaq", "L2", or any table/source. Example: `"A modeled estimate, from GoodParty.org's constituent data, of how strongly residents in this district lean toward supporting gun control."`
 - `mean_score` — the `AVG(...)` result from Step 8 (float, 0–100). District scope when `l2DistrictType` was set and confirmed in Step 7; state scope otherwise.
 - `score_direction` — the column's `meaning` line from the inline catalog (e.g. for `hs_gun_control_support` use `"supports gun control"`).

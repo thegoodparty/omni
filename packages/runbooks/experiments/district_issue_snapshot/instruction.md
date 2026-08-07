@@ -40,6 +40,7 @@ For one district + one issue keyword, produce a JSON artifact combining (a) the 
 - The broker auto-injects `WHERE Residence_Addresses_State = '<state>'` AND `Residence_Addresses_City IN (<cities>)` into every query against `int__l2_nationwide_uniform_w_haystaq`. **DO NOT add these clauses yourself.** Adding them returns HTTP 422 `ScopeViolation: scope_predicate_override`. The only WHERE clauses your data query needs are the L2 district column and `Voters_Active = 'A'`.
 - **`Voters_Active` is a STRING.** Use `Voters_Active = 'A'`. `Voters_Active = 1` matches zero rows.
 - **All `hs_*` columns are CONTINUOUS 0-100 SCORES** regardless of suffix (`_yes`, `_no`, `_treat`, `_oppose`, `_support`, `_fund_more`, `_pro_choice`, `_believer`, `_worried`, `_increase`, `_gov_has_role`, etc.). Threshold with `>= 50` (moderate). Using `= 1` because the name "looks binary" returns 0-5% support — wrong.
+- **Scores are within-state percentile ranks (mean ~50), so `>= 50` counts voters at or above the state median.** `aligned_voter_percentage` therefore means the share of active district voters scoring at or above the state median on this issue — NOT absolute issue support, and ~50% means "typical for the state", not a 50/50 opinion split. Carry that definition into `issue_label`, `news.summary`, and any consumer-facing copy; never frame it as "X% of voters support Y". A low score is a lean away from the labeled stance relative to the state, not evidence of the opposite stance. Exception: `hs_new_home_buyer`/`hs_any_home_buyer` are ~60-baseline propensity models, not survey-stance ranks — the `>= 50` read does not apply and the aligned share comes out inflated (~60-65%); never pick them (see Step 2).
 - **Conditional counts use `SUM(CASE WHEN ... THEN 1 ELSE 0 END)`.** Postgres `COUNT(*) FILTER (WHERE ...)` is a syntax error in Databricks.
 - **Use named placeholders** when parameterizing: `cursor.execute("... WHERE col = :foo", {"foo": value})`. Positional `?` raises a SQL error.
 - **Every query must reference an allowed table.** Bare `SELECT 1` (no FROM) is rejected.
@@ -104,6 +105,7 @@ print("candidates:", candidates)
 Pick ONE column from `candidates`:
 - Prefer the most general one (e.g. `hs_affordable_housing_gov_has_role` over `hs_affordable_housing_subsidy_oppose`).
 - If multiple match equally well, prefer the shortest name and avoid suffixes like `_oppose`/`_against` (those score the OPPOSITE alignment).
+- Never pick `hs_new_home_buyer` or `hs_any_home_buyer` — ~60-baseline propensity models, not stance percentile ranks, so `>= 50` inflates the aligned share (see the score rule in CRITICAL RULES). If they are the only candidates, treat it as no match (`matched_hs_column = None`).
 - If `candidates` is empty, set `matched_hs_column = None` and skip Step 3 — the artifact will still be valid (`aligned_voter_count`/`aligned_voter_percentage` become `null`).
 
 ### Step 3 — Count district voters (and alignment if a column matched)
