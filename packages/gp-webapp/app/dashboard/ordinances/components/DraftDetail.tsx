@@ -504,37 +504,28 @@ export default function DraftDetail({
   )
 
   // A review-chat turn may have applied an edit to the draft body via
-  // apply_draft_edit. Pull the server copy once the turn settles and, if the
-  // body diverged from the editor, reseed so the tracked change appears. Guard
-  // against clobbering: skip while the loop owns the draft, or while a local
-  // edit is still unsaved or in flight.
+  // apply_draft_edit. Fetch the server copy first: if it matches what the
+  // editor holds, the turn didn't touch the draft (e.g. a question), so leave
+  // the editor and any in-progress local edit untouched. If it diverged, the
+  // chat wrote a change — adopt it as server truth: cancel any pending local
+  // body autosave (its pre-chat text would land on top of the applied redline)
+  // and clear a stuck save-failure flag (which would otherwise permanently
+  // block future applies from surfacing), then reseed so the redline appears.
   const refreshDraftAfterChat = useCallback(async (): Promise<void> => {
     if (loopRunningRef.current) return
-    if (
-      bodyTimerRef.current ||
-      savingRef.current ||
-      lastSaveFailedRef.current
-    ) {
-      return
-    }
     const next = await fetchOrdinanceBySlug(ordinance.slug).catch(() => null)
-    if (!next) return
-    // Re-check after the await: an edit begun during the fetch would leave a
-    // pending timer / in-flight save whose text we must not reseed over.
-    if (
-      loopRunningRef.current ||
-      bodyTimerRef.current ||
-      savingRef.current ||
-      lastSaveFailedRef.current
-    ) {
-      return
-    }
+    if (!next || loopRunningRef.current) return
     const body = next.draftBody ?? ''
     if (body === editorBodyRef.current) return
+    if (bodyTimerRef.current) {
+      clearTimeout(bodyTimerRef.current)
+      bodyTimerRef.current = null
+    }
     editorBodyRef.current = body
     setEditorSeed(body)
     setBodyHasRedline(hasRedline(body))
     lastSavedBodyRef.current = body
+    lastSaveFailedRef.current = false
     // The body changed under the report; mark it stale so the user re-runs.
     setDraftDirty(true)
   }, [ordinance.slug])

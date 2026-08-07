@@ -476,6 +476,22 @@ describe('OrdinanceFlowToolsService', () => {
     ).toEqual({ accepted: false, reason: 'amendment' })
   })
 
+  it('applyDraftEdit rejects a changed body with no redline and does not write', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: { draftBody: 'The fee shall be $50.' },
+    })
+
+    const result = await tools.applyDraftEdit(ordinanceId, electedOfficeId, {
+      body: 'The fee shall be $75.',
+    })
+    expect(result).toEqual({ applied: false, reason: 'missing_redline' })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe('The fee shall be $50.')
+  })
+
   it('scopes every operation to the owning office', async () => {
     await expect(
       tools.appendNote(ordinanceId, 'someone-elses-office', 'clarify', 'x'),

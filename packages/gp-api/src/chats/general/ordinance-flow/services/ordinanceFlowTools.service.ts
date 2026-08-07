@@ -302,23 +302,27 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     ordinanceId: string,
     electedOfficeId: string,
     edit: { body: string },
-  ): Promise<{ applied: true }> {
+  ): Promise<
+    { applied: true } | { applied: false; reason: 'missing_redline' }
+  > {
     const o = await this.findOwned(ordinanceId, electedOfficeId)
+    // Reject BEFORE writing: a compliant edit always wraps its change in {-/+}
+    // redline. A changed body with none means the model rewrote in place
+    // without tracking it — committing that would corrupt the draft (and break
+    // an amendment's tracked-changes Word export) with no user-visible signal.
+    // Return a structured error so the model retries with proper redline.
+    if (o.draftBody && edit.body !== o.draftBody && !hasRedline(edit.body)) {
+      this.logger.warn(
+        { ordinanceId: o.id },
+        'apply_draft_edit rejected: body changed without redline markup',
+      )
+      return { applied: false, reason: 'missing_redline' }
+    }
     await this.model.update({
       where: { id: o.id },
       data: { draftBody: edit.body },
     })
     this.warnOnAmendmentDrift(o, edit.body)
-    // A compliant edit always wraps its change in {-/+} redline. If the body
-    // changed but carries none, the model rewrote in place without tracking it
-    // — the fidelity check above only covers amendments (verbatim baseline on
-    // file), so log this so new-ordinance prompt drift stays observable.
-    if (o.draftBody && edit.body !== o.draftBody && !hasRedline(edit.body)) {
-      this.logger.warn(
-        { ordinanceId: o.id },
-        'apply_draft_edit changed the draft without redline markup',
-      )
-    }
     await this.supersedeRunningLoop(o)
     return { applied: true }
   }

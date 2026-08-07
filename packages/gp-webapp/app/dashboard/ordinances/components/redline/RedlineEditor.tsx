@@ -206,11 +206,22 @@ export const RedlineEditor = ({
     [editor, change, cancelHide],
   )
 
+  // Leaving the editor must also cancel any pending mousemove rAF — otherwise
+  // it runs after the pointer is gone, re-asserts the last change, and the
+  // toolbar sticks until a scroll or edit clears it.
+  const handleLeave = useCallback((): void => {
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current)
+      rafRef.current = 0
+    }
+    scheduleHide()
+  }, [scheduleHide])
+
   return (
     <div
       className="relative"
       onMouseMove={showChangeControls ? onMouseMove : undefined}
-      onMouseLeave={showChangeControls ? scheduleHide : undefined}
+      onMouseLeave={showChangeControls ? handleLeave : undefined}
     >
       <EditorContent
         editor={editor}
