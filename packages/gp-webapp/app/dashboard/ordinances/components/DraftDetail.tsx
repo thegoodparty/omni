@@ -696,6 +696,17 @@ export default function DraftDetail({
             Draft details
           </h1>
           <div className="ml-auto flex items-center gap-3">
+            {!isAmendment && bodyHasRedline && !loopRunning ? (
+              <Button
+                type="button"
+                size="small"
+                onClick={acceptChanges}
+                className="rounded-full"
+              >
+                <CheckIcon className="size-4" aria-hidden />
+                Accept all changes
+              </Button>
+            ) : null}
             {saveState !== 'idle' ? (
               <span
                 className={cn(
@@ -835,23 +846,10 @@ export default function DraftDetail({
               className="mb-4 text-xl font-bold text-foreground outline-none"
             />
             {!isAmendment && bodyHasRedline && !loopRunning ? (
-              // Pinned to the top of the scroll area so it stays reachable no
-              // matter how far down the changes the user has scrolled. Solid
-              // surface + shadow so body text scrolls cleanly underneath.
-              <div className="sticky top-2 z-20 mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-2 shadow-sm">
-                <span className="text-sm text-muted-foreground">
-                  Suggested changes are shown as tracked edits.
-                </span>
-                <Button
-                  type="button"
-                  size="small"
-                  onClick={acceptChanges}
-                  className="ml-auto rounded-full"
-                >
-                  <CheckIcon className="size-3.5" aria-hidden />
-                  Accept all changes
-                </Button>
-              </div>
+              <p className="mb-3 text-sm text-muted-foreground">
+                Suggested changes are shown as tracked edits. Accept or reject
+                each one on hover, or use Accept all changes above.
+              </p>
             ) : null}
             <div ref={bodyContainerRef}>
               <RedlineEditor

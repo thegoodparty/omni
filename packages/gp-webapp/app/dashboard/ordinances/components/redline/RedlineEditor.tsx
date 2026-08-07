@@ -133,6 +133,17 @@ export const RedlineEditor = ({
     [],
   )
 
+  // The toolbar is anchored to viewport coords, so a scroll (which fires no
+  // mousemove) would leave it floating over the wrong line. Dismiss it on any
+  // scroll; it reappears, repositioned, on the next hover. Capture phase so it
+  // catches the draft's own scroll container, not just window.
+  useEffect(() => {
+    if (!showChangeControls) return
+    const onScroll = (): void => setChange(null)
+    window.addEventListener('scroll', onScroll, true)
+    return () => window.removeEventListener('scroll', onScroll, true)
+  }, [showChangeControls])
+
   const onMouseMove = useCallback(
     (e: React.MouseEvent): void => {
       if (!editor || !showChangeControls || !editable) return
