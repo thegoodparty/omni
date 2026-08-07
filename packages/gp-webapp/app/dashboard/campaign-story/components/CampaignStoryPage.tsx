@@ -54,11 +54,7 @@ const CampaignStoryPage = ({
         pathname={pathname}
         wrapperClassName="w-full"
         showAlert={false}
-        navHeader={{
-          icon: 'book',
-          label: NAV_LABELS.campaignStory,
-          hasAction: true,
-        }}
+        navHeader={{ icon: 'book', label: NAV_LABELS.campaignStory }}
       >
         <StoryEditor />
       </DashboardLayout>

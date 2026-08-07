@@ -52,9 +52,11 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   title indented while every other page's was flush at `px-6`. Icon key and
   label now come from `shared/navLabels.ts`, the same source `DashboardMenu`
   reads, so they can't drift again — change the nav item and the bar follows.
-  The Pro branch passes `hasAction: true` because the roster's "Export brief"
-  button portals into the bar (see below); the non-Pro locked branch has no
-  CTA and so doesn't. The bar's title is desktop-only: on mobile it lives in
+  Both branches pass the same config: whether a CTA sits in the bar is the bar's
+  own business (it counts mounted `DashboardNavHeaderAction`s), so the report
+  state's "Export brief" shows there while the locked, processing, and empty
+  states leave the bar action-free without a per-branch flag. The bar's title is
+  desktop-only: on mobile it lives in
   `MobileMenuTrigger`'s top bar via this route's `MOBILE_PAGE_TITLES` entry in
   `DashboardLayout` — keep that entry, or mobile loses its title. Everything
   below the bar (locked view or `RaceOpponentList`) sits in a

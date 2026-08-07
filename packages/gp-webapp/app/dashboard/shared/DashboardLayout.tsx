@@ -1,5 +1,5 @@
 'use client'
-import { ReactNode, useEffect, useState } from 'react'
+import { ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import DashboardMenu from './DashboardMenu'
 import DashboardNavHeader from './DashboardNavHeader'
@@ -28,10 +28,6 @@ export interface DashboardNavHeaderConfig {
   icon: NavHeaderIconKey
   label: string
   centered?: boolean
-  // Set by pages that put a CTA in the bar via DashboardNavHeaderAction. The
-  // bar can't detect the portalled node itself, and it needs to know: a bar
-  // with a CTA also renders on mobile (see DashboardNavHeader).
-  hasAction?: boolean
 }
 
 interface DashboardLayoutProps {
@@ -60,6 +56,21 @@ const DashboardLayout = ({
   const isImpersonating = useIsImpersonating()
   const [navHeaderActionSlot, setNavHeaderActionSlot] =
     useState<HTMLDivElement | null>(null)
+  // Whether a DashboardNavHeaderAction is mounted right now. Observed rather
+  // than declared by the page: these CTAs come and go with page state, and the
+  // bar needs the live answer to decide whether to render on mobile.
+  const [navHeaderActionCount, setNavHeaderActionCount] = useState(0)
+  const registerNavHeaderAction = useCallback(
+    (delta: number) => setNavHeaderActionCount((count) => count + delta),
+    [],
+  )
+  const navHeaderActionSlotValue = useMemo(
+    () => ({
+      element: navHeaderActionSlot,
+      register: registerNavHeaderAction,
+    }),
+    [navHeaderActionSlot, registerNavHeaderAction],
+  )
 
   const currentPath = pathname || hookPathname
   const activeCampaign = campaign || hookCampaign
@@ -118,11 +129,11 @@ const DashboardLayout = ({
               icon={navHeader.icon}
               label={navHeader.label}
               centered={navHeader.centered}
-              hasAction={navHeader.hasAction}
+              hasAction={navHeaderActionCount > 0}
               actionSlotRef={setNavHeaderActionSlot}
             />
           )}
-          <NavHeaderActionSlotContext.Provider value={navHeaderActionSlot}>
+          <NavHeaderActionSlotContext.Provider value={navHeaderActionSlotValue}>
             <DashboardCampaignManagerChat>
               <div className={`flex-1 p-2 md:p-4 ${wrapperClassName}`}>
                 <ProUpgradePrompt

@@ -68,8 +68,7 @@ export default async function Page(): Promise<React.JSX.Element> {
         wrapperClassName="flex flex-col !p-0"
         // The shared title bar every main nav page uses (the Voter Data page is
         // the reference), so the icon + name match the sidebar tab exactly.
-        // This replaced the feature-local PageHeader bar. The locked view has
-        // no CTA, so no hasAction here.
+        // This replaced the feature-local PageHeader bar.
         navHeader={{ icon: 'flag', label: NAV_LABELS.knowYourOpponent }}
       >
         <div className="flex-1 bg-muted px-4 py-6 lg:px-8">
@@ -106,13 +105,10 @@ export default async function Page(): Promise<React.JSX.Element> {
       pathname="/dashboard/race-opponent"
       showAlert={false}
       wrapperClassName="flex flex-col !p-0"
-      // hasAction: the report state's "Export brief" button portals into the
-      // bar (RaceOpponentList).
-      navHeader={{
-        icon: 'flag',
-        label: NAV_LABELS.knowYourOpponent,
-        hasAction: true,
-      }}
+      // The report state's "Export brief" portals into the bar
+      // (RaceOpponentList); the processing and empty states have no CTA, and the
+      // bar tracks that itself.
+      navHeader={{ icon: 'flag', label: NAV_LABELS.knowYourOpponent }}
     >
       <div className="flex-1 bg-muted px-4 py-6 lg:px-8">
         <RaceOpponentList

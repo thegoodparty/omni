@@ -37,13 +37,10 @@ export default async function Page(): Promise<JSX.Element> {
       pathname="/dashboard/public-profile"
       showAlert={false}
       wrapperClassName="!p-0"
-      // hasAction: the editor's publish toggle + Save changes portal into the
-      // bar (PublicProfileEditor).
-      navHeader={{
-        icon: 'profile',
-        label: NAV_LABELS.publicProfile,
-        hasAction: true,
-      }}
+      // The editor's publish toggle + Save changes portal into the bar
+      // (PublicProfileEditor); the pre-mint create/waiting state has no CTA, and
+      // the bar tracks that itself.
+      navHeader={{ icon: 'profile', label: NAV_LABELS.publicProfile }}
     >
       <PublicProfileEditor
         product={product}

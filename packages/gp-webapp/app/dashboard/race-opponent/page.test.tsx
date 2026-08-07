@@ -43,15 +43,11 @@ vi.mock('../shared/DashboardLayout', () => ({
     navHeader,
   }: {
     children: ReactNode
-    navHeader?: { icon: string; label: string; hasAction?: boolean }
+    navHeader?: { icon: string; label: string }
   }) => (
     <div>
       {navHeader && (
-        <div
-          data-testid="nav-header"
-          data-icon={navHeader.icon}
-          data-has-action={String(!!navHeader.hasAction)}
-        >
+        <div data-testid="nav-header" data-icon={navHeader.icon}>
           <h1>{navHeader.label}</h1>
         </div>
       )}
@@ -122,8 +118,6 @@ describe('dashboard/race-opponent page', () => {
       const navHeader = screen.getByTestId('nav-header')
       expect(navHeader).toHaveAttribute('data-icon', 'flag')
       expect(navHeader).toHaveTextContent('Know Your Opponent')
-      // Only the Pro branch has a CTA ("Export brief") to host in the bar.
-      expect(navHeader).toHaveAttribute('data-has-action', String(isPro))
     },
   )
 

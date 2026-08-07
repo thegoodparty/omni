@@ -98,12 +98,12 @@ const CampaignPlanRouter = ({
   // Icon + name are the sidebar tab's, resolved the same way DashboardMenu
   // resolves the label (story cohort reads "Campaign Tracker", the legacy
   // cohort "Campaign Plan"), so the title bar can't disagree with the rail.
-  // Only the tracker puts a CTA in the bar — the legacy plan keeps its own
-  // bottom download bar.
+  // Only the tracker hero puts a CTA in the bar (the legacy plan keeps its own
+  // bottom download bar, and the story gate / spinner have none) — the bar
+  // tracks that itself, so the same config serves every branch below.
   const navHeader: DashboardNavHeaderConfig = {
     icon: 'scroll',
     label: storyEnabled ? NAV_LABELS.campaignTracker : NAV_LABELS.campaignPlan,
-    hasAction: storyEnabled,
   }
 
   const requestGenerate = (): void => {
