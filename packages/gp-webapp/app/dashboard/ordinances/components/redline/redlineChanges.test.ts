@@ -42,6 +42,17 @@ const firstRedlinePos = (editor: Editor): number => {
   return pos
 }
 
+// First position inside a node carrying a specific redline mark.
+const posInMark = (editor: Editor, markName: string): number => {
+  const mark = editor.state.schema.marks[markName]
+  let pos = -1
+  editor.state.doc.descendants((node, at) => {
+    if (pos !== -1 || !node.isText) return
+    if (mark?.isInSet(node.marks)) pos = at + 1
+  })
+  return pos
+}
+
 const resolve = (markup: string, action: 'accept' | 'reject'): string => {
   const editor = makeEditor(markup)
   const range = changeRangeAt(editor.state, firstRedlinePos(editor))
@@ -61,6 +72,21 @@ describe('changeRangeAt', () => {
     expect(resolve('The fee is {-$50-}{+$75+}.', 'accept')).toBe(
       'The fee is $75.',
     )
+  })
+
+  it('returns the same range from either half of a {-old-}{+new+} pair', () => {
+    const editor = makeEditor('The fee is {-$50-}{+$75+}.')
+    const fromDeletion = changeRangeAt(
+      editor.state,
+      posInMark(editor, 'deletion'),
+    )
+    const fromInsertion = changeRangeAt(
+      editor.state,
+      posInMark(editor, 'insertion'),
+    )
+    expect(fromInsertion).not.toBeNull()
+    expect(fromInsertion).toEqual(fromDeletion)
+    editor.destroy()
   })
 
   it('returns null for a position in unchanged text', () => {
@@ -97,5 +123,21 @@ describe('resolveChangeTransaction', () => {
 
   it('rejects a lone deletion by keeping the original text', () => {
     expect(resolve('a {-old-} b', 'reject')).toBe('a old b')
+  })
+
+  it('resolves a change in a later paragraph, leaving the others intact', () => {
+    const editor = makeEditor('Section 1.\n\n(a) fee {-$50-}{+$75+} plain')
+    const range = changeRangeAt(editor.state, posInMark(editor, 'insertion'))
+    if (!range) throw new Error('no change found')
+    const tr = resolveChangeTransaction(
+      editor.state,
+      range[0],
+      range[1],
+      'accept',
+    )
+    if (!tr) throw new Error('no transaction')
+    const out = docToMarkup(editor.state.apply(tr).doc.toJSON())
+    expect(out).toBe('Section 1.\n\n(a) fee $75 plain')
+    editor.destroy()
   })
 })

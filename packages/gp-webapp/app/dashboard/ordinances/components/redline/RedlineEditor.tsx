@@ -144,6 +144,18 @@ export const RedlineEditor = ({
     return () => window.removeEventListener('scroll', onScroll, true)
   }, [showChangeControls])
 
+  // Any edit shifts positions, so the hovered range captured in `change` would
+  // be stale. Dismiss the toolbar on every doc change (including our own
+  // accept/reject dispatch); it reappears, re-derived, on the next hover.
+  useEffect(() => {
+    if (!editor) return
+    const clear = (): void => setChange(null)
+    editor.on('update', clear)
+    return () => {
+      editor.off('update', clear)
+    }
+  }, [editor])
+
   const onMouseMove = useCallback(
     (e: React.MouseEvent): void => {
       if (!editor || !showChangeControls || !editable) return
