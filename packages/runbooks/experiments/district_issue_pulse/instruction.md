@@ -40,6 +40,7 @@ Given a state + district, produce the top 5 issues voters there care about and p
 - The broker auto-injects `WHERE Residence_Addresses_State = '<state>'` AND `Residence_Addresses_City IN (<cities>)` into every query. **DO NOT add these clauses yourself.** Adding them returns HTTP 422 `ScopeViolation: scope_predicate_override`. The only WHERE clauses your query needs are the L2 district column and `Voters_Active = 'A'`.
 - **`Voters_Active` is a STRING.** Use `Voters_Active = 'A'`. `Voters_Active = 1` matches zero rows.
 - **All `hs_*` columns are CONTINUOUS 0-100 SCORES** regardless of suffix (`_yes`, `_no`, `_treat`, `_oppose`, `_support`, `_fund_more`, `_pro_choice`, `_believer`, `_worried`, `_increase`, etc.). Threshold with `>= 50` (moderate) or `>= 70` (strong). Using `= 1` because the name "looks binary" inverts your rankings — you will get all top issues at <5%.
+- **Scores are within-state percentile ranks (mean ~50), so `>= 50` counts voters at or above the state median.** `voter_percentage` therefore means the share of active district voters at or above the state median on that issue — NOT absolute issue support, and ~50% means "typical for the state", not a 50/50 opinion split; the informative ranking signal is the deviation from 50%. A score is not a percentage, not an observed survey answer, and not a comparison across states; a low score is a lean away from the labeled stance, not evidence of the opposite stance. Never frame `voter_percentage` as "X% of voters support Y". Exception: `hs_new_home_buyer`/`hs_any_home_buyer` are ~60-baseline propensity models — the percentile read and thresholds do not apply; they are not stance columns and the Step 2 suffix filter deliberately excludes them (do not add them back).
 - **Conditional counts use `SUM(CASE WHEN ... THEN 1 ELSE 0 END)`.** Postgres `COUNT(*) FILTER (WHERE ...)` is a syntax error in Databricks.
 - **Use named placeholders** when parameterizing: `cursor.execute("... WHERE col = :foo", {"foo": value})`. Positional `?` raises a SQL error.
 - **Every query must reference an allowed table.** Bare `SELECT 1` (no FROM) is rejected.
@@ -93,7 +94,7 @@ ORDER BY column_name
 LIMIT 1000
 ```
 
-Filter the returned column names to issue-stance columns by suffix: `_support`, `_oppose`, `_yes`, `_no`, `_treat`, `_fund_more`, `_pro_choice`, `_believer`, `_worried`, `_good`, `_bad`, `_too_harsh`, `_too_lax`, `_increase`, `_decrease`, `_has_role`, `_at_fault`, `_no_fault`. Pick 10-12 candidates that span distinct policy areas (don't pick three crime columns). The full set is large — never try to score all 300+ in one query.
+Filter the returned column names to issue-stance columns by suffix: `_support`, `_oppose`, `_yes`, `_no`, `_treat`, `_fund_more`, `_pro_choice`, `_believer`, `_worried`, `_good`, `_bad`, `_too_harsh`, `_too_lax`, `_increase`, `_decrease`, `_has_role`, `_at_fault`, `_no_fault`. This filter also deliberately excludes `hs_new_home_buyer`/`hs_any_home_buyer` (~60-baseline propensity models, not stance columns — see the score rule in CRITICAL RULES); do not add them back. Pick 10-12 candidates that span distinct policy areas (don't pick three crime columns). The full set is large — never try to score all 300+ in one query.
 
 ### Step 3 — Distribution check (REQUIRED — do not skip)
 
