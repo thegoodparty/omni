@@ -81,9 +81,14 @@ const CampaignStrategySection = (): React.JSX.Element => {
   // error, or still-bootstrapping states). A candidate who reads their static
   // rows and leaves before the dynamic ones land still saw the tracker, so this
   // deliberately does not wait for `isGeneratingDynamic` to clear; `taskCount`
-  // is what distinguishes a static-only view from a fully populated one. Once
-  // per campaign: the hook polls, so an effect keyed on the counts would
-  // re-fire on every refetch.
+  // is what distinguishes a static-only view from a fully populated one.
+  //
+  // Guarded once per *mount*, not once per campaign. The ref only exists to
+  // swallow the hook's poll-driven re-renders within a single visit — a later
+  // visit is a real second view and must fire again, or the event can't measure
+  // return engagement at all. So this deliberately does not use the
+  // module-scoped Map that `CampaignPlanView` keeps for its resource-lifecycle
+  // events: those describe one generation per page load, this describes a view.
   const trackedCampaignRef = useRef<number | null>(null)
   useEffect(() => {
     if (!strategy || !campaign?.id) return

@@ -175,6 +175,18 @@ describe('CampaignStrategySection — tracker viewed event', () => {
     expect(mockTrackEvent).toHaveBeenCalledTimes(1)
   })
 
+  it('fires again on a later visit, so return views are measurable', () => {
+    mockTasks.mockReturnValue(settled([task({ id: 't1', phase: 'launch' })]))
+    const first = render(<CampaignStrategySection />)
+    expect(mockTrackEvent).toHaveBeenCalledTimes(1)
+
+    // Navigating away and back is a genuine second view, unlike the poll
+    // refetches the in-mount guard swallows above.
+    first.unmount()
+    render(<CampaignStrategySection />)
+    expect(mockTrackEvent).toHaveBeenCalledTimes(2)
+  })
+
   it('counts Active-phase tasks, which live in weeks rather than groups', () => {
     const today = new Date().toISOString().slice(0, 10)
     mockTasks.mockReturnValue(
