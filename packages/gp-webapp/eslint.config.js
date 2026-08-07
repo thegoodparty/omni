@@ -24,9 +24,11 @@ module.exports = [
       'test-results/',
       'styleguide/*.md',
       'public/',
-      'CLAUDE.md',
+      // Agent docs at any depth. AGENTS.md is the real file and CLAUDE.md a symlink
+      // to it, so an unprefixed pattern would leave every nested pair linted twice.
+      '**/AGENTS.md',
+      '**/CLAUDE.md',
       'docs/*.md',
-      'gpApi/CLAUDE.md',
       '.claude/**/*.md',
       '**/.next/**',
       '**/.storybook/**',

@@ -4,8 +4,8 @@ The GoodParty.org product monorepo — the candidate web app, the API monolith, 
 data microservice, the admin console, the candidate sites, and the shared SDK and
 contracts, all in one npm-workspaces repo.
 
-**Working with an agent?** Start at [`CLAUDE.md`](./CLAUDE.md). It's the map: repo-wide
-conventions plus pointers to per-package `CLAUDE.md` files and the docs below.
+**Working with an agent?** Start at [`AGENTS.md`](./AGENTS.md). It's the map: repo-wide
+conventions plus pointers to per-package `AGENTS.md` files and the docs below.
 
 ## Packages
 
@@ -46,7 +46,7 @@ More in [`docs/development.md`](./docs/development.md).
 
 | Topic                      | Doc                                                |
 | -------------------------- | -------------------------------------------------- |
-| Repo map + conventions     | [`CLAUDE.md`](./CLAUDE.md)                         |
+| Repo map + conventions     | [`AGENTS.md`](./AGENTS.md)                         |
 | Architecture / service map | [`docs/architecture.md`](./docs/architecture.md)   |
 | Local development          | [`docs/development.md`](./docs/development.md)     |
 | Testing                    | [`docs/testing.md`](./docs/testing.md)             |
@@ -54,4 +54,6 @@ More in [`docs/development.md`](./docs/development.md).
 | Observability / debugging  | [`docs/observability.md`](./docs/observability.md) |
 | MCP tools                  | [`docs/mcp.md`](./docs/mcp.md)                     |
 
-Each package also carries its own `CLAUDE.md` with detailed, area-specific guidance.
+Each package also carries its own `AGENTS.md` with detailed, area-specific guidance.
+`CLAUDE.md` is a symlink to `AGENTS.md` in every one of those directories, so Claude
+Code and Cursor read the same file — edit `AGENTS.md`.
