@@ -375,15 +375,17 @@ jobs:
 
   # Does a full set of gp-ai images exist for the promoted commit?
   #
-  # gp-ai.yml only builds when the commit touches packages/gp-ai, so most commits
-  # have no gp-ai images at all — and the prod job pins terraform to
-  # <service>-<sha>. Running it regardless would point prod at tags that were
-  # never pushed: ECS fails the pull, the circuit breaker rolls back, and the
-  # promotion fails after churning prod task definitions. "gp-ai did not change"
-  # means there is nothing to promote for gp-ai, so the job is skipped.
+  # gp-ai.yml builds all five on every main push, so the normal answer is yes and
+  # this is a safety net rather than routine control flow. It still earns its
+  # place for two cases:
   #
-  # A PARTIAL set is not a skip — it means a build failed and prod would end up
-  # with a mix of new and stale services. That fails loudly.
+  #   workflow_dispatch of an older SHA — commits from before unconditional
+  #   builds have no images, and pinning terraform to tags that were never
+  #   pushed would make ECS fail the pull, trip the circuit breaker, and churn
+  #   prod task definitions for nothing.
+  #
+  #   a PARTIAL set — one build failed. That is NOT a skip: promoting would
+  #   leave prod running a mix of new and stale services, so it fails loudly.
   gp-ai-images:
     name: Check gp-ai images
     needs: gate

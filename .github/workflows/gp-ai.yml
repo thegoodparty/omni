@@ -84,21 +84,24 @@ jobs:
       # Collapse the per-service booleans into a JSON array the build matrix
       # consumes, so only changed services get a build job. An empty array
       # skips the build job entirely rather than running a no-op matrix.
-      # On a main push EVERY service is built, not just the changed ones.
-      # deploy-dev pins terraform to <service>-<sha>, so every service needs an
-      # image at THIS commit; building only the changed ones would point the
-      # others at a tag that was never pushed. ECS would fail to pull it, the
-      # circuit breaker would roll back, and the deploy verification would fail
-      # on every infra-only merge.
+      # EVERY main push builds all five images and deploys, whether or not this
+      # commit touched packages/gp-ai. The invariant is "the deployed artifact
+      # corresponds to the commit on main" — with no exceptions to reason about.
       #
-      # Unchanged services are near-total cache hits (~20-30s each), so the cost
-      # of this is small. PRs keep per-service filtering, where the point is fast
-      # feedback and nothing is deployed.
+      # Path-filtering the build made deployed state depend on what a commit
+      # happened to touch, which produced two bugs already: an infra-only commit
+      # pinning terraform to images that were never built, and promote.yml doing
+      # the same on the prod side. Building unconditionally removes the whole
+      # class rather than adding another guard.
+      #
+      # Unchanged services are near-total cache hits (~20-30s each). PRs keep
+      # per-service filtering: nothing deploys from a PR, so the point there is
+      # fast feedback, and an unrelated PR should not build gp-ai images.
       - name: Build service matrix
         id: services
         env:
           FILTERS: ${{ toJSON(steps.filter.outputs) }}
-          ALL: ${{ github.event_name == 'push' && github.ref_name == 'main' && steps.filter.outputs.any == 'true' }}
+          ALL: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
         run: |
           set -euo pipefail
           all='["broker","pmf-engine","serve-analyze","ddhq-matcher","engineer-agent"]'
@@ -445,6 +448,12 @@ jobs:
 
   # Applies every dev root, then proves the deploy actually took.
   #
+  # Runs on EVERY main push, not only when packages/gp-ai changed. The image tag
+  # is the commit SHA, so every commit genuinely is a new artifact to roll out,
+  # and "dev runs main" holds without exceptions. The trade is that broker takes
+  # a rolling restart per main commit (wait_for_steady_state makes the job wait
+  # for healthy tasks) and each commit adds a task-definition revision.
+  #
   # Parallel, NOT ordered. The roots read each other's terraform_remote_state and
   # that graph is CYCLIC — broker <-> pmf-engine-control-plane <-> pmf-engine-fargate
   # all read each other — so no topological order exists and sequencing would be
@@ -460,7 +469,6 @@ jobs:
       && github.event_name == 'push'
       && github.ref_name == 'main'
       && needs.changes.result == 'success'
-      && needs.changes.outputs.any == 'true'
       && needs.validate.result != 'failure'
       && needs.validate.result != 'cancelled'
       && needs.build.result == 'success'
