@@ -411,6 +411,10 @@ jobs:
         run: |
           set -euo pipefail
           found=0; missing=0; absent=""
+          # KEEP IN SYNC with the "Build service matrix" step in gp-ai.yml, which
+          # holds the same five names. A service added there but not here is
+          # never image-checked, so promotion would pin terraform to a tag that
+          # may not exist and let ECS fail the pull in prod.
           for s in broker pmf-engine serve-analyze ddhq-matcher engineer-agent; do
             if aws ecr describe-images --repository-name gp-ai-projects \
                  --image-ids "imageTag=$s-$SHA" --region "$AWS_REGION" >/dev/null 2>&1; then

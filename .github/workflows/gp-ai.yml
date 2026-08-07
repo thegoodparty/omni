@@ -122,7 +122,15 @@ jobs:
   validate:
     name: Validate
     needs: changes
-    if: needs.changes.outputs.python == 'true'
+    # Also unconditional on main, for the same reason the build is. Gating this
+    # on the path filter while the build ignores it opens a bypass: a commit
+    # touching nothing under packages/gp-ai skips lint/test but still builds and
+    # deploys all five services — carrying along any broken Python an earlier
+    # commit left in the tree. Deployed code must have been validated at the
+    # commit it is deployed from.
+    if: >-
+      needs.changes.outputs.python == 'true'
+      || (github.event_name == 'push' && github.ref_name == 'main')
     runs-on: ubuntu-latest
     defaults:
       run:
