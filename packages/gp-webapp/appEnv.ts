@@ -22,6 +22,10 @@ export const ELECTION_API_ROOT =
 
 export const API_VERSION_PREFIX = '/v1'
 
+// Public/canonical base. In prod this is the MARKETING origin
+// (goodparty.org), which is what `metadataBase` in app/layout.tsx wants for
+// canonical + OG tags. It is NOT the origin this app is served from — see
+// APP_SHARE_BASE below before using it to build a link to one of our routes.
 export const APP_BASE = IS_LOCAL
   ? 'http://localhost:4000'
   : `https://${
@@ -29,6 +33,25 @@ export const APP_BASE = IS_LOCAL
         ? process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL
         : process.env.NEXT_PUBLIC_VERCEL_BRANCH_URL
     }`
+
+// Prod is hardcoded rather than derived because prod's marketing origin
+// (APP_BASE) is a different deployment with no /api/* proxy, so there is
+// nothing to derive it from. Mirrors PROD_APP_ROOT in gp-api's
+// shared/util/appEnvironment.util.ts, which exists for the same reason.
+const PROD_APP_SHARE_BASE = 'https://app.goodparty.org'
+
+// Origin this app is actually served from — use it for any URL that must
+// resolve back to one of our own routes, especially links handed to a
+// recipient (the public briefing share URL, whose /api/v1/* path middleware
+// proxies to gp-api). Deliberately has no env override: the obvious candidate,
+// NEXT_PUBLIC_APP_BASE, is documented in .env.example as the marketing origin,
+// so honoring it would silently reintroduce the 404 this constant exists to
+// prevent.
+export const APP_SHARE_BASE = IS_LOCAL
+  ? 'http://localhost:4000'
+  : IS_PROD
+    ? PROD_APP_SHARE_BASE
+    : `https://${process.env.NEXT_PUBLIC_VERCEL_BRANCH_URL}`
 
 export const NEXT_PUBLIC_AMPLITUDE_API_KEY =
   process.env.NEXT_PUBLIC_AMPLITUDE_API_KEY
