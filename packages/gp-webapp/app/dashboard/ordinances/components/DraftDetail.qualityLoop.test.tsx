@@ -728,7 +728,7 @@ describe('DraftDetail amendment editor', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /accept changes/i }))
+    fireEvent.click(screen.getByRole('button', { name: /accept all changes/i }))
 
     await waitFor(() =>
       expect(mocks.updateOrdinance).toHaveBeenCalledWith(
@@ -749,7 +749,7 @@ describe('DraftDetail amendment editor', () => {
     )
 
     expect(
-      screen.queryByRole('button', { name: /accept changes/i }),
+      screen.queryByRole('button', { name: /accept all changes/i }),
     ).not.toBeInTheDocument()
   })
 })

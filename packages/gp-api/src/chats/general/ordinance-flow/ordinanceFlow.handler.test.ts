@@ -329,12 +329,13 @@ describe('OrdinanceFlowHandler', () => {
     ])
   })
 
-  it('builds the review tool set: base tools plus apply_draft_edit, no present_draft or offer_next_step', () => {
+  it('builds the review tool set: base tools plus the draft-edit tools, no present_draft or offer_next_step', () => {
     const handler = build()
     const names = Object.keys(
       handler.buildTools({ ...baseCtx(), step: 'review' }),
     ).sort()
     expect(names).toEqual([
+      'accept_draft_changes',
       'apply_draft_edit',
       'get_code_source',
       'read_ordinance',
@@ -345,7 +346,7 @@ describe('OrdinanceFlowHandler', () => {
     expect(names).not.toContain('offer_next_step')
   })
 
-  it('gates apply_draft_edit to the review step', () => {
+  it('gates the draft-edit tools to the review step', () => {
     const handler = build()
     for (const step of [
       'clarify',
@@ -354,9 +355,9 @@ describe('OrdinanceFlowHandler', () => {
       'comparables',
       'draft',
     ] as const) {
-      expect(
-        Object.keys(handler.buildTools({ ...baseCtx(), step })),
-      ).not.toContain('apply_draft_edit')
+      const names = Object.keys(handler.buildTools({ ...baseCtx(), step }))
+      expect(names).not.toContain('apply_draft_edit')
+      expect(names).not.toContain('accept_draft_changes')
     }
   })
 

@@ -25,6 +25,7 @@ import { OrdinanceFlowToolsService } from './services/ordinanceFlowTools.service
 import { OrdinanceFlowFetchService } from './services/ordinanceFlowFetch.service'
 import { OrdinanceFlowSearchService } from './services/ordinanceFlowSearch.service'
 import {
+  buildAcceptDraftChangesTool,
   buildApplyDraftEditTool,
   buildAskClarifyQuestionTool,
   buildBraveSearchTool,
@@ -259,9 +260,11 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
     }
 
     // The post-draft review chat can apply a specific requested edit to the
-    // draft in place, as tracked-change redline the user reviews in the editor.
+    // draft in place as tracked-change redline, and (for a new ordinance)
+    // accept those changes into clean final text — both reviewed in the editor.
     if (ctx.step === 'review') {
       tools.apply_draft_edit = buildApplyDraftEditTool(deps)
+      tools.accept_draft_changes = buildAcceptDraftChangesTool(deps)
     }
 
     // A numbered flow step can offer a button to advance. The terminal draft

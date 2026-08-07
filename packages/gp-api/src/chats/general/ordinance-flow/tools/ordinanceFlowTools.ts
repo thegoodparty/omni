@@ -315,6 +315,24 @@ export const buildApplyDraftEditTool = (
     }),
 })
 
+const acceptDraftChangesInput = z.object({})
+
+export const buildAcceptDraftChangesTool = (
+  deps: OrdinanceToolDeps,
+): LlmStreamTool<typeof acceptDraftChangesInput> => ({
+  description:
+    'Accept all tracked changes in the draft, collapsing the {-/+} redline ' +
+    'into clean final text. Use when the user is happy with the changes and ' +
+    'asks to accept, finalize, or "make them permanent". Only for a new ' +
+    'ordinance the user is authoring: for an amendment the redline is the ' +
+    'deliverable (the Word export renders it as tracked changes), so the tool ' +
+    'declines with reason "amendment" — relay that instead of insisting. It ' +
+    'also returns "no_changes" when there is nothing to accept.',
+  inputSchema: acceptDraftChangesInput,
+  execute: () =>
+    deps.service.acceptDraftChanges(deps.ordinanceId, deps.electedOfficeId),
+})
+
 export const buildOfferNextStepTool = (): LlmStreamTool<
   typeof OrdinanceNextStepOfferSchema
 > => ({

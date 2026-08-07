@@ -1,11 +1,18 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
+import { Button } from '@styleguide'
+import { CheckIcon, XMarkIcon } from '@styleguide/components/ui/icons'
 import { DeletionMark, InsertionMark } from './redlineMarks'
 import { docToMarkup, markupToDoc } from './redlineDoc'
 import { RedlineSuggesting } from './redlineSuggesting'
+import {
+  changeRangeAt,
+  resolveChangeTransaction,
+  type ChangeAction,
+} from './redlineChanges'
 
 interface RedlineEditorProps {
   // The draft body with {-/+} amendment markup.
@@ -18,6 +25,19 @@ interface RedlineEditorProps {
   // Accessible name for the editable region, exposed on the ProseMirror element
   // so it's reachable as a named textbox (the plain draft body relies on this).
   ariaLabel?: string
+  // Show a hover Accept/Reject control at each redline change. Only for a new
+  // ordinance authoring its draft — an amendment's redline is the deliverable,
+  // so its host leaves this off.
+  showChangeControls?: boolean
+}
+
+// The change the pointer is over, plus where to float its toolbar (viewport
+// coords, so `position: fixed`).
+interface HoveredChange {
+  from: number
+  to: number
+  top: number
+  left: number
 }
 
 // Renders an ordinance amendment as an inline redline (struck deletions,
@@ -26,13 +46,15 @@ interface RedlineEditorProps {
 // disabled so the editor stays plain legislative text plus the two redline
 // marks. With `suggesting`, editing tracks changes in place: typed text becomes
 // an insertion and deleting baseline text strikes it (first pass: typing over a
-// selection replaces rather than strikes, and paste isn't tracked yet).
+// selection replaces rather than strikes, and paste isn't tracked yet). With
+// `showChangeControls`, hovering a change offers per-change Accept/Reject.
 export const RedlineEditor = ({
   value,
   onChange,
   editable = true,
   suggesting = false,
   ariaLabel,
+  showChangeControls = false,
 }: RedlineEditorProps) => {
   const editor = useEditor({
     editable,
@@ -81,10 +103,118 @@ export const RedlineEditor = ({
     else dom.setAttribute('aria-readonly', 'true')
   }, [editor, editable])
 
+  const [change, setChange] = useState<HoveredChange | null>(null)
+  const rafRef = useRef(0)
+  const hideRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const cancelHide = useCallback((): void => {
+    if (hideRef.current) {
+      clearTimeout(hideRef.current)
+      hideRef.current = null
+    }
+  }, [])
+  // Small delay so moving the pointer off the change and onto its floating
+  // toolbar (a brief gap over non-change text) doesn't flicker it away.
+  const scheduleHide = useCallback((): void => {
+    cancelHide()
+    hideRef.current = setTimeout(() => setChange(null), 120)
+  }, [cancelHide])
+
+  useEffect(
+    () => () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      if (hideRef.current) clearTimeout(hideRef.current)
+    },
+    [],
+  )
+
+  const onMouseMove = useCallback(
+    (e: React.MouseEvent): void => {
+      if (!editor || !showChangeControls || !editable) return
+      if (rafRef.current) return
+      const { clientX, clientY } = e
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = 0
+        const { view } = editor
+        const at = view.posAtCoords({ left: clientX, top: clientY })
+        const range = at && changeRangeAt(view.state, at.pos)
+        if (!range) {
+          scheduleHide()
+          return
+        }
+        cancelHide()
+        setChange((prev) => {
+          if (prev && prev.from === range[0] && prev.to === range[1]) {
+            return prev
+          }
+          const coords = view.coordsAtPos(range[0])
+          return {
+            from: range[0],
+            to: range[1],
+            top: coords.top,
+            left: coords.left,
+          }
+        })
+      })
+    },
+    [editor, showChangeControls, editable, scheduleHide, cancelHide],
+  )
+
+  const resolveChange = useCallback(
+    (action: ChangeAction): void => {
+      if (!editor || !change) return
+      const tr = resolveChangeTransaction(
+        editor.state,
+        change.from,
+        change.to,
+        action,
+      )
+      if (tr) editor.view.dispatch(tr)
+      cancelHide()
+      setChange(null)
+    },
+    [editor, change, cancelHide],
+  )
+
   return (
-    <EditorContent
-      editor={editor}
-      className="text-base leading-relaxed text-foreground [&_.ProseMirror]:min-h-40 [&_.ProseMirror]:whitespace-pre-wrap [&_.ProseMirror]:outline-none"
-    />
+    <div
+      className="relative"
+      onMouseMove={showChangeControls ? onMouseMove : undefined}
+      onMouseLeave={showChangeControls ? scheduleHide : undefined}
+    >
+      <EditorContent
+        editor={editor}
+        className="text-base leading-relaxed text-foreground [&_.ProseMirror]:min-h-40 [&_.ProseMirror]:whitespace-pre-wrap [&_.ProseMirror]:outline-none"
+      />
+      {change ? (
+        <div
+          role="toolbar"
+          aria-label="Change actions"
+          className="fixed z-40 flex -translate-y-full items-center gap-1 rounded-full border border-border bg-card p-1 shadow-md"
+          style={{ top: Math.max(8, change.top - 4), left: change.left }}
+          onMouseEnter={cancelHide}
+          onMouseLeave={scheduleHide}
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <Button
+            type="button"
+            size="small"
+            onClick={() => resolveChange('accept')}
+          >
+            <CheckIcon className="size-3.5" aria-hidden />
+            Accept
+          </Button>
+          <Button
+            type="button"
+            size="small"
+            variant="outline"
+            onClick={() => resolveChange('reject')}
+          >
+            <XMarkIcon className="size-3.5" aria-hidden />
+            Reject
+          </Button>
+        </div>
+      ) : null}
+    </div>
   )
 }

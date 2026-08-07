@@ -413,12 +413,78 @@ describe('OrdinanceFlowToolsService', () => {
     expect(row.draftSources).toEqual([{ id: 's1', title: 'Chapter 12' }])
   })
 
+  it('acceptDraftChanges collapses a new ordinance redline to clean text', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: { draftBody: 'The fee is {-$50-}{+$75+}.' },
+    })
+
+    expect(
+      await tools.acceptDraftChanges(ordinanceId, electedOfficeId),
+    ).toEqual({ accepted: true })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe('The fee is $75.')
+  })
+
+  it('acceptDraftChanges reports no_changes when nothing is redlined', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: { draftBody: 'A clean draft with no tracked changes.' },
+    })
+
+    expect(
+      await tools.acceptDraftChanges(ordinanceId, electedOfficeId),
+    ).toEqual({ accepted: false, reason: 'no_changes' })
+  })
+
+  it('acceptDraftChanges declines for an amendment (source link) and keeps its redline', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: {
+        sourceLink: 'https://muni.example/ch12',
+        draftBody: 'Sec 1. {-old-}{+new+}.',
+      },
+    })
+
+    expect(
+      await tools.acceptDraftChanges(ordinanceId, electedOfficeId),
+    ).toEqual({ accepted: false, reason: 'amendment' })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe('Sec 1. {-old-}{+new+}.')
+  })
+
+  it('acceptDraftChanges declines for an amendment with a verbatim baseline', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: {
+        draftBody: 'Sec 1. {-old-}{+new+}.',
+        existingLaw: {
+          sourceUrl: 'https://x',
+          text: 'Current law summary.',
+          fetchedAt: '2026-07-01T00:00:00.000Z',
+          verbatimText: 'The verbatim section being amended.',
+        },
+      },
+    })
+
+    expect(
+      await tools.acceptDraftChanges(ordinanceId, electedOfficeId),
+    ).toEqual({ accepted: false, reason: 'amendment' })
+  })
+
   it('scopes every operation to the owning office', async () => {
     await expect(
       tools.appendNote(ordinanceId, 'someone-elses-office', 'clarify', 'x'),
     ).rejects.toBeInstanceOf(NotFoundException)
     await expect(
       tools.applyDraftEdit(ordinanceId, 'someone-elses-office', { body: 'b' }),
+    ).rejects.toBeInstanceOf(NotFoundException)
+    await expect(
+      tools.acceptDraftChanges(ordinanceId, 'someone-elses-office'),
     ).rejects.toBeInstanceOf(NotFoundException)
     await expect(
       tools.readSection(ordinanceId, 'someone-elses-office', 'draft'),

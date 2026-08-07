@@ -551,6 +551,16 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(prompt).toContain('When in doubt, propose rather than apply')
   })
 
+  it('tells the review step it can accept changes on a new ordinance but not an amendment', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'review' }),
+      toolNames: [],
+    })
+    expect(prompt).toContain('accept_draft_changes')
+    // An amendment's redline is the deliverable, so accept declines there.
+    expect(prompt).toContain('the redline IS the deliverable')
+  })
+
   it('directs the current_law step to actively research and present the history timeline', () => {
     const prompt = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx({ step: 'current_law' }),

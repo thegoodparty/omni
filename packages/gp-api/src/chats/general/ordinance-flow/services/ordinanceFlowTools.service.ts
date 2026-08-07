@@ -20,6 +20,7 @@ import {
   OrdinanceScratchpadSchema,
   OrdinanceSourceSchema,
   hasRedline,
+  redlineToAmended,
   type OrdinanceAuthority,
   type OrdinanceClarify,
   type OrdinanceComparables,
@@ -320,6 +321,40 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     }
     await this.supersedeRunningLoop(o)
     return { applied: true }
+  }
+
+  // An amendment amends existing law (a source link, or a stored verbatim
+  // baseline). Its redline is the deliverable — never collapsed. A new
+  // ordinance has neither and its chat redline is review-only.
+  private isAmendmentRecord(ordinance: Ordinance): boolean {
+    if (ordinance.sourceLink) return true
+    const law = OrdinanceExistingLawSchema.safeParse(ordinance.existingLaw)
+    return law.success && law.data.verbatimText != null
+  }
+
+  // Accept every tracked change in a new ordinance's draft: collapse the {-/+}
+  // redline to clean final text (drop deletions, keep insertions). Declines for
+  // an amendment, whose redline is the deliverable the Word export carries, and
+  // no-ops when there is nothing to accept — both reported so the chat can
+  // explain rather than silently doing nothing.
+  async acceptDraftChanges(
+    ordinanceId: string,
+    electedOfficeId: string,
+  ): Promise<
+    { accepted: true } | { accepted: false; reason: 'amendment' | 'no_changes' }
+  > {
+    const o = await this.findOwned(ordinanceId, electedOfficeId)
+    if (this.isAmendmentRecord(o)) {
+      return { accepted: false, reason: 'amendment' }
+    }
+    const body = o.draftBody ?? ''
+    if (!hasRedline(body)) return { accepted: false, reason: 'no_changes' }
+    await this.model.update({
+      where: { id: o.id },
+      data: { draftBody: redlineToAmended(body) },
+    })
+    await this.supersedeRunningLoop(o)
+    return { accepted: true }
   }
 
   async saveExistingLaw(

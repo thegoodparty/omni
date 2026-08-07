@@ -444,7 +444,7 @@ describe('DraftDetail chat-applied edits', () => {
     })
     expect(body.innerText).toContain('{-$50-}{+$75+}')
     expect(
-      screen.getByRole('button', { name: /accept changes/i, hidden: true }),
+      screen.getByRole('button', { name: /accept all changes/i, hidden: true }),
     ).toBeInTheDocument()
   })
 
@@ -466,7 +466,10 @@ describe('DraftDetail chat-applied edits', () => {
     })
 
     expect(
-      screen.queryByRole('button', { name: /accept changes/i, hidden: true }),
+      screen.queryByRole('button', {
+        name: /accept all changes/i,
+        hidden: true,
+      }),
     ).not.toBeInTheDocument()
     expect(mocks.updateOrdinance).not.toHaveBeenCalled()
   })

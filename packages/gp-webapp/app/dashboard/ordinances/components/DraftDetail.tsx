@@ -835,7 +835,10 @@ export default function DraftDetail({
               className="mb-4 text-xl font-bold text-foreground outline-none"
             />
             {!isAmendment && bodyHasRedline && !loopRunning ? (
-              <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-2">
+              // Pinned to the top of the scroll area so it stays reachable no
+              // matter how far down the changes the user has scrolled. Solid
+              // surface + shadow so body text scrolls cleanly underneath.
+              <div className="sticky top-2 z-20 mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-2 shadow-sm">
                 <span className="text-sm text-muted-foreground">
                   Suggested changes are shown as tracked edits.
                 </span>
@@ -846,7 +849,7 @@ export default function DraftDetail({
                   className="ml-auto rounded-full"
                 >
                   <CheckIcon className="size-3.5" aria-hidden />
-                  Accept changes
+                  Accept all changes
                 </Button>
               </div>
             ) : null}
@@ -856,6 +859,7 @@ export default function DraftDetail({
                 value={editorSeed}
                 editable={!loopRunning}
                 suggesting={isAmendment}
+                showChangeControls={!isAmendment}
                 ariaLabel="Ordinance draft body"
                 onChange={handleEditorChange}
               />
