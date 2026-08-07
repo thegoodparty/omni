@@ -15,6 +15,7 @@ import type {
   UpsertPersonProfileRequest,
 } from '../shared/types'
 import type { PublicProfileProduct } from '../publicProfileAccess'
+import DashboardNavHeaderAction from '../../shared/DashboardNavHeaderAction'
 import { AccomplishmentsEditor, RecentExperienceEditor } from './ListEditors'
 import PrioritiesPublicationEditor, {
   type PriorityRow,
@@ -101,8 +102,9 @@ export default function PublicProfileEditor({
   if (!profile) {
     return (
       <div className="mx-auto max-w-2xl p-6">
+        {/* No heading: the page title bar (DashboardLayout's navHeader) is the
+            page's title, so a card heading would just repeat the tab name. */}
         <Card className="flex flex-col gap-4 p-6">
-          <h1 className="text-2xl font-semibold">Your public profile</h1>
           {canCreate ? (
             <>
               <p className="text-gray-600">
@@ -311,29 +313,31 @@ function LoadedEditor({
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 p-4 sm:p-6">
-      {/* Header + publish */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Public profile</h1>
-          <p className="text-sm text-gray-500">
-            Everything here is visible on your goodparty.org/people page.
-          </p>
-        </div>
-        <div className="flex items-center gap-4">
-          <label className="flex items-center gap-2 text-sm font-medium">
-            <Switch
-              data-testid="publish-toggle"
-              checked={isPublished}
-              disabled={togglingPublish}
-              onCheckedChange={handleTogglePublish}
-            />
-            {isPublished ? 'Published' : 'Draft'}
-          </label>
-          <Button onClick={handleSave} loading={saving} loadingText="Saving…">
-            Save changes
-          </Button>
-        </div>
-      </div>
+      {/* Publish state + Save are the page's primary actions, so they sit top
+          right in the title bar (DashboardLayout's navHeader), which is also
+          the page's h1 — hence no in-page "Public profile" heading here. */}
+      <DashboardNavHeaderAction>
+        <label className="flex items-center gap-2 text-sm font-medium">
+          <Switch
+            data-testid="publish-toggle"
+            checked={isPublished}
+            disabled={togglingPublish}
+            onCheckedChange={handleTogglePublish}
+          />
+          {isPublished ? 'Published' : 'Draft'}
+        </label>
+        <Button
+          size="small"
+          onClick={handleSave}
+          loading={saving}
+          loadingText="Saving…"
+        >
+          Save changes
+        </Button>
+      </DashboardNavHeaderAction>
+      <p className="text-sm text-gray-500">
+        Everything here is visible on your goodparty.org/people page.
+      </p>
 
       {/* Identity */}
       <Card className="flex flex-col gap-4 p-5 sm:p-6">

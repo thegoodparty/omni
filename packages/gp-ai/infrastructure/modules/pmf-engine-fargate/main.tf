@@ -19,9 +19,8 @@ variable "ecr_repository_url" {
 }
 
 variable "docker_image_tag" {
-  description = "Docker image tag for pmf-engine"
+  description = "Immutable, SHA-pinned image tag (e.g. broker-a1b2c3d). No default on purpose: CI always passes it, and a default silently ships the wrong image — these modules previously defaulted to *-prod tags, so a dev root that omitted the variable would have deployed the prod image."
   type        = string
-  default     = "pmf-engine-prod"
 }
 
 variable "failure_notification_email" {

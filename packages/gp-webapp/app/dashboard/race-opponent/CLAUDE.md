@@ -42,19 +42,24 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
 
 ## Components (by epic / role)
 
-- **Page shell (P5, ENG-10633)**: `page.tsx` renders the shared styleguide
-  `PageHeader` (heading "Know Your Opponent", `leading` overridden to the same
-  swords icon as the `DashboardMenu` nav item) as a top bar styled to the
-  Lovable reference via `barClassName` (white `bg-background`, `h-14`,
-  `border-border`) and `contentClassName` (`mx-auto max-w-[608px]` so the
-  title aligns with the content column below; ENG-10638) — this
-  replaced the old feature-local `OpponentPageHeader` (deleted) and the
-  `DashboardLayout` `navHeader` prop for this route. The bar is desktop-only
-  (`max-lg:hidden`), like the `DashboardNavHeader` it replaced: on mobile the
-  title lives in `MobileMenuTrigger`'s top bar via this route's
-  `MOBILE_PAGE_TITLES` entry in `DashboardLayout` — keep that entry, or mobile
-  loses its title; drop the `max-lg:hidden`, and mobile shows two stacked title
-  bars. Everything below it (locked view or `RaceOpponentList`) sits in a
+- **Page shell**: `page.tsx` sets `DashboardLayout`'s `navHeader`
+  (`{ icon: 'flag', label: NAV_LABELS.knowYourOpponent }`) — the shared
+  `DashboardNavHeader` bar every main nav page uses, with Voter Data as the
+  reference. This **reverted** the feature-local styleguide `PageHeader` bar
+  (ENG-10633/10638): that bar had drifted from the sidebar tab on both icon
+  (swords vs. the nav item's flag) and type scale (`text-sm` vs. the shared
+  bar's `text-base`), and its `mx-auto max-w-[608px]` content column left the
+  title indented while every other page's was flush at `px-6`. Icon key and
+  label now come from `shared/navLabels.ts`, the same source `DashboardMenu`
+  reads, so they can't drift again — change the nav item and the bar follows.
+  Both branches pass the same config: whether a CTA sits in the bar is the bar's
+  own business (it counts mounted `DashboardNavHeaderAction`s), so the report
+  state's "Export brief" shows there while the locked, processing, and empty
+  states leave the bar action-free without a per-branch flag. The bar's title is
+  desktop-only: on mobile it lives in
+  `MobileMenuTrigger`'s top bar via this route's `MOBILE_PAGE_TITLES` entry in
+  `DashboardLayout` — keep that entry, or mobile loses its title. Everything
+  below the bar (locked view or `RaceOpponentList`) sits in a
   `flex-1 bg-muted px-4 py-6 lg:px-8` body that fills the viewport below the
   bar (the `DashboardLayout` wrapper gets `flex flex-col` via
   `wrapperClassName`, so short states like the processing screen don't show
@@ -65,9 +70,12 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   dictating one width for all of them.
 - **List + state machine**: `RaceOpponentList.tsx` (the orchestrator — owns the poll,
   status, and the precedence ladder above). Owns the "N candidates filed for
-  this seat" field-header row (heading + subtitle + the icon-only round
-  "Export brief" button, `aria-label="Export brief"`) — there is no separate
-  page-level header component anymore. It takes two page-computed strings:
+  this seat" field-header row (heading + subtitle) and the icon-only round
+  "Export brief" button (`aria-label="Export brief"`), which is no longer in
+  that row: it renders through `DashboardNavHeaderAction` so it sits top right
+  in the page title bar, where Voter Data puts its primary action. Sized
+  `!h-8 !w-8` to clear the bar's fixed `h-14`. It stays inside the report
+  branch, so the locked/processing/empty states show no CTA. It takes two page-computed strings:
   `racePlace` (office/district, feeds the subtitle; falls back to "in your
   race" when absent) and `raceContext` (place + election date, feeds only the
   PDF export header).
