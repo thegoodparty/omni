@@ -119,7 +119,15 @@ test('win: publishing from the editor makes the profile public, unpublishing hid
 
   const displayName = `E2E Candidate ${minted.personId.slice(0, 8)}`
   await page.getByLabel('Display name').fill(displayName)
-  await page.getByRole('button', { name: /save changes/i }).click()
+  // The editor renders a save button in both the header and the page footer,
+  // wired to the same handler, so either satisfies this step.
+  await page
+    .getByRole('button', { name: /save changes/i })
+    .first()
+    .click()
+  // Publishing races the save otherwise, and the displayName assertion below
+  // would then be reading whatever the write had managed to persist.
+  await expect(page.getByText('Profile saved.')).toBeVisible()
 
   // Addressed by testid, not role: the Serve variant of this page also renders a
   // Switch per publishable priority.
