@@ -5,6 +5,7 @@ import {
   useContext,
   useCallback,
   useMemo,
+  useRef,
   ReactNode,
 } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
@@ -433,6 +434,15 @@ export const ContactsTableProvider = ({
     [customSegmentsQuery.data],
   )
 
+  // selectSegment reads the saved list's stored search, but callers reach it
+  // right after `await refreshCustomSegments()` — before React has re-rendered
+  // with the refetched list. A value closed over by useCallback is the
+  // pre-refresh array there, so a just-created list isn't found and its search
+  // is cleared instead of applied (ENG-10518). Keep the latest list in a ref,
+  // written both on render and synchronously by the refresh itself.
+  const customSegmentsRef = useRef<SegmentResponse[]>([])
+  customSegmentsRef.current = customSegments
+
   const isCustomSegmentValue = useMemo(() => {
     return isCustomSegment(customSegments, currentSegment)
   }, [customSegments, currentSegment])
@@ -491,7 +501,10 @@ export const ContactsTableProvider = ({
   // this callback (and therefore the context value) churn on every render.
   const refetchCustomSegments = customSegmentsQuery.refetch
   const refreshCustomSegments = useCallback(async () => {
-    await refetchCustomSegments()
+    const { data } = await refetchCustomSegments()
+    // Publish before returning: callers select the just-created list on the very
+    // next line, ahead of the re-render that would refresh the ref.
+    if (data) customSegmentsRef.current = data
     queryClient.invalidateQueries({ queryKey: ['contacts'] })
   }, [refetchCustomSegments, queryClient])
 
@@ -572,10 +585,13 @@ export const ContactsTableProvider = ({
       // it must reproduce the searched-down view, so re-apply (or clear) the
       // query param alongside the segment. Built-in/default segments and lists
       // saved without a search clear it (ENG-10518).
-      const savedSearch = findCustomSegment(customSegments, segment)?.search
+      const savedSearch = findCustomSegment(
+        customSegmentsRef.current,
+        segment,
+      )?.search
       updateURL({ segment, page: 1, query: savedSearch ?? null })
     },
-    [updateURL, customSegments],
+    [updateURL],
   )
 
   const searchContactsAction = useCallback(

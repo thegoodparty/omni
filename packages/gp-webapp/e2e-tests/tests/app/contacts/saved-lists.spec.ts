@@ -105,6 +105,11 @@ test.describe('Saved list lifecycle', () => {
 
     // Named + a filter -> enabled. Create it.
     await expect(createSegmentButton).toBeEnabled({ timeout: 5000 })
+    // The sheet slides in from the right, and `force` skips Playwright's
+    // stability check — so an enabled-but-still-animating button gets clicked at
+    // a position that is still off-screen ("Element is outside of the
+    // viewport"). CI usually wins that race; locally it loses it every time.
+    await expect(createSegmentButton).toBeInViewport({ timeout: 10000 })
     await applyContactsQuery(page, async () => {
       await createSegmentButton.click({ force: true })
       await expect(sheet).toBeHidden({ timeout: 15000 })
@@ -164,6 +169,11 @@ test.describe('Saved list lifecycle', () => {
       name: /create segment/i,
     })
     await expect(createSegmentButton).toBeEnabled({ timeout: 5000 })
+    // The sheet slides in from the right, and `force` skips Playwright's
+    // stability check — so an enabled-but-still-animating button gets clicked at
+    // a position that is still off-screen ("Element is outside of the
+    // viewport"). CI usually wins that race; locally it loses it every time.
+    await expect(createSegmentButton).toBeInViewport({ timeout: 10000 })
     await applyContactsQuery(page, async () => {
       await createSegmentButton.click({ force: true })
       await expect(sheet).toBeHidden({ timeout: 15000 })
@@ -220,6 +230,11 @@ test.describe('Saved list lifecycle', () => {
       name: /create segment/i,
     })
     await expect(createSegmentButton).toBeEnabled({ timeout: 5000 })
+    // The sheet slides in from the right, and `force` skips Playwright's
+    // stability check — so an enabled-but-still-animating button gets clicked at
+    // a position that is still off-screen ("Element is outside of the
+    // viewport"). CI usually wins that race; locally it loses it every time.
+    await expect(createSegmentButton).toBeInViewport({ timeout: 10000 })
     await applyContactsQuery(page, async () => {
       await createSegmentButton.click({ force: true })
       await expect(sheet).toBeHidden({ timeout: 15000 })
