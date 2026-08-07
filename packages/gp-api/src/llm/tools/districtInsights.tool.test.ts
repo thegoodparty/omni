@@ -429,9 +429,7 @@ describe('scrubResults', () => {
     const res = scrubResults([{ count: 5000, unknown_count: 12 }], {
       minCellSize: 100,
     })
-    expect(res.kept).toHaveLength(1)
-    expect(res.kept[0].count).toBe(5000)
-    expect(res.kept[0].unknown_count).toBeNull()
+    expect(res.kept).toEqual([{ count: 5000, unknown_count: null }])
   })
 
   it('returns empty result with reason null when given no rows', () => {
