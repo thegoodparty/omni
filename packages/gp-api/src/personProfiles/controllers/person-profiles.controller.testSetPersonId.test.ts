@@ -82,9 +82,12 @@ describe('testSetPersonId', () => {
     expect(users.updateUser).not.toHaveBeenCalled()
   })
 
+  // User.email is non-nullable in the schema, so this is only reachable if the
+  // request user arrives partially populated — which is exactly why the guard
+  // uses optional chaining rather than a bare `.endsWith`.
   it('rejects a user with no email', async () => {
     await expect(
-      controller.testSetPersonId(testUser({ email: null })),
+      controller.testSetPersonId(testUser({ email: undefined })),
     ).rejects.toBeInstanceOf(ForbiddenException)
     expect(users.updateUser).not.toHaveBeenCalled()
   })
