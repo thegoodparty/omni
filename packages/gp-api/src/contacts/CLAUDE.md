@@ -230,7 +230,7 @@ follow-up, not a one-line change.
 
 ### Contacts-made filter (ENG-10839)
 
-The wizard's "Contacts made" pill row (0/1/2/3/4/5+, Win-only — hidden for
+The wizard's "Prior contacts made" pill row (0/1/2/3/4/5+, Win-only — hidden for
 Serve like Political Party) counts every logged interaction ROW across
 `contact_interaction_text`/`_robocall`/`_door_knock`, regardless of outcome —
 a 3-attempt door-knock sync that logs 3 rows counts as 3. Six booleans on

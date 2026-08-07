@@ -153,7 +153,7 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     // regardless of outcome (ENG-10839) — campaign activity, so Win-only
     // like party.
     key: 'contactsMade',
-    label: 'Contacts Made',
+    label: 'Prior Contacts Made',
     kind: 'boolean-group',
     modes: 'win',
     values: CONTACTS_MADE_BUCKET_FIELDS.map(({ field, bucket }) => ({

@@ -49,7 +49,7 @@ const filterSections = [
         // (VoterFileStep.tsx strips it like political_party) and pulls it out
         // to render above Support status instead of inline here (ENG-10839).
         key: 'contacts_made',
-        label: 'Contacts Made',
+        label: 'Prior Contacts Made',
         options: [
           { key: 'contactsMade0', label: '0' },
           { key: 'contactsMade1', label: '1' },
@@ -92,11 +92,11 @@ const filterSections = [
         key: 'voter_likely',
         label: 'Voter Likelihood',
         options: [
-          { key: 'audienceUnknown', label: 'Unknown' },
-          { key: 'audienceUnlikelyVoters', label: 'Unlikely' },
-          { key: 'audienceUnreliableVoters', label: 'Unreliable' },
-          { key: 'audienceLikelyVoters', label: 'Likely' },
           { key: 'audienceSuperVoters', label: 'Super' },
+          { key: 'audienceLikelyVoters', label: 'Likely' },
+          { key: 'audienceUnreliableVoters', label: 'Unreliable' },
+          { key: 'audienceUnlikelyVoters', label: 'Unlikely' },
+          { key: 'audienceUnknown', label: 'Unknown' },
         ],
       },
       {
