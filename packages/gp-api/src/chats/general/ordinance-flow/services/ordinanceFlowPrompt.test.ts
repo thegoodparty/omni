@@ -437,6 +437,14 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(withTool).toContain('synthesize')
     expect(withTool).toContain('attorney')
     expect(withTool).toContain('redline')
+    // Amend fidelity: reprint the whole section, carry forward existing
+    // values, and don't reformat into a headline / ALL-CAPS structure.
+    expect(withTool).toContain('reproduce the ENTIRE existing section')
+    expect(withTool).toContain('is repealed')
+    expect(withTool).toContain(
+      'Never bracket a value the existing law already sets',
+    )
+    expect(withTool).toContain('no ALL-CAPS subsection headings')
     const without = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx({ step: 'comparables' }),
       toolNames: ['present_comparables', 'offer_next_step'],
@@ -468,6 +476,8 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(updating).toContain('UPDATING AN EXISTING ORDINANCE')
     // The update rule reuses the same redline markup the draft step expects.
     expect(updating).toContain('{-struck old text-}{+inserted new text+}')
+    // ...and captures the verbatim current law as the redline baseline.
+    expect(updating).toContain('verbatimText')
 
     const fromScratch = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx({ step: 'current_law', sourceLink: null }),
@@ -672,6 +682,7 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
       expect(prompt).not.toContain('municipal-code style')
       expect(prompt).toContain('[to be set by the legislature]')
       expect(prompt).not.toContain('[retention period to be set by council]')
+      expect(prompt).toContain('reproduce the ENTIRE existing section')
     })
 
     it('keeps the municipal framing byte-identical for city-level offices', () => {

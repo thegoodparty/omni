@@ -123,6 +123,15 @@ const saveExistingLawInput = z.object({
       'Concise summary of what current law does and does not cover for ' +
         'this ordinance, with section citations.',
     ),
+  verbatimText: z
+    .string()
+    .optional()
+    .describe(
+      'When amending an existing law, the exact unedited text of the ' +
+        'section(s) being amended, copied verbatim from the source. This is ' +
+        'the baseline the redline is checked against. Omit for a brand-new ' +
+        'ordinance.',
+    ),
 })
 
 export const buildSaveExistingLawTool = (
@@ -138,6 +147,7 @@ export const buildSaveExistingLawTool = (
       sourceUrl: input.sourceUrl,
       ...(input.chapterLabel && { chapterLabel: input.chapterLabel }),
       text: input.text,
+      ...(input.verbatimText && { verbatimText: input.verbatimText }),
     }),
 })
 

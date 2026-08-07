@@ -45,14 +45,13 @@ variable "failure_notification_email" {
   default     = "collin@goodparty.org"
 }
 
-data "terraform_remote_state" "shared_ecr" {
-  backend = "s3"
-
-  config = {
-    bucket = "goodparty-terraform-state-us-west-2"
-    key    = "shared/ecr/terraform.tfstate"
-    region = "us-west-2"
-  }
+# Looked up live rather than read from terraform state. The ECR repo is the one
+# resource here with no environment dimension, so it does not belong to any
+# env's deploy and is managed outside Terraform. A remote_state read would break
+# the moment that root is retired (the state file survives with no outputs), and
+# it coupled six roots to a state file nothing writes.
+data "aws_ecr_repository" "ai_projects" {
+  name = "gp-ai-projects"
 }
 
 data "terraform_remote_state" "shared_slack_notifier" {
@@ -71,7 +70,7 @@ module "serve_analyze_fargate" {
   environment                      = "prod"
   vpc_id                           = var.vpc_id
   private_subnet_ids               = var.private_subnet_ids
-  ecr_repository_url               = data.terraform_remote_state.shared_ecr.outputs.repository_url
+  ecr_repository_url               = data.aws_ecr_repository.ai_projects.repository_url
   docker_image_tag                 = "serve-analyze-prod"
   sqs_queue_arn                    = "arn:aws:sqs:us-west-2:333022194791:master-Queue.fifo"
   sqs_queue_url                    = "https://sqs.us-west-2.amazonaws.com/333022194791/master-Queue.fifo"
@@ -100,6 +99,6 @@ output "s3_bucket_name" {
 }
 
 output "ecr_repository_url" {
-  value       = data.terraform_remote_state.shared_ecr.outputs.repository_url
+  value       = data.aws_ecr_repository.ai_projects.repository_url
   description = "ECR repository URL for Docker images"
 }

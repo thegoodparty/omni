@@ -8,14 +8,14 @@ read model over that snapshot.
 
 ## Shape
 
-| File | Role |
-|------|------|
-| `recommendedLists.controller.ts` | `GET campaigns/mine/recommended-lists`. HTTP only; Pro/flag gate + response validation live in the service. |
-| `services/recommendedLists.service.ts` | Read model + scheduler. Pro/flag gate, snapshot lifecycle (pending/ready/failed), TTL re-enqueue, race-change reset. The GET path *is* the scheduler — a lost enqueue self-heals off the 15-min TTL, so enqueue failures are swallowed. |
-| `services/recommendedListsCompute.service.ts` | The queue handler. Idempotent, stale-guarded, **never throws** (a throw = infinite SQS redelivery). Gathers context, runs the pure SQL builders against the Win warehouse, assembles + persists the payload. |
-| `services/recommendedListsRules.util.ts` · `recommendedListsQueries.ts` | Pure engine: thresholds/predicates and exact Databricks SQL. Ported verbatim from the deterministic Python engine so parity checks stay byte-identical. Don't reimplement — call these. |
-| `services/recommendedListsRegistry.ts` | `RECOMMENDED_LISTS_REGISTRY` — the per-kind static metadata (priority, allowed outreach types, allowed phases, fixed name). The seed of the config-driven model; the extension point for adding a list. |
-| `recommendedLists.constants.ts` | `RECOMMENDED_LISTS_DATABRICKS` DI token. |
+| File                                                                    | Role                                                                                                                                                                                                                                    |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `recommendedLists.controller.ts`                                        | `GET campaigns/mine/recommended-lists`. HTTP only; Pro/flag gate + response validation live in the service.                                                                                                                             |
+| `services/recommendedLists.service.ts`                                  | Read model + scheduler. Pro/flag gate, snapshot lifecycle (pending/ready/failed), TTL re-enqueue, race-change reset. The GET path _is_ the scheduler — a lost enqueue self-heals off the 15-min TTL, so enqueue failures are swallowed. |
+| `services/recommendedListsCompute.service.ts`                           | The queue handler. Idempotent, stale-guarded, **never throws** (a throw = infinite SQS redelivery). Gathers context, runs the pure SQL builders against the Win warehouse, assembles + persists the payload.                            |
+| `services/recommendedListsRules.util.ts` · `recommendedListsQueries.ts` | Pure engine: thresholds/predicates and exact Databricks SQL. Ported verbatim from the deterministic Python engine so parity checks stay byte-identical. Don't reimplement — call these.                                                 |
+| `services/recommendedListsRegistry.ts`                                  | `RECOMMENDED_LISTS_REGISTRY` — the per-kind static metadata (priority, allowed outreach types, allowed phases, fixed name). The seed of the config-driven model; the extension point for adding a list.                                 |
+| `recommendedLists.constants.ts`                                         | `RECOMMENDED_LISTS_DATABRICKS` DI token.                                                                                                                                                                                                |
 
 ## Envelope model (config-driven direction)
 
@@ -65,8 +65,8 @@ it would move PII out of the warehouse and needs a separate, governed export pat
 - **`DOOR_RATIO_FALLBACK` (0.62) is a fallback, not a measurement.** The win mart
   has no street addresses, so household density (voters→doors) can't be computed
   live. 0.62 is a national voters-per-household stand-in; `doorCount =
-  round(voterCount * 0.62)`, `estimatedHours = doorCount / DOORS_PER_HOUR`. Source a
-  real distinct-household count from people-api before treating door counts as firm.
+round(voterCount * 0.62)`, `estimatedHours = doorCount / DOORS_PER_HOUR`. Source a
+  real distinct-household count from people-db before treating door counts as firm.
 - **Multi-seat races overstate the win number.** `votesNeeded` comes straight from
   election-api's `win_number_effective`, which assumes a single seat. For an
   at-large / multi-seat body the real threshold is lower, so the anchor band is
@@ -82,7 +82,7 @@ they look like they should:
   `VOTESCORE >= s*`). `listCount` is the banded union: `signals` union ∩ that
   electorate, and it's the recommended door list size.
 - **`districtWideUnionCount` is raw** — the union of the independence signals
-  across the *whole district*, NOT intersected with the plausible-turnout
+  across the _whole district_, NOT intersected with the plausible-turnout
   electorate.
 
 Subadditivity therefore holds only **within one scope**:

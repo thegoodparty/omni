@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
 import CreateListFlow from './CreateListFlow'
 import type { PolygonRing } from '../VoterMapCanvas'
 
@@ -193,10 +194,23 @@ describe('CreateListFlow', () => {
     expect(onStepChange).toHaveBeenCalledWith('draw')
   })
 
+  // Labels are sourced from the config, not hardcoded: 'Contacts Made' was
+  // renamed to 'Prior Contacts Made' days after this test landed, which would
+  // have made a literal assertion pass while the group still rendered.
   it('omits the contacts-made group, which evaluate would ignore', () => {
+    const fieldLabel = (key: string) =>
+      filterSections
+        .flatMap((section) => section.fields)
+        .find((field) => field.key === key)?.label
+
+    const contactsMadeLabel = fieldLabel('contacts_made')
+    const partyLabel = fieldLabel('political_party')
+    expect(contactsMadeLabel).toBeTruthy()
+    expect(partyLabel).toBeTruthy()
+
     render(<CreateListFlow {...baseProps} step="filters" />)
 
-    expect(screen.queryByLabelText('Contacts Made')).toBeNull()
-    expect(screen.getByLabelText('Political Party')).toBeTruthy()
+    expect(screen.queryByLabelText(contactsMadeLabel as string)).toBeNull()
+    expect(screen.getByLabelText(partyLabel as string)).toBeTruthy()
   })
 })

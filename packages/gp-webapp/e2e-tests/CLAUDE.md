@@ -29,7 +29,7 @@ End-to-end tests using Playwright. Runs against a deployed environment (local ap
 
   **These are NOT valid reasons — they are the common mis-tags. Do not tag for any of them:**
   - **A Pro campaign.** `isPro` is provisionable without Stripe via `setupProCampaignUser` (`src/helpers/organizations.ts`), which flips it through the test-only `POST /v1/campaigns/mine/test-set-pro` endpoint — see the "Provisioning a Pro Win campaign" pattern below. Pro-gated Win surfaces run on PRs.
-  - **Real district voter data.** A per-PR preview's gp-api runs on the `GP_API_DEV` secret, so it serves the same real people-api / voter data as dev.
+  - **Real district voter data.** A per-PR preview's gp-api runs on the `GP_API_DEV` secret, so it serves the same real people-db voter data as dev.
   - **A feature-flagged surface.** Force the flag deterministically via the off-prod override cookie — see the "Flag-gated surfaces" pattern below. Never depend on live Amplitude targeting.
   - **An outbound call the preview's backend makes** (including a live LLM round-trip) — see the inbound-vs-outbound line above.
   - **Flakiness. Never.** A flaky test must be made reliable (stabilize the wait/assertion), not hidden on `main`. Tagging a flaky or red test `@dev-only` only moves the red from PRs (where you'd fix it) to the post-merge `main` run (where it rots and trains everyone to ignore the gate). If it's broken, fix it or `test.fixme()` it (visible, not silently green).

@@ -18,12 +18,12 @@ only mutable record — one row per knock on a person.
 
 ## Tables (all in this package's Prisma schema)
 
-| Table | Role | Key invariants |
-| --- | --- | --- |
-| `door_knocking_turf` | The drawn area: name, color, geoPoly | `voterFileFilterId` NOT unique (N turfs per filter). Locked (derived) iff its route exists |
-| `door_knocking_route` | Frozen route header | `doorKnockingTurfId` UNIQUE — locked/idempotent both mean "this row exists". Never mutated after creation |
-| `door_knocking_stop` | One per unique lat/lng, in visit order | `(routeId, seq)` unique; `displayAddress` copied verbatim from `Residence_Addresses_AddressLine` at freeze |
-| `door_knocking_stop_target` | Bare-minimum person snapshot | personId (people-api UUID — never raw LALVOTERIDs), name, addressKey. Redact-in-place on deletion requests |
+| Table                            | Role                                                                  | Key invariants                                                                                                                                                                                                                                                                                                                                                       |
+| -------------------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `door_knocking_turf`             | The drawn area: name, color, geoPoly                                  | `voterFileFilterId` NOT unique (N turfs per filter). Locked (derived) iff its route exists                                                                                                                                                                                                                                                                           |
+| `door_knocking_route`            | Frozen route header                                                   | `doorKnockingTurfId` UNIQUE — locked/idempotent both mean "this row exists". Never mutated after creation                                                                                                                                                                                                                                                            |
+| `door_knocking_stop`             | One per unique lat/lng, in visit order                                | `(routeId, seq)` unique; `displayAddress` copied verbatim from `Residence_Addresses_AddressLine` at freeze                                                                                                                                                                                                                                                           |
+| `door_knocking_stop_target`      | Bare-minimum person snapshot                                          | personId (people-db UUID — never raw LALVOTERIDs), name, addressKey. Redact-in-place on deletion requests                                                                                                                                                                                                                                                            |
 | `contact_interaction_door_knock` | One row per knock on a person (CRM epic's model, extended additively) | Writes land here via `POST /v1/door-knocking/interactions`: `sourceId` = the phone's clientKey (replay-idempotent upsert, first write wins), `occurredAt` server-stamped. The vocabulary was extended additively for the question flow: `inaccessible` + `not_a_voter` outcomes, nullable `willVote` — `supportAnswer` stays the CRM's 3-way. CRM readers unaffected |
 
 The route-created activity event (one per target at freeze) is deferred to
@@ -42,8 +42,9 @@ Shared-table touches: `OutreachType.nativeDoorKnocking` (new value — legacy
 `src/doorKnocking/` (turf CRUD + the knock transaction; controller routes
 under `/v1/door-knocking`), `src/vendors/geoapify/` (Route Planner client —
 requires `GEOAPIFY_API_KEY`, validated lazily at call time so environments
-without it still boot), and the S2S evaluation/residents contracts in
-`@goodparty_org/contracts` implemented by people-api's `src/doorKnocking/`.
+without it still boot), and the evaluation/residents contracts in
+`@goodparty_org/contracts`, served in-process by
+`src/peopleDb/services/voterDoorKnocking.service.ts`.
 
 ## The knock transaction (the money path)
 
@@ -54,7 +55,7 @@ interactive transaction:
    concurrent knocks per turf; auto-releases on commit/rollback/crash.
 2. Existence probe (`SELECT id` only). Found → return the route,
    `created: false`, no vendor call.
-3. Evaluate the turf fresh via people-api (filter flags + bbox; exact
+3. Evaluate the turf fresh via `src/peopleDb/` (filter flags + bbox; exact
    point-in-polygon ray-cast in-process — see "Interim geo" below), dedupe
    to unique lat/lng stops, re-check the 150-stop cap.
 4. One Geoapify Route Planner call (coords + opaque job ids only — no PII
@@ -76,7 +77,7 @@ call, loser returns `created: false`; (b) crash-mid-freeze → zero rows;
 ## Serving
 
 `GET /v1/door-knocking/turfs/:id/route`. Every read of a route (later
-opens, walk start) = frozen route + live enrichment: residents-by-address from people-api (only units
+opens, walk start) = frozen route + live enrichment: residents-by-address from people-db (only units
 containing a target; targets get live age/party; otherResidents are
 name-only) + each stop's knock status derived from
 `contact_interaction_door_knock` (org-wide, latest row per person —
@@ -87,10 +88,10 @@ locale), and is snapshotted offline on the phone.
 
 ## The pack (exploration map, step 2)
 
-`GET /v1/door-knocking/pack` (gp-api) → `POST /v1/door-knocking/pack`
-(people-api). Built per request from people_db, never stored: positions +
+`GET /v1/door-knocking/pack` (gp-api), served in-process by `src/peopleDb/`.
+Built per request from people_db, never stored: positions +
 person→household→dot index arrays + one byte per person per dimension
-(SoA). Dim buckets are derived by inverting people-api's `VALUE_MAPPERS`,
+(SoA). Dim buckets are derived by inverting `src/peopleDb`'s `VALUE_MAPPERS`,
 so pack filtering can't drift from list-filter semantics. The
 `canvassStatus` plane is encoded from the org-wide latest-per-person
 statuses gp-api ships with the request (`(personId, status)` only — no
@@ -100,11 +101,11 @@ AddressLine, accuracy in WHERE only (v1 = `GeoMatchRooftop` only),
 
 ## Interim geo — and what changes when the data team delivers
 
-people_db has no geometry column yet. Until it does: people-api evaluation
+people_db has no geometry column yet. Until it does: the people-db evaluation
 takes a bbox (`NULLIF(lat,'')::float8 BETWEEN …` on the existing text
 columns) and gp-api ray-casts the exact polygon in process. Every touch
 point is tagged `TODO(geom-index)`; when the `geom` column + GiST index
-land, `ST_Contains` replaces bbox+ray-cast inside people-api with **no
+land, `ST_Contains` replaces bbox+ray-cast inside the people-db query with **no
 contract change**.
 
 ## Scope guardrails (v1)

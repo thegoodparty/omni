@@ -45,15 +45,15 @@ const readVotersMatchCount = async (sheet: Locator): Promise<number | null> => {
   return Number(digits.replace(/,/g, ''))
 }
 
-// The canonical Voter Likelihood option order (least → most likely), read from
-// filters.config.ts ("Voter Likelihood" field): Unknown, Unlikely, Unreliable,
-// Likely, Super. This is the ENG-10516 ordering the builder must render.
+// The canonical Voter Likelihood option order (most → least likely), read from
+// filters.config.ts ("Voter Likelihood" field): Super, Likely, Unreliable,
+// Unlikely, Unknown. This is the order the builder must render.
 const VOTER_LIKELY_ORDER = [
-  'Unknown',
-  'Unlikely',
-  'Unreliable',
-  'Likely',
   'Super',
+  'Likely',
+  'Unreliable',
+  'Unlikely',
+  'Unknown',
 ]
 
 // Exercises the Win Contacts segment builder for a pro campaign org — the live
@@ -107,9 +107,9 @@ test.describe('Segment builder count + order', () => {
     const sheet = filtersSheet(page, /create segment/i)
     await expect(sheet).toBeVisible({ timeout: 30000 })
 
-    // --- Voter Likelihood option order (ENG-10516) ---
+    // --- Voter Likelihood option order ---
     // The Voter Likelihood section renders one option label per row; assert they
-    // appear in the exact least-→-most-likely order from filters.config.ts.
+    // appear in the exact most-→-least-likely order from filters.config.ts.
     const voterLikelyHeading = sheet.locator('h4', {
       hasText: 'Voter Likelihood',
     })
