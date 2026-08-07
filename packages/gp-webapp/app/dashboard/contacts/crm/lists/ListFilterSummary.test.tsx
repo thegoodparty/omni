@@ -92,15 +92,15 @@ describe('buildFilterSummary — demographic-only filters', () => {
   })
 })
 
-// ENG-10839: Contacts Made gets its own "with N or M contacts made" clause
-// rather than the generic "{Label} {value}" phrasing, and is Win-only.
+// ENG-10839: Contacts Made gets its own "with N or M prior contacts made"
+// clause rather than the generic "{Label} {value}" phrasing, and is Win-only.
 describe('buildFilterSummary — contacts-made filter', () => {
   it('renders a single selected bucket', () => {
     const summary = buildFilterSummary(
       baseSegment({ contactsMade2: true }),
       false,
     )
-    expect(summary).toBe('with 2 contacts made.')
+    expect(summary).toBe('with 2 prior contacts made.')
   })
 
   it('renders a mixed "0 + a bucket" selection', () => {
@@ -108,7 +108,7 @@ describe('buildFilterSummary — contacts-made filter', () => {
       baseSegment({ contactsMade0: true, contactsMade3: true }),
       false,
     )
-    expect(summary).toBe('with 0 or 3 contacts made.')
+    expect(summary).toBe('with 0 or 3 prior contacts made.')
   })
 
   it('renders the 5+ bucket label', () => {
@@ -116,7 +116,7 @@ describe('buildFilterSummary — contacts-made filter', () => {
       baseSegment({ contactsMade5Plus: true }),
       false,
     )
-    expect(summary).toBe('with 5+ contacts made.')
+    expect(summary).toBe('with 5+ prior contacts made.')
   })
 
   it('excludes contacts made for an elected official (Win-only)', () => {
