@@ -45,11 +45,11 @@ Phase 2: port to a self-service PMF experiment (agent-runnable)
 Build it twice on purpose. Runbooks are forgiving (a human can spot-fix Databricks
 SQL, swap a column, retry) and cheap to iterate. Experiments are autonomous: the
 agent follows the instruction blindly, so every quirk (the broker auto-injects
-state/city, `Voters_Active='A'`, `hs_*` are 0-100 scores) must be encoded
-explicitly, and each Fargate iteration costs $0.30+. The runbook stays as both
-documentation and a debugging tool when the experiment breaks in prod. The full
-porting procedure, and the clean-context subagent loop that surfaces doc gaps, lives
-in the `build-cap-agent` skill.
+state/city, `Voters_Active='A'`, `hs_*` are 0-100 within-state percentile
+ranks) must be encoded explicitly, and each Fargate iteration costs $0.30+. The
+runbook stays as both documentation and a debugging tool when the experiment
+breaks in prod. The full porting procedure, and the clean-context subagent loop
+that surfaces doc gaps, lives in the `build-cap-agent` skill.
 
 ## Naming convention
 
