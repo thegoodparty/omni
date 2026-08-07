@@ -5,6 +5,15 @@ import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { WEBAPP_ROOT } from '@/shared/util/appEnvironment.util'
 import { MarketingRevalidationService } from './marketing-revalidation.service'
 
+/**
+ * This is the sending half of a cross-repo contract. The receiver is
+ * src/app/api/revalidate-person/route.ts in gp-marketing, whose tests assert the
+ * same path, `x-revalidate-secret` header, and `{ personId }` body from the other
+ * direction. Changing any of the three here without changing it there breaks
+ * revalidation silently: the request is best-effort, so a rejected call only
+ * shows up as public profiles serving stale content until their hourly window
+ * elapses.
+ */
 describe('MarketingRevalidationService', () => {
   const secret = 'test-revalidate-secret'
   const personId = 'person-123'
