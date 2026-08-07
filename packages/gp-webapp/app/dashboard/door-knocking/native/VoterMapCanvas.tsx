@@ -253,7 +253,11 @@ export default function VoterMapCanvas({
       if (beginDrag(event.point)) event.preventDefault()
     })
     map.on('touchmove', (event) => {
-      moveDrag(event.lngLat)
+      // dragPan is disabled mid-drag, so maplibre's TouchPanHandler is no
+      // longer suppressing the native scroll. MapTouchEvent.preventDefault
+      // only sets maplibre's internal flag; the page keeps scrolling unless
+      // the underlying touchmove (registered non-passive) is prevented.
+      if (moveDrag(event.lngLat)) event.originalEvent.preventDefault()
     })
     map.on('touchend', endDrag)
     map.on('touchcancel', endDrag)
