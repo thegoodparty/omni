@@ -90,4 +90,13 @@ describe('deletionTransaction', () => {
     const state = stateFrom([{ text: 'gone', mark: 'deletion' }])
     expect(deletionTransaction(state, 1, 5)).toBeNull()
   })
+
+  it('handles a select-all range (from = 0) without throwing', () => {
+    const state = stateFrom([{ text: 'abc' }])
+    const tr = deletionTransaction(state, 0, state.doc.content.size)
+    if (!tr) throw new Error('expected a deletion transaction')
+    const next = state.apply(tr)
+    expect(next.doc.textContent).toBe('abc')
+    expect(next.doc.rangeHasMark(1, 4, delMark)).toBe(true)
+  })
 })

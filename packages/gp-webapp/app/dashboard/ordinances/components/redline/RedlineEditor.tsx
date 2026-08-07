@@ -51,7 +51,7 @@ export const RedlineEditor = ({
       }),
       InsertionMark,
       DeletionMark,
-      ...(suggesting && editable ? [RedlineSuggesting] : []),
+      ...(suggesting ? [RedlineSuggesting] : []),
     ],
     content: markupToDoc(value),
     onUpdate: ({ editor: e }) => onChange?.(docToMarkup(e.getJSON())),

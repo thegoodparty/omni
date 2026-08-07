@@ -65,8 +65,10 @@ export const deletionTransaction = (
   for (const [start, end] of [...removals].sort((a, b) => b[0] - a[0])) {
     tr.delete(start, end)
   }
+  // `near` (not `create`) so a select-all delete, whose `from` is 0 and not a
+  // valid text position, resolves to the nearest textblock instead of throwing.
   tr.setSelection(
-    TextSelection.create(tr.doc, Math.min(from, tr.doc.content.size)),
+    TextSelection.near(tr.doc.resolve(Math.min(from, tr.doc.content.size))),
   )
   return tr
 }
@@ -86,6 +88,9 @@ export const RedlineSuggesting = Extension.create({
         key: new PluginKey('redlineSuggesting'),
         props: {
           handleTextInput(view, from, to, text) {
+            // The plugin is registered whenever suggesting is on (so it
+            // survives the editable toggle), but only acts when editable.
+            if (!view.editable) return false
             const ins = view.state.schema.marks.insertion
             if (!ins) return false
             const node = view.state.schema.text(text, [ins.create()])
@@ -93,6 +98,7 @@ export const RedlineSuggesting = Extension.create({
             return true
           },
           handleKeyDown(view, event) {
+            if (!view.editable) return false
             const { selection, doc } = view.state
             if (event.key === 'Backspace') {
               const from = selection.empty ? selection.from - 1 : selection.from

@@ -60,9 +60,11 @@ export const markupToDoc = (body: string): RedlineDoc => ({
 
 const nodeToMarkup = (node: RedlineJsonNode): string => {
   const text = node.text ?? ''
-  const mark = node.marks?.[0]?.type
-  if (mark === 'insertion') return `{+${text}+}`
-  if (mark === 'deletion') return `{-${text}-}`
+  // Check every mark, not just the first: a node could carry another mark
+  // alongside the redline one, and marks[0] might not be the redline mark.
+  const types = node.marks?.map((m) => m.type) ?? []
+  if (types.includes('insertion')) return `{+${text}+}`
+  if (types.includes('deletion')) return `{-${text}-}`
   return text
 }
 

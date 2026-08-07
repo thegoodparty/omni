@@ -37,6 +37,19 @@ describe('redline doc conversion', () => {
     expect(roundTrip('    (a) indented clause')).toBe('    (a) indented clause')
   })
 
+  it('serializes the redline mark even when another mark is also present', () => {
+    const doc = {
+      content: [
+        {
+          content: [
+            { text: 'x', marks: [{ type: 'bold' }, { type: 'insertion' }] },
+          ],
+        },
+      ],
+    }
+    expect(docToMarkup(doc)).toBe('{+x+}')
+  })
+
   it('represents a blank line as an empty paragraph', () => {
     const doc = markupToDoc('A\n\nB')
     expect(doc.content).toEqual([
