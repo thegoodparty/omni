@@ -7,6 +7,19 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { router } from 'helpers/test-utils/router-mocking'
 import FollowOnFlow from './FollowOnFlow'
 
+// PathToVictoryStep reads the org's resolved district so it can skip a stats fetch
+// that could only 400 (and skip the Sentry report for that expected state).
+// useOrganization throws outside its provider, and these flow tests render without
+// the root layout that supplies it.
+vi.mock('@shared/organization-picker', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@shared/organization-picker')>()),
+  useOrganization: () => ({
+    slug: 'campaign-1',
+    positionName: 'Mayor',
+    district: { id: 'd1', l2Type: 'City', l2Name: 'Austin' },
+  }),
+}))
+
 // The office picker mocks clientFetch / clientRequest directly (see
 // OfficeSelectionStep.test), so the new-office path is tested here with the
 // same module mocks rather than MSW — driving the real picker UI through to
