@@ -4,6 +4,7 @@ import {
   buildDistrictTopicsTool,
   DISTRICT_TOPICS_CATALOG,
 } from './districtTopics.tool'
+import { SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS } from '@/chats/general/chief-of-staff/services/constituentSuggestedDimensions.serveAgentVoters'
 
 describe('DISTRICT_TOPICS_CATALOG', () => {
   it('exposes a non-empty set of curated topics', () => {
@@ -112,15 +113,45 @@ describe('off-center baseline marker coupling', () => {
     expect(HS_SCORE_SEMANTICS).toContain(COVERAGE_MARKER)
   })
 
-  it('carries the off-center marker on a known shifted-baseline column', () => {
+  it('carries the off-center marker on both shifted-baseline columns', () => {
     const housing = DISTRICT_TOPICS_CATALOG.housing
-    const col = housing?.columns.find((c) => c.name === 'hs_new_home_buyer')
-    expect(col?.meaning).toContain(OFFCENTER_MARKER)
+    for (const name of ['hs_new_home_buyer', 'hs_any_home_buyer']) {
+      const col = housing?.columns.find((c) => c.name === name)
+      expect(col?.meaning, name).toContain(OFFCENTER_MARKER)
+    }
   })
 
   it('carries the coverage marker on a known vintage-limited column', () => {
     const all = Object.values(DISTRICT_TOPICS_CATALOG).flatMap((t) => t.columns)
+    const known = all.find(
+      (c) => c.name === 'hs_social_security_tax_increase_support',
+    )
+    expect(known?.meaning).toContain(COVERAGE_MARKER)
     const marked = all.filter((c) => c.meaning.includes(COVERAGE_MARKER))
-    expect(marked.length).toBeGreaterThan(0)
+    expect(marked.length).toBeGreaterThan(20)
+  })
+})
+
+describe('chief-of-staff catalog mirror', () => {
+  // The header comment claims every hs_ meaning is sourced from the
+  // code-book-verified CoS catalog when the column exists there. Enforce it
+  // mechanically: shared hs_ columns must match the CoS label exactly,
+  // modulo the leading letter's case — including the baseline and coverage
+  // marker parentheticals.
+  const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1)
+
+  it('mirrors the verified CoS label for every shared hs_ column', () => {
+    const cosByName = new Map(
+      SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS.map((d) => [d.name, d.label]),
+    )
+    const shared = Object.values(DISTRICT_TOPICS_CATALOG)
+      .flatMap((t) => t.columns)
+      .filter((c) => c.name.startsWith('hs_') && cosByName.has(c.name))
+    expect(shared.length).toBeGreaterThan(100)
+    for (const col of shared) {
+      expect(lowerFirst(col.meaning), col.name).toBe(
+        lowerFirst(cosByName.get(col.name) ?? ''),
+      )
+    }
   })
 })

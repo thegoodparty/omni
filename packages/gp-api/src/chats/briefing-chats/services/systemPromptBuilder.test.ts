@@ -298,6 +298,9 @@ describe('buildSystemPrompt', () => {
       expect(out).toContain('Never report a specific count below 100')
       expect(out).toContain('Never echo SQL')
       expect(out).toContain('RELATIVE TO THE STATE AVERAGE')
+      expect(out).toContain('segment the low side with < 50 / <= 30')
+      expect(out).toContain('not centered at 50')
+      expect(out).toContain('limited coverage')
       expect(out).toContain('never invent an explanation')
     })
 

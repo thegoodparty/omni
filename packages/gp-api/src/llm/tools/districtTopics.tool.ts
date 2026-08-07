@@ -11,12 +11,13 @@ export interface CatalogTopic {
   columns: CatalogColumn[]
 }
 
-// Source each `meaning` from the code-book-verified Chief of Staff catalog
-// (chats/general/chief-of-staff/services/constituentSuggestedDimensions.
-// serveAgentVoters.ts) when the column exists there — that catalog's labels
-// were verified against the vendor's per-model cards and supersede the
-// gp-data-platform seed. Columns advertised only here (ideology, party,
-// religion, tribalism, ticket-splitting, view-of-opposition) have NOT had
+// Source each `meaning` from the code-book-verified Chief of Staff catalog in
+// chats/general/chief-of-staff/services/
+// constituentSuggestedDimensions.serveAgentVoters.ts when the column exists
+// there — that catalog's labels were verified against the vendor's per-model
+// cards and supersede the gp-data-platform seed. Columns advertised only here
+// (`hs_ideology_*`, `hs_religion_*`, `hs_ticket_splitter_*`,
+// `hs_tribalism_team_dem`/`_gop`, `hs_view_of_opposition_*`) have NOT had
 // that verification; treat their meanings as name/seed-derived until the
 // data team confirms them. Scale/threshold framing lives in
 // HS_SCORE_SEMANTICS — keep `meaning` strings to the stance itself.
@@ -63,22 +64,22 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       {
         name: 'hs_social_security_tax_increase_support',
         meaning:
-          'supports raising social security taxes (limited coverage: data exists in only 12 states; null elsewhere)',
+          'supports raising Social Security taxes (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_social_security_tax_increase_oppose',
         meaning:
-          'opposes raising social security taxes (limited coverage: data exists in only 12 states; null elsewhere)',
+          'opposes raising Social Security taxes (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_min_wage_15_increase_support',
         meaning:
-          'supports raising min wage to $15 (limited coverage: data exists in only 12 states; null elsewhere)',
+          'supports raising the minimum wage to $15 (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_min_wage_15_increase_oppose',
         meaning:
-          'opposes raising min wage to $15 (limited coverage: data exists in only 12 states; null elsewhere)',
+          'opposes raising the minimum wage to $15 (limited coverage: data exists in only 12 states; null elsewhere)',
       },
       {
         name: 'hs_ideology_fiscal_conserv',
@@ -138,11 +139,11 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
     columns: [
       {
         name: 'hs_medicaid_expansion_support',
-        meaning: 'supports medicaid expansion',
+        meaning: 'supports Medicaid expansion',
       },
       {
         name: 'hs_medicaid_expansion_oppose',
-        meaning: 'opposes medicaid expansion',
+        meaning: 'opposes Medicaid expansion',
       },
       {
         name: 'hs_medicare_for_all_support',
