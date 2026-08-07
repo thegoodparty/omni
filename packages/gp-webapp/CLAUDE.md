@@ -49,7 +49,9 @@ Single trunk: `main` is the one long-lived branch and the default branch; all PR
 
 ### Environment Config
 
-`appEnv.ts` exports all env-derived constants: `API_ROOT`, `ELECTION_API_ROOT`, `APP_BASE`, `IS_PROD`, `IS_LOCAL`, etc. Defaults point to dev API when env vars are unset.
+`appEnv.ts` exports all env-derived constants: `API_ROOT`, `ELECTION_API_ROOT`, `APP_BASE`, `APP_SHARE_BASE`, `IS_PROD`, `IS_LOCAL`, etc. Defaults point to dev API when env vars are unset.
+
+**`APP_BASE` vs `APP_SHARE_BASE`.** In prod they are different hosts. `APP_BASE` is the marketing origin (`goodparty.org`) — correct for canonical/OG metadata (`metadataBase`), and nothing else. `APP_SHARE_BASE` is the origin this app is served from (`app.goodparty.org`), and is what any link back into our own routes must use — the marketing host is a separate deployment that does not serve them. This matters most for `/api/v1/*` URLs, which only `middleware.ts` on the app origin proxies to gp-api.
 
 (Auth, providers, API clients, and module shape live in `docs/architecture.md` and the per-area `CLAUDE.md` files — see the pointer table below.)
 

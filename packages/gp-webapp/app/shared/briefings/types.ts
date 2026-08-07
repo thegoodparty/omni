@@ -59,7 +59,8 @@ export type HaystaqStatus = ConstituentSentiment['haystaq_status']
  * `app/shared/briefings/server.ts` from briefing_type + meeting_date, and the
  * Prisma row UUID (`briefing_id`) returned alongside the artifact by
  * `GET /v1/meetings/:date/briefing`. The UUID powers public share URLs of
- * the form `goodparty.org/api/v1/briefings/{uuid}`.
+ * the form `app.goodparty.org/api/v1/briefings/{uuid}` — the app origin, not
+ * the marketing one, which does not proxy `/api/v1/*` to gp-api.
  */
 export type Briefing = MeetingBriefingFull & {
   title: string
