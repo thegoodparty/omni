@@ -175,6 +175,22 @@ describe('CampaignStrategySection — tracker viewed event', () => {
     expect(mockTrackEvent).toHaveBeenCalledTimes(1)
   })
 
+  it('counts Active-phase tasks, which live in weeks rather than groups', () => {
+    const today = new Date().toISOString().slice(0, 10)
+    mockTasks.mockReturnValue(
+      settled([
+        task({ id: 'a1', phase: 'active', date: `${today}T00:00:00.000Z` }),
+        task({ id: 'l1', phase: 'launch' }),
+      ]),
+    )
+    render(<CampaignStrategySection />)
+
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      'Campaign Plan - Campaign Tracker Viewed',
+      expect.objectContaining({ taskCount: 2 }),
+    )
+  })
+
   it('still fires for a static-only view, before the dynamic tasks land', () => {
     mockTasks.mockReturnValue({
       ...settled([task({ id: 's1', phase: 'launch', isDefaultTask: true })]),
