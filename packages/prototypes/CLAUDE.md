@@ -22,6 +22,12 @@ npm run build -w packages/prototypes # production build check
 
 Each prototype is a folder under `app/p/<slug>/` with its own `page.tsx`.
 
+A prototype may keep its own nested `CLAUDE.md` with per-prototype conventions
+(auto-loaded when you edit that folder). See
+[`app/p/serve-nav-kit/CLAUDE.md`](app/p/serve-nav-kit/CLAUDE.md) — the
+source-fidelity, data-privacy, and design-system rules agreed for the Voter
+Outreach port.
+
 ## Design system reference (read this once — don't re-explore each session)
 
 **Storybook is the catalog.** Every component, foundation (colors, icons, shadows,
