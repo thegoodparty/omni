@@ -74,19 +74,10 @@ const CampaignStrategySection = (): React.JSX.Element => {
     return buildTrackerStrategy(tasks, { electionDate })
   }, [tasks, electionDateIso])
 
-  // Open the phase(s) the candidate is in now; fall back to the first phase.
-  const autoOpenable = (strategy?.phases ?? []).filter(
-    (phase) => phase.key !== 'preLaunch',
-  )
-  const openPhases = autoOpenable
-    .filter((phase) => phase.status === 'active')
+  // Open the phase(s) the candidate is in now.
+  const defaultOpen = (strategy?.phases ?? [])
+    .filter((phase) => phase.status === 'active' && phase.key !== 'preLaunch')
     .map((phase) => phase.key)
-  const defaultOpen =
-    openPhases.length > 0
-      ? openPhases
-      : strategy?.phases[0] && strategy.phases[0].key !== 'preLaunch'
-        ? [strategy.phases[0].key]
-        : []
 
   return (
     <section>
