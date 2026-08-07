@@ -191,7 +191,8 @@ export default function Filters({
             fields: section.fields.filter(
               (field) =>
                 field.key !== 'political_party' &&
-                field.key !== 'contacts_made',
+                field.key !== 'contacts_made' &&
+                field.key !== 'voter_likely',
             ),
           }))
         : filterSections,

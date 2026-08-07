@@ -106,7 +106,7 @@ describe('VoterFileStep — Voter Likelihood section position', () => {
     )
   })
 
-  it('renders the same for an elected official (Voter Likelihood is not party-gated)', () => {
+  it('does not render the section for an elected official (Win-only)', () => {
     render(
       <VoterFileStep
         filters={{}}
@@ -120,11 +120,12 @@ describe('VoterFileStep — Voter Likelihood section position', () => {
     const headings = screen
       .getAllByRole('heading', { level: 4 })
       .map((heading) => heading.textContent)
-    const supportStatusIndex = headings.indexOf('Support status')
-    const voterLikelihoodIndex = headings.indexOf('Voter likelihood')
 
-    expect(voterLikelihoodIndex).toBe(supportStatusIndex + 1)
+    expect(headings).not.toContain('Voter likelihood')
     expect(headings).not.toContain('Political party')
+    expect(
+      screen.queryByRole('toolbar', { name: 'Voter Likelihood' }),
+    ).not.toBeInTheDocument()
   })
 })
 
@@ -171,7 +172,7 @@ describe('VoterFileStep — prototype filter order', () => {
     ])
   })
 
-  it('renders the same order minus Contacts made and Political party for Serve', () => {
+  it('renders the same order minus the Win-only groups for Serve', () => {
     render(
       <VoterFileStep
         filters={{}}
@@ -188,7 +189,6 @@ describe('VoterFileStep — prototype filter order', () => {
 
     expect(headings).toEqual([
       'Support status',
-      'Voter likelihood',
       'Age',
       'Marital status',
       'Children',
