@@ -63,11 +63,10 @@ describe('buildApplyDraftEditTool', () => {
     step: 'review',
   }
 
-  it('requires both a non-empty summary and body', () => {
+  it('requires a non-empty body', () => {
     const schema = buildApplyDraftEditTool(deps).inputSchema
-    expect(schema.safeParse({ summary: 's', body: 'b' }).success).toBe(true)
-    expect(schema.safeParse({ summary: 's' }).success).toBe(false)
-    expect(schema.safeParse({ body: 'b' }).success).toBe(false)
-    expect(schema.safeParse({ summary: '', body: 'b' }).success).toBe(false)
+    expect(schema.safeParse({ body: 'b' }).success).toBe(true)
+    expect(schema.safeParse({}).success).toBe(false)
+    expect(schema.safeParse({ body: '' }).success).toBe(false)
   })
 })

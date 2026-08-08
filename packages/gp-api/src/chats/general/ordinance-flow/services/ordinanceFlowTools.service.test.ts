@@ -492,6 +492,19 @@ describe('OrdinanceFlowToolsService', () => {
     expect(row.draftBody).toBe('The fee shall be $50.')
   })
 
+  it('applyDraftEdit rejects a no-redline body even when no prior draft exists', async () => {
+    // Seeded ordinance has draftBody null; the guard must still fire (not be
+    // short-circuited away by the missing prior body).
+    const result = await tools.applyDraftEdit(ordinanceId, electedOfficeId, {
+      body: 'A plain body with no tracked changes.',
+    })
+    expect(result).toEqual({ applied: false, reason: 'missing_redline' })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBeNull()
+  })
+
   it('scopes every operation to the owning office', async () => {
     await expect(
       tools.appendNote(ordinanceId, 'someone-elses-office', 'clarify', 'x'),

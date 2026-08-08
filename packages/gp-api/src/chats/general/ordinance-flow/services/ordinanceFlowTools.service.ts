@@ -310,8 +310,10 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     // redline. A changed body with none means the model rewrote in place
     // without tracking it — committing that would corrupt the draft (and break
     // an amendment's tracked-changes Word export) with no user-visible signal.
-    // Return a structured error so the model retries with proper redline.
-    if (o.draftBody && edit.body !== o.draftBody && !hasRedline(edit.body)) {
+    // Return a structured error so the model retries with proper redline. No
+    // `o.draftBody &&` short-circuit — the guard must fire even for a
+    // (defensively) null prior body, not be silently skipped.
+    if (edit.body !== o.draftBody && !hasRedline(edit.body)) {
       this.logger.warn(
         { ordinanceId: o.id },
         'apply_draft_edit rejected: body changed without redline markup',

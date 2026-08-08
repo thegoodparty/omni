@@ -276,15 +276,6 @@ export const buildPresentDraftTool = (
 })
 
 const applyDraftEditInput = z.object({
-  summary: z
-    .string()
-    .min(1)
-    .describe(
-      'One short, plain-language sentence naming the change you are applying ' +
-        '(e.g. "Changed the retention period to 45 days"). Also say the same ' +
-        'in your reply — this field is recorded with the edit, not shown on ' +
-        'its own.',
-    ),
   body: z
     .string()
     .min(1)

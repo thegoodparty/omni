@@ -514,7 +514,17 @@ export default function DraftDetail({
   const refreshDraftAfterChat = useCallback(async (): Promise<void> => {
     if (loopRunningRef.current) return
     const next = await fetchOrdinanceBySlug(ordinance.slug).catch(() => null)
-    if (!next || loopRunningRef.current) return
+    if (!next) {
+      // The chat may have written a redline server-side; if the refetch failed
+      // we can't reseed, but we must still cancel a pending local autosave so
+      // its stale pre-chat text can't PATCH over that applied redline.
+      if (bodyTimerRef.current) {
+        clearTimeout(bodyTimerRef.current)
+        bodyTimerRef.current = null
+      }
+      return
+    }
+    if (loopRunningRef.current) return
     const body = next.draftBody ?? ''
     if (body === editorBodyRef.current) return
     if (bodyTimerRef.current) {
