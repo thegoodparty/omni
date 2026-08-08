@@ -281,7 +281,15 @@ test.describe('Briefings', () => {
     // bottom bar's Notes button attaches to whichever card is active, so make
     // item 2 active first. Item 2 carries no annotations, so clicking it can't
     // be swallowed by the open-existing-annotation click handler.
-    await page.locator(`[data-anchor-json-path="${CARD_PATH}"]`).click()
+    // ActiveCardScrollSpy re-picks the active card from scroll position once
+    // its post-click lock expires, so clicking alone isn't enough — scroll the
+    // card to the top first so the spy agrees, then wait for aria-current
+    // rather than assuming the click stuck.
+    const cardTwo = page.locator(`[data-anchor-json-path="${CARD_PATH}"]`)
+    await cardTwo.evaluate((el) => el.scrollIntoView({ block: 'start' }))
+    await cardTwo.click()
+    await expect(cardTwo).toHaveAttribute('aria-current', 'true')
+
     await page.getByRole('button', { name: 'Notes', exact: true }).click()
 
     const cardSheet = noteSheet(page)
