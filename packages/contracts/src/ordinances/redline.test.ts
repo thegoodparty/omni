@@ -3,6 +3,7 @@ import {
   hasRedline,
   parseRedline,
   parseRedlineLines,
+  redlineToAmended,
   redlineToOriginal,
   serializeRedline,
   type RedlineSegment,
@@ -92,6 +93,27 @@ describe('redlineToOriginal', () => {
   it('leaves a plain draft unchanged', () => {
     const plain = 'A brand-new ordinance with no markup.'
     expect(redlineToOriginal(plain)).toBe(plain)
+  })
+})
+
+describe('redlineToAmended', () => {
+  it('reconstructs the after text (keeps insertions, drops deletions)', () => {
+    const body =
+      'The disclaimer {-must-}{+shall+} appear for {-3-}{+[3]+} seconds.'
+    expect(redlineToAmended(body)).toBe(
+      'The disclaimer shall appear for [3] seconds.',
+    )
+  })
+
+  it('leaves a plain draft unchanged', () => {
+    const plain = 'A brand-new ordinance with no markup.'
+    expect(redlineToAmended(plain)).toBe(plain)
+  })
+
+  it('is the accepted-changes counterpart of redlineToOriginal', () => {
+    const body = 'Fee is {-$50-}{+$75+} per permit.'
+    expect(redlineToOriginal(body)).toBe('Fee is $50 per permit.')
+    expect(redlineToAmended(body)).toBe('Fee is $75 per permit.')
   })
 })
 
