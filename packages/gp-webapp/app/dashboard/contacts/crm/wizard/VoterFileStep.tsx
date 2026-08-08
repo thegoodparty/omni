@@ -67,7 +67,9 @@ export default function VoterFileStep({
 }: VoterFileStepProps) {
   // Political party doesn't apply to an elected official's constituent file —
   // same exclusion FiltersSheet applies today. Contacts Made is Win-only the
-  // same way (campaign activity has no Serve equivalent).
+  // same way (campaign activity has no Serve equivalent), and so is Voter
+  // Likelihood: an elected official serves everyone in the district, so
+  // segmenting constituents by how reliably they vote has no Serve meaning.
   const orderIndex = (key: string) => {
     const index = FIELD_ORDER_BELOW_SUPPORT_STATUS.indexOf(key)
     return index === -1 ? FIELD_ORDER_BELOW_SUPPORT_STATUS.length : index
@@ -78,7 +80,8 @@ export default function VoterFileStep({
     .filter(
       (field) =>
         field.key !== CONTACTS_MADE_FIELD_KEY &&
-        (!isElectedOfficial || field.key !== 'political_party'),
+        (!isElectedOfficial ||
+          (field.key !== 'political_party' && field.key !== 'voter_likely')),
     )
     .sort((a, b) => orderIndex(a.key) - orderIndex(b.key))
 
