@@ -767,6 +767,17 @@ describe('ordinance-flow present_* tool builders', () => {
       )
     })
 
+    it('applyDraftEdit is a no-op (no supersede) when the body is unchanged', async () => {
+      await seedRunningLoop()
+
+      const result = await tools.applyDraftEdit(ordinanceId, electedOfficeId, {
+        body: 'Section 1. Existing text.',
+      })
+
+      expect(result).toEqual({ applied: true })
+      expect(await loopStatus()).toBe(OrdinanceQualityLoopStatus.running)
+    })
+
     it('saveAuthority supersedes a running loop', async () => {
       await seedRunningLoop()
 

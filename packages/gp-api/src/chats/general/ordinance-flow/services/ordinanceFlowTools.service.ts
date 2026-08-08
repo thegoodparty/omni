@@ -306,6 +306,9 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     { applied: true } | { applied: false; reason: 'missing_redline' }
   > {
     const o = await this.findOwned(ordinanceId, electedOfficeId)
+    // No-op: the model echoed the current body unchanged. Don't rewrite it or
+    // supersede a running quality loop over a change that isn't there.
+    if (edit.body === o.draftBody) return { applied: true }
     // Reject BEFORE writing: a compliant edit always wraps its change in {-/+}
     // redline. A changed body with none means the model rewrote in place
     // without tracking it — committing that would corrupt the draft (and break
