@@ -437,15 +437,15 @@ describe('DraftDetail chat-applied edits', () => {
     })
 
     // The chat drawer is open, so the editor behind it is aria-hidden; it has
-    // still been reseeded with the applied redline.
+    // still been reseeded with the applied redline. (The "Accept all changes"
+    // header button stays hidden while the drawer is open by design, so it is
+    // not asserted here — its visibility is covered without the drawer in
+    // DraftDetail.qualityLoop.test.tsx.)
     const body = screen.getByRole('textbox', {
       name: 'Ordinance draft body',
       hidden: true,
     })
     expect(body.innerText).toContain('{-$50-}{+$75+}')
-    expect(
-      screen.getByRole('button', { name: /accept all changes/i, hidden: true }),
-    ).toBeInTheDocument()
   })
 
   it('leaves the editor untouched when the turn changed nothing', async () => {
@@ -465,13 +465,13 @@ describe('DraftDetail chat-applied edits', () => {
       await mocks.draftChatProps.current?.onTurnComplete?.()
     })
 
-    expect(
-      screen.queryByRole('button', {
-        name: /accept all changes/i,
-        hidden: true,
-      }),
-    ).not.toBeInTheDocument()
+    // No divergence from the server, so nothing is reseeded or persisted.
     expect(mocks.updateOrdinance).not.toHaveBeenCalled()
+    const body = screen.getByRole('textbox', {
+      name: 'Ordinance draft body',
+      hidden: true,
+    })
+    expect(body.innerText).toBe('The fee is $50.')
   })
 })
 

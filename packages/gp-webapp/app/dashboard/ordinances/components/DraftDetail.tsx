@@ -697,7 +697,10 @@ export default function DraftDetail({
             Draft details
           </h1>
           <div className="ml-auto flex items-center gap-3">
-            {!isAmendment && bodyHasRedline && !loopRunning ? (
+            {/* Hidden while the chat is open: the AI may be mid-apply, and a
+                click then would accept the stale pre-edit body and silently
+                drop the change the chat just wrote. */}
+            {!isAmendment && bodyHasRedline && !loopRunning && !chatOpen ? (
               <Button
                 type="button"
                 size="small"
