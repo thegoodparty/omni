@@ -632,7 +632,11 @@ export default function AskAiChatBody({
 
   const onComposerKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
+      // isComposing: don't send on the Enter that commits an IME candidate
+      // (CJK and other composed input) — it would fire a half-composed
+      // message and swallow the confirmation. The Textarea variant of this
+      // composer already guards this; keep the Input variant in step.
+      if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
         e.preventDefault()
         void onSend()
       }

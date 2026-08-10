@@ -816,7 +816,14 @@ export default function AiChatBody({
               ta.style.height = `${sh}px`
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
+              // isComposing: don't send on the Enter that commits an IME
+              // candidate (CJK and other composed input) — it would fire a
+              // half-composed message and swallow the confirmation.
+              if (
+                e.key === 'Enter' &&
+                !e.shiftKey &&
+                !e.nativeEvent.isComposing
+              ) {
                 e.preventDefault()
                 void onSend()
               }
