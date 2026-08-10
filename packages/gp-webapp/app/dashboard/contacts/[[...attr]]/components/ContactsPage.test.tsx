@@ -37,7 +37,9 @@ vi.mock('app/dashboard/shared/ProUpgradeModal', () => ({
   ProUpgradeModal: () => null,
   VARIANTS: { Second_NonViable: 'second-nonviable' },
 }))
-vi.mock('../../crm/person/PersonOverlay', () => ({ default: () => null }))
+vi.mock('../../crm/person/PersonOverlay', () => ({
+  default: () => <div data-testid="person-overlay" />,
+}))
 vi.mock('./ContactsTable', () => ({
   default: () => <div data-testid="contacts-table" />,
 }))
@@ -62,6 +64,8 @@ const setContext = (overrides: Partial<ContextValue>) => {
     searchTerm: '',
     totalSegmentContacts: 0,
     isVoterDataUnavailable: false,
+    isDistrictUnresolvable: false,
+    voterDataUnavailable: false,
     isWinContext: false,
     isWinContextReady: true,
     ...overrides,
@@ -207,8 +211,11 @@ describe('ContactsPage — table search', () => {
 })
 
 describe('ContactsPage — ineligible (voter data unavailable) state', () => {
+  // The reactive path (assertVoterDataEligibility 400s from a district-carrying
+  // org). The provider derives voterDataUnavailable as the union, so a fixture
+  // setting only the reactive flag would express a state it can never produce.
   it('renders the ineligible message and hides the table when voter data is unavailable', () => {
-    setContext({ isVoterDataUnavailable: true })
+    setContext({ isVoterDataUnavailable: true, voterDataUnavailable: true })
 
     render(<ContactsPage />)
 
@@ -220,7 +227,11 @@ describe('ContactsPage — ineligible (voter data unavailable) state', () => {
   })
 
   it('renders the contacts table when voter data is available', () => {
-    setContext({ isVoterDataUnavailable: false })
+    setContext({
+      isVoterDataUnavailable: false,
+      isDistrictUnresolvable: false,
+      voterDataUnavailable: false,
+    })
 
     render(<ContactsPage />)
 
@@ -228,5 +239,40 @@ describe('ContactsPage — ineligible (voter data unavailable) state', () => {
     expect(
       screen.queryByText('Voter data not available for your district'),
     ).not.toBeInTheDocument()
+  })
+
+  // The proactive predicate gates the contacts query, so the 400 that used to
+  // set isVoterDataUnavailable never happens. Reading the reactive flag alone
+  // would render the normal layout here — and ContactsStatsSection would then
+  // fire GET /v1/contacts/stats and 400.
+  it('renders the ineligible message from the proactive predicate alone', () => {
+    setContext({
+      isVoterDataUnavailable: false,
+      isDistrictUnresolvable: true,
+      voterDataUnavailable: true,
+    })
+
+    render(<ContactsPage />)
+
+    expect(
+      screen.getByText('Voter data not available for your district'),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId('contacts-table')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('stats')).not.toBeInTheDocument()
+  })
+
+  // The overlay opens purely off the URL, and a district-gated personQuery reports
+  // pending/idle, so neither its loading nor its error branch fires — a deep link
+  // would drop a dataless sheet over the ineligible message.
+  it('mounts no person overlay when voter data is unavailable', () => {
+    setContext({
+      isVoterDataUnavailable: false,
+      isDistrictUnresolvable: true,
+      voterDataUnavailable: true,
+    })
+
+    render(<ContactsPage />)
+
+    expect(screen.queryByTestId('person-overlay')).not.toBeInTheDocument()
   })
 })

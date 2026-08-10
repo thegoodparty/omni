@@ -16,7 +16,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@styleguide'
-import { APP_BASE } from 'appEnv'
+import { APP_SHARE_BASE } from 'appEnv'
 import { cn } from '@styleguide/lib/utils'
 import type { Briefing } from '@shared/briefings/types'
 import {
@@ -317,7 +317,9 @@ function ShareAction({
 }
 
 function buildShareUrl(briefingId: string): string {
-  return `${APP_BASE}/api/v1/briefings/${briefingId}`
+  // Must be APP_SHARE_BASE, not APP_BASE: only the app's own origin proxies
+  // /api/v1/* through to gp-api. APP_BASE is the marketing origin in prod.
+  return `${APP_SHARE_BASE}/api/v1/briefings/${briefingId}`
 }
 
 function buildSubtext(briefing: Briefing): string {

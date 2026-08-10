@@ -16,6 +16,15 @@ vi.mock('gpApi/typed-request', () => ({
   clientRequest: (...args: unknown[]) => mockClientRequest(...args),
 }))
 
+// The count effect now short-circuits when the org has no resolvable district —
+// both count paths resolve one server-side, so they could only 400.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({
+    slug: 'campaign-1',
+    positionName: 'Mayor',
+    district: { id: 'd1', l2Type: 'City', l2Name: 'Austin' },
+  }),
+}))
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [{ id: 1, hasFreeTextsOffer: false }],
 }))

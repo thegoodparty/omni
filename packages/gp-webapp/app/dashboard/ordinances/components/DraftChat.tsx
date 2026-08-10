@@ -28,11 +28,16 @@ export default function DraftChat({
   seedText = '',
   seedNonce = 0,
   autoDictate = false,
+  onTurnComplete,
 }: {
   ordinance: Ordinance
   seedText?: string
   seedNonce?: number
   autoDictate?: boolean
+  // Fired when a chat turn finishes. A review turn may have applied an edit to
+  // the draft via apply_draft_edit, so the host refetches and reseeds the
+  // editor to surface the tracked change.
+  onTurnComplete?: () => void
 }): React.JSX.Element {
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [composer, setComposer] = useState(seedText)
@@ -178,7 +183,9 @@ export default function DraftChat({
           if (!conversationId) return
           const text = composer
           setComposer('')
-          void send(conversationId, text)
+          // send resolves when the turn (and its tail drain) finishes; only
+          // then is any apply_draft_edit write settled server-side.
+          void send(conversationId, text).then(() => onTurnComplete?.())
         }}
         disabled={sending || !conversationId}
         inputRef={inputRef}

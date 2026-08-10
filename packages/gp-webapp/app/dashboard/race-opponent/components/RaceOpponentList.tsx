@@ -27,6 +27,7 @@ import type {
   RaceOpponentSummarySection,
 } from 'gpApi/api-endpoints'
 import type { RaceOpponentSourceType } from '@goodparty_org/contracts'
+import DashboardNavHeaderAction from '../../shared/DashboardNavHeaderAction'
 import OpponentOverviewCard from './OpponentOverviewCard'
 import SourceRow from './SourceRow'
 import OpponentResearchProgress from './OpponentResearchProgress'
@@ -673,27 +674,31 @@ const RaceOpponentList = ({
         )
       ) : (
         <section className="flex flex-col gap-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex flex-col gap-0.5">
-              <h2 className="text-lg font-semibold text-foreground">
-                {data.opponents.length}{' '}
-                {data.opponents.length === 1 ? 'candidate' : 'candidates'} filed
-                for this seat
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                We identified and ranked every candidate running{' '}
-                {racePlace ? <>for {racePlace}</> : 'in your race'}.
-              </p>
-            </div>
+          {/* The page's primary action, so it sits top right in the title bar
+              (DashboardLayout's navHeader) rather than beside the field header
+              — the same place Voter Data puts its primary action. Sized
+              !h-8/!w-8 to clear the bar's fixed h-14. */}
+          <DashboardNavHeaderAction>
             <IconButton
               variant="outline"
-              className="!h-9 !w-9"
+              className="!h-8 !w-8"
               onClick={exportBriefs}
               disabled={!hasExportableBrief || exporting}
               aria-label="Export brief"
             >
               <DownloadIcon className="h-4 w-4" aria-hidden />
             </IconButton>
+          </DashboardNavHeaderAction>
+          <div className="flex flex-col gap-0.5">
+            <h2 className="text-lg font-semibold text-foreground">
+              {data.opponents.length}{' '}
+              {data.opponents.length === 1 ? 'candidate' : 'candidates'} filed
+              for this seat
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              We identified and ranked every candidate running{' '}
+              {racePlace ? <>for {racePlace}</> : 'in your race'}.
+            </p>
           </div>
           {/* type=single + collapsible: one opponent open at a time, and
                 clicking the open row collapses it. Opens the primary threat by

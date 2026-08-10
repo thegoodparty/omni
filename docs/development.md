@@ -39,7 +39,7 @@ npm run dev       -w candidate-sites # :4001
 
 gp-api also talks directly to people-db (`src/peopleDb/`)
 via a second Prisma client — set `PEOPLE_DATABASE_URL` in gp-api's local env to
-point it at a people-db instance; see `packages/gp-api/src/peopleDb/CLAUDE.md`.
+point it at a people-db instance; see `packages/gp-api/src/peopleDb/AGENTS.md`.
 
 ## Prisma
 
@@ -51,10 +51,10 @@ npm run generate:prisma:gp-api     # one service
 ```
 
 gp-api migrations run from inside its workspace (`npm run migrate:dev -w gp-api`).
-See `packages/gp-api/prisma/CLAUDE.md`.
+See `packages/gp-api/prisma/AGENTS.md`.
 
 ## Per-app detail
 
-Before deep work in an app, read its `CLAUDE.md` (commands, patterns, gotchas):
-`packages/gp-api/CLAUDE.md`, `packages/gp-webapp/CLAUDE.md`, and the nested ones in
+Before deep work in an app, read its `AGENTS.md` (commands, patterns, gotchas):
+`packages/gp-api/AGENTS.md`, `packages/gp-webapp/AGENTS.md`, and the nested ones in
 feature folders.

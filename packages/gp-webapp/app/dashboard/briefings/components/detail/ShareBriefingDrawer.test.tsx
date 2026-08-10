@@ -7,8 +7,19 @@ import ShareBriefingDrawer from './ShareBriefingDrawer'
 
 const COPIED_FEEDBACK_MS = 1500
 
+// Two distinct origins on purpose. In prod `APP_BASE` is the MARKETING origin
+// (goodparty.org), which has no /api/v1/* proxy — a share link built from it
+// 404s for every recipient. `APP_SHARE_BASE` is the app's own origin, where
+// middleware proxies /api/v1/* to gp-api. Hoisted so the (also hoisted)
+// vi.mock factory can close over them without hitting the TDZ.
+const { MARKETING_BASE, APP_SHARE_BASE } = vi.hoisted(() => ({
+  MARKETING_BASE: 'https://goodparty.example',
+  APP_SHARE_BASE: 'https://app.goodparty.example',
+}))
+
 vi.mock('appEnv', () => ({
-  APP_BASE: 'https://goodparty.example',
+  APP_BASE: MARKETING_BASE,
+  APP_SHARE_BASE,
 }))
 
 vi.mock('helpers/analyticsHelper', () => ({
@@ -23,7 +34,7 @@ vi.mock('helpers/analyticsHelper', () => ({
 }))
 
 const BRIEFING_ID = '01923456-7891-7abc-8def-0123456789ab'
-const SHARE_URL = `https://goodparty.example/api/v1/briefings/${BRIEFING_ID}`
+const SHARE_URL = `${APP_SHARE_BASE}/api/v1/briefings/${BRIEFING_ID}`
 
 const briefingStub = {
   experiment_id: 'x',
@@ -110,6 +121,19 @@ describe('<ShareBriefingDrawer>', () => {
     expect(screen.getByTestId('share-briefing-url')).toHaveTextContent(
       SHARE_URL,
     )
+  })
+
+  it('builds the share URL on the app origin, never the marketing origin', () => {
+    // Regression lock. The share URL used to be built from `APP_BASE`, which
+    // in prod is the marketing origin (goodparty.org). That host is served by
+    // a different deployment with no /api/v1/* proxy, so every share link
+    // 404'd. Only the app origin proxies through to gp-api.
+    renderOpen()
+    const pill = screen.getByTestId('share-briefing-url')
+    expect(pill).toHaveTextContent(
+      `${APP_SHARE_BASE}/api/v1/briefings/${BRIEFING_ID}`,
+    )
+    expect(pill.textContent).not.toContain(MARKETING_BASE)
   })
 
   it('renders an inline Copy button next to the URL pill', () => {

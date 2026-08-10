@@ -1,10 +1,9 @@
 import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
 import pageMetaData from 'helpers/metadataHelper'
 import { serverRequest } from 'gpApi/server-request'
-import { PageHeader } from '@styleguide'
-import { SwordsIcon } from '@styleguide/components/ui/icons'
 import candidateAccess from '../shared/candidateAccess'
 import DashboardLayout from '../shared/DashboardLayout'
+import { NAV_LABELS } from '../shared/navLabels'
 import RaceOpponentList from './components/RaceOpponentList'
 import OpponentProLockedView from './components/OpponentProLockedView'
 import type { RaceOpponentResponse } from 'gpApi/api-endpoints'
@@ -67,24 +66,11 @@ export default async function Page(): Promise<React.JSX.Element> {
         pathname="/dashboard/race-opponent"
         showAlert={false}
         wrapperClassName="flex flex-col !p-0"
+        // The shared title bar every main nav page uses (the Voter Data page is
+        // the reference), so the icon + name match the sidebar tab exactly.
+        // This replaced the feature-local PageHeader bar.
+        navHeader={{ icon: 'flag', label: NAV_LABELS.knowYourOpponent }}
       >
-        {/* Desktop-only, like the DashboardNavHeader it replaced: on mobile
-            the title lives in MobileMenuTrigger's top bar (MOBILE_PAGE_TITLES
-            in DashboardLayout), so rendering this below lg would stack two
-            title bars with duplicate h1s. */}
-        <PageHeader
-          className="max-lg:hidden"
-          barClassName="h-14 border-border bg-background px-0"
-          contentClassName="mx-auto max-w-[608px] gap-2"
-          heading={
-            <span className="text-sm font-semibold text-foreground">
-              Know Your Opponent
-            </span>
-          }
-          leading={
-            <SwordsIcon className="size-5 text-foreground" aria-hidden />
-          }
-        />
         <div className="flex-1 bg-muted px-4 py-6 lg:px-8">
           <OpponentProLockedView />
         </div>
@@ -119,19 +105,11 @@ export default async function Page(): Promise<React.JSX.Element> {
       pathname="/dashboard/race-opponent"
       showAlert={false}
       wrapperClassName="flex flex-col !p-0"
+      // The report state's "Export brief" portals into the bar
+      // (RaceOpponentList); the processing and empty states have no CTA, and the
+      // bar tracks that itself.
+      navHeader={{ icon: 'flag', label: NAV_LABELS.knowYourOpponent }}
     >
-      {/* Desktop-only — see the non-Pro branch's note. */}
-      <PageHeader
-        className="max-lg:hidden"
-        barClassName="h-14 border-border bg-background px-0"
-        contentClassName="mx-auto max-w-[608px] gap-2"
-        heading={
-          <span className="text-sm font-semibold text-foreground">
-            Know Your Opponent
-          </span>
-        }
-        leading={<SwordsIcon className="size-5 text-foreground" aria-hidden />}
-      />
       <div className="flex-1 bg-muted px-4 py-6 lg:px-8">
         <RaceOpponentList
           initialData={initialData}

@@ -1,10 +1,11 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { Accordion, Button, Card } from '@styleguide'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import { IS_PROD } from 'appEnv'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { buildTrackerStrategy } from './buildTrackerStrategy'
 import {
   isVoterContactFlowType,
@@ -74,15 +75,58 @@ const CampaignStrategySection = (): React.JSX.Element => {
     return buildTrackerStrategy(tasks, { electionDate })
   }, [tasks, electionDateIso])
 
+  // Fires only once `strategy` exists, so it means "the candidate actually saw
+  // their tasks" — not merely that the route loaded (the page view already
+  // covers that, and it can't tell the rendered tracker from the loading,
+  // error, or still-bootstrapping states). A candidate who reads their static
+  // rows and leaves before the dynamic ones land still saw the tracker, so this
+  // deliberately does not wait for `isGeneratingDynamic` to clear; `taskCount`
+  // is what distinguishes a static-only view from a fully populated one.
+  //
+  // Guarded once per *mount*, not once per campaign. The ref only exists to
+  // swallow the hook's poll-driven re-renders within a single visit — a later
+  // visit is a real second view and must fire again, or the event can't measure
+  // return engagement at all. So this deliberately does not use the
+  // module-scoped Map that `CampaignPlanView` keeps for its resource-lifecycle
+  // events: those describe one generation per page load, this describes a view.
+  const trackedCampaignRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!strategy || !campaign?.id) return
+    if (trackedCampaignRef.current === campaign.id) return
+    trackedCampaignRef.current = campaign.id
+    // The Active phase carries its tasks in `weeks` with `groups` emptied, and
+    // its navigator opens on the current week (falling back to the last). Count
+    // that one week rather than every week: `weeks` accumulates all generations,
+    // so summing them would make taskCount climb week over week no matter what
+    // the candidate is actually looking at.
+    const rendered = strategy.phases.flatMap((phase) => {
+      if (!phase.weeks) return phase.groups.flatMap((group) => group.tasks)
+      const open =
+        phase.weeks.find((week) => week.isCurrent) ??
+        phase.weeks[phase.weeks.length - 1]
+      return open?.tasks ?? []
+    })
+    trackEvent(EVENTS.Dashboard.CampaignPlan.CampaignTrackerViewed, {
+      taskCount: rendered.length,
+      tasksCompleted: rendered.filter((task) => task.completed).length,
+      activePhase:
+        strategy.phases.find((phase) => phase.status === 'active')?.key ??
+        'none',
+    })
+  }, [strategy, campaign?.id])
+
   // Open the phase(s) the candidate is in now; fall back to the first phase.
-  const openPhases = (strategy?.phases ?? [])
+  const autoOpenable = (strategy?.phases ?? []).filter(
+    (phase) => phase.key !== 'preLaunch',
+  )
+  const openPhases = autoOpenable
     .filter((phase) => phase.status === 'active')
     .map((phase) => phase.key)
   const defaultOpen =
     openPhases.length > 0
       ? openPhases
-      : strategy?.phases[0]
-        ? [strategy.phases[0].key]
+      : autoOpenable[0]
+        ? [autoOpenable[0].key]
         : []
 
   return (
@@ -111,9 +155,6 @@ const CampaignStrategySection = (): React.JSX.Element => {
               Generate tasks
             </Button>
           )}
-          <span className="text-primary mt-1 text-xs font-semibold tracking-wide uppercase">
-            You are here
-          </span>
         </div>
       </div>
       {isPending ? (

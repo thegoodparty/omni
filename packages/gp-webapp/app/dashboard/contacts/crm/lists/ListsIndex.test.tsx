@@ -80,6 +80,7 @@ beforeEach(() => {
     lastOutreach: undefined,
     isLoading: false,
     isError: false,
+    isGated: false,
   })
   mockedUseDuplicateList.mockReturnValue({
     mutate: vi.fn(),
@@ -308,6 +309,7 @@ describe('ListsIndex — count affordance', () => {
       lastOutreach: undefined,
       isLoading: false,
       isError: false,
+      isGated: false,
     })
     setContext({ customSegments: [{ id: 47, name: 'Exactly 10k list' }] })
 
@@ -324,6 +326,7 @@ describe('ListsIndex — outreach subtitle', () => {
       lastOutreach: undefined,
       isLoading: false,
       isError: false,
+      isGated: false,
     })
     setContext({ customSegments: [{ id: 44, name: 'Fresh list' }] })
 
@@ -345,11 +348,92 @@ describe('ListsIndex — outreach subtitle', () => {
       },
       isLoading: false,
       isError: false,
+      isGated: false,
     })
     setContext({ customSegments: [{ id: 45, name: 'Texted list' }] })
 
     render(<ListsIndex />)
 
     expect(screen.getByText(/^Last outreach /)).toBeInTheDocument()
+  })
+})
+
+// GET /v1/contacts/list-detail is pro-gated server-side, but the row fetched it
+// on mount with no gate, so a non-pro user 400d on page load without touching
+// anything. That was the whole [contacts] GET /v1/contacts/list-detail alert.
+describe('ListsIndex — pro gating on saved-list rows', () => {
+  it('does not enable the row detail fetch for a non-pro user', () => {
+    setContext({
+      customSegments: [{ id: 42, name: 'My list' }],
+      canUseProFeatures: false,
+    })
+
+    render(<ListsIndex />)
+
+    expect(mockedUseListRowDetail).toHaveBeenCalledWith(42, false)
+  })
+
+  it('enables the row detail fetch for a pro user', () => {
+    setContext({
+      customSegments: [{ id: 42, name: 'My list' }],
+      canUseProFeatures: true,
+    })
+
+    render(<ListsIndex />)
+
+    expect(mockedUseListRowDetail).toHaveBeenCalledWith(42, true)
+  })
+
+  it('does not open the sheet when a non-pro user clicks a row Details', async () => {
+    setContext({
+      customSegments: [{ id: 42, name: 'My list' }],
+      canUseProFeatures: false,
+    })
+    const user = userEvent.setup()
+
+    render(<ListsIndex />)
+
+    // Two Details buttons render: the universe row first, then the saved list.
+    const detailsButtons = screen.getAllByRole('button', { name: 'Details' })
+    await user.click(detailsButtons[1]!)
+
+    expect(selectList).not.toHaveBeenCalled()
+  })
+
+  it('opens the sheet when a pro user clicks a row Details', async () => {
+    setContext({
+      customSegments: [{ id: 42, name: 'My list' }],
+      canUseProFeatures: true,
+    })
+    const user = userEvent.setup()
+
+    render(<ListsIndex />)
+
+    const detailsButtons = screen.getAllByRole('button', { name: 'Details' })
+    await user.click(detailsButtons[1]!)
+
+    expect(selectList).toHaveBeenCalledWith(42)
+  })
+
+  it('shows the Pro lock affordance instead of a bare dash when gated', () => {
+    mockedUseListRowDetail.mockReturnValue({
+      peopleCount: undefined,
+      lastOutreach: undefined,
+      isLoading: false,
+      isError: false,
+      isGated: true,
+    })
+    setContext({
+      customSegments: [{ id: 42, name: 'My list' }],
+      canUseProFeatures: false,
+    })
+
+    render(<ListsIndex />)
+
+    expect(screen.getByText('Pro')).toBeInTheDocument()
+    expect(
+      screen.getByText('Upgrade to Pro to see outreach history'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Unavailable')).not.toBeInTheDocument()
   })
 })

@@ -36,6 +36,7 @@ import {
   STATUS_LABELS,
 } from './statusPresentation'
 import type { PolygonRing } from './VoterMapCanvas'
+import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 
 const VoterMapCanvas = dynamic(() => import('./VoterMapCanvas'), {
   ssr: false,
@@ -56,11 +57,21 @@ export default function NativeDoorKnockingPage({
   campaign,
 }: NativeDoorKnockingPageProps) {
   const queryClient = useQueryClient()
-  const packQuery = useQuery(voterPackQueryOptions)
+  // The pack and every turf read resolve a district server-side
+  // (resolveEligibleDistrictId), so without one they can only 400 — and a turf
+  // cannot be drawn against a district we can't identify.
+  const { isUnresolvable } = useDistrictResolution()
+  const packQuery = useQuery({
+    ...voterPackQueryOptions,
+    enabled: !isUnresolvable,
+  })
   // Set while a walk records knocks; leaving the walk then refetches the
   // pack so the landing dots pick up the new statuses.
   const packDirtyRef = useRef(false)
-  const turfsQuery = useQuery(turfsQueryOptions)
+  const turfsQuery = useQuery({
+    ...turfsQueryOptions,
+    enabled: !isUnresolvable,
+  })
   const [flowStep, setFlowStep] = useState<CreateFlowStep | null>(null)
   const [filters, setFilters] = useState<VoterFileFilters>({})
   const [ring, setRing] = useState<PolygonRing | null>(null)
@@ -395,7 +406,17 @@ export default function NativeDoorKnockingPage({
                 : 'relative min-w-0 flex-1'
             }
           >
-            {packQuery.isPending && (
+            {/* Before the isPending branch: a district-gated query is neither
+                pending-with-a-request nor errored, so that branch would
+                otherwise spin forever. */}
+            {isUnresolvable && (
+              <p className="p-4 text-sm text-muted-foreground">
+                Voter data is not available for this office yet, so there is no
+                map to draw turfs on. Contact support at help@goodparty.org and
+                our team can set this up for you.
+              </p>
+            )}
+            {!isUnresolvable && packQuery.isPending && (
               <div className="flex h-full items-center justify-center">
                 <LoadingAnimation />
               </div>

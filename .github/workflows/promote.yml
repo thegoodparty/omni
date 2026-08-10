@@ -106,7 +106,7 @@ jobs:
           # filters, so they run on every main push. E2E lives inside gp-webapp.yml.
           # Every workflow here runs on every push to main (none is path-filtered),
           # so each has a run for the commit. E2E lives inside gp-webapp.yml.
-          REQUIRED="gp-api.yml election-api.yml gp-webapp.yml gp-admin.yml candidate-sites.yml publish-experiments.yml"
+          REQUIRED="gp-api.yml election-api.yml gp-webapp.yml gp-admin.yml candidate-sites.yml publish-experiments.yml gp-ai.yml"
           # Budget must exceed a slow-but-healthy E2E path: E2E Wait (45m job
           # timeout) + shards (30m) + summary (15m). 120m clears it with margin.
           DEADLINE=$(( $(date +%s) + 120*60 ))
@@ -372,6 +372,218 @@ jobs:
   # deployments:write anyway. `needs` every deploy job, so a Deployment is recorded
   # only when the whole promotion succeeded — the source of truth for what shipped
   # (post_release_summary.py reads it).
+
+  # Does a full set of gp-ai images exist for the promoted commit?
+  #
+  # gp-ai.yml builds all five on every main push, so the normal answer is yes and
+  # this is a safety net rather than routine control flow. It still earns its
+  # place for two cases:
+  #
+  #   workflow_dispatch of an older SHA — commits predating unconditional builds
+  #   have no images, and pinning terraform to tags that were never pushed would
+  #   make ECS fail the pull, trip the circuit breaker, and churn prod task
+  #   definitions for nothing. This is the ONLY legitimate zero-image case; on a
+  #   recent main push it means the build failed, hence a warning not a notice.
+  #
+  #   a PARTIAL set — one build failed. That is NOT a skip: promoting would
+  #   leave prod running a mix of new and stale services, so it fails loudly.
+  gp-ai-images:
+    name: Check gp-ai images
+    needs: gate
+    if: needs.gate.outputs.promote == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      deploy: ${{ steps.check.outputs.deploy }}
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check for a full image set
+        id: check
+        env:
+          SHA: ${{ needs.gate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          found=0; missing=0; absent=""
+          # KEEP IN SYNC with the "Build service matrix" step in gp-ai.yml, which
+          # holds the same five names. A service added there but not here is
+          # never image-checked, so promotion would pin terraform to a tag that
+          # may not exist and let ECS fail the pull in prod.
+          for s in broker pmf-engine serve-analyze ddhq-matcher engineer-agent; do
+            if aws ecr describe-images --repository-name gp-ai-projects \
+                 --image-ids "imageTag=$s-$SHA" --region "$AWS_REGION" >/dev/null 2>&1; then
+              found=$((found+1))
+            else
+              missing=$((missing+1)); absent="$absent $s"
+            fi
+          done
+          if [ "$missing" -eq 0 ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            echo "All 5 gp-ai images present for $SHA; promoting gp-ai."
+          elif [ "$found" -eq 0 ]; then
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No gp-ai images for $SHA. gp-ai.yml builds all five on every main push, so for a recent main commit this is UNEXPECTED and means the build failed or never pushed — investigate. It is only expected for a workflow_dispatch of a SHA predating unconditional builds. Skipping gp-ai promotion."
+          else
+            echo "::error::Partial gp-ai image set for $SHA ($found present,$absent missing). A build failed; refusing to promote a mixed set."
+            exit 1
+          fi
+
+  gp-ai:
+    name: Promote gp-ai
+    needs: [gate, gp-ai-images]
+    if: needs.gate.outputs.promote == 'true' && needs.gp-ai-images.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: gp-ai-deploy-prod
+      cancel-in-progress: false
+    env:
+      APPLY_DIR: /tmp/tfapply
+      PLAN_DIR: /tmp/tfplans
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          persist-credentials: false
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      # Both artifacts are consumed at PLAN time, so they must exist before any
+      # root is planned or applied.
+      - name: Build pmf-engine lambda package
+        working-directory: packages/gp-ai
+        run: bash pmf_engine/scripts/build_lambda_package.sh
+
+      - name: Build serve-analyze lambda trigger
+        working-directory: packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger
+        run: |
+          npm ci
+          npm run build
+
+      # Same SHA-pinned images dev already proved — nothing is rebuilt here, the
+      # tags are the artifacts the dev deploy verified. Parallel rather than
+      # ordered for the same reason as dev: the roots' remote_state graph is
+      # cyclic, so no topological order exists and the convergence pass below is
+      # what actually catches a stale cross-root read.
+      - name: apply prod/agent-experiment-metadata
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/agent-experiment-metadata
+      - name: apply prod/agent-run-inputs
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/agent-run-inputs
+      - name: apply prod/campaign-plan-lambda
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/campaign-plan-lambda
+      - name: apply prod/clickup-bot
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/clickup-bot
+      - name: apply prod/pmf-engine-control-plane
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/pmf-engine-control-plane
+      - name: apply prod/broker
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/broker broker-${{ needs.gate.outputs.sha }}
+      - name: apply prod/pmf-engine-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/pmf-engine-fargate pmf-engine-${{ needs.gate.outputs.sha }}
+      - name: apply prod/serve-analyze-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/serve-analyze-fargate serve-analyze-${{ needs.gate.outputs.sha }}
+      - name: apply prod/ddhq-matcher-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/ddhq-matcher-fargate ddhq-matcher-${{ needs.gate.outputs.sha }}
+      - name: apply prod/engineer-agent-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/engineer-agent-fargate engineer-agent-${{ needs.gate.outputs.sha }}
+      - name: apply prod/shared-infra
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/shared-infra
+
+      - wait-all:
+
+      - name: reverify prod/agent-experiment-metadata
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/agent-experiment-metadata
+      - name: reverify prod/agent-run-inputs
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/agent-run-inputs
+      - name: reverify prod/campaign-plan-lambda
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/campaign-plan-lambda
+      - name: reverify prod/clickup-bot
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/clickup-bot
+      - name: reverify prod/pmf-engine-control-plane
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/pmf-engine-control-plane
+      - name: reverify prod/broker
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/broker broker-${{ needs.gate.outputs.sha }}
+      - name: reverify prod/pmf-engine-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/pmf-engine-fargate pmf-engine-${{ needs.gate.outputs.sha }}
+      - name: reverify prod/serve-analyze-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/serve-analyze-fargate serve-analyze-${{ needs.gate.outputs.sha }}
+      - name: reverify prod/ddhq-matcher-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/ddhq-matcher-fargate ddhq-matcher-${{ needs.gate.outputs.sha }}
+      - name: reverify prod/engineer-agent-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/engineer-agent-fargate engineer-agent-${{ needs.gate.outputs.sha }}
+      - name: reverify prod/shared-infra
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/shared-infra
+
+      - wait-all:
+
+      - name: Convergence check
+        run: |
+          set -uo pipefail
+          shopt -s nullglob
+          files=("$PLAN_DIR"/*.code)
+          expected=$(find packages/gp-ai/infrastructure/environments/prod -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+          if [ "${#files[@]}" -ne "$expected" ]; then
+            echo "::error::expected $expected re-plan results but found ${#files[@]}; a root produced no output and its convergence is unknown"
+            for f in "${files[@]}"; do echo "  got: $(basename "$f" .code)"; done
+            exit 1
+          fi
+          bad=0
+          for f in "${files[@]}"; do
+            root=$(basename "$f" .code)
+            code=$(cat "$f")
+            if [ "$code" != "0" ]; then
+              echo "::error::$root did not converge (plan exit $code after apply)"
+              tail -40 "$PLAN_DIR/$root.txt" || true
+              bad=1
+            fi
+          done
+          [ "$bad" -eq 0 ] || exit 1
+          echo "all ${#files[@]} roots converged (expected $expected)"
+
+      # A successful apply is not proof prod is running the promoted commit:
+      # broker's circuit breaker rolls a bad image back and the service settles
+      # on the OLD revision while the apply still reports success.
+      - name: Verify prod is running the promoted commit
+        run: bash packages/gp-ai/infrastructure/scripts/ci-verify-deployed.sh prod ${{ needs.gate.outputs.sha }}
+
   finalize:
     name: Record prod deployment
     needs:
@@ -383,9 +595,22 @@ jobs:
         gp-admin,
         candidate-sites,
         publish-experiments,
+        gp-ai-images,
+        gp-ai,
       ]
     # An explicit `if` drops the implicit success() of `needs`, so check each
     # deploy job's result — otherwise a partial promotion records a false success.
+    #
+    # gp-ai needs BOTH clauses. A skipped gp-ai is legitimate on its own (nothing
+    # to promote), but it is also what happens when gp-ai-images does not produce
+    # outputs — whether it FAILED (partial image set) or was CANCELLED (runner
+    # timeout, infra). Either way gp-ai's `if` is false and it skips, and
+    # accepting that skip alone would record a successful production deployment
+    # precisely when the image gate never cleared.
+    #
+    # Allowlist rather than `!= 'failure'`: the negative form lets `cancelled`
+    # through. gp-ai-images can only legitimately be `skipped` when promotion is
+    # off entirely, which the first clause already blocks.
     if: |
       needs.gate.outputs.promote == 'true' &&
       needs.gp-api.result == 'success' &&
@@ -393,7 +618,9 @@ jobs:
       needs.gp-webapp.result == 'success' &&
       needs.gp-admin.result == 'success' &&
       needs.candidate-sites.result == 'success' &&
-      (needs.publish-experiments.result == 'success' || needs.publish-experiments.result == 'skipped')
+      (needs.publish-experiments.result == 'success' || needs.publish-experiments.result == 'skipped') &&
+      (needs.gp-ai-images.result == 'success' || needs.gp-ai-images.result == 'skipped') &&
+      (needs.gp-ai.result == 'success' || needs.gp-ai.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read

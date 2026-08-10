@@ -193,7 +193,10 @@ export const EVENTS = {
   Dashboard: {
     CampaignPlan: {
       GenerationCompleted: 'Dashboard - Campaign Plan Generation Completed',
+      // The legacy dashboard task checklist (story-off cohort only). The
+      // campaign tracker that replaced it fires CampaignTrackerViewed below.
       Viewed: 'Dashboard - Campaign Plan Viewed',
+      CampaignTrackerViewed: 'Campaign Plan - Campaign Tracker Viewed',
       WeekNavigated: 'Dashboard - Campaign Plan Week Navigated',
       TaskCTAClicked: 'Dashboard - Campaign Plan Task CTA Clicked',
       TaskStatusUpdated: 'Dashboard - Campaign Task Status Updated',
@@ -392,6 +395,11 @@ export const EVENTS = {
     SegmentUpdated: 'Contacts - Segment Updated',
     SegmentViewed: 'Contacts - Segment Viewed',
     OutreachTimelineViewed: 'Contacts - Outreach Timeline Viewed',
+    // Fires once per page entry when the org has no resolvable district, so the
+    // page can only offer the support handoff. 437 active campaigns are in that
+    // state; this measures how many actually land here, which is what would
+    // justify building self-serve remediation.
+    VoterDataUnavailable: 'Contacts - Voter Data Unavailable',
     // ENG-10767: the CRM contacts assistant (crm/assistant/). Opened fires
     // once per drawer open with { context, source: 'message' | 'history' }
     // (a bar submit opens with a message; a history pick opens a past

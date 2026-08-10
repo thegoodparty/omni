@@ -16,7 +16,8 @@
 #   <slug>.destroy  count of resources the plan would delete
 set -uo pipefail
 
-root="${1:?usage: ci-plan-root.sh <env>/<root>}"
+root="${1:?usage: ci-plan-root.sh <env>/<root> [image-tag]}"
+image_tag="${2:-}"
 slug="${root//\//-}"
 plan_dir="${PLAN_DIR:-/tmp/tfplans}"
 mkdir -p "$plan_dir"
@@ -54,8 +55,9 @@ if ! terraform init -input=false -no-color >"$plan_dir/$slug.txt" 2>&1; then
   exit 0
 fi
 
-terraform plan -input=false -no-color -detailed-exitcode -out=tfplan \
-  >>"$plan_dir/$slug.txt" 2>&1
+plan_args=(-input=false -no-color -detailed-exitcode -out=tfplan)
+[ -n "$image_tag" ] && plan_args+=(-var "docker_image_tag=$image_tag")
+terraform plan "${plan_args[@]}" >>"$plan_dir/$slug.txt" 2>&1
 code=$?
 echo "$code" >"$plan_dir/$slug.code"
 
@@ -71,7 +73,11 @@ replaces=0
 if [ "$code" = "2" ] && [ -f tfplan ]; then
   json=$(terraform show -json tfplan 2>/dev/null || echo '{}')
   destroys=$(jq '[.resource_changes[]? | select(.change.actions == ["delete"])] | length' <<<"$json" 2>/dev/null || echo 0)
+  # Excludes aws_ecs_task_definition: an image-tag change always replaces the
+  # revision, so counting it would fire the destroy/replace warning on every
+  # single deploy and train reviewers to ignore the banner.
   replaces=$(jq '[.resource_changes[]?
+                  | select(.type != "aws_ecs_task_definition")
                   | select((.change.actions | index("delete")) and (.change.actions | index("create")))]
                  | length' <<<"$json" 2>/dev/null || echo 0)
 fi

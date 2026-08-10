@@ -110,7 +110,7 @@ screenshot`, `open <url>`, the `run` skill, or anything else that launches a
   (story ids are in `https://style.goodparty.org/index.json`). To learn a
   component's API, read its story source in `packages/styleguide/src/stories/`.
   Storybook — not the component source — is the canonical catalog; details in
-  `packages/prototypes/CLAUDE.md`.
+  `packages/prototypes/AGENTS.md`.
 
 If the server won't start, check port 4002 isn't already in use (`lsof -i :4002`)
 and that `packages/prototypes` exists. If the package isn't there, its scaffold is
@@ -126,7 +126,7 @@ Responsiveness is the product here. Optimize the loop:
   `/model sonnet` + medium effort. And when you fan work out, dispatch subagents
   explicitly on **`model: sonnet`, `effort: medium`** so the heavy lifting always
   runs lean regardless of the main model.
-- **Context is pre-loaded; don't re-explore.** `packages/prototypes/CLAUDE.md`
+- **Context is pre-loaded; don't re-explore.** `packages/prototypes/AGENTS.md`
   carries the reference you need every session — the `<AppShell>` API, the
   org/tab model, and where components and tokens live. Read it once; don't re-grep
   the styleguide each turn.

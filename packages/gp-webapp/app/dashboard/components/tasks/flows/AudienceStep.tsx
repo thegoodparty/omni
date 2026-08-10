@@ -34,6 +34,7 @@ import { useP2pUxEnabled } from 'app/dashboard/components/tasks/flows/hooks/P2pU
 import { PhoneListInput } from 'helpers/createP2pPhoneList'
 import { AUTO_VOTER_FILTER_NAME_PATTERN } from 'app/dashboard/components/tasks/flows/util/flowHandlers.util'
 import { fetchListDetail } from 'app/dashboard/contacts/crm/lists/useListRowDetail'
+import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 import type { ListDetailReachability } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import { REACHABILITY_CHANNELS } from 'app/dashboard/contacts/crm/shared/reachabilityChannels'
 
@@ -127,6 +128,7 @@ export default function AudienceStep({
   const [listSize, setListSize] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [countError, setCountError] = useState<CountVoterFileError | null>(null)
+  const { isUnresolvable } = useDistrictResolution()
   // Tracks the latest count request so out-of-order responses can be dropped.
   // See useEffect below.
   const countRequestIdRef = useRef(0)
@@ -325,6 +327,21 @@ export default function AudienceStep({
     // support, so the network call still completes — we just ignore it.
     const requestId = ++countRequestIdRef.current
 
+    // Both count paths below resolve a district server-side, so without one they
+    // can only 400. Surfaced through the existing unpriceable-audience channel
+    // with the message this file already carries for exactly this condition.
+    if (isUnresolvable) {
+      setCountError({
+        ok: false,
+        message: MISSING_L2_DISTRICT_DATA_DEFAULT_MESSAGE,
+      })
+      setCount(0)
+      setListSize(null)
+      setLoading(false)
+      onChangeCallback('voterCount', 0)
+      return
+    }
+
     // A selected saved list drives the audience server-side from its persisted
     // fields; the checkbox-based live count doesn't apply to it.
     if (selectedList) {
@@ -444,6 +461,7 @@ export default function AudienceStep({
     selectedList,
     reachabilityKey,
     onChangeCallback,
+    isUnresolvable,
   ])
 
   const handleChangeAudience = (newState: AudienceFiltersState) => {

@@ -32,6 +32,7 @@ export interface RedlineDoc {
 // Loose shape for reading editor.getJSON() back; TipTap's JSONContent (which has
 // more optional fields) is assignable to it.
 export interface RedlineJsonNode {
+  type?: string
   content?: RedlineJsonNode[]
   text?: string
   marks?: { type: string }[]
@@ -59,6 +60,11 @@ export const markupToDoc = (body: string): RedlineDoc => ({
 })
 
 const nodeToMarkup = (node: RedlineJsonNode): string => {
+  // A hard break (Shift+Enter, or a soft return from a paste) carries no text
+  // node, so serialize it as a newline instead of dropping it — otherwise the
+  // line break vanishes on save. It reloads as a paragraph break, which reads
+  // identically under whitespace-pre-wrap.
+  if (node.type === 'hardBreak') return '\n'
   const text = node.text ?? ''
   // Check every mark, not just the first: a node could carry another mark
   // alongside the redline one, and marks[0] might not be the redline mark.
