@@ -1,11 +1,13 @@
 /**
  * The drawer prefers the live origin over the APP_SHARE_BASE constant, because
  * NEXT_PUBLIC_VERCEL_BRANCH_URL is absent in preview builds and the constant
- * resolves to `https://undefined` there. Point jsdom at the same origin the
- * mock below returns, so these assertions keep testing the share URL rather
- * than jsdom's default localhost.
+ * resolves to `https://undefined` there. jsdom is pointed at an origin that
+ * matches NEITHER mocked constant on purpose: if it matched APP_SHARE_BASE,
+ * every assertion below would pass whether the component read the live origin
+ * or the constant, and the marketing-origin regression lock would hold
+ * vacuously.
  *
- * @vitest-environment-options { "url": "https://app.goodparty.example" }
+ * @vitest-environment-options { "url": "https://preview-xyz.vercel.app" }
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
@@ -43,7 +45,9 @@ vi.mock('helpers/analyticsHelper', () => ({
 }))
 
 const BRIEFING_ID = '01923456-7891-7abc-8def-0123456789ab'
-const SHARE_URL = `${APP_SHARE_BASE}/api/v1/briefings/${BRIEFING_ID}`
+// Matches the jsdom origin in the docblock above, not either mocked constant.
+const LIVE_ORIGIN = 'https://preview-xyz.vercel.app'
+const SHARE_URL = `${LIVE_ORIGIN}/api/v1/briefings/${BRIEFING_ID}`
 
 const briefingStub = {
   experiment_id: 'x',
@@ -132,17 +136,18 @@ describe('<ShareBriefingDrawer>', () => {
     )
   })
 
-  it('builds the share URL on the app origin, never the marketing origin', () => {
-    // Regression lock. The share URL used to be built from `APP_BASE`, which
-    // in prod is the marketing origin (goodparty.org). That host is served by
-    // a different deployment with no /api/v1/* proxy, so every share link
-    // 404'd. Only the app origin proxies through to gp-api.
+  it('builds the share URL on the live origin, never the marketing origin', () => {
+    // Regression lock, guarding two separate outages. The share URL used to be
+    // built from `APP_BASE` — in prod the marketing origin (goodparty.org),
+    // served by a different deployment with no /api/v1/* proxy, so every share
+    // link 404'd. It then read the APP_SHARE_BASE constant, which is
+    // `https://undefined` on preview builds. Only the live origin is right
+    // everywhere, so assert against it and rule out BOTH constants.
     renderOpen()
     const pill = screen.getByTestId('share-briefing-url')
-    expect(pill).toHaveTextContent(
-      `${APP_SHARE_BASE}/api/v1/briefings/${BRIEFING_ID}`,
-    )
+    expect(pill).toHaveTextContent(SHARE_URL)
     expect(pill.textContent).not.toContain(MARKETING_BASE)
+    expect(pill.textContent).not.toContain(APP_SHARE_BASE)
   })
 
   it('renders an inline Copy button next to the URL pill', () => {

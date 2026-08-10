@@ -44,9 +44,7 @@ export class BriefingSeedService extends createPrismaBase(
       throw new ForbiddenException('Seeding is disabled in this environment')
     }
 
-    // Re-seeding a date repoints the briefing's experimentRunId, and nothing
-    // cascades from MeetingBriefing back to ExperimentRun — so minting a new
-    // run every time would leave the previous one dereferenced forever.
+    const artifactKey = `briefing-seed/${electedOffice.id}/${body.meetingDate}.json`
     const existing = await this.model.findUnique({
       where: {
         electedOfficeId_meetingDate: {
@@ -57,17 +55,31 @@ export class BriefingSeedService extends createPrismaBase(
       select: { experimentRunId: true },
     })
 
+    // Recycle only a run this endpoint created — matched on the seed's own
+    // deterministic artifactKey. Two failure modes bound this: minting a run
+    // every re-seed leaves the previous one dereferenced forever (nothing
+    // cascades from MeetingBriefing back to ExperimentRun), while blindly
+    // reusing whatever run is attached would overwrite a REAL agent run's
+    // artifact pointer with the seed's, orphaning the real artifact in S3 and
+    // serving dummy data for that briefing from then on.
+    const priorSeedRun = existing?.experimentRunId
+      ? await this.client.experimentRun.findFirst({
+          where: { runId: existing.experimentRunId, artifactKey },
+          select: { runId: true },
+        })
+      : null
+
     const runData = {
       organizationSlug: electedOffice.organizationSlug,
       experimentType: 'meeting_briefing',
       status: ExperimentRunStatus.COMPLETED,
       artifactBucket: SEED_BUCKET,
-      artifactKey: `briefing-seed/${electedOffice.id}/${body.meetingDate}.json`,
+      artifactKey,
     }
 
-    const run = existing?.experimentRunId
+    const run = priorSeedRun
       ? await this.client.experimentRun.update({
-          where: { runId: existing.experimentRunId },
+          where: { runId: priorSeedRun.runId },
           data: runData,
         })
       : await this.client.experimentRun.create({ data: runData })

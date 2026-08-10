@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { v7 as uuidv7 } from 'uuid'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { ExperimentRunStatus } from '../../generated/prisma'
+import { parseIsoDateAsUTC } from 'src/shared/util/date.util'
 
 const service = useTestService()
 
@@ -165,6 +166,42 @@ describe('POST /v1/meetings/briefings/seed', () => {
       where: { organizationSlug: eoOrgSlug },
     })
     expect(runs).toHaveLength(1)
+  })
+
+  it('leaves a real agent run intact when seeding over its briefing', async () => {
+    stubS3()
+
+    const realRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: eoOrgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'real-bucket',
+        artifactKey: 'real/agent/artifact.json',
+      },
+    })
+    await service.prisma.meetingBriefing.create({
+      data: {
+        electedOfficeId: eoId,
+        meetingDate: parseIsoDateAsUTC(MEETING_DATE),
+        meetingTime: '18:00',
+        meetingTimezone: 'America/New_York',
+        experimentRunId: realRun.runId,
+        artifactBucket: 'real-bucket',
+        artifactKey: 'real/agent/artifact.json',
+        artifact: {},
+      },
+    })
+
+    await service.client.post(`${BASE}/briefings/seed`, seedBody(), eoHeaders())
+
+    // The seed must never repoint a real run at its own artifact — doing so
+    // orphans the real object in S3 and serves dummy data thereafter.
+    const preserved = await service.prisma.experimentRun.findUnique({
+      where: { runId: realRun.runId },
+    })
+    expect(preserved?.artifactBucket).toBe('real-bucket')
+    expect(preserved?.artifactKey).toBe('real/agent/artifact.json')
   })
 
   it('returns 403 when OTEL_SERVICE_ENVIRONMENT is a customer env (prod)', async () => {
