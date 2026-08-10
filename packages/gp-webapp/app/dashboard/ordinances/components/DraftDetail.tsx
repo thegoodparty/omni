@@ -961,7 +961,14 @@ export default function DraftDetail({
               Ask the agent about this ordinance draft.
             </DrawerDescription>
           </DrawerHeader>
-          <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-4 pb-4 pt-3">
+          {/* vaul makes drawer content unselectable on desktop
+              ([data-vaul-drawer]{user-select:none}) and treats a click-drag as
+              a drawer drag. Re-enable selection and mark this region no-drag so
+              the user can highlight and copy the chat (e.g. proposed edits). */}
+          <div
+            data-vaul-no-drag
+            className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-4 pb-4 pt-3 select-text"
+          >
             <DraftChat
               ordinance={ordinance}
               seedText={chatSeed}
