@@ -164,6 +164,9 @@ export default function OrdinanceFlowChat({
   const stepValue = isOrdinanceStep(step) ? step : null
 
   const [phase, setPhase] = useState<Phase>(stepValue ? 'loading' : 'error')
+  // Bumped by the error page's "Try again" to re-run init after a transient
+  // load failure, so the error state isn't a dead end.
+  const [retryNonce, setRetryNonce] = useState(0)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [ordinanceTitle, setOrdinanceTitle] = useState<string | null>(null)
   const [answers, setAnswers] = useState<Record<string, string>>({})
@@ -379,7 +382,7 @@ export default function OrdinanceFlowChat({
     return () => {
       cancelled = true
     }
-  }, [slug, stepValue])
+  }, [slug, stepValue, retryNonce])
 
   const { scrollRef, onScroll } = usePinnedAutoScroll([
     messages,
@@ -417,11 +420,41 @@ export default function OrdinanceFlowChat({
   }
 
   if (phase === 'error' || !stepValue) {
+    // Two different failures shared one misleading "check the link" message. A
+    // missing/invalid step segment IS a bad link; a load/create failure with a
+    // valid step is usually transient and shouldn't be a dead end, so offer a
+    // retry instead of blaming a link the user may never have entered.
+    const badLink = !stepValue
     return (
       <div className="flex h-[calc(100dvh-4rem)] w-full flex-col bg-background lg:h-dvh">
-        <div className="mx-auto flex h-full w-full max-w-3xl flex-1 flex-col items-center justify-center p-6 text-center text-tertiary">
-          We couldn&apos;t open this ordinance step. Check the link and try
-          again.
+        <div className="mx-auto flex h-full w-full max-w-3xl flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
+          <p className="text-tertiary">
+            {badLink
+              ? "This link doesn't point to a valid ordinance step."
+              : "We couldn't load this step. This is usually a temporary hiccup."}
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {badLink ? null : (
+              <Button
+                type="button"
+                onClick={() => {
+                  setPhase('loading')
+                  setRetryNonce((n) => n + 1)
+                }}
+                className="rounded-full"
+              >
+                Try again
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant={badLink ? undefined : 'outline'}
+              onClick={() => router.push('/dashboard/ordinances')}
+              className="rounded-full"
+            >
+              Back to ordinances
+            </Button>
+          </div>
         </div>
       </div>
     )
