@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { DoorKnockingRoutePayload } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
@@ -78,6 +78,23 @@ const routePayload: DoorKnockingRoutePayload = {
   ],
 }
 
+// Every fixture stop has one resident, so clicking the stop row opens the
+// person sheet directly (multi-resident stops expand instead).
+const openPersonSheet = async (address: string) => {
+  await waitFor(() => expect(screen.getByText(address)).toBeInTheDocument())
+  fireEvent.click(screen.getByText(address))
+  await waitFor(() =>
+    expect(screen.getByText('Log this door')).toBeInTheDocument(),
+  )
+}
+
+const closePersonSheet = async () => {
+  fireEvent.click(
+    screen.getAllByRole('button', { name: 'Close person details' }).pop()!,
+  )
+  await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
+}
+
 describe('WalkView', () => {
   beforeEach(() => {
     testQueryClient.clear()
@@ -87,21 +104,22 @@ describe('WalkView', () => {
     })
   })
 
-  it('renders stops in seq order with route totals', async () => {
-    render(<WalkView turfId={3} turfName="Elm loop" onBack={vi.fn()} />)
+  it('renders stops in seq order with totals and the reached counter', async () => {
+    render(<WalkView turfId={3} />)
 
     await waitFor(() =>
       expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
     )
-    expect(screen.getByText(/2 stops · 31 min/)).toBeInTheDocument()
+    expect(screen.getByText(/2 doors · 31m/)).toBeInTheDocument()
+    expect(screen.getByText('1/2 reached')).toBeInTheDocument()
     const items = screen.getAllByRole('listitem')
-    expect(within(items[0] as HTMLElement).getByText('105 Elm St')).toBeTruthy()
+    expect(within(items[0] as HTMLElement).getByText('Dorian Fen')).toBeTruthy()
     expect(
-      within(items[1] as HTMLElement).getByText('210 Cedar Row'),
+      within(items[1] as HTMLElement).getByText('Marisol Vega'),
     ).toBeTruthy()
   })
 
-  it('records an answered knock and recolors from the response', async () => {
+  it('records an answered knock through the person sheet', async () => {
     const posted: unknown[] = []
     api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
       posted.push(body)
@@ -111,17 +129,12 @@ describe('WalkView', () => {
       }
     })
 
-    render(<WalkView turfId={3} turfName="Elm loop" onBack={vi.fn()} />)
-
-    await waitFor(() =>
-      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
-    )
-    fireEvent.click(screen.getByText('105 Elm St'))
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
     expect(
       screen.getByText('May have moved since this route was built.'),
     ).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Record' }))
     fireEvent.click(screen.getByRole('radio', { name: 'Answered' }))
     fireEvent.click(
       within(
@@ -141,15 +154,12 @@ describe('WalkView', () => {
     )
     expect(posted[0]).not.toHaveProperty('willVote')
 
-    const elmStop = screen.getAllByRole('listitem')[0] as HTMLElement
-    await waitFor(() =>
-      expect(within(elmStop).getAllByText('Supporter').length).toBeGreaterThan(
-        0,
-      ),
-    )
+    // Sheet closes and the reached counter reflects the new status.
+    await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
+    expect(screen.getByText('2/2 reached')).toBeInTheDocument()
   })
 
-  it('replays the same clientKey when the form is closed and reopened', async () => {
+  it('replays the same clientKey when the sheet is closed and reopened', async () => {
     const keys: string[] = []
     let failFirst = true
     api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
@@ -164,21 +174,16 @@ describe('WalkView', () => {
       }
     })
 
-    render(<WalkView turfId={3} turfName="Elm loop" onBack={vi.fn()} />)
-
-    await waitFor(() =>
-      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
-    )
-    fireEvent.click(screen.getByText('105 Elm St'))
-    fireEvent.click(screen.getByRole('button', { name: 'Record' }))
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
     fireEvent.click(screen.getByRole('radio', { name: 'Not home' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
     await waitFor(() => expect(keys).toHaveLength(1))
 
-    // Close and reopen the form — the remount must not mint a new key,
+    // Close and reopen the sheet — the remount must not mint a new key,
     // or the server-side upsert can't dedupe the retry.
-    fireEvent.click(screen.getByRole('button', { name: 'Record' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Record' }))
+    await closePersonSheet()
+    await openPersonSheet('105 Elm St')
     fireEvent.click(screen.getByRole('radio', { name: 'Not home' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
     await waitFor(() => expect(keys).toHaveLength(2))
@@ -195,21 +200,14 @@ describe('WalkView', () => {
       }
     })
 
-    render(<WalkView turfId={3} turfName="Elm loop" onBack={vi.fn()} />)
-
-    await waitFor(() =>
-      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
-    )
-    fireEvent.click(screen.getByText('105 Elm St'))
-    fireEvent.click(screen.getByRole('button', { name: 'Record' }))
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
     fireEvent.click(screen.getByRole('radio', { name: 'Not home' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
     await waitFor(() => expect(keys).toHaveLength(1))
+    await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
 
-    // A confirmed save retires the key: a later, genuinely new knock on the
-    // same person must NOT replay it, or the upsert would overwrite the
-    // first interaction instead of recording a second one.
-    fireEvent.click(screen.getByRole('button', { name: 'Record' }))
+    await openPersonSheet('105 Elm St')
     fireEvent.click(screen.getByRole('radio', { name: 'Not home' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
     await waitFor(() => expect(keys).toHaveLength(2))
@@ -226,13 +224,8 @@ describe('WalkView', () => {
       }
     })
 
-    render(<WalkView turfId={3} turfName="Elm loop" onBack={vi.fn()} />)
-
-    await waitFor(() =>
-      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
-    )
-    fireEvent.click(screen.getByText('105 Elm St'))
-    fireEvent.click(screen.getByRole('button', { name: 'Record' }))
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
     // Pick answers first, then flip to Not home — the answers must not leak.
     fireEvent.click(screen.getByRole('radio', { name: 'Answered' }))
     fireEvent.click(
