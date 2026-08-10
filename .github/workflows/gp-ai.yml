@@ -295,9 +295,25 @@ jobs:
 
       # Both artifacts are consumed at PLAN time (archive_file / filebase64sha256),
       # not just at apply, so they must exist before any plan runs.
+      # campaign_plan_lambda/build.sh drives `uv export` + `uv pip install`. The
+      # pmf-engine build gets by on the runner's python3 -m pip; this one does
+      # not, so uv must be present wherever gp-ai artifacts are built.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: latest
+
       - name: Build pmf-engine lambda package
         working-directory: packages/gp-ai
         run: bash pmf_engine/scripts/build_lambda_package.sh
+      # Terraform reads this zip via fileexists(...) ? filebase64sha256(...) : null.
+      # If it is missing the hash resolves to null, no diff is detected, and the
+      # plan comes back CLEAN while the lambda's code silently never updates —
+      # which is how campaign-plan sat frozen at 2026-07-08.
+      - name: Build campaign-plan lambda zip
+        working-directory: packages/gp-ai
+        run: bash campaign_plan_lambda/build.sh
+
 
       - name: Build serve-analyze lambda trigger
         working-directory: packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger

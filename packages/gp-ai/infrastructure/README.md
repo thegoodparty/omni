@@ -18,7 +18,10 @@ This infrastructure is designed for **scalable AI pipeline processing**:
 - **URL**: `333022194791.dkr.ecr.us-west-2.amazonaws.com/gp-ai-projects`
 - **Region**: us-west-2
 - **Purpose**: Shared Docker image repository for all AI projects
-- **Terraform**: `infrastructure/shared/ecr/`
+- **Management**: manual (AWS console). Orphaned from Terraform on 2026-08-10 —
+  it is the one resource here with no environment dimension, so it belongs to no
+  env's deploy. Six roots used to read its state; they now resolve the repo live
+  via `data.aws_ecr_repository`, which needs no state and no hardcoded account id.
 
 ### Terraform State Bucket
 - **Name**: `goodparty-terraform-state-us-west-2`
@@ -147,15 +150,12 @@ Application Load Balancer              S3 Notification
 
 ### Complete Deployment (First Time)
 
-#### Step 1: Deploy Shared ECR Repository
-```bash
-cd infrastructure/shared/ecr
-AWS_PROFILE=work terraform init
-AWS_PROFILE=work terraform apply
-```
+#### Step 1: ECR Repository — nothing to deploy
 
-**What this creates:**
-- ECR Repository: `gp-ai-projects` (333022194791.dkr.ecr.us-west-2.amazonaws.com/gp-ai-projects)
+The `gp-ai-projects` repository
+(`333022194791.dkr.ecr.us-west-2.amazonaws.com/gp-ai-projects`) already exists and
+is managed manually in the console, not by Terraform. It is the one resource here
+with no environment dimension, so it belongs to no env's deploy. Skip to step 2.
 
 #### Step 2: Build and Push Docker Image
 ```bash

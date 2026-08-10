@@ -250,18 +250,15 @@ TAG_CONFIG = {
 
 Two separate paths. Do not mix them.
 
-**One-time prerequisite — the deploy IAM role must exist first.** The deploy
-workflow assumes the `github-actions-lambda-deploy` role created by
-`infrastructure/shared/github-actions-iam`, which nothing in CI applies. For any
-change that introduces or re-points a workflow at that role, `terraform apply` that
-stack BEFORE merging, or the triggered deploy dies at the configure-aws-credentials
-step and the new handler never ships. The same apply removes Lambda deploy
-permissions from the old `github-actions-ecr-push` role, so the workflow change must
-be promoted through `qa` and `prod` immediately afterward — see the rollout section
-in `infrastructure/shared/github-actions-iam/README.md`. This is the one case where
-a terraform apply legitimately precedes the code merge; the code-first rule below
-applies to this environment's own terraform (`infrastructure/environments/prod/clickup-bot/`),
-not the shared IAM stack.
+**Code deploys with the promotion train.** As of 2026-08-10 Terraform owns this
+Lambda's code: a merge to `main` applies it to prod through `promote.yml`, the
+same as every other gp-ai component. There is no separate deploy workflow and no
+IAM role to provision.
+
+It previously worked the other way — Terraform seeded the code and
+`deploy-clickup-bot.yml` owned updates — because applies were hand-run from local
+checkouts and a stale one could roll prod back. CI-only applies from the promoted
+SHA removed that risk, and that workflow did not survive the move to omni.
 
 **Rollout ordering — code first, then config.** When a change touches both the
 handler and terraform, merge/push to `prod` and confirm the deploy workflow succeeded
@@ -285,7 +282,7 @@ is written so each half is safe alone:
    pins async `maximum_retry_attempts = 0`. The apply is what ACTIVATES both
    fast-ack and atomic dedup — until then the bot runs exactly the old flow.
 
-**Code** deploys automatically via `.github/workflows/deploy-clickup-bot.yml` on push
+**Code** deploys with the promotion train (Terraform owns it; see above)
 to `prod` (paths: `clickup_bot/**`). The workflow runs `clickup_bot/tests/` first and
 blocks the deploy if they fail. No manual zip/upload. There is no `clickup-bot-dev`
 Lambda — only `clickup-bot-prod` exists, so the workflow deploys prod only.

@@ -247,10 +247,23 @@ resource "aws_iam_role_policy" "clickup_bot_self_invoke" {
   })
 }
 
-# Seeds the function code at creation time ONLY. After creation, code deploys
-# exclusively via .github/workflows/deploy-clickup-bot.yml (aws lambda
-# update-function-code); the lifecycle block below stops terraform from
-# reverting CI-deployed code on later applies (e.g. from a stale checkout).
+# Terraform owns this Lambda's code, as of 2026-08-10.
+#
+# It used to only seed the code at creation, with an ignore_changes on filename
+# and source_code_hash, because deploys were hand-run `terraform apply` from
+# whatever a developer had checked out — a stale checkout could silently roll
+# prod code back, so .github/workflows/deploy-clickup-bot.yml was made the single
+# code writer instead.
+#
+# Both halves of that premise are gone. Applies run in CI from the exact promoted
+# SHA, never a laptop, so there is no stale checkout to defend against; and that
+# workflow did not come across in the move to omni, which left this Lambda's code
+# with no deploy path at all. Dropping ignore_changes puts it back on the
+# promotion train with every other gp-ai component.
+#
+# archive_file's hash is stable for unchanged source (verified against prod:
+# two consecutive plans produced the same target hash), so this does not churn
+# the function on every apply.
 data "archive_file" "lambda_zip" {
   type        = "zip"
   source_file = "${path.module}/../../../clickup_bot/lambda/handler.py"
@@ -276,12 +289,6 @@ resource "aws_lambda_function" "clickup_bot" {
   timeout     = 120
   memory_size = 128
 
-  # Terraform manages config and IAM only. GitHub Actions is the single code
-  # writer; without this, any `terraform apply` would upload the applier's
-  # local handler.py and could silently roll prod code back.
-  lifecycle {
-    ignore_changes = [filename, source_code_hash]
-  }
 
   environment {
     variables = merge(
