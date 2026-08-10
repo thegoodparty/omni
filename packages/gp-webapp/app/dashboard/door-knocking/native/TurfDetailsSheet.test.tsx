@@ -10,9 +10,10 @@ import TurfDetailsSheet from './TurfDetailsSheet'
 // outside its provider.
 vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
 const successSnackbar = vi.fn()
+const errorSnackbar = vi.fn()
 vi.mocked(useSnackbar).mockReturnValue({
   successSnackbar,
-  errorSnackbar: vi.fn(),
+  errorSnackbar,
 } as unknown as ReturnType<typeof useSnackbar>)
 
 const turf = (overrides: Partial<DoorKnockingTurf> = {}): DoorKnockingTurf => ({
@@ -37,14 +38,25 @@ const turf = (overrides: Partial<DoorKnockingTurf> = {}): DoorKnockingTurf => ({
   ...overrides,
 })
 
-const renderSheet = (
-  overrides: Partial<DoorKnockingTurf> = {},
+// `live` is what GET /turfs reports, which is what the affordance reads —
+// separate from the prop so the stale-snapshot case is expressible.
+const renderSheet = ({
+  prop = {},
+  live,
   onDeleted = vi.fn(),
-) => {
+}: {
+  prop?: Partial<DoorKnockingTurf>
+  live?: Partial<DoorKnockingTurf>
+  onDeleted?: () => void
+} = {}) => {
   api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+  api.mock('GET /v1/door-knocking/turfs', {
+    status: 200,
+    data: [turf(live ?? prop)],
+  })
   render(
     <TurfDetailsSheet
-      turf={turf(overrides)}
+      turf={turf(prop)}
       areaStats={null}
       onClose={vi.fn()}
       onDeleted={onDeleted}
@@ -56,13 +68,25 @@ const renderSheet = (
 describe('TurfDetailsSheet delete', () => {
   beforeEach(() => {
     testQueryClient.clear()
+    successSnackbar.mockClear()
+    errorSnackbar.mockClear()
   })
 
   // gp-api's assertNotLocked 409s on a knocked turf, so offering the button
   // there would only ever produce an error.
   it('offers delete only while the turf is unlocked', () => {
-    renderSheet({ locked: true })
+    renderSheet({ prop: { locked: true } })
     expect(screen.queryByLabelText('Delete Elm St & 5th')).toBeNull()
+  })
+
+  // The prop is a snapshot taken when the row was clicked, so a turf knocked
+  // since then must not still offer delete.
+  it('retires the affordance when the live row is locked but the prop is stale', async () => {
+    renderSheet({ prop: { locked: false }, live: { locked: true } })
+
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Delete Elm St & 5th')).toBeNull(),
+    )
   })
 
   it('deletes after confirmation and hands the turf back to the page', async () => {
@@ -86,7 +110,9 @@ describe('TurfDetailsSheet delete', () => {
     expect(successSnackbar).toHaveBeenCalled()
   })
 
-  it('explains a 409 in the dialog instead of closing it', async () => {
+  // A 409 means someone knocked it mid-sheet, which is permanent. Leaving the
+  // dialog open would re-enable a Delete that can only 409 again.
+  it('closes the confirm and explains out of band on a 409', async () => {
     api.mock('DELETE /v1/door-knocking/turfs/:id', {
       status: 409,
       data: { message: 'frozen' },
@@ -96,10 +122,32 @@ describe('TurfDetailsSheet delete', () => {
     fireEvent.click(screen.getByLabelText('Delete Elm St & 5th'))
     fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
 
-    // Still open, so the user reads why rather than watching it vanish.
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      /already been knocked/,
+    await waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(
+        expect.stringMatching(/already been knocked/),
+        expect.anything(),
+      ),
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull(),
     )
     expect(onDeleted).not.toHaveBeenCalled()
+  })
+
+  // Unlike a 409, a transient failure is worth another attempt, so the dialog
+  // holds its place with the reason inline.
+  it('keeps the confirm open with an inline error on a generic failure', async () => {
+    api.mock('DELETE /v1/door-knocking/turfs/:id', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+    renderSheet()
+
+    fireEvent.click(screen.getByLabelText('Delete Elm St & 5th'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Try again/)
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
+    expect(errorSnackbar).not.toHaveBeenCalled()
   })
 })

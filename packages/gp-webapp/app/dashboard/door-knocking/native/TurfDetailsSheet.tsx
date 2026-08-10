@@ -67,9 +67,16 @@ export default function TurfDetailsSheet({
   onDeleted,
 }: TurfDetailsSheetProps) {
   const queryClient = useQueryClient()
-  const { successSnackbar } = useSnackbar()
+  const { successSnackbar, errorSnackbar } = useSnackbar()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  // `turf` is a snapshot the page captured when the row was clicked, so its
+  // `locked` never moves on its own. Reading the live row keeps the affordance
+  // honest after a refetch — the page already runs this query, so React Query
+  // serves it from cache rather than fetching twice.
+  const turfsQuery = useQuery(turfsQueryOptions)
+  const liveTurf =
+    turfsQuery.data?.find((candidate) => candidate.id === turf.id) ?? turf
   const deleteTurf = useMutation({
     mutationFn: () =>
       clientRequest('DELETE /v1/door-knocking/turfs/:id', {
@@ -85,14 +92,20 @@ export default function TurfDetailsSheet({
     },
     onError: async (error) => {
       if (error instanceof FetchError && error.status === 409) {
-        // Someone knocked it while this sheet was open. Refetch so `locked`
-        // catches up and the affordance disappears behind the user.
-        setDeleteError(LOCKED_TURF_MESSAGE)
+        // Someone knocked it while this sheet was open, so this is permanent,
+        // not retryable: close the confirm rather than leaving an enabled
+        // Delete that can only 409 again, and explain in a snackbar that
+        // outlives the dialog. The refetch then flips liveTurf.locked and the
+        // trigger retires itself.
+        setConfirmOpen(false)
+        setDeleteError(null)
+        errorSnackbar(LOCKED_TURF_MESSAGE, { autoHideDuration: 6000 })
         await queryClient.invalidateQueries({
           queryKey: turfsQueryOptions.queryKey,
         })
         return
       }
+      // Generic failures are worth retrying, so the dialog stays put.
       setDeleteError('The list could not be deleted. Try again.')
     },
   })
@@ -146,7 +159,7 @@ export default function TurfDetailsSheet({
               Overview of this list, its route, and applied filters.
             </p>
           </div>
-          {!turf.locked && (
+          {!liveTurf.locked && (
             <Button
               size="small"
               variant="outline"
