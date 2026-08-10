@@ -46,7 +46,7 @@ export default function DraftChat({
     onChange: setComposer,
     analyticsLabel: 'ordinance-draft-chat',
   })
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
   // Opened from the launcher's mic: begin dictation on mount, while the opening
   // tap is still a fresh gesture for the permission prompt. Keyed on autoDictate
   // (fixed per mount) with dictation read through a ref — no mount-once guard, so

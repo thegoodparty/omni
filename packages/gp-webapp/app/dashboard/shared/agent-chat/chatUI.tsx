@@ -3,7 +3,7 @@
 import type { Ref, ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { cn, IconButton, Input } from '@styleguide'
+import { cn, IconButton, Textarea } from '@styleguide'
 import {
   SearchIcon,
   SendIcon,
@@ -245,18 +245,40 @@ export function ChatComposer({
   onSubmit: () => void
   disabled?: boolean
   placeholder?: string
-  inputRef?: Ref<HTMLInputElement>
+  inputRef?: Ref<HTMLTextAreaElement>
   dictation?: UseDictationAppendResult
 }): React.JSX.Element {
+  // A textarea keeps Enter for newlines, so submit is wired by hand: Enter
+  // sends, Shift+Enter inserts a break, and the Enter that commits an IME
+  // candidate (CJK and other composed input) must not send. The guard mirrors
+  // the send button's disabled state: the old input relied on a disabled
+  // default button to block Enter form-submission, so an empty or
+  // mid-dictation Enter must stay a no-op here (not every caller's onSubmit
+  // guards an empty send).
+  const submit = (): void => {
+    if (disabled || dictation?.active || value.trim().length === 0) return
+    onSubmit()
+  }
+  const onComposerKeyDown = (
+    e: React.KeyboardEvent<HTMLTextAreaElement>,
+  ): void => {
+    if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return
+    e.preventDefault()
+    submit()
+  }
   const controls = (
     <>
-      <Input
+      <Textarea
         ref={inputRef}
+        autoGrow
+        rows={1}
+        maxRows={6}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={onComposerKeyDown}
         placeholder={placeholder}
         disabled={disabled}
-        className="min-w-0 flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
+        className="min-w-0 flex-1 border-0 bg-transparent px-2 py-2.5 text-sm leading-snug shadow-none focus-visible:ring-0"
       />
       {dictation ? (
         <DictationMicButton
@@ -284,20 +306,20 @@ export function ChatComposer({
   )
   const handleSubmit = (e: React.FormEvent): void => {
     e.preventDefault()
-    // Match the send button's guard so Enter can't submit mid-dictation, which
-    // would drop the not-yet-finalized words still being spoken.
-    if (dictation?.active) return
-    onSubmit()
+    submit()
   }
+  // rounded-3xl reads as a pill at the one-line min height and stays a sane
+  // rounded rectangle once the composer grows; items-end keeps the send button
+  // on the last line of a multiline draft.
   return dictation ? (
     <form onSubmit={handleSubmit}>
-      <ChatPill innerClassName="items-center gap-1 py-1 pr-1 pl-4">
+      <ChatPill rounded="3xl" innerClassName="items-end gap-1 py-1 pr-1 pl-4">
         {controls}
       </ChatPill>
     </form>
   ) : (
     <form
-      className="flex items-center gap-1 rounded-full border border-border bg-card py-1 pr-1 pl-4"
+      className="flex min-h-12 items-end gap-1 rounded-3xl border border-border bg-card py-1 pr-1 pl-4"
       onSubmit={handleSubmit}
     >
       {controls}
