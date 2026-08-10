@@ -250,18 +250,19 @@ TAG_CONFIG = {
 
 Two separate paths. Do not mix them.
 
-**One-time prerequisite — the deploy IAM role must exist first.** The deploy
-workflow assumes the `github-actions-lambda-deploy` role created by
-`infrastructure/shared/github-actions-iam`, which nothing in CI applies. For any
-change that introduces or re-points a workflow at that role, `terraform apply` that
-stack BEFORE merging, or the triggered deploy dies at the configure-aws-credentials
-step and the new handler never ships. The same apply removes Lambda deploy
-permissions from the old `github-actions-ecr-push` role, so the workflow change must
-be promoted through `qa` and `prod` immediately afterward — see the rollout section
-in `infrastructure/shared/github-actions-iam/README.md`. This is the one case where
-a terraform apply legitimately precedes the code merge; the code-first rule below
-applies to this environment's own terraform (`infrastructure/environments/prod/clickup-bot/`),
-not the shared IAM stack.
+**No CI deploy path for this Lambda's code.** The `deploy-clickup-bot.yml`
+workflow that used to ship it lived in the `gp-ai-projects` repo and did not come
+across to omni, and this module's Terraform sets
+`ignore_changes = [filename, source_code_hash]`, so `terraform apply` maintains
+the function but deliberately does **not** update its code. The
+`github-actions-lambda-deploy` role that workflow assumed was deleted on
+2026-08-10 along with the rest of the retired gp-ai-projects IAM.
+
+Nothing is currently undeployed (no `clickup_bot/` commits since the relocate),
+but a code change here will not reach AWS until a deploy path exists. The
+straightforward fix is to drop the `ignore_changes` so the promotion train ships
+it like every other gp-ai component; use `${{ vars.AWS_ROLE_ARN }}` if a separate
+workflow is ever wanted instead.
 
 **Rollout ordering — code first, then config.** When a change touches both the
 handler and terraform, merge/push to `prod` and confirm the deploy workflow succeeded
