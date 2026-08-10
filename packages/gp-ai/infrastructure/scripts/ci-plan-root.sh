@@ -55,7 +55,12 @@ if ! terraform init -input=false -no-color >"$plan_dir/$slug.txt" 2>&1; then
   exit 0
 fi
 
-plan_args=(-input=false -no-color -detailed-exitcode -out=tfplan)
+# -lock=false: this is a throwaway plan for the PR diff comment and never writes
+# state, so it must not contend for the exclusive state lock with a real apply
+# (from the release train) on the same root. Terraform has no shared/read lock,
+# so without this a concurrent apply fails the plan on "Error acquiring the
+# state lock" — the plan can safely read against state an apply is mutating.
+plan_args=(-input=false -no-color -detailed-exitcode -out=tfplan -lock=false)
 [ -n "$image_tag" ] && plan_args+=(-var "docker_image_tag=$image_tag")
 terraform plan "${plan_args[@]}" >>"$plan_dir/$slug.txt" 2>&1
 code=$?
