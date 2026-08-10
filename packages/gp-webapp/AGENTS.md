@@ -45,7 +45,7 @@ Single trunk: `main` is the one long-lived branch and the default branch; all PR
 
 - `main` → `dev.goodparty.org` (API: `gp-api-dev.goodparty.org`)
 - PR branches → Vercel preview environments
-- `goodparty.org` (API: `api.goodparty.org`) is reached only by automated promotion — the `promote.yml` workflow waits for `main`'s checks to go green on dev, then deploys the same commit to prod. There is no manual promotion and no `qa` / `master` branch.
+- `goodparty.org` (API: `api.goodparty.org`) is reached only by the release train (`release.yml`): it deploys the commit to dev, runs the E2E, then promotes the same commit to prod. There is no manual promotion and no `qa` / `master` branch.
 
 ### Environment Config
 
@@ -102,7 +102,7 @@ Other patterns (`mockOrdered`, dynamic handlers): `docs/testing.md`.
 - **Never** commit env files. `.env.example` only.
 - **Never** push to `main` directly — open a PR.
 - **Ask first** before adding new utilities to `helpers/` (it is already a 50+ file dumping ground; check whether the helper exists). See `gpApi/AGENTS.md` for fetch-helper rules.
-- **Deploys** are automatic via Vercel on push to `main` (dev); prod is reached only via the `promote.yml` promote-on-green workflow. There is no manual deploy command.
+- **Deploys** are automatic via Vercel on push to `main` (dev); prod is reached only via the release train (`release.yml`). There is no manual deploy command.
 
 ## Navigation
 

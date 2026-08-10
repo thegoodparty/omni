@@ -126,10 +126,11 @@ packages; uv owns those subtrees. `packages/gp-ai` has no `package.json`, so the
 ## Branches and deploys
 
 One long-lived branch, `main` (the default branch). Every PR targets `main`;
-pushing to `main` deploys the dev environment and runs full CI. Prod is reached
-only by automated promotion: the `promote.yml` workflow waits for a commit's
-required checks to go green on dev, confirms it is serving there, then deploys the
-same commit to prod. There is no manual promotion and no `qa`/`master` branch.
+pushing to `main` runs the release train (`release.yml`): one serialized pipeline
+that deploys every service to dev, runs the Playwright E2E against dev, then
+promotes the same commit to prod. A burst of merges coalesces to the latest
+commit. Prod is reached only by that train, never by a direct push. There is no
+manual promotion and no `qa`/`master` branch.
 Backends deploy via Docker/ECR/Pulumi to ECS Fargate; frontends deploy via Vercel
 with deterministic PR-preview aliases. Detail in `docs/deployment.md`. The
 deployed people-api service (`dev`/`prod` only) no longer has a

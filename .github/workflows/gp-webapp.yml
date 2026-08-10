@@ -59,9 +59,7 @@ jobs:
 
   deploy:
     name: Deploy
-    if: >-
-      github.event_name == 'pull_request'
-      || (github.event_name == 'push' && github.ref_name == 'main')
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     outputs:
       url: ${{ steps.vercel.outputs.url }}
@@ -77,7 +75,7 @@ jobs:
 
       # main -> dev.goodparty.org (preview target + branch-scoped env vars, then
       # aliased); PRs get a generic preview with no alias. Production is deployed
-      # by promote.yml, not here.
+      # by the release train, not here.
       - name: Resolve deploy target
         id: ctx
         shell: bash
@@ -106,36 +104,6 @@ jobs:
           pr-alias: ${{ github.event_name == 'pull_request' && format('gp-ui-pr-{0}-good-party.vercel.app', github.event.pull_request.number) || '' }}
           api-base: ${{ steps.ctx.outputs.api_base }}
 
-  # The Storybook styleguide (packages/styleguide) ships to its own
-  # Vercel project, served at style.goodparty.org. Only on merges to main —
-  # it's a single-environment site. vercel build runs the project's configured
-  # `build-storybook` on the runner against the installed workspace deps (same
-  # as the webapp's next build), then deploys --prebuilt to the project's
-  # production target, which Vercel serves at its production domain.
-  deploy-styleguide:
-    name: Deploy styleguide
-    if: >-
-      github.event_name == 'push' && github.ref_name == 'main'
-      && vars.VERCEL_PROJECT_ID_STYLEGUIDE != ''
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: gp-webapp
-          build-contracts: 'true'
-
-      - name: Deploy to Vercel
-        uses: ./.github/actions/vercel-deploy
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_STYLEGUIDE }}
-          target: production
-
   # Run the Playwright suite against the freshly deployed preview, sharded
   # across runners to cut wall-clock. Three jobs:
   #   e2e-wait  — gates once on gp-api's (slow) deploy, so the shards don't each
@@ -154,8 +122,7 @@ jobs:
     needs: [deploy]
     if: >-
       needs.deploy.outputs.url != ''
-      && (github.event_name == 'pull_request'
-          || (github.event_name == 'push' && github.ref_name == 'main'))
+      && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     # Exposes whether this main commit's gp-api deploy was superseded by a
     # newer merge. When true, the shards (and the E2E fail-gate) skip cleanly
@@ -285,7 +252,7 @@ jobs:
       # gp-ai's services (the broker and the PMF runner) sit behind the same dev
       # stack this suite exercises. If E2E starts while they are still on the
       # previous images, a green run does not mean "this commit works on dev" —
-      # which is exactly what promote.yml gates prod on. So wait for gp-ai's
+      # which is exactly what the release train gates prod on. So wait for gp-ai's
       # Deploy dev to settle too.
       #
       # Most commits do not touch packages/gp-ai, in which case that job is
@@ -336,8 +303,7 @@ jobs:
     if: >-
       needs.deploy.outputs.url != ''
       && needs.e2e-wait.outputs.skip != 'true'
-      && (github.event_name == 'pull_request'
-          || (github.event_name == 'push' && github.ref_name == 'main'))
+      && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -429,8 +395,7 @@ jobs:
     if: >-
       always()
       && needs.deploy.outputs.url != ''
-      && (github.event_name == 'pull_request'
-          || (github.event_name == 'push' && github.ref_name == 'main'))
+      && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

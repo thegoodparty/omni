@@ -12,7 +12,7 @@ description: Use when deploying a gp-ai-projects code or infra change to an envi
 > So the branch names below refer to **that repo**, not to omni. Run this
 > procedure from a `gp-ai-projects` checkout until the omni CI and Terraform
 > automation land, at which point deploys become: merge to omni `main` → dev
-> applies automatically; prod applies via `promote.yml`. This file is replaced
+> applies automatically; prod applies via the release train (`release.yml`). This file is replaced
 > then. If you are unsure which world you are in, check whether
 > `.github/workflows/gp-ai.yml` exists in omni — if it does, this file is stale
 > and you should not be following it.

@@ -1,6 +1,6 @@
 name: gp-ai
 
-# Deliberately NO workflow-level path filter. promote.yml gates on workflow-run
+# Deliberately NO workflow-level path filter. The release train gates on workflow-run
 # conclusions, and a path-filtered workflow produces no run at all for unrelated
 # commits — which would force it into the awkward "gate only if a run exists"
 # bucket. Instead this always runs and gates internally on the `changes` job, so
@@ -90,7 +90,7 @@ jobs:
       #
       # Path-filtering the build made deployed state depend on what a commit
       # happened to touch, which produced two bugs already: an infra-only commit
-      # pinning terraform to images that were never built, and promote.yml doing
+      # pinning terraform to images that were never built, and the release train doing
       # the same on the prod side. Building unconditionally removes the whole
       # class rather than adding another guard.
       #
@@ -454,190 +454,13 @@ jobs:
               core.setFailed(`terraform plan failed for: ${errored.map(r => r.slug).join(', ')}`)
             }
 
-  # Applies every dev root, then proves the deploy actually took.
-  #
-  # Runs on EVERY main push, not only when packages/gp-ai changed. The image tag
-  # is the commit SHA, so every commit genuinely is a new artifact to roll out,
-  # and "dev runs main" holds without exceptions. The trade is that broker takes
-  # a rolling restart per main commit (wait_for_steady_state makes the job wait
-  # for healthy tasks) and each commit adds a task-definition revision.
-  #
-  # Parallel, NOT ordered. The roots read each other's terraform_remote_state and
-  # that graph is CYCLIC — broker <-> pmf-engine-control-plane <-> pmf-engine-fargate
-  # all read each other — so no topological order exists and sequencing would be
-  # false comfort. Every root applies concurrently and the convergence check
-  # below catches a stale cross-root read: if an apply consumed a value another
-  # apply then changed, the re-plan is not clean and this job fails rather than
-  # leaving dev half-converged.
-  deploy-dev:
-    name: Deploy dev
-    needs: [changes, validate, build]
-    if: >-
-      always()
-      && github.event_name == 'push'
-      && github.ref_name == 'main'
-      && needs.changes.result == 'success'
-      && needs.validate.result != 'failure'
-      && needs.validate.result != 'cancelled'
-      && needs.build.result == 'success'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    concurrency:
-      group: gp-ai-deploy-dev
-      cancel-in-progress: false
-    env:
-      APPLY_DIR: /tmp/tfapply
-      PLAN_DIR: /tmp/tfplans
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.15.8
-          terraform_wrapper: false
-
-      - name: Build pmf-engine lambda package
-        working-directory: packages/gp-ai
-        run: bash pmf_engine/scripts/build_lambda_package.sh
-
-      - name: Build serve-analyze lambda trigger
-        working-directory: packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger
-        run: |
-          npm ci
-          npm run build
-
-      # Unlike the plan steps, these exit NON-zero on failure, so wait-all
-      # short-circuits and a failed apply stops the verification that follows
-      # instead of letting it report success.
-      - name: apply dev/agent-experiment-metadata
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/agent-experiment-metadata
-      - name: apply dev/agent-run-inputs
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/agent-run-inputs
-      - name: apply dev/pmf-vpc-endpoints
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/pmf-vpc-endpoints
-      - name: apply dev/campaign-plan-lambda
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/campaign-plan-lambda
-      - name: apply dev/pmf-engine-control-plane
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/pmf-engine-control-plane
-      - name: apply dev/broker
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/broker broker-${{ github.sha }}
-      - name: apply dev/pmf-engine-fargate
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/pmf-engine-fargate pmf-engine-${{ github.sha }}
-      - name: apply dev/serve-analyze-fargate
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/serve-analyze-fargate serve-analyze-${{ github.sha }}
-      - name: apply dev/ddhq-matcher-fargate
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/ddhq-matcher-fargate ddhq-matcher-${{ github.sha }}
-      - name: apply dev/engineer-agent-fargate
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/engineer-agent-fargate engineer-agent-${{ github.sha }}
-      - name: apply dev/shared-infra
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/shared-infra
-
-      - wait-all:
-
-      # After applying, every root must plan clean. A non-clean re-plan means an
-      # apply consumed a value another apply then changed — the exact failure the
-      # cyclic remote_state graph allows.
-      - name: reverify dev/agent-experiment-metadata
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/agent-experiment-metadata
-      - name: reverify dev/agent-run-inputs
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/agent-run-inputs
-      - name: reverify dev/pmf-vpc-endpoints
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/pmf-vpc-endpoints
-      - name: reverify dev/campaign-plan-lambda
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/campaign-plan-lambda
-      - name: reverify dev/pmf-engine-control-plane
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/pmf-engine-control-plane
-      - name: reverify dev/broker
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/broker broker-${{ github.sha }}
-      - name: reverify dev/pmf-engine-fargate
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/pmf-engine-fargate pmf-engine-${{ github.sha }}
-      - name: reverify dev/serve-analyze-fargate
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/serve-analyze-fargate serve-analyze-${{ github.sha }}
-      - name: reverify dev/ddhq-matcher-fargate
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/ddhq-matcher-fargate ddhq-matcher-${{ github.sha }}
-      - name: reverify dev/engineer-agent-fargate
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/engineer-agent-fargate engineer-agent-${{ github.sha }}
-      - name: reverify dev/shared-infra
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/shared-infra
-
-      - wait-all:
-
-      - name: Convergence check
-        run: |
-          set -uo pipefail
-          bad=0
-          shopt -s nullglob
-          files=("$PLAN_DIR"/*.code)
-          # Expected count comes from the filesystem, not a hardcoded number, so
-          # adding a root without adding its reverify step is caught here.
-          # ci-plan-root.sh always exits 0 by design, so wait-all succeeding only
-          # proves the scripts ran — not that each wrote its result. A process
-          # killed between plan and write (OOM, step timeout) would otherwise be
-          # silently skipped and reported as "all 10 converged".
-          expected=$(find packages/gp-ai/infrastructure/environments/dev -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
-          if [ "${#files[@]}" -ne "$expected" ]; then
-            echo "::error::expected $expected re-plan results but found ${#files[@]}; a root produced no output and its convergence is unknown"
-            for f in "${files[@]}"; do echo "  got: $(basename "$f" .code)"; done
-            exit 1
-          fi
-          for f in "${files[@]}"; do
-            root=$(basename "$f" .code)
-            code=$(cat "$f")
-            if [ "$code" != "0" ]; then
-              echo "::error::$root did not converge (plan exit $code after apply)"
-              tail -40 "$PLAN_DIR/$root.txt" || true
-              bad=1
-            fi
-          done
-          [ "$bad" -eq 0 ] || exit 1
-          echo "all ${#files[@]} roots converged (expected $expected)"
-
-      # A successful apply is NOT proof the code is running: broker's
-      # deployment_circuit_breaker rolls a crash-on-boot image back, the service
-      # settles on the OLD revision, and the apply still reports success. This
-      # reads what is actually deployed.
-      - name: Verify dev is running this commit
-        run: bash packages/gp-ai/infrastructure/scripts/ci-verify-deployed.sh dev ${{ github.sha }}
-
-  # Stable aggregation gate. Branch protection and promote.yml want one name
+  # Stable aggregation gate. Branch protection and the release train want one name
   # whose meaning doesn't change as jobs fan in and out. `skipped` is a
   # legitimate pass here (the commit didn't touch this subtree); `failure` and
   # `cancelled` are not.
   gate:
     name: gp-ai
-    needs: [changes, validate, build, terraform-plan, deploy-dev]
+    needs: [changes, validate, build, terraform-plan]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -647,7 +470,6 @@ jobs:
           VALIDATE: ${{ needs.validate.result }}
           BUILD: ${{ needs.build.result }}
           TF_PLAN: ${{ needs['terraform-plan'].result }}
-          DEPLOY: ${{ needs['deploy-dev'].result }}
         run: |
           set -euo pipefail
           # `changes` has no `if`, so it always runs — anything other than
@@ -659,7 +481,7 @@ jobs:
             exit 1
           fi
           failed=0
-          for pair in "validate:$VALIDATE" "build:$BUILD" "terraform-plan:$TF_PLAN" "deploy-dev:$DEPLOY"; do
+          for pair in "validate:$VALIDATE" "build:$BUILD" "terraform-plan:$TF_PLAN"; do
             name=${pair%%:*}
             result=${pair#*:}
             case "$result" in
