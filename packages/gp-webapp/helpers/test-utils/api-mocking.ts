@@ -11,7 +11,10 @@ export type APIMockerResponse<T> =
       headers?: Record<string, string>
     }
   | {
-      status: 400 | 401 | 403 | 404 | 500
+      // 409 included: gp-api throws ConflictException for locked resources
+      // (door-knocking turf update/delete, voter-file filter delete), and
+      // callers branch on it, so tests have to be able to produce one.
+      status: 400 | 401 | 403 | 404 | 409 | 500
       data: any
       headers?: Record<string, string>
     }

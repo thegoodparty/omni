@@ -1,12 +1,29 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { FetchError } from 'ofetch'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
-import { IconButton, XMarkIcon } from '@styleguide'
+import { Button, IconButton, Trash2Icon, XMarkIcon } from '@styleguide'
+import { clientRequest } from 'gpApi/typed-request'
+import { useSnackbar } from 'helpers/useSnackbar'
+import { ConfirmDeleteDialog } from 'app/dashboard/shared/ConfirmDeleteDialog'
 import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
 import { LANGUAGE_KEY_TO_CODE } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
-import { routeQueryOptions, savedListsQueryOptions } from './turfQueries'
+import {
+  routeQueryOptions,
+  savedListsQueryOptions,
+  turfsQueryOptions,
+} from './turfQueries'
 import type { PolygonStats } from './filterEngine'
+
+// gp-api refuses to delete a knocked turf: doorKnockingTurf.delete runs
+// assertNotLocked first, and lockedness IS the frozen route row, so a turf
+// with logged knocks 409s. The affordance follows that rule rather than
+// duplicating it — and the 409 is still handled, since a teammate can knock
+// the turf while this sheet is open.
+const LOCKED_TURF_MESSAGE =
+  'This list has already been knocked, so its route is frozen and it can no longer be deleted.'
 
 // option key -> pill label, straight from the sections config the create
 // flow renders, so Details always speaks the same vocabulary.
@@ -37,16 +54,69 @@ interface TurfDetailsSheetProps {
   // full (unfiltered) pack.
   areaStats: PolygonStats | null
   onClose: () => void
+  // The page holds its own references to this turf (map scope, camera focus),
+  // which would otherwise keep masking the map to a list that no longer
+  // exists.
+  onDeleted: (turf: DoorKnockingTurf) => void
 }
 
 export default function TurfDetailsSheet({
   turf,
   areaStats,
   onClose,
+  onDeleted,
 }: TurfDetailsSheetProps) {
+  const queryClient = useQueryClient()
+  const { successSnackbar, errorSnackbar } = useSnackbar()
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  // `turf` is a snapshot the page captured when the row was clicked, so its
+  // `locked` never moves on its own. Reading the live row keeps the affordance
+  // honest after a refetch — the page already runs this query, so React Query
+  // serves it from cache rather than fetching twice. Rule of thumb: liveTurf
+  // for anything that gates behavior, the prop for identity (id, filter id)
+  // and for the fields this surface never edits.
+  const turfsQuery = useQuery(turfsQueryOptions)
+  const liveTurf =
+    turfsQuery.data?.find((candidate) => candidate.id === turf.id) ?? turf
+  const deleteTurf = useMutation({
+    mutationFn: () =>
+      clientRequest('DELETE /v1/door-knocking/turfs/:id', {
+        id: String(turf.id),
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: turfsQueryOptions.queryKey,
+      })
+      successSnackbar('List deleted')
+      setConfirmOpen(false)
+      onDeleted(turf)
+    },
+    onError: async (error) => {
+      if (error instanceof FetchError && error.status === 409) {
+        // Someone knocked it while this sheet was open, so this is permanent,
+        // not retryable: close the confirm rather than leaving an enabled
+        // Delete that can only 409 again, and explain in a snackbar that
+        // outlives the dialog. The refetch then flips liveTurf.locked and the
+        // trigger retires itself.
+        setConfirmOpen(false)
+        setDeleteError(null)
+        errorSnackbar(LOCKED_TURF_MESSAGE, { autoHideDuration: 6000 })
+        await queryClient.invalidateQueries({
+          queryKey: turfsQueryOptions.queryKey,
+        })
+        return
+      }
+      // Generic failures are worth retrying, so the dialog stays put.
+      setDeleteError('The list could not be deleted. Try again.')
+    },
+  })
   const routeQuery = useQuery({
     ...routeQueryOptions(turf.id),
-    enabled: turf.locked,
+    // liveTurf, not the prop: a turf knocked while this sheet is open has real
+    // route data, and gating on the snapshot would keep every stat reading
+    // 'Not knocked yet'.
+    enabled: liveTurf.locked,
   })
   const listsQuery = useQuery(savedListsQueryOptions)
   const filter = listsQuery.data?.find(
@@ -94,6 +164,23 @@ export default function TurfDetailsSheet({
               Overview of this list, its route, and applied filters.
             </p>
           </div>
+          {!liveTurf.locked && (
+            <Button
+              size="small"
+              variant="outline"
+              // Named for the turf so it doesn't collide with the confirm
+              // dialog's own "Delete", for screen readers and tests alike.
+              aria-label={`Delete ${turf.name}`}
+              className="shrink-0 text-destructive hover:bg-destructive/10"
+              onClick={() => {
+                setDeleteError(null)
+                setConfirmOpen(true)
+              }}
+            >
+              <Trash2Icon size={14} />
+              Delete
+            </Button>
+          )}
           <IconButton aria-label="Close details" onClick={onClose}>
             <XMarkIcon size={18} />
           </IconButton>
@@ -186,6 +273,18 @@ export default function TurfDetailsSheet({
           </section>
         </div>
       </div>
+      <ConfirmDeleteDialog
+        open={confirmOpen}
+        onOpenChange={(next) => {
+          setConfirmOpen(next)
+          if (!next) setDeleteError(null)
+        }}
+        title={`Delete ${turf.name}?`}
+        description="The drawn area and its filters are removed for good. The saved list stays in Contacts, and no logged knocks are affected."
+        onConfirm={() => deleteTurf.mutate()}
+        confirming={deleteTurf.isPending}
+        errorMessage={deleteError}
+      />
     </div>
   )
 }
