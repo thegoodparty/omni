@@ -1,0 +1,216 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { render, testQueryClient } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
+import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
+import CreateListFlow from './CreateListFlow'
+import type { PolygonRing } from '../VoterMapCanvas'
+
+// mapbox-gl-draw hands back an open ring; save must close it before POSTing.
+const OPEN_RING: PolygonRing = [
+  [-87.66, 41.92],
+  [-87.65, 41.92],
+  [-87.65, 41.93],
+]
+
+const baseProps = {
+  filters: {},
+  onFiltersChange: vi.fn(),
+  onStepChange: vi.fn(),
+  onClose: vi.fn(),
+  matchingHouseholds: 1500,
+  ring: OPEN_RING,
+  turfStats: { stops: 14, people: 22 },
+  onSaved: vi.fn(),
+}
+
+describe('CreateListFlow', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+    vi.clearAllMocks()
+  })
+
+  it('creates the voter list from the filter draft, then the turf', async () => {
+    const calls: Array<{ kind: string; body: unknown }> = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      calls.push({ kind: 'filter', body })
+      return { status: 200, data: { id: 77 } }
+    })
+    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
+      calls.push({ kind: 'turf', body })
+      return {
+        status: 200,
+        data: {
+          id: 5,
+          voterFileFilterId: 77,
+          name: 'Lakeview blitz',
+          color: '#2563eb',
+          geoPoly: {
+            type: 'Polygon',
+            coordinates: [[...OPEN_RING, OPEN_RING[0] as [number, number]]],
+          },
+          locked: false,
+          createdAt: new Date('2026-07-21T00:00:00Z'),
+          updatedAt: new Date('2026-07-21T00:00:00Z'),
+        },
+      }
+    })
+    const onSaved = vi.fn()
+
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="confirm"
+        filters={{ partyDemocrat: true }}
+        onSaved={onSaved}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('Route name'), {
+      target: { value: 'Lakeview blitz' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save and exit' }))
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(false))
+    expect(calls.map((call) => call.kind)).toEqual(['filter', 'turf'])
+    expect(calls[0]?.body).toMatchObject({
+      name: 'Lakeview blitz',
+      partyDemocrat: true,
+      partyRepublican: false,
+    })
+    expect(calls[1]?.body).toMatchObject({
+      voterFileFilterId: 77,
+      name: 'Lakeview blitz',
+      geoPoly: {
+        type: 'Polygon',
+        coordinates: [
+          [
+            [-87.66, 41.92],
+            [-87.65, 41.92],
+            [-87.65, 41.93],
+            [-87.66, 41.92],
+          ],
+        ],
+      },
+    })
+  })
+
+  it('reuses the created filter when the turf save is retried', async () => {
+    let filterPosts = 0
+    let turfPosts = 0
+    api.mock('POST /v1/voters/voter-file/filter', () => {
+      filterPosts += 1
+      return { status: 200, data: { id: 88 } }
+    })
+    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
+      turfPosts += 1
+      if (turfPosts === 1) return { status: 500, data: {} }
+      expect(body).toMatchObject({ voterFileFilterId: 88 })
+      return {
+        status: 200,
+        data: {
+          id: 6,
+          voterFileFilterId: 88,
+          name: 'Retry turf',
+          color: '#2563eb',
+          geoPoly: {
+            type: 'Polygon',
+            coordinates: [[...OPEN_RING, OPEN_RING[0] as [number, number]]],
+          },
+          locked: false,
+          createdAt: new Date('2026-07-21T00:00:00Z'),
+          updatedAt: new Date('2026-07-21T00:00:00Z'),
+        },
+      }
+    })
+    const onSaved = vi.fn()
+
+    render(<CreateListFlow {...baseProps} step="confirm" onSaved={onSaved} />)
+
+    fireEvent.change(screen.getByLabelText('Route name'), {
+      target: { value: 'Retry turf' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save and exit' }))
+    await waitFor(() =>
+      expect(screen.getByText(/Saving failed/)).toBeInTheDocument(),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save and exit' }))
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(false))
+    // One list total across both attempts — no orphan per retry.
+    expect(filterPosts).toBe(1)
+    expect(turfPosts).toBe(2)
+  })
+
+  it('gates the draw step on a drawn shape under the cap', () => {
+    const { rerender } = render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        ring={null}
+        turfStats={null}
+      />,
+    )
+    expect(
+      screen.getByRole('button', { name: /Continue \(0 doors\)/ }),
+    ).toBeDisabled()
+
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        ring={OPEN_RING}
+        turfStats={{ stops: 151, people: 300 }}
+      />,
+    )
+    expect(
+      screen.getByRole('button', { name: /Continue \(151 doors\)/ }),
+    ).toBeDisabled()
+    expect(screen.getByText(/Over the 150-stop limit/)).toBeInTheDocument()
+
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        ring={OPEN_RING}
+        turfStats={{ stops: 14, people: 22 }}
+      />,
+    )
+    expect(
+      screen.getByRole('button', { name: /Continue \(14 doors\)/ }),
+    ).toBeEnabled()
+  })
+
+  it('advances from filters to draw', () => {
+    const onStepChange = vi.fn()
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="filters"
+        onStepChange={onStepChange}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(onStepChange).toHaveBeenCalledWith('draw')
+  })
+
+  // Labels are sourced from the config, not hardcoded: 'Contacts Made' was
+  // renamed to 'Prior Contacts Made' days after this test landed, which would
+  // have made a literal assertion pass while the group still rendered.
+  it('omits the contacts-made group, which evaluate would ignore', () => {
+    const fieldLabel = (key: string) =>
+      filterSections
+        .flatMap((section) => section.fields)
+        .find((field) => field.key === key)?.label
+
+    const contactsMadeLabel = fieldLabel('contacts_made')
+    const partyLabel = fieldLabel('political_party')
+    expect(contactsMadeLabel).toBeTruthy()
+    expect(partyLabel).toBeTruthy()
+
+    render(<CreateListFlow {...baseProps} step="filters" />)
+
+    expect(screen.queryByLabelText(contactsMadeLabel as string)).toBeNull()
+    expect(screen.getByLabelText(partyLabel as string)).toBeTruthy()
+  })
+})

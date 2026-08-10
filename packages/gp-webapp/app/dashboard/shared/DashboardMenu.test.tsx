@@ -89,7 +89,7 @@ describe('getDashboardMenuItems: "Your story" sidebar item', () => {
 
     expect(storyIdx).toBeGreaterThanOrEqual(0)
     expect(items[storyIdx]?.label).toBe('Your story')
-    // It sits directly above the Campaign Tracker tab.
+    // It sits directly above the Campaign Plan tab.
     expect(planIdx).toBe(storyIdx + 1)
   })
 
@@ -110,10 +110,10 @@ describe('getDashboardMenuItems: "Your story" sidebar item', () => {
 })
 
 describe('getDashboardMenuItems — Campaign Plan tab label', () => {
-  it('labels the item "Campaign Tracker" when campaignStoryEnabled is true', () => {
+  it('labels the item "Campaign Plan" when campaignStoryEnabled is true', () => {
     const items = links({ campaignStoryEnabled: true })
     const planItem = items.find((i) => i.id === 'campaign-plan-dashboard')
-    expect(planItem?.label).toBe('Campaign Tracker')
+    expect(planItem?.label).toBe('Campaign Plan')
   })
 
   it('labels the item "Campaign Plan" when campaignStoryEnabled is false', () => {

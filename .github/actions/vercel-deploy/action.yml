@@ -3,7 +3,7 @@ description: >-
   Build and deploy a Vercel project imperatively with the Vercel CLI (no git
   integration). For dev/PR deploys it deploys to the preview target with
   branch-scoped env vars and aliases the result to a stable domain; for prod
-  (driven by automated promotion, promote.yml) it deploys to production. Caller
+  (driven by the release train, release.yml) it deploys to production. Caller
   must install workspace deps (and build any prerequisites like the SDK) before
   invoking this action.
 

@@ -111,6 +111,52 @@ export const polygonStats = (
   return { stops, people }
 }
 
+// Restrict a filter result to the dots inside a turf polygon: dots outside
+// zero out (they render as unmatched grey) and the counts describe only the
+// turf. Used when a saved list is selected on the landing map.
+export const maskToPolygon = (
+  pack: DecodedPack,
+  result: FilterResult,
+  ring: Array<[number, number]>,
+): FilterResult => {
+  const { positions, householdToDot } = pack
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const [x, y] of ring) {
+    if (x < minX) minX = x
+    if (x > maxX) maxX = x
+    if (y < minY) minY = y
+    if (y > maxY) maxY = y
+  }
+  const matchedPerDot = new Uint32Array(result.matchedPerDot.length)
+  const statusPerDot = new Uint8Array(result.statusPerDot.length).fill(255)
+  let people = 0
+  let dots = 0
+  for (let i = 0; i < result.matchedPerDot.length; i++) {
+    const matched = result.matchedPerDot[i] ?? 0
+    if (matched === 0) continue
+    const x = positions[i * 2] ?? 0
+    const y = positions[i * 2 + 1] ?? 0
+    if (x < minX || x > maxX || y < minY || y > maxY) continue
+    if (!pointInRing(x, y, ring)) continue
+    matchedPerDot[i] = matched
+    statusPerDot[i] = result.statusPerDot[i] ?? 255
+    people += matched
+    dots++
+  }
+  // Household count is dot-granular here (any household at a matched dot),
+  // a slight overcount vs runFilter's person-level rollup — fine for the
+  // rail readout, and the canonical count is knock-time evaluation anyway.
+  let households = 0
+  for (let h = 0; h < householdToDot.length; h++) {
+    const dot = householdToDot[h] ?? 0
+    if ((matchedPerDot[dot] ?? 0) > 0) households++
+  }
+  return { people, households, dots, matchedPerDot, statusPerDot }
+}
+
 const pointInRing = (
   x: number,
   y: number,

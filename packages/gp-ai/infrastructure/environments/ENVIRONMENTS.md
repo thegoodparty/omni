@@ -126,9 +126,9 @@ goodparty-terraform-state-us-west-2
   Changes
 ```
 
-Deploys are Terraform applies driven from CI, not run by hand: `gp-ai.yml`
-applies dev on merge to `main`, and `promote.yml` applies prod with the same
-commit once its dev checks go green. See omni's `docs/deployment.md`.
+Deploys are Terraform applies driven from CI, not run by hand: the release
+train (`release.yml`) applies dev on merge to `main`, then applies prod with the
+same commit once its E2E is green on dev. See omni's `docs/deployment.md`.
 
 Manual applies (break-glass / bootstrap only):
 

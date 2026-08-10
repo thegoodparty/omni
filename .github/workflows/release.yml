@@ -22,8 +22,7 @@ name: release
 # E2E still run). Forward-only (ECS deployment circuit breaker auto-reverts a
 # crash-on-boot image; no rollback here). Break glass: workflow_dispatch with
 # force=true skips the checks gate, the E2E, and the freeze and promotes a given
-# SHA straight to prod. See docs/deployment.md and
-# docs/automated-prod-promotion-design.md.
+# SHA straight to prod. See docs/deployment.md.
 
 on:
   push:
@@ -111,7 +110,7 @@ jobs:
           # contracts/gp-sdk/styleguide/prototypes are omitted deliberately —
           # contracts/gp-sdk are transitively covered (a service build fails if
           # they do), and a broken styleguide/prototypes fails its own deploy
-          # job in the train's dev stage. Same set promote.yml gated on.
+          # job in the train's dev stage.
           REQUIRED="gp-api.yml election-api.yml gp-webapp.yml gp-admin.yml candidate-sites.yml publish-experiments.yml gp-ai.yml"
           DEADLINE=$(( $(date +%s) + 60*60 ))
 

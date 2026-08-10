@@ -75,7 +75,7 @@ jobs:
 
       # main -> dev.goodparty.org (preview target + branch-scoped env vars, then
       # aliased); PRs get a generic preview with no alias. Production is deployed
-      # by promote.yml, not here.
+      # by the release train, not here.
       - name: Resolve deploy target
         id: ctx
         shell: bash
@@ -252,7 +252,7 @@ jobs:
       # gp-ai's services (the broker and the PMF runner) sit behind the same dev
       # stack this suite exercises. If E2E starts while they are still on the
       # previous images, a green run does not mean "this commit works on dev" —
-      # which is exactly what promote.yml gates prod on. So wait for gp-ai's
+      # which is exactly what the release train gates prod on. So wait for gp-ai's
       # Deploy dev to settle too.
       #
       # Most commits do not touch packages/gp-ai, in which case that job is

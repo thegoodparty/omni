@@ -1,12 +1,12 @@
 name: Publish PMF experiments
 
 on:
-  # No path filters: this is a required check for prod promotion (promote.yml gates
+  # No path filters: this is a required check for prod promotion (the release train gates
   # on it), so it must run on every PR and every push to main. Publishing the full
   # manifest set is idempotent, so re-running on unrelated changes is harmless.
   pull_request:
   # push to main → publishes to the dev S3 bucket. Prod publishing is handled by
-  # promote.yml, not here.
+  # the release train, not here.
   push:
     branches: [main]
   # workflow_dispatch with no inputs — env is derived from the branch you ran
@@ -43,7 +43,7 @@ jobs:
   publish:
     # Triggered on push to main, or manual workflow_dispatch from main. Env is
     # derived from the branch — no choice input — because OIDC trust is
-    # per-branch. Prod publishing lives in promote.yml.
+    # per-branch. Prod publishing lives in the release train.
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       github.event_name == 'workflow_dispatch'

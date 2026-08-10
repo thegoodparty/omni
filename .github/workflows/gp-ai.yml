@@ -1,6 +1,6 @@
 name: gp-ai
 
-# Deliberately NO workflow-level path filter. promote.yml gates on workflow-run
+# Deliberately NO workflow-level path filter. The release train gates on workflow-run
 # conclusions, and a path-filtered workflow produces no run at all for unrelated
 # commits — which would force it into the awkward "gate only if a run exists"
 # bucket. Instead this always runs and gates internally on the `changes` job, so
@@ -90,7 +90,7 @@ jobs:
       #
       # Path-filtering the build made deployed state depend on what a commit
       # happened to touch, which produced two bugs already: an infra-only commit
-      # pinning terraform to images that were never built, and promote.yml doing
+      # pinning terraform to images that were never built, and the release train doing
       # the same on the prod side. Building unconditionally removes the whole
       # class rather than adding another guard.
       #

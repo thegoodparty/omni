@@ -134,7 +134,7 @@ a known, growing area of investment.
 | ------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | Understanding / changing a background agent             | [`cap-background-agents.md`](cap-background-agents.md)                                       |
 | Understanding / changing an interactive chat            | [`cap-interactive-agents.md`](cap-interactive-agents.md)                                     |
-| The gp-api transport layer for runs                     | `packages/gp-api/src/agentExperiments/CLAUDE.md`                                             |
+| The gp-api transport layer for runs                     | `packages/gp-api/src/agentExperiments/AGENTS.md`                                             |
 | Writing/running an eval, changing a prompt safely       | `packages/runbooks/books/pmf-eval-system.md`                                                 |
 | Bulk-dispatching a cohort (briefings, community issues) | the `bulk-briefing-cohort` / `bulk-community-issues-cohort` skills                           |
 | The agent runtime, broker, dispatch internals           | `gp-ai-projects/pmf_engine/control_plane/README.md`, `gp-ai-projects/broker/ARCHITECTURE.md` |

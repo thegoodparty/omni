@@ -140,7 +140,7 @@ people-api's repo package and `.github/workflows/people-api.yml` pipeline were
 removed once gp-api absorbed direct people-db access (`packages/gp-api/src/peopleDb/`).
 The people-api ECS service and its Aurora cluster remain deployed as a frozen,
 manually decommissioned service pending teardown — see
-`packages/gp-api/src/peopleDb/CLAUDE.md`.
+`packages/gp-api/src/peopleDb/AGENTS.md`.
 
 - ECR tags are **immutable**. Deploy jobs check whether the SHA's tag already
   exists and skip the build/push if so — this is what makes re-running a deploy
@@ -151,7 +151,7 @@ manually decommissioned service pending teardown — see
 - CI must run `prisma generate` before the Docker build or the image fails at
   runtime with missing native engines.
 - Infra detail and the `npm run infra <diff|deploy> <env>` wrapper:
-  `packages/gp-api/deploy/CLAUDE.md`.
+  `packages/gp-api/deploy/AGENTS.md`.
 
 ## The release train (release.yml)
 

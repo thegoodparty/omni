@@ -20,7 +20,7 @@ This skill supersedes the former runbook → experiment converter book.
 
 | You're doing                                                  | Read                                                              |
 | ------------------------------------------------------------- | ----------------------------------------------------------------- |
-| The runbook -> experiment lifecycle and pairing               | "Lifecycle" below; `packages/runbooks/experiments/CLAUDE.md`      |
+| The runbook -> experiment lifecycle and pairing               | "Lifecycle" below; `packages/runbooks/experiments/AGENTS.md`      |
 | The dispatch chain (SQS -> Lambda -> Fargate -> broker -> S3) | "Lifecycle" below; `packages/runbooks/books/platform-overview.md` |
 | Writing `instruction.md`                                      | "Instruction skeleton" below                                      |
 | Sizing scope, schema, resources, the manifest                 | "Manifest and schema discipline" below                            |
@@ -684,7 +684,7 @@ with the relevant subset of these:
 
 ## See also
 
-- `packages/runbooks/experiments/CLAUDE.md` — runbook -> experiment lifecycle, naming, the clean-context author loop, the `qa/` gate
+- `packages/runbooks/experiments/AGENTS.md` — runbook -> experiment lifecycle, naming, the clean-context author loop, the `qa/` gate
 - `packages/runbooks/books/run-pmf-experiment-cloud.md` — the operational run/dispatch companion
 - `packages/runbooks/books/query-voter-data.md` — voter table/column knowledge (local path; reference only)
 - `packages/runbooks/experiments/_schema/manifest.schema.json` — the meta-schema (source of truth)

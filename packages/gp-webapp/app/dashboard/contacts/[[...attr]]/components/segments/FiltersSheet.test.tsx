@@ -385,6 +385,51 @@ describe('<FiltersSheet>', () => {
     expect(checkboxForOption('Democrat')).toBeInTheDocument()
   })
 
+  it('titles the demographics section "Constituent Demographics" for elected officials', () => {
+    setContext({ isElectedOfficial: true, isWinContext: false })
+    setSnackbar()
+
+    render(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    expect(
+      screen.getByRole('heading', { name: /constituent demographics/i }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: /^voter demographics$/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps the demographics section titled "Voter Demographics" in the Win context', () => {
+    setContext({ isElectedOfficial: false, isWinContext: true })
+    setSnackbar()
+
+    render(
+      <FiltersSheet
+        open
+        handleClose={vi.fn()}
+        mode={SHEET_MODES.CREATE}
+        editSegment={null}
+        handleOpenChange={vi.fn()}
+        resetSelect={vi.fn()}
+        afterSave={vi.fn()}
+      />,
+    )
+
+    expect(
+      screen.getByRole('heading', { name: /^voter demographics$/i }),
+    ).toBeInTheDocument()
+  })
+
   it('includes selected party options in the create payload sent to the backend', async () => {
     const user = userEvent.setup()
     setContext({ isElectedOfficial: false })

@@ -45,6 +45,11 @@ export interface ContactsLabels {
   wizardActivityBranchDescription: string
   // crm/assistant/CrmAssistant.tsx's conversation-drawer heading (ENG-10737).
   assistantTitle: string
+  // [[...attr]]/components/segments/FiltersSheet.tsx overrides the
+  // filters.config.ts "Voter Demographics" section title for Serve — that
+  // config file stays untouched since the legacy flag-off page renders it
+  // byte-identically.
+  demographicsSectionTitle: string
   // crm/VoterDataUnavailableState.tsx — shown when the org has no resolvable
   // district, so there is no voter file to show at all.
   unavailableTitle: string
@@ -78,6 +83,7 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
         wizardActivityBranchDescription:
           "Use this option to select voters who you've previously interacted with.",
         assistantTitle: 'Voter list assistant',
+        demographicsSectionTitle: 'Voter Demographics',
         unavailableTitle: "Voter data isn't available for this office yet",
         unavailableBody:
           "We couldn't match your office to a district in our voter file. Our team can set this up for you.",
@@ -107,6 +113,7 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
         wizardActivityBranchDescription:
           "Use this option to select constituents who you've previously interacted with.",
         assistantTitle: 'Constituent list assistant',
+        demographicsSectionTitle: 'Constituent Demographics',
         unavailableTitle:
           "Constituent data isn't available for this office yet",
         unavailableBody:

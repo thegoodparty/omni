@@ -92,3 +92,12 @@ export const redlineToOriginal = (body: string): string =>
     .filter((s) => s.type !== 'insertion')
     .map((s) => s.text)
     .join('')
+
+// The "after" text with every change accepted: keep unchanged and inserted
+// text, drop deletions. Used by the draft editor's Accept action to collapse a
+// new ordinance's chat-applied redline into clean, final text.
+export const redlineToAmended = (body: string): string =>
+  parseRedline(body)
+    .filter((s) => s.type !== 'deletion')
+    .map((s) => s.text)
+    .join('')

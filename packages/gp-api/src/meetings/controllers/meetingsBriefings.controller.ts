@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   NotFoundException,
   Param,
   Post,
@@ -44,6 +46,12 @@ import {
   UserAgendaPresignRequestSchema,
   UserAgendaPresignResponseSchema,
 } from '../schemas/userAgendaUpload.schema'
+import {
+  BriefingSeedRequestDto,
+  BriefingSeedRequestSchema,
+  BriefingSeedResponseSchema,
+} from '../schemas/briefingSeed.schema'
+import { BriefingSeedService } from '../services/briefingSeed.service'
 import { MeetingBriefingsService } from '../services/meetingBriefings.service'
 import { UserAgendaUploadService } from '../services/userAgendaUpload.service'
 
@@ -65,6 +73,7 @@ export class MeetingsBriefingsController {
   constructor(
     private readonly meetingBriefings: MeetingBriefingsService,
     private readonly userAgendaUploads: UserAgendaUploadService,
+    private readonly briefingSeed: BriefingSeedService,
     private readonly s3: S3Service,
   ) {}
 
@@ -235,6 +244,20 @@ export class MeetingsBriefingsController {
       throw new NotFoundException()
     }
     return { ...artifact, briefing_id: row.id }
+  }
+
+  // Preview/dev-only deterministic seeding for e2e tests; the service rejects
+  // the call on qa/prod. Scoped to the caller's own elected office.
+  @UseElectedOffice()
+  @Post('briefings/seed')
+  @HttpCode(HttpStatus.CREATED)
+  @ResponseSchema(BriefingSeedResponseSchema)
+  async seedBriefing(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Body(new ZodValidationPipe(BriefingSeedRequestSchema))
+    body: BriefingSeedRequestDto,
+  ) {
+    return this.briefingSeed.seed(electedOffice, body)
   }
 
   @UseGuards(UserOrM2MGuard)

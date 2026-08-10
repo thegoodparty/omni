@@ -26,3 +26,14 @@ export const TURF_COLORS = [
   '#db2777',
   '#65a30d',
 ] as const
+
+// Shared by WalkView (list rail) and the page (map pins): same key, so
+// React Query serves one fetch to both.
+export const routeQueryOptions = (turfId: number) =>
+  queryOptions({
+    queryKey: ['door-knocking-route', turfId],
+    queryFn: () =>
+      clientRequest('GET /v1/door-knocking/turfs/:id/route', {
+        id: String(turfId),
+      }).then((res) => res.data),
+  })
