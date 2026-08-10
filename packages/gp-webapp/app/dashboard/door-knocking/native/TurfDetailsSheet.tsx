@@ -73,7 +73,9 @@ export default function TurfDetailsSheet({
   // `turf` is a snapshot the page captured when the row was clicked, so its
   // `locked` never moves on its own. Reading the live row keeps the affordance
   // honest after a refetch — the page already runs this query, so React Query
-  // serves it from cache rather than fetching twice.
+  // serves it from cache rather than fetching twice. Rule of thumb: liveTurf
+  // for anything that gates behavior, the prop for identity (id, filter id)
+  // and for the fields this surface never edits.
   const turfsQuery = useQuery(turfsQueryOptions)
   const liveTurf =
     turfsQuery.data?.find((candidate) => candidate.id === turf.id) ?? turf
@@ -111,7 +113,10 @@ export default function TurfDetailsSheet({
   })
   const routeQuery = useQuery({
     ...routeQueryOptions(turf.id),
-    enabled: turf.locked,
+    // liveTurf, not the prop: a turf knocked while this sheet is open has real
+    // route data, and gating on the snapshot would keep every stat reading
+    // 'Not knocked yet'.
+    enabled: liveTurf.locked,
   })
   const listsQuery = useQuery(savedListsQueryOptions)
   const filter = listsQuery.data?.find(

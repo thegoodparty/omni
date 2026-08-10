@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
-import { DoorKnockingTurf } from '@goodparty_org/contracts'
+import {
+  DoorKnockingRoutePayload,
+  DoorKnockingTurf,
+} from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
@@ -37,6 +40,21 @@ const turf = (overrides: Partial<DoorKnockingTurf> = {}): DoorKnockingTurf => ({
   updatedAt: new Date('2026-07-21T00:00:00Z'),
   ...overrides,
 })
+
+const routePayload: DoorKnockingRoutePayload = {
+  route: {
+    id: 5,
+    doorKnockingTurfId: 1,
+    mode: 'walk',
+    loop: true,
+    totalSeconds: 1860,
+    totalMeters: 2400,
+    stopCount: 2,
+    createdAt: new Date('2026-07-21T00:00:00Z'),
+  },
+  pathGeometry: null,
+  stops: [],
+}
 
 // `live` is what GET /turfs reports, which is what the affordance reads —
 // separate from the prop so the stale-snapshot case is expressible.
@@ -87,6 +105,22 @@ describe('TurfDetailsSheet delete', () => {
     await waitFor(() =>
       expect(screen.queryByLabelText('Delete Elm St & 5th')).toBeNull(),
     )
+  })
+
+  // Same stale snapshot, other direction: the route exists once it's locked, so
+  // gating the route query on the prop would report it as never knocked.
+  it('loads the route for a turf locked since the sheet opened', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: routePayload,
+    })
+    renderSheet({ prop: { locked: false }, live: { locked: true } })
+
+    await waitFor(() =>
+      expect(screen.queryByText('Not knocked yet')).toBeNull(),
+    )
+    // 1860s of walking, rendered by the sheet's duration formatter.
+    expect(screen.getByText('31m')).toBeInTheDocument()
   })
 
   it('deletes after confirmation and hands the turf back to the page', async () => {

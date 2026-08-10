@@ -505,6 +505,12 @@ export default function NativeDoorKnockingPage({
             setFocusTurf((current) =>
               current?.id === deleted.id ? null : current,
             )
+            // Defensive: the knock dialog is modal and the details sheet covers
+            // the row that opens it, so the two can't currently be open at
+            // once. Cheaper to drop the reference than to rely on that holding.
+            setKnockTurf((current) =>
+              current?.id === deleted.id ? null : current,
+            )
           }}
         />
       )}
