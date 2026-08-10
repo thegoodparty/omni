@@ -285,9 +285,13 @@ export default function NativeDoorKnockingPage({
         <TurfList
           selectedTurfId={selectedTurf?.id ?? null}
           onFocusTurf={(turf) => {
-            setSelectedTurf((current) =>
-              current?.id === turf.id ? null : turf,
-            )
+            const next = selectedTurf?.id === turf.id ? null : turf
+            setSelectedTurf(next)
+            // The scoped branch of `selections` returns the list's own filters
+            // and never reaches statusFilter, but the chips keep reading it for
+            // their pressed state. Leaving it set would render a pressed chip
+            // that does nothing, then silently re-narrow the map on "Show all".
+            if (next) setStatusFilter(new Set())
             setFocusTurf(turf)
           }}
           onShowDetails={setDetailsTurf}
