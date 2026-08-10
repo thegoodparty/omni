@@ -1,3 +1,12 @@
+/**
+ * The drawer prefers the live origin over the APP_SHARE_BASE constant, because
+ * NEXT_PUBLIC_VERCEL_BRANCH_URL is absent in preview builds and the constant
+ * resolves to `https://undefined` there. Point jsdom at the same origin the
+ * mock below returns, so these assertions keep testing the share URL rather
+ * than jsdom's default localhost.
+ *
+ * @vitest-environment-options { "url": "https://app.goodparty.example" }
+ */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
