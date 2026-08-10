@@ -467,6 +467,14 @@ jobs:
 
       # Both artifacts are consumed at PLAN time, so they must exist before any
       # root is planned or applied.
+      # campaign_plan_lambda/build.sh drives `uv export` + `uv pip install`. The
+      # pmf-engine build gets by on the runner's python3 -m pip, but this one
+      # does not, so uv has to be present in every job that builds artifacts.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: latest
+
       - name: Build pmf-engine lambda package
         working-directory: packages/gp-ai
         run: bash pmf_engine/scripts/build_lambda_package.sh
@@ -476,6 +484,10 @@ jobs:
         run: |
           npm ci
           npm run build
+
+      - name: Build campaign-plan lambda zip
+        working-directory: packages/gp-ai
+        run: bash campaign_plan_lambda/build.sh
 
       # Same SHA-pinned images dev already proved — nothing is rebuilt here, the
       # tags are the artifacts the dev deploy verified. Parallel rather than

@@ -282,7 +282,7 @@ is written so each half is safe alone:
    pins async `maximum_retry_attempts = 0`. The apply is what ACTIVATES both
    fast-ack and atomic dedup — until then the bot runs exactly the old flow.
 
-**Code** deploys automatically via `.github/workflows/deploy-clickup-bot.yml` on push
+**Code** deploys with the promotion train (Terraform owns it; see above)
 to `prod` (paths: `clickup_bot/**`). The workflow runs `clickup_bot/tests/` first and
 blocks the deploy if they fail. No manual zip/upload. There is no `clickup-bot-dev`
 Lambda — only `clickup-bot-prod` exists, so the workflow deploys prod only.

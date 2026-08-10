@@ -295,6 +295,14 @@ jobs:
 
       # Both artifacts are consumed at PLAN time (archive_file / filebase64sha256),
       # not just at apply, so they must exist before any plan runs.
+      # campaign_plan_lambda/build.sh drives `uv export` + `uv pip install`. The
+      # pmf-engine build gets by on the runner's python3 -m pip, but this one
+      # does not, so uv has to be present in every job that builds artifacts.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: latest
+
       - name: Build pmf-engine lambda package
         working-directory: packages/gp-ai
         run: bash pmf_engine/scripts/build_lambda_package.sh
@@ -304,6 +312,10 @@ jobs:
         run: |
           npm ci
           npm run build
+
+      - name: Build campaign-plan lambda zip
+        working-directory: packages/gp-ai
+        run: bash campaign_plan_lambda/build.sh
 
       # Each of these records its result to files and always exits 0. `wait-all`
       # short-circuits everything after it if any background step fails, and we
@@ -506,6 +518,14 @@ jobs:
           terraform_version: 1.15.8
           terraform_wrapper: false
 
+      # campaign_plan_lambda/build.sh drives `uv export` + `uv pip install`. The
+      # pmf-engine build gets by on the runner's python3 -m pip, but this one
+      # does not, so uv has to be present in every job that builds artifacts.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: latest
+
       - name: Build pmf-engine lambda package
         working-directory: packages/gp-ai
         run: bash pmf_engine/scripts/build_lambda_package.sh
@@ -515,6 +535,10 @@ jobs:
         run: |
           npm ci
           npm run build
+
+      - name: Build campaign-plan lambda zip
+        working-directory: packages/gp-ai
+        run: bash campaign_plan_lambda/build.sh
 
       # Unlike the plan steps, these exit NON-zero on failure, so wait-all
       # short-circuits and a failed apply stops the verification that follows
