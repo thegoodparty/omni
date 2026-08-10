@@ -251,6 +251,7 @@ describe('OrdinanceFlowHandler', () => {
     const names = Object.keys(handler.buildTools(baseCtx())).sort()
     expect(names).toEqual([
       'ask_clarify_question',
+      'fetch_url',
       'get_code_source',
       'offer_next_step',
       'read_ordinance',
@@ -299,12 +300,33 @@ describe('OrdinanceFlowHandler', () => {
     ).not.toContain('brave_search')
   })
 
+  it('gives fetch_url to every step so a user source can be read anywhere', () => {
+    const handler = build()
+    // intro included on purpose: it has no finding of its own, but it still
+    // gets fetch_url + save_note so a source pasted here is read and carried
+    // forward for later steps (the source-correction rule's earlier-step path).
+    for (const step of [
+      'intro',
+      'clarify',
+      'authority',
+      'current_law',
+      'comparables',
+      'draft',
+      'review',
+    ] as const) {
+      const names = Object.keys(handler.buildTools({ ...baseCtx(), step }))
+      expect(names).toContain('fetch_url')
+      expect(names).toContain('save_note')
+    }
+  })
+
   it('offers the authority finding tool on the authority step', () => {
     const handler = build()
     const names = Object.keys(
       handler.buildTools({ ...baseCtx(), step: 'authority' }),
     ).sort()
     expect(names).toEqual([
+      'fetch_url',
       'get_code_source',
       'offer_next_step',
       'present_authority_finding',
@@ -320,6 +342,7 @@ describe('OrdinanceFlowHandler', () => {
       handler.buildTools({ ...baseCtx(), step: 'comparables' }),
     ).sort()
     expect(names).toEqual([
+      'fetch_url',
       'get_code_source',
       'offer_next_step',
       'present_comparables',
@@ -337,6 +360,7 @@ describe('OrdinanceFlowHandler', () => {
     expect(names).toEqual([
       'accept_draft_changes',
       'apply_draft_edit',
+      'fetch_url',
       'get_code_source',
       'read_ordinance',
       'save_note',
@@ -380,7 +404,9 @@ describe('OrdinanceFlowHandler', () => {
     )
     expect(names).not.toContain('ask_clarify_question')
     expect(names).not.toContain('save_answer')
-    expect(names).not.toContain('fetch_url')
+    // fetch_url is a base tool now (source-correction on every step); only
+    // save_existing_law stays scoped to the current_law step.
+    expect(names).toContain('fetch_url')
     expect(names).not.toContain('save_existing_law')
     expect(names).toContain('read_ordinance')
     expect(names).toContain('offer_next_step')
@@ -393,6 +419,7 @@ describe('OrdinanceFlowHandler', () => {
     ).sort()
     expect(names).toEqual([
       'ask_clarify_question',
+      'fetch_url',
       'get_code_source',
       'present_draft',
       'read_ordinance',

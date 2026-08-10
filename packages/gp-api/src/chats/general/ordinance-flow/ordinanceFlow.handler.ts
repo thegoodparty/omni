@@ -208,6 +208,9 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
       read_ordinance: buildReadOrdinanceTool(deps),
       get_code_source: buildGetCodeSourceTool(deps),
       save_note: buildSaveNoteTool(deps),
+      // On every step: current-law uses it for primary research, and any step
+      // can fetch a source the user pastes to correct that step's finding.
+      fetch_url: buildFetchUrlTool(deps),
     }
 
     // Web search runs through Anthropic's native tool (the scope is Claude-only)
@@ -230,9 +233,9 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
     }
 
     // Current-law research reads the live code and persists its findings, then
-    // presents the summary and legislative-history widgets.
+    // presents the summary and legislative-history widgets. (fetch_url is a
+    // base tool now, shared with the source-correction path on every step.)
     if (ctx.step === 'current_law') {
-      tools.fetch_url = buildFetchUrlTool(deps)
       tools.save_existing_law = buildSaveExistingLawTool(deps)
       tools.present_current_law_summary = buildPresentCurrentLawSummaryTool()
       tools.present_legislative_history = buildPresentLegislativeHistoryTool()
