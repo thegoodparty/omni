@@ -52,10 +52,7 @@ jobs:
 
   deploy:
     name: Deploy
-    if: >-
-      github.event_name == 'pull_request'
-      || (github.event_name == 'push'
-          && github.ref_name == 'main')
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     outputs:
       url: ${{ steps.vercel.outputs.url }}
@@ -71,7 +68,7 @@ jobs:
       # candidate-sites has no stable dev domain (production fronts the
       # per-candidate custom domains), so main deploys to the preview target
       # with branch-scoped env vars and surfaces the generated URL; production
-      # is handled by automated promotion (promote.yml).
+      # is handled by the release train (release.yml).
       - name: Resolve deploy target
         id: ctx
         shell: bash

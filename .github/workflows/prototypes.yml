@@ -51,8 +51,7 @@ jobs:
     name: Deploy
     if: >-
       vars.VERCEL_PROJECT_ID_PROTOTYPES != ''
-      && (github.event_name == 'pull_request'
-          || (github.event_name == 'push' && github.ref_name == 'main'))
+      && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

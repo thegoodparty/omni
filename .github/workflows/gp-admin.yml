@@ -51,7 +51,7 @@ jobs:
 
   # gp-admin is a single deployment that targets dev/prod at runtime via
   # Clerk org switch, so it has no per-branch env vars or domains: PRs get a
-  # preview. The production deploy is handled by promote.yml, not here.
+  # preview. The production deploy is handled by the release train, not here.
   deploy:
     name: Deploy
     if: github.event_name == 'pull_request'

@@ -25,7 +25,7 @@ cd pmf_engine && uv run pytest tests/
 
 **`uv sync` alone is not enough.** At a workspace root it installs only the root project's dependencies, not the members'. Without `--all-packages` you get `ModuleNotFoundError: No module named 'playwright'` from `broker/tests/test_browser_fetcher.py`, because `playwright` is declared in `broker/pyproject.toml`, not the root.
 
-CI lives in omni at `.github/workflows/gp-ai.yml`. It always runs and gates internally on a change-detection job, so a commit that doesn't touch this subtree costs one short job. Deploys are Terraform applies driven from that workflow (dev, on merge to `main`) and from `promote.yml` (prod, after the commit goes green on dev). See `docs/deployment.md`.
+CI lives in omni at `.github/workflows/gp-ai.yml`. It always runs and gates internally on a change-detection job, so a commit that doesn't touch this subtree costs one short job. Deploys are Terraform applies driven from the release train (`release.yml`): its dev stage on merge to `main`, then its prod stage after the commit's E2E is green on dev. See `docs/deployment.md`.
 
 ## Pointer table — when in doubt
 

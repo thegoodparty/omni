@@ -1,6 +1,6 @@
 # Deploy
 
-Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `infra-cli.ts` wrapper used by the `npm run infra` commands. Targets these environments: `preview` (per-PR), `dev` (deployed on push to `main`, the single long-lived branch), and `prod`. A push to `main` deploys dev; `prod` is reached only by automated promotion — the `promote.yml` workflow waits for that commit's checks to go green on dev, then deploys the same commit to prod. It is forward-only (ECS circuit breaker auto-reverts a crash-on-boot; there is no manual rollback). There is no manual promotion.
+Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `infra-cli.ts` wrapper used by the `npm run infra` commands. Targets these environments: `preview` (per-PR), `dev` (deployed on push to `main`, the single long-lived branch), and `prod`. A push to `main` deploys dev; `prod` is reached only by the release train (`release.yml`) — it deploys the commit to dev, runs the E2E, then promotes the same commit to prod. It is forward-only (ECS circuit breaker auto-reverts a crash-on-boot; there is no manual rollback). There is no manual promotion.
 
 ## Key files
 
@@ -27,7 +27,7 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 - **Preview stacks are ephemeral**: `prNumber` is required for `preview`, and stack name is `pr-${prNumber}`. They are torn down two ways: `gp-api-teardown-preview.yml` destroys a PR's stack on `pull_request: closed`, and `gp-api-cleanup-preview.yml` sweeps any dangling ones (those with no open PR, found by `find-stale-preview-stacks.ts`) every 3 hours. Both share the `destroy-preview-stack` composite action, which runs `pulumi cancel` first — a runner killed mid-deploy leaves a state lock that otherwise makes `pulumi destroy` fail and strands the stack's ALB.
 - **Pulumi config secrets** come from SSM via `infra-cli.ts` (`PULUMI_CONFIG_PASSPHRASE`, `GRAFANA_AUTH`, `GRAFANA_SM_ACCESS_TOKEN`). The CLI fetches them per-run; nothing is committed.
 - **Docker image is tagged with `imageUri`** passed in from CI; `index.ts` reads it via `pulumi.Config()`. Local builds aren't deployable — push through the workflow.
-- **`npm run infra deploy <env>` is invoked by CI, not by hand.** A push to `main` runs `infra deploy dev`; `infra deploy prod` runs only from the `promote.yml` promote-on-green workflow (as the `omni-automation` GitHub App, freeze-switch gated, with a manual `workflow_dispatch` fallback) once the commit's dev checks are green — never from a branch push. `npm run infra diff <env>` stays useful locally for previewing a change.
+- **`npm run infra deploy <env>` is invoked by CI, not by hand.** A push to `main` runs `infra deploy dev`; `infra deploy prod` runs only from the release train's prod stage (`release.yml`, freeze-switch gated, with a manual `workflow_dispatch` fallback) once the commit is green on dev — never from a branch push. `npm run infra diff <env>` stays useful locally for previewing a change.
 - **Observability lives here, not just in app code.** Grafana dashboards/alerts are defined in `components/grafana.ts` and `components/alerting/`. App-side metric naming must line up with these.
 
 ## Shared preview cluster (`components/preview-shared-cluster.ts`)

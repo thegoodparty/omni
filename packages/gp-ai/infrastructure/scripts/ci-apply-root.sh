@@ -29,7 +29,10 @@ fail() { echo "::error::$root: $1"; echo "$1" >>"$log"; exit 1; }
 [ -d "$dir" ] || fail "no such root"
 cd "$dir" || fail "cannot cd into $dir"
 
-args=(-input=false -no-color)
+# -lock-timeout: this apply writes state and must hold the exclusive lock, but a
+# concurrent PR plan (or another root's operation) can hold it briefly. Wait it
+# out instead of failing instantly on "Error acquiring the state lock".
+args=(-input=false -no-color -lock-timeout=10m)
 [ -n "$image_tag" ] && args+=(-var "docker_image_tag=$image_tag")
 
 terraform init -input=false -no-color >"$log" 2>&1 || fail "init failed"
@@ -67,5 +70,5 @@ if [ "${destroys:-0}" != "0" ] || [ "${replaces:-0}" != "0" ]; then
   fail "plan would destroy ${destroys} and replace ${replaces} resource(s); refusing to apply automatically"
 fi
 
-terraform apply -input=false -no-color tfplan >>"$log" 2>&1 || fail "apply failed"
+terraform apply -input=false -no-color -lock-timeout=10m tfplan >>"$log" 2>&1 || fail "apply failed"
 echo "$root: applied"

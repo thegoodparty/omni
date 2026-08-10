@@ -1,7 +1,7 @@
 """Post a daily "shipped to prod" summary to #product-releases.
 
 Source of truth is the `production` GitHub Environment's deployment history:
-promote.yml records one successful Deployment per promotion. "What shipped in the
+release.yml records one successful Deployment per promotion. "What shipped in the
 window" is the commit range between the prod SHA at the start of the window and
 the prod SHA now — so a merged-but-not-yet-promoted commit, or a held/failed
 promotion, is correctly excluded. The message has three parts: an AI-written
