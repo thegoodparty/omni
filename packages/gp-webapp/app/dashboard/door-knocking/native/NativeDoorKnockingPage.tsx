@@ -494,6 +494,18 @@ export default function NativeDoorKnockingPage({
           turf={detailsTurf}
           areaStats={detailsAreaStats}
           onClose={() => setDetailsTurf(null)}
+          onDeleted={(deleted) => {
+            setDetailsTurf(null)
+            // Both hold a whole turf object, not an id, so they'd go on
+            // masking and framing the map to a polygon the refetched list no
+            // longer contains.
+            setSelectedTurf((current) =>
+              current?.id === deleted.id ? null : current,
+            )
+            setFocusTurf((current) =>
+              current?.id === deleted.id ? null : current,
+            )
+          }}
         />
       )}
       {knockTurf && (
