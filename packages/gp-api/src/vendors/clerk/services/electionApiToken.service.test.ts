@@ -38,7 +38,7 @@ describe('ElectionApiTokenService', () => {
     expect(createToken).toHaveBeenCalledWith({
       machineSecretKey: expect.any(String),
       tokenFormat: 'jwt',
-      secondsUntilExpiration: 600,
+      secondsUntilExpiration: 3600,
     })
   })
 
@@ -69,8 +69,8 @@ describe('ElectionApiTokenService', () => {
       const service = makeService(createToken)
 
       await expect(service.getToken()).resolves.toBe('jwt-1')
-      // Still inside the window (TTL 600s minus the 30s renewal buffer = 570s).
-      vi.advanceTimersByTime(560_000)
+      // Still inside the window (TTL 3600s minus the 30s renewal buffer = 3570s).
+      vi.advanceTimersByTime(3_560_000)
       await expect(service.getToken()).resolves.toBe('jwt-1')
       expect(createToken).toHaveBeenCalledTimes(1)
       // Now within the renewal buffer: re-mint.
@@ -86,7 +86,7 @@ describe('ElectionApiTokenService', () => {
     // Reproduces the prod bug: Clerk's `expiration` is milliseconds at runtime,
     // and the old code did `expiration * 1000`, pushing the cache window ~56k
     // years out so it never renewed and replayed one JWT long past its real
-    // `exp`. Anchoring to the 600s TTL must still renew after ~600s.
+    // `exp`. Anchoring to the 3600s TTL must still renew after ~3600s.
     vi.useFakeTimers()
     try {
       const createToken = vi.fn().mockResolvedValue({
@@ -98,7 +98,7 @@ describe('ElectionApiTokenService', () => {
       await expect(service.getToken()).resolves.toBe('jwt-1')
       expect(createToken).toHaveBeenCalledTimes(1)
       // Just past the TTL: the token must be re-minted, not replayed.
-      vi.advanceTimersByTime(601_000)
+      vi.advanceTimersByTime(3_601_000)
       await service.getToken()
       expect(createToken).toHaveBeenCalledTimes(2)
     } finally {

@@ -6,7 +6,11 @@ import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-cli
 // Renew slightly before expiry so an in-flight request never uses a token
 // that expires mid-call.
 const TOKEN_RENEWAL_BUFFER_MS = 30_000
-const TOKEN_TTL_SECONDS = 600
+// 1h TTL. JWT M2M tokens are billed/quota'd per creation and are never
+// deduplicated by Clerk (JWTs are stateless), so a longer TTL directly cuts
+// mint volume: at 600s this singleton re-minted ~6×/hour/task (over Clerk's
+// 2,500/month free tier across tasks); 3600s brings it comfortably under.
+const TOKEN_TTL_SECONDS = 3600
 
 const { GP_API_MACHINE_SECRET } = process.env
 
