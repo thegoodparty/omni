@@ -10,7 +10,9 @@ vi.mock('@clerk/backend', () => ({
   ClerkClient: class {},
 }))
 
-// Clerk's createToken returns `expiration` as a Unix timestamp in seconds.
+// The service anchors its cache window to the requested TTL, not to Clerk's
+// returned `expiration` field, so the value passed here is irrelevant to timing;
+// it only needs to be non-null to represent a successful mint.
 const secondsFromNow = (seconds: number): number =>
   Math.floor(Date.now() / 1000) + seconds
 
@@ -41,8 +43,6 @@ describe('ElectionApiTokenService', () => {
   })
 
   it('reuses the cached token while it is still valid', async () => {
-    // Regression guard: `expiration` is in seconds and must be converted to ms
-    // before comparing against Date.now(); otherwise the cache never hits.
     const createToken = vi
       .fn()
       .mockResolvedValue({ token: 'jwt-1', expiration: secondsFromNow(600) })
@@ -53,19 +53,57 @@ describe('ElectionApiTokenService', () => {
     expect(createToken).toHaveBeenCalledTimes(1)
   })
 
-  it('mints a new token once the cached one is within the renewal buffer', async () => {
-    const createToken = vi
-      .fn()
-      .mockResolvedValueOnce({ token: 'jwt-1', expiration: secondsFromNow(10) })
-      .mockResolvedValueOnce({
-        token: 'jwt-2',
-        expiration: secondsFromNow(600),
-      })
-    const service = makeService(createToken)
+  it('mints a new token once the cached one nears expiry (TTL-anchored)', async () => {
+    vi.useFakeTimers()
+    try {
+      const createToken = vi
+        .fn()
+        .mockResolvedValueOnce({
+          token: 'jwt-1',
+          expiration: secondsFromNow(600),
+        })
+        .mockResolvedValueOnce({
+          token: 'jwt-2',
+          expiration: secondsFromNow(600),
+        })
+      const service = makeService(createToken)
 
-    await expect(service.getToken()).resolves.toBe('jwt-1')
-    await expect(service.getToken()).resolves.toBe('jwt-2')
-    expect(createToken).toHaveBeenCalledTimes(2)
+      await expect(service.getToken()).resolves.toBe('jwt-1')
+      // Still inside the window (TTL 600s minus the 30s renewal buffer = 570s).
+      vi.advanceTimersByTime(560_000)
+      await expect(service.getToken()).resolves.toBe('jwt-1')
+      expect(createToken).toHaveBeenCalledTimes(1)
+      // Now within the renewal buffer: re-mint.
+      vi.advanceTimersByTime(20_000)
+      await expect(service.getToken()).resolves.toBe('jwt-2')
+      expect(createToken).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('renews on the requested TTL even when Clerk returns a huge (ms-shaped) expiration (regression: double-scale)', async () => {
+    // Reproduces the prod bug: Clerk's `expiration` is milliseconds at runtime,
+    // and the old code did `expiration * 1000`, pushing the cache window ~56k
+    // years out so it never renewed and replayed one JWT long past its real
+    // `exp`. Anchoring to the 600s TTL must still renew after ~600s.
+    vi.useFakeTimers()
+    try {
+      const createToken = vi.fn().mockResolvedValue({
+        token: 'jwt-1',
+        expiration: Date.now() * 1000, // ms-shaped; catastrophic if re-scaled
+      })
+      const service = makeService(createToken)
+
+      await expect(service.getToken()).resolves.toBe('jwt-1')
+      expect(createToken).toHaveBeenCalledTimes(1)
+      // Just past the TTL: the token must be re-minted, not replayed.
+      vi.advanceTimersByTime(601_000)
+      await service.getToken()
+      expect(createToken).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('deduplicates concurrent callers into a single mint', async () => {
