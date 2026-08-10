@@ -171,9 +171,11 @@ export default function TurfDetailsSheet({
               </p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
-                {appliedFilterLabels.map((label) => (
+                {/* Labels repeat across fields — 'Unknown' is an option on 11 of
+                    them — so the label alone isn't a stable key. */}
+                {appliedFilterLabels.map((label, index) => (
                   <span
-                    key={label}
+                    key={`${label}-${index}`}
                     className="rounded-full border border-border px-2.5 py-1 text-xs"
                   >
                     {label}

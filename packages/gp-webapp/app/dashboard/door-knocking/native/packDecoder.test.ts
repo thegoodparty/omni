@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { decodePack } from './packDecoder'
-import { DimSelections, polygonStats, runFilter } from './filterEngine'
+import {
+  DimSelections,
+  maskToPolygon,
+  polygonStats,
+  runFilter,
+} from './filterEngine'
 
 // Hand-built pack matching the wire framing: 4 people, 3 households, 2 dots,
 // two dims (party, canvassStatus). Mirrors the people-api encoder layout.
@@ -136,5 +141,86 @@ describe('runFilter + polygonStats', () => {
       stops: 1,
       people: 3,
     })
+  })
+})
+
+describe('maskToPolygon', () => {
+  // Fixture geography: dot 0 at (-87.65, 41.9) carries households 0 and 1
+  // (persons 0-2), dot 1 at (-87.66, 41.91) carries household 2 (person 3).
+  const dotZeroRing: Array<[number, number]> = [
+    [-87.655, 41.895],
+    [-87.645, 41.895],
+    [-87.645, 41.905],
+    [-87.655, 41.905],
+    [-87.655, 41.895],
+  ]
+
+  it('keeps dots inside the ring and zeroes the ones outside', () => {
+    const pack = decodePack(buildFixture())
+    const all = runFilter(pack, new Map())
+
+    const masked = maskToPolygon(pack, all, dotZeroRing)
+
+    expect(masked.matchedPerDot[0]).toBe(all.matchedPerDot[0])
+    expect(masked.matchedPerDot[1]).toBe(0)
+    expect(masked).toMatchObject({ people: 3, dots: 1 })
+    // Statuses survive for kept dots and reset to the 255 sentinel otherwise,
+    // so the excluded dot renders as absent rather than as 'unknown' (0).
+    expect(masked.statusPerDot[0]).toBe(all.statusPerDot[0])
+    expect(masked.statusPerDot[1]).toBe(255)
+  })
+
+  // The bbox is only a prefilter, so a ring test that also clears the bbox
+  // proves nothing about pointInRing. This triangle's bbox spans both dots
+  // while the polygon itself encloses only dot 0: dot 1 sits just past the
+  // hypotenuse (y = x + 129.56).
+  it('excludes a dot inside the bounding box but outside the ring', () => {
+    const pack = decodePack(buildFixture())
+    const all = runFilter(pack, new Map())
+
+    const triangle: Array<[number, number]> = [
+      [-87.665, 41.895],
+      [-87.645, 41.895],
+      [-87.645, 41.915],
+      [-87.665, 41.895],
+    ]
+    const masked = maskToPolygon(pack, all, triangle)
+
+    expect(masked.matchedPerDot[0]).toBe(all.matchedPerDot[0])
+    expect(masked.matchedPerDot[1]).toBe(0)
+    expect(masked).toMatchObject({ people: 3, dots: 1 })
+  })
+
+  it('zeroes everything when the ring encloses no dot', () => {
+    const pack = decodePack(buildFixture())
+    const all = runFilter(pack, new Map())
+
+    const elsewhere: Array<[number, number]> = [
+      [-87.7, 41.8],
+      [-87.69, 41.8],
+      [-87.69, 41.81],
+      [-87.7, 41.81],
+      [-87.7, 41.8],
+    ]
+    const masked = maskToPolygon(pack, all, elsewhere)
+
+    expect(masked).toMatchObject({ people: 0, households: 0, dots: 0 })
+    expect(Array.from(masked.matchedPerDot)).toEqual([0, 0])
+  })
+
+  it('counts every household at a kept dot, overcounting by design', () => {
+    const pack = decodePack(buildFixture())
+    // Only person 0 (Democratic) matches, and person 0 lives in household 0.
+    const demsOnly: DimSelections = new Map([['party', new Set([1])]])
+    const filtered = runFilter(pack, demsOnly)
+    expect(filtered.households).toBe(1)
+
+    const masked = maskToPolygon(pack, filtered, dotZeroRing)
+
+    // Households 0 and 1 both sit at dot 0, so the dot-granular rollup returns
+    // 2 where runFilter's person-level pass returns 1. This is the documented
+    // approximation for the rail readout — knock-time evaluation is canonical.
+    expect(masked.households).toBe(2)
+    expect(masked.people).toBe(1)
   })
 })
