@@ -8,7 +8,7 @@ export const ORDINANCE_TOOL_LABELS: Record<string, string | undefined> = {
   web_search: 'Searching the web',
   read_ordinance: 'Reviewing your ordinance',
   get_code_source: 'Checking the current code',
-  fetch_url: 'Reading the municipal code',
+  fetch_url: 'Reading the source',
   apply_draft_edit: 'Applying your change',
   accept_draft_changes: 'Accepting the changes',
 }
