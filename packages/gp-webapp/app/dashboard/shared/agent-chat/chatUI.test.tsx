@@ -185,4 +185,12 @@ describe('ChatComposer', () => {
     })
     expect(onSubmit).not.toHaveBeenCalled()
   })
+
+  it('does not send on Enter when the composer is empty or whitespace', () => {
+    const onSubmit = vi.fn()
+    render(<ChatComposer {...baseProps} onSubmit={onSubmit} value="   " />)
+
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
 })

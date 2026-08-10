@@ -250,11 +250,13 @@ export function ChatComposer({
 }): React.JSX.Element {
   // A textarea keeps Enter for newlines, so submit is wired by hand: Enter
   // sends, Shift+Enter inserts a break, and the Enter that commits an IME
-  // candidate (CJK and other composed input) must not send. The dictation
-  // guard matches the send button so a send can't drop words still being
-  // spoken; each caller's onSubmit keeps its own empty-message guard.
+  // candidate (CJK and other composed input) must not send. The guard mirrors
+  // the send button's disabled state: the old input relied on a disabled
+  // default button to block Enter form-submission, so an empty or
+  // mid-dictation Enter must stay a no-op here (not every caller's onSubmit
+  // guards an empty send).
   const submit = (): void => {
-    if (dictation?.active) return
+    if (disabled || dictation?.active || value.trim().length === 0) return
     onSubmit()
   }
   const onComposerKeyDown = (
