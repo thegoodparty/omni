@@ -23,6 +23,8 @@ import {
   PublicPersonProfileResponseSchema,
   PublishedPersonProfileList,
   PublishedPersonProfileListSchema,
+  UnlistedPersonProfileList,
+  UnlistedPersonProfileListSchema,
 } from '../schemas/public/PublicPersonProfileResponse.schema'
 import {
   CreateProfileClaimRequestDto,
@@ -130,6 +132,17 @@ export class PublicPersonProfilesController {
   @ResponseSchema(PublishedPersonProfileListSchema)
   async listPublished(): Promise<PublishedPersonProfileList> {
     return this.personProfilesService.listPublished()
+  }
+
+  // Exclusion set for the /people sitemap, which emits a URL per person page.
+  // Covers both ways a page fails to render for a visitor — a removal on
+  // record (the noindex K/L states) and an owner-deleted overlay (410 below,
+  // which the marketing loader turns into a 404) — because the sitemap has no
+  // other way to tell either case apart from a live page.
+  @Get('unlisted')
+  @ResponseSchema(UnlistedPersonProfileListSchema)
+  async listUnlisted(): Promise<UnlistedPersonProfileList> {
+    return this.personProfilesService.listUnlisted()
   }
 
   @Get()

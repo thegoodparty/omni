@@ -88,3 +88,17 @@ export const PublishedPersonProfileListSchema = z.array(
 export type PublishedPersonProfileList = z.infer<
   typeof PublishedPersonProfileListSchema
 >
+
+// The sitemap's exclusion set. Identity only: it unions two sources whose
+// timestamps mean different things, and the sitemap subtracts personIds
+// without reading anything else. Keeping it to one field also means the ops
+// note on a removal row (free text, may quote the request) can never leak.
+export const UnlistedPersonProfileListSchema = z.array(
+  z.object({
+    personId: z.string(),
+  }),
+)
+
+export type UnlistedPersonProfileList = z.infer<
+  typeof UnlistedPersonProfileListSchema
+>
