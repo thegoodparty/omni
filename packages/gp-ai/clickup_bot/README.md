@@ -250,19 +250,15 @@ TAG_CONFIG = {
 
 Two separate paths. Do not mix them.
 
-**No CI deploy path for this Lambda's code.** The `deploy-clickup-bot.yml`
-workflow that used to ship it lived in the `gp-ai-projects` repo and did not come
-across to omni, and this module's Terraform sets
-`ignore_changes = [filename, source_code_hash]`, so `terraform apply` maintains
-the function but deliberately does **not** update its code. The
-`github-actions-lambda-deploy` role that workflow assumed was deleted on
-2026-08-10 along with the rest of the retired gp-ai-projects IAM.
+**Code deploys with the promotion train.** As of 2026-08-10 Terraform owns this
+Lambda's code: a merge to `main` applies it to prod through `promote.yml`, the
+same as every other gp-ai component. There is no separate deploy workflow and no
+IAM role to provision.
 
-Nothing is currently undeployed (no `clickup_bot/` commits since the relocate),
-but a code change here will not reach AWS until a deploy path exists. The
-straightforward fix is to drop the `ignore_changes` so the promotion train ships
-it like every other gp-ai component; use `${{ vars.AWS_ROLE_ARN }}` if a separate
-workflow is ever wanted instead.
+It previously worked the other way — Terraform seeded the code and
+`deploy-clickup-bot.yml` owned updates — because applies were hand-run from local
+checkouts and a stale one could roll prod back. CI-only applies from the promoted
+SHA removed that risk, and that workflow did not survive the move to omni.
 
 **Rollout ordering — code first, then config.** When a change touches both the
 handler and terraform, merge/push to `prod` and confirm the deploy workflow succeeded
