@@ -52,10 +52,7 @@ jobs:
 
   deploy:
     name: Deploy
-    if: >-
-      github.event_name == 'pull_request'
-      || (github.event_name == 'push'
-          && github.ref_name == 'main')
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     outputs:
       url: ${{ steps.vercel.outputs.url }}

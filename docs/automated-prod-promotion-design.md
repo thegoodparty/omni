@@ -1,6 +1,15 @@
 # Automated prod promotion, single-trunk
 
-Status: design, pending review
+> **Superseded (2026-08-10).** This is the original design for the standalone
+> `promote.yml` gate. That gate starved under merge bursts (it pinned the pushed
+> SHA and bailed on supersession, so a validated commit that was no longer the tip
+> never promoted), and was replaced by the **release train** (`release.yml`): one
+> serialized pipeline that deploys every service to dev, E2Es dev, then promotes
+> the same commit to prod, coalescing a burst of merges to the latest commit. This
+> document is kept for the decision history; the live reference is
+> `docs/deployment.md` § The release train.
+
+Status: superseded by the release train
 Decision owner: Swain
 Date: 2026-08-03
 
