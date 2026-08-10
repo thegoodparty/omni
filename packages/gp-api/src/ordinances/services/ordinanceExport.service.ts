@@ -119,6 +119,34 @@ export const checkRowHeaderFits = (
   currentY + Math.max(pillHeight, Math.ceil(labelFontSize * 1.2)) + 4 <=
   bottomMargin
 
+// pdfkit wraps on whitespace but never breaks a single token wider than the
+// column, so a pasted URL or long citation in the draft runs off the page.
+// Insert a hard break inside any whitespace-free token wider than maxWidth so
+// every rendered line fits. `measure` is font-relative (doc.widthOfString), so
+// call it after the target font/size is set. Extracted so it's unit-testable.
+export const breakLongTokens = (
+  text: string,
+  measure: (s: string) => number,
+  maxWidth: number,
+): string =>
+  text
+    .split(/(\s+)/)
+    .map((token) => {
+      if (/\s/.test(token) || measure(token) <= maxWidth) return token
+      let out = ''
+      let line = ''
+      for (const ch of token) {
+        if (line && measure(line + ch) > maxWidth) {
+          out += line + '\n'
+          line = ch
+        } else {
+          line += ch
+        }
+      }
+      return out + line
+    })
+    .join('')
+
 export type OrdinanceExportResult = {
   buffer: Buffer
   filename: string
@@ -177,14 +205,19 @@ const renderPdf = (content: ExportContent): Promise<Buffer> => {
     doc.moveDown(0.8)
   }
 
+  // Hard-break over-long tokens against the content column before drawing.
+  // Font-relative, so it reads the doc's current font at call time.
+  const wrap = (text: string): string =>
+    breakLongTokens(text, (s) => doc.widthOfString(s), contentW)
+
   const link = (label: string, url?: string): void => {
     if (url) {
       doc
         .fillColor(`#${LINK}`)
-        .text(label, { link: url, underline: true })
+        .text(wrap(label), { link: url, underline: true })
         .fillColor('black')
     } else {
-      doc.fillColor('black').text(label)
+      doc.fillColor('black').text(wrap(label))
     }
   }
 
@@ -199,7 +232,7 @@ const renderPdf = (content: ExportContent): Promise<Buffer> => {
     }
     runs.forEach((run, idx) => {
       doc.fillColor(pdfRedlineColor(run.type))
-      doc.text(run.text, {
+      doc.text(wrap(run.text), {
         continued: idx !== runs.length - 1,
         underline: run.type === 'insertion',
         strike: run.type === 'deletion',
@@ -322,7 +355,12 @@ const pdfCheckRow = (
       .font('Helvetica')
       .fontSize(10.5)
       .fillColor(`#${NOTE}`)
-      .text(check.note, { width: contentW })
+      .text(
+        breakLongTokens(check.note, (s) => doc.widthOfString(s), contentW),
+        {
+          width: contentW,
+        },
+      )
     doc.fillColor('black')
   }
 

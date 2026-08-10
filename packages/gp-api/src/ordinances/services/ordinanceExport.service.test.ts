@@ -3,6 +3,7 @@ import JSZip from 'jszip'
 import { Ordinance } from '../../generated/prisma'
 import {
   OrdinanceExportService,
+  breakLongTokens,
   checkRowHeaderFits,
   tallySummary,
 } from './ordinanceExport.service'
@@ -151,6 +152,30 @@ describe('OrdinanceExportService', () => {
     // One point past the boundary must not fit, so the row starts a new page.
     expect(checkRowHeaderFits(721, pillH, bottom)).toBe(false)
     expect(checkRowHeaderFits(730, pillH, bottom)).toBe(false)
+  })
+
+  it('breakLongTokens hard-breaks only over-long tokens, losing no characters', () => {
+    const measure = (s: string): number => s.length // 1 unit per char
+    const max = 10
+
+    // Words that each fit are left exactly as-is.
+    const prose = 'short words each fit here'
+    expect(breakLongTokens(prose, measure, max)).toBe(prose)
+
+    // A long whitespace-free token (a pasted URL) is broken so every rendered
+    // piece fits, and only newlines are inserted (no characters lost).
+    const url = 'https://example.com/really/long/path/section-12-20-retention'
+    const out = breakLongTokens(url, measure, max)
+    expect(out.replace(/\n/g, '')).toBe(url)
+    expect(out).toContain('\n')
+    for (const piece of out.split('\n')) {
+      expect(piece.length).toBeLessThanOrEqual(max)
+    }
+
+    // Only the long token is broken; the leading short word is preserved.
+    const mixed = breakLongTokens(`see ${url}`, measure, max)
+    expect(mixed.replace(/\n/g, '')).toBe(`see ${url}`)
+    expect(mixed.startsWith('see ')).toBe(true)
   })
 
   it('renders a long multi-page draft without throwing', async () => {
