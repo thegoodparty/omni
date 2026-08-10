@@ -155,4 +155,34 @@ describe('ChatComposer', () => {
     fireEvent.submit(container.querySelector('form') as HTMLFormElement)
     expect(onSubmit).toHaveBeenCalledTimes(1)
   })
+
+  it('sends on Enter', () => {
+    const onSubmit = vi.fn()
+    render(<ChatComposer {...baseProps} onSubmit={onSubmit} value="hello" />)
+
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+  })
+
+  it('inserts a newline on Shift+Enter instead of sending', () => {
+    const onSubmit = vi.fn()
+    render(<ChatComposer {...baseProps} onSubmit={onSubmit} value="hello" />)
+
+    fireEvent.keyDown(screen.getByRole('textbox'), {
+      key: 'Enter',
+      shiftKey: true,
+    })
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('does not send on the Enter that commits an IME composition', () => {
+    const onSubmit = vi.fn()
+    render(<ChatComposer {...baseProps} onSubmit={onSubmit} value="部分" />)
+
+    fireEvent.keyDown(screen.getByRole('textbox'), {
+      key: 'Enter',
+      isComposing: true,
+    })
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
 })
