@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRef } from 'react'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import type { ChatStreamEvent } from '../../data/contracts'
@@ -99,8 +99,15 @@ describe('<ChiefOfStaffChatBody>', () => {
         content: 'What is on my agenda?',
       }),
     )
-    // The user's own message bubble is shown.
-    expect(screen.getByText('What is on my agenda?')).toBeInTheDocument()
+    // The user's own message bubble is shown. Scoped to the transcript: the
+    // composer is a textarea, and React keeps a controlled textarea's
+    // textContent in sync with its value, so an unscoped text query would also
+    // match the draft still sitting in the composer.
+    expect(
+      within(screen.getByTestId('cos-conversation')).getByText(
+        'What is on my agenda?',
+      ),
+    ).toBeInTheDocument()
   })
 
   it('returns focus to the composer after a turn completes', async () => {
@@ -848,7 +855,7 @@ describe('<ChiefOfStaffChatBody>', () => {
   it('focuses the composer when a suggestion requests it via composerRef', async () => {
     const user = userEvent.setup()
     listConversationsMock.mockResolvedValue([])
-    const composerRef = createRef<HTMLInputElement>()
+    const composerRef = createRef<HTMLTextAreaElement>()
 
     render(
       <ChiefOfStaffChatBody

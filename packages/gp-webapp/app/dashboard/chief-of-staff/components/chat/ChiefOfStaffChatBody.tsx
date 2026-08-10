@@ -15,10 +15,10 @@ import {
   Badge,
   Button,
   IconButton,
-  Input,
   Loader2Icon,
   MicIcon,
   SquareIcon,
+  Textarea,
 } from '@styleguide'
 import { SparklesIcon } from '@styleguide/components/ui/icons'
 import {
@@ -97,7 +97,12 @@ interface Props {
    */
   pendingKickoff?: string
   /** Ref to the composer input, so a caller's suggestion can focus it. */
-  composerRef?: RefObject<HTMLInputElement | null>
+  composerRef?: RefObject<HTMLTextAreaElement | null>
+  /**
+   * Fine-print line under the composer, e.g. "<Agent> can make mistakes. Check
+   * important details." Omit to render nothing.
+   */
+  disclaimer?: string
   /**
    * Message contents to drop from a reloaded transcript before it renders.
    * Hides persisted sentinel turns (e.g. the story-kickoff sentinel) that
@@ -259,6 +264,7 @@ export default function ChiefOfStaffChatBody({
   composerPlaceholder = 'How can I help?',
   pendingKickoff,
   composerRef,
+  disclaimer,
   hiddenMessageContents = NO_HIDDEN_CONTENTS,
 }: Props): React.JSX.Element {
   const queryClient = useQueryClient()
@@ -304,9 +310,9 @@ export default function ChiefOfStaffChatBody({
   const scrollRef = useRef<HTMLDivElement | null>(null)
   // Local handle on the composer input (merged with the optional caller ref) so
   // a completed turn can return focus to it — see the refocus effect below.
-  const composerInputRef = useRef<HTMLInputElement | null>(null)
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
   const assignComposerRef = useCallback(
-    (node: HTMLInputElement | null) => {
+    (node: HTMLTextAreaElement | null) => {
       composerInputRef.current = node
       if (composerRef) composerRef.current = node
     },
@@ -1053,9 +1059,12 @@ export default function ChiefOfStaffChatBody({
 
         {history.map((item) =>
           item.kind === 'user' ? (
+            // whitespace-pre-wrap keeps the line breaks the composer now
+            // accepts (Shift+Enter); HTML would otherwise collapse them into
+            // one run of text.
             <div
               key={item.id}
-              className="self-end rounded-2xl bg-primary px-3 py-2 text-sm text-primary-foreground"
+              className="max-w-full self-end rounded-2xl bg-primary px-3 py-2 text-sm break-words whitespace-pre-wrap text-primary-foreground"
             >
               {item.content}
             </div>
@@ -1213,8 +1222,12 @@ export default function ChiefOfStaffChatBody({
             ))}
           </div>
         )}
-        <div className="relative mx-auto w-full max-w-[608px] rounded-full bg-gradient-to-r from-red-500 to-blue-500 p-px">
-          <div className="flex h-12 w-full items-center gap-1 rounded-full bg-card pl-1.5 pr-1.5">
+        {/* rounded-3xl (24px) reads as a pill at the one-line min height and
+            stays a sane rounded rectangle once the composer grows, which
+            rounded-full would not. items-end keeps the buttons on the last line
+            of a multiline draft. */}
+        <div className="relative mx-auto w-full max-w-[608px] rounded-3xl bg-gradient-to-r from-red-500 to-blue-500 p-px">
+          <div className="flex min-h-12 w-full items-end gap-1 rounded-3xl bg-card py-1 pl-1.5 pr-1.5">
             {onSelectConversation && (
               <ChatHistoryPopover
                 onSelect={onSelectConversation}
@@ -1222,8 +1235,11 @@ export default function ChiefOfStaffChatBody({
                 historyKey={historyKey}
               />
             )}
-            <Input
+            <Textarea
               ref={assignComposerRef}
+              autoGrow
+              maxRows={6}
+              rows={1}
               value={composer}
               onChange={(e) => setComposer(e.target.value)}
               onKeyDown={(e) => {
@@ -1235,7 +1251,7 @@ export default function ChiefOfStaffChatBody({
               placeholder={composerPlaceholder}
               disabled={busy}
               aria-label="Ask a question"
-              className="h-9 flex-1 border-0 bg-transparent px-2 text-[15px] shadow-none focus-visible:border-0 focus-visible:ring-0"
+              className="flex-1 border-0 bg-transparent px-2 py-2.5 text-[15px] leading-snug shadow-none focus-visible:border-0 focus-visible:ring-0"
             />
             <IconButton
               type="button"
@@ -1274,6 +1290,11 @@ export default function ChiefOfStaffChatBody({
             </IconButton>
           </div>
         </div>
+        {disclaimer && (
+          <p className="mx-auto mt-2 w-full max-w-[608px] text-center text-[11px] text-muted-foreground">
+            {disclaimer}
+          </p>
+        )}
       </div>
     </div>
   )

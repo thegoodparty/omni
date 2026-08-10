@@ -63,6 +63,36 @@ export const Variants: Story = {
   ),
 }
 
+export const AutoGrow: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => {
+    const [value, setValue] = React.useState('')
+    return (
+      <div className="flex w-full max-w-md flex-col gap-6">
+        <div>
+          <SectionLabel>Auto-grow, capped at 6 rows then scrolls</SectionLabel>
+          <Textarea
+            autoGrow
+            maxRows={6}
+            rows={1}
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+            placeholder="Type — this starts at one line and grows."
+          />
+        </div>
+        <div>
+          <SectionLabel>Auto-grow, uncontrolled and uncapped</SectionLabel>
+          <Textarea
+            autoGrow
+            rows={1}
+            defaultValue="Auto-grow works uncontrolled too."
+          />
+        </div>
+      </div>
+    )
+  },
+}
+
 // Active and Focus are interactive pseudo-states (:focus / :focus-visible) that
 // can't be forced statically, so those two rows simulate the component's output
 // with explicit token classes. Active = mouse focus (border only). Focus =
