@@ -170,6 +170,21 @@ export class PersonProfilesService extends createPrismaBase(
     return Boolean(removal)
   }
 
+  // The /people sitemap lists every person page, not just the published
+  // overlays, so it needs the removal set to subtract: removed persons render
+  // noindex and must not be advertised. Capped like listPublished for the same
+  // unbounded-heap reason — truncation is the worse failure here (a removed
+  // person past the cap would get advertised), but a sitemap over 50k URLs
+  // must shard anyway and takedowns run orders of magnitude below that
+  // ceiling.
+  listRemoved() {
+    return this.client.personProfileRemoval.findMany({
+      select: { personId: true, updatedAt: true },
+      orderBy: { updatedAt: Prisma.SortOrder.desc },
+      take: 50_000,
+    })
+  }
+
   // Idempotent set (upsert) — flagging an already-removed person just refreshes
   // the note/timestamp.
   setRemoval(personId: string, note?: string | null) {

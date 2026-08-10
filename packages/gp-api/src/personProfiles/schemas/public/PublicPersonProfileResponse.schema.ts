@@ -88,3 +88,17 @@ export const PublishedPersonProfileListSchema = z.array(
 export type PublishedPersonProfileList = z.infer<
   typeof PublishedPersonProfileListSchema
 >
+
+// The sitemap's exclusion set. Deliberately the same shape as the published
+// feed so the marketing site parses both with one reader, and so the ops note
+// on the removal row (free-text, may quote the request) can never leak.
+export const RemovedPersonProfileListSchema = z.array(
+  z.object({
+    personId: z.string(),
+    updatedAt: zDate(),
+  }),
+)
+
+export type RemovedPersonProfileList = z.infer<
+  typeof RemovedPersonProfileListSchema
+>

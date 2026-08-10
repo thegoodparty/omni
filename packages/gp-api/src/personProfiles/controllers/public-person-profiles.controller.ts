@@ -23,6 +23,8 @@ import {
   PublicPersonProfileResponseSchema,
   PublishedPersonProfileList,
   PublishedPersonProfileListSchema,
+  RemovedPersonProfileList,
+  RemovedPersonProfileListSchema,
 } from '../schemas/public/PublicPersonProfileResponse.schema'
 import {
   CreateProfileClaimRequestDto,
@@ -130,6 +132,15 @@ export class PublicPersonProfilesController {
   @ResponseSchema(PublishedPersonProfileListSchema)
   async listPublished(): Promise<PublishedPersonProfileList> {
     return this.personProfilesService.listPublished()
+  }
+
+  // Exclusion set for the /people sitemap, which emits a URL per person page:
+  // a person with a removal on record renders the noindex K/L states, so the
+  // sitemap must subtract this list rather than advertise them.
+  @Get('removed')
+  @ResponseSchema(RemovedPersonProfileListSchema)
+  async listRemoved(): Promise<RemovedPersonProfileList> {
+    return this.personProfilesService.listRemoved()
   }
 
   @Get()
