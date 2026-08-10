@@ -245,7 +245,22 @@ export default function VoterMapCanvas({
     // mouseup — without this, dragPan stays disabled for the session.
     const canvas = map.getCanvas()
     canvas.addEventListener('mouseleave', endDrag)
-    window.addEventListener('mouseup', endDrag)
+    const onWindowMouseUp = (event: MouseEvent) => {
+      const target = event.target
+      const releasedOnCanvas =
+        target instanceof Node && (target === canvas || canvas.contains(target))
+      endDrag()
+      // justDraggedRef exists so the click that follows a release inside the
+      // canvas doesn't become a vertex, and that click clears it. A release
+      // outside never produces the click, so the flag would survive and eat
+      // the next intentional one — clear it here instead. Checked against the
+      // release point rather than dragIndexRef: this listener also sees the
+      // in-canvas mouseup bubble up, by which time endDrag has already nulled
+      // the index, so keying on the index would clear the flag every time and
+      // put the spurious vertex back.
+      if (!releasedOnCanvas) justDraggedRef.current = false
+    }
+    window.addEventListener('mouseup', onWindowMouseUp)
     // MapLibre does not synthesize mouse events from touch drags — mirror
     // the drag handlers so vertices are repositionable on phones.
     map.on('touchstart', (event) => {
@@ -269,7 +284,7 @@ export default function VoterMapCanvas({
 
     return () => {
       canvas.removeEventListener('mouseleave', endDrag)
-      window.removeEventListener('mouseup', endDrag)
+      window.removeEventListener('mouseup', onWindowMouseUp)
       endDragRef.current = null
       overlayRef.current = null
       mapRef.current = null
