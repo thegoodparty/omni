@@ -281,14 +281,25 @@ test.describe('Briefings', () => {
     // bottom bar's Notes button attaches to whichever card is active, so make
     // item 2 active first. Item 2 carries no annotations, so clicking it can't
     // be swallowed by the open-existing-annotation click handler.
-    // ActiveCardScrollSpy re-picks the active card from scroll position once
-    // its post-click lock expires, so clicking alone isn't enough — scroll the
-    // card to the top first so the spy agrees, then wait for aria-current
-    // rather than assuming the click stuck.
+    // ActiveCardScrollSpy re-picks the active card from scroll position, so
+    // clicking alone isn't enough — scroll the card to the top first so the
+    // spy agrees, then wait for aria-current rather than assuming the click
+    // stuck. That still isn't sufficient on its own: closing the note layers
+    // hands scroll position back to the pane, and that restoration can land
+    // AFTER our scrollIntoView. The spy arms no lock here (its activation
+    // effect early-returns when the click agrees with its own last pick), so
+    // it re-picks from the restored position and the note lands on card one —
+    // the observed flake, which asserted /items/1 and got /items/0. Re-assert
+    // after outlasting LOCK_MAX_MS (1500ms) so a late reconcile pick can't
+    // flip the card behind us, and retry the whole sequence if it does.
     const cardTwo = page.locator(`[data-anchor-json-path="${CARD_PATH}"]`)
-    await cardTwo.evaluate((el) => el.scrollIntoView({ block: 'start' }))
-    await cardTwo.click()
-    await expect(cardTwo).toHaveAttribute('aria-current', 'true')
+    await expect(async () => {
+      await cardTwo.evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await cardTwo.click()
+      await expect(cardTwo).toHaveAttribute('aria-current', 'true')
+      await page.waitForTimeout(1_800)
+      await expect(cardTwo).toHaveAttribute('aria-current', 'true')
+    }).toPass({ timeout: 30_000 })
 
     await page.getByRole('button', { name: 'Notes', exact: true }).click()
 
