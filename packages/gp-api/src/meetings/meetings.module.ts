@@ -12,6 +12,7 @@ import { BriefingsPdfRateLimitGuard } from './controllers/briefingsPdfRateLimit.
 import { MeetingsBriefingsController } from './controllers/meetingsBriefings.controller'
 import { BriefingItemLinksService } from './services/briefingItemLinks.service'
 import { BriefingPdfService } from './services/briefingPdf.service'
+import { BriefingSeedService } from './services/briefingSeed.service'
 import { MeetingBriefingsService } from './services/meetingBriefings.service'
 import { UserAgendaUploadService } from './services/userAgendaUpload.service'
 
@@ -32,6 +33,7 @@ import { UserAgendaUploadService } from './services/userAgendaUpload.service'
     MeetingBriefingsService,
     UserAgendaUploadService,
     BriefingPdfService,
+    BriefingSeedService,
     BriefingsPdfRateLimitGuard,
   ],
   exports: [MeetingBriefingsService, UserAgendaUploadService],
