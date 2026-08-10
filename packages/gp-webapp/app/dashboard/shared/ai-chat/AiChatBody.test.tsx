@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import AiChatBody from './AiChatBody'
@@ -86,6 +86,30 @@ describe('<AiChatBody>', () => {
     )
     // The user's own message bubble is shown.
     expect(screen.getByText('What next?')).toBeInTheDocument()
+  })
+
+  it('does not send on the Enter that commits an IME composition', async () => {
+    const user = userEvent.setup()
+    createConversation.mockResolvedValue({ conversationId: 'conv_1' })
+    streamMessage.mockReturnValue(
+      makeStream([{ type: 'done', assistantMessageId: 'asst_1' }]),
+    )
+
+    render(<AiChatBody chatApi={chatApi} config={config} active />)
+    const composer = screen.getByLabelText(/ask a question/i)
+    await user.type(composer, 'partial draft')
+
+    // Enter while an IME candidate is being committed must not send.
+    fireEvent.keyDown(composer, { key: 'Enter', isComposing: true })
+    expect(createConversation).not.toHaveBeenCalled()
+    expect(streamMessage).not.toHaveBeenCalled()
+
+    // The plain Enter once composition has finished does send.
+    fireEvent.keyDown(composer, { key: 'Enter' })
+    await waitFor(() => expect(createConversation).toHaveBeenCalledTimes(1))
+    expect(streamMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ content: 'partial draft' }),
+    )
   })
 
   it('surfaces a retryable error when the stream errors', async () => {
