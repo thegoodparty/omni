@@ -96,7 +96,7 @@ export function CampaignManagerChatProvider({
   const [pendingKickoff, setPendingKickoff] = useState<string | undefined>(
     undefined,
   )
-  const composerRef = useRef<HTMLInputElement | null>(null)
+  const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const personalizeDeepLinkFiredRef = useRef(false)
   // Once the story is complete (e.g. finished in onboarding), the candidate has
   // already personalized, so the "Personalize your campaign" starter chip is
@@ -314,6 +314,9 @@ export function CampaignManagerChatProvider({
         }
         pendingKickoff={pendingKickoff}
         composerRef={composerRef}
+        // Overridden because `title` is sentence-cased ("Campaign manager") but
+        // the agent's name reads as a proper noun in prose.
+        disclaimer="Campaign Manager can make mistakes. Check important details."
         hiddenMessageContents={hiddenMessageContents}
       />
     </CampaignManagerChatContext.Provider>
