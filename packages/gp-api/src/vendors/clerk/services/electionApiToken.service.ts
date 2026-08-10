@@ -77,11 +77,14 @@ export class ElectionApiTokenService {
       throw new Error('Clerk M2M token creation returned no token')
     }
     this.cachedToken = minted.token
-    // Clerk's createToken returns `expiration` as a Unix timestamp in seconds
-    // (M2MToken.fromJSON passes it through unconverted); isTokenValid compares
-    // against Date.now() in ms, so convert here or the cache never hits.
-    this.tokenExpiration =
-      minted.expiration != null ? minted.expiration * 1000 : null
+    // Anchor the cache window to the TTL we requested, NOT to `minted.expiration`.
+    // The JWT's real `exp` claim is (mint time + secondsUntilExpiration). Clerk's
+    // returned `expiration` field is typed as seconds but is actually milliseconds
+    // at runtime, so `* 1000` double-scaled it ~56k years into the future — the
+    // cache then never renewed and replayed one token long past its real `exp`,
+    // which election-api rejected as expired. Deriving from TTL is unit-agnostic
+    // and keeps the cache strictly inside the JWT's actual lifetime.
+    this.tokenExpiration = Date.now() + TOKEN_TTL_SECONDS * 1000
     return minted.token
   }
 }
