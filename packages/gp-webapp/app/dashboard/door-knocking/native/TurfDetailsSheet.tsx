@@ -195,8 +195,11 @@ export default function TurfDetailsSheet({
               Overview
             </h3>
             <div className="grid grid-cols-2 gap-3">
+              {/* Both branches are stop counts — the frozen route's, or the
+                  dots in the polygon before one exists. Several households
+                  can share a stop, so this is doors, and says so. */}
               <Stat
-                label="Households"
+                label="Doors"
                 value={(
                   route?.route.stopCount ??
                   areaStats?.stops ??
