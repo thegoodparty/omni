@@ -9,8 +9,6 @@ import {
   type RefObject,
 } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import {
   Badge,
   Button,
@@ -24,6 +22,7 @@ import { SparklesIcon } from '@styleguide/components/ui/icons'
 import {
   ASSISTANT_BUBBLE,
   AssistantMarkdown,
+  ChatMarkdown,
   ToolPillRow,
 } from '../../../shared/agent-chat/chatUI'
 import { useDictationAppend } from '../../../briefings/shared/useDictationAppend'
@@ -1051,9 +1050,7 @@ export default function ChiefOfStaffChatBody({
             <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
               <SparklesIcon className="size-3.5" aria-hidden />
             </span>
-            <div className={ASSISTANT_BUBBLE}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
-            </div>
+            <AssistantMarkdown>{text}</AssistantMarkdown>
           </div>
         ))}
 
@@ -1095,9 +1092,7 @@ export default function ChiefOfStaffChatBody({
                   {item.toolsUsed && item.toolsUsed.length > 0 && (
                     <ToolPillRow labels={item.toolsUsed.map(toolDisplayName)} />
                   )}
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {item.content}
-                  </ReactMarkdown>
+                  <ChatMarkdown>{item.content}</ChatMarkdown>
                 </div>
               )}
             </div>
