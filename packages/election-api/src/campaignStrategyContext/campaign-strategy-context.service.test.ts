@@ -335,9 +335,9 @@ describe('CampaignStrategyContextService', () => {
   })
 
   it('projected_voter_turnout is anchored to the General row for the race year regardless of race stage', async () => {
-    // Primary race in March; projected_turnout uses LocalOrMunicipal (via
-    // determineElectionCode), but projected_voter_turnout always picks
-    // the General row.
+    // Primary race in March; projected_turnout resolves off the stage
+    // flags (Primary, absent here), but projected_voter_turnout always
+    // picks the General row.
     raceFindFirst.mockResolvedValue(
       baseRace({
         electionDate: new Date('2026-03-04T00:00:00Z'),
@@ -634,6 +634,83 @@ describe('CampaignStrategyContextService', () => {
     const result = await service.getCampaignStrategyContext(baseRequest())
 
     expect(result.projected_turnout).toBeNull()
+  })
+
+  it('reads the Primary row for a primary race instead of the date-derived code', async () => {
+    // Real shape from a FL Aug-18 school-board primary: the date is not
+    // the November general Tuesday, so determineElectionCode returns
+    // LocalOrMunicipal, whose row projects a standalone municipal
+    // election Florida never holds. Reading it understated the win
+    // number by 30x.
+    raceFindFirst.mockResolvedValue(
+      baseRace({
+        electionDate: new Date('2026-08-18T00:00:00Z'),
+        state: 'FL',
+        isPrimary: true,
+        Position: {
+          id: 'pos-uuid-1',
+          district: {
+            id: 'dist-uuid-1',
+            registeredVoters: 48831,
+            uniqueCellphones: null,
+            uniqueLandlines: null,
+            ProjectedTurnouts: [
+              {
+                electionYear: 2026,
+                electionCode: ElectionCode.LocalOrMunicipal,
+                projectedTurnout: 391,
+              },
+              {
+                electionYear: 2026,
+                electionCode: ElectionCode.Primary,
+                projectedTurnout: 11619,
+              },
+            ],
+          },
+        },
+      }),
+    )
+
+    const result = await service.getCampaignStrategyContext(baseRequest())
+
+    expect(result.projected_turnout).toBe(11619)
+    expect(result.win_number_estimate).toBe(5810)
+  })
+
+  it('keeps the date-derived code for a non-primary race', async () => {
+    // Genuine off-cycle municipal races are the majority of the
+    // LocalOrMunicipal population and must keep resolving to it even
+    // when the district also has a Primary row.
+    raceFindFirst.mockResolvedValue(
+      baseRace({
+        electionDate: new Date('2026-04-07T00:00:00Z'),
+        Position: {
+          id: 'pos-uuid-1',
+          district: {
+            id: 'dist-uuid-1',
+            registeredVoters: null,
+            uniqueCellphones: null,
+            uniqueLandlines: null,
+            ProjectedTurnouts: [
+              {
+                electionYear: 2026,
+                electionCode: ElectionCode.LocalOrMunicipal,
+                projectedTurnout: 1500,
+              },
+              {
+                electionYear: 2026,
+                electionCode: ElectionCode.Primary,
+                projectedTurnout: 6000,
+              },
+            ],
+          },
+        },
+      }),
+    )
+
+    const result = await service.getCampaignStrategyContext(baseRequest())
+
+    expect(result.projected_turnout).toBe(1500)
   })
 
   it('picks the first matching ProjectedTurnout row (relies on Prisma ordering by inferenceAt desc)', async () => {

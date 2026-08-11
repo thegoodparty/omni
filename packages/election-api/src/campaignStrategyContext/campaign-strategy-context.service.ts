@@ -87,6 +87,7 @@ export class CampaignStrategyContextService extends createPrismaBase(
       race.Position?.district ?? null,
       race.electionDate,
       race.state,
+      race.isPrimary,
     )
 
     // Pass the *general*'s date (when known) so the resolver anchors on
@@ -238,16 +239,24 @@ export class CampaignStrategyContextService extends createPrismaBase(
       | undefined,
     electionDate: Date,
     state: string,
+    isPrimary: boolean | null,
   ): number | null {
     if (!district?.ProjectedTurnouts?.length) {
       return null
     }
     const isoDate = electionDate.toISOString().slice(0, 10)
     const electionYear = electionDate.getUTCFullYear()
-    const electionCode = this.projectedTurnoutService.determineElectionCode(
-      isoDate,
-      state,
-    )
+    // The race's own stage flag beats the date heuristic.
+    // determineElectionCode maps every non-November date to
+    // LocalOrMunicipal, which upstream means "a standalone even-year
+    // municipal election". Most states hold none, so the turnout model
+    // projects near zero for them. A state primary sits on exactly such a
+    // date, so reading LocalOrMunicipal understates it badly (FL
+    // school-board primaries: 391 against a real Primary row of 11,619).
+    // isPrimary also covers primary runoffs, which BR flags as both.
+    const electionCode = isPrimary
+      ? ElectionCode.Primary
+      : this.projectedTurnoutService.determineElectionCode(isoDate, state)
     const match = district.ProjectedTurnouts.find(
       (t) => t.electionYear === electionYear && t.electionCode === electionCode,
     )
