@@ -61,6 +61,11 @@ export interface StreamArgs {
   // scopes, so the caller supplies a scope-specific name (e.g.
   // 'ordinance_flow-chat-stream'); falls back to a generic name if unset.
   traceName?: string
+  // Optional post-generation hook. On a clean finish, given the full assembled
+  // text, returns a line to append (e.g. the CoS professional-advice
+  // disclaimer) or null. Streamed as the final text chunk and included in the
+  // persisted turn; a throw is logged, never fails the turn.
+  finalizeText?: (fullText: string) => string | null
 }
 
 export const MAX_CHAT_HISTORY_MESSAGES = 40
@@ -444,6 +449,25 @@ export class ChatStreamService {
         // textStream ends normally even on a provider error (the SDK swallows
         // it to onStreamError), so surface any captured error here.
         if (streamError) return { error: streamError }
+        // Clean finish: let the caller append a final line (the CoS
+        // professional-advice disclaimer) before the queue closes, so it both
+        // streams to the client and lands in textBuffer for persistence. A
+        // throw here must not fail an otherwise-complete turn.
+        if (!args.signal?.aborted && args.finalizeText) {
+          try {
+            const extra = args.finalizeText(textBuffer.join(''))
+            if (extra) {
+              textBuffer.push(extra)
+              pushTextDelta(extra)
+              await queue.push({ type: 'text', delta: extra })
+            }
+          } catch (finalizeErr) {
+            this.logger.error(
+              { err: finalizeErr, conversationId: args.conversationId },
+              'finalizeText hook failed',
+            )
+          }
+        }
         return {}
       } catch (err) {
         this.logger.error(

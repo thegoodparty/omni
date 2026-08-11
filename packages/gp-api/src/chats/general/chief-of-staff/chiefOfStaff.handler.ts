@@ -20,6 +20,7 @@ import {
 } from './services/chiefOfStaffContext.service'
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
 import { buildChiefOfStaffSystemPrompt } from './services/chiefOfStaffPrompt'
+import { professionalAdviceDisclaimer } from './services/professionalAdviceCheck'
 import {
   buildConstituentDataScope,
   ConstituentTableConfig,
@@ -178,6 +179,13 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
 
   buildTools(ctx: ChiefOfStaffContext): Record<string, LlmTool> {
     return this.assembleTools(ctx)
+  }
+
+  // Tier-1 deterministic backstop: if a turn gave professional-domain advice
+  // (legal/medical/financial/HR) but skipped the disclaimer the prompt asks
+  // for, append it. See professionalAdviceCheck.ts.
+  finalizeAssistantText(text: string): string | null {
+    return professionalAdviceDisclaimer(text)
   }
 
   private assembleTools(ctx: ChiefOfStaffContext): Record<string, LlmTool> {

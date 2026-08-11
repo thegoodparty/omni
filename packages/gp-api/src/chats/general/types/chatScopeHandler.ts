@@ -51,6 +51,11 @@ export interface ChatScopeHandler<
     usage: LlmStreamUsage,
     model: string,
   ) => void | Promise<void>
+  // Optional post-generation hook: given the full assembled assistant text on a
+  // clean finish, return a line to append (e.g. the CoS professional-advice
+  // disclaimer) or null to append nothing. The shared stream service streams it
+  // as the final text chunk and persists it with the turn.
+  finalizeAssistantText?: (text: string) => string | null
 }
 
 export const CHAT_SCOPE_HANDLERS = 'CHAT_SCOPE_HANDLERS'
