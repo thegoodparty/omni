@@ -335,9 +335,8 @@ describe('CampaignStrategyContextService', () => {
   })
 
   it('projected_voter_turnout is anchored to the General row for the race year regardless of race stage', async () => {
-    // Primary race in March; projected_turnout resolves off the stage
-    // flags (Primary, absent here), but projected_voter_turnout always
-    // picks the General row.
+    // Primary race in March; projected_turnout takes the Primary row,
+    // but projected_voter_turnout always picks the General row.
     raceFindFirst.mockResolvedValue(
       baseRace({
         electionDate: new Date('2026-03-04T00:00:00Z'),
@@ -352,7 +351,7 @@ describe('CampaignStrategyContextService', () => {
             ProjectedTurnouts: [
               {
                 electionYear: 2026,
-                electionCode: ElectionCode.LocalOrMunicipal,
+                electionCode: ElectionCode.Primary,
                 projectedTurnout: 1500,
               },
               {
@@ -368,6 +367,7 @@ describe('CampaignStrategyContextService', () => {
 
     const result = await service.getCampaignStrategyContext(baseRequest())
 
+    expect(result.projected_turnout).toBe(1500)
     expect(result.projected_voter_turnout).toBe(8400)
   })
 
