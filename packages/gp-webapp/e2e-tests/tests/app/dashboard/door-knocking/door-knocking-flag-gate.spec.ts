@@ -25,6 +25,10 @@ test.describe('native door-knocking flag gate', () => {
   })
 
   test('flag off renders the legacy eCanvasser dashboard', async ({ page }) => {
+    // Provisioning the Pro campaign is most of this test's wall clock and can
+    // outlast the config's 120s default on a slow worker.
+    test.setTimeout(3 * 60 * 1000)
+
     await disableNativeDoorKnockingFlag(page)
     await setupProCampaignUser(page)
 
@@ -37,6 +41,8 @@ test.describe('native door-knocking flag gate', () => {
   })
 
   test('flag on renders the native voter-map shell', async ({ page }) => {
+    test.setTimeout(3 * 60 * 1000)
+
     await enableNativeDoorKnockingFlag(page)
     await setupProCampaignUser(page)
 
