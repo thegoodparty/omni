@@ -1,6 +1,6 @@
 ---
 name: triage-instrumentation-gaps
-description: Run the weekly instrumentation-governance review over two queues — instrumentation gaps (instrumentation_gaps.py) and watchlist proposals (analytics_event_health.py) — entered from the Slack governance digest, ending in one PR against main. Use when the user says "triage instrumentation gaps", "/triage-instrumentation-gaps", "review the watchlist proposals", or picks up the digest's triage line.
+description: Run the weekly instrumentation-governance review over two queues — instrumentation gaps (instrumentation_gaps.py) and watchlist proposals (analytics_event_health.py) — entered from the Slack governance digest, ending in one PR against main. Also diagnoses the digest's red/yellow health items. Use when the user says "triage instrumentation gaps", "/triage-instrumentation-gaps", "review the watchlist proposals", picks up the digest's triage line, or asks to look into / diagnose a red, yellow, dormant, or flatlined event from the digest.
 ---
 
 # Triage instrumentation gaps
@@ -28,6 +28,9 @@ on either queue used to be hand-editing raw JSON/YAML on GitHub.
   "review the watchlist proposals".
 - The user pastes (or references) the Slack governance digest's triage line —
   `🛠 Triage: /triage-instrumentation-gaps <run_date>` — or a permalink to that message.
+- The user asks to look into the digest's 🔴/🟡 items ("what happened to <event>",
+  "diagnose the red item", "why did these flatline") — run the Diagnose section, in
+  the same session as the queues or standalone.
 - Weekly cadence: this is the human review step that closes the loop the digest opens.
 
 ## Resolve the runbooks dir
@@ -272,6 +275,57 @@ section banners get stripped):
 - **defer** — leave the file untouched; the proposal reappears on the next run within
   its 90-day window. That's the point — "defer" means "ask me again," "dismiss" means
   "stop asking."
+
+## Diagnose — red/yellow health items
+
+Runs when the digest has a 🔴/🟡 tier and the reviewer wants the story, not just the
+flag. Purpose: turn "event X flatlined" into a classified cause, a named owner, and a
+paste-ready follow-up message — without the reviewer hand-steering the sleuthing.
+(Origin: DATA-2278; the 2026-08-11 session that diagnosed a serve funnel break and a
+flag-rollout retirement is the reference run.)
+
+Input is the same health-report JSON as Queue B (`flagged` + `records`; each record
+carries `anomaly` current/baseline, `last_seen_date`, `event_count_30d`,
+`call_site_count`, `instrumented_pr`, `divergence`). Per flagged item, in order —
+each step narrows what the next one has to explain:
+
+1. **Sibling-cliff comparison** (localizes the break). From `records`, print every
+   event sharing the flagged event's name prefix (and family) with `last_seen_date`
+   and 30d count. Events dying on the SAME date share one cause at their common
+   surface; healthy siblings bound where the flow still works. A mid-funnel split
+   (early steps alive, terminal steps dead same-day) reads as a break; a whole
+   correlated cluster draining over days after a date reads as a rollout.
+2. **Call-site check**. Resolve the registry entry (`analyticsHelper.ts` EVENTS map
+   or `segment.types.ts`) to its trackEvent call site(s); confirm it's live at HEAD
+   and note every condition gating it (flag cohorts, success-only paths, terminal
+   guards). Don't trust `call_site_count` alone — read the site.
+3. **Git archaeology at the cliff**. `git log` the call-site file AND its
+   gating/routing code around the last_seen cliff (±1 week). No code change at the
+   cliff moves suspicion to config, flags, or traffic — that's signal, not a dead end.
+4. **Flag check** (Amplitude MCP). For every flag key the gating code references:
+   `search` entityTypes FLAG/EXPERIMENT, then `get_flags` and compare
+   `lastModifiedAt` against the cliff date. Prod project is `694490`, dev is
+   `703396` — read both; a prod rollout edit at the cliff is the usual smoking gun
+   for intentional retirement.
+5. **Owner attribution**. Commit author or flag `lastModifiedBy`. Before naming
+   anyone in a draft, verify they're still at the org (recent commit activity, or
+   just ask the reviewer) — a message addressed to someone who left is worse than
+   no name.
+6. **Classify and hand off.** Two verdicts:
+   - **Genuine break** → lay out the evidence and offer to file a ClickUp ticket
+     (Data backlog `901326391561`, same safe-payload discipline as Queue A).
+   - **Intentional retirement/supersession** → name the succeeding events and
+     propose the metadata action (`event-metadata` skill, supersede by
+     migration/generation when there's no 1:1 successor). Status writes stay
+     human-confirmed — never write metadata from inside the diagnosis.
+
+   Either way, END with a draft follow-up Slack message: one block per finding,
+   the question on the FIRST line, evidence after, recipient = the verified owner.
+   Copy it with `pbcopy`; never post it (the no-Slack rule below applies here too).
+
+Diagnosis is read-only — no state-file writes, no `monitored_events.yaml` edits, no
+Amplitude writes. Its conclusions route through the existing disposition paths, a
+ticket, or the reviewer's own follow-up message.
 
 ## Write back — one PR
 
