@@ -50,9 +50,10 @@ is automated.
 
 Default is sandbox. Prod mode is not a state the agent may enter on its own.
 
-**Entry condition:** the human names prod (or portal 21589597) for *this* run,
-after the Phase 3 approval table has been reviewed. A sandbox rehearsal
-approved earlier is not sign-off for the prod run. If the human is ambiguous
+**Entry condition:** the human names prod (or portal 21589597) at the start of
+this run. That naming is only valid if a sandbox rehearsal — including its
+Phase 3 approval table — has already been reviewed; an earlier sandbox
+approval is not sign-off for the prod run itself. If the human is ambiguous
 ("ship it", "do it for real"), ask which portal before any write.
 
 **Token:** pass `--token-env HUBSPOT_MAPPING_PROD_TOKEN` on *every*
@@ -246,6 +247,11 @@ After create, `get-flow <id>` and confirm `enrollmentCriteria.type`,
 `staticValue` survived — HubSpot can silently reshape a malformed flow.
 
 ## Phase 5 — verify end to end
+
+**Prod-mode note:** if this is a prod run, include `--token-env
+HUBSPOT_MAPPING_PROD_TOKEN` on every `hubspot_event_mapping.py` call
+below — a sandbox send-test silently succeeds against the wrong portal
+and leaves the prod workflow unverified.
 
 1. `hubspot_event_mapping.py send-test` — synthetic occurrence with realistic
    values from Phase 1, against a designated test contact (in prod, the pinned
