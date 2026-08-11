@@ -45,7 +45,10 @@ jobs:
       # reset by Thursday at age 144h (alert fires Tuesday 12:30, age 121.5h),
       # a missed Thursday by Monday at 168h (alert fires Saturday, 121.5h).
       # So every single missed run alerts 1-2 days later, with a 25.5h margin
-      # against false alarms.
+      # against false alarms. The comparison must be -ge, not -gt: age_hours is
+      # integer-truncated, so the designed Tuesday alert (real age ~121h) can
+      # land at a computed 120 — with -gt it silently slips a day, as it did on
+      # 2026-08-11 (age 120.92h -> 120, "Heartbeat OK").
       MAX_GAP_HOURS: 120
     steps:
       - name: Check workflow state and last success
@@ -86,7 +89,7 @@ jobs:
 
           age_hours=$(( ($(date -u +%s) - $(date -u -d "$last" +%s)) / 3600 ))
           echo "Last success: $last (${age_hours}h ago; threshold ${MAX_GAP_HOURS}h)"
-          if [ "$age_hours" -gt "$MAX_GAP_HOURS" ]; then
+          if [ "$age_hours" -ge "$MAX_GAP_HOURS" ]; then
             alert "no successful run in ${age_hours}h (threshold ${MAX_GAP_HOURS}h; cadence is Mon+Thu). Last success: $last."
           fi
           echo "Heartbeat OK."
