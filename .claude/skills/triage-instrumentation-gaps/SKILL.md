@@ -315,8 +315,12 @@ each step narrows what the next one has to explain:
    - **Genuine break** → lay out the evidence and offer to file a ClickUp ticket
      (Data backlog `901326391561`, same safe-payload discipline as Queue A).
    - **Intentional retirement/supersession** → name the succeeding events and
-     propose the metadata action (`event-metadata` skill, supersede by
-     migration/generation when there's no 1:1 successor). Status writes stay
+     propose the metadata action only for **`analyticsHelper.ts` (Amplitude/client)
+     events** (`event-metadata` skill, supersede by migration/generation when there's
+     no 1:1 successor). For **`segment.types.ts` (backend) events**, `event-metadata`
+     is out of scope — instead, file a ClickUp ticket in the Data backlog
+     (`901326391561`) describing the retirement and the successor events, and surface
+     it to the verified owner for follow-up. Status writes stay
      human-confirmed — never write metadata from inside the diagnosis.
 
    Either way, END with a draft follow-up Slack message: one block per finding,
