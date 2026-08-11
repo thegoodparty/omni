@@ -12,31 +12,19 @@ import {
 import { Button, Textarea, ToggleGroup, ToggleGroupItem } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  OUTCOME_OPTIONS,
+  OUTCOME_QUESTION,
+  SUPPORT_OPTIONS,
+  SUPPORT_QUESTION,
+  WILL_VOTE_OPTIONS,
+  WILL_VOTE_QUESTION,
+} from './knockQuestions'
 
 // Compact cousin of the CRM wizard's pill toggles (crm/shared/constants.ts)
 // — same selected-state convention, sized for the walk view's dense form.
 const PILL_ITEM_CLASSNAME =
   'rounded-full border border-components-input-border bg-transparent px-3 py-1 text-xs font-normal text-foreground data-[state=on]:border-tertiary-dark data-[state=on]:bg-tertiary-dark data-[state=on]:text-tertiary-foreground data-[state=on]:hover:bg-tertiary-dark/90'
-
-const OUTCOME_OPTIONS: Array<[DoorKnockOutcome, string]> = [
-  ['answered', 'Answered'],
-  ['not_home', 'Not home'],
-  ['inaccessible', 'Inaccessible'],
-  ['refused_to_engage', 'Refused to engage'],
-  ['not_a_voter', 'Not a voter'],
-]
-
-const SUPPORT_OPTIONS: Array<[SupportAnswer, string]> = [
-  ['supporter', 'Yes'],
-  ['unsure', 'Unsure'],
-  ['non_supporter', 'No'],
-]
-
-const WILL_VOTE_OPTIONS: Array<[WillVoteAnswer, string]> = [
-  ['yes', 'Yes'],
-  ['unsure', 'Unsure'],
-  ['no', 'No'],
-]
 
 interface RecordKnockFormProps {
   target: RoutePayloadTarget
@@ -122,7 +110,7 @@ export default function RecordKnockForm({
   return (
     <div className="flex flex-col gap-3 rounded-md border border-border p-3">
       <ChoiceRow
-        label="Did they answer?"
+        label={OUTCOME_QUESTION}
         options={OUTCOME_OPTIONS}
         value={outcome}
         onChange={(value) => {
@@ -136,13 +124,13 @@ export default function RecordKnockForm({
       {outcome === 'answered' && (
         <>
           <ChoiceRow
-            label="Do they support you?"
+            label={SUPPORT_QUESTION}
             options={SUPPORT_OPTIONS}
             value={supportAnswer}
             onChange={setSupportAnswer}
           />
           <ChoiceRow
-            label="Will they vote?"
+            label={WILL_VOTE_QUESTION}
             options={WILL_VOTE_OPTIONS}
             value={willVote}
             onChange={setWillVote}

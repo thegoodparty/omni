@@ -1,0 +1,190 @@
+import { describe, expect, it } from 'vitest'
+import { screen, within } from '@testing-library/react'
+import {
+  DoorKnockingRoutePayload,
+  RoutePayloadStop,
+} from '@goodparty_org/contracts'
+import { render } from 'helpers/test-utils/render'
+import WalkSheet from './WalkSheet'
+
+const stop = (overrides: Partial<RoutePayloadStop> = {}): RoutePayloadStop => ({
+  id: 11,
+  seq: 1,
+  lat: 36.16,
+  lng: -86.78,
+  displayAddress: '105 Elm St',
+  legSeconds: 0,
+  legMeters: 0,
+  knockStatus: 'unknown',
+  addresses: [
+    {
+      addressKey: '105|elm|st',
+      address: '105 Elm St',
+      targets: [
+        {
+          stopTargetId: 21,
+          personId: 'person-1',
+          name: 'Dorian Fen',
+          age: 31,
+          politicalParty: 'Independent',
+          knockStatus: 'unknown',
+          mayHaveMoved: false,
+        },
+      ],
+      otherResidents: [],
+    },
+  ],
+  ...overrides,
+})
+
+const payload = (stops: RoutePayloadStop[]): DoorKnockingRoutePayload => ({
+  route: {
+    id: 5,
+    doorKnockingTurfId: 3,
+    mode: 'walk',
+    loop: true,
+    totalSeconds: 1860,
+    totalMeters: 3218,
+    stopCount: stops.length,
+    createdAt: new Date('2026-07-21T00:00:00Z'),
+  },
+  pathGeometry: null,
+  stops,
+})
+
+const renderSheet = (stops: RoutePayloadStop[]) =>
+  render(
+    <WalkSheet
+      turfName="Elm & Cedar"
+      payload={payload(stops)}
+      printedAt={new Date('2026-08-11T14:30:00Z')}
+    />,
+  )
+
+describe('WalkSheet', () => {
+  it('heads the sheet with the turf and what the walk costs', () => {
+    renderSheet([stop(), stop({ id: 12, seq: 2 })])
+
+    expect(
+      screen.getByRole('heading', { name: 'Elm & Cedar' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/2 stops · 2 doors · Walking loop · 31 min · 2\.0 mi/),
+    ).toBeInTheDocument()
+  })
+
+  // Paper is walked in order, and the payload isn't guaranteed to arrive in it.
+  it('prints stops in seq order', () => {
+    renderSheet([
+      stop({ id: 12, seq: 2, displayAddress: '210 Cedar Row' }),
+      stop({ id: 11, seq: 1, displayAddress: '105 Elm St' }),
+    ])
+
+    const addresses = screen
+      .getAllByRole('listitem')
+      .map((item) => within(item).getByText(/Elm St|Cedar Row/).textContent)
+    expect(addresses).toEqual(['105 Elm St', '210 Cedar Row'])
+  })
+
+  // The whole point of the sheet: somewhere to write the answers that the
+  // in-app form will later ask for, in the same words.
+  it('gives every unknocked person the same questions the app asks', () => {
+    renderSheet([stop()])
+
+    const person = screen.getByRole('listitem')
+    expect(within(person).getByText('Dorian Fen')).toBeInTheDocument()
+    expect(within(person).getByText('31 · Independent')).toBeInTheDocument()
+    expect(within(person).getByText('Did they answer?')).toBeInTheDocument()
+    expect(within(person).getByText('Do they support you?')).toBeInTheDocument()
+    expect(within(person).getByText('Will they vote?')).toBeInTheDocument()
+    for (const label of [
+      'Answered',
+      'Not home',
+      'Inaccessible',
+      'Refused to engage',
+      'Not a voter',
+    ]) {
+      expect(within(person).getByText(label)).toBeInTheDocument()
+    }
+    expect(within(person).getByText('Notes')).toBeInTheDocument()
+  })
+
+  // A door already logged in the app must not come back as a blank form —
+  // that's how a knock gets repeated, or an answer overwritten on transcription.
+  it('prints the recorded answer instead of blank boxes', () => {
+    renderSheet([
+      stop({
+        addresses: [
+          {
+            addressKey: '105|elm|st',
+            address: '105 Elm St',
+            targets: [
+              {
+                stopTargetId: 21,
+                personId: 'person-1',
+                name: 'Marisol Vega',
+                age: 44,
+                politicalParty: 'Democratic',
+                knockStatus: 'supporter',
+                mayHaveMoved: false,
+              },
+            ],
+            otherResidents: [],
+          },
+        ],
+      }),
+    ])
+
+    const person = screen.getByRole('listitem')
+    expect(
+      within(person).getByText('Already logged: Supporter'),
+    ).toBeInTheDocument()
+    expect(within(person).queryByText('Did they answer?')).toBeNull()
+  })
+
+  it('flags a person who may have moved', () => {
+    renderSheet([
+      stop({
+        addresses: [
+          {
+            addressKey: '105|elm|st',
+            address: '105 Elm St',
+            targets: [
+              {
+                stopTargetId: 21,
+                personId: 'person-1',
+                name: 'Dorian Fen',
+                age: null,
+                politicalParty: null,
+                knockStatus: 'unknown',
+                mayHaveMoved: true,
+              },
+            ],
+            otherResidents: [{ name: 'Ruben Vega' }],
+          },
+        ],
+      }),
+    ])
+
+    expect(screen.getByText('may have moved')).toBeInTheDocument()
+    expect(
+      screen.getByText('Also at this address: Ruben Vega'),
+    ).toBeInTheDocument()
+  })
+
+  // Nothing on paper reaches the voter records by itself, and a canvasser who
+  // assumes otherwise loses the day's work.
+  it('says the sheet has to be logged in the app', () => {
+    renderSheet([stop()])
+
+    expect(
+      screen.getByText(/Log these doors in the app when you.re back online/),
+    ).toBeInTheDocument()
+  })
+
+  it('handles a route with no stops', () => {
+    renderSheet([])
+
+    expect(screen.getByText('This route has no stops.')).toBeInTheDocument()
+  })
+})
