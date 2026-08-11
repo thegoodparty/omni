@@ -24,6 +24,7 @@ import {
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { pointInPolygon, polygonBbox } from '../utils/geo.util'
 import { lockTurf } from '../utils/turfLock.util'
+import { assertWaypointQuota } from '../utils/waypointQuota.util'
 
 // Leadership-approved hard cap; the DB CHECK on stop.seq enforces the same
 // bound.
@@ -125,6 +126,17 @@ export class DoorKnockingKnockService extends createPrismaBase(
           filters: convertVoterFileFilterToFilters(filter),
         })
         const stops = this.buildStops(people, turf.geoPoly)
+
+        // Last gate before the only paid call in the system. The re-knock
+        // probe above returns without spending anything, so a route is never
+        // billed to the budget twice.
+        //
+        // The advisory lock serializes per turf, not per organization, so two
+        // turfs knocked in the same instant can both read the same spend and
+        // overshoot. That's bounded by the 150-stop cap and preferable to
+        // holding an org-wide lock across a 30-second vendor call — this is a
+        // spend guardrail, not a billing boundary.
+        await assertWaypointQuota(tx, organization.slug, stops.length)
 
         const plan = await this.planStops(stops, request)
 

@@ -71,13 +71,8 @@ describe('KnockTurfDialog', () => {
     expect(posted).toEqual([{ id: '3', mode: 'drive', loop: false }])
   })
 
-  it('shows an error message when the route build fails', async () => {
-    api.mock('POST /v1/door-knocking/turfs/:id/knock', {
-      status: 500,
-      data: {},
-    })
+  const buildAndReadError = async () => {
     const onRouteReady = vi.fn()
-
     render(
       <KnockTurfDialog
         turf={turf}
@@ -86,14 +81,50 @@ describe('KnockTurfDialog', () => {
         onRouteReady={onRouteReady}
       />,
     )
-
     fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
-
-    await waitFor(() =>
-      expect(
-        screen.getByText(/Route building failed — nothing was saved/),
-      ).toBeInTheDocument(),
-    )
+    const alert = await screen.findByRole('alert')
     expect(onRouteReady).not.toHaveBeenCalled()
+    return alert
+  }
+
+  // A server outage is the one case where waiting is genuinely the fix, so
+  // it keeps the generic copy.
+  it('shows the generic retry message when the server fails', async () => {
+    api.mock('POST /v1/door-knocking/turfs/:id/knock', {
+      status: 500,
+      data: { message: 'Internal server error' },
+    })
+
+    expect(await buildAndReadError()).toHaveTextContent(
+      /Route building failed — nothing was saved/,
+    )
+  })
+
+  // Waiting a moment does nothing for a spent daily budget or a turf with no
+  // voters in it — gp-api says exactly what to do instead, so say that.
+  it('surfaces the reason a 4xx gives instead of telling the user to retry', async () => {
+    api.mock('POST /v1/door-knocking/turfs/:id/knock', {
+      status: 429,
+      data: {
+        message:
+          'This route needs 40 stops and only 12 of your 500 daily stops are left.',
+      },
+    })
+
+    const alert = await buildAndReadError()
+    expect(alert).toHaveTextContent(/only 12 of your 500 daily stops/)
+    expect(alert).not.toHaveTextContent(/Try again in a moment/)
+  })
+
+  // A 4xx with an unreadable body still has to say something.
+  it('falls back to the generic message when a 4xx carries no message', async () => {
+    api.mock('POST /v1/door-knocking/turfs/:id/knock', {
+      status: 400,
+      data: {},
+    })
+
+    expect(await buildAndReadError()).toHaveTextContent(
+      /Route building failed — nothing was saved/,
+    )
   })
 })

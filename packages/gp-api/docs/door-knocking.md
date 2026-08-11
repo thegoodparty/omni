@@ -18,13 +18,13 @@ only mutable record — one row per knock on a person.
 
 ## Tables (all in this package's Prisma schema)
 
-| Table                            | Role                                                                  | Key invariants                                                                                                                                                                                                                                                                                                                                                       |
-| -------------------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `door_knocking_turf`             | The drawn area: name, color, geoPoly                                  | `voterFileFilterId` NOT unique (N turfs per filter). Locked (derived) iff its route exists                                                                                                                                                                                                                                                                           |
-| `door_knocking_route`            | Frozen route header                                                   | `doorKnockingTurfId` UNIQUE — locked/idempotent both mean "this row exists". Never mutated after creation                                                                                                                                                                                                                                                            |
-| `door_knocking_stop`             | One per unique lat/lng, in visit order                                | `(routeId, seq)` unique; `displayAddress` copied verbatim from `Residence_Addresses_AddressLine` at freeze                                                                                                                                                                                                                                                           |
-| `door_knocking_stop_target`      | Bare-minimum person snapshot                                          | personId (people-db UUID — never raw LALVOTERIDs), name, addressKey. Redact-in-place on deletion requests                                                                                                                                                                                                                                                            |
-| `contact_interaction_door_knock` | One row per knock on a person (CRM epic's model, extended additively) | Writes land here via `POST /v1/door-knocking/interactions`: `sourceId` = the phone's clientKey (replay-idempotent upsert, first write wins), `occurredAt` server-stamped. The vocabulary was extended additively for the question flow: `inaccessible` + `not_a_voter` outcomes, nullable `willVote` — `supportAnswer` stays the CRM's 3-way. CRM readers unaffected |
+| Table                            | Role                                                                  | Key invariants                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `door_knocking_turf`             | The drawn area: name, color, geoPoly                                  | `voterFileFilterId` NOT unique (N turfs per filter). Locked (derived) iff its route exists                                                                                                                                                                                                                                                                                                                                                                 |
+| `door_knocking_route`            | Frozen route header                                                   | `doorKnockingTurfId` UNIQUE — locked/idempotent both mean "this row exists". Never mutated after creation                                                                                                                                                                                                                                                                                                                                                  |
+| `door_knocking_stop`             | One per unique lat/lng, in visit order                                | `(routeId, seq)` unique; `displayAddress` copied verbatim from `Residence_Addresses_AddressLine` at freeze                                                                                                                                                                                                                                                                                                                                                 |
+| `door_knocking_stop_target`      | Bare-minimum person snapshot                                          | personId (people-db UUID — never raw LALVOTERIDs), name, addressKey. Redact-in-place on deletion requests                                                                                                                                                                                                                                                                                                                                                  |
+| `contact_interaction_door_knock` | One row per knock on a person (CRM epic's model, extended additively) | Writes land here via `POST /v1/door-knocking/interactions`: `sourceId` = the phone's clientKey (replay-idempotent upsert; the latest sync of a clientKey wins, so a corrected answer replaces the row rather than duplicating it), `occurredAt` server-stamped. The vocabulary was extended additively for the question flow: `inaccessible` + `not_a_voter` outcomes, nullable `willVote` — `supportAnswer` stays the CRM's 3-way. CRM readers unaffected |
 
 The route-created activity event (one per target at freeze) is deferred to
 the interaction-write PR alongside the vocabulary resolution — it should
@@ -58,14 +58,19 @@ interactive transaction:
 3. Evaluate the turf fresh via `src/peopleDb/` (filter flags + bbox; exact
    point-in-polygon ray-cast in-process — see "Interim geo" below), dedupe
    to unique lat/lng stops, re-check the 150-stop cap.
-4. One Geoapify Route Planner call (coords + opaque job ids only — no PII
+4. Check the daily waypoint budget (`waypointQuota.util.ts`): 500 stops per
+   organization per rolling 24 hours, counted off the frozen stop rows
+   themselves. Over budget → 429 and no vendor call. The turf lock doesn't
+   serialize across turfs, so simultaneous knocks in one org can overshoot
+   by up to a route; that's deliberate — see the util.
+5. One Geoapify Route Planner call (coords + opaque job ids only — no PII
    leaves; loop → start=end anchor at the first stop by address order;
    open → end-only anchor at the farthest-from-centroid stop; both
    deterministic, never random).
-5. Atomically create route + stops + stop targets + one RouteCreated event
-   per target + the Outreach envelope row (skip envelope if the org has no
-   campaign; status `in_progress`, never `pending` — payment flows gate on
-   it).
+6. Atomically create route + stops + stop targets + the Outreach envelope
+   row (skip envelope if the org has no campaign; status `in_progress`,
+   never `pending` — payment flows gate on it). The per-target activity
+   event is still deferred, as noted above.
 
 A crash before commit leaves zero rows; the next knock regenerates. If
 Geoapify is down, knock fails visibly — no fallback engine in v1.
