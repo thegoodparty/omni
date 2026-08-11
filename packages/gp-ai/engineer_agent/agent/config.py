@@ -77,7 +77,7 @@ Product code lives in the **thegoodparty/omni** monorepo (default branch `main`)
 ```bash
 git clone --depth 1 https://x-access-token:$GITHUB_TOKEN@github.com/thegoodparty/omni.git /workspace/omni
 ```
-Packages live under `packages/`: gp-webapp, gp-api, election-api, people-api,
+Packages live under `packages/`: gp-webapp, gp-api, election-api,
 gp-admin, candidate-sites, gp-sdk, contracts, gp-ai. Open PRs against omni's `main`.
 
 Your own code (this agent, the ClickUp bot) lives in omni at `packages/gp-ai` —

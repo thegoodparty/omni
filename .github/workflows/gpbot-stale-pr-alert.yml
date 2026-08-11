@@ -32,6 +32,10 @@ env:
   # reviews every PR automatically, so counting it would mean no bot PR is
   # ever stale — the alert would be permanently silent, which looks identical
   # to everything being fine.
+  #
+  # No `[bot]` suffix: these are matched against `gh pr list --json reviews`,
+  # which reads GraphQL, where a Bot's login is bare. Only REST returns
+  # `cursor[bot]`. Adding the suffix here would match nothing.
   BOT_REVIEWERS: 'delegate-reviewer cursor'
 
 jobs:

@@ -49,6 +49,17 @@ def test_capability_prompt_locates_gp_ai_inside_omni():
     assert "packages/gp-ai" in prompt
 
 
+def test_capability_prompt_omits_people_api_from_live_packages():
+    # packages/people-api no longer exists in omni; people-api survives only as
+    # an archived standalone repo. Listing it as a live package sends the agent
+    # hunting for a directory that isn't there, which burns a run the same way
+    # cloning an archived repo does.
+    prompt = build_capability_prompt()
+    live_section = prompt.split("The old standalone repos")[0]
+    assert "people-api" not in live_section
+    assert "people-api" in prompt
+
+
 def test_capability_prompt_targets_omni_main_for_prs():
     # `develop` was deleted in the single-trunk migration; a PR opened against
     # it fails at the gh call after the agent has already done all the work.
