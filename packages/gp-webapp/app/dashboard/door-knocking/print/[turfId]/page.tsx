@@ -59,7 +59,5 @@ export default async function Page({
   ])
   if (!payload) notFound()
 
-  return (
-    <WalkSheet turfName={turfName} payload={payload} printedAt={new Date()} />
-  )
+  return <WalkSheet turfName={turfName} payload={payload} />
 }

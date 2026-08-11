@@ -53,13 +53,7 @@ const payload = (stops: RoutePayloadStop[]): DoorKnockingRoutePayload => ({
 })
 
 const renderSheet = (stops: RoutePayloadStop[]) =>
-  render(
-    <WalkSheet
-      turfName="Elm & Cedar"
-      payload={payload(stops)}
-      printedAt={new Date('2026-08-11T14:30:00Z')}
-    />,
-  )
+  render(<WalkSheet turfName="Elm & Cedar" payload={payload(stops)} />)
 
 describe('WalkSheet', () => {
   it('heads the sheet with the turf and what the walk costs', () => {
@@ -180,6 +174,16 @@ describe('WalkSheet', () => {
     expect(
       screen.getByText(/Log these doors in the app when you.re back online/),
     ).toBeInTheDocument()
+  })
+
+  // The sheet renders in Node, whose clock is UTC, so any date it stamps
+  // itself is tomorrow's for an evening print anywhere in the US. The
+  // canvasser writes the date instead.
+  it('leaves the date to the canvasser rather than stamping one', () => {
+    renderSheet([stop()])
+
+    expect(screen.getByText('Date walked')).toBeInTheDocument()
+    expect(screen.queryByText(/Printed/)).toBeNull()
   })
 
   it('handles a route with no stops', () => {

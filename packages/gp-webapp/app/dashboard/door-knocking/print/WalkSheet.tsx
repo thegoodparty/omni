@@ -73,7 +73,7 @@ const TargetBlock = ({ target }: { target: RoutePayloadTarget }) => {
   const recorded = target.knockStatus !== 'unknown'
 
   return (
-    <div className="break-inside-avoid border-t border-neutral-300 px-2 py-1.5 first:border-t-0">
+    <div className="break-inside-avoid border-t border-neutral-300 px-2 py-1.5">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-xs font-semibold">
           {target.name ?? 'Name unavailable'}
@@ -117,7 +117,10 @@ const StopBlock = ({ stop }: { stop: RoutePayloadStop }) => {
 
   return (
     <li className="break-inside-avoid border border-neutral-400">
-      <div className="flex items-baseline gap-2 border-b border-neutral-400 px-2 py-1">
+      {/* No bottom border here: the first resident block's own top rule
+          already separates the header, and stacking both prints a double
+          line under every address. */}
+      <div className="flex items-baseline gap-2 px-2 py-1">
         <span className="text-sm font-bold tabular-nums">{stop.seq}</span>
         <span className="flex-1 text-xs font-semibold">
           {stop.displayAddress}
@@ -143,7 +146,6 @@ const StopBlock = ({ stop }: { stop: RoutePayloadStop }) => {
 interface WalkSheetProps {
   turfName: string
   payload: DoorKnockingRoutePayload
-  printedAt: Date
 }
 
 // The paper fallback for a walk with no signal: the same route the walk view
@@ -151,11 +153,7 @@ interface WalkSheetProps {
 // deliberately a server component with no interactivity — a canvasser hitting
 // this URL on a phone with one bar should get a printable page, not a
 // hydration wait.
-export default function WalkSheet({
-  turfName,
-  payload,
-  printedAt,
-}: WalkSheetProps) {
+export default function WalkSheet({ turfName, payload }: WalkSheetProps) {
   const stops = payload.stops.slice().sort((a, b) => a.seq - b.seq)
   const doorCount = stops.reduce((sum, stop) => sum + targetsOf(stop).length, 0)
 
@@ -181,12 +179,18 @@ export default function WalkSheet({
           {formatDuration(payload.route.totalSeconds)} ·{' '}
           {formatDistance(payload.route.totalMeters)}
         </p>
-        {/* Date only: this renders on the server, whose clock is UTC, so a
-            printed time would be wrong by hours for most candidates. */}
-        <p className="text-[10px]">
-          Printed{' '}
-          {printedAt.toLocaleDateString('en-US', { dateStyle: 'medium' })}.
-          Already-logged answers are current as of printing.
+        {/* Deliberately no printed date. This renders in Node, whose clock is
+            UTC, so an evening print anywhere in the US would be stamped
+            tomorrow — and formatting it as UTC only makes the wrong date a
+            consistent one. The canvasser dates the sheet, which is both
+            accurate and what people already do with paper. */}
+        <p className="flex items-baseline gap-1.5 text-[10px]">
+          <span className="flex-1">
+            Answers already logged in the app are printed below; anything logged
+            after this was printed won&rsquo;t be.
+          </span>
+          <span className="font-semibold">Date walked</span>
+          <span className="inline-block w-20 border-b border-neutral-500" />
         </p>
       </header>
 
