@@ -284,10 +284,19 @@ paste-ready follow-up message — without the reviewer hand-steering the sleuthi
 (Origin: DATA-2278; the 2026-08-11 session that diagnosed a serve funnel break and a
 flag-rollout retirement is the reference run.)
 
-Input is the same health-report JSON as Queue B (`flagged` + `records`; each record
-carries `anomaly` current/baseline, `last_seen_date`, `event_count_30d`,
-`call_site_count`, `instrumented_pr`, `divergence`). Per flagged item, in order —
-each step narrows what the next one has to explain:
+**Load the report first** — Diagnose can run standalone, so resolve the health-report
+JSON the same three-way way Queue B does: local
+`instrumentation_data/analytics_event_health_report.json` if its `run_date` matches
+this run (it's gitignored, so a local copy may be stale — check, and if it predates
+the run, delete it and re-download); else the latest `analytics-governance` run's
+`analytics-event-health-report` artifact via `gh run download`; else recompute live
+with `analytics_event_health.py --today "$run_date" --json …` (needs Databricks
+OAuth).
+
+The report's `flagged` + `records` arrays are the input (each record carries
+`anomaly` current/baseline, `last_seen_date`, `event_count_30d`, `call_site_count`,
+`instrumented_pr`, `divergence`). Per flagged item, in order — each step narrows
+what the next one has to explain:
 
 1. **Sibling-cliff comparison** (localizes the break). From `records`, print every
    event sharing the flagged event's name prefix (and family) with `last_seen_date`
@@ -314,18 +323,22 @@ each step narrows what the next one has to explain:
 6. **Classify and hand off.** Two verdicts:
    - **Genuine break** → lay out the evidence and offer to file a ClickUp ticket
      (Data backlog `901326391561`, same safe-payload discipline as Queue A).
-   - **Intentional retirement/supersession** → name the succeeding events and
-     propose the metadata action only for **`analyticsHelper.ts` (Amplitude/client)
-     events** (`event-metadata` skill, supersede by migration/generation when there's
-     no 1:1 successor). For **`segment.types.ts` (backend) events**, `event-metadata`
-     is out of scope — instead, file a ClickUp ticket in the Data backlog
-     (`901326391561`) describing the retirement and the successor events, and surface
-     it to the verified owner for follow-up. Status writes stay
-     human-confirmed — never write metadata from inside the diagnosis.
+   - **Intentional retirement/supersession** → name the succeeding events, then
+     recommend the follow-up by event kind. For **`analyticsHelper.ts`
+     (Amplitude/client) events**: tell the reviewer to run the `event-metadata`
+     skill afterwards (supersede by migration/generation when there's no 1:1
+     successor) — surface the skill name as the next action, do NOT invoke it from
+     inside the diagnosis. For **`segment.types.ts` (backend) events**,
+     `event-metadata` is out of scope — instead, file a ClickUp ticket in the Data
+     backlog (`901326391561`) describing the retirement and the successor events,
+     and surface it to the verified owner for follow-up. Status writes stay
+     human-confirmed.
 
    Either way, END with a draft follow-up Slack message: one block per finding,
    the question on the FIRST line, evidence after, recipient = the verified owner.
-   Copy it with `pbcopy`; never post it (the no-Slack rule below applies here too).
+   Deliver it paste-ready: copy it with `pbcopy` where available (macOS), else
+   write it to a file and give the path — and show the text either way. Never
+   post it (the no-Slack rule below applies here too).
 
 Diagnosis is read-only — no state-file writes, no `monitored_events.yaml` edits, no
 Amplitude writes. Its conclusions route through the existing disposition paths, a
