@@ -61,6 +61,11 @@ export default async function Page({
   await candidateAccess()
 
   const { turfId } = await params
+  // gp-api parses this param with ParseIntPipe, which 400s rather than 404s on
+  // a non-numeric id. A hand-mangled URL is "no such walk list" to the person
+  // who typed it, and there's no reason to ask the API about it at all.
+  if (!/^\d+$/.test(turfId)) notFound()
+
   const [payload, turfName] = await Promise.all([
     fetchRoute(turfId),
     fetchTurfName(turfId),

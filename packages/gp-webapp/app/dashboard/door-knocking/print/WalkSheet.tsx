@@ -1,5 +1,7 @@
+import { Fragment } from 'react'
 import {
   DoorKnockingRoutePayload,
+  RoutePayloadAddress,
   RoutePayloadStop,
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
@@ -73,7 +75,7 @@ const TargetBlock = ({ target }: { target: RoutePayloadTarget }) => {
   const recorded = target.knockStatus !== 'unknown'
 
   return (
-    <div className="break-inside-avoid border-t border-neutral-300 px-2 py-1.5">
+    <div className="break-inside-avoid px-2 py-1.5">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-xs font-semibold">
           {target.name ?? 'Name unavailable'}
@@ -108,18 +110,24 @@ const TargetBlock = ({ target }: { target: RoutePayloadTarget }) => {
   )
 }
 
-const StopBlock = ({ stop }: { stop: RoutePayloadStop }) => {
-  const targets = targetsOf(stop)
-  const otherResidents = stop.addresses
-    .flatMap((address) => address.otherResidents)
+const residentNames = (address: RoutePayloadAddress): string[] =>
+  address.otherResidents
     .map((resident) => resident.name)
     .filter((name): name is string => Boolean(name))
 
+// One stop can hold several addresses — a walkable multi-unit building routes
+// as a single stop with one address per unit. Every block inside a stop is a
+// flat sibling under `divide-y`, so the rules between them are drawn by the
+// container: nothing has to know whether it's first, and no two borders can
+// stack into the double line an earlier `first:` modifier failed to prevent.
+const StopBlock = ({ stop }: { stop: RoutePayloadStop }) => {
+  // With one address the stop header already names it, so repeating the line
+  // per unit is noise. With several, the unit is the only thing telling a
+  // canvasser which door to knock.
+  const perUnit = stop.addresses.length > 1
+
   return (
-    <li className="break-inside-avoid border border-neutral-400">
-      {/* No bottom border here: the first resident block's own top rule
-          already separates the header, and stacking both prints a double
-          line under every address. */}
+    <li className="break-inside-avoid divide-y divide-neutral-300 border border-neutral-400">
       <div className="flex items-baseline gap-2 px-2 py-1">
         <span className="text-sm font-bold tabular-nums">{stop.seq}</span>
         <span className="flex-1 text-xs font-semibold">
@@ -131,14 +139,24 @@ const StopBlock = ({ stop }: { stop: RoutePayloadStop }) => {
           </span>
         )}
       </div>
-      {targets.map((target) => (
-        <TargetBlock key={target.stopTargetId} target={target} />
+      {stop.addresses.map((address) => (
+        <Fragment key={address.addressKey}>
+          {perUnit && (
+            <div className="px-2 py-0.5 text-[10px] font-semibold">
+              {address.address}
+            </div>
+          )}
+          {address.targets.map((target) => (
+            <TargetBlock key={target.stopTargetId} target={target} />
+          ))}
+          {residentNames(address).length > 0 && (
+            <div className="px-2 py-1 text-[10px]">
+              Also at {perUnit ? address.address : 'this address'}:{' '}
+              {residentNames(address).join(', ')}
+            </div>
+          )}
+        </Fragment>
       ))}
-      {otherResidents.length > 0 && (
-        <div className="border-t border-neutral-300 px-2 py-1 text-[10px]">
-          Also at this address: {otherResidents.join(', ')}
-        </div>
-      )}
     </li>
   )
 }

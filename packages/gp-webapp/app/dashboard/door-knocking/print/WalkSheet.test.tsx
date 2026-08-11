@@ -136,6 +136,60 @@ describe('WalkSheet', () => {
     expect(within(person).queryByText('Did they answer?')).toBeNull()
   })
 
+  // A walkable multi-unit building routes as one stop with an address per
+  // unit. Without the unit line a canvasser has names but no door to knock,
+  // and "this address" would be the building rather than where the person is.
+  it('names the unit when a stop covers more than one address', () => {
+    renderSheet([
+      stop({
+        displayAddress: '400 Birch Ln',
+        addresses: [
+          {
+            addressKey: '400|birch|apt1',
+            address: '400 Birch Ln Apt 1',
+            targets: [
+              {
+                stopTargetId: 31,
+                personId: 'person-a',
+                name: 'Priya Raman',
+                age: 29,
+                politicalParty: null,
+                knockStatus: 'unknown',
+                mayHaveMoved: false,
+              },
+            ],
+            otherResidents: [{ name: 'Anil Raman' }],
+          },
+          {
+            addressKey: '400|birch|apt2',
+            address: '400 Birch Ln Apt 2',
+            targets: [
+              {
+                stopTargetId: 32,
+                personId: 'person-b',
+                name: 'Walter Boone',
+                age: 68,
+                politicalParty: 'Republican',
+                knockStatus: 'unknown',
+                mayHaveMoved: false,
+              },
+            ],
+            otherResidents: [],
+          },
+        ],
+      }),
+    ])
+
+    const item = screen.getByRole('listitem')
+    expect(within(item).getByText('400 Birch Ln Apt 1')).toBeInTheDocument()
+    expect(within(item).getByText('400 Birch Ln Apt 2')).toBeInTheDocument()
+    // The other-residents note names its own unit, not the building.
+    expect(
+      within(item).getByText('Also at 400 Birch Ln Apt 1: Anil Raman'),
+    ).toBeInTheDocument()
+    expect(within(item).queryByText(/Also at this address/)).toBeNull()
+  })
+
   it('flags a person who may have moved', () => {
     renderSheet([
       stop({
