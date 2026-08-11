@@ -245,6 +245,9 @@ export class GeneralChatsService {
         ...(handler.onTurnUsage && {
           onUsage: (usage, model) => handler.onTurnUsage!(ctx, usage, model),
         }),
+        ...(handler.finalizeAssistantText && {
+          finalizeText: (text) => handler.finalizeAssistantText!(text),
+        }),
       })
 
       for await (const chunk of inner) yield chunk
