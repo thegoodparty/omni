@@ -1,5 +1,8 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DoorKnockingPackRequest } from '@goodparty_org/contracts'
+import {
+  DoorKnockingPackRequest,
+  GeoJsonPolygon,
+} from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { DoorKnockingPeopleApiService } from '../services/doorKnockingPeopleApi.service'
 import {
@@ -15,7 +18,7 @@ const DISTRICT_ID = '457a1cd7-4184-f823-49d3-f207af693521'
 
 // A triangle, not a rectangle: its bbox has corners OUTSIDE the polygon, so
 // the tests can prove the ray-cast drops bbox-only people.
-const GEO_POLY = {
+const GEO_POLY: GeoJsonPolygon = {
   type: 'Polygon',
   coordinates: [
     [
@@ -502,6 +505,122 @@ describe('door-knocking routes', () => {
         spy.mock.calls.filter(([url]) => String(url).includes('routeplanner')),
       ).toHaveLength(0)
       expect(await service.prisma.doorKnockingRoute.count()).toBe(0)
+    })
+
+    describe('daily waypoint budget', () => {
+      // The seq CHECK caps one route at 150 stops, so a large allowance is
+      // spent across several frozen routes — which is also how it accrues in
+      // the field. Each route needs its own turf (doorKnockingTurfId is
+      // unique), and the turfs hang off whichever org's filter is passed.
+      const spendWaypoints = async (
+        total: number,
+        options: { filterId?: number; createdAt?: Date } = {},
+      ) => {
+        const filterId = options.filterId ?? filter.id
+        let remaining = total
+        while (remaining > 0) {
+          const size = Math.min(remaining, 150)
+          const spentTurf = await service.prisma.doorKnockingTurf.create({
+            data: {
+              voterFileFilterId: filterId,
+              name: `Spent ${remaining}`,
+              color: '#888888',
+              geoPoly: GEO_POLY,
+            },
+          })
+          await service.prisma.doorKnockingRoute.create({
+            data: {
+              doorKnockingTurfId: spentTurf.id,
+              mode: 'walk',
+              loop: false,
+              totalSeconds: 0,
+              totalMeters: 0,
+              credits: size * 10,
+              ...(options.createdAt ? { createdAt: options.createdAt } : {}),
+              stops: {
+                create: Array.from({ length: size }, (_, index) => ({
+                  seq: index + 1,
+                  lat: 41.9,
+                  lng: -87.65,
+                  displayAddress: `${index} W Spent St`,
+                  legSeconds: 0,
+                  legMeters: 0,
+                })),
+              },
+            },
+          })
+          remaining -= size
+        }
+      }
+
+      // The standard stub yields 3 stops, so 498 already spent puts this
+      // knock one over the 500 limit.
+      it('rejects a knock that would exceed the budget, before calling the vendor', async () => {
+        const turf = await createTurf()
+        await spendWaypoints(498)
+        const spy = stubVendors()
+
+        const res = await knock(turf.id)
+
+        expect(res.status).toBe(429)
+        expect(res.data.message).toContain('2 of your 500 daily stops')
+        expect(
+          spy.mock.calls.filter(([url]) =>
+            String(url).includes('routeplanner'),
+          ),
+        ).toHaveLength(0)
+        const frozen = await service.prisma.doorKnockingRoute.findUnique({
+          where: { doorKnockingTurfId: turf.id },
+        })
+        expect(frozen).toBeNull()
+      })
+
+      // One stop lower: the limit is a ceiling the last route may reach, not
+      // one it has to stay under. Without this the rejection above would also
+      // pass if the budget were off by a stop in either direction.
+      it('allows a knock that lands exactly on the budget', async () => {
+        const turf = await createTurf()
+        await spendWaypoints(497)
+        stubVendors()
+
+        const res = await knock(turf.id)
+
+        expect(res.status).toBe(201)
+        expect(res.data.route.stopCount).toBe(3)
+      })
+
+      it('ignores spend that has aged out of the rolling window', async () => {
+        const turf = await createTurf()
+        await spendWaypoints(498, {
+          createdAt: new Date(Date.now() - 25 * 60 * 60 * 1000),
+        })
+        stubVendors()
+
+        const res = await knock(turf.id)
+
+        expect(res.status).toBe(201)
+      })
+
+      it("ignores another organization's spend", async () => {
+        const turf = await createTurf()
+        const otherSlug = `campaign-budget-${Date.now()}`
+        await service.prisma.organization.create({
+          data: {
+            slug: otherSlug,
+            ownerId: service.user.id,
+            overrideDistrictId: DISTRICT_ID,
+          },
+        })
+        const otherFilter = await service.prisma.voterFileFilter.create({
+          data: { organizationSlug: otherSlug, name: 'Other audience' },
+        })
+        await spendWaypoints(498, { filterId: otherFilter.id })
+        stubVendors()
+
+        const res = await knock(turf.id)
+
+        expect(res.status).toBe(201)
+      })
     })
 
     it('rejects a knock when the organization has no resolvable district', async () => {

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { FetchError } from 'ofetch'
 import { DoorKnockingMode, DoorKnockingTurf } from '@goodparty_org/contracts'
 import {
   Button,
@@ -15,6 +16,21 @@ import {
   RadioGroupItem,
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
+import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
+
+const KNOCK_ERROR_FALLBACK =
+  'Route building failed — nothing was saved. Try again in a moment.'
+
+// Every 4xx from this endpoint is something the candidate can act on — an
+// empty turf, one over the 150-stop cap, a spent daily routing budget — and
+// each arrives with its own instruction, none of which is "try again in a
+// moment". A 5xx is us or the vendor, where waiting really is the advice.
+const toKnockErrorMessage = (error: unknown): string =>
+  (error instanceof FetchError &&
+    error.status !== undefined &&
+    error.status < 500 &&
+    extractApiErrorInfo(error.data).message) ||
+  KNOCK_ERROR_FALLBACK
 
 interface KnockTurfDialogProps {
   turf: DoorKnockingTurf
@@ -81,8 +97,8 @@ export default function KnockTurfDialog({
             End where I start (loop route)
           </label>
           {knock.isError && (
-            <p className="text-sm text-destructive">
-              Route building failed — nothing was saved. Try again in a moment.
+            <p role="alert" className="text-sm text-destructive">
+              {toKnockErrorMessage(knock.error)}
             </p>
           )}
           <Button disabled={knock.isPending} onClick={() => knock.mutate()}>
