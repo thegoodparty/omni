@@ -118,7 +118,8 @@ describe('WalkView', () => {
     await waitFor(() =>
       expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
     )
-    expect(screen.getByText(/2 doors · 31m/)).toBeInTheDocument()
+    // Distance comes from the same route payload as the duration; 2400m.
+    expect(screen.getByText(/2 doors · 31m · 1.5 mi/)).toBeInTheDocument()
     expect(screen.getByText('1/2 reached')).toBeInTheDocument()
     const items = screen.getAllByRole('listitem')
     expect(within(items[0] as HTMLElement).getByText('Dorian Fen')).toBeTruthy()

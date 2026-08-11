@@ -35,6 +35,22 @@ const PILL_CLASSNAME =
 // the overrides.
 const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
 
+// The POC's rate, and what the walking estimate is worth: 45 doors an hour is
+// a canvasser's sustained pace with the walk between doors included. The
+// vendor's own duration only exists once the route is built server-side, which
+// is after the point where this decision is made.
+const DOORS_PER_HOUR = 45
+// Informational, not a gate: past this the evening is long enough to be worth
+// saying out loud. The hard cap at 150 is what actually blocks.
+const SOFT_STOP_LIMIT = 100
+const HARD_STOP_LIMIT = 150
+
+const estimateWalkTime = (stops: number): string => {
+  const minutes = Math.round((stops / DOORS_PER_HOUR) * 60)
+  if (minutes < 60) return `${minutes} min`
+  return `${Math.floor(minutes / 60)} hr ${minutes % 60} min`
+}
+
 export type CreateFlowStep = 'filters' | 'draw' | 'confirm'
 
 interface CreateListFlowProps {
@@ -43,9 +59,12 @@ interface CreateListFlowProps {
   onFiltersChange: (filters: VoterFileFilters) => void
   onStepChange: (step: CreateFlowStep) => void
   onClose: () => void
-  // Live numbers for the draw step, computed by the page from the pack.
-  matchingHouseholds: number
+  // District-wide households matching the filter draft. Honest only on the
+  // filters step, where no polygon exists yet — once one is drawn, everything
+  // the draw step reports comes off turfStats instead.
+  districtHouseholds: number
   ring: PolygonRing | null
+  // In-polygon counts for the drawn shape, computed by the page from the pack.
   turfStats: PolygonStats | null
   // Saved-flow completion: clear the drawing (and optionally exit).
   onSaved: (drawAnother: boolean) => void
@@ -120,7 +139,7 @@ export default function CreateListFlow({
   onFiltersChange,
   onStepChange,
   onClose,
-  matchingHouseholds,
+  districtHouseholds,
   ring,
   turfStats,
   onSaved,
@@ -202,6 +221,12 @@ export default function CreateListFlow({
     [],
   )
 
+  // How narrow the audience was cut. Doubles as whether there is anything for
+  // Reset to clear.
+  const activeFilterCount = Object.values(filters).filter((value) =>
+    Array.isArray(value) ? value.length > 0 : Boolean(value),
+  ).length
+
   const save = useMutation({
     mutationFn: async (drawAnother: boolean) => {
       if (!ring) throw new Error('no polygon')
@@ -232,11 +257,9 @@ export default function CreateListFlow({
       trackEvent(EVENTS.DoorKnocking.ListCreated, {
         stops: turfStats?.stops ?? 0,
         people: turfStats?.people ?? 0,
-        // How narrow the audience was cut, without shipping which filters —
-        // the demographics themselves stay out of the analytics payload.
-        filterCount: Object.values(filters).filter((value) =>
-          Array.isArray(value) ? value.length > 0 : Boolean(value),
-        ).length,
+        // Without shipping which filters — the demographics themselves stay
+        // out of the analytics payload.
+        filterCount: activeFilterCount,
         // True when they went straight into cutting the next turf, which is
         // what a candidate planning several days of walking looks like.
         drawAnother,
@@ -251,7 +274,9 @@ export default function CreateListFlow({
     },
   })
 
-  const overCap = (turfStats?.stops ?? 0) > 150
+  const stops = turfStats?.stops ?? 0
+  const overCap = stops > HARD_STOP_LIMIT
+  const longWalk = stops > SOFT_STOP_LIMIT && !overCap
 
   const toggleGroupValues = (
     options: Array<{ key: string; label: string }>,
@@ -285,26 +310,52 @@ export default function CreateListFlow({
         <div className="flex-1" />
         <div className="pointer-events-auto border-t border-border bg-background px-6 py-4">
           <div className="mx-auto flex w-full max-w-2xl items-center gap-4">
-            <p className="min-w-0 flex-1 text-sm">
-              <span className="font-semibold tabular-nums">
-                {matchingHouseholds.toLocaleString()}
-              </span>{' '}
-              matching households ·{' '}
-              <span className="font-semibold tabular-nums">
-                {(turfStats?.stops ?? 0).toLocaleString()}
-              </span>{' '}
-              selected doors
-              {overCap && (
-                <span className="block text-destructive">
-                  Over the 150-stop limit — draw a smaller area.
-                </span>
+            {/* Everything here describes the drawn shape, not the district —
+                these numbers are what the candidate commits to. */}
+            <div className="min-w-0 flex-1">
+              <p className="text-sm">
+                <span className="font-semibold tabular-nums">
+                  {stops.toLocaleString()}
+                </span>{' '}
+                selected doors ·{' '}
+                <span className="font-semibold tabular-nums">
+                  {(turfStats?.households ?? 0).toLocaleString()}
+                </span>{' '}
+                matching households
+              </p>
+              {stops > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  About {estimateWalkTime(stops)} of knocking, at{' '}
+                  {DOORS_PER_HOUR} doors an hour
+                </p>
               )}
-            </p>
+              {(turfStats?.partyMix.length ?? 0) > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {turfStats?.partyMix
+                    .map(
+                      (slice) =>
+                        `${slice.people.toLocaleString()} ${slice.label}`,
+                    )
+                    .join(' · ')}
+                </p>
+              )}
+              {overCap && (
+                <p className="text-sm text-destructive">
+                  Over the {HARD_STOP_LIMIT}-stop limit — draw a smaller area.
+                </p>
+              )}
+              {longWalk && (
+                <p className="text-sm text-warning">
+                  Over {SOFT_STOP_LIMIT} stops is a long evening. You can still
+                  save it, or draw a smaller area.
+                </p>
+              )}
+            </div>
             <Button
-              disabled={!ring || (turfStats?.stops ?? 0) === 0 || overCap}
+              disabled={!ring || stops === 0 || overCap}
               onClick={() => onStepChange('confirm')}
             >
-              Continue ({(turfStats?.stops ?? 0).toLocaleString()} doors)
+              Continue ({stops.toLocaleString()} doors)
             </Button>
           </div>
         </div>
@@ -435,12 +486,21 @@ export default function CreateListFlow({
         <div className="mx-auto flex w-full max-w-2xl justify-center gap-3">
           {step === 'filters' && (
             <>
+              {/* No polygon exists yet, so district-wide is the only honest
+                  denominator here — and the label says so. */}
               <p className="flex-1 self-center text-sm text-muted-foreground">
                 <span className="font-semibold tabular-nums text-foreground">
-                  {matchingHouseholds.toLocaleString()}
+                  {districtHouseholds.toLocaleString()}
                 </span>{' '}
-                matching households
+                matching households in your district
               </p>
+              <Button
+                variant="ghost"
+                disabled={activeFilterCount === 0}
+                onClick={() => onFiltersChange({})}
+              >
+                Reset filters
+              </Button>
               <Button
                 className="w-full max-w-xs"
                 onClick={() => onStepChange('draw')}
