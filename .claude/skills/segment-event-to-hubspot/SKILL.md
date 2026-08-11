@@ -167,8 +167,9 @@ approves, per field.
 ## Phase 4 — apply
 
 **Prod-mode gate (before the first write):** if this is a prod run, complete
-the pre-flight from "Prod mode" above — run `list-event-definitions` with the
-prod token and confirm names come back `pe21589597_*` before continuing.
+the pre-flight from "Prod mode" above — run `list-event-definitions` with
+`--token-env HUBSPOT_MAPPING_PROD_TOKEN` and confirm names come back
+`pe21589597_*` before continuing.
 
 In this order (all payloads as JSON files fed to the scripts):
 
