@@ -148,6 +148,10 @@ approves, per field.
 
 ## Phase 4 — apply
 
+**Prod-mode gate (before the first write):** if this is a prod run, complete
+the pre-flight from "Prod mode" above — run `list-event-definitions` with the
+prod token and confirm names come back `pe21589597_*` before continuing.
+
 In this order (all payloads as JSON files fed to the scripts):
 
 1. `hubspot_event_mapping.py create-event-definition` — definition with its
@@ -240,7 +244,10 @@ After create, `get-flow <id>` and confirm `enrollmentCriteria.type`,
 
 1. `hubspot_event_mapping.py send-test` — synthetic occurrence with realistic
    values from Phase 1, against a designated test contact (in prod, the pinned
-   contact from "Prod mode" — confirm it exists first).
+   contact from "Prod mode" — run `get-contact hubspot-mapping-test@goodparty.org`
+   first; if the search comes back empty, stop and have the human create it in
+   the prod UI before proceeding; never send to a candidate, user, or staff
+   contact — a test send is permanent on that contact's event timeline).
 2. Enable the workflow (human, UI), send again, then
    `hubspot_event_mapping.py get-contact <email> --properties ...` to confirm
    the workflow stamped every field. Report pass/fail per field.
