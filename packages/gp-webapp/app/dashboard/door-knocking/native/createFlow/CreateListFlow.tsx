@@ -12,6 +12,7 @@ import {
   XMarkIcon,
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
 import {
   transformVoterFileFiltersForBackend,
@@ -228,6 +229,18 @@ export default function CreateListFlow({
       return drawAnother
     },
     onSuccess: (drawAnother) => {
+      trackEvent(EVENTS.DoorKnocking.ListCreated, {
+        stops: turfStats?.stops ?? 0,
+        people: turfStats?.people ?? 0,
+        // How narrow the audience was cut, without shipping which filters —
+        // the demographics themselves stay out of the analytics payload.
+        filterCount: Object.values(filters).filter((value) =>
+          Array.isArray(value) ? value.length > 0 : Boolean(value),
+        ).length,
+        // True when they went straight into cutting the next turf, which is
+        // what a candidate planning several days of walking looks like.
+        drawAnother,
+      })
       void queryClient.invalidateQueries({ queryKey: ['door-knocking-turfs'] })
       void queryClient.invalidateQueries({
         queryKey: ['door-knocking-saved-lists'],

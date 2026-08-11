@@ -3,8 +3,15 @@ import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import CreateListFlow from './CreateListFlow'
 import type { PolygonRing } from '../VoterMapCanvas'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('helpers/analyticsHelper')>()
+  return { ...actual, trackEvent: vi.fn() }
+})
 
 // mapbox-gl-draw hands back an open ring; save must close it before POSTing.
 const OPEN_RING: PolygonRing = [
@@ -92,6 +99,14 @@ describe('CreateListFlow', () => {
           ],
         ],
       },
+    })
+    // The list is only created once BOTH writes land, so the event belongs to
+    // the turf POST rather than the filter POST that precedes it.
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.ListCreated, {
+      stops: 14,
+      people: 22,
+      filterCount: 1,
+      drawAnother: false,
     })
   })
 

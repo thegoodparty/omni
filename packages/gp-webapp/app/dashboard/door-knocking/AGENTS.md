@@ -4,18 +4,18 @@ Door-knocking / canvassing dashboard. Tracks volunteer interactions logged in th
 
 ## Key files
 
-| File | Role |
-|------|------|
-| `page.tsx` | Route entry |
-| `components/DoorKnockingPage.tsx` | Top-level layout |
-| `shared/DoorKnockingTabs.tsx` | Tab navigation (overview / surveys / individual record) |
-| `components/InteractionsByDay.tsx` | Time-series chart |
-| `components/InteractionsSummary.tsx` + `InteractionsSummaryPie.tsx` | Aggregate counts + breakdown chart |
-| `components/RatingSummary.tsx` | Voter sentiment distribution |
-| `components/interactionsColors.ts` | Color tokens for charts (single source) |
-| `surveys/` | Custom survey designer (per-campaign question sets) |
-| `shared/` | Cross-tab primitives |
-| `components/` | Page-level widgets |
+| File                                                                | Role                                                    |
+| ------------------------------------------------------------------- | ------------------------------------------------------- |
+| `page.tsx`                                                          | Route entry                                             |
+| `components/DoorKnockingPage.tsx`                                   | Top-level layout                                        |
+| `shared/DoorKnockingTabs.tsx`                                       | Tab navigation (overview / surveys / individual record) |
+| `components/InteractionsByDay.tsx`                                  | Time-series chart                                       |
+| `components/InteractionsSummary.tsx` + `InteractionsSummaryPie.tsx` | Aggregate counts + breakdown chart                      |
+| `components/RatingSummary.tsx`                                      | Voter sentiment distribution                            |
+| `components/interactionsColors.ts`                                  | Color tokens for charts (single source)                 |
+| `surveys/`                                                          | Custom survey designer (per-campaign question sets)     |
+| `shared/`                                                           | Cross-tab primitives                                    |
+| `components/`                                                       | Page-level widgets                                      |
 
 ## Patterns
 
@@ -25,7 +25,8 @@ Door-knocking / canvassing dashboard. Tracks volunteer interactions logged in th
 
 ## Gotchas
 
-- "Door-knocking" data is sourced from third-party canvassing tools (eCanvasser etc.) via gp-api — there's no in-app way to log a knock from this UI.
+- The legacy tabs on this page only _display_ data sourced from third-party canvassing tools (eCanvasser etc.) via gp-api. Knocks are logged in-app from `native/` (`RecordKnockForm` → `POST /v1/door-knocking/interactions`), which writes to the CRM's own tables and never to eCanvasser.
+- **Analytics live under `EVENTS.DoorKnocking`** (`Door Knocking - *`), not the legacy `EVENTS.Dashboard.VoterContact.DoorKnocking` group, which belongs to the script/eCanvasser surface. A completed walk also fires the canonical `Voter Outreach - Campaign Completed` with `medium: 'doorKnocking', method: 'native'` — that's what the door-knocking activation metric counts, so don't remove it while refactoring the walk exit.
 - `components/interactionsColors.ts` is the only place colors should be defined for charts in this feature.
 - **The voter pack and every turf read resolve a district server-side** (`resolveEligibleDistrictId` in gp-api's `doorKnockingPack` / `doorKnockingKnock` services), so an org with no resolvable district can only 400. `NativeDoorKnockingPage` gates both queries on `useDistrictResolution` (`app/dashboard/shared/`) and explains instead. Gating at the shell also covers the write paths (`POST turfs`, `POST turfs/:id/knock`, `POST interactions`) because their affordances never render. The unavailable branch has to come **before** `packQuery.isPending`, or that branch claims to be loading forever.
 - `doorKnockingServe.service.ts` in gp-api is about **serving a route** to a canvasser — it is not the Serve product. Door knocking is Win-only (`v2Category: 'campaign'` in `DashboardMenu.tsx`).

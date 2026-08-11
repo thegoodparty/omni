@@ -738,6 +738,30 @@ export const EVENTS = {
     DraftDetailsStatusUpdated: 'Ordinances - Draft Details Status Updated',
     DraftDetailsDeleted: 'Ordinances - Draft Details Deleted',
   },
+  // ENG-10626: the native door-knocking surface (voter map, turf cutting,
+  // routed walk). Distinct from Dashboard.VoterContact.DoorKnocking above,
+  // which belongs to the legacy eCanvasser/script surface — different funnel,
+  // don't merge them.
+  //
+  // The walk is the session: Started when the walk view opens, then exactly
+  // one of Completed (left having logged at least one door) or Abandoned
+  // (left having logged none). RouteBuildFailed is the funnel's only real
+  // failure, since building a route is the one step that calls a paid vendor.
+  //
+  // Session Completed also fires the canonical
+  // Dashboard.VoterContact.CampaignCompleted with medium 'doorKnocking' —
+  // that's the event the door-knocking activation metric counts, and the
+  // manual "log progress" modal already feeds it the same way.
+  DoorKnocking: {
+    ListCreated: 'Door Knocking - List Created',
+    ListDeleted: 'Door Knocking - List Deleted',
+    RouteBuilt: 'Door Knocking - Route Built',
+    RouteBuildFailed: 'Door Knocking - Route Build Failed',
+    SessionStarted: 'Door Knocking - Session Started',
+    SessionCompleted: 'Door Knocking - Session Completed',
+    SessionAbandoned: 'Door Knocking - Session Abandoned',
+    DoorLogged: 'Door Knocking - Door Logged',
+  },
 } as const
 
 export const getStoredSessionId = (): number => {

@@ -1,9 +1,16 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { DoorKnockingRoutePayload } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import WalkView from './WalkView'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('helpers/analyticsHelper')>()
+  return { ...actual, trackEvent: vi.fn() }
+})
 
 const routePayload: DoorKnockingRoutePayload = {
   route: {
@@ -98,6 +105,7 @@ const closePersonSheet = async () => {
 describe('WalkView', () => {
   beforeEach(() => {
     testQueryClient.clear()
+    vi.mocked(trackEvent).mockClear()
     api.mock('GET /v1/door-knocking/turfs/:id/route', {
       status: 200,
       data: routePayload,
@@ -157,6 +165,55 @@ describe('WalkView', () => {
     // Sheet closes and the reached counter reflects the new status.
     await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
     expect(screen.getByText('2/2 reached')).toBeInTheDocument()
+
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
+      outcome: 'answered',
+      supportAnswer: 'supporter',
+      knockStatus: 'supporter',
+      hasNote: false,
+    })
+  })
+
+  // The note is free text about a named voter, so only its existence travels.
+  it('reports that a note was written without shipping what it said', async () => {
+    api.mock('POST /v1/door-knocking/interactions', {
+      status: 200,
+      data: { personId: 'person-1', knockStatus: 'not_home' },
+    })
+
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
+    fireEvent.click(screen.getByRole('radio', { name: 'Not home' }))
+    fireEvent.change(screen.getByPlaceholderText('Notes (optional)'), {
+      target: { value: 'Dog in the yard, come back Saturday' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
+        outcome: 'not_home',
+        knockStatus: 'not_home',
+        hasNote: true,
+      }),
+    )
+    const logged = vi
+      .mocked(trackEvent)
+      .mock.calls.find(([name]) => name === EVENTS.DoorKnocking.DoorLogged)
+    expect(JSON.stringify(logged?.[1])).not.toContain('Dog in the yard')
+  })
+
+  it('does not report a door the server refused', async () => {
+    api.mock('POST /v1/door-knocking/interactions', { status: 500, data: {} })
+
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
+    fireEvent.click(screen.getByRole('radio', { name: 'Not home' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
+
+    await waitFor(() =>
+      expect(screen.getByText(/Saving failed/)).toBeInTheDocument(),
+    )
+    expect(trackEvent).not.toHaveBeenCalled()
   })
 
   it('replays the same clientKey when the sheet is closed and reopened', async () => {
