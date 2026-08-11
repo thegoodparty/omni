@@ -127,6 +127,16 @@ describe('WalkView', () => {
     ).toBeTruthy()
   })
 
+  // The offline story: paper is reached from the walk, and the sheet has to
+  // open in its own tab so the walk in progress isn't navigated away from.
+  it('links out to the printable list for this turf', async () => {
+    render(<WalkView turfId={3} />)
+
+    const link = await screen.findByRole('link', { name: 'Print list' })
+    expect(link).toHaveAttribute('href', '/dashboard/door-knocking/print/3')
+    expect(link).toHaveAttribute('target', '_blank')
+  })
+
   it('records an answered knock through the person sheet', async () => {
     const posted: unknown[] = []
     api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
