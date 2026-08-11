@@ -126,6 +126,11 @@ Output: a field table — name, type, nullable, example, PII flag.
 
 ## Phase 2 — diff against what exists
 
+**Prod-mode note:** if this is a prod run, include `--token-env
+HUBSPOT_MAPPING_PROD_TOKEN` on every `hubspot_event_mapping.py` call
+below — a sandbox read here feeds the Phase 3 approval table with
+sandbox ids.
+
 1. Segment side: `segment_destination_mapping.py list-subscriptions
    <destinationId>` on the `HubSpot Backend` destination (gp-api source;
    find ids with `list-destinations`). Check whether the event already has a
