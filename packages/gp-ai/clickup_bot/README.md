@@ -223,6 +223,23 @@ containing "ERROR" would let anyone fire the alarm). Both sides are locked by
 `clickup_bot/tests/test_handler.py`; reword log lines and the terraform pattern
 together.
 
+**Silence is the failure the error alarm cannot see.** Every alarm above needs the
+handler to RUN. A webhook that stops delivering produces no logs, no errors, and
+no alarm — the bot looks healthy because it looks like nothing happened.
+
+That is not hypothetical. Deliveries stopped on **2026-07-31** and nothing
+noticed for 12 days: zero requests to the ALB target group, zero invocations,
+zero errors before or after. The `CLICKUP_API_KEY` in `AI_SECRETS_PROD` was a
+**personal token belonging to someone who is no longer a workspace member** — it
+still authenticates (`GET /user` returns their account) but has lost all
+workspace access, so `GET /team` and every task read 404. A webhook registered
+with that token dies with it.
+
+Two consequences worth internalizing: **prefer a service account over a personal
+token**, and treat the `clickup-bot-no-deliveries-prod` alarm (4 consecutive days
+with no invocations, `treat_missing_data = "breaching"` because Lambda metrics
+are sparse) as the only thing that will tell you the bot has gone quiet.
+
 ### After an outage: check webhook health
 
 During a Secrets Manager outage the Lambda cannot verify signatures for gpbot-tagged
@@ -241,6 +258,11 @@ retried delivery. A nonzero fail_count that keeps climbing means deliveries are 
 failing (or timing out) and the webhook is walking toward suspension:
 
 ```bash
+# FIRST: confirm the token itself still has workspace access. "Workspace not
+# authorized" (OAUTH_192) from the call below, or a 404 from /team, means the
+# token is the problem and no webhook check will be meaningful.
+curl -s -H "Authorization: $CLICKUP_API_KEY" "https://api.clickup.com/api/v2/team" | jq .
+
 # health.status must be "active"; a climbing health.fail_count is a warning even before suspension
 curl -s -H "Authorization: $CLICKUP_API_KEY" \
   "https://api.clickup.com/api/v2/team/<team_id>/webhook" | jq '.webhooks[] | {id, endpoint, health}'
