@@ -74,9 +74,9 @@ from the `create-event-definition` response in the prod run, and build the
 workflow's `enrollment_event_<objectTypeId>` token namespace from that.
 
 **Test sends hit real contact records.** The designated prod test contact is
-`hubspot-mapping-test@goodparty.org`. Verify it exists (`get-contact`) before
-sending; if the search comes back empty, stop and have the human create it in
-the prod UI. Never send a test occurrence to a candidate, user, or staff
+`hubspot-mapping-test@goodparty.org`. Verify it exists (`get-contact
+--properties email`) before sending; if the search comes back empty, stop and
+have the human create it in the prod UI. Never send a test occurrence to a candidate, user, or staff
 contact — a test send is permanent on that contact's event timeline, and once
 the workflow is enabled it overwrites real property values.
 
