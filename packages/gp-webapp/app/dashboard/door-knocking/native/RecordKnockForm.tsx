@@ -11,6 +11,7 @@ import {
 } from '@goodparty_org/contracts'
 import { Button, Textarea, ToggleGroup, ToggleGroupItem } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 // Compact cousin of the CRM wizard's pill toggles (crm/shared/constants.ts)
 // — same selected-state convention, sized for the walk view's dense form.
@@ -104,6 +105,16 @@ export default function RecordKnockForm({
       }).then((res) => res.data)
     },
     onSuccess: (data) => {
+      const answered = outcome === 'answered'
+      trackEvent(EVENTS.DoorKnocking.DoorLogged, {
+        outcome,
+        knockStatus: data.knockStatus,
+        // Whether a note was written, never what it said — notes are about
+        // named voters and don't belong in an analytics payload.
+        hasNote: note.trim().length > 0,
+        ...(answered && supportAnswer ? { supportAnswer } : {}),
+        ...(answered && willVote ? { willVote } : {}),
+      })
       onRecorded(data.personId, data.knockStatus)
     },
   })
