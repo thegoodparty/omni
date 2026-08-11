@@ -284,14 +284,25 @@ paste-ready follow-up message — without the reviewer hand-steering the sleuthi
 (Origin: DATA-2278; the 2026-08-11 session that diagnosed a serve funnel break and a
 flag-rollout retirement is the reference run.)
 
-**Load the report first** — Diagnose can run standalone, so resolve the health-report
-JSON the same three-way way Queue B does: local
+**Load the report first** — if `run_date` is not already set (i.e. Diagnose is
+running standalone, not as part of a full triage session), establish it first via the
+**Load context** steps above (Slack read or bare date argument). Then anchor the
+working directory:
+
+```bash
+cd <runbooks>/scripts/python
+```
+
+Resolve the health-report JSON the same three-way way Queue B does: local
 `instrumentation_data/analytics_event_health_report.json` if its `run_date` matches
 this run (it's gitignored, so a local copy may be stale — check, and if it predates
-the run, delete it and re-download); else the latest `analytics-governance` run's
-`analytics-event-health-report` artifact via `gh run download`; else recompute live
-with `analytics_event_health.py --today "$run_date" --json …` (needs Databricks
-OAuth).
+the run, delete it and re-download); else find the `analytics-governance` CI run whose
+date matches `run_date` (`gh run list --workflow analytics-governance.yml --limit 20
+--json databaseId,createdAt` — pick the run whose `createdAt` date equals
+`run_date`), then `gh run download <run_id> --name analytics-event-health-report
+--dir instrumentation_data` and verify the downloaded report's `run_date` field
+matches before proceeding (if not, fall through); else recompute live with
+`analytics_event_health.py --today "$run_date" --json …` (needs Databricks OAuth).
 
 The report's `flagged` + `records` arrays are the input (each record carries
 `anomaly` current/baseline, `last_seen_date`, `event_count_30d`, `call_site_count`,
