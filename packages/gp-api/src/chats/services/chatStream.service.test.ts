@@ -574,6 +574,112 @@ describe('ChatStreamService', () => {
     })
   })
 
+  describe('finalizeText', () => {
+    const assistantContent = (): string | undefined =>
+      store
+        .getPersistedMessages(CONVERSATION_ID)
+        .find((m) => m.role === ChatMessageRole.assistant)?.content
+
+    it('appends the hook output as a final chunk and persists it', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([{ kind: 'text', delta: 'See RCW 42.56.' }])
+
+      const chunks = await collect(
+        service.stream({
+          ...baseStreamArgs(),
+          finalizeText: () => '\n\nCheck with a professional.',
+        }),
+      )
+
+      const textDeltas = chunks.filter((c) => c.type === 'text')
+      expect(textDeltas[textDeltas.length - 1]).toEqual({
+        type: 'text',
+        delta: '\n\nCheck with a professional.',
+      })
+      expect(assistantContent()).toBe(
+        'See RCW 42.56.\n\nCheck with a professional.',
+      )
+    })
+
+    it('appends nothing when the hook returns null', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([{ kind: 'text', delta: 'Turnout was 65%.' }])
+
+      await collect(
+        service.stream({ ...baseStreamArgs(), finalizeText: () => null }),
+      )
+
+      expect(assistantContent()).toBe('Turnout was 65%.')
+    })
+
+    it('does not fail the turn when the hook throws', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([{ kind: 'text', delta: 'answer' }])
+
+      const chunks = await collect(
+        service.stream({
+          ...baseStreamArgs(),
+          finalizeText: () => {
+            throw new Error('boom')
+          },
+        }),
+      )
+
+      expect(chunks.find((c) => c.type === 'done')).toBeDefined()
+      expect(assistantContent()).toBe('answer')
+    })
+
+    it('does not append on a provider-error turn', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([
+        { kind: 'text', delta: 'partial ' },
+        {
+          kind: 'streamError',
+          error: Object.assign(new Error('AI_APICallError: 500'), {
+            status: 500,
+          }),
+        },
+      ])
+
+      await collect(
+        service.stream({
+          ...baseStreamArgs(),
+          finalizeText: () => '\n\nAPPENDED',
+        }),
+      )
+
+      // The turn errored, so it is not treated as clean: the partial is
+      // persisted without the appended line.
+      expect(assistantContent()).toBe('partial ')
+    })
+
+    it('does not append on an aborted turn', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      const controller = new AbortController()
+      let releaseGate: () => void = () => undefined
+      const gate = new Promise<void>((resolve) => {
+        releaseGate = resolve
+      })
+      llm.setScript([
+        { kind: 'text', delta: 'partial ' },
+        { kind: 'gate', gate },
+        { kind: 'text', delta: 'unreached' },
+      ])
+
+      const iter = service.stream({
+        ...baseStreamArgs({ signal: controller.signal }),
+        finalizeText: () => '\n\nAPPENDED',
+      })
+      const reader = iter[Symbol.asyncIterator]()
+      await reader.next()
+      controller.abort()
+      releaseGate()
+
+      await waitForCondition(() => assistantContent() !== undefined)
+      expect(assistantContent()).not.toContain('APPENDED')
+    })
+  })
+
   describe('history cap', () => {
     it('asks chatStore for at most MAX_CHAT_HISTORY_MESSAGES recent messages', async () => {
       store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
