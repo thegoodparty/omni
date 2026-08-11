@@ -56,12 +56,12 @@ DEFAULT_MODEL = os.environ.get("GAP_JUDGE_MODEL", "claude-sonnet-5")
 
 def gaps_feedback_url() -> str | None:
     """GitHub link where a reviewer edits disposition + reason inline. Env override, else the
-    committed state file on develop."""
+    committed state file on main."""
     explicit = os.environ.get("GP_GAPS_FEEDBACK_URL")
     if explicit:
         return explicit
     return (
-        "https://github.com/thegoodparty/omni/blob/develop/"
+        "https://github.com/thegoodparty/omni/blob/main/"
         "packages/runbooks/scripts/python/instrumentation_data/instrumentation_gaps.json"
     )
 
