@@ -1,0 +1,151 @@
+name: gpbot PR triage
+
+# Puts a named human on every [GP-Bot] PR and tells the owning team it exists.
+#
+# The bot opens PRs nobody asked for, against tickets no reviewer has read. Ten
+# bot PRs died silently in the archived gp-webapp repo because "someone will
+# look at it" is not an owner. This assigns one.
+#
+# THIS WORKFLOW MUST NEVER MERGE ANYTHING.
+# The repo has allow_auto_merge enabled, and delegate-reviewer approves every
+# PR — including bot PRs — which satisfies the main ruleset's one-approval
+# requirement. The only thing keeping a human in the loop is that nothing
+# calls merge. Do not add `gh pr merge`, and do not add `--auto`: the agreed
+# contract is that a bot may approve but a human decides what actually lands.
+
+on:
+  pull_request:
+    types: [opened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: gpbot-pr-triage-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  triage:
+    name: Assign and announce
+    # Gate on bot authorship two ways because the two signals come from
+    # different places: the branch prefix is set by the agent's git commands,
+    # the title prefix by its gh call. Either alone has been wrong before.
+    if: >-
+      startsWith(github.event.pull_request.title, '[GP-Bot]')
+      || contains(github.event.pull_request.head.ref, '/gp-bot_')
+    runs-on: ubuntu-latest
+    # Job level, not step level: a step's own `env` block is not visible to
+    # that step's `if` condition, so the Slack guard below would always be
+    # true and the step would fail on an empty channel instead of skipping.
+    env:
+      SLACK_TOKEN: ${{ secrets.SLACK_APP_BOT_TOKEN }}
+      CHANNEL: ${{ vars.GPBOT_PR_CHANNEL_ID }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/gpbot-reviewers.json
+          sparse-checkout-cone-mode: false
+
+      # Resolve the owning group from the ClickUp list the ticket lives in.
+      # The list is not on the PR, so it is recovered from the custom_id that
+      # prefixes the branch name (`ENG-1234/gp-bot_...`).
+      #
+      # Every failure here degrades to defaultGroup rather than failing the
+      # job: an unassigned bot PR that nobody hears about is the exact outcome
+      # this workflow exists to prevent, so a ClickUp hiccup must not cause it.
+      - name: Resolve owning group
+        id: owner
+        env:
+          CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          roster=.github/gpbot-reviewers.json
+
+          custom_id="${HEAD_REF%%/*}"
+          if [[ ! "$custom_id" =~ ^[A-Za-z]+-[0-9]+$ ]]; then
+            echo "branch '$HEAD_REF' carries no ClickUp custom_id; using default group"
+            custom_id=""
+          fi
+          echo "custom_id=$custom_id" >> "$GITHUB_OUTPUT"
+
+          list_id=""
+          if [ -n "$custom_id" ] && [ -n "${CLICKUP_API_TOKEN:-}" ]; then
+            # custom_task_ids + team_id are both required to look a task up by
+            # its ENG-1234 form rather than the opaque internal id.
+            list_id="$(curl -sS --max-time 20 \
+              -H "Authorization: $CLICKUP_API_TOKEN" \
+              "https://api.clickup.com/api/v2/task/${custom_id}?custom_task_ids=true&team_id=90132012119" \
+              | jq -r '.list.id // empty' || true)"
+          fi
+
+          group="$(jq -r --arg l "$list_id" '.listRouting[$l] // .defaultGroup' "$roster")"
+          echo "resolved list='${list_id:-unknown}' -> group='$group'"
+          echo "group=$group" >> "$GITHUB_OUTPUT"
+          echo "slack_group_id=$(jq -r --arg g "$group" '.groups[$g].slackGroupId // empty' "$roster")" >> "$GITHUB_OUTPUT"
+
+          # Round-robin, stateless: no counter to persist and nothing to drift
+          # out of sync. A group with no roster of its own falls back to the
+          # shared pool so this keeps working before the Serve/Win split lands.
+          reviewer="$(jq -r --arg g "$group" --argjson n "$PR_NUMBER" '
+            (.groups[$g].reviewers // []) as $own
+            | (if ($own | length) > 0 then $own else .defaultReviewers end) as $pool
+            | if ($pool | length) > 0 then $pool[$n % ($pool | length)] else empty end
+          ' "$roster")"
+          echo "assigned reviewer: ${reviewer:-<none>}"
+          echo "reviewer=$reviewer" >> "$GITHUB_OUTPUT"
+
+      - name: Request review
+        if: steps.owner.outputs.reviewer != ''
+        uses: actions/github-script@v7
+        env:
+          REVIEWER: ${{ steps.owner.outputs.reviewer }}
+        with:
+          script: |
+            const reviewer = process.env.REVIEWER
+            try {
+              await github.rest.pulls.requestReviewers({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                reviewers: [reviewer],
+              })
+            } catch (e) {
+              // A stale login in the roster, or the bot's own account, makes
+              // this 422. Announcing the PR still has value, so warn instead
+              // of failing and let the Slack step run.
+              core.warning(`could not request review from ${reviewer}: ${e.message}`)
+            }
+
+      # Degrades quietly when the channel variable is unset, so this workflow
+      # can merge before the channel decision is made.
+      - name: Announce in Slack
+        if: env.SLACK_TOKEN != '' && env.CHANNEL != ''
+        env:
+          GROUP_ID: ${{ steps.owner.outputs.slack_group_id }}
+          REVIEWER: ${{ steps.owner.outputs.reviewer }}
+          CUSTOM_ID: ${{ steps.owner.outputs.custom_id }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          mention=""
+          [ -n "$GROUP_ID" ] && mention="<!subteam^${GROUP_ID}> "
+          ticket=""
+          [ -n "$CUSTOM_ID" ] && ticket=" (<https://app.clickup.com/t/${CUSTOM_ID}|${CUSTOM_ID}>)"
+          reviewer_line="No reviewer could be assigned — please pick this up."
+          [ -n "$REVIEWER" ] && reviewer_line="Assigned to *${REVIEWER}* for review."
+
+          # jq -n builds the payload so a PR title containing quotes or
+          # backslashes cannot break out of the JSON.
+          jq -n \
+            --arg channel "$CHANNEL" \
+            --arg text "${mention}A bot PR is open${ticket}: <${PR_URL}|${PR_TITLE}>. ${reviewer_line} Bot approval does not merge it — closing it is a fine outcome if the fix is wrong." \
+            '{channel: $channel, text: $text}' \
+            | curl -sSf -X POST https://slack.com/api/chat.postMessage \
+                -H "Authorization: Bearer $SLACK_TOKEN" \
+                -H 'Content-type: application/json; charset=utf-8' \
+                --data @-
