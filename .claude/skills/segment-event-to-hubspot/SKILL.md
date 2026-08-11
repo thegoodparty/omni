@@ -89,6 +89,14 @@ script, and never as an unprompted "finishing touch".
 track in parallel with the new per-event subscription, so a mapped prod event
 lands twice. Legacy workflows depend on all_track — do not disable it.
 
+## Pre-run gate (every run)
+
+Before Phase 0: if the human named prod (or portal 21589597), verify the
+entry condition from "Prod mode" above — a sandbox rehearsal including its
+Phase 3 approval table must already be complete. If it isn't, or if the human
+is ambiguous ("ship it", "do it for real"), ask which portal and whether the
+sandbox rehearsal is done before proceeding.
+
 ## Phase 0 — event discovery (when the user doesn't name an exact event)
 
 Users usually arrive with a product description ("the briefing skip thing",
@@ -146,6 +154,10 @@ forward at destination / reuse existing contact property X / create contact
 property (name, type) / skip.
 
 ## Phase 3 — human approval gate (hard gate)
+
+**Prod-mode note:** if this is a prod run, use `pe21589597_` as the portal
+prefix in the naming column — the approval table is the source of truth for
+the name that `create-event-definition` will use.
 
 Present the proposal as one reviewable table, including naming (follow the
 existing `pe<portalId>_<snake_case_event>` convention for event definitions
@@ -255,9 +267,10 @@ and leaves the prod workflow unverified.
 
 1. `hubspot_event_mapping.py send-test` — synthetic occurrence with realistic
    values from Phase 1, against a designated test contact (in prod, the pinned
-   contact from "Prod mode" — run `get-contact hubspot-mapping-test@goodparty.org`
-   first; if the search comes back empty, stop and have the human create it in
-   the prod UI before proceeding; never send to a candidate, user, or staff
+   contact from "Prod mode" — run `get-contact hubspot-mapping-test@goodparty.org
+   --properties email` first; if the search comes back empty, stop and have
+   the human create it in the prod UI before proceeding; never send to a
+   candidate, user, or staff
    contact — a test send is permanent on that contact's event timeline).
 2. Enable the workflow (human, UI), send again, then
    `hubspot_event_mapping.py get-contact <email> --properties ...` to confirm
