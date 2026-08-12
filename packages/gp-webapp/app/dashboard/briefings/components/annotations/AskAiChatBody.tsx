@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowDown, Search, Send, Sparkles } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { Button, IconButton, Input, Textarea } from '@styleguide'
+import {
+  ASSISTANT_BUBBLE,
+  ChatMarkdown,
+} from '../../../shared/agent-chat/chatUI'
 import { useDictationAppend } from '../../shared/useDictationAppend'
 import { DictationMicButton } from '../../shared/DictationMicButton'
 import { DictationFeedback } from '../../shared/DictationFeedback'
@@ -735,10 +737,7 @@ export default function AskAiChatBody({
               )
             }
             return (
-              <div
-                key={item.id}
-                className="self-start max-w-full rounded-2xl bg-muted px-3 py-2 text-sm text-foreground space-y-2 [&>:first-child]:mt-0 [&>:last-child]:mb-0 [&_p]:!block [&_p]:!flex-none [&_p]:!whitespace-normal [&_strong]:!inline [&_strong]:font-semibold [&_em]:!inline [&_em]:italic [&_a]:!inline [&_a]:underline [&_code]:!inline [&_code]:rounded [&_code]:bg-foreground/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_li]:!list-item [&_li]:my-0 [&_ul]:!block [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1 [&_ol]:!block [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:space-y-1 [&_h1]:!block [&_h1]:text-base [&_h1]:font-semibold [&_h2]:!block [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:!block [&_h3]:text-sm [&_h3]:font-semibold [&_table]:!table [&_table]:!w-full [&_table]:!border-collapse [&_table]:my-2 [&_thead]:!table-header-group [&_tbody]:!table-row-group [&_tr]:!table-row [&_tr]:!border-b [&_tr]:border-foreground/15 [&_th]:!table-cell [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-semibold [&_th]:!border-b-2 [&_th]:!border-foreground/30 [&_td]:!table-cell [&_td]:px-2 [&_td]:py-1.5 [&_td]:align-top"
-              >
+              <div key={item.id} className={ASSISTANT_BUBBLE}>
                 {item.toolsUsed && item.toolsUsed.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {item.toolsUsed.map((t) => (
@@ -752,9 +751,7 @@ export default function AskAiChatBody({
                     ))}
                   </div>
                 )}
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {item.content}
-                </ReactMarkdown>
+                <ChatMarkdown>{item.content}</ChatMarkdown>
               </div>
             )
           })}
@@ -775,7 +772,7 @@ export default function AskAiChatBody({
           )}
 
           {streaming && (
-            <div className="self-start max-w-full rounded-2xl bg-muted px-3 py-2 text-sm text-foreground space-y-2 [&>:first-child]:mt-0 [&>:last-child]:mb-0 [&_strong]:font-semibold [&_em]:italic [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:space-y-1 [&_li]:my-0 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_code]:rounded [&_code]:bg-foreground/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_a]:underline">
+            <div className={ASSISTANT_BUBBLE}>
               {activeTools.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {activeTools.map((t) => (
@@ -790,9 +787,7 @@ export default function AskAiChatBody({
                 </div>
               )}
               {streaming.content ? (
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {streaming.content}
-                </ReactMarkdown>
+                <ChatMarkdown>{streaming.content}</ChatMarkdown>
               ) : activeTools.length === 0 ? (
                 <span className="text-muted-foreground">Thinking...</span>
               ) : null}

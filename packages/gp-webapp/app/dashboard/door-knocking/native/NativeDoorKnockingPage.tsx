@@ -165,31 +165,25 @@ export default function NativeDoorKnockingPage({
     }
     return result
   }, [packQuery.data, selections, flowStep, selectedTurf])
-  // Unfiltered pass for turf-details area stats (doors/voters in polygon).
-  const fullResult = useMemo(
-    () =>
-      packQuery.data && detailsTurf
-        ? runFilter(packQuery.data, new Map())
-        : null,
-    [packQuery.data, detailsTurf],
-  )
+  // Unfiltered (empty selections) area stats for turf details: doors/voters
+  // inside the saved polygon, regardless of the list's own filters.
   const detailsAreaStats = useMemo(
     () =>
-      packQuery.data && fullResult && detailsTurf
+      packQuery.data && detailsTurf
         ? polygonStats(
             packQuery.data,
-            fullResult.matchedPerDot,
+            new Map(),
             (detailsTurf.geoPoly.coordinates[0] ?? []) as [number, number][],
           )
         : null,
-    [packQuery.data, fullResult, detailsTurf],
+    [packQuery.data, detailsTurf],
   )
   const turfStats = useMemo(
     () =>
-      packQuery.data && filterResult && ring
-        ? polygonStats(packQuery.data, filterResult.matchedPerDot, ring)
+      packQuery.data && ring
+        ? polygonStats(packQuery.data, selections, ring)
         : null,
-    [packQuery.data, filterResult, ring],
+    [packQuery.data, selections, ring],
   )
   // Landing-rail status chips: person-level counts over the whole district.
   const statusCounts = useMemo(() => {
@@ -474,7 +468,7 @@ export default function NativeDoorKnockingPage({
               onFiltersChange={setFilters}
               onStepChange={changeFlowStep}
               onClose={closeFlow}
-              matchingHouseholds={filterResult?.households ?? 0}
+              districtHouseholds={filterResult?.households ?? 0}
               ring={ring}
               turfStats={turfStats}
               onSaved={handleSaved}

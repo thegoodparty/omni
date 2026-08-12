@@ -16,6 +16,29 @@ export interface FilterResult {
   statusPerDot: Uint8Array
 }
 
+interface ActiveDim {
+  plane: Uint8Array
+  mask: Uint8Array
+}
+
+// A dim only constrains when the selection leaves something out, so a fully
+// selected (or absent) dim is dropped here rather than tested per person.
+const activeDimMasks = (
+  pack: DecodedPack,
+  selections: DimSelections,
+): ActiveDim[] => {
+  const active: ActiveDim[] = []
+  for (const dim of pack.manifest.dims) {
+    const selected = selections.get(dim.key)
+    if (!selected || selected.size >= dim.values.length) continue
+    const mask = new Uint8Array(dim.values.length)
+    for (const value of selected) mask[value] = 1
+    const plane = pack.dimPlanes.get(dim.key)
+    if (plane) active.push({ plane, mask })
+  }
+  return active
+}
+
 // One pass over every person (the POC measured ~31ms for 1.67M people):
 // apply the active dim masks, then roll matches up person → household → dot.
 export const runFilter = (
@@ -26,15 +49,7 @@ export const runFilter = (
   const peopleCount = personToHousehold.length
   const dotCount = manifest.counts.dots
 
-  const active: Array<{ plane: Uint8Array; mask: Uint8Array }> = []
-  for (const dim of manifest.dims) {
-    const selected = selections.get(dim.key)
-    if (!selected || selected.size >= dim.values.length) continue
-    const mask = new Uint8Array(dim.values.length)
-    for (const value of selected) mask[value] = 1
-    const plane = dimPlanes.get(dim.key)
-    if (plane) active.push({ plane, mask })
-  }
+  const active = activeDimMasks(pack, selections)
 
   const canvassPlane = dimPlanes.get('canvassStatus')
   const matchedPerDot = new Uint32Array(dotCount)
@@ -70,20 +85,38 @@ export const runFilter = (
   return { people, households, dots, matchedPerDot, statusPerDot }
 }
 
-export interface PolygonStats {
-  stops: number
+export interface PartySlice {
+  // The pack's own bucket name for the party ('Democratic', 'Unknown', …),
+  // so a district whose buckets differ still reads correctly.
+  label: string
   people: number
 }
 
-// Ray-cast every dot against the drawn ring (bbox prefiltered) and sum the
-// current filter's matches — the live "what would this turf hold" readout.
-// Counts stops (unique coordinates), the same unit the 150 cap uses.
+export interface PolygonStats {
+  stops: number
+  people: number
+  households: number
+  // Biggest bucket first, empty buckets dropped.
+  partyMix: PartySlice[]
+}
+
+// Everything the draw step reports about the shape being drawn, all on the
+// one denominator that matters there: what is INSIDE the ring. A district-wide
+// number next to an in-polygon one is how the footer previously managed to
+// read "12,000 matching households · 84 selected doors".
+//
+// The households count is person-level exact — a household counts only when a
+// person in it survives the filter — so it matches what runFilter would report
+// for the same audience, restricted to the ring. That is deliberately stricter
+// than maskToPolygon's dot-granular rollup, which counts every household
+// sharing a matched coordinate and is documented as a slight overcount.
 export const polygonStats = (
   pack: DecodedPack,
-  matchedPerDot: Uint32Array,
+  selections: DimSelections,
   ring: Array<[number, number]>,
 ): PolygonStats => {
-  const { positions } = pack
+  const { positions, personToHousehold, householdToDot, dimPlanes, manifest } =
+    pack
   let minX = Infinity
   let minY = Infinity
   let maxX = -Infinity
@@ -95,20 +128,57 @@ export const polygonStats = (
     if (y > maxY) maxY = y
   }
 
-  let stops = 0
-  let people = 0
-  const dotCount = matchedPerDot.length
+  // Ray-cast the dots once (bbox prefiltered) so the person pass below is a
+  // lookup per voter rather than a point-in-polygon test per voter.
+  const dotCount = manifest.counts.dots
+  const insideDot = new Uint8Array(dotCount)
   for (let i = 0; i < dotCount; i++) {
-    const matched = matchedPerDot[i] ?? 0
-    if (matched === 0) continue
     const x = positions[i * 2] ?? 0
     const y = positions[i * 2 + 1] ?? 0
     if (x < minX || x > maxX || y < minY || y > maxY) continue
     if (!pointInRing(x, y, ring)) continue
-    stops++
-    people += matched
+    insideDot[i] = 1
   }
-  return { stops, people }
+
+  const active = activeDimMasks(pack, selections)
+  const partyDim = manifest.dims.find((dim) => dim.key === 'party')
+  const partyPlane = dimPlanes.get('party')
+  const partyPeople = new Array<number>(partyDim?.values.length ?? 0).fill(0)
+
+  const dotSeen = new Uint8Array(dotCount)
+  const householdSeen = new Uint8Array(manifest.counts.households)
+  let stops = 0
+  let people = 0
+  let households = 0
+  outer: for (let i = 0; i < personToHousehold.length; i++) {
+    for (let a = 0; a < active.length; a++) {
+      const entry = active[a]
+      if (entry && !entry.mask[entry.plane[i] ?? 0]) continue outer
+    }
+    const household = personToHousehold[i] ?? 0
+    const dot = householdToDot[household] ?? 0
+    if (!insideDot[dot]) continue
+    people++
+    if (!dotSeen[dot]) {
+      dotSeen[dot] = 1
+      stops++
+    }
+    if (!householdSeen[household]) {
+      householdSeen[household] = 1
+      households++
+    }
+    const party = partyPlane?.[i] ?? 0
+    if (party < partyPeople.length) {
+      partyPeople[party] = (partyPeople[party] ?? 0) + 1
+    }
+  }
+
+  const partyMix = (partyDim?.values ?? [])
+    .map((label, index) => ({ label, people: partyPeople[index] ?? 0 }))
+    .filter((slice) => slice.people > 0)
+    .sort((a, b) => b.people - a.people)
+
+  return { stops, people, households, partyMix }
 }
 
 // Restrict a filter result to the dots inside a turf polygon: dots outside
