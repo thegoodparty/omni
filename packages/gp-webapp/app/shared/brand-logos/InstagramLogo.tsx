@@ -1,19 +1,12 @@
 import React from 'react'
-import { FaInstagram } from 'react-icons/fa6'
 
 interface InstagramLogoProps {
   size?: number
-  // Monochrome variant (e.g. 'currentColor'); default keeps the brand art.
-  color?: string
 }
 
 export default function InstagramLogo({
   size = 18,
-  color,
 }: InstagramLogoProps): React.JSX.Element {
-  if (color) {
-    return <FaInstagram size={size} color={color} />
-  }
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"

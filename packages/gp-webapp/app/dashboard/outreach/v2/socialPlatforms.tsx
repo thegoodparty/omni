@@ -4,13 +4,13 @@ import type {
   SocialAssetPlatform,
 } from '@goodparty_org/contracts'
 import {
-  FacebookLogo,
-  InstagramLogo,
-  NextdoorLogo,
-  TiktokLogo,
-  TwitterLogo,
-  YoutubeLogo,
-} from '@shared/brand-logos'
+  FacebookIcon,
+  InstagramIcon,
+  UsersIcon,
+  VideoIcon,
+  YoutubeIcon,
+} from '@styleguide/components/ui/icons'
+import { TwitterLogo } from '@shared/brand-logos'
 
 export interface SocialPlatformMeta {
   id: SocialAssetPlatform
@@ -28,42 +28,42 @@ export const SOCIAL_PLATFORMS: SocialPlatformMeta[] = [
     id: 'facebook',
     label: 'Facebook',
     helper: 'Post copy',
-    icon: <FacebookLogo size={20} color="currentColor" />,
+    icon: <FacebookIcon className="size-5" />,
     kind: 'post_copy',
   },
   {
     id: 'instagram',
     label: 'Instagram',
     helper: 'Post copy',
-    icon: <InstagramLogo size={20} color="currentColor" />,
+    icon: <InstagramIcon className="size-5" />,
     kind: 'post_copy',
   },
   {
     id: 'nextdoor',
     label: 'Nextdoor',
     helper: 'Post copy',
-    icon: <NextdoorLogo size={20} color="currentColor" />,
+    icon: <UsersIcon className="size-5" />,
     kind: 'post_copy',
   },
   {
     id: 'x',
     label: 'X',
     helper: 'Post copy',
-    icon: <TwitterLogo size={20} color="currentColor" />,
+    icon: <TwitterLogo size={20} />,
     kind: 'post_copy',
   },
   {
     id: 'tiktok',
     label: 'TikTok',
     helper: 'Video script',
-    icon: <TiktokLogo size={20} color="currentColor" />,
+    icon: <VideoIcon className="size-5" />,
     kind: 'video_script',
   },
   {
     id: 'youtube_shorts',
     label: 'YouTube Shorts',
     helper: 'Video script',
-    icon: <YoutubeLogo size={20} color="currentColor" />,
+    icon: <YoutubeIcon className="size-5" />,
     kind: 'video_script',
   },
 ]

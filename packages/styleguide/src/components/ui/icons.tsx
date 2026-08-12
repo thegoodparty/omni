@@ -111,4 +111,9 @@ export {
   CalendarClock as CalendarClockIcon,
   CircleDot as CircleDotIcon,
   Headphones as HeadphonesIcon,
+  Facebook as FacebookIcon,
+  Instagram as InstagramIcon,
+  Users as UsersIcon,
+  Video as VideoIcon,
+  Youtube as YoutubeIcon,
 } from 'lucide-react'
