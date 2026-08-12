@@ -234,19 +234,63 @@ describe('SocialFlow', () => {
       screen.queryByRole('button', { name: 'Undo' }),
     ).not.toBeInTheDocument()
 
-    // Manual typing, then a tone draft replaces it: Undo appears + restores.
+    // Manual typing, then a NEWLY GENERATED tone draft replaces it: Undo
+    // appears + restores. (An uncached tone — cached switches restore from
+    // memory and never clobber, so they never need Undo.)
     const textarea = screen.getByLabelText('Draft message')
     await user.clear(textarea)
     await user.type(textarea, 'My own words')
-    await user.click(screen.getByRole('radio', { name: /Warm/ }))
+    await user.click(screen.getByRole('radio', { name: /Urgent/ }))
     const undo = await screen.findByRole('button', { name: 'Undo' })
     await waitFor(() =>
       expect(screen.getByLabelText('Draft message')).toHaveValue(
-        draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
+        draftFor({ purpose: 'introduce_myself', tone: 'urgent' }),
       ),
     )
     await user.click(undo)
     expect(screen.getByLabelText('Draft message')).toHaveValue('My own words')
+  })
+
+  it('restores previously generated tones from memory; only Regenerate refetches', async () => {
+    const draftCalls = mockDraft()
+    openFlow()
+    await user.click(screen.getByText('Introduce myself'))
+    await awaitComposeDraft(
+      draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
+    )
+
+    await user.click(screen.getByRole('radio', { name: /Direct/ }))
+    await waitFor(() =>
+      expect(screen.getByLabelText('Draft message')).toHaveValue(
+        draftFor({ purpose: 'introduce_myself', tone: 'direct' }),
+      ),
+    )
+    expect(draftCalls).toHaveLength(2)
+
+    // Back to warm: served from memory, no third call.
+    await user.click(screen.getByRole('radio', { name: /Warm/ }))
+    expect(screen.getByLabelText('Draft message')).toHaveValue(
+      draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
+    )
+    expect(draftCalls).toHaveLength(2)
+
+    // Manual edits are part of the tone's memory when switching away.
+    const textarea = screen.getByLabelText('Draft message')
+    await user.clear(textarea)
+    await user.type(textarea, 'Warm but mine')
+    await user.click(screen.getByRole('radio', { name: /Direct/ }))
+    expect(draftCalls).toHaveLength(2)
+    await user.click(screen.getByRole('radio', { name: /Warm/ }))
+    expect(screen.getByLabelText('Draft message')).toHaveValue('Warm but mine')
+    expect(draftCalls).toHaveLength(2)
+
+    // Regenerate is the only path that refetches an already-drafted tone.
+    await user.click(screen.getByRole('button', { name: /Regenerate/ }))
+    await waitFor(() => expect(draftCalls).toHaveLength(3))
+    expect(draftCalls[2]).toEqual({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+    })
   })
 
   it('keeps the custom purpose fully manual: no draft call, pills never clobber', async () => {

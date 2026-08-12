@@ -75,6 +75,12 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
   const [draft, setDraft] = useState('')
   const [manuallyEdited, setManuallyEdited] = useState(false)
   const [undoText, setUndoText] = useState<string | null>(null)
+  // Last text shown under each tone this compose session (generated or
+  // manually edited). Revisiting a tone restores from here; only the
+  // Regenerate button forces a new call.
+  const [toneDrafts, setToneDrafts] = useState<
+    Partial<Record<SocialTone, string>>
+  >({})
   const [platforms, setPlatforms] = useState<SocialAssetPlatform[]>(
     ALL_SOCIAL_PLATFORM_IDS,
   )
@@ -192,6 +198,7 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
             setManuallyEdited(false)
           }
           setDraft(generated)
+          setToneDrafts((prev) => ({ ...prev, [nextTone]: generated }))
           invalidateAssets()
         },
       },
@@ -204,6 +211,7 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
     setManuallyEdited(false)
     setUndoText(null)
     setDraft('')
+    setToneDrafts({})
     invalidateAssets()
     resetDraftMutation()
     setStepId('compose')
@@ -211,7 +219,24 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
   }
 
   const handleToneChange = (nextTone: SocialTone) => {
+    if (nextTone === tone) return
+    if (!purpose || purpose === 'custom') {
+      setTone(nextTone)
+      return
+    }
+    const remembered = toneDrafts[nextTone]
+    setToneDrafts((prev) => ({ ...prev, [tone]: draft }))
     setTone(nextTone)
+    if (remembered !== undefined) {
+      // Supersede any in-flight call so a slow response for another tone
+      // can't overwrite the restored text.
+      draftRequestRef.current += 1
+      resetDraftMutation()
+      setDraft(remembered)
+      setManuallyEdited(false)
+      invalidateAssets()
+      return
+    }
     requestDraft(purpose, nextTone, draft, manuallyEdited)
   }
 

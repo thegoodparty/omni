@@ -100,7 +100,7 @@ export const ComposeStep = ({
           {!isCustomPurpose && (
             <Button
               type="button"
-              variant="link"
+              variant="ghost"
               size="small"
               className="h-auto gap-1.5 px-0"
               disabled={isDrafting}
