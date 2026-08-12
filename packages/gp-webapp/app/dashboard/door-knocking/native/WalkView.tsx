@@ -12,6 +12,7 @@ import {
 import { ChevronDownIcon, ChevronRightIcon } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import PersonSheet from './PersonSheet'
+import { formatDistance } from './routeFormat'
 import { routeQueryOptions } from './turfQueries'
 import {
   rollupStatuses,
@@ -199,7 +200,8 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
               <h3 className="text-sm font-semibold">Stops</h3>
               <span className="text-sm tabular-nums text-muted-foreground">
                 {routeQuery.data.route.stopCount} doors ·{' '}
-                {formatDuration(routeQuery.data.route.totalSeconds)}
+                {formatDuration(routeQuery.data.route.totalSeconds)} ·{' '}
+                {formatDistance(routeQuery.data.route.totalMeters)}
               </span>
             </div>
             <ol className="divide-y divide-border">

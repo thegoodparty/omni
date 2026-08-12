@@ -14,15 +14,13 @@ import {
   WILL_VOTE_QUESTION,
 } from '../native/knockQuestions'
 import { STATUS_LABELS } from '../native/statusPresentation'
+import { formatDistance } from '../native/routeFormat'
 
 const formatDuration = (seconds: number): string => {
   const minutes = Math.round(seconds / 60)
   if (minutes < 60) return `${minutes} min`
   return `${Math.floor(minutes / 60)} hr ${minutes % 60} min`
 }
-
-const formatDistance = (meters: number): string =>
-  `${(meters / 1609.344).toFixed(1)} mi`
 
 // Age and party are the two things a canvasser uses to open a conversation,
 // and they're the only enrichment worth the ink.
