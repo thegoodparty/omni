@@ -108,4 +108,7 @@ export {
   History as HistoryIcon,
   DoorOpen as DoorOpenIcon,
   MessageSquareMore as MessageSquareMoreIcon,
+  CalendarClock as CalendarClockIcon,
+  CircleDot as CircleDotIcon,
+  Headphones as HeadphonesIcon,
 } from 'lucide-react'
