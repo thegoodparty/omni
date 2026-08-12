@@ -4,31 +4,15 @@
  * backed by a specific `/v1/chats?scope=<scope>` endpoint.
  */
 
-export type ChatMessageRole = 'user' | 'assistant' | 'system' | 'tool'
-
-export type ChatMessageSegmentKind = 'text' | 'tool'
-
-/**
- * One ordered display block of an assistant turn (mirrors the persisted
- * ChatMessageSegment used by Chief of Staff). Consecutive `tool` segments are
- * grouped into one pill row by the renderer. Present only on assistant turns
- * that used tools — lets a turn render as ordered text / tool / text blocks
- * instead of a flat string plus a single tool row.
- */
-export interface ChatMessageSegment {
-  kind: ChatMessageSegmentKind
-  text?: string | null
-  toolName?: string | null
-}
-
-export interface ChatMessageDto {
-  id: string
-  conversationId: string
-  role: ChatMessageRole
-  content: string
-  createdAt: string
-  segments?: ChatMessageSegment[]
-}
+import type { ChatMessageDto, ChatStreamEvent } from '../agent-chat/chatTypes'
+export type {
+  ChatMessageRole,
+  ChatMessageSegmentKind,
+  ChatMessageSegment,
+  ChatMessageDto,
+  ChatErrorCode,
+  ChatStreamEvent,
+} from '../agent-chat/chatTypes'
 
 export interface ChatConversationDto {
   conversationId: string
@@ -39,20 +23,6 @@ export interface ChatConversationDto {
   createdAt: string
   updatedAt: string
 }
-
-export type ChatErrorCode =
-  | 'conversation_not_found'
-  | 'upstream_unavailable'
-  | 'rate_limited'
-  | 'aborted'
-  | 'internal'
-
-export type ChatStreamEvent =
-  | { type: 'text'; delta: string }
-  | { type: 'tool_call'; toolName: string; args?: unknown }
-  | { type: 'tool_result'; toolName: string; result?: unknown }
-  | { type: 'done'; assistantMessageId?: string }
-  | { type: 'error'; code: ChatErrorCode; message: string; retryable: boolean }
 
 export interface AiChatClient {
   /** Find-or-create the conversation for the current context. Deferred until first send. */

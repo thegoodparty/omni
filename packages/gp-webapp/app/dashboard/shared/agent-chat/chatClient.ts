@@ -32,27 +32,19 @@ export type ChatScope =
   | 'campaign_assistant'
   | 'ordinance_flow'
 
-export type ChatMessageRole = 'user' | 'assistant' | 'system' | 'tool'
-
-export type ChatMessageSegmentKind = 'text' | 'tool'
-
-export interface ChatMessageSegment {
-  kind: ChatMessageSegmentKind
-  text?: string | null
-  toolName?: string | null
-  // Structured tool-call args for widget tool calls (e.g. ask_clarify_question),
-  // so the widget replays from the transcript on reload.
-  payload?: unknown
-}
-
-export interface ChatMessageDto {
-  id: string
-  conversationId: string
-  role: ChatMessageRole
-  content: string
-  createdAt: string
-  segments?: ChatMessageSegment[]
-}
+export type {
+  ChatMessageRole,
+  ChatMessageSegmentKind,
+  ChatMessageSegment,
+  ChatMessageDto,
+  ChatErrorCode,
+  ChatStreamEvent,
+} from './chatTypes'
+import type {
+  ChatMessageDto,
+  ChatErrorCode,
+  ChatStreamEvent,
+} from './chatTypes'
 
 export interface ChatConversationDto {
   conversationId: string
@@ -73,36 +65,6 @@ export interface ChatConversationMessagesResponse {
   conversationId: string
   messages: ChatMessageDto[]
 }
-
-export type ChatErrorCode =
-  | 'conversation_not_found'
-  | 'upstream_unavailable'
-  | 'rate_limited'
-  | 'aborted'
-  | 'internal'
-
-/**
- * SSE union streamed by `POST /v1/chats/:id/messages`. Treat `done` and
- * `error` as terminal.
- */
-export type ChatStreamEvent =
-  | { type: 'text'; delta: string }
-  // The model has started writing a tool call's arguments (before tool_call).
-  // Transient — lets the UI show a per-tool "generating" indicator.
-  | { type: 'tool_input_start'; toolName: string }
-  | { type: 'tool_call'; toolName: string; args?: unknown }
-  | { type: 'tool_result'; toolName: string; result?: unknown }
-  // Server keep-alive during silent stretches (tool-arg generation emits no
-  // other traffic for minutes). Carries no content — it must reach consumers
-  // (not be guard-dropped) so their idle watchdogs reset.
-  | { type: 'ping' }
-  | { type: 'done'; assistantMessageId?: string }
-  | {
-      type: 'error'
-      code: ChatErrorCode
-      message: string
-      retryable: boolean
-    }
 
 // --- client interface -------------------------------------------------------
 
