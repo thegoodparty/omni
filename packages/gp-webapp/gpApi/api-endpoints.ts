@@ -27,6 +27,8 @@ import type {
   RaceOpponentFindingKind,
   SummarySource,
   OutreachDetail,
+  SocialDraftRequest,
+  SocialDraftResponse,
   SocialGenerateRequest,
   SocialGenerateResponse,
   SocialSaveRequest,
@@ -252,6 +254,14 @@ export type APIEndpoints = {
   'GET /v1/outreach/:id': {
     Request: {}
     Response: OutreachDetail
+  }
+
+  // Synchronous, stateless: one structured LLM call writes the compose-step
+  // draft from purpose + tone (candidate name/office come from the session).
+  // 502 on model failure — the UI shows a retry, never a canned fallback.
+  'POST /v1/outreach/social/draft': {
+    Request: SocialDraftRequest
+    Response: SocialDraftResponse
   }
 
   // Synchronous, stateless: one structured LLM call adapts the confirmed

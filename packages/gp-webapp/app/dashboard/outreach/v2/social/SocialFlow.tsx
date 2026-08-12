@@ -1,25 +1,21 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import type {
   OutreachDetail,
   SocialAsset,
   SocialAssetPlatform,
+  SocialDraftRequest,
   SocialPurpose,
+  SocialTone,
 } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { CheckCircleIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
-import { useCampaign } from '@shared/hooks/useCampaign'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { ALL_SOCIAL_PLATFORM_IDS } from '../socialPlatforms'
 import { socialPurposeLabel } from '../socialPurposes'
-import {
-  campaignOfficeName,
-  generateSocialDraft,
-  type SocialTone,
-} from './socialDrafts'
 import { PurposeStep } from './PurposeStep'
 import { ComposeStep } from './ComposeStep'
 import { PlatformsStep } from './PlatformsStep'
@@ -73,14 +69,10 @@ const SuccessScreen = ({
 // Flow state is flat client state owned here (phase 1 TDD): no server
 // drafts — nothing persists until Save, and reopening starts fresh.
 export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
-  const [campaign] = useCampaign()
-  const office = campaignOfficeName(campaign)
-
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<SocialPurpose | null>(null)
-  const [tone, setTone] = useState<SocialTone>('Warm')
+  const [tone, setTone] = useState<SocialTone>('warm')
   const [draft, setDraft] = useState('')
-  const [draftSeed, setDraftSeed] = useState(0)
   const [manuallyEdited, setManuallyEdited] = useState(false)
   const [undoText, setUndoText] = useState<string | null>(null)
   const [platforms, setPlatforms] = useState<SocialAssetPlatform[]>(
@@ -90,6 +82,20 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
   const [name, setName] = useState('')
   const [nameEdited, setNameEdited] = useState(false)
   const [saved, setSaved] = useState(false)
+
+  // Guards against an out-of-order response (or one from a closed flow)
+  // clobbering a newer draft.
+  const draftRequestRef = useRef(0)
+
+  const draftMutation = useMutation({
+    mutationFn: async (input: SocialDraftRequest) => {
+      const { data } = await clientRequest(
+        'POST /v1/outreach/social/draft',
+        input,
+      )
+      return data.draft
+    },
+  })
 
   const generateMutation = useMutation({
     mutationFn: async () => {
@@ -124,16 +130,17 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
 
   const { mutate: generate, reset: resetGenerate } = generateMutation
   const { reset: resetSave } = saveMutation
+  const { reset: resetDraftMutation } = draftMutation
 
   // Fresh flow every open — a cancelled-then-reopened flow must not resume a
   // half-built campaign (reset on open, CreateListWizard convention).
   useEffect(() => {
     if (!open) return
+    draftRequestRef.current += 1
     setStepId('purpose')
     setPurpose(null)
-    setTone('Warm')
+    setTone('warm')
     setDraft('')
-    setDraftSeed(0)
     setManuallyEdited(false)
     setUndoText(null)
     setPlatforms(ALL_SOCIAL_PLATFORM_IDS)
@@ -141,9 +148,10 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
     setName('')
     setNameEdited(false)
     setSaved(false)
+    resetDraftMutation()
     resetGenerate()
     resetSave()
-  }, [open, resetGenerate, resetSave])
+  }, [open, resetDraftMutation, resetGenerate, resetSave])
 
   // Entering the share step (including Back-and-return after edits, which
   // clear `assets`) kicks off the one generate call.
@@ -161,42 +169,58 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
     resetGenerate()
   }
 
-  const handleSelectPurpose = (selected: SocialPurpose) => {
-    setPurpose(selected)
-    setTone('Warm')
-    setDraftSeed(0)
-    setManuallyEdited(false)
-    setUndoText(null)
-    setDraft(
-      selected === 'custom' ? '' : generateSocialDraft(selected, office, 0),
+  // Requests an AI draft for the given purpose/tone. On success it replaces
+  // the draft; when that would clobber manually typed text, the click-time
+  // text is snapshotted first so Undo can restore it — Undo never appears
+  // from tone-preset-only interaction. Custom purpose is fully manual: no
+  // call, ever.
+  const requestDraft = (
+    nextPurpose: SocialPurpose | null,
+    nextTone: SocialTone,
+    priorDraft: string,
+    priorManuallyEdited: boolean,
+  ) => {
+    if (!nextPurpose || nextPurpose === 'custom') return
+    const requestId = ++draftRequestRef.current
+    draftMutation.mutate(
+      { purpose: nextPurpose, tone: nextTone },
+      {
+        onSuccess: (generated) => {
+          if (requestId !== draftRequestRef.current) return
+          if (priorManuallyEdited) {
+            setUndoText(priorDraft)
+            setManuallyEdited(false)
+          }
+          setDraft(generated)
+          invalidateAssets()
+        },
+      },
     )
-    invalidateAssets()
-    setStepId('compose')
   }
 
-  // Replaces the draft with the next local template variant. When it would
-  // clobber manually typed text, snapshot it first so Undo can restore it —
-  // Undo never appears from tone-preset-only interaction.
-  const reseedDraft = (nextSeed: number) => {
-    if (!purpose || purpose === 'custom') return
-    if (manuallyEdited) {
-      setUndoText(draft)
-      setManuallyEdited(false)
-    }
-    setDraftSeed(nextSeed)
-    setDraft(generateSocialDraft(purpose, office, nextSeed))
+  const handleSelectPurpose = (selected: SocialPurpose) => {
+    setPurpose(selected)
+    setTone('warm')
+    setManuallyEdited(false)
+    setUndoText(null)
+    setDraft('')
     invalidateAssets()
+    resetDraftMutation()
+    setStepId('compose')
+    requestDraft(selected, 'warm', '', false)
   }
 
   const handleToneChange = (nextTone: SocialTone) => {
     setTone(nextTone)
-    reseedDraft(draftSeed + 1)
+    requestDraft(purpose, nextTone, draft, manuallyEdited)
   }
 
   const handleDraftChange = (value: string) => {
     setDraft(value)
     setManuallyEdited(true)
     invalidateAssets()
+    // Typing supersedes a failed draft call — clear the inline error.
+    if (draftMutation.isError) resetDraftMutation()
   }
 
   const handleUndo = () => {
@@ -246,7 +270,7 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
       ? {
           label: 'Continue',
           onClick: handleNext,
-          disabled: draft.trim().length === 0,
+          disabled: draft.trim().length === 0 || draftMutation.isPending,
         }
       : stepId === 'platforms'
         ? {
@@ -292,7 +316,11 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
           onToneChange={handleToneChange}
           draft={draft}
           onDraftChange={handleDraftChange}
-          onRegenerate={() => reseedDraft(draftSeed + 1)}
+          onRegenerate={() =>
+            requestDraft(purpose, tone, draft, manuallyEdited)
+          }
+          isDrafting={draftMutation.isPending}
+          isDraftError={draftMutation.isError}
           canUndo={undoText !== null}
           onUndo={handleUndo}
           isCustomPurpose={purpose === 'custom'}
