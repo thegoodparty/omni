@@ -26,7 +26,9 @@ import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
 import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import { PinoLogger } from 'nestjs-pino'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
+import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { Campaign, User } from '../generated/prisma'
 import { OutreachSocialService } from './services/outreachSocial.service'
 import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
@@ -44,7 +46,11 @@ export class OutreachSocialController {
   constructor(
     private readonly socialService: OutreachSocialService,
     private readonly generationService: OutreachSocialGenerationService,
-  ) {}
+    private readonly organizations: OrganizationsService,
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(OutreachSocialController.name)
+  }
 
   @Post('social/draft')
   @ResponseSchema(SocialDraftResponseSchema)
@@ -54,11 +60,27 @@ export class OutreachSocialController {
     @Body(new ZodValidationPipe(SocialDraftRequestSchema))
     input: SocialDraftRequest,
   ): Promise<SocialDraftResponse> {
+    // The office name lives on the org's election-api position (what
+    // campaigns/mine surfaces as positionName), not reliably in the
+    // details JSON — normalizedOffice is empty for org-era campaigns.
+    // Office is prompt enrichment, so an election-api failure degrades to
+    // the fallback chain instead of failing the draft.
+    let positionName: string | null = null
+    if (campaign.organizationSlug) {
+      try {
+        positionName =
+          await this.organizations.resolvePositionNameByOrganizationSlug(
+            campaign.organizationSlug,
+          )
+      } catch (err) {
+        this.logger.warn({ err }, 'position resolution failed for draft')
+      }
+    }
     return {
       draft: await this.generationService.generateDraft(
         input,
         candidateName(user),
-        campaign.details.normalizedOffice ?? '',
+        positionName ?? campaign.details.normalizedOffice ?? '',
         String(user.id),
       ),
     }
