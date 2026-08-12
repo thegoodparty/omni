@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { ASSISTANT_BUBBLE, ChatMarkdown } from '../agent-chat/chatUI'
 import {
   Button,
   IconButton,
@@ -35,30 +34,6 @@ import ChatPill from './ChatPill'
 import { HISTORY_QUERY_KEY } from './useAiChatHistory'
 
 // ---------------------------------------------------------------------------
-// Markdown bubble — same override set as Chief of Staff and briefing chat
-// ---------------------------------------------------------------------------
-const ASSISTANT_BUBBLE =
-  'w-full text-sm leading-relaxed text-foreground ' +
-  'space-y-5 [&>:first-child]:mt-0 [&>:last-child]:mb-0 ' +
-  '[&_p]:!block [&_p]:!flex-none [&_p]:!whitespace-normal ' +
-  '[&_strong]:!inline [&_strong]:font-semibold [&_em]:!inline [&_em]:italic ' +
-  '[&_a]:!inline [&_a]:underline [&_code]:!inline [&_code]:rounded ' +
-  '[&_code]:bg-foreground/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs ' +
-  '[&_pre]:!block [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-foreground/10 [&_pre]:p-3 [&_pre]:my-1 ' +
-  '[&_pre_code]:!block [&_pre_code]:!bg-transparent [&_pre_code]:!px-0 [&_pre_code]:!py-0 [&_pre_code]:!rounded-none ' +
-  '[&_li]:!list-item [&_li]:my-0 [&_ul]:!block [&_ul]:list-disc [&_ul]:pl-5 ' +
-  '[&_ul]:space-y-2 [&_ol]:!block [&_ol]:list-decimal [&_ol]:pl-5 ' +
-  '[&_ol]:space-y-2 [&_h1]:!block [&_h1]:text-base [&_h1]:font-semibold ' +
-  '[&_h2]:!block [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:!block ' +
-  '[&_h3]:text-sm [&_h3]:font-semibold [&_table]:!table [&_table]:!w-full ' +
-  '[&_table]:!border-collapse [&_table]:my-2 [&_thead]:!table-header-group ' +
-  '[&_tbody]:!table-row-group [&_tr]:!table-row [&_tr]:!border-b ' +
-  '[&_tr]:border-foreground/15 [&_th]:!table-cell [&_th]:px-2 [&_th]:py-1.5 ' +
-  '[&_th]:text-left [&_th]:font-semibold [&_th]:!border-b-2 ' +
-  '[&_th]:!border-foreground/30 [&_td]:!table-cell [&_td]:px-2 [&_td]:py-1.5 ' +
-  '[&_td]:align-top'
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -73,25 +48,6 @@ const FRIENDLY_ERROR: Record<ChatErrorCode, string> = {
 
 function friendlyError(code: ChatErrorCode): string {
   return FRIENDLY_ERROR[code] ?? 'Something went wrong. Try again.'
-}
-
-// CommonMark turns any line indented 4+ spaces into a code block, so model
-// output that leaks leading indentation renders prose as a grey code box.
-// Strip that indentation outside fenced (```) blocks before rendering.
-// Trade-off: deeply nested list items (indented 4+ spaces) also flatten to a
-// single level — acceptable for chat prose, where stray code boxes are worse.
-function normalizeMarkdown(md: string): string {
-  let inFence = false
-  return md
-    .split('\n')
-    .map((line) => {
-      if (/^\s*(`{3,}|~{3,})/.test(line)) {
-        inFence = !inFence
-        return line
-      }
-      return inFence ? line : line.replace(/^ {4,}/, '')
-    })
-    .join('\n')
 }
 
 function newClientMessageId(): string {
@@ -575,9 +531,7 @@ export default function AiChatBody({
     messageRenderer ? (
       messageRenderer(content)
     ) : (
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-        {normalizeMarkdown(content)}
-      </ReactMarkdown>
+      <ChatMarkdown>{content}</ChatMarkdown>
     )
 
   const busy = sending || creating
