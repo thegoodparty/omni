@@ -45,7 +45,7 @@ describe('OutreachHistoryTable — unified history', () => {
     render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
 
     const table = within(desktopTable())
-    expect(table.getByText('Sent')).toBeInTheDocument()
+    expect(table.getByText('Done')).toBeInTheDocument()
     expect(table.getByText('Draft')).toBeInTheDocument()
     expect(table.getByText('In review')).toBeInTheDocument()
     expect(table.getAllByText('SMS')).toHaveLength(2)

@@ -24,7 +24,7 @@ const p2pStatusLabels: { [K in StatusKey]: string } = {
   denied: 'Denied',
   paid: 'Scheduled',
   in_progress: 'Scheduled',
-  completed: 'Sent',
+  completed: 'Done',
   pending_payment: 'Pending payment',
 }
 
@@ -37,7 +37,7 @@ const nonP2pStatusLabels: { [K in StatusKey]: string } = {
   denied: 'Denied',
   paid: 'Scheduled',
   in_progress: 'Scheduled',
-  completed: 'Sent',
+  completed: 'Done',
   pending_payment: 'Pending payment',
 }
 

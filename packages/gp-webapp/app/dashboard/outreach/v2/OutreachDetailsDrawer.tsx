@@ -83,7 +83,7 @@ export const OutreachDetailsDrawer = ({
   const bylineVerb =
     statusLabel === 'Scheduled'
       ? 'Scheduled for'
-      : statusLabel === 'Sent'
+      : statusLabel === 'Done'
         ? 'Sent'
         : null
 
