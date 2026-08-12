@@ -1,0 +1,139 @@
+'use client'
+
+import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+  DrawerTitle,
+  Stepper,
+} from '@styleguide'
+import { OutreachSheet } from './OutreachSheet'
+
+export interface FlowShellCta {
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  loading?: boolean
+}
+
+interface OutreachFlowShellProps {
+  open: boolean
+  onClose: () => void
+  title: string
+  // 1-based; the bar stepper hides when totalSteps is 0 (success screen).
+  currentStep: number
+  totalSteps: number
+  onBack?: () => void
+  // Shell-owned, step-keyed footer CTA; null renders no footer (e.g. the
+  // purpose step, where selecting a card advances the flow).
+  cta: FlowShellCta | null
+  // Any user input diverging from the initial state: closing asks "Discard
+  // changes?"; a pristine (or completed) flow closes silently.
+  dirty: boolean
+  children: ReactNode
+}
+
+// The generalized channel-flow chrome (phase 1 TDD): OutreachSheet anatomy +
+// sticky header with back + bar stepper, flat client flow state owned by the
+// flow component, dirty-close confirm, fresh state on reopen. Step bodies
+// stay dumb value/onChange components.
+export const OutreachFlowShell = ({
+  open,
+  onClose,
+  title,
+  currentStep,
+  totalSteps,
+  onBack,
+  cta,
+  dirty,
+  children,
+}: OutreachFlowShellProps) => {
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const bodyRef = useRef<HTMLDivElement>(null)
+
+  // Multi-step flow: reset scroll to the top of the sheet's own scrollable
+  // body (not window) on every step change (app/dashboard/CLAUDE.md
+  // Navigation convention).
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0
+  }, [currentStep])
+
+  const requestClose = (nextOpen: boolean) => {
+    if (nextOpen) return
+    if (dirty) {
+      setConfirmOpen(true)
+      return
+    }
+    onClose()
+  }
+
+  return (
+    <>
+      <OutreachSheet
+        open={open}
+        onOpenChange={requestClose}
+        onBack={onBack}
+        bodyRef={bodyRef}
+        header={
+          <>
+            <DrawerTitle className="text-base font-semibold">
+              {title}
+            </DrawerTitle>
+            {totalSteps > 0 && (
+              <Stepper
+                variant="bar"
+                currentStep={currentStep}
+                totalSteps={totalSteps}
+                labelClassName="text-xs"
+              />
+            )}
+          </>
+        }
+        footer={
+          cta ? (
+            <Button
+              type="button"
+              className="w-full text-sm"
+              onClick={cta.onClick}
+              disabled={cta.disabled}
+              loading={cta.loading}
+            >
+              {cta.label}
+            </Button>
+          ) : undefined
+        }
+      >
+        {children}
+      </OutreachSheet>
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard changes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your draft and selections will be lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmOpen(false)
+                onClose()
+              }}
+            >
+              Discard
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  )
+}

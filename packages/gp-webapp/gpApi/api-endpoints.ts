@@ -26,6 +26,10 @@ import type {
   RaceOpponentResearchStatus,
   RaceOpponentFindingKind,
   SummarySource,
+  OutreachDetail,
+  SocialGenerateRequest,
+  SocialGenerateResponse,
+  SocialSaveRequest,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -240,6 +244,30 @@ export type APIEndpoints = {
   'GET /v1/outreach': {
     Request: {}
     Response: Outreach[]
+  }
+
+  // Row detail for the v2 history drawer: the spine row plus `social`
+  // (purpose, draft, per-platform assets) when the row is a social campaign.
+  // 404 when the row doesn't belong to the requester's campaign.
+  'GET /v1/outreach/:id': {
+    Request: {}
+    Response: OutreachDetail
+  }
+
+  // Synchronous, stateless: one structured LLM call adapts the confirmed
+  // draft into per-platform assets. Nothing persists until save. 502 when
+  // the model returns an incomplete set — retry, never render partial.
+  'POST /v1/outreach/social/generate': {
+    Request: SocialGenerateRequest
+    Response: SocialGenerateResponse
+  }
+
+  // Persists the social campaign atomically (spine row + satellite +
+  // assets). Response is the created row so the hub updates without a
+  // refetch.
+  'POST /v1/outreach/social': {
+    Request: SocialSaveRequest
+    Response: OutreachDetail
   }
 
   // Server-side flag resolution: gp-api evaluates Amplitude Experiment for the

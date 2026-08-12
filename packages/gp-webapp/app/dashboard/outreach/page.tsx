@@ -1,5 +1,5 @@
 import pageMetaData from 'helpers/metadataHelper'
-import { OutreachPage } from './components/OutreachPage'
+import { OutreachPageGate } from './v2/OutreachPageGate'
 import candidateAccess from '../shared/candidateAccess'
 import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
 import { NUM_OF_MOCK_OUTREACHES } from 'app/dashboard/outreach/constants'
@@ -69,7 +69,7 @@ export default async function Page({
   )
 
   return (
-    <OutreachPage
+    <OutreachPageGate
       {...{
         pathname: '/dashboard/outreach',
         campaign,
