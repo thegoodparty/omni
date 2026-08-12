@@ -100,9 +100,9 @@ export const ComposeStep = ({
           {!isCustomPurpose && (
             <Button
               type="button"
-              variant="ghost"
+              variant="link"
               size="small"
-              className="h-auto gap-1.5 px-0"
+              className="h-auto gap-1.5 px-0 no-underline"
               disabled={isDrafting}
               onClick={onRegenerate}
             >
