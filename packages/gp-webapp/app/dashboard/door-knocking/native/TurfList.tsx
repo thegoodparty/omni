@@ -32,6 +32,7 @@ export default function TurfList({
       {turfs.map((turf) => (
         <div
           key={turf.id}
+          data-testid={`turf-row-${turf.id}`}
           className={`flex items-center gap-2 rounded-md border p-2.5 ${
             turf.id === selectedTurfId
               ? 'border-tertiary-dark bg-tertiary-dark/5'
