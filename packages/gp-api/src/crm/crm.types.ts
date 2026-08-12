@@ -24,6 +24,10 @@ export type CRMContactProperties = {
   last_login?: string //DateString
   profile_updated_date?: string //DateString
   profile_updated_count?: string
+  // How many visitors have asked THIS person to complete their public
+  // /people profile. Written on the candidate's own contact, not the
+  // submitter's. Number-typed in HubSpot; the API takes it as a string.
+  candidate_profile_requests?: string
 }
 
 /** HubSpot related types and enums */

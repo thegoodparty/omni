@@ -53,6 +53,38 @@ describe('GET /v1/public-person-profiles/voter-density', () => {
     spy.mockRestore()
   })
 
+  it('forwards the M2M Authorization header to election-api', async () => {
+    // Guards the auth wiring: election-api is M2M-locked, so a missing bearer
+    // would 401 (→ 502) once ELECTION_API_AUTH_ENFORCED is on. The test harness
+    // stubs ElectionApiTokenService.authHeader to 'Bearer test-election-api-token'.
+    let capturedHeaders: Record<string, string> | undefined
+    const proxy = service.app.get(VoterDensityProxyService)
+    const http = (proxy as unknown as { httpService: HttpService }).httpService
+    const spy = vi
+      .spyOn(http, 'get')
+      .mockImplementation((url: string, config?: unknown) => {
+        if (url.includes('/voter-district')) {
+          capturedHeaders = (
+            config as { headers?: Record<string, string> } | undefined
+          )?.headers
+          const response = of({
+            data: { personId: PERSON_ID, districtId: DISTRICT_ID, state: 'WY' },
+          })
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          return response as any
+        }
+        throw new Error(`Unexpected upstream URL in test: ${url}`)
+      })
+
+    const res = await get()
+
+    expect(res.status).toBe(200)
+    expect(capturedHeaders?.Authorization).toBe(
+      'Bearer test-election-api-token',
+    )
+    spy.mockRestore()
+  })
+
   it('404s when the person maps to no district (null districtId)', async () => {
     const spy = mockHttp({
       voterDistrict: () =>

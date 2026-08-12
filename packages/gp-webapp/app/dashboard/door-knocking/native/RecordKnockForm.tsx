@@ -12,6 +12,9 @@ import {
 import { Button, Textarea, ToggleGroup, ToggleGroupItem } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useDictationAppend } from 'app/dashboard/briefings/shared/useDictationAppend'
+import { DictationMicButton } from 'app/dashboard/briefings/shared/DictationMicButton'
+import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
 import {
   OUTCOME_OPTIONS,
   OUTCOME_QUESTION,
@@ -23,6 +26,10 @@ import {
 
 // Compact cousin of the CRM wizard's pill toggles (crm/shared/constants.ts)
 // — same selected-state convention, sized for the walk view's dense form.
+// Matches the contract's ceiling (DoorKnockingInteraction.schema.ts) so an
+// over-long note is trimmed in the field rather than 400'd on save.
+const NOTE_MAX_LENGTH = 2_000
+
 const PILL_ITEM_CLASSNAME =
   'rounded-full border border-components-input-border bg-transparent px-3 py-1 text-xs font-normal text-foreground data-[state=on]:border-tertiary-dark data-[state=on]:bg-tertiary-dark data-[state=on]:text-tertiary-foreground data-[state=on]:hover:bg-tertiary-dark/90'
 
@@ -78,6 +85,17 @@ export default function RecordKnockForm({
   >()
   const [willVote, setWillVote] = useState<WillVoteAnswer | undefined>()
   const [note, setNote] = useState('')
+  // Dictation is the point of the notes field in the field: nobody types a
+  // paragraph one-handed on a doorstep in the rain. The shared hook already
+  // reports under EVENTS.Dictation with this label — the transcript itself
+  // never leaves the textarea.
+  const dictation = useDictationAppend({
+    analyticsLabel: 'door_knocking_note',
+    value: note,
+    // The textarea's maxLength only constrains typing; a long dictation
+    // appends straight past it, so the same ceiling is enforced here.
+    onChange: (next) => setNote(next.slice(0, NOTE_MAX_LENGTH)),
+  })
 
   const record = useMutation({
     mutationFn: () => {
@@ -137,13 +155,23 @@ export default function RecordKnockForm({
           />
         </>
       )}
-      <Textarea
-        value={note}
-        maxLength={2000}
-        placeholder="Notes (optional)"
-        rows={2}
-        onChange={(e) => setNote(e.target.value)}
-      />
+      <div className="relative">
+        <Textarea
+          value={note}
+          maxLength={NOTE_MAX_LENGTH}
+          placeholder="Notes (optional)"
+          rows={2}
+          className="pr-12"
+          onChange={(e) => setNote(e.target.value)}
+        />
+        <DictationMicButton
+          dictation={dictation}
+          idleLabel="Dictate note"
+          recordingLabel="Stop dictation"
+          disabled={record.isPending}
+        />
+      </div>
+      <DictationFeedback dictation={dictation} />
       {record.isError && (
         <p className="text-sm text-destructive">
           Saving failed — your answers are still here, try again.

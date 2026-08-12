@@ -9,8 +9,6 @@ import {
   type RefObject,
 } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import {
   Badge,
   Button,
@@ -24,14 +22,18 @@ import { SparklesIcon } from '@styleguide/components/ui/icons'
 import {
   ASSISTANT_BUBBLE,
   AssistantMarkdown,
+  ChatMarkdown,
   ToolPillRow,
 } from '../../../shared/agent-chat/chatUI'
 import { useDictationAppend } from '../../../briefings/shared/useDictationAppend'
 import { reportErrorToSentry } from '@shared/sentry'
 import { chiefOfStaffChatApi } from '../../data/chat-api'
 import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
+import {
+  friendlyError,
+  newClientMessageId,
+} from '../../../shared/agent-chat/chatHelpers'
 import type {
-  ChatErrorCode,
   ChatMessageDto,
   ChatMessageSegment,
   ChatStreamEvent,
@@ -177,26 +179,6 @@ type ErrorState = {
   lastUserContent: string
   lastClientMessageId: string
   kind: 'init' | 'stream'
-}
-
-const FRIENDLY_ERROR_COPY: Record<ChatErrorCode, string> = {
-  rate_limited: 'Too many requests. Try again in a moment.',
-  upstream_unavailable: 'Chat is temporarily unavailable. Try again.',
-  aborted: '',
-  conversation_not_found:
-    'This chat is no longer available. Try starting a new one.',
-  internal: 'Something went wrong. Try again.',
-}
-
-function friendlyErrorMessage(code: ChatErrorCode): string {
-  return FRIENDLY_ERROR_COPY[code] ?? 'Something went wrong. Try again.'
-}
-
-function newClientMessageId(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID()
-  }
-  return `cmid_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`
 }
 
 // A tool_call event carries the tool's input as `args` (unknown). Pull the
@@ -732,7 +714,7 @@ export default function ChiefOfStaffChatBody({
             setStreaming(null)
           } else {
             setError({
-              message: friendlyErrorMessage(errored.code),
+              message: friendlyError(errored.code),
               retryable: errored.retryable,
               lastUserContent: content,
               lastClientMessageId: clientMessageId,
@@ -1051,9 +1033,7 @@ export default function ChiefOfStaffChatBody({
             <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
               <SparklesIcon className="size-3.5" aria-hidden />
             </span>
-            <div className={ASSISTANT_BUBBLE}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
-            </div>
+            <AssistantMarkdown>{text}</AssistantMarkdown>
           </div>
         ))}
 
@@ -1095,9 +1075,7 @@ export default function ChiefOfStaffChatBody({
                   {item.toolsUsed && item.toolsUsed.length > 0 && (
                     <ToolPillRow labels={item.toolsUsed.map(toolDisplayName)} />
                   )}
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {item.content}
-                  </ReactMarkdown>
+                  <ChatMarkdown>{item.content}</ChatMarkdown>
                 </div>
               )}
             </div>
