@@ -3,35 +3,16 @@ import { useQueryClient } from '@tanstack/react-query'
 import { reportErrorToSentry } from '@shared/sentry'
 import type {
   AiChatClient,
-  ChatErrorCode,
   ChatMessageDto,
   ChatMessageSegment,
   ChatStreamEvent,
 } from './types'
 import { HISTORY_QUERY_KEY } from './useAiChatHistory'
+import { friendlyError, newClientMessageId } from '../agent-chat/chatHelpers'
 
 // The conversation engine behind AiChatBody: deferred create, streaming,
 // abort-on-inactive, error/retry, and history assembly. Kept UI-free so the
 // component owns only rendering, the composer, intro animation, and dictation.
-
-const FRIENDLY_ERROR: Record<ChatErrorCode, string> = {
-  rate_limited: 'Too many requests. Try again in a moment.',
-  upstream_unavailable: 'Chat is temporarily unavailable. Try again.',
-  aborted: '',
-  conversation_not_found:
-    'This chat is no longer available. Try starting a new one.',
-  internal: 'Something went wrong. Try again.',
-}
-
-const friendlyError = (code: ChatErrorCode): string =>
-  FRIENDLY_ERROR[code] ?? 'Something went wrong. Try again.'
-
-const newClientMessageId = (): string => {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID()
-  }
-  return `cmid_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`
-}
 
 export type ChatItem =
   | { kind: 'user'; id: string; content: string }

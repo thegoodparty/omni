@@ -29,8 +29,11 @@ import { useDictationAppend } from '../../../briefings/shared/useDictationAppend
 import { reportErrorToSentry } from '@shared/sentry'
 import { chiefOfStaffChatApi } from '../../data/chat-api'
 import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
+import {
+  friendlyError,
+  newClientMessageId,
+} from '../../../shared/agent-chat/chatHelpers'
 import type {
-  ChatErrorCode,
   ChatMessageDto,
   ChatMessageSegment,
   ChatStreamEvent,
@@ -176,26 +179,6 @@ type ErrorState = {
   lastUserContent: string
   lastClientMessageId: string
   kind: 'init' | 'stream'
-}
-
-const FRIENDLY_ERROR_COPY: Record<ChatErrorCode, string> = {
-  rate_limited: 'Too many requests. Try again in a moment.',
-  upstream_unavailable: 'Chat is temporarily unavailable. Try again.',
-  aborted: '',
-  conversation_not_found:
-    'This chat is no longer available. Try starting a new one.',
-  internal: 'Something went wrong. Try again.',
-}
-
-function friendlyErrorMessage(code: ChatErrorCode): string {
-  return FRIENDLY_ERROR_COPY[code] ?? 'Something went wrong. Try again.'
-}
-
-function newClientMessageId(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID()
-  }
-  return `cmid_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`
 }
 
 // A tool_call event carries the tool's input as `args` (unknown). Pull the
@@ -731,7 +714,7 @@ export default function ChiefOfStaffChatBody({
             setStreaming(null)
           } else {
             setError({
-              message: friendlyErrorMessage(errored.code),
+              message: friendlyError(errored.code),
               retryable: errored.retryable,
               lastUserContent: content,
               lastClientMessageId: clientMessageId,
