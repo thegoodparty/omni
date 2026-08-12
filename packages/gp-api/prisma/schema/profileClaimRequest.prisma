@@ -4,16 +4,34 @@
 // PersonProfile yet — the person may not have an account — so `personId` is a
 // plain indexed reference into the election-api civics spine (gp_candidate_id),
 // not a foreign key (Person lives in a different service/schema).
+// Which of the two public claim forms produced the row. Both POST this one
+// endpoint, but they are opposite intents: `notify` is a VISITOR nudging someone
+// else to claim their page (the "Not [Name]?" form in the claim dialog), while
+// `owner` is the person themselves asking to claim it (the full-width CTA band).
+// Only `notify` feeds the candidate's HubSpot `candidate_profile_requests`
+// counter, so conflating them would inflate it with the subject's own submissions.
+enum ProfileClaimRequestSource {
+  notify
+  owner
+}
+
 model ProfileClaimRequest {
   id             String   @id @default(uuid(7))
   personId       String   @map("person_id") // subject Person being asked to claim (gp_candidate_id)
   requesterName  String?  @map("requester_name")
   requesterEmail String   @map("requester_email")
+  // Null on rows written before the marketing site started sending the
+  // discriminator, and on any future caller that omits it. Deliberately not
+  // defaulted: an unattributed row is not evidence of a visitor nudge, so it
+  // stays out of the counter rather than being guessed into one side.
+  source         ProfileClaimRequestSource? @map("source")
   // Opt-in to GoodParty.org marketing communications from the claim/notify
   // modal checkbox. Recorded only; no downstream sync (e.g. HubSpot) here.
   marketingConsent Boolean @default(false) @map("marketing_consent")
   createdAt      DateTime @default(now()) @map("created_at")
 
-  @@index([personId])
+  // Composite because the only read is the per-person notify count; it still
+  // serves a bare personId lookup on its leading column.
+  @@index([personId, source])
   @@map("person_profile_claim_request")
 }

@@ -42,6 +42,15 @@ const revalidationCounter = meter.createCounter(
   { description: 'Marketing cache revalidation attempts by result' },
 )
 
+// person_profile_claim_request_crm_sync_count_total{result=...}
+const claimRequestCrmSyncCounter = meter.createCounter(
+  'person_profile.claim_request_crm_sync.count',
+  {
+    description:
+      'candidate_profile_requests writes to the candidate HubSpot contact by result',
+  },
+)
+
 // person_profile_voter_density_request_count_total{result=...}
 // person_profile_voter_density_request_duration_milliseconds_{bucket,sum,count}
 const voterDensityCounter = meter.createCounter(
@@ -71,6 +80,22 @@ export type ProfileMutation =
 
 /** Outcome of an outbound marketing cache-bust. */
 export type RevalidationResult = 'success' | 'skipped' | 'failed'
+
+/**
+ * Outcome of a candidate_profile_requests write to HubSpot:
+ *  - success:    the candidate's contact now holds the current count
+ *  - skipped:    HubSpot is unconfigured (off-prod), so nothing was attempted
+ *  - no_contact: the person maps to no HubSpot contact — expected and common
+ *  - failed:     the warehouse lookup or the HubSpot write errored
+ *
+ * `no_contact` is the one to watch: a sustained 100% share means the person↔
+ * contact linkage is unreachable, not that the counter is working.
+ */
+export type ClaimRequestCrmSyncResult =
+  | 'success'
+  | 'skipped'
+  | 'no_contact'
+  | 'failed'
 
 /**
  * Outcome of a public voter-density proxy request:
@@ -110,6 +135,17 @@ export function recordRevalidation(result: RevalidationResult): void {
     revalidationCounter.add(1, { result, environment: environment() })
   } catch (error) {
     logger.error('Failed to record revalidation metric', error)
+  }
+}
+
+export function recordClaimRequestCrmSync(
+  result: ClaimRequestCrmSyncResult,
+): void {
+  if (!isOtelEnabled()) return
+  try {
+    claimRequestCrmSyncCounter.add(1, { result, environment: environment() })
+  } catch (error) {
+    logger.error('Failed to record claim request CRM sync metric', error)
   }
 }
 
