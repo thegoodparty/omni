@@ -224,7 +224,9 @@ export class PersonProfilesService extends createPrismaBase(
 
   // Persists an inbound "claim this profile" lead from the public modal. There
   // is no dedupe/rate-limit here by design — it is raw lead data the growth
-  // team follows up on; `personId` is a civics reference, not a FK.
+  // team follows up on; `personId` is a civics reference, not a FK. `source`
+  // records which of the two forms sent it, and is null for callers that
+  // predate the discriminator (see the schema comment).
   createClaimRequest(input: CreateProfileClaimRequestInput) {
     return this.client.profileClaimRequest.create({
       data: {
@@ -232,6 +234,7 @@ export class PersonProfilesService extends createPrismaBase(
         requesterEmail: input.requesterEmail,
         requesterName: input.requesterName ?? null,
         marketingConsent: input.marketingConsent,
+        source: input.source ?? null,
       },
     })
   }
