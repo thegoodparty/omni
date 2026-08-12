@@ -7,6 +7,10 @@ import {
   ASSISTANT_BUBBLE,
   ChatMarkdown,
 } from '../../../shared/agent-chat/chatUI'
+import {
+  friendlyError,
+  newClientMessageId,
+} from '../../../shared/agent-chat/chatHelpers'
 import { useDictationAppend } from '../../shared/useDictationAppend'
 import { DictationMicButton } from '../../shared/DictationMicButton'
 import { DictationFeedback } from '../../shared/DictationFeedback'
@@ -14,10 +18,7 @@ import { chatApi } from '@shared/briefings/chat-api'
 import { EMPTY_ANCHOR } from '@shared/briefings/anchorResolver'
 import { reportErrorToSentry } from '@shared/sentry'
 import type { AnnotationAnchor, ChatMessage } from '@shared/briefings/types'
-import type {
-  ChatErrorCode,
-  ChatStreamEvent,
-} from '@shared/briefings/chat-events'
+import type { ChatStreamEvent } from '@shared/briefings/chat-events'
 import AskAiSuggestedPills from './AskAiSuggestedPills'
 
 type Props = {
@@ -98,19 +99,6 @@ type ErrorState = {
   kind?: 'init' | 'stream'
 }
 
-const FRIENDLY_ERROR_COPY: Record<ChatErrorCode, string> = {
-  rate_limited: 'Too many requests. Try again in a moment.',
-  upstream_unavailable: 'Chat is temporarily unavailable. Try again.',
-  aborted: '',
-  conversation_not_found:
-    'This chat is no longer available. Try starting a new one.',
-  internal: 'Something went wrong. Try again.',
-}
-
-function friendlyErrorMessage(code: ChatErrorCode): string {
-  return FRIENDLY_ERROR_COPY[code] ?? 'Something went wrong. Try again.'
-}
-
 type ChatItem =
   | { kind: 'user'; id: string; content: string }
   | { kind: 'assistant'; id: string; content: string; toolsUsed?: string[] }
@@ -133,13 +121,6 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
 
 function toolDisplayName(toolName: string): string {
   return TOOL_DISPLAY_NAMES[toolName] ?? toolName
-}
-
-function newClientMessageId(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID()
-  }
-  return `cmid_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`
 }
 
 function messageToItem(msg: ChatMessage): ChatItem | null {
@@ -459,7 +440,7 @@ export default function AskAiChatBody({
             setStreaming(null)
           } else {
             setError({
-              message: friendlyErrorMessage(errored.code),
+              message: friendlyError(errored.code),
               retryable: errored.retryable,
               lastUserContent: content,
               lastClientMessageId: clientMessageId,
