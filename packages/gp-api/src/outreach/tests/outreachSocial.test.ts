@@ -35,7 +35,7 @@ beforeEach(async () => {
       organizationSlug: orgSlug,
       userId: service.user.id,
       slug: 'jane-doe',
-      details: { state: 'TX', zip: '78634' },
+      details: { state: 'TX', zip: '78634', normalizedOffice: 'City Council' },
       data: {},
       aiContent: {},
     },
@@ -83,6 +83,65 @@ const countAllSocialRows = async () => ({
   outreach: await service.prisma.outreach.count(),
   social: await service.prisma.outreachSocial.count(),
   assets: await service.prisma.outreachSocialAsset.count(),
+})
+
+describe('POST /v1/outreach/social/draft', () => {
+  const postDraft = (body: object) =>
+    service.client.post('/v1/outreach/social/draft', body, orgHeaders())
+
+  it('returns the generated draft and prompts with purpose, tone, and office', async () => {
+    jsonCompletion.mockResolvedValue({
+      object: { draft: 'A warm introduction from the candidate.' },
+      tokens: 50,
+      inputTokens: 25,
+      outputTokens: 25,
+      model: 'claude-test',
+    })
+
+    const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({
+      draft: 'A warm introduction from the candidate.',
+    })
+
+    expect(jsonCompletion).toHaveBeenCalledTimes(1)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    expect(call.temperature).toBe(0.8)
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain('introduce the candidate to voters')
+    expect(userPrompt).toContain('Warm:')
+    expect(userPrompt).toContain('City Council')
+  })
+
+  it('maps an LLM failure to 502', async () => {
+    jsonCompletion.mockRejectedValue(new Error('model unavailable'))
+
+    const res = await postDraft({ purpose: 'persuade_voters', tone: 'urgent' })
+
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+  })
+
+  it('rejects invalid input without calling the LLM', async () => {
+    const badTone = await postDraft({
+      purpose: 'persuade_voters',
+      tone: 'sarcastic',
+    })
+    expect(badTone.status).toBe(HttpStatus.BAD_REQUEST)
+
+    const badPurpose = await postDraft({
+      purpose: 'world_domination',
+      tone: 'warm',
+    })
+    expect(badPurpose.status).toBe(HttpStatus.BAD_REQUEST)
+
+    const customPurpose = await postDraft({ purpose: 'custom', tone: 'warm' })
+    expect(customPurpose.status).toBe(HttpStatus.BAD_REQUEST)
+
+    expect(jsonCompletion).not.toHaveBeenCalled()
+  })
 })
 
 describe('POST /v1/outreach/social/generate', () => {

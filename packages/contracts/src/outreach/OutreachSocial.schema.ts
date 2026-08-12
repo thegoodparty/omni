@@ -19,6 +19,15 @@ export const SOCIAL_PURPOSE_VALUES = [
 export const SocialPurposeSchema = z.enum(SOCIAL_PURPOSE_VALUES)
 export type SocialPurpose = z.infer<typeof SocialPurposeSchema>
 
+export const SOCIAL_TONE_VALUES = [
+  'warm',
+  'direct',
+  'urgent',
+  'friendly',
+] as const
+export const SocialToneSchema = z.enum(SOCIAL_TONE_VALUES)
+export type SocialTone = z.infer<typeof SocialToneSchema>
+
 export const SOCIAL_DRAFT_MESSAGE_MAX_LENGTH = 2000
 export const SOCIAL_POST_COPY_MAX_LENGTH = 4000
 export const SOCIAL_VIDEO_SCRIPT_MAX_LENGTH = 8000
@@ -43,6 +52,17 @@ export const SocialAssetSchema = z
     },
   )
 export type SocialAsset = z.infer<typeof SocialAssetSchema>
+
+export const SocialDraftRequestSchema = z.object({
+  purpose: SocialPurposeSchema,
+  tone: SocialToneSchema,
+})
+export type SocialDraftRequest = z.infer<typeof SocialDraftRequestSchema>
+
+export const SocialDraftResponseSchema = z.object({
+  draft: z.string().min(1).max(SOCIAL_DRAFT_MESSAGE_MAX_LENGTH),
+})
+export type SocialDraftResponse = z.infer<typeof SocialDraftResponseSchema>
 
 export const SocialGenerateRequestSchema = z.object({
   draftMessage: z.string().min(1).max(SOCIAL_DRAFT_MESSAGE_MAX_LENGTH),

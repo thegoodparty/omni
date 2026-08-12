@@ -1,9 +1,16 @@
-import { BadGatewayException, Injectable } from '@nestjs/common'
 import {
+  BadGatewayException,
+  BadRequestException,
+  Injectable,
+} from '@nestjs/common'
+import {
+  SOCIAL_DRAFT_MESSAGE_MAX_LENGTH,
   SocialAsset,
   SocialAssetPlatformSchema,
+  SocialDraftRequest,
   SocialGenerateRequest,
   SocialPurpose,
+  SocialTone,
 } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
@@ -47,6 +54,39 @@ const PLATFORM_RULES: Record<SocialAssetPlatform, string> = {
     'post in the caption field.',
 }
 
+const TONE_STYLES: Record<SocialTone, string> = {
+  warm:
+    'Warm: caring and personal. Lead with connection to neighbors and ' +
+    'community; gentle, encouraging language.',
+  direct:
+    'Direct: plain and to the point. Short sentences, a clear ask, no ' +
+    'filler or hedging.',
+  urgent:
+    'Urgent: time matters. Convey momentum and a now-or-never stake ' +
+    'without being alarmist.',
+  friendly:
+    'Friendly: upbeat and approachable. Conversational, light, like a ' +
+    'note to a friend.',
+}
+
+const DRAFT_SYSTEM_PROMPT = [
+  'You are a campaign writing assistant helping an independent,',
+  'non-partisan local candidate draft one short campaign message.',
+  'Rules:',
+  '- Write in the first person, as the candidate.',
+  '- Keep the draft roughly 60-120 words of plain prose (no hashtags,',
+  '  no links, no headings).',
+  '- Stay ISSUE-NEUTRAL: never invent policy positions, issue stances,',
+  '  endorsements, statistics, dates, places, or events. The candidate',
+  '  edits this draft before it is used.',
+  '- Stay strictly non-partisan. No party labels, no attacks.',
+  '- Match the requested tone.',
+].join('\n')
+
+const DraftSchema = z.object({
+  draft: z.string().min(1).max(SOCIAL_DRAFT_MESSAGE_MAX_LENGTH),
+})
+
 const SYSTEM_PROMPT = [
   'You are a social media expert helping an independent, non-partisan',
   'local candidate adapt one confirmed campaign message into',
@@ -81,6 +121,47 @@ export class OutreachSocialGenerationService {
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachSocialGenerationService.name)
+  }
+
+  async generateDraft(
+    input: SocialDraftRequest,
+    candidateName: string,
+    office: string,
+    userId: string,
+  ): Promise<string> {
+    if (input.purpose === 'custom') {
+      throw new BadRequestException(
+        'Custom-purpose messages are written by the candidate',
+      )
+    }
+    const messages: LlmMessage[] = [
+      { role: 'system', content: DRAFT_SYSTEM_PROMPT },
+      {
+        role: 'user',
+        content: [
+          `Candidate name: ${candidateName || 'The candidate'}.`,
+          `Office sought: ${office || 'local office'}.`,
+          `Goal of this message: ${PURPOSE_GOALS[input.purpose]}.`,
+          `Tone: ${TONE_STYLES[input.tone]}`,
+          'Write the draft message.',
+        ].join('\n'),
+      },
+    ]
+
+    try {
+      const { object } = await this.llm.jsonCompletion({
+        messages,
+        schema: DraftSchema,
+        // High enough that Regenerate re-rolls produce a different draft.
+        temperature: 0.8,
+        maxTokens: 1024,
+        userId,
+      })
+      return object.draft
+    } catch (err) {
+      this.logger.error({ err }, 'Social draft generation failed')
+      throw new BadGatewayException('Social draft generation failed')
+    }
   }
 
   async generateAssets(

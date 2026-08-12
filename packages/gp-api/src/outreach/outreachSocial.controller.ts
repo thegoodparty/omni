@@ -10,6 +10,10 @@ import {
 import {
   OutreachDetail,
   OutreachDetailSchema,
+  SocialDraftRequest,
+  SocialDraftRequestSchema,
+  SocialDraftResponse,
+  SocialDraftResponseSchema,
   SocialGenerateRequest,
   SocialGenerateRequestSchema,
   SocialGenerateResponse,
@@ -41,6 +45,24 @@ export class OutreachSocialController {
     private readonly socialService: OutreachSocialService,
     private readonly generationService: OutreachSocialGenerationService,
   ) {}
+
+  @Post('social/draft')
+  @ResponseSchema(SocialDraftResponseSchema)
+  async draft(
+    @ReqUser() user: User,
+    @ReqCampaign() campaign: Campaign,
+    @Body(new ZodValidationPipe(SocialDraftRequestSchema))
+    input: SocialDraftRequest,
+  ): Promise<SocialDraftResponse> {
+    return {
+      draft: await this.generationService.generateDraft(
+        input,
+        candidateName(user),
+        campaign.details.normalizedOffice ?? '',
+        String(user.id),
+      ),
+    }
+  }
 
   @Post('social/generate')
   @ResponseSchema(SocialGenerateResponseSchema)
