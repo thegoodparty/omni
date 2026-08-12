@@ -13,22 +13,33 @@ import {
 // candidate sees at /dashboard/door-knocking: the native voter map, or the
 // legacy eCanvasser dashboard. DoorKnockingPageGate.test.tsx already covers the
 // branch itself, but it mocks the flag hook — so it says nothing about whether
-// the variant actually arrives. This does: the override cookie is read by
+// the variant actually arrives. This does: the override cookie is merged by
 // gp-api, seeded into the SSR render, and consumed by the gate, and a break
 // anywhere along that chain silently serves the wrong product to everyone.
 //
-// Both arms pin the flag explicitly, so a live Amplitude ramp can never flip
-// either surface under the spec.
+// Both arms live in ONE test on purpose. It flips the variant for a single user
+// and reloads, which is both stronger than two independent renders (it shows the
+// gate *following* the flag, not merely two pages existing) and half the setup:
+// `setupProCampaignUser` provisions a fresh Clerk user + campaign, and every
+// other spec file in this suite spends exactly one of those. Concurrent
+// bootstraps against a cold preview are the suite's dominant flake source — see
+// the 401 note in tests/utils/headless-user.ts.
 test.describe('native door-knocking flag gate', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
   })
 
-  test('flag off renders the legacy eCanvasser dashboard', async ({ page }) => {
+  test('the flag decides which door-knocking product renders', async ({
+    page,
+  }) => {
     // Provisioning the Pro campaign is most of this test's wall clock and can
     // outlast the config's 120s default on a slow worker.
     test.setTimeout(3 * 60 * 1000)
 
+    // Control arm. The variant is resolved server-side and seeded into the first
+    // SSR render (FeatureFlagsProvider starts `ready` from that seed), so the
+    // cookie has to be set before the user is authenticated and the page loads.
+    // Pinning it also stops a live Amplitude ramp flipping this arm under us.
     await disableNativeDoorKnockingFlag(page)
     await setupProCampaignUser(page)
 
@@ -38,19 +49,17 @@ test.describe('native door-knocking flag gate', () => {
     // The eCanvasser refresh affordance exists only on the legacy surface.
     await expect(page.getByRole('button', { name: 'Sync Now' })).toBeVisible()
     await expect(nativeShellHeading(page)).toBeHidden()
-  })
 
-  test('flag on renders the native voter-map shell', async ({ page }) => {
-    test.setTimeout(3 * 60 * 1000)
-
+    // Treatment arm: same user, same session, only the variant changes.
     await enableNativeDoorKnockingFlag(page)
-    await setupProCampaignUser(page)
-
     await gotoDoorKnocking(page)
 
+    // Both anchors are NativeDoorKnockingPage's own header chrome, which renders
+    // as soon as the gate picks the native branch. Deliberately nothing that
+    // waits on the deck.gl/maplibre canvas or the district voter pack — the map
+    // is a next/dynamic ssr:false import of heavy WebGL libraries, so anchoring
+    // the gate assertion on it would make this a race on every cold deploy.
     await expect(nativeShellHeading(page)).toBeVisible({ timeout: 30_000 })
-    // The create-list entry point is the native shell's own chrome; it renders
-    // with the header, before (and regardless of) the voter pack or the map.
     await expect(
       page.getByRole('button', { name: 'Create list' }),
     ).toBeVisible()

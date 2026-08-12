@@ -13,23 +13,36 @@ export const DOOR_KNOCKING_PATH = '/dashboard/door-knocking'
 export const printWalkListPath = (turfId: number | string): string =>
   `${DOOR_KNOCKING_PATH}/print/${turfId}`
 
-// Force `native-door-knocking` through the off-prod override cookie. Call
-// BEFORE auth/navigation so the first SSR render already resolves the variant —
-// flag resolution is server-side and this cookie is the only deterministic
-// lever (e2e-tests/AGENTS.md "Flag-gated surfaces").
-export const enableNativeDoorKnockingFlag = async (
+// Name of the override cookie setFlagOverrides writes. Duplicated from
+// campaignStory.helper.ts (which doesn't export it) so the variant can be
+// cleared before it is re-set; keep the two in lockstep.
+const FLAG_OVERRIDE_COOKIE = 'e2e-flag-overrides'
+
+// Pin `native-door-knocking` to one variant through the off-prod override
+// cookie. Call BEFORE auth/navigation so the first SSR render already resolves
+// it — resolution is server-side and this cookie is the only deterministic lever
+// (e2e-tests/AGENTS.md "Flag-gated surfaces").
+//
+// The cookie is cleared by name first so the flag-gate spec can flip the variant
+// mid-test and know exactly one value is in flight. addCookies is documented to
+// replace a cookie matching name+domain+path, but "the browser sent two
+// overrides and the server picked one" is precisely the kind of ambiguity that
+// turns into an unreproducible flake, so this doesn't rely on it.
+const setNativeDoorKnockingFlag = async (
   page: Page,
+  variant: 'on' | 'off',
 ): Promise<void> => {
-  await setFlagOverrides(page, { 'native-door-knocking': 'on' })
+  await page.context().clearCookies({ name: FLAG_OVERRIDE_COOKIE })
+  await setFlagOverrides(page, { 'native-door-knocking': variant })
 }
+
+export const enableNativeDoorKnockingFlag = (page: Page): Promise<void> =>
+  setNativeDoorKnockingFlag(page, 'on')
 
 // Pin the legacy eCanvasser dashboard, so the control arm keeps testing the old
 // surface deterministically even once the flag ramps in Amplitude.
-export const disableNativeDoorKnockingFlag = async (
-  page: Page,
-): Promise<void> => {
-  await setFlagOverrides(page, { 'native-door-knocking': 'off' })
-}
+export const disableNativeDoorKnockingFlag = (page: Page): Promise<void> =>
+  setNativeDoorKnockingFlag(page, 'off')
 
 export const gotoDoorKnocking = async (page: Page): Promise<void> => {
   await page.goto(DOOR_KNOCKING_PATH, { waitUntil: 'domcontentloaded' })

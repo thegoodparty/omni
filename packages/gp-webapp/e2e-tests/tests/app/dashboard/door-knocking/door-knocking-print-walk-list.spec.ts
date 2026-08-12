@@ -20,53 +20,69 @@ test.describe('printable door-knocking walk list', () => {
     await blockSlowScripts(page)
   })
 
-  // The sheet is voter data. candidateAccess() has to bounce a signed-out
-  // browser before anything is fetched, not render a shell and fetch anyway.
-  test('bounces a signed-out visitor to sign-up', async ({ page }) => {
-    await page.goto(printWalkListPath(1), { waitUntil: 'domcontentloaded' })
-
-    await expect(page).toHaveURL(/\/sign-up/, { timeout: 30_000 })
-  })
-
-  test('404s a non-numeric turf id', async ({ page }) => {
-    test.setTimeout(3 * 60 * 1000)
-
-    await setupProCampaignUser(page)
-
-    // gp-api parses this param with ParseIntPipe, which 400s rather than 404s,
-    // so the page short-circuits a hand-mangled URL before asking at all. The
-    // status is the contract here — a soft 404 rendered as 200 would still look
-    // right on screen while telling crawlers and monitoring the opposite.
-    const response = await page.goto(printWalkListPath('not-a-turf'), {
-      waitUntil: 'domcontentloaded',
-    })
-
-    expect(response?.status()).toBe(404)
-    await expect(
-      page.getByRole('heading', { name: 'Error: 404 Not Found' }),
-    ).toBeVisible({ timeout: 20_000 })
-  })
-
-  // The case a canvasser actually hits: they open the print link for a list
-  // they own but have not knocked yet, so no route exists to print. gp-api
-  // answers 404 ("This turf has not been knocked yet") and the page has to
-  // treat that as "nothing to show" rather than surfacing an error — a
-  // cross-service assumption no mock can confirm.
-  test('404s a turf of your own that has never been knocked', async ({
+  // The sheet is voter data, and this URL is the one people share and bookmark —
+  // middleware.ts intercepts it before the page's candidateAccess() ever runs,
+  // and has to preserve the deep link so a canvasser who taps a print link on
+  // their phone lands back on the sheet after logging in rather than on a
+  // dashboard home with no idea which list they wanted.
+  //
+  // Needs no authenticated user at all, which is why it stays its own test.
+  test('bounces a signed-out visitor to login, preserving the deep link', async ({
     page,
   }) => {
+    const target = printWalkListPath(1)
+
+    await page.goto(target, { waitUntil: 'domcontentloaded' })
+
+    await page.waitForURL(/\/login\?/, { timeout: 30_000 })
+    const url = new URL(page.url())
+    expect(url.pathname).toBe('/login')
+    expect(url.searchParams.get('redirect_url')).toBe(target)
+  })
+
+  // Both inputs share one authenticated user on purpose: `setupProCampaignUser`
+  // provisions a fresh Clerk user + campaign, and concurrent bootstraps against
+  // a cold preview are this suite's dominant flake source (see the 401 note in
+  // tests/utils/headless-user.ts). Every other spec file here spends exactly one.
+  // The two assertions are independent page loads, so sharing costs no isolation.
+  test('404s a print URL with nothing to print', async ({ page }) => {
     test.setTimeout(3 * 60 * 1000)
 
     const { client } = await setupProCampaignUser(page)
     const turf = await seedTurf(client, `E2E print turf ${Date.now()}`)
 
-    const response = await page.goto(printWalkListPath(turf.id), {
+    // gp-api parses this param with ParseIntPipe, which 400s rather than 404s,
+    // so the page short-circuits a hand-mangled URL before asking at all.
+    const mangled = await page.goto(printWalkListPath('not-a-turf'), {
       waitUntil: 'domcontentloaded',
     })
-
-    expect(response?.status()).toBe(404)
+    // The status is the contract, not just the rendered copy: a soft 404 served
+    // as 200 looks identical on screen and wrong to everything else.
+    expect(mangled?.status()).toBe(404)
     await expect(
       page.getByRole('heading', { name: 'Error: 404 Not Found' }),
     ).toBeVisible({ timeout: 20_000 })
+
+    // The case a canvasser actually hits: the print link for a list they own but
+    // have not knocked yet, so no route exists to print. gp-api answers 404
+    // ("This turf has not been knocked yet") and the page has to treat that as
+    // "nothing to show" rather than surfacing an error — a cross-service
+    // assumption no mock can confirm.
+    const unknocked = await page.goto(printWalkListPath(turf.id), {
+      waitUntil: 'domcontentloaded',
+    })
+    expect(unknocked?.status()).toBe(404)
+    await expect(
+      page.getByRole('heading', { name: 'Error: 404 Not Found' }),
+    ).toBeVisible({ timeout: 20_000 })
+
+    // Control: the turf really does exist and belong to this org. Without it the
+    // assertion above would pass just as happily against a seed that silently
+    // failed, which would make this a test that the print route 404s everything.
+    // So the 404 is specifically about the missing route, not a missing turf.
+    const { status } = await client.get(`/v1/door-knocking/turfs/${turf.id}`, {
+      validateStatus: () => true,
+    })
+    expect(status).toBe(200)
   })
 })
