@@ -1,17 +1,43 @@
 # app/dashboard/outreach/
 
-Voter outreach hub. Lets a campaign create text/voicemail/script outreach to voter audiences and tracks impact. Note: the directory is `outreach/` even though the tech design refers to it as "voter-outreach."
+Voter outreach hub. Lets a campaign create text/voicemail/script/social outreach to voter audiences and tracks impact. Note: the directory is `outreach/` even though the tech design refers to it as "voter-outreach."
 
-## Key files
+## Two surfaces, one flag
+
+`page.tsx` (server component, fetches rows + compliance) renders
+`v2/OutreachPageGate.tsx`, the single treatment/control divergence point on
+the `voter-outreach-v2` flag (`@shared/experiments/voterOutreachV2Flag.ts`).
+Flag on renders the v2 hub (`v2/`); flag off (or unsettled — respect `ready`)
+renders the legacy `components/OutreachPage.tsx` unchanged. The two UIs never
+mix; turning the flag off restores the legacy page exactly.
+
+## v2/ — the Voter Outreach 2.0 hub (phase 1)
 
 | File | Role |
 |------|------|
-| `page.tsx` | Route entry — renders `OutreachPage` |
-| `components/OutreachPage.tsx` | Top-level layout for the feature |
-| `hooks/OutreachContext.tsx` | Feature-level context — current outreach selection, audience filters |
-| `components/OutreachCreateCards.tsx` / `OutreachCreateCard.tsx` | Channel picker (text, voicemail, etc.) |
-| `components/OutreachComposeDeepLink.tsx` | Consumes `?compose=text&message=<sms>` — opens the text TaskFlow with the preset script through the same gate as the create card, then strips the params (consume-once via `router.replace`) |
-| `hooks/useTextOutreachGate.tsx` | Single source for the text-channel gate (non-Pro → `P2PUpgradeModal`, Pro non-compliant → `ComplianceModal`, else pass) — both the create card and the deep link call it |
+| `v2/OutreachPageGate.tsx` | Whole-page flag gate (exposure fires here for both arms) |
+| `v2/OutreachHubPage.tsx` | Flag-on page: tile grid + unified history + details drawer; consumes the `?outreachId=` deep link (opens the drawer) and mounts `OutreachComposeDeepLink` so `?compose=`/`?listId=` keep feeding the legacy flow launch |
+| `v2/ChannelTileGrid.tsx` | Channel tiles (styleguide `ChannelCard`). Social opens the new flow; SMS/robocall/phone banking launch the EXISTING legacy `TaskFlow` with the same gates as the legacy cards (text gate, Pro modal, consume-once `preselectedListId`); door knocking navigates to `/dashboard/door-knocking`. Pricing sub-copy comes from `OUTREACH_OPTIONS` in `components/OutreachCreateCards.tsx` |
+| `v2/OutreachHistoryTable.tsx` | Unified history (legacy + new rows): channel badge, per-channel metric (social = "N platforms" from the detail fetch), `StatusText` status, 10-row pagination |
+| `v2/historyStatus.util.ts` | The two legacy status vocabularies (p2p vs non-p2p), relocated from `components/OutreachTable.tsx`; the legacy table keeps its own copy until deletion at the final tile swap |
+| `v2/OutreachDetailsDrawer.tsx` | Row-click drawer over `GET /v1/outreach/:id`: overview metrics, audience chips, and for social the persisted per-platform assets with re-copy |
+| `v2/OutreachSheet.tsx` | Bottom-sheet anatomy (560px body / 608px footer) — a deliberate COPY of the CRM's `CrmSheet`, not an import (that sheet is Lovable-pixel-locked; outreach will drift) |
+| `v2/OutreachFlowShell.tsx` | Generic flow chrome: sticky header + bar `Stepper`, shell-owned step-keyed CTA, dirty-close "Discard changes?" confirm, scroll-to-top on step change |
+| `v2/social/SocialFlow.tsx` | The social channel flow: purpose → compose → platforms → share. Compose edits the draft locally (client-side starter templates in `social/socialDrafts.ts`); `POST /v1/outreach/social/generate` runs once on entering the share step; Save (`POST /v1/outreach/social`) persists atomically and seeds the history + detail cache from the response |
+| `v2/SocialAssetCards.tsx` | Per-platform asset cards (copy/script + caption) shared by the share step and the details drawer; clipboard failure falls back to a select-all readonly textarea |
+
+Flow state is flat client state; no server drafts — closing a dirty flow asks
+to discard, reopening starts fresh. Nothing persists until Save.
+
+## Legacy key files (flag off; still launched from the v2 tiles)
+
+| File | Role |
+|------|------|
+| `components/OutreachPage.tsx` | Legacy top-level layout for the feature |
+| `hooks/OutreachContext.tsx` | Feature-level context — outreach rows (both surfaces read/write it) |
+| `components/OutreachCreateCards.tsx` / `OutreachCreateCard.tsx` | Legacy channel picker; `OUTREACH_OPTIONS` is the pricing/type source both surfaces share |
+| `components/OutreachComposeDeepLink.tsx` | Consumes `?compose=text&message=<sms>` — opens the text TaskFlow with the preset script through the same gate as the create card, then strips the params (consume-once via `router.replace`). Mounted by BOTH surfaces |
+| `hooks/useTextOutreachGate.tsx` | Single source for the text-channel gate (non-Pro → `P2PUpgradeModal`, Pro non-compliant → `ComplianceModal`, else pass) — create card, deep link, and v2 tiles all call it |
 | `components/OutreachActions.tsx` + `*ActionOption.tsx` | Per-channel actions (download audience, copy script) |
 | `components/OutreachImpact.tsx` | Sent / delivered metrics |
 | `hooks/` | Feature-local hooks (audience fetching, scheduling) |
@@ -20,7 +46,7 @@ Voter outreach hub. Lets a campaign create text/voicemail/script outreach to vot
 
 ## Patterns
 
-- **Context-driven**: `OutreachContext` holds the selected outreach + audience. Components read from context rather than threading props through the action menus.
+- **Context-driven**: `OutreachContext` holds the outreach rows. Components read from context rather than threading props through the action menus.
 - **Action options compose**: each `*ActionOption.tsx` is a self-contained menu item (icon + label + handler). New channels = new option components, registered in `OutreachActions`.
 - **Audience downloads** go through `helpers/createOutreach.ts` and `helpers/createP2pPhoneList.ts` — don't reinvent the file shape.
 
@@ -39,11 +65,10 @@ server-side).
 
 ## Gotchas
 
-- The `FreeTextsBanner` nag is part of free-tier gating — check `app/dashboard/shared/ProUpgradeModal.tsx` rules before changing it.
-- Scheduled-send logic lives in `helpers/scheduleVoterMessagingCampaign.ts`, not in this dir.
+- The `FreeTextsBanner` nag is part of free-tier gating — check `app/dashboard/shared/ProUpgradeModal.tsx` rules before changing it. It renders on the legacy page only.
 - Status labels in `constants.tsx` are mirrored on gp-api — keep them in sync if either side changes.
 
 ## Related
 
-- `helpers/createOutreach.ts`, `helpers/createP2pPhoneList.ts`, `helpers/scheduleVoterMessagingCampaign.ts`.
-- `gpApi/outreach.api.ts` + `gpApi/types/outreach.types.ts` — shared shapes.
+- `helpers/createOutreach.ts`, `helpers/createP2pPhoneList.ts`.
+- `gpApi/outreach.api.ts` + `gpApi/types/outreach.types.ts` — shared shapes; the social endpoints live in `gpApi/api-endpoints.ts` with contracts from `@goodparty_org/contracts`.

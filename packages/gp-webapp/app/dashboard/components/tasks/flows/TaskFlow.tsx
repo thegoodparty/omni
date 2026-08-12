@@ -37,7 +37,6 @@ import {
   PhoneListStatusResponse,
 } from 'helpers/createP2pPhoneList'
 import { getFlowStepsByType } from 'app/dashboard/components/tasks/flows/util/getFlowStepsByType.util'
-import { useP2pUxEnabled } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
 import { getEffectiveOutreachType } from 'app/dashboard/outreach/util/getEffectiveOutreachType'
 import { Campaign } from 'helpers/types'
 import { OutreachType } from 'gpApi/types/outreach.types'
@@ -120,12 +119,10 @@ const TaskFlow = ({
   initialScriptText,
   preselectedListId,
 }: TaskFlowProps): React.JSX.Element => {
-  const { p2pUxEnabled } = useP2pUxEnabled()
   const [open, setOpen] = useState(forceOpen)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [state, setState] = useState(DEFAULT_STATE)
-  const stepList =
-    useMemo(getFlowStepsByType(type, p2pUxEnabled), [type, p2pUxEnabled]) || []
+  const stepList = useMemo(getFlowStepsByType(type), [type]) || []
   const stepName = stepList[state.step]
   const isLastStep = state.step >= stepList.length - 1
   const [outreaches, setOutreaches] = useOutreach()
@@ -146,7 +143,7 @@ const TaskFlow = ({
   const [draftOutreachId, setDraftOutreachId] = useState<number | null>(null)
 
   const contactCount = leadsLoaded ?? undefined
-  const effectiveOutreachType = getEffectiveOutreachType(type, p2pUxEnabled)
+  const effectiveOutreachType = getEffectiveOutreachType(type)
   const purchaseMetaData = {
     contactCount,
     pricePerContact: dollarsToCents(outreachOption?.cost || 0) || 0,
@@ -312,12 +309,11 @@ const TaskFlow = ({
         campaignId,
         campaignPlanDueDate,
         textCount: leadsLoaded ?? undefined,
-        hasFreeTextsOffer: p2pUxEnabled && !!campaign.hasFreeTextsOffer,
+        hasFreeTextsOffer: !!campaign.hasFreeTextsOffer,
         outreaches,
         setOutreaches,
         errorSnackbar,
         refreshCampaign,
-        p2pUxEnabled,
       }),
     [
       type,
@@ -326,7 +322,6 @@ const TaskFlow = ({
       setOutreaches,
       errorSnackbar,
       refreshCampaign,
-      p2pUxEnabled,
       campaignId,
       campaignPlanDueDate,
       leadsLoaded,
@@ -466,7 +461,7 @@ const TaskFlow = ({
         closeCallback={handleClose}
         disableEnforceFocus={stepName === STEPS.purchase}
       >
-        {p2pUxEnabled && phoneListToken && (
+        {phoneListToken && (
           <LongPoll<PhoneListStatusResponse | false>
             {...{
               pollingMethod: async () => getP2pPhoneListStatus(phoneListToken),

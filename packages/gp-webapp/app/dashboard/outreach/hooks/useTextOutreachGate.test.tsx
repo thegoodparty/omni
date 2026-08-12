@@ -4,7 +4,6 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { CampaignContext } from '@shared/hooks/CampaignProvider'
-import { P2pUxEnabledContext } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useTextOutreachGate } from './useTextOutreachGate'
 import type { Campaign, TcrCompliance } from 'helpers/types'
@@ -32,25 +31,14 @@ const pendingCompliance = { status: 'pending' } as TcrCompliance
 
 const renderHarness = ({
   isPro,
-  p2pUxEnabled = true,
   tcrCompliance,
 }: {
   isPro: boolean
-  p2pUxEnabled?: boolean
   tcrCompliance?: TcrCompliance
 }) =>
   render(
     <CampaignContext.Provider value={[{ id: 1, isPro } as Campaign]}>
-      <P2pUxEnabledContext.Provider
-        value={{
-          p2pUxEnabled,
-          tcrCompliant: false,
-          proUpdatedAtDate: new Date(),
-          resetP2pUxEnabled: () => undefined,
-        }}
-      >
-        <Harness tcrCompliance={tcrCompliance} />
-      </P2pUxEnabledContext.Provider>
+      <Harness tcrCompliance={tcrCompliance} />
     </CampaignContext.Provider>,
   )
 

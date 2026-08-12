@@ -18,7 +18,6 @@ interface OutreachPageProps {
   pathname: string
   campaign: Campaign
   outreaches?: Outreach[]
-  mockOutreaches?: Outreach[]
   tcrCompliance?: TcrCompliance
   preselectedListId?: number
   highlightOutreachId?: number
@@ -28,7 +27,6 @@ export const OutreachPage = ({
   pathname,
   campaign,
   outreaches = [],
-  mockOutreaches = [],
   tcrCompliance,
   preselectedListId,
   highlightOutreachId,
@@ -51,7 +49,6 @@ export const OutreachPage = ({
         </Suspense>
         <OutreachTable
           {...{
-            mockOutreaches,
             highlightOutreachId,
           }}
         />

@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { CampaignContext } from '@shared/hooks/CampaignProvider'
-import { P2pUxEnabledContext } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { OutreachComposeDeepLink } from './OutreachComposeDeepLink'
 import { MAX_SMS_CHAR_COUNT } from 'app/dashboard/components/tasks/flows/AddScriptStep/CreateSmSScriptScreen'
@@ -60,16 +59,7 @@ const renderDeepLink = ({
 }) =>
   render(
     <CampaignContext.Provider value={[{ id: 1, isPro } as Campaign]}>
-      <P2pUxEnabledContext.Provider
-        value={{
-          p2pUxEnabled: true,
-          tcrCompliant: false,
-          proUpdatedAtDate: new Date(),
-          resetP2pUxEnabled: () => undefined,
-        }}
-      >
-        <OutreachComposeDeepLink tcrCompliance={tcrCompliance} />
-      </P2pUxEnabledContext.Provider>
+      <OutreachComposeDeepLink tcrCompliance={tcrCompliance} />
     </CampaignContext.Provider>,
   )
 
@@ -218,16 +208,7 @@ describe('OutreachComposeDeepLink', () => {
     mockSearchParams = new URLSearchParams()
     view.rerender(
       <CampaignContext.Provider value={[{ id: 1, isPro: true } as Campaign]}>
-        <P2pUxEnabledContext.Provider
-          value={{
-            p2pUxEnabled: true,
-            tcrCompliant: false,
-            proUpdatedAtDate: new Date(),
-            resetP2pUxEnabled: () => undefined,
-          }}
-        >
-          <OutreachComposeDeepLink tcrCompliance={approvedCompliance} />
-        </P2pUxEnabledContext.Provider>
+        <OutreachComposeDeepLink tcrCompliance={approvedCompliance} />
       </CampaignContext.Provider>,
     )
     expect(mockReplace).toHaveBeenCalledTimes(1)
@@ -235,16 +216,7 @@ describe('OutreachComposeDeepLink', () => {
     mockSearchParams = new URLSearchParams('listId=456')
     view.rerender(
       <CampaignContext.Provider value={[{ id: 1, isPro: true } as Campaign]}>
-        <P2pUxEnabledContext.Provider
-          value={{
-            p2pUxEnabled: true,
-            tcrCompliant: false,
-            proUpdatedAtDate: new Date(),
-            resetP2pUxEnabled: () => undefined,
-          }}
-        >
-          <OutreachComposeDeepLink tcrCompliance={approvedCompliance} />
-        </P2pUxEnabledContext.Provider>
+        <OutreachComposeDeepLink tcrCompliance={approvedCompliance} />
       </CampaignContext.Provider>,
     )
     await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(2))

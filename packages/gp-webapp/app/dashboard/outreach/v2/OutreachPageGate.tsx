@@ -10,7 +10,6 @@ export interface OutreachPageGateProps {
   pathname: string
   campaign: Campaign
   outreaches?: Outreach[]
-  mockOutreaches?: Outreach[]
   tcrCompliance?: TcrCompliance
   preselectedListId?: number
   highlightOutreachId?: number
