@@ -37,25 +37,18 @@ export type {
   ChatMessageSegmentKind,
   ChatMessageSegment,
   ChatMessageDto,
+  ChatConversationDto,
   ChatErrorCode,
   ChatStreamEvent,
+  ChatClient,
 } from './chatTypes'
 import type {
   ChatMessageDto,
+  ChatConversationDto,
   ChatErrorCode,
   ChatStreamEvent,
+  ChatClient,
 } from './chatTypes'
-
-export interface ChatConversationDto {
-  conversationId: string
-  scope: ChatScope
-  title: string | null
-  organizationSlug: string | null
-  ownerUserId: number
-  deletedAt: string | null
-  createdAt: string
-  updatedAt: string
-}
 
 export interface ChatConversationListResponse {
   conversations: ChatConversationDto[]
@@ -68,29 +61,8 @@ export interface ChatConversationMessagesResponse {
 
 // --- client interface -------------------------------------------------------
 
-export interface AgentChatClient {
-  /**
-   * Find-or-create the conversation for the current org/owner (the server keys
-   * on scope). Called lazily on the first send.
-   */
-  createConversation(anchor?: ChatAnchor): Promise<{ conversationId: string }>
-  /** Replay prior messages for a conversation, oldest first. */
-  listMessages(conversationId: string): Promise<ChatMessageDto[]>
-  /** Conversation history for the scope (the clock-icon list). */
-  listConversations(): Promise<ChatConversationDto[]>
-  /**
-   * Send a user message and consume the streamed response. `done`/`error` are
-   * terminal; `clientMessageId` is a stable UUID across retries for dedupe.
-   */
-  streamMessage(args: {
-    conversationId: string
-    content: string
-    clientMessageId?: string
-    signal?: AbortSignal
-  }): AsyncIterable<ChatStreamEvent>
-  /** Soft-delete a conversation. */
-  softDelete(conversationId: string): Promise<void>
-}
+// Every scope's client conforms to the one shared ChatClient shape.
+export type AgentChatClient = ChatClient
 
 // --- factory ----------------------------------------------------------------
 

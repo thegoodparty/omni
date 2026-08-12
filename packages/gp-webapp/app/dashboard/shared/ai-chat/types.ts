@@ -4,43 +4,21 @@
  * backed by a specific `/v1/chats?scope=<scope>` endpoint.
  */
 
-import type { ChatMessageDto, ChatStreamEvent } from '../agent-chat/chatTypes'
+import type { ChatClient } from '../agent-chat/chatTypes'
 export type {
   ChatMessageRole,
   ChatMessageSegmentKind,
   ChatMessageSegment,
   ChatMessageDto,
+  ChatConversationDto,
   ChatErrorCode,
   ChatStreamEvent,
+  ChatClient,
 } from '../agent-chat/chatTypes'
 
-export interface ChatConversationDto {
-  conversationId: string
-  scope: string
-  title: string | null
-  ownerUserId: number
-  deletedAt: string | null
-  createdAt: string
-  updatedAt: string
-}
-
-export interface AiChatClient {
-  /** Find-or-create the conversation for the current context. Deferred until first send. */
-  createConversation(): Promise<{ conversationId: string }>
-  /** Replay prior messages oldest-first. */
-  listMessages(conversationId: string): Promise<ChatMessageDto[]>
-  /** Conversation history (for the clock-icon popover). */
-  listConversations(): Promise<ChatConversationDto[]>
-  /** Stream the assistant response over SSE. `done` and `error` are terminal. */
-  streamMessage(args: {
-    conversationId: string
-    content: string
-    clientMessageId?: string
-    signal?: AbortSignal
-  }): AsyncIterable<ChatStreamEvent>
-  /** Soft-delete a conversation. */
-  softDelete(conversationId: string): Promise<void>
-}
+// The ai-chat surfaces use the shared client shape. Their implementations call
+// createConversation without an anchor; the optional arg is simply unused.
+export type AiChatClient = ChatClient
 
 export interface AiChatConfig {
   /** Human-readable name shown in the drawer header and aria-labels. */
