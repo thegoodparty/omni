@@ -71,6 +71,12 @@ export {
   type ActivityConditionAction,
   ACTIVITY_CONDITION_ACTION_VALUES,
   ActivityConditionActionSchema,
+  type SocialAssetPlatform,
+  SOCIAL_ASSET_PLATFORM_VALUES,
+  SocialAssetPlatformSchema,
+  type SocialAssetKind,
+  SOCIAL_ASSET_KIND_VALUES,
+  SocialAssetKindSchema,
 } from './generated/enums'
 
 export {
@@ -697,6 +703,26 @@ export * from './ordinances/Ordinance.schema'
 export * from './ordinances/redline'
 
 export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
+export {
+  SOCIAL_PURPOSE_VALUES,
+  SocialPurposeSchema,
+  type SocialPurpose,
+  SOCIAL_DRAFT_MESSAGE_MAX_LENGTH,
+  SOCIAL_POST_COPY_MAX_LENGTH,
+  SOCIAL_VIDEO_SCRIPT_MAX_LENGTH,
+  SocialAssetSchema,
+  type SocialAsset,
+  SocialGenerateRequestSchema,
+  type SocialGenerateRequest,
+  SocialGenerateResponseSchema,
+  type SocialGenerateResponse,
+  SocialSaveRequestSchema,
+  type SocialSaveRequest,
+  OutreachSocialDetailSchema,
+  type OutreachSocialDetail,
+  OutreachDetailSchema,
+  type OutreachDetail,
+} from './outreach/OutreachSocial.schema'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
 
