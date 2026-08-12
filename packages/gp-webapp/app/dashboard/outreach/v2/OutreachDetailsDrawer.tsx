@@ -76,9 +76,20 @@ export const OutreachDetailsDrawer = ({
   )
   const sent = row?.textCount ?? row?.billableTextCount
 
+  // Prototype byline verbs ("Scheduled for {date}" / "Sent {date}"); our
+  // extra legacy statuses (Draft, In review, …) have no prototype verb and
+  // keep the bare date.
+  const statusLabel = row ? getHistoryStatusLabel(row) : null
+  const bylineVerb =
+    statusLabel === 'Scheduled'
+      ? 'Scheduled for'
+      : statusLabel === 'Sent'
+        ? 'Sent'
+        : null
+
   return (
     <Drawer open={row !== null} onOpenChange={onOpenChange} direction="bottom">
-      <DrawerContent className="flex h-[calc(100dvh-4rem)] flex-col p-0 data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:max-h-[calc(100dvh-4rem)] data-[vaul-drawer-direction=bottom]:rounded-t-[10px]">
+      <DrawerContent className="flex h-[calc(100dvh-4rem)] flex-col p-0 data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:max-h-[calc(100dvh-4rem)] data-[vaul-drawer-direction=bottom]:rounded-t-[10px] lg:h-[calc(100dvh-8rem)] lg:data-[vaul-drawer-direction=bottom]:max-h-[calc(100dvh-8rem)]">
         <DrawerHandle />
         <DrawerHeader className="sr-only">
           <DrawerTitle>
@@ -93,13 +104,16 @@ export const OutreachDetailsDrawer = ({
                   <h2 className="text-base font-semibold text-foreground">
                     {row.name || row.title || 'Untitled campaign'}
                   </h2>
-                  <HistoryStatusText label={getHistoryStatusLabel(row)} />
+                  <HistoryStatusText label={statusLabel} />
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-1.5">
                   <ChannelBadge type={row.outreachType} />
                   {displayDate && (
                     <span className="text-sm text-muted-foreground">
-                      · {dateUsHelper(displayDate, 'long')}
+                      ·{' '}
+                      {bylineVerb
+                        ? `${bylineVerb} ${dateUsHelper(displayDate, 'long')}`
+                        : dateUsHelper(displayDate, 'long')}
                     </span>
                   )}
                 </div>
@@ -110,14 +124,19 @@ export const OutreachDetailsDrawer = ({
               <div className="mx-auto w-full max-w-[608px] space-y-6">
                 {audienceLabels.length > 0 && (
                   <section className="space-y-3">
-                    <Eyebrow>Audience</Eyebrow>
-                    <FilterPillGroup type="multiple" value={audienceLabels}>
-                      {audienceLabels.map((label) => (
-                        <FilterPill key={label} value={label}>
-                          {label}
-                        </FilterPill>
-                      ))}
-                    </FilterPillGroup>
+                    <Eyebrow>Applied filters</Eyebrow>
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        Filters
+                      </p>
+                      <FilterPillGroup type="multiple" value={audienceLabels}>
+                        {audienceLabels.map((label) => (
+                          <FilterPill key={label} value={label}>
+                            {label}
+                          </FilterPill>
+                        ))}
+                      </FilterPillGroup>
+                    </div>
                   </section>
                 )}
 
@@ -130,6 +149,11 @@ export const OutreachDetailsDrawer = ({
                       value={
                         displayDate ? dateUsHelper(displayDate, 'long') : '—'
                       }
+                    />
+                    <Metric
+                      icon={<FileTextIcon />}
+                      label="Name"
+                      value={row.name || row.title || 'Untitled campaign'}
                     />
                     <Metric
                       icon={<Share2Icon />}
@@ -183,7 +207,11 @@ export const OutreachDetailsDrawer = ({
                 )}
                 {social && (
                   <section className="space-y-3">
-                    <Eyebrow>Your posts</Eyebrow>
+                    <Eyebrow>Posts · {social.assets.length}</Eyebrow>
+                    <p className="text-sm text-muted-foreground">
+                      The text created for each platform. Copy any post again
+                      below.
+                    </p>
                     <div className="space-y-4">
                       {social.assets.map((asset) => (
                         <SocialAssetCard key={asset.platform} asset={asset} />

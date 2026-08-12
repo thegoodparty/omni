@@ -46,6 +46,12 @@ const SocialPlatformsMetric = ({ id }: { id: number }) => {
   )
 }
 
+// Prototype unit: "people called" for the phone channels, "people" elsewhere.
+const peopleUnit = (type: HistoryRow['outreachType']): string =>
+  type === OUTREACH_TYPES.robocall || type === OUTREACH_TYPES.phoneBanking
+    ? 'people called'
+    : 'people'
+
 const RowMetric = ({ row }: { row: HistoryRow }) => {
   if (row.outreachType === OUTREACH_TYPES.socialMedia) {
     return <SocialPlatformsMetric id={row.id} />
@@ -54,7 +60,7 @@ const RowMetric = ({ row }: { row: HistoryRow }) => {
   if (typeof sent === 'number') {
     return (
       <>
-        {sent.toLocaleString()} text{sent === 1 ? '' : 's'}
+        {sent.toLocaleString()} {peopleUnit(row.outreachType)}
       </>
     )
   }
@@ -117,7 +123,7 @@ export const OutreachHistoryTable = ({
               <TableHead className="whitespace-nowrap">Date</TableHead>
               <TableHead className="whitespace-nowrap">Channel</TableHead>
               <TableHead className="w-full">Campaign</TableHead>
-              <TableHead className="whitespace-nowrap">Reach</TableHead>
+              <TableHead className="whitespace-nowrap">People</TableHead>
               <TableHead className="text-right whitespace-nowrap">
                 Status
               </TableHead>

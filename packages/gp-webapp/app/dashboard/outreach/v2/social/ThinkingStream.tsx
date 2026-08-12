@@ -5,7 +5,8 @@ import { Card } from '@styleguide'
 import { Loader2Icon } from '@styleguide/components/ui/icons'
 
 const THINKING_MESSAGES = [
-  'Reading your message…',
+  'Examining your priorities…',
+  'Reading community issues…',
   'Checking your campaign tone…',
   'Matching your message to each platform…',
   'Drafting content for each platform…',
@@ -48,7 +49,7 @@ export const ThinkingStream = () => {
             <span className="ml-0.5 inline-block h-3.5 w-0.5 animate-pulse bg-primary align-middle" />
           </span>
           <span className="text-xs text-muted-foreground">
-            AI is adapting your message
+            AI is drafting your message
           </span>
         </div>
       </div>

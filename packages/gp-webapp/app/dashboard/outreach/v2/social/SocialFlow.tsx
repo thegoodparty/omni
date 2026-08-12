@@ -41,7 +41,13 @@ interface SocialFlowProps {
   onSaved: (detail: OutreachDetail) => void
 }
 
-const SuccessScreen = ({ onDone }: { onDone: () => void }) => (
+const SuccessScreen = ({
+  platformCount,
+  onDone,
+}: {
+  platformCount: number
+  onDone: () => void
+}) => (
   <div className="space-y-6 py-8 text-center">
     <div className="flex justify-center">
       <span className="flex size-16 items-center justify-center rounded-full bg-primary-light">
@@ -53,8 +59,9 @@ const SuccessScreen = ({ onDone }: { onDone: () => void }) => (
         Your posts are ready!
       </h2>
       <p className="text-muted-foreground">
-        This campaign is saved to your outreach history, so you can come back
-        and copy any platform&apos;s post whenever you need it.
+        We drafted a post for each of your {platformCount} platform
+        {platformCount === 1 ? '' : 's'}. Copy the text and paste it into each
+        app to publish.
       </p>
     </div>
     <Button size="large" className="w-full" onClick={onDone}>
@@ -273,7 +280,10 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
       dirty={dirty}
     >
       {saved ? (
-        <SuccessScreen onDone={onClose} />
+        <SuccessScreen
+          platformCount={assets?.length ?? platforms.length}
+          onDone={onClose}
+        />
       ) : stepId === 'purpose' ? (
         <PurposeStep selected={purpose} onSelect={handleSelectPurpose} />
       ) : stepId === 'compose' ? (

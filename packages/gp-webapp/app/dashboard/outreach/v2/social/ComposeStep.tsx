@@ -56,20 +56,18 @@ export const ComposeStep = ({
       body="Confirm the message. We'll adapt this draft to each platform's voice and length in the next steps."
     />
 
-    {!isCustomPurpose && (
-      <FilterPillGroup
-        type="single"
-        value={tone}
-        onValueChange={(value) => value && onToneChange(value as SocialTone)}
-      >
-        {SOCIAL_TONES.map((t) => (
-          <FilterPill key={t} value={t} className="gap-1.5">
-            {TONE_ICONS[t]}
-            {t}
-          </FilterPill>
-        ))}
-      </FilterPillGroup>
-    )}
+    <FilterPillGroup
+      type="single"
+      value={tone}
+      onValueChange={(value) => value && onToneChange(value as SocialTone)}
+    >
+      {SOCIAL_TONES.map((t) => (
+        <FilterPill key={t} value={t} className="gap-1.5">
+          {TONE_ICONS[t]}
+          {t}
+        </FilterPill>
+      ))}
+    </FilterPillGroup>
 
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">

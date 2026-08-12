@@ -11,8 +11,10 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  ArrowLeftIcon,
   Button,
   DrawerTitle,
+  IconButton,
   Stepper,
 } from '@styleguide'
 import { OutreachSheet } from './OutreachSheet'
@@ -80,19 +82,50 @@ export const OutreachFlowShell = ({
       <OutreachSheet
         open={open}
         onOpenChange={requestClose}
-        onBack={onBack}
         bodyRef={bodyRef}
         header={
           <>
-            <DrawerTitle className="text-base font-semibold">
-              {title}
-            </DrawerTitle>
+            {/* Prototype header anatomy: desktop back floats left of the
+                608px column; mobile keeps a fixed icon slot so the title
+                doesn't shift between steps. */}
+            <div className="relative flex items-center gap-2 lg:block">
+              {onBack && (
+                <div className="absolute top-1/2 right-full mr-9 hidden -translate-y-1/2 lg:block">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="small"
+                    onClick={onBack}
+                  >
+                    <ArrowLeftIcon className="size-4" aria-hidden />
+                    Back
+                  </Button>
+                </div>
+              )}
+              <div className="size-8 shrink-0 lg:hidden">
+                {onBack && (
+                  <IconButton
+                    type="button"
+                    variant="outline"
+                    size="small"
+                    aria-label="Back"
+                    onClick={onBack}
+                  >
+                    <ArrowLeftIcon className="size-4" />
+                  </IconButton>
+                )}
+              </div>
+              <DrawerTitle className="min-w-0 flex-1 truncate pr-8 text-base font-semibold lg:pr-0">
+                {title}
+              </DrawerTitle>
+            </div>
             {totalSteps > 0 && (
               <Stepper
                 variant="bar"
                 currentStep={currentStep}
                 totalSteps={totalSteps}
                 labelClassName="text-xs"
+                className="mt-2 lg:mt-3"
               />
             )}
           </>

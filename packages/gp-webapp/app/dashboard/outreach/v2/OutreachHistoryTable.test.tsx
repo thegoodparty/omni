@@ -50,7 +50,7 @@ describe('OutreachHistoryTable — unified history', () => {
     expect(table.getByText('In review')).toBeInTheDocument()
     expect(table.getAllByText('SMS')).toHaveLength(2)
     expect(table.getByText('Robocall')).toBeInTheDocument()
-    expect(table.getByText('1,204 texts')).toBeInTheDocument()
+    expect(table.getByText('1,204 people')).toBeInTheDocument()
   })
 
   it('shows the platform count for a social row from the detail fetch', async () => {
