@@ -10,7 +10,7 @@ import {
   VideoIcon,
   YoutubeIcon,
 } from '@styleguide/components/ui/icons'
-import { TwitterLogo } from '@shared/brand-logos'
+import { XLogo } from '@shared/brand-logos'
 
 export interface SocialPlatformMeta {
   id: SocialAssetPlatform
@@ -49,7 +49,7 @@ export const SOCIAL_PLATFORMS: SocialPlatformMeta[] = [
     id: 'x',
     label: 'X',
     helper: 'Post copy',
-    icon: <TwitterLogo size={20} />,
+    icon: <XLogo size={20} />,
     kind: 'post_copy',
   },
   {
