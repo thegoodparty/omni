@@ -276,9 +276,14 @@ export class CampaignsController {
   ) {
     const { slug, ...body } = dto
 
-    if (body.canDownloadFederal && !userHasRole(user, [UserRole.admin])) {
+    // Presence, not truthiness: a truthiness check let any non-admin persist
+    // `false` and silently revoke an admin-granted federal download grant.
+    if (
+      body.canDownloadFederal !== undefined &&
+      !userHasRole(user, [UserRole.admin])
+    ) {
       throw new ForbiddenException(
-        'User does not have permission to download federal data',
+        'User does not have permission to change federal data access',
       )
     }
 
