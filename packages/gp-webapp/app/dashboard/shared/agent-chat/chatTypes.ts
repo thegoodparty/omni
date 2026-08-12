@@ -2,6 +2,8 @@
 // agent-chat client interfaces both build on these so the message, segment,
 // error, and stream-event shapes can't drift between surfaces.
 
+import type { ChatAnchor } from '@goodparty_org/contracts'
+
 export type ChatMessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
 export type ChatMessageSegmentKind = 'text' | 'tool'
@@ -42,3 +44,32 @@ export type ChatStreamEvent =
   | { type: 'ping' }
   | { type: 'done'; assistantMessageId?: string }
   | { type: 'error'; code: ChatErrorCode; message: string; retryable: boolean }
+
+export interface ChatConversationDto {
+  conversationId: string
+  scope: string
+  title: string | null
+  // Present on org-scoped surfaces (Chief of Staff); absent on the ai-chat
+  // clients that don't return it.
+  organizationSlug?: string | null
+  ownerUserId: number
+  deletedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+// One chat client per surface, all conforming to this shape. createConversation
+// takes an optional anchor (the ordinance and briefing scopes pass one; the
+// others ignore it). `done`/`error` are terminal stream events.
+export interface ChatClient {
+  createConversation(anchor?: ChatAnchor): Promise<{ conversationId: string }>
+  listMessages(conversationId: string): Promise<ChatMessageDto[]>
+  listConversations(): Promise<ChatConversationDto[]>
+  streamMessage(args: {
+    conversationId: string
+    content: string
+    clientMessageId?: string
+    signal?: AbortSignal
+  }): AsyncIterable<ChatStreamEvent>
+  softDelete(conversationId: string): Promise<void>
+}
