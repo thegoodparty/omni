@@ -63,8 +63,10 @@ describe('buildDescribeFilterDimensionsTool', () => {
       throw new Error('expected a dimensions payload')
     }
     expect(result.dimensions.length).toBeGreaterThan(0)
+    // undefined covers children/languageCodes, deliberately unclassified —
+    // see UNCLASSIFIED_PROVENANCE_DIMENSIONS in filterDimensions.catalog.test.ts
     expect(new Set(result.dimensions.map((d) => d.provenance))).toEqual(
-      new Set(['observed', 'modeled', 'derived']),
+      new Set(['observed', 'modeled', 'derived', undefined]),
     )
   })
 

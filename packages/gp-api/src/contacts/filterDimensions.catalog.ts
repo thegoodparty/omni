@@ -28,8 +28,15 @@ import {
 export type FilterDimensionMode = 'win' | 'serve' | 'both'
 
 // How a dimension's underlying value came to exist, so the assistant hedges
-// correctly. Required on every entry: a new dimension without a mark fails
-// tsc, which is a stronger drift guard than any test or convention doc.
+// correctly. Set on every entry we have a real source for. Optional rather
+// than required: two dimensions (children, languageCodes) have no confirmed
+// source yet (checked serve/output/l2_haystaq_codebook — that's the L2
+// National Models User Guide, which only covers hs_* opinion scores, not
+// these base demographic columns) and are deliberately left unmarked rather
+// than guessed. FILTER_DIMENSION_PROVENANCE_RULES tells the model to treat
+// an unmarked dimension with the same caution as "modeled" until someone
+// sources the real answer (check the gp-data-platform column seed or ask
+// the data team) and a follow-up PR adds the mark.
 export type FilterDimensionProvenance = 'observed' | 'modeled' | 'derived'
 
 // The one rule telling the model what a provenance mark obliges it to say.
@@ -49,7 +56,8 @@ export const FILTER_DIMENSION_PROVENANCE_RULES = `DIMENSION PROVENANCE (every di
   - "derived": computed from this organization's own records, so it only covers people already contacted. "Unknown" there means no one asked, never "no".
   - Whenever you report a count, share, ranking, or "largest group" built from a modeled dimension, say it is modeled or estimated IN THE SAME SENTENCE as the number ("an estimated 1,200 ...", "modeled data puts the largest group at ..."). A caveat trailing after the claim does not count. This constrains how you FRAME the result — it does not license explaining which field, column, or model produced it.
   - The count itself is an exact count of matching RECORDS. What is uncertain is the ATTRIBUTE and the COVERAGE: on a modeled dimension with no negative value, a positive count is a FLOOR on how many people have the trait, never a total — most such dimensions are mostly null.
-  - "Unknown" is a real, reportable segment on most dimensions and is often large. State its size rather than dropping it, and never fold it into another value.`
+  - "Unknown" is a real, reportable segment on most dimensions and is often large. State its size rather than dropping it, and never fold it into another value.
+  - A dimension with NO provenance field has not been classified yet, not confirmed as a plain fact. Treat it exactly like "modeled": hedge any claim built from it rather than stating it as fact.`
 
 export interface FilterDimensionValue {
   key: string
@@ -64,7 +72,7 @@ interface FilterDimensionBase {
   key: string
   label: string
   modes: FilterDimensionMode
-  provenance: FilterDimensionProvenance
+  provenance?: FilterDimensionProvenance
 }
 
 // boolean-group: each value key is a voterFilterBaseSchema boolean field set
@@ -232,10 +240,10 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     label: 'Language',
     kind: 'multi-value',
     modes: 'both',
-    // Conservative pending confirmation against the L2 National Models User
-    // Guide (see PR body): L2's language append is generally a surname/
-    // ethnicity-model derivation rather than self-reported.
-    provenance: 'modeled',
+    // No provenance mark: checked serve/output/l2_haystaq_codebook (the L2
+    // National Models User Guide) and it only documents hs_* opinion-score
+    // models, not this column. Source the real answer (the gp-data-platform
+    // column seed, or the data team) before marking this observed/modeled.
     values: Object.entries(LANGUAGE_CODE_TO_LABEL).map(([key, label]) => ({
       key,
       label,
@@ -262,7 +270,10 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     label: 'Children',
     kind: 'boolean-group',
     modes: 'both',
-    provenance: 'modeled',
+    // No provenance mark: checked serve/output/l2_haystaq_codebook (the L2
+    // National Models User Guide) and it only documents hs_* opinion-score
+    // models, not this column. Source the real answer (the gp-data-platform
+    // column seed, or the data team) before marking this observed/modeled.
     values: [
       { key: 'hasChildrenYes', label: 'Yes' },
       { key: 'hasChildrenNo', label: 'No' },
