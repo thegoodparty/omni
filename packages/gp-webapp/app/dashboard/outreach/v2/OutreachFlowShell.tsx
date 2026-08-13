@@ -30,7 +30,9 @@ interface OutreachFlowShellProps {
   open: boolean
   onClose: () => void
   title: string
-  // 1-based; the bar stepper hides when totalSteps is 0 (success screen).
+  // 1-based; totalSteps 0 marks the success screen: the stepper hides and
+  // the whole visible header is replaced (per the prototype), keeping only
+  // the sr-only accessible title.
   currentStep: number
   totalSteps: number
   onBack?: () => void
@@ -83,6 +85,7 @@ export const OutreachFlowShell = ({
         open={open}
         onOpenChange={requestClose}
         bodyRef={bodyRef}
+        headerless={totalSteps === 0}
         header={
           <>
             {/* Prototype header anatomy: desktop back floats left of the

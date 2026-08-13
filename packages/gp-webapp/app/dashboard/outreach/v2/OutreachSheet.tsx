@@ -14,6 +14,10 @@ interface OutreachSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   header: ReactNode
+  // Success screens replace the header entirely (per the prototype): the
+  // visible bar and border go away, but `header` still renders sr-only so
+  // the drawer keeps an accessible title.
+  headerless?: boolean
   footer?: ReactNode
   children: ReactNode
   bodyRef?: Ref<HTMLDivElement>
@@ -31,6 +35,7 @@ export const OutreachSheet = ({
   open,
   onOpenChange,
   header,
+  headerless = false,
   footer,
   children,
   bodyRef,
@@ -41,7 +46,13 @@ export const OutreachSheet = ({
       closeClassName="top-2 right-2 size-10"
     >
       <DrawerHandle />
-      <DrawerHeader className="shrink-0 gap-0 border-b border-border px-4 py-3 lg:px-6 lg:py-4">
+      <DrawerHeader
+        className={
+          headerless
+            ? 'sr-only'
+            : 'shrink-0 gap-0 border-b border-border px-4 py-3 lg:px-6 lg:py-4'
+        }
+      >
         <div className="mx-auto w-full max-w-[608px]">{header}</div>
       </DrawerHeader>
       <DrawerBody ref={bodyRef} className="py-5 lg:px-6">
