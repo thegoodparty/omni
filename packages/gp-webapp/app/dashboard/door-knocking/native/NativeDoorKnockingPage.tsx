@@ -35,7 +35,7 @@ import TurfList from './TurfList'
 import WalkView from './WalkView'
 import { useWalkSession } from './useWalkSession'
 import {
-  rollupStatuses,
+  rollupStopStatus,
   STATUS_DOT_COLORS,
   STATUS_LABELS,
 } from './statusPresentation'
@@ -244,11 +244,7 @@ export default function NativeDoorKnockingPage({
             seq: stop.seq,
             lat: stop.lat,
             lng: stop.lng,
-            status: rollupStatuses(
-              stop.addresses.flatMap((address) =>
-                address.targets.map((target) => target.knockStatus),
-              ),
-            ),
+            status: rollupStopStatus(stop),
           }))
         : [],
     [walkTurf, walkRouteQuery.data],

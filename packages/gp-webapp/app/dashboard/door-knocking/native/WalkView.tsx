@@ -16,7 +16,7 @@ import PersonSheet from './PersonSheet'
 import { formatDistance } from './routeFormat'
 import { routeQueryOptions } from './turfQueries'
 import {
-  rollupStatuses,
+  rollupStopStatus,
   STATUS_DOT_COLORS,
   STATUS_LABELS,
 } from './statusPresentation'
@@ -117,20 +117,7 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
   const statusCount = (stopList: RoutePayloadStop[], status: DoorKnockStatus) =>
     knockableTargets(stopList).filter((target) => target.knockStatus === status)
       .length
-  // Flagged residents are left out for the same reason as the counts above:
-  // `unknown` outranks every other status in the rollup, so one flagged
-  // neighbor would hold the whole stop on the grey "still to knock" dot however
-  // much of the household had been logged. A stop with nobody left to knock
-  // rolls up from an empty list, which is still `unknown` — the row's own "Do
-  // not knock" label is what distinguishes that case.
-  const stopStatus = (stop: RoutePayloadStop): DoorKnockStatus =>
-    rollupStatuses(
-      stop.addresses.flatMap((address) =>
-        address.targets
-          .filter((target) => !target.doNotKnock)
-          .map((target) => target.knockStatus),
-      ),
-    )
+  const stopStatus = rollupStopStatus
   const primaryTargetName = (stop: RoutePayloadStop): string | null =>
     stop.addresses[0]?.targets[0]?.name ?? null
   const targetsForStop = (stop: RoutePayloadStop): RoutePayloadTarget[] =>
