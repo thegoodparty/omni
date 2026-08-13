@@ -30,19 +30,24 @@ export default function DownloadResults() {
         link.setAttribute('download', `${poll.name}-responses.csv`)
         document.body.appendChild(link)
         link.click()
-        link.remove()
-        // Free the object URL only after the browser has had time to read the
-        // blob. Revoking it synchronously after click() cancels the download in
-        // Chrome and surfaces as a spurious "check your connection" error.
-        setTimeout(() => window.URL.revokeObjectURL(url), 10000)
+        // Detach the anchor and free the object URL only after the browser has
+        // read the blob. Doing either in the same tick as click() cancels the
+        // download in Chrome and surfaces as a spurious "check your connection"
+        // / network error. Keep the button disabled across this window too, so a
+        // second click can't stack a parallel download and leak its object URL.
+        setTimeout(() => {
+          link.remove()
+          window.URL.revokeObjectURL(url)
+          setLoading(false)
+        }, 1500)
       } else {
         console.error('Failed to download poll responses', res)
         errorSnackbar("Couldn't download results. Please try again.")
+        setLoading(false)
       }
     } catch (e) {
       reportErrorToSentry(e, { context: 'DownloadResults.handleDownload' })
       errorSnackbar("Couldn't download results. Please try again.")
-    } finally {
       setLoading(false)
     }
   }
