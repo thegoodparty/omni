@@ -398,19 +398,17 @@ describe('CampaignForm', () => {
       })
     })
 
+    // Mount-time validation sets validity without populating `errors`, so an
+    // invalid stored value used to be invisible. Whether it blocks a save is
+    // covered by the dirty-gate tests; this one only asserts it is on screen.
     it('surfaces the offending field when stored data fails validation', async () => {
       renderForm({
         details: { ...mockCampaign.details, website: 'example.com' },
       } as unknown as Partial<CampaignWithLiveContext>)
 
-      // Save stays disabled here by design, but the reason is now on screen
-      // instead of leaving the admin with a dead button.
       await waitFor(() => {
         expect(screen.getByText(/invalid/i)).toBeInTheDocument()
       })
-      expect(
-        screen.getByRole('button', { name: /save changes/i })
-      ).toBeDisabled()
     })
 
     it('toggles Pledged switch and makes form dirty', async () => {
