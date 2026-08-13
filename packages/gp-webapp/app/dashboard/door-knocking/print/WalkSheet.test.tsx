@@ -31,6 +31,7 @@ const stop = (overrides: Partial<RoutePayloadStop> = {}): RoutePayloadStop => ({
           landline: null,
           knockStatus: 'unknown',
           mayHaveMoved: false,
+          doNotKnock: false,
         },
       ],
       otherResidents: [],
@@ -202,6 +203,7 @@ describe('WalkSheet', () => {
                 landline: '(312) 555-0103',
                 knockStatus: 'supporter',
                 mayHaveMoved: false,
+                doNotKnock: false,
               },
             ],
             otherResidents: [],
@@ -215,6 +217,48 @@ describe('WalkSheet', () => {
       within(person).getByText('Already logged: Supporter'),
     ).toBeInTheDocument()
     expect(within(person).queryByText('Did they answer?')).toBeNull()
+  })
+
+  // ADR 0007. Turf evaluation keeps flagged people off new lists, but paper
+  // freezes the moment it prints, so the sheet has to carry the instruction
+  // itself — otherwise the one surface used without the app is the one that
+  // ignores it.
+  it('prints a skip instead of a form for a flagged door', () => {
+    renderSheet([
+      stop({
+        addresses: [
+          {
+            addressKey: '105|elm|st',
+            address: '105 Elm St',
+            targets: [
+              {
+                stopTargetId: 21,
+                personId: 'person-1',
+                name: 'Dorian Fen',
+                age: 31,
+                politicalParty: 'Independent',
+                // Previously knocked, and flagged since: the instruction wins
+                // over what was logged at the door before.
+                knockStatus: 'supporter',
+                mayHaveMoved: false,
+                doNotKnock: true,
+              },
+            ],
+            otherResidents: [],
+          },
+        ],
+      }),
+    ])
+
+    const person = screen.getByRole('listitem')
+    // The name stays, so the sheet still matches the app's stop numbering.
+    expect(within(person).getByText('Dorian Fen')).toBeInTheDocument()
+    expect(
+      within(person).getByText('Do not knock — skip this door'),
+    ).toBeInTheDocument()
+    expect(within(person).queryByText('Did they answer?')).toBeNull()
+    expect(within(person).queryByText('Notes')).toBeNull()
+    expect(within(person).queryByText('Already logged: Supporter')).toBeNull()
   })
 
   // A walkable multi-unit building routes as one stop with an address per
@@ -239,6 +283,7 @@ describe('WalkSheet', () => {
                 landline: null,
                 knockStatus: 'unknown',
                 mayHaveMoved: false,
+                doNotKnock: false,
               },
             ],
             otherResidents: [{ name: 'Anil Raman' }],
@@ -257,6 +302,7 @@ describe('WalkSheet', () => {
                 landline: null,
                 knockStatus: 'unknown',
                 mayHaveMoved: false,
+                doNotKnock: false,
               },
             ],
             otherResidents: [],
@@ -293,6 +339,7 @@ describe('WalkSheet', () => {
                 landline: null,
                 knockStatus: 'unknown',
                 mayHaveMoved: true,
+                doNotKnock: false,
               },
             ],
             otherResidents: [{ name: 'Ruben Vega' }],

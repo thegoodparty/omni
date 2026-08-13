@@ -6,6 +6,8 @@ import type {
   DoorKnockingTurf,
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionResponse,
+  SetDoNotKnock,
+  SetDoNotKnockResponse,
   UpdateDoorKnockingTurf,
   CreateOrdinanceRequest,
   ExperimentVariantsResponse,
@@ -768,6 +770,12 @@ export type APIEndpoints = {
   'POST /v1/door-knocking/interactions': {
     Request: RecordDoorKnockInteraction
     Response: RecordDoorKnockInteractionResponse
+  }
+  // ADR 0007. Separate from the interaction write because a do-not-knock is
+  // recordable with no outcome to log, and reversible on its own.
+  'POST /v1/door-knocking/do-not-knock': {
+    Request: SetDoNotKnock
+    Response: SetDoNotKnockResponse
   }
   'GET /v1/contacts/list-detail': {
     // Omitted segment = the universe row's detail (ENG-10778): the whole

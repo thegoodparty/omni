@@ -11,10 +11,13 @@ import {
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { GeoapifyRoutePlannerService } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
 import type { LngLat } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
 import {
   Campaign,
+  ContactStatusField,
+  DoNotKnockStatus,
   DoorKnockingRoute,
   Organization,
   OutreachStatus,
@@ -77,6 +80,7 @@ export class DoorKnockingKnockService extends createPrismaBase(
     private readonly peopleApi: DoorKnockingPeopleApiService,
     private readonly geoapify: GeoapifyRoutePlannerService,
     private readonly contacts: ContactsService,
+    private readonly contactStatus: ContactStatusService,
   ) {
     super()
   }
@@ -92,6 +96,16 @@ export class DoorKnockingKnockService extends createPrismaBase(
     const districtId =
       await this.contacts.resolveEligibleDistrictId(organization)
 
+    // ADR 0007. Read outside the transaction, like the district resolution
+    // above: it touches a different table and adding it to the critical
+    // section would hold the turf lock across another round trip. The set is
+    // the org's own flagged people, small by construction.
+    const excludePersonIds = await this.contactStatus.personIdsByFieldValue(
+      organization.slug,
+      ContactStatusField.do_not_knock,
+      [DoNotKnockStatus.active],
+    )
+
     return this.client.$transaction(
       async (tx) => {
         await lockTurf(tx, turfId)
@@ -104,9 +118,6 @@ export class DoorKnockingKnockService extends createPrismaBase(
             id: turfId,
             voterFileFilter: { organizationSlug: organization.slug },
           },
-          // activityConditions is a relation, so it has to be pulled in
-          // explicitly — without it the resolution below sees a list with no
-          // conditions and knocks the unfiltered roster.
           // activityConditions is a relation, so it has to be pulled in
           // explicitly — without it the resolution below sees a list with no
           // conditions and knocks the unfiltered roster.
@@ -154,6 +165,7 @@ export class DoorKnockingKnockService extends createPrismaBase(
           filters: resolved.filters,
           idOverrides: resolved.idOverrides,
           contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+          excludePersonIds,
         })
         const stops = this.buildStops(people, turf.geoPoly)
 

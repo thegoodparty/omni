@@ -67,7 +67,9 @@ interactive transaction:
 4. Evaluate the turf fresh via `src/peopleDb/` (resolved filters + the
    `idOverrides`/`contactsMadeIdOverrides` clauses that travel beside them +
    bbox; exact point-in-polygon ray-cast in-process — see "Interim geo"
-   below), dedupe to unique lat/lng stops, re-check the 150-stop cap.
+   below), dedupe to unique lat/lng stops, re-check the 150-stop cap. The
+   org's do-not-knock set is read _before_ the transaction and passed
+   separately as `excludePersonIds` (see "Do-not-knock").
 5. Check the daily waypoint budget (`waypointQuota.util.ts`): 500 stops per
    organization per rolling 24 hours, summed from the
    `door_knocking_route_planner_spend` ledger. Over budget → 429 and no vendor
@@ -120,6 +122,27 @@ reads as unknown (still worth knocking). The route
 payload ships `stopTargetId` per target (the interaction write key), no
 `navigate` block (phone builds deep links from lat/lng + a per-route
 locale), and is snapshotted offline on the phone.
+
+## Do-not-knock
+
+`POST /v1/door-knocking/do-not-knock` — see
+[ADR 0007](adr/0007-do-not-knock.md) for why this is its own
+`ContactStatusField` (`do_not_knock`, values `active` / `cleared`) rather
+than a `support_status` override: a refusal is an observation, an
+instruction not to return is not, and the two would otherwise share one
+override slot.
+
+Its own endpoint rather than a field on the knock payload, because it's
+recordable when there's no outcome worth logging and has to be reversible
+on its own. No `sourceId`: that key is for replayed activity syncs, and
+`changeStatus` already no-ops on an unchanged value, so a double-tap is
+free while a genuine reversal earns its own row.
+
+Suppression happens at evaluation (step 3 above), which a **frozen route
+has already passed** — so the serve payload also carries a live
+`doNotKnock` per target, and the walk view and printed sheet show a skip
+instead of a logging form. Deliberately not gated on Pro: the pilot's
+whole point is that a candidate can honor the request at the door.
 
 ## The pack (exploration map, step 2)
 

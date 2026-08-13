@@ -171,7 +171,10 @@ import { dirname, join, relative } from 'node:path'
 // 2026-08-13: 564 -> 565 for door-knocking/native/DoorScript.tsx. The door
 // script collapses on tap so it doesn't push the answer pills off a phone
 // screen, and it renders inside PersonSheet, which is already client-only.
-const BASELINE = 565
+// 2026-08-13: 565 -> 566 for door-knocking/native/DoNotKnockControl.tsx — a
+// mutating button pair (flag / undo) rendered inside the client-only
+// PersonSheet, peer to RecordKnockForm.tsx, so it can't render on the server.
+const BASELINE = 566
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

@@ -30,6 +30,11 @@ export const DoorKnockingEvaluateRequestSchema = z
     // stream a whole voter file. gp-api sizes it from the 150-stop cap times
     // observed voters-per-stop, with headroom.
     maxPeople: z.number().int().positive().max(50_000),
+    // ADR 0007: people the campaign was told not to visit again. Excluded
+    // unconditionally rather than through a filter, because suppression that
+    // depends on which filters a candidate happened to pick is suppression
+    // that silently stops working.
+    excludePersonIds: z.array(z.guid()).max(100_000).optional(),
   })
   .strict()
 

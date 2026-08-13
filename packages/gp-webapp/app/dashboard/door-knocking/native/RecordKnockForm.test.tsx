@@ -54,6 +54,7 @@ const target: RoutePayloadTarget = {
   landline: null,
   knockStatus: 'unknown',
   mayHaveMoved: false,
+  doNotKnock: false,
 }
 
 // What the hook does when a final transcript lands: hand back the whole

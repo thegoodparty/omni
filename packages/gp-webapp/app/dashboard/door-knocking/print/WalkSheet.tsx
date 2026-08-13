@@ -78,7 +78,17 @@ const TargetBlock = ({ target }: { target: RoutePayloadTarget }) => {
         </span>
         {detail && <span className="text-[10px]">{detail}</span>}
       </div>
-      {recorded ? (
+      {/* ADR 0007. Turf evaluation keeps flagged people off new lists, but it
+          cannot reach a route already frozen — and paper freezes again the
+          moment it prints. The name stays so the sheet still matches the app's
+          stop numbering; the tick-boxes go, because there is nothing to ask.
+          Checked before `recorded`: a flagged door is not to be knocked
+          whatever was logged there before. */}
+      {target.doNotKnock ? (
+        <div className="text-[10px] font-semibold">
+          Do not knock — skip this door
+        </div>
+      ) : recorded ? (
         <div className="text-[10px] italic">
           Already logged: {STATUS_LABELS[target.knockStatus]}
         </div>

@@ -50,6 +50,7 @@ const routePayload: DoorKnockingRoutePayload = {
               landline: null,
               knockStatus: 'supporter',
               mayHaveMoved: false,
+              doNotKnock: false,
             },
           ],
           otherResidents: [{ name: 'Ruben Vega' }],
@@ -80,6 +81,7 @@ const routePayload: DoorKnockingRoutePayload = {
               landline: null,
               knockStatus: 'unknown',
               mayHaveMoved: true,
+              doNotKnock: false,
             },
           ],
           otherResidents: [],
@@ -140,6 +142,35 @@ describe('WalkView', () => {
     const link = await screen.findByRole('link', { name: 'Print list' })
     expect(link).toHaveAttribute('href', '/dashboard/door-knocking/print/3')
     expect(link).toHaveAttribute('target', '_blank')
+  })
+
+  // ADR 0007. The marker has to survive walking on to the next stop, so it
+  // patches the route cache the way a recorded knock does.
+  it('marks a flagged door in the list and withholds the log form', async () => {
+    api.mock('POST /v1/door-knocking/do-not-knock', {
+      status: 200,
+      data: { personId: 'person-1', doNotKnock: true },
+    })
+
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
+
+    fireEvent.click(screen.getByRole('button', { name: /don.t knock/i }))
+
+    await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+
+    // Closing the sheet leaves the marker on the stop row itself. A
+    // single-resident stop never expands, so this is the only place a
+    // canvasser sees it before walking up.
+    fireEvent.click(
+      screen.getAllByRole('button', { name: 'Close person details' }).pop()!,
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull(),
+    )
+    const elmRow = screen.getAllByRole('listitem')[0] as HTMLElement
+    expect(within(elmRow).getByText('Do not knock')).toBeInTheDocument()
   })
 
   it('records an answered knock through the person sheet', async () => {

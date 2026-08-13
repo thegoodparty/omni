@@ -41,7 +41,10 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
   // Recorded statuses patch the route query cache itself (not component
   // state), so they survive leaving and re-opening the walk view within the
   // cache window; a real refetch replaces them with the server's derivation.
-  const applyKnockStatus = (personId: string, knockStatus: DoorKnockStatus) => {
+  const patchPerson = (
+    personId: string,
+    patch: (target: RoutePayloadTarget) => RoutePayloadTarget,
+  ) => {
     queryClient.setQueryData<DoorKnockingRoutePayload>(
       ['door-knocking-route', turfId],
       (old) =>
@@ -52,15 +55,19 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
             addresses: stop.addresses.map((address) => ({
               ...address,
               targets: address.targets.map((target) =>
-                target.personId === personId
-                  ? { ...target, knockStatus }
-                  : target,
+                target.personId === personId ? patch(target) : target,
               ),
             })),
           })),
         },
     )
   }
+  const applyKnockStatus = (personId: string, knockStatus: DoorKnockStatus) =>
+    patchPerson(personId, (target) => ({ ...target, knockStatus }))
+  // ADR 0007. Same cache patch as a knock, so the marker sticks while the
+  // canvasser moves down the list; the server is the truth on refetch.
+  const applyDoNotKnock = (personId: string, doNotKnock: boolean) =>
+    patchPerson(personId, (target) => ({ ...target, doNotKnock }))
   const [openStopId, setOpenStopId] = useState<number | null>(null)
   const [sheet, setSheet] = useState<{
     stopId: number
@@ -256,6 +263,18 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                             }}
                           />
                         ))}
+                        {/* ADR 0007. On the collapsed row, because a
+                            single-resident stop opens the sheet instead of
+                            expanding — without this, the common case shows an
+                            ordinary dot and the canvasser walks up to the
+                            door. */}
+                        {targetsForStop(stop).some(
+                          (target) => target.doNotKnock,
+                        ) && (
+                          <span className="font-medium text-warning">
+                            Do not knock
+                          </span>
+                        )}
                       </span>
                     </span>
                     {stop.legSeconds > 0 && (
@@ -291,16 +310,25 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                           <span className="min-w-0 flex-1 truncate">
                             {target.name ?? 'Name unavailable'}
                           </span>
-                          <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-                            <span
-                              className="h-2 w-2 rounded-full"
-                              style={{
-                                backgroundColor:
-                                  STATUS_DOT_COLORS[target.knockStatus],
-                              }}
-                            />
-                            {STATUS_LABELS[target.knockStatus]}
-                          </span>
+                          {/* ADR 0007. Read before walking up, not after
+                              opening the sheet, so the marker replaces the
+                              knock status rather than sitting beside it. */}
+                          {target.doNotKnock ? (
+                            <span className="shrink-0 text-xs font-medium text-warning">
+                              Do not knock
+                            </span>
+                          ) : (
+                            <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                              <span
+                                className="h-2 w-2 rounded-full"
+                                style={{
+                                  backgroundColor:
+                                    STATUS_DOT_COLORS[target.knockStatus],
+                                }}
+                              />
+                              {STATUS_LABELS[target.knockStatus]}
+                            </span>
+                          )}
                           <ChevronRightIcon size={14} className="shrink-0" />
                         </button>
                       ))}
@@ -328,6 +356,7 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
             })
             setSheet(null)
           }}
+          onDoNotKnockChanged={applyDoNotKnock}
           onClose={() => setSheet(null)}
         />
       )}

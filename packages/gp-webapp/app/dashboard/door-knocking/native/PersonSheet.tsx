@@ -10,6 +10,7 @@ import { IconButton, MapPinIcon, XMarkIcon } from '@styleguide'
 import RecordKnockForm from './RecordKnockForm'
 import DoorScript from './DoorScript'
 import { useDoorScript } from './useDoorScript'
+import DoNotKnockControl from './DoNotKnockControl'
 import { STATUS_DOT_COLORS, STATUS_LABELS } from './statusPresentation'
 
 const StatusDot = ({ status }: { status: DoorKnockStatus }) => (
@@ -29,6 +30,7 @@ interface PersonSheetProps {
     personId: string,
     knockStatus: DoorKnockStatus,
   ) => void
+  onDoNotKnockChanged: (personId: string, doNotKnock: boolean) => void
   onClose: () => void
 }
 
@@ -60,6 +62,7 @@ export default function PersonSheet({
   statusFor,
   clientKeyFor,
   onRecorded,
+  onDoNotKnockChanged,
   onClose,
 }: PersonSheetProps) {
   const targets = stop.addresses.flatMap((address) => address.targets)
@@ -202,18 +205,36 @@ export default function PersonSheet({
         </div>
 
         <div className="flex flex-col gap-3 border-t border-border p-4">
-          {/* Above the form, because it's what the canvasser says before there
-              is anything to log. */}
-          <DoorScript intro={script.intro} issues={script.issues} />
-          <h3 className="text-base font-semibold">Log this door</h3>
-          <RecordKnockForm
-            key={target.stopTargetId}
-            target={target}
-            clientKey={clientKeyFor(target.stopTargetId)}
-            onRecorded={(personId, knockStatus) =>
-              onRecorded(target.stopTargetId, personId, knockStatus)
-            }
-          />
+          {/* ADR 0007. The script and the form are withheld rather than
+              disabled: a flagged door has nothing to say and nothing to log,
+              and an inert set of pills invites someone to work out why they
+              don't respond. */}
+          {target.doNotKnock ? (
+            <DoNotKnockControl
+              key={target.stopTargetId}
+              target={target}
+              onChanged={onDoNotKnockChanged}
+            />
+          ) : (
+            <>
+              {/* Above the form, because it's what the canvasser says before
+                  there is anything to log. */}
+              <DoorScript intro={script.intro} issues={script.issues} />
+              <h3 className="text-base font-semibold">Log this door</h3>
+              <RecordKnockForm
+                key={target.stopTargetId}
+                target={target}
+                clientKey={clientKeyFor(target.stopTargetId)}
+                onRecorded={(personId, knockStatus) =>
+                  onRecorded(target.stopTargetId, personId, knockStatus)
+                }
+              />
+              <DoNotKnockControl
+                target={target}
+                onChanged={onDoNotKnockChanged}
+              />
+            </>
+          )}
         </div>
       </div>
     </>
