@@ -14,7 +14,7 @@ import { isJsonObject } from '@/shared/util/objects.util'
 import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTypes'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { SlackChannel } from '@/vendors/slack/slackService.types'
-import { isTestCampaign } from '@/users/util/users.util'
+import { isTestUser } from '@/users/util/users.util'
 
 const sqs = new SQS({})
 
@@ -25,7 +25,7 @@ export type ExperimentRunDispatchInput<
 > = {
   type: ExperimentType
   organizationSlug: string
-  clerkUserId: string
+  clerkUserId: string | undefined
   params: AgentJobContracts[ExperimentType]['Input']
   priority?: DispatchPriority
 }
@@ -86,7 +86,7 @@ export class ExperimentRunsService extends createPrismaBase(
       runId: string
       organizationSlug: string
       experimentType: string
-      clerkUserId: string
+      clerkUserId: string | undefined
       params: unknown
       priority: DispatchPriority
     },
@@ -111,7 +111,7 @@ export class ExperimentRunsService extends createPrismaBase(
   private async createAndEnqueueRun(input: {
     experimentType: string
     organizationSlug: string
-    clerkUserId: string
+    clerkUserId: string | undefined
     params: Prisma.InputJsonValue
     priority?: DispatchPriority
     resumeAttempts?: number
@@ -124,17 +124,17 @@ export class ExperimentRunsService extends createPrismaBase(
       )
       return
     }
-    const campaign = await this.client.campaign.findUnique({
-      where: { organizationSlug: input.organizationSlug },
-      select: { user: { select: { email: true } } },
+    const organization = await this.client.organization.findUnique({
+      where: { slug: input.organizationSlug },
+      select: { owner: { select: { email: true } } },
     })
-    if (isTestCampaign(campaign)) {
+    if (isTestUser({ email: organization?.owner.email ?? '' })) {
       this.logger.info(
         {
           organizationSlug: input.organizationSlug,
           experimentType: input.experimentType,
         },
-        'Skipping agent dispatch for test-user campaign',
+        'Skipping agent dispatch for test-user org',
       )
       return
     }
@@ -308,7 +308,10 @@ export class ExperimentRunsService extends createPrismaBase(
 
     // A successor run was created; terminalize the old row so it can't linger
     // forever as a non-terminal orphan (the resume sweep ignores a null
-    // resumeScheduledFor, and the stale sweep only touches RUNNING).
+    // resumeScheduledFor, and the stale sweep only touches RUNNING). SUPERSEDED
+    // (not FAILED): the predecessor did real work (e.g. bought the domain +
+    // published the site) and handed off to its successor — it is not an error,
+    // so the admin renders it as a benign "Part 1 completed", not a red failure.
     try {
       await this.model.updateMany({
         where: {
@@ -316,7 +319,7 @@ export class ExperimentRunsService extends createPrismaBase(
           status: ExperimentRunStatus.AWAITING_RESUME,
         },
         data: {
-          status: ExperimentRunStatus.FAILED,
+          status: ExperimentRunStatus.SUPERSEDED,
           error: 'Superseded by resumed run',
         },
       })

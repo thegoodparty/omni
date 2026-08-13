@@ -1,5 +1,5 @@
 import { ChatScope } from '../../../generated/prisma'
-import type { LlmTool } from '@/llm/services/llm.service'
+import type { LlmTool, LlmStreamUsage } from '@/llm/services/llm.service'
 import type { ChatAnchor } from '@goodparty_org/contracts'
 
 // Params a client sends to resolve (find-or-create) a conversation. Scope is
@@ -30,6 +30,8 @@ export interface ChatScopeHandler<
   isSensitive: boolean
   // Claude-only model chain for this scope, in fallback order.
   models: string[]
+  // Raises the tool-loop step budget for research-heavy scopes.
+  readonly maxSteps?: number
   resolveConversation: (
     params: ResolveConversationParams,
     userId: number,
@@ -37,6 +39,23 @@ export interface ChatScopeHandler<
   loadContext: (conversationId: string, userId: number) => Promise<TContext>
   buildSystemPrompt: (ctx: TContext) => string
   buildTools: (ctx: TContext) => Record<string, LlmTool>
+  // Optional pre-LLM hook: return a deterministic assistant reply for a
+  // recognized message (e.g. a kickoff sentinel) to skip the model; return
+  // null to run the normal turn.
+  maybeCannedReply?: (userMessage: string, ctx: TContext) => string | null
+  // Optional post-turn hook: receives the turn's resolved token usage and the
+  // model that produced it, after a clean finish. Scopes that meter cost (the
+  // ordinance flow) implement it; a throw is logged, never fails the turn.
+  onTurnUsage?: (
+    ctx: TContext,
+    usage: LlmStreamUsage,
+    model: string,
+  ) => void | Promise<void>
+  // Optional post-generation hook: given the full assembled assistant text on a
+  // clean finish, return a line to append (e.g. the CoS professional-advice
+  // disclaimer) or null to append nothing. The shared stream service streams it
+  // as the final text chunk and persists it with the turn.
+  finalizeAssistantText?: (text: string) => string | null
 }
 
 export const CHAT_SCOPE_HANDLERS = 'CHAT_SCOPE_HANDLERS'

@@ -109,6 +109,9 @@ test.describe('Custom office flow', () => {
       district: null,
       position: null,
       positionName: 'City Council',
+      // Exposed alongside the resolved positionName so admin tooling can
+      // tell a custom override from a structured position (ENG-10655).
+      customPositionName: 'City Council',
       // Org list now carries a derived status (ENG-10381); future election +
       // no result => active.
       status: 'active',
@@ -139,7 +142,9 @@ test.describe('Custom office flow', () => {
         officeTermLength: '4 years',
         state: 'NC',
         electionId: null,
-        zip: null,
+        // ENG-10618: the office-picker ZIP entered above (82001) now persists onto
+        // the campaign so HubSpot/Peerly can rent a robocall line with the right area code.
+        zip: '82001',
       },
     })
   })

@@ -1,7 +1,7 @@
 """meeting_briefing deep QA check library — schema + deterministic checks the runner's shim can't express.
 
 This is the SINGLE SOURCE OF TRUTH for the meeting_briefing checks, and a pure
-CHECK LIBRARY: it exposes `validate_schema`, the ten `check_*` functions, the
+CHECK LIBRARY: it exposes `validate_schema`, the twelve `check_*` functions, the
 `CHECKS` list, and the `Finding`/`Report` dataclasses. It has no entrypoint and
 runs nothing on import. `qa/main.py` (the sole deterministic QA-gate entrypoint)
 imports this module and drives it; the agent does NOT run these checks itself.
@@ -25,6 +25,7 @@ Two phases (orchestrated by main.py):
        - required_data_points coverage (every required: true point produced a value)
        - tier_reason / display consistency (budget_threshold → budget_impact non-null, etc.)
        - briefing_status / content consistency (awaiting_agenda → claims empty, etc.)
+       - recent_news recency (publication_date present and within 60 days of meeting_date)
        - source_extract presence-in-source (substring check, not LLM)
        - awaiting_agenda / no_meeting_found: all 4 discovery channels attempted (channel_<N>_ prefixes)
 
@@ -36,6 +37,7 @@ from __future__ import annotations
 import re
 import sys
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any
 
 try:
@@ -310,6 +312,55 @@ def check_required_data_points_coverage(artifact: dict, findings: list[Finding])
                 ))
 
 
+def check_recent_news_recency(artifact: dict, findings: list[Finding]) -> None:
+    """Every recent_news entry must carry a publication_date within 60 days of meeting_date.
+
+    The schema already requires publication_date to be present and non-null (Problem
+    Statement 2); this check adds the temporal bound the schema's format:"date" cannot
+    express on its own. Pure date arithmetic on data already in the artifact — no network
+    calls, consistent with the QA gate's side-effect-free convention.
+    """
+    meeting_date_str = artifact.get("meeting_date")
+    if not meeting_date_str:
+        return
+    try:
+        meeting_date = date.fromisoformat(meeting_date_str)
+    except ValueError:
+        return  # malformed meeting_date is a schema/consistency problem, not ours to report
+
+    for item in artifact.get("items", []):
+        iid = item.get("id")
+        display = item.get("display") or {}
+        for entry in display.get("recent_news") or []:
+            headline = (entry.get("headline") or "")[:80]
+            pub_date_str = entry.get("publication_date")
+            if not pub_date_str:
+                findings.append(Finding(
+                    "recent_news.missing_publication_date",
+                    "error",
+                    f"Item {iid} recent_news entry {headline!r} has no publication_date.",
+                ))
+                continue
+            try:
+                pub_date = date.fromisoformat(pub_date_str)
+            except ValueError:
+                findings.append(Finding(
+                    "recent_news.invalid_publication_date",
+                    "error",
+                    f"Item {iid} recent_news entry {headline!r} has an unparseable "
+                    f"publication_date: {pub_date_str!r}.",
+                ))
+                continue
+            age_days = (meeting_date - pub_date).days
+            if age_days > 60:
+                findings.append(Finding(
+                    "recent_news.stale",
+                    "error",
+                    f"Item {iid} recent_news entry {headline!r} is dated {pub_date_str}, "
+                    f"{age_days} days before meeting_date {meeting_date_str} (limit 60).",
+                ))
+
+
 def check_source_extracts_in_source(artifact: dict, findings: list[Finding]) -> None:
     """Each claim.source_extracts entry should appear in at least one cited source's retrieved_text_or_snapshot.
 
@@ -399,6 +450,19 @@ _REQUIRED_CHANNELS = frozenset(range(1, 5))
 # confirmed but the packet may or may not exist yet (the `awaiting_agenda`
 # path).
 _STALE_SCHEDULE_REASONS = frozenset({"no_meeting_on_target_date"})
+# A channel-0 POSITIVE read at the known agenda location (the hint passed from a
+# prior run) lets the agent bail without exhausting channels 1-4: it already
+# confirmed the meeting/agenda state at the authoritative location. Each bail
+# label is status-gated to the status it maps to in instruction.md, so a
+# mislabeled artifact (e.g. no_meeting_found carrying the awaiting_agenda label)
+# is NOT exempted — the decision field is a free-form string with no schema enum,
+# so this is the only guard against that contradiction. channel_0_unreachable_or_
+# unconfirmed is deliberately absent, so a failure to reach the hint still forces
+# full 4-channel discovery. Mirrors the status-gated stale-schedule exemption above.
+_CHANNEL_0_BAIL_BY_STATUS = {
+    "awaiting_agenda": "channel_0_confirmed_no_agenda_yet",
+    "no_meeting_found": "channel_0_confirmed_no_meeting",
+}
 
 
 def check_awaiting_agenda_discovery_depth(artifact: dict, findings: list[Finding]) -> None:
@@ -419,6 +483,12 @@ def check_awaiting_agenda_discovery_depth(artifact: dict, findings: list[Finding
     (the stale-schedule signal path) are exempt from the 4-channel
     requirement: the agent never reached packet discovery because the
     target meeting did not exist on the platform.
+
+    Both `awaiting_agenda` and `no_meeting_found` artifacts that record a
+    channel-0 CONFIRMED bail (`channel_0_confirmed_no_agenda_yet` /
+    `channel_0_confirmed_no_meeting`) are likewise exempt: channel 0
+    positively confirmed the meeting/agenda state at the known agenda
+    location, so the 4-channel sweep is redundant.
     """
     status = artifact.get("briefing_status")
     if status not in ("awaiting_agenda", "no_meeting_found"):
@@ -426,6 +496,11 @@ def check_awaiting_agenda_discovery_depth(artifact: dict, findings: list[Finding
     decisions = (artifact.get("run_metadata") or {}).get("run_decisions") or []
     if status == "no_meeting_found" and any(
         (d.get("reason") or "") in _STALE_SCHEDULE_REASONS for d in decisions
+    ):
+        return
+    expected_bail = _CHANNEL_0_BAIL_BY_STATUS.get(status)
+    if expected_bail and any(
+        (d.get("decision") or "") == expected_bail for d in decisions
     ):
         return
     channels_seen: set[int] = set()
@@ -509,15 +584,123 @@ def check_discovered_agenda_location(artifact: dict, findings: list[Finding]) ->
         ))
 
 
+# GoodParty/data internals that NEVER legitimately appear anywhere in a briefing —
+# our modeled-sentiment column ids, the data table, and the query column. Forbidden
+# in every field (including verbatim external snapshots). Regression gate for the
+# "Constituent-data framing" rule in instruction.md.
+_ALWAYS_INTERNAL_RE = re.compile(
+    r"hs_[a-z0-9_]+|goodparty_data_catalog|int__l2\w*|Voters_Active",
+    re.IGNORECASE,
+)
+# Ambiguous terms — forbidden only where WE describe modeled data (constituent-
+# sentiment prose and the constituent-data source itself). Agenda/news content can
+# legitimately mention "L2" (a route/district code), "Databricks" (an IT vendor),
+# "Haystaq", or "voter file", so these are NOT flagged in general item prose or in
+# non-constituent (agenda/news) source names and snapshots.
+_CONSTITUENT_TERM_RE = re.compile(
+    r"\bhaystaq\b|\bdatabricks\b|\bl2\b|\bvoter file\b",
+    re.IGNORECASE,
+)
+_POSTURE_RE = re.compile(r"posture override", re.IGNORECASE)
+
+
+def _framing_leak(text: str, strict: bool):
+    """Return the offending match, or None. `strict` adds the ambiguous constituent
+    terms (used for our modeled-data prose + the constituent-data source)."""
+    m = _ALWAYS_INTERNAL_RE.search(text)
+    if m:
+        return m
+    return _CONSTITUENT_TERM_RE.search(text) if strict else None
+
+
+def check_no_data_internals_in_candidate_text(artifact: dict, findings: list[Finding]) -> None:
+    """Candidate-facing text must never expose data-source internals, nor the
+    instruction's own "posture override" directive. Unambiguous internals (hs_*,
+    table, Voters_Active) are forbidden everywhere; the ambiguous terms (L2,
+    Databricks, Haystaq, voter file) are forbidden only in our modeled-data prose
+    and the constituent-data source, since agenda/news content may legitimately
+    use them."""
+
+    def scan(field, text, strict):
+        if not text:
+            return
+        m = _framing_leak(text, strict)
+        if m:
+            findings.append(Finding(
+                "candidate_text.data_source_internal_leak",
+                "error",
+                f"{field} exposes a data-source internal ('{m.group(0)}') to the official. "
+                f"Describe constituent data in plain English as GoodParty.org's data; keep "
+                f"hs_*/Haystaq/L2/Databricks/voter-file/table names out of candidate-facing text.",
+            ))
+        # The posture-override directive is internal authorization, not content, and
+        # must not leak into ANY candidate-facing field (instruction.md forbids it globally).
+        if _POSTURE_RE.search(text):
+            findings.append(Finding(
+                "candidate_text.posture_override_leak",
+                "error",
+                f"{field} contains a 'posture override' directive — internal authorization, "
+                f"not content. Text: {text[:120]!r}",
+            ))
+
+    es = artifact.get("executive_summary") or {}
+    scan("executive_summary.lead_in", es.get("lead_in") or "", False)
+    for i, e in enumerate(es.get("items") or []):
+        scan(f"executive_summary.items[{i}].overview", e.get("overview") or "", False)
+    for it in artifact.get("items") or []:
+        iid = it.get("id")
+        d = it.get("display") or {}
+        scan(f"items[{iid}].display.summary", d.get("summary") or "", False)
+        cs = d.get("constituent_sentiment")
+        if isinstance(cs, dict):
+            for k in ("summary", "detail", "score_direction", "district_note"):
+                scan(f"items[{iid}].display.constituent_sentiment.{k}", cs.get(k) or "", True)
+        for j, tp in enumerate(d.get("talking_points") or []):
+            # talking_points is oneOf legacy array<string> / new array<{text, why}> — scan whichever shape.
+            if isinstance(tp, dict):
+                scan(f"items[{iid}].display.talking_points[{j}].text", tp.get("text") or "", False)
+                scan(f"items[{iid}].display.talking_points[{j}].why", tp.get("why") or "", False)
+            else:
+                scan(f"items[{iid}].display.talking_points[{j}]", tp or "", False)
+        bi = d.get("budget_impact")
+        if isinstance(bi, dict):
+            scan(f"items[{iid}].display.budget_impact.summary", bi.get("summary") or "", False)
+    # Sources: the constituent-data source (source_type 'haystaq') is held to the
+    # strict set on both its name and snapshot; other sources (agenda/news/etc.) only
+    # to the unambiguous internals, since their names/snapshots quote external text.
+    for s in artifact.get("sources") or []:
+        strict = s.get("source_type") == "haystaq"
+        scan(f"sources[{s.get('id')}].name", s.get("name") or "", strict)
+        snap = s.get("retrieved_text_or_snapshot") or ""
+        m = _framing_leak(snap, strict) if snap else None
+        if m:
+            findings.append(Finding(
+                "source_snapshot.data_source_internal_leak",
+                "error",
+                f"sources[{s.get('id')}].retrieved_text_or_snapshot contains a data-source "
+                f"internal ('{m.group(0)}'). Keep hs_* columns, table names, and SQL out; "
+                f"summarize constituent data as GoodParty.org's data.",
+            ))
+        if snap and _POSTURE_RE.search(snap):
+            findings.append(Finding(
+                "source_snapshot.posture_override_leak",
+                "error",
+                f"sources[{s.get('id')}].retrieved_text_or_snapshot contains a 'posture "
+                f"override' directive — internal authorization, not content.",
+            ))
+
+
 CHECKS = [
     check_briefing_status_consistency,
     check_cross_reference_integrity,
     check_tier_reason_consistency,
     check_featured_item_completeness,
     check_required_data_points_coverage,
+    check_recent_news_recency,
     check_source_extracts_in_source,
     check_disclosure_present,
     check_run_decisions_meaningful,
     check_awaiting_agenda_discovery_depth,
     check_discovered_agenda_location,
+    check_no_data_internals_in_candidate_text,
 ]

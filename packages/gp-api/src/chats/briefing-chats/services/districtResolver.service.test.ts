@@ -162,6 +162,66 @@ describe('DistrictResolverService', () => {
         state: 'CA',
         l2DistrictType: 'City',
         l2DistrictName: 'Oakland',
+        level: null,
+      })
+    })
+  })
+
+  describe('resolveByOrgSlug', () => {
+    it('returns null when no org exists for the slug', async () => {
+      const result = await resolver.resolveByOrgSlug('missing-slug')
+      expect(result).toBeNull()
+    })
+
+    it('returns null when the org has no positionId', async () => {
+      const org = await createOrg(service.user.id)
+      const result = await resolver.resolveByOrgSlug(org.slug)
+      expect(result).toBeNull()
+    })
+
+    it('resolves the district from the org position (no elected office)', async () => {
+      const org = await createOrg(service.user.id, { positionId: 'pos-cam' })
+      organizations.getDistrictForOrgSlug.mockResolvedValueOnce({
+        id: 'd-cam',
+        l2Type: 'City',
+        l2Name: 'Springfield',
+      })
+      elections.getPositionById.mockResolvedValueOnce({
+        id: 'pos-cam',
+        state: 'IL',
+      })
+
+      const result = await resolver.resolveByOrgSlug(org.slug)
+      expect(result).toEqual({
+        state: 'IL',
+        l2DistrictType: 'City',
+        l2DistrictName: 'Springfield',
+        level: null,
+      })
+    })
+
+    // The position's BallotReady level distinguishes a state legislator from
+    // a city councilor; consumers (the ordinance flow) frame the entire
+    // drafting exercise off it, so the resolver must not drop it.
+    it('carries the position level through the resolution', async () => {
+      const org = await createOrg(service.user.id, { positionId: 'pos-lvl' })
+      organizations.getDistrictForOrgSlug.mockResolvedValueOnce({
+        id: 'd-lvl',
+        l2Type: 'State_House_District',
+        l2Name: 'State House District 12',
+      })
+      elections.getPositionById.mockResolvedValueOnce({
+        id: 'pos-lvl',
+        state: 'NC',
+        level: 'STATE',
+      })
+
+      const result = await resolver.resolveByOrgSlug(org.slug)
+      expect(result).toEqual({
+        state: 'NC',
+        l2DistrictType: 'State_House_District',
+        l2DistrictName: 'State House District 12',
+        level: 'STATE',
       })
     })
   })
@@ -172,6 +232,7 @@ describe('DistrictResolverService', () => {
         state: 'CA',
         l2DistrictType: 'City',
         l2DistrictName: 'Oakland',
+        level: null,
       })
       expect(filters).toEqual([
         { column: 'state_postal_code', value: 'CA' },

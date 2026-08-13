@@ -1,12 +1,13 @@
 export type OnboardingStepId =
-  | 'intent'
   | 'welcome'
   | 'ballot-status'
   | 'party-affiliation'
   | 'office-selection'
   | 'manual-office-entry'
   | 'path-to-victory'
-  | 'voter-demographics'
+  | 'campaign-story-why'
+  | 'campaign-story-background'
+  | 'campaign-story-issues'
   | 'pledge'
 
 // Set only by the follow-on flow (running for re-election / a new office from

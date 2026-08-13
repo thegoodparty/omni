@@ -12,12 +12,10 @@ const trimmed = (s: string): string => s.trim()
 
 export const UpdateCampaignStorySchema = z
   .object({
-    why: z.string().max(MAX_LENGTH).transform(trimmed).optional(),
     background: z.string().max(MAX_LENGTH).transform(trimmed).optional(),
-    issues: z.string().max(MAX_LENGTH).transform(trimmed).optional(),
   })
   .refine((data) => Object.values(data).some((value) => value !== undefined), {
-    message: 'At least one of why, background, or issues must be provided',
+    message: 'background must be provided',
   })
 
 export type UpdateCampaignStoryInput = z.infer<typeof UpdateCampaignStorySchema>

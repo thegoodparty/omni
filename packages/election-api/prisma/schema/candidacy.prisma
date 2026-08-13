@@ -39,7 +39,12 @@ model Candidacy {
   positionDescription    String? @map("position_description")
 
   // Relations
-  Stances Stance[]
-  Race    Race?    @relation(fields: [raceId], references: [id])
-  raceId  String?  @map("race_id") @db.Uuid
+  Stances  Stance[]
+  Race     Race?    @relation(fields: [raceId], references: [id])
+  raceId   String?  @map("race_id") @db.Uuid
+  Person   Person?  @relation(fields: [personId], references: [id])
+  personId String?  @map("person_id") @db.Uuid // = gpCandidateId, typed FK to Person
+
+  @@index([personId])
+  @@index([raceId])
 }

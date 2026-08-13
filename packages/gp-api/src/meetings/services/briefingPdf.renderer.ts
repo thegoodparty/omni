@@ -446,8 +446,7 @@ function drawTocPage(
   }
 
   let truncatedAt: number | null = null
-  for (let i = 0; i < featured.length; i++) {
-    const item = featured[i]
+  for (const [i, item] of featured.entries()) {
     const ok = drawRow(
       `${i + 1}. ${item.title}`,
       String(pageNumbers.featured[i] ?? ''),
@@ -623,7 +622,7 @@ function drawItemBody(
   if (d.talking_points && d.talking_points.length > 0) {
     drawH2(doc, 'Talking points')
     for (const point of d.talking_points) {
-      drawBullet(doc, point)
+      drawBullet(doc, typeof point === 'string' ? point : point.text)
     }
   }
 }

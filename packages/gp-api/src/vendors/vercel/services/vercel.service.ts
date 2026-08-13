@@ -211,6 +211,18 @@ export class VercelService {
     }
   }
 
+  async getRegistrarOrder(orderId: string) {
+    try {
+      return await this.client.domainsRegistrar.getOrder({
+        orderId,
+        teamId: VERCEL_TEAM_ID,
+      })
+    } catch (error) {
+      this.logger.error({ error }, `Error getting registrar order ${orderId}:`)
+      throw error
+    }
+  }
+
   async getDomainDetails(domainName: string) {
     try {
       return await this.client.domains.getDomain({

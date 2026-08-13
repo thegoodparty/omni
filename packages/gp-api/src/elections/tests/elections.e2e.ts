@@ -4,7 +4,7 @@ import { HttpStatus } from '@nestjs/common'
 test.describe('Elections', () => {
   test('should get races by zip code', async ({ request }) => {
     const response = await request.get(
-      '/v1/elections/races-by-year?level=LOCAL&electionDate=2028-11-15&zipcode=90210',
+      '/v1/elections/races-by-year?level=LOCAL&timeframe=future&zipcode=90210',
     )
 
     expect(response.status()).toBe(HttpStatus.OK)
@@ -18,6 +18,7 @@ test.describe('Elections', () => {
     expect(Array.isArray(races)).toBe(true)
     if (races.length > 0) {
       const firstRace = races[0]
+      if (!firstRace) return
       expect(typeof firstRace.id).toBe('string')
       expect(typeof firstRace.brPositionId).toBe('string')
       expect(typeof firstRace.election.electionDay).toBe('string')

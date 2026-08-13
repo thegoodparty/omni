@@ -1,6 +1,13 @@
 import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
 import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
-import { BadRequestException, Body, Controller, Post } from '@nestjs/common'
+import { CampaignsService } from '@/campaigns/services/campaigns.service'
+import {
+  BadRequestException,
+  Body,
+  ConflictException,
+  Controller,
+  Post,
+} from '@nestjs/common'
 import { Campaign, Organization, User } from '../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 import { serializeError } from 'serialize-error'
@@ -23,6 +30,7 @@ export class PurchaseController {
     private readonly stripeService: StripeService,
     private readonly usersService: UsersService,
     private readonly purchaseService: PurchaseService,
+    private readonly campaignsService: CampaignsService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(PurchaseController.name)
@@ -33,6 +41,49 @@ export class PurchaseController {
     @ReqUser() user: User,
     @Body() dto: CreateProCheckoutSessionDto = {},
   ) {
+    // The fulfillment webhooks resolve the campaign via findActiveByUserId
+    // and skip with a 2xx when nothing qualifies, so a session sold to a user
+    // with no active campaign charges them with no Pro and no cancel path
+    // (ENG-10657 follow-up). Refuse to sell instead.
+    const activeCampaign = await this.campaignsService.findActiveByUserId(
+      user.id,
+    )
+    if (!activeCampaign) {
+      throw new BadRequestException({
+        message: 'User does not have an active campaign',
+        errorCode: 'NO_ACTIVE_CAMPAIGN',
+      })
+    }
+
+    // A second completed subscription checkout double-bills the user under a
+    // second Stripe customer (sessions carry only customer_email, so Stripe
+    // cannot dedupe them itself).
+    if (activeCampaign.isPro) {
+      throw new ConflictException({
+        message: 'Campaign already has an active Pro subscription',
+        errorCode: 'ALREADY_PRO',
+      })
+    }
+
+    // Any still-open previous session stays payable even after this user
+    // becomes Pro — expiring it caps each user at one payable Pro checkout
+    // at a time.
+    const previousCheckoutSessionId = user.metaData?.checkoutSessionId ?? null
+    if (previousCheckoutSessionId) {
+      const previousSession = await this.stripeService.expireCheckoutSession(
+        previousCheckoutSessionId,
+      )
+      // A completed previous session means a payment already went through
+      // and the isPro flip is still in flight (the completion webhook clears
+      // the stored id) — selling another checkout here double-subscribes.
+      if (previousSession === 'complete') {
+        throw new ConflictException({
+          message: 'The previous checkout session was already paid',
+          errorCode: 'CHECKOUT_ALREADY_COMPLETED',
+        })
+      }
+    }
+
     const { email } = user
 
     if (dto.embedded) {
@@ -43,7 +94,11 @@ export class PurchaseController {
           dto.returnUrl,
         )
 
-      await this.usersService.patchUserMetaData(user.id, { checkoutSessionId })
+      await this.storeCheckoutSessionId(
+        user.id,
+        previousCheckoutSessionId,
+        checkoutSessionId,
+      )
 
       return { clientSecret }
     }
@@ -51,9 +106,46 @@ export class PurchaseController {
     const { redirectUrl, checkoutSessionId } =
       await this.stripeService.createCheckoutSession(user.id, email)
 
-    await this.usersService.patchUserMetaData(user.id, { checkoutSessionId })
+    await this.storeCheckoutSessionId(
+      user.id,
+      previousCheckoutSessionId,
+      checkoutSessionId,
+    )
 
     return { redirectUrl }
+  }
+
+  // Compare-and-swap so two concurrent creations can't both go payable: the
+  // loser sees the winner's id already stored, withdraws its own session,
+  // and rejects — leaving exactly one open Pro checkout per user.
+  private async storeCheckoutSessionId(
+    userId: number,
+    previousCheckoutSessionId: string | null,
+    checkoutSessionId: string,
+  ) {
+    const claimed = await this.usersService.compareAndSwapCheckoutSessionId(
+      userId,
+      previousCheckoutSessionId,
+      checkoutSessionId,
+    )
+    if (claimed) return
+
+    // Best-effort cleanup: the conflict verdict stands either way, and a
+    // thrown 502 here would invite client retries that mint more orphaned
+    // payable sessions.
+    try {
+      await this.stripeService.expireCheckoutSession(checkoutSessionId)
+    } catch (error) {
+      this.logger.error(
+        { error: serializeError(error), checkoutSessionId },
+        'Failed to expire loser checkout session after CAS conflict — ' +
+          'session may need manual cleanup',
+      )
+    }
+    throw new ConflictException({
+      message: 'Another checkout session is already in progress',
+      errorCode: 'CHECKOUT_IN_PROGRESS',
+    })
   }
 
   @Post('portal-session')

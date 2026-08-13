@@ -6,6 +6,7 @@ import { lastValueFrom } from 'rxjs'
 import { z } from 'zod'
 import { ApiCandidate, RaceContextFromApi } from '../types/electionApi.types'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
+import { ElectionApiTokenService } from '@/vendors/clerk/services/electionApiToken.service'
 
 // Both CAP experiments share one input contract; the campaign_strategy_context
 // slice is the experiment-facing shape election-api hydrates.
@@ -148,6 +149,7 @@ export class ElectionApiService {
   constructor(
     private readonly httpService: HttpService,
     private readonly logger: PinoLogger,
+    private readonly tokenService: ElectionApiTokenService,
   ) {
     this.logger.setContext(ElectionApiService.name)
     const baseUrl = process.env.ELECTION_API_URL
@@ -160,8 +162,9 @@ export class ElectionApiService {
   private async fetchRaw(brHashId: string): Promise<ApiResponse> {
     const url = `${this.baseUrl}/${ElectionApiService.PATH}`
     try {
+      const headers = await this.tokenService.authHeader()
       const { data } = await lastValueFrom(
-        this.httpService.post<unknown>(url, { brHashId }),
+        this.httpService.post<unknown>(url, { brHashId }, { headers }),
       )
       const parsed = ApiResponseSchema.safeParse(data)
       if (!parsed.success) {

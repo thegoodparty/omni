@@ -3,7 +3,10 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/lib/test-utils'
 import { CampaignForm } from './CampaignForm'
-import type { CampaignWithLiveContext } from '@goodparty_org/sdk'
+import type {
+  AdminOrganization,
+  CampaignWithLiveContext,
+} from '@goodparty_org/sdk'
 import {
   CampaignLaunchStatus,
   OnboardingStep,
@@ -11,15 +14,16 @@ import {
   ElectionLevel,
   CampaignTier,
 } from '@goodparty_org/sdk'
-import {
-  combinedCampaignSchema,
-  type CombinedCampaignFormData,
-} from '../schema'
+import { type CombinedCampaignFormData } from '../schema'
 import { UNSAVED_CHANGES_MESSAGE } from '../constants'
 import { useNavigationGuard } from 'next-navigation-guard'
 
 vi.mock('next-navigation-guard', () => ({
   useNavigationGuard: vi.fn(),
+}))
+
+vi.mock('@/app/dashboard/organizations/actions', () => ({
+  updateOrganizationPositionName: vi.fn(),
 }))
 
 class ResizeObserverMock {
@@ -131,6 +135,47 @@ describe('CampaignForm', () => {
       // "Party" appears as section heading and field label
       expect(screen.getByRole('heading', { name: 'Party' })).toBeInTheDocument()
       expect(screen.getByText('Background')).toBeInTheDocument()
+    })
+
+    it('renders an editable position editor when the organization is provided', () => {
+      const organization: AdminOrganization = {
+        slug: 'campaign-1',
+        name: '2026 Campaign',
+        positionName: 'City Council',
+        customPositionName: 'City Council',
+        position: {
+          id: 'pos-1',
+          name: 'City Council - District 1',
+          state: 'FL',
+          brPositionId: 'br-1',
+        },
+        district: null,
+        electedOfficeId: null,
+        campaignId: 1,
+      }
+
+      renderWithProviders(
+        <CampaignForm
+          initialData={mockCampaign}
+          organization={organization}
+          onSave={onSave}
+          onCancel={onCancel}
+        />
+      )
+
+      expect(screen.getByDisplayValue('City Council')).toBeEnabled()
+      expect(
+        screen.getByRole('button', { name: 'Save Position' })
+      ).toBeInTheDocument()
+    })
+
+    it('renders a read-only position when the organization is missing', () => {
+      renderForm()
+
+      expect(
+        screen.queryByRole('button', { name: 'Save Position' })
+      ).not.toBeInTheDocument()
+      expect(screen.getByText(/no organization record/)).toBeInTheDocument()
     })
 
     it('renders status flag toggles', () => {
@@ -296,6 +341,73 @@ describe('CampaignForm', () => {
         expect(
           screen.getByRole('button', { name: /save changes/i })
         ).toBeEnabled()
+      })
+    })
+
+    it('enables Save when Can Download Federal is toggled', async () => {
+      renderForm()
+      const user = userEvent.setup()
+
+      await user.click(
+        screen.getByRole('switch', { name: 'Can Download Federal' })
+      )
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+    })
+
+    // Stored campaigns predate the current schema: `launchStatus` and
+    // `ballotLevel` live in JSON blobs where legacy rows hold null, and the
+    // enums accept undefined but not null. Those rows used to mount the form
+    // invalid, which left Save disabled no matter what the admin toggled.
+    it('enables Save on a campaign whose stored enum fields are null', async () => {
+      renderForm({
+        data: { ...mockCampaign.data, launchStatus: null },
+        details: { ...mockCampaign.details, ballotLevel: null },
+      } as unknown as Partial<CampaignWithLiveContext>)
+      const user = userEvent.setup()
+
+      await user.click(
+        screen.getByRole('switch', { name: 'Can Download Federal' })
+      )
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+    })
+
+    it('enables Save when canDownloadFederal is absent from the payload', async () => {
+      renderForm({
+        canDownloadFederal: undefined,
+      } as unknown as Partial<CampaignWithLiveContext>)
+      const user = userEvent.setup()
+
+      await user.click(
+        screen.getByRole('switch', { name: 'Can Download Federal' })
+      )
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+    })
+
+    // Mount-time validation sets validity without populating `errors`, so an
+    // invalid stored value used to be invisible. Whether it blocks a save is
+    // covered by the dirty-gate tests; this one only asserts it is on screen.
+    it('surfaces the offending field when stored data fails validation', async () => {
+      renderForm({
+        details: { ...mockCampaign.details, website: 'example.com' },
+      } as unknown as Partial<CampaignWithLiveContext>)
+
+      await waitFor(() => {
+        expect(screen.getByText(/invalid/i)).toBeInTheDocument()
       })
     })
 
@@ -489,14 +601,21 @@ describe('CampaignForm', () => {
       })
     })
 
-    it('does not call onSave when safeParse fails', async () => {
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-      renderForm()
+    // Stored campaigns can hold values the current schema rejects (a website
+    // saved without a scheme, an enum since dropped from the catalog). Those
+    // are not the admin's doing, so they must not block an unrelated edit —
+    // that is what left the status-flag toggles unsaveable.
+    it('saves an unrelated edit when untouched stored data is invalid', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      onSave.mockResolvedValue(undefined)
+      renderForm({
+        details: { ...mockCampaign.details, website: 'example.com' },
+      } as unknown as Partial<CampaignWithLiveContext>)
       const user = userEvent.setup()
 
-      const nameInput = screen.getByDisplayValue('Test Campaign')
-      await user.clear(nameInput)
-      await user.type(nameInput, 'Updated')
+      await user.click(
+        screen.getByRole('switch', { name: 'Can Download Federal' })
+      )
 
       await waitFor(() => {
         expect(
@@ -504,24 +623,22 @@ describe('CampaignForm', () => {
         ).toBeEnabled()
       })
 
-      const failedResult = combinedCampaignSchema.safeParse(null)
-      vi.spyOn(combinedCampaignSchema, 'safeParse').mockReturnValueOnce(
-        failedResult
-      )
-
       await user.click(screen.getByRole('button', { name: /save changes/i }))
 
-      expect(consoleSpy).toHaveBeenCalled()
-      expect(onSave).not.toHaveBeenCalled()
+      expect(onSave).toHaveBeenCalledOnce()
+      expect(onSave.mock.calls[0][0].canDownloadFederal).toBe(true)
+      expect(warnSpy).toHaveBeenCalled()
 
-      consoleSpy.mockRestore()
-      vi.mocked(combinedCampaignSchema.safeParse).mockRestore()
+      warnSpy.mockRestore()
     })
   })
 
   describe('defaults for nullable fields', () => {
     it('handles null data and details gracefully', () => {
-      renderForm({ data: undefined, details: undefined } as Partial<Campaign>)
+      renderForm({
+        data: undefined,
+        details: undefined,
+      } as Partial<CampaignWithLiveContext>)
 
       expect(screen.getByText('Campaign Status')).toBeInTheDocument()
       expect(screen.getByText('Location')).toBeInTheDocument()

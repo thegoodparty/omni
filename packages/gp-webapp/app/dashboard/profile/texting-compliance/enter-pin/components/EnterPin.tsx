@@ -17,7 +17,7 @@ import { getPinChannels } from 'app/dashboard/profile/texting-compliance/shared/
 import { useSubmitCvPin } from 'app/dashboard/profile/texting-compliance/shared/useSubmitCvPin'
 import PinForm from 'app/dashboard/profile/texting-compliance/shared/PinForm'
 
-const PROFILE_ROUTE = '/dashboard/profile'
+const PROFILE_ROUTE = '/dashboard/account'
 
 const REDIRECT_STATUSES: ReadonlyArray<string> = [
   TCR_COMPLIANCE_STATUS.PENDING,
@@ -89,11 +89,11 @@ function OutOfStateNotice(): React.JSX.Element {
     <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
       <p>
         This step isn’t available yet. Complete the previous steps from your
-        profile to continue.
+        account to continue.
       </p>
       <div className="mt-3">
         <Link href={PROFILE_ROUTE} className="text-blue-600 underline">
-          Back to profile
+          Back to account
         </Link>
       </div>
     </div>

@@ -1,26 +1,26 @@
 'use client'
 
 import DashboardLayout from '../../shared/DashboardLayout'
-import CampaignSection from './CampaignSection'
-import OfficeSection from './OfficeSection'
-import WhyRunningSection from './WhyRunningSection'
-import PolicyPrioritiesSection from './PolicyPrioritiesSection'
-import { CandidatePositionsProvider } from 'app/dashboard/campaign-details/components/issues/CandidatePositionsProvider'
+import DashboardPageHeader from 'app/dashboard/shared/DashboardPageHeader'
+import ProfileHeroCard from './cards/ProfileHeroCard'
+import OfficeDetailsCard from './cards/OfficeDetailsCard'
+import YourDetailsCard from './cards/YourDetailsCard'
+import { WebsiteSunsetBanner } from 'app/dashboard/shared/WebsiteSunsetBanner'
+import { isWebsiteSunsetEligible } from 'app/dashboard/shared/websiteSunset'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import { Campaign, User, CandidatePosition } from 'helpers/types'
-import { Card } from '@styleguide'
-
-interface TopIssue {
-  id: number
-  name: string
-  positions?: { id: number; name: string }[]
-}
+import { useUser } from '@shared/hooks/useUser'
+import { useQuery } from '@tanstack/react-query'
+import {
+  getUserWebsite,
+  getWebsiteUrl,
+  USER_WEBSITE_QUERY_KEY,
+} from 'app/dashboard/website/util/website.util'
+import { Campaign, User, Website } from 'helpers/types'
+import { ExternalLink } from 'lucide-react'
 
 interface DetailsPageProps {
   pathname: string
   campaign: Campaign | undefined
-  candidatePositions: CandidatePosition[]
-  topIssues: TopIssue[]
   user?: User | null
 }
 
@@ -28,28 +28,53 @@ export default function DetailsPage(
   props: DetailsPageProps,
 ): React.JSX.Element {
   const [campaign] = useCampaign()
-  const campaignProps = { ...props, campaign: campaign ?? undefined }
+  const [user] = useUser()
+
+  const { data: website } = useQuery<Website | null>({
+    queryKey: USER_WEBSITE_QUERY_KEY,
+    queryFn: getUserWebsite,
+  })
+
+  const activeCampaign = campaign ?? props.campaign
+  const activeUser = user ?? props.user ?? null
+
+  // Only surface "View public profile" once the candidate has a published
+  // site to point at.
+  const publicUrl =
+    website?.vanityPath && website.status === 'published'
+      ? getWebsiteUrl(website.vanityPath, false, website.domain)
+      : undefined
 
   return (
-    <DashboardLayout {...props}>
-      <CandidatePositionsProvider candidatePositions={props.candidatePositions}>
-        <div className="max-w-[940px] mx-auto flex flex-col gap-4 py-5">
-          {campaign && (
-            <Card className="p-6">
-              <CampaignSection {...campaignProps} carded />
-            </Card>
-          )}
-          <Card className="p-6">
-            <OfficeSection campaign={campaign ?? undefined} carded />
-          </Card>
-          <Card className="p-6">
-            <WhyRunningSection />
-          </Card>
-          <Card className="p-6">
-            <PolicyPrioritiesSection />
-          </Card>
+    <DashboardLayout pathname={props.pathname} wrapperClassName="!p-0">
+      <DashboardPageHeader
+        title="Profile"
+        description="Manage your public profile information"
+        primaryAction={
+          publicUrl
+            ? {
+                label: 'View public profile',
+                icon: <ExternalLink size={16} />,
+                onClick: () =>
+                  window.open(publicUrl, '_blank', 'noopener,noreferrer'),
+              }
+            : undefined
+        }
+      />
+
+      <div className="w-full bg-muted px-4 py-6 pb-20 sm:px-8 md:px-16">
+        <div className="mx-auto flex w-full max-w-[640px] flex-col gap-4">
+          <WebsiteSunsetBanner
+            eligible={isWebsiteSunsetEligible(website ?? null)}
+          />
+
+          <ProfileHeroCard user={activeUser} />
+
+          <OfficeDetailsCard campaign={activeCampaign} />
+
+          <YourDetailsCard campaign={activeCampaign} />
         </div>
-      </CandidatePositionsProvider>
+      </div>
     </DashboardLayout>
   )
 }

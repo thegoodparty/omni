@@ -54,6 +54,6 @@ test.describe('Multi-Organization User', () => {
   test('is signed in to an organization', async ({ page }) => {
     await signIn(page, TEST_USERS.MULTI_ORG)
 
-    await expect(page.getByText(/Development|QA|Production/)).toBeVisible()
+    await expect(page.getByText(/Development|Production/)).toBeVisible()
   })
 })

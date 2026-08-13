@@ -5,6 +5,12 @@ import { appendFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { PrismaClient, ExperimentRunStatus } from '../src/generated/prisma'
 import { createClerkClient } from '@clerk/backend'
+import { isInactiveUser } from '../src/shared/util/userActivity.util'
+
+// dispatchManual (behind /v1/meetings/briefings/dispatch) has no activity gate
+// of its own — only dispatchBriefingIfNeeded (the cron path) checks this. Until
+// that gap is closed server-side, replicate the same 30-day check here so a
+// manual run doesn't dispatch to offices the cron would skip.
 
 const BRIEFING_COST_USD = 3.9
 const TOKEN_TTL_SECONDS = 3600
@@ -33,7 +39,7 @@ const mintToken = async (): Promise<string> => {
     publishableKey: requireEnv('CLERK_PUBLISHABLE_KEY'),
   })
   // Mint with the caller machine secret (gp-admin's GP_PROD_MACHINE_SECRET),
-  // not gp-api's GP_WEBAPP_MACHINE_SECRET. gp-api verifies as the recipient,
+  // not gp-api's GP_API_MACHINE_SECRET. gp-api verifies as the recipient,
   // so the token must be issued by a machine connected to it in Clerk.
   const minted = await clerk.m2m.createToken({
     machineSecretKey: requireEnv('GP_PROD_MACHINE_SECRET'),
@@ -78,10 +84,25 @@ async function main() {
 
   const prisma = new PrismaClient({ datasourceUrl: databaseUrl })
   const allOffices = await prisma.electedOffice.findMany({
-    select: { id: true, organizationSlug: true },
+    select: {
+      id: true,
+      organizationSlug: true,
+      user: { select: { metaData: true } },
+    },
   })
 
-  const pool = shuffle(allOffices)
+  const now = new Date()
+  const activeOffices = allOffices.filter(
+    (o) => !isInactiveUser(o.user?.metaData?.lastVisited, now),
+  )
+  const skippedInactive = allOffices.length - activeOffices.length
+
+  const pool = shuffle(
+    activeOffices.map((o) => ({
+      id: o.id,
+      organizationSlug: o.organizationSlug,
+    })),
+  )
   const maxEstimate = target * BRIEFING_COST_USD
 
   if (dryRun) {
@@ -89,7 +110,9 @@ async function main() {
       [
         'DRY RUN — no token minted, no dispatches sent.',
         `Target:          ${apiUrl}`,
-        `Prod offices:    ${pool.length} (shuffled)`,
+        `Prod offices:    ${allOffices.length} total`,
+        `Local activity gate: ${skippedInactive} skipped (30+ day inactive)`,
+        `Eligible pool:   ${pool.length} (shuffled)`,
         `Goal:            ${target} briefings actually dispatched`,
         `Gate:            useImminenceGate=true (serve-ICP + 3-day window + dedupe)`,
         `Concurrency:     ${concurrency}`,
@@ -114,7 +137,9 @@ async function main() {
   const proceed = await confirm(
     [
       `Target:        ${apiUrl}`,
-      `Prod offices:  ${pool.length} (shuffled)`,
+      `Prod offices:  ${allOffices.length} total`,
+      `Skipped:       ${skippedInactive} (30+ day inactive)`,
+      `Eligible pool: ${pool.length} (shuffled)`,
       `Goal:          ${target} briefings dispatched (serve-ICP + 3-day gate)`,
       `Concurrency:   ${concurrency}`,
       `Max in-flight: ${maxInFlight} agents running at once`,
@@ -293,6 +318,7 @@ async function main() {
     JSON.stringify(
       {
         goal: target,
+        skippedInactive,
         dispatched,
         callsMade: records.length,
         okCalls,

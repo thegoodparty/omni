@@ -6,6 +6,19 @@ import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
 import FollowOnFlow from './FollowOnFlow'
 
+// PathToVictoryStep reads the org's resolved district so it can skip a stats fetch
+// that could only 400 (and skip the Sentry report for that expected state).
+// useOrganization throws outside its provider, and these flow tests render without
+// the root layout that supplies it.
+vi.mock('@shared/organization-picker', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@shared/organization-picker')>()),
+  useOrganization: () => ({
+    slug: 'campaign-1',
+    positionName: 'Mayor',
+    district: { id: 'd1', l2Type: 'City', l2Name: 'Austin' },
+  }),
+}))
+
 const eligibility = (reelectionOfficeSlug: string | null) => ({
   hasActiveCampaign: false,
   holdsOffice: Boolean(reelectionOfficeSlug),
@@ -33,7 +46,7 @@ beforeEach(() => {
 })
 
 describe('FollowOnFlow', () => {
-  it('renders the intent screen with the held office name (same-office)', async () => {
+  it('lands on welcome with no intent screen (same-office)', async () => {
     api.mock('GET /v1/eligibility', { status: 200, data: eligibility('eo-1') })
     api.mock('GET /v1/organizations', {
       status: 200,
@@ -42,19 +55,20 @@ describe('FollowOnFlow', () => {
 
     render(<FollowOnFlow intent="same-office" fromOrganizationSlug="eo-1" />)
 
+    // The switcher action is the intent — re-election goes straight to welcome
+    // rather than re-asking on an intent screen.
     expect(
       await screen.findByRole('heading', {
         level: 1,
-        name: /re-election in City Council Member/i,
+        name: /set up your new campaign/i,
       }),
     ).toBeInTheDocument()
     expect(
-      screen.getByText("I'm running for the same office"),
-    ).toBeInTheDocument()
-    expect(screen.getByLabelText(/same office/i)).toBeChecked()
+      screen.queryByText("I'm running for the same office"),
+    ).not.toBeInTheDocument()
   })
 
-  it('exits to the dashboard when Back is clicked on the intent step', async () => {
+  it('exits to the dashboard when Back is clicked on the first step', async () => {
     vi.mocked(router.push!).mockClear()
     api.mock('GET /v1/eligibility', { status: 200, data: eligibility('eo-1') })
     api.mock('GET /v1/organizations', {
@@ -72,7 +86,7 @@ describe('FollowOnFlow', () => {
     expect(router.push).toHaveBeenCalledWith('/dashboard')
   })
 
-  it('skips the intent screen for a candidate with no held office', async () => {
+  it('lands on welcome for a new-office candidate', async () => {
     api.mock('GET /v1/eligibility', { status: 200, data: eligibility(null) })
     api.mock('GET /v1/organizations', {
       status: 200,
@@ -119,23 +133,89 @@ describe('FollowOnFlow', () => {
       fromOrganizationSlug: 'eo-1',
     })
 
-    // Back is locked after creation so the user can't return to the intent
-    // step and switch intent on an already-created campaign.
+    // Back is locked after creation so the user can't return and undo it on an
+    // already-created campaign.
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /back/i })).toBeDisabled(),
     )
   })
 
-  it('disables continue for same-office without a held-office slug', async () => {
+  it('keeps Back disabled while the follow-on create is in flight', async () => {
+    let resolvePost!: (value: { status: 200; data: never }) => void
+    const postGate = new Promise<{ status: 200; data: never }>((resolve) => {
+      resolvePost = resolve
+    })
     api.mock('GET /v1/eligibility', { status: 200, data: eligibility('eo-1') })
     api.mock('GET /v1/organizations', {
       status: 200,
       data: { organizations: [heldOfficeOrg] },
     })
+    // Suspend the create so the isCreating window (liveCampaign still null) is
+    // observable: Back must be disabled then, or a first-step exit would
+    // abandon the session mid-creation.
+    api.mock('POST /v1/campaigns/follow-on', () => postGate)
 
-    // Direct ?intent=same-office URL with no ?from=: Continue must stay
-    // disabled rather than firing a request the server would 400. Back still
-    // offers a way out (it exits to the dashboard on this first step).
+    render(<FollowOnFlow intent="same-office" fromOrganizationSlug="eo-1" />)
+
+    const backButton = await screen.findByRole('button', { name: /back/i })
+    // Enabled before the create starts (first step exits to the dashboard).
+    expect(backButton).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+
+    // In flight liveCampaign is still null, so this exercises the isCreating
+    // branch of the disabled guard specifically.
+    await waitFor(() => expect(backButton).toBeDisabled())
+
+    resolvePost({
+      status: 200,
+      data: { id: 4242, slug: 'campaign-4242' } as never,
+    })
+    // Still disabled after creation (now via liveCampaign).
+    await waitFor(() => expect(backButton).toBeDisabled())
+  })
+
+  it('inherits the held office from eligibility for same-office without ?from=', async () => {
+    let followOnBody: unknown = null
+    api.mock('GET /v1/eligibility', { status: 200, data: eligibility('eo-1') })
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [heldOfficeOrg] },
+    })
+    api.mock('POST /v1/campaigns/follow-on', (request) => {
+      followOnBody = request.body
+      return { status: 200, data: { id: 4242, slug: 'campaign-4242' } as never }
+    })
+
+    // Direct ?intent=same-office URL with no ?from=: the flow backfills the held
+    // office from eligibility (reelectionOfficeSlug) so the same-office run still
+    // inherits the position rather than 400ing on a missing source org.
+    render(<FollowOnFlow intent="same-office" />)
+
+    const continueButton = await screen.findByRole('button', {
+      name: /continue/i,
+    })
+    // Continue is gated until the slug backfills from eligibility.
+    await waitFor(() => expect(continueButton).toBeEnabled())
+    fireEvent.click(continueButton)
+
+    await waitFor(() => expect(followOnBody).not.toBeNull())
+    expect(followOnBody).toEqual({
+      intent: 'same-office',
+      fromOrganizationSlug: 'eo-1',
+    })
+  })
+
+  it('keeps Continue disabled for same-office when no held-office slug resolves', async () => {
+    api.mock('GET /v1/eligibility', { status: 200, data: eligibility(null) })
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [] },
+    })
+
+    // No ?from= and no reelectionOfficeSlug to backfill from (e.g. the
+    // eligibility lookup resolved nothing): Continue must stay disabled rather
+    // than firing a follow-on the server would 400. Back still exits the flow.
     render(<FollowOnFlow intent="same-office" />)
 
     expect(
@@ -170,11 +250,11 @@ describe('FollowOnFlow', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /continue/i }))
 
-    // Advances to the next step (welcome) with no error surfaced.
+    // Advances to the next step (ballot-status) with no error surfaced.
     expect(
       await screen.findByRole('heading', {
         level: 1,
-        name: /set up your new campaign/i,
+        name: /already on the ballot/i,
       }),
     ).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()

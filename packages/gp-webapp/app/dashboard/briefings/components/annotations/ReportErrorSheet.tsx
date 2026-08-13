@@ -12,7 +12,7 @@ import {
 import { useIsMobile } from '@styleguide/hooks/use-mobile'
 import type { ResolvedAnchor } from '@shared/briefings/anchorResolver'
 import { reportErrorToSentry } from '@shared/sentry'
-import type { SheetState } from './AnnotationsScope'
+import type { SheetState } from './sheetState'
 import type { PredictedPosition } from './enrichForCycler'
 import { useClearSelectionOnOpen } from './useClearSelectionOnOpen'
 import { AnchoredQuote } from './AnchoredQuote'

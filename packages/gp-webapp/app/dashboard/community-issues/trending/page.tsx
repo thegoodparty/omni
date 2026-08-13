@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import pageMetaData from 'helpers/metadataHelper'
 import { serverRequest } from 'gpApi/server-request'
-import { ArrowLeftIcon } from 'styleguide/components/ui/icons'
+import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import serveAccess from '../../shared/serveAccess'
 import DashboardLayout from '../../shared/DashboardLayout'
 import IssueCard from '../components/IssueCard'

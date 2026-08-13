@@ -1,12 +1,19 @@
+import { format } from 'date-fns'
 import { createOutreach } from 'helpers/createOutreach'
 import { createVoterFileFilter } from 'helpers/createVoterFileFilter'
 import { createP2pPhoneList, PhoneListInput } from 'helpers/createP2pPhoneList'
 import { noop, noopAsync } from '@shared/utils/noop'
 import { getEffectiveOutreachType } from 'app/dashboard/outreach/util/getEffectiveOutreachType'
 import { FREE_TEXTS_OFFER } from 'app/dashboard/outreach/constants'
+import { DISPLAY_TASK_TYPES } from 'app/dashboard/shared/constants/tasks.const'
 import { VoterFileFilters } from 'helpers/types'
 import { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import { OutreachType } from 'gpApi/types/outreach.types'
+import {
+  AUDIENCE_FILTER_SNAKE_KEYS,
+  AudienceFilterCamelKey,
+  snakeToCamelAudienceKey,
+} from 'app/dashboard/outreach/util/audienceFilterKeyMap'
 
 const PEERLY_DEFAULT_IMAGE_TITLE = `P2P Outreach - Campaign`
 
@@ -19,14 +26,20 @@ export interface AudienceState {
   audience_likelyVoters?: boolean
   audience_unreliableVoters?: boolean
   audience_unlikelyVoters?: boolean
-  audience_firstTimeVoters?: boolean
+  audience_unknown?: boolean
   party_independent?: boolean
   party_democrat?: boolean
   party_republican?: boolean
+  party_other?: boolean
   age_18_25?: boolean
   age_25_35?: boolean
   age_35_50?: boolean
   age_50_plus?: boolean
+  age_18_24?: boolean
+  age_25_34?: boolean
+  age_35_49?: boolean
+  age_50_64?: boolean
+  age_65_plus?: boolean
   gender_male?: boolean
   gender_female?: boolean
   gender_unknown?: boolean
@@ -67,29 +80,35 @@ interface CreateVoterFileFilterParams {
     voterCount?: number
   }
   errorSnackbar?: (message: string) => void
+  // Injectable for deterministic tests; the name carries the send date so
+  // candidates can tell auto-created lists apart (ENG-10521).
+  now?: Date
 }
 
-// MappedAudience is the subset of VoterFileFilters used for audience mapping
-type MappedAudience = Pick<
-  VoterFileFilters,
-  | 'audienceSuperVoters'
-  | 'audienceLikelyVoters'
-  | 'audienceUnreliableVoters'
-  | 'audienceUnlikelyVoters'
-  | 'audienceFirstTimeVoters'
-  | 'partyIndependent'
-  | 'partyDemocrat'
-  | 'partyRepublican'
-  | 'age18_25'
-  | 'age25_35'
-  | 'age35_50'
-  | 'age50Plus'
-  | 'genderMale'
-  | 'genderFemale'
-  | 'genderUnknown'
->
+// Auto-created outreach filters get a name carrying the send date so candidates
+// can tell them apart (ENG-10521). They're still throwaways created on every
+// send, not lists a candidate built — AUTO_VOTER_FILTER_NAME_PATTERN keeps them
+// out of the saved-list selector (ENG-10514). Both live here so the produced
+// name and the matcher that hides it can't drift apart.
+const AUTO_VOTER_FILTER_NAME_SUFFIX = ' outreach — '
 
-type MappedAudienceKey = keyof MappedAudience
+const buildAutoVoterFileFilterName = (
+  type: OutreachType,
+  now: Date,
+): string => {
+  const label = DISPLAY_TASK_TYPES[type] || type
+  return `${label}${AUTO_VOTER_FILTER_NAME_SUFFIX}${format(now, 'MMM d, yyyy')}`
+}
+
+export const AUTO_VOTER_FILTER_NAME_PATTERN = new RegExp(
+  `${AUTO_VOTER_FILTER_NAME_SUFFIX.replace(
+    /[.*+?^${}()|[\]\\]/g,
+    '\\$&',
+  )}[A-Z][a-z]{2} \\d{1,2}, \\d{4}$`,
+)
+
+// MappedAudience is the subset of VoterFileFilters used for audience mapping
+type MappedAudience = Pick<VoterFileFilters, AudienceFilterCamelKey>
 
 export const handleCreateOutreach =
   ({
@@ -105,12 +124,13 @@ export const handleCreateOutreach =
     refreshCampaign = noopAsync,
     p2pUxEnabled = true,
   }: CreateOutreachParams) =>
-  async (): Promise<Outreach | undefined> => {
+  async (options?: { draft?: boolean }): Promise<Outreach | undefined> => {
     const { audience_request: audienceRequest } = audience || {}
     const { message } = schedule || {}
     const date = schedule?.date
     const voterFileFilterId = voterFileFilter?.id
     const outreachType = getEffectiveOutreachType(type, p2pUxEnabled)
+    const draft = options?.draft
 
     const discount = hasFreeTextsOffer
       ? Math.min(textCount ?? 0, FREE_TEXTS_OFFER.COUNT)
@@ -141,6 +161,7 @@ export const handleCreateOutreach =
           : {}),
         ...(campaignPlanDueDate ? { campaignPlanDueDate } : {}),
         ...textCounts,
+        ...(draft ? { draft: true } : {}),
       },
       image || null,
     )
@@ -150,91 +171,34 @@ export const handleCreateOutreach =
       return
     }
 
-    setOutreaches([...outreaches, outreach])
-
-    await refreshCampaign()
+    // Drafts are hidden server-side until payment finalizes them — appending
+    // one to the visible list would show a phantom campaign.
+    if (!draft) {
+      setOutreaches([...outreaches, outreach])
+      await refreshCampaign()
+    }
 
     return outreach
   }
 
-export const mapAudienceForPersistence = ({
-  audience_superVoters: audienceSuperVoters,
-  audience_likelyVoters: audienceLikelyVoters,
-  audience_unreliableVoters: audienceUnreliableVoters,
-  audience_unlikelyVoters: audienceUnlikelyVoters,
-  audience_firstTimeVoters: audienceFirstTimeVoters,
-  party_independent: partyIndependent,
-  party_democrat: partyDemocrat,
-  party_republican: partyRepublican,
-  age_18_25: age18_25,
-  age_25_35: age25_35,
-  age_35_50: age35_50,
-  age_50_plus: age50Plus,
-  gender_male: genderMale,
-  gender_female: genderFemale,
-  gender_unknown: genderUnknown,
-}: AudienceState = {}): MappedAudience => {
-  // TODO: Fix the keys for the audience values in the CustomVoterAudienceFilters
-  //  to match the API once we redo that component so that we don't have to do
-  //  this mapping: https://goodparty.atlassian.net/browse/WEB-4277
-
-  // If making a change, also update:
-  // gp-webapp/app/dashboard/outreach/util/downloadVoterList.util.ts
-  // gp-webapp/app/dashboard/components/tasks/flows/util/flowHandlers.util.ts
-  // gp-webapp/app/dashboard/outreach/util/convertAudienceFiltersForModal.util.ts
-  // gp-webapp/app/dashboard/outreach/util/formatAudienceLabels.util.ts
-  // gp-webapp/app/dashboard/outreach/constants.tsx
-  const mappedAudience: MappedAudience = {
-    audienceSuperVoters,
-    audienceLikelyVoters,
-    audienceUnreliableVoters,
-    audienceUnlikelyVoters,
-    audienceFirstTimeVoters,
-    partyIndependent,
-    partyDemocrat,
-    partyRepublican,
-    age18_25,
-    age25_35,
-    age35_50,
-    age50Plus,
-    genderMale,
-    genderFemale,
-    genderUnknown,
-  }
-
-  const AUDIENCE_KEYS: MappedAudienceKey[] = [
-    'audienceSuperVoters',
-    'audienceLikelyVoters',
-    'audienceUnreliableVoters',
-    'audienceUnlikelyVoters',
-    'audienceFirstTimeVoters',
-    'partyIndependent',
-    'partyDemocrat',
-    'partyRepublican',
-    'age18_25',
-    'age25_35',
-    'age35_50',
-    'age50Plus',
-    'genderMale',
-    'genderFemale',
-    'genderUnknown',
-  ]
-
-  return AUDIENCE_KEYS.reduce<MappedAudience>(
-    (acc, k) => ({
-      ...acc,
-      ...(Boolean(mappedAudience[k]) ? { [k]: mappedAudience[k] } : {}),
-    }),
-    {},
-  )
-}
+// Translates the underscore-keyed audience form state into the camelCase
+// VoterFileFilters shape the API persists, keeping only the selected (truthy)
+// audiences. The snake_case <-> camelCase vocabulary lives in audienceFilterKeyMap.
+export const mapAudienceForPersistence = (
+  audience: AudienceState = {},
+): MappedAudience =>
+  AUDIENCE_FILTER_SNAKE_KEYS.reduce<MappedAudience>((acc, snakeKey) => {
+    const value = audience[snakeKey]
+    return value ? { ...acc, [snakeToCamelAudienceKey(snakeKey)]: value } : acc
+  }, {})
 
 export const handleCreatePhoneList =
   (errorSnackbar: (message: string) => void = noop) =>
   async (
     voterFileFilter: PhoneListInput | undefined,
+    voterFileFilterId?: number,
   ): Promise<string | undefined> => {
-    const result = await createP2pPhoneList(voterFileFilter)
+    const result = await createP2pPhoneList(voterFileFilter, voterFileFilterId)
 
     if (!result.ok) {
       const fallback =
@@ -248,16 +212,16 @@ export const handleCreatePhoneList =
 export const handleCreateVoterFileFilter =
   ({
     type,
-    state: { audience, voterCount },
+    state: { audience },
     errorSnackbar = noop,
+    now = new Date(),
   }: CreateVoterFileFilterParams) =>
   async (): Promise<PhoneListInput | undefined> => {
     const chosenAudiences = mapAudienceForPersistence(audience)
 
     const voterFileFilter = await createVoterFileFilter({
-      name: `${type} Campaign`,
+      name: buildAutoVoterFileFilterName(type, now),
       ...chosenAudiences,
-      voterCount,
     })
 
     if (!voterFileFilter) {

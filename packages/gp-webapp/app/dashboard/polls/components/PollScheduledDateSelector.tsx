@@ -60,10 +60,8 @@ const CustomDay = (props: DayProps) => {
       <TooltipTrigger asChild>
         <Day {...props} />
       </TooltipTrigger>
-      <TooltipContent side="top" className="bg-black text-white">
-        <p className="text-sm text-white text-center my-0.5">
-          {disabledState.reason}
-        </p>
+      <TooltipContent side="top">
+        <p className="text-sm text-center my-0.5">{disabledState.reason}</p>
       </TooltipContent>
     </Tooltip>
   )

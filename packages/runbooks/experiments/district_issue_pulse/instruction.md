@@ -40,6 +40,7 @@ Given a state + district, produce the top 5 issues voters there care about and p
 - The broker auto-injects `WHERE Residence_Addresses_State = '<state>'` AND `Residence_Addresses_City IN (<cities>)` into every query. **DO NOT add these clauses yourself.** Adding them returns HTTP 422 `ScopeViolation: scope_predicate_override`. The only WHERE clauses your query needs are the L2 district column and `Voters_Active = 'A'`.
 - **`Voters_Active` is a STRING.** Use `Voters_Active = 'A'`. `Voters_Active = 1` matches zero rows.
 - **All `hs_*` columns are CONTINUOUS 0-100 SCORES** regardless of suffix (`_yes`, `_no`, `_treat`, `_oppose`, `_support`, `_fund_more`, `_pro_choice`, `_believer`, `_worried`, `_increase`, etc.). Threshold with `>= 50` (moderate) or `>= 70` (strong). Using `= 1` because the name "looks binary" inverts your rankings — you will get all top issues at <5%.
+- **Scores are within-state percentile ranks (mean ~50), so `>= 50` counts voters at or above the state median.** `voter_percentage` therefore means the share of active district voters at or above the state median on that issue — NOT absolute issue support, and ~50% means "typical for the state", not a 50/50 opinion split; the informative ranking signal is the deviation from 50%. A score is not a percentage, not an observed survey answer, and not a comparison across states; a low score is a lean away from the labeled stance, not evidence of the opposite stance. Never frame `voter_percentage` as "X% of voters support Y". Exception: `hs_new_home_buyer`/`hs_any_home_buyer` are ~60-baseline propensity models — the percentile read and thresholds do not apply; they are not stance columns and the Step 2 suffix filter deliberately excludes them (do not add them back). Second exception: ~106 `hs_*` columns exist only in a 12- or 39-state vendor vintage and are null elsewhere — an all-null column scores 0% with a correct query; that is no coverage, not opposition (a NULL `max` in Step 3 confirms it; exclude the column).
 - **Conditional counts use `SUM(CASE WHEN ... THEN 1 ELSE 0 END)`.** Postgres `COUNT(*) FILTER (WHERE ...)` is a syntax error in Databricks.
 - **Use named placeholders** when parameterizing: `cursor.execute("... WHERE col = :foo", {"foo": value})`. Positional `?` raises a SQL error.
 - **Every query must reference an allowed table.** Bare `SELECT 1` (no FROM) is rejected.
@@ -93,7 +94,7 @@ ORDER BY column_name
 LIMIT 1000
 ```
 
-Filter the returned column names to issue-stance columns by suffix: `_support`, `_oppose`, `_yes`, `_no`, `_treat`, `_fund_more`, `_pro_choice`, `_believer`, `_worried`, `_good`, `_bad`, `_too_harsh`, `_too_lax`, `_increase`, `_decrease`, `_has_role`, `_at_fault`, `_no_fault`. Pick 10-12 candidates that span distinct policy areas (don't pick three crime columns). The full set is large — never try to score all 300+ in one query.
+Filter the returned column names to issue-stance columns by suffix: `_support`, `_oppose`, `_yes`, `_no`, `_treat`, `_fund_more`, `_pro_choice`, `_believer`, `_worried`, `_good`, `_bad`, `_too_harsh`, `_too_lax`, `_increase`, `_decrease`, `_has_role`, `_at_fault`, `_no_fault`. This filter also deliberately excludes `hs_new_home_buyer`/`hs_any_home_buyer` (~60-baseline propensity models, not stance columns — see the score rule in CRITICAL RULES); do not add them back. Pick 10-12 candidates that span distinct policy areas (don't pick three crime columns). The full set is large — never try to score all 300+ in one query.
 
 ### Step 3 — Distribution check (REQUIRED — do not skip)
 
@@ -111,9 +112,9 @@ WHERE `<L2_TYPE>` = :district_name
 
 Pass `{"district_name": L2_NAME}`. Substitute `<L2_TYPE>` literally into the SQL string (it's a column identifier, not a value — placeholders can't bind identifiers).
 
-If `max <= 1` for any column → it's binary; use `= 1` for that column. If `max ~= 100` → continuous; use `>= 50`. The runbook's experience says continuous is overwhelmingly the case; if you see binary, log a note in your reasoning and adjust thresholds for that specific column.
+If `max <= 1` for any column → it's binary; use `= 1` for that column. If `max ~= 100` → continuous; use `>= 50`. If `max` is NULL → the column has no coverage in this state (~106 columns exist only in a 12- or 39-state vendor vintage and are null elsewhere); exclude it and pick a replacement candidate from Step 2, widening the Step 2 pool if exclusions leave fewer than 5 viable issues (the artifact requires exactly 5). The runbook's experience says continuous is overwhelmingly the case; if you see binary, log a note in your reasoning and adjust thresholds for that specific column.
 
-### Step 4 — Batched per-issue support query
+### Step 4 — Batched per-issue alignment query
 
 ONE query, all 10-12 candidates at once. Build the SUM aggregations programmatically:
 
@@ -188,7 +189,7 @@ If validation fails, read the error, fix the artifact, re-run. Do NOT declare su
 Validator-passing JSON can still be garbage. Before declaring success, manually verify:
 
 - **`total_active_voters` plausibly matches one district, not the whole city.** If the number looks like a city-wide voter count, the L2 district WHERE clause matched zero rows and the broker's auto-injected city scope is the only filter that hit. Re-confirm `L2_TYPE` and `L2_NAME` came verbatim from `PARAMS_JSON` and that you backtick-quoted the column.
-- **No top-5 entry has `voter_percentage` < 5%.** All-low percentages mean you used `= 1` instead of `>= 50` (binary inference from suffix). Re-do the distribution check in Step 3.
+- **No top-5 entry has `voter_percentage` < 5%.** If any entry shows near-zero, first check whether that column has null coverage in this state (two vendor vintages: ~106 columns exist only in a 12-state or 39-state set; they are null elsewhere). A null-only column returns 0% with the correct `>= 50` threshold — exclude it and re-run Step 4. Only if coverage is confirmed (`max > 0` in Step 3) does near-zero mean you used `= 1` instead of `>= 50`; re-do the distribution check in Step 3 in that case.
 - **No two top-5 entries are from the same policy area.** If the top 5 is ["police_trust_yes", "violent_crime_very_worried", "crime_too_lax", ...], your candidate list in Step 2 was too narrow — broaden it and re-run Step 4.
 - **Every news URL loads AND mentions the issue.** Don't trust search snippets blindly; you already `pmf_runtime.http.get`'d in Step 5, but re-confirm any URL where the summary feels generic.
 
@@ -200,6 +201,7 @@ Validator-passing JSON can still be garbage. Before declaring success, manually 
 | Databricks query "syntax error" on `COUNT(*) FILTER` | Postgres syntax, not Databricks | Use `SUM(CASE WHEN ... THEN 1 ELSE 0 END)` |
 | `Voters_Active = 1` returns 0 rows | `Voters_Active` is a STRING | Use `Voters_Active = 'A'` |
 | All top-5 percentages < 5% | Used `= 1` instead of `>= 50` (binary inference from suffix) | Re-run Step 3 distribution check, then Step 4 |
+| One entry at exactly 0% | Column is null in this state (12-/39-state vendor vintages) — 0% even with a correct `>= 50` | Exclude the column and re-run Step 4; a null `max` in Step 3 confirms no coverage |
 | `total_active_voters` looks like the whole city | Backtick-quoted L2 column wrong, or `L2_NAME` mismatched | Re-confirm L2_TYPE/L2_NAME from PARAMS_JSON; check column name spelling |
 | Bare `SELECT 1` rejected | Every query must reference the allowlisted table | Add `FROM goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq` |
 | Positional `?` placeholder errors | Databricks requires named placeholders | Use `:name` and pass `{"name": value}` |

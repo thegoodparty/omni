@@ -11,7 +11,6 @@ import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
 import type { Organization } from 'gpApi/api-endpoints'
 import { setCookie } from 'helpers/cookieHelper'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import {
@@ -25,22 +24,18 @@ import OnboardingTopBar from '../shared/OnboardingTopBar'
 import { buildFollowOnPayload } from './followOnPayload'
 import { FOLLOW_ON_STEPS, firstFollowOnStepId } from './followOnConfig'
 import { getVisibleOnboardingSteps } from './onboardingHelpers'
-import { IntentStep } from './IntentStep'
 import { OfficeSelectionStep } from './OfficeSelectionStep'
 import { ManualOfficeEntryStep } from './ManualOfficeEntryStep'
 import { PathToVictoryStep } from './PathToVictoryStep'
-import { VoterDemographicsStep } from './VoterDemographicsStep'
 import { PledgeStep } from './PledgeStep'
 import { RadioCardGroup, type RadioCardOption } from './RadioCardGroup'
 import type {
   BallotStatus,
   FollowOnIntent,
   OnboardingAnswers,
-  OnboardingStepConfig,
   OnboardingStepId,
   PartyAffiliation,
   SelectedOffice,
-  NonEmptyArray,
 } from './onboardingTypes'
 
 // These option sets and party mappings intentionally mirror OnboardingFlow's.
@@ -133,11 +128,8 @@ export default function FollowOnFlow({
 
   const reelectionOfficeSlug =
     eligibilityQuery.data?.reelectionOfficeSlug ?? null
-  // A candidate who never held office only reaches this flow via "run for a
-  // new office" (the switcher hides the re-election action without a held
-  // office), so the intent is already new-office. We additionally hide the
-  // intent screen for them per the design.
-  const hasHeldOffice = Boolean(reelectionOfficeSlug)
+  // Resolved only to label the path-to-victory step with the held office while
+  // the new campaign is still being created.
   const officeName = useMemo(() => {
     const orgs = organizationsQuery.data ?? []
     return (
@@ -147,10 +139,9 @@ export default function FollowOnFlow({
   }, [organizationsQuery.data, reelectionOfficeSlug])
 
   const [answers, setAnswers] = useState<OnboardingAnswers>(() => ({
-    // Pre-seed same-office (it carries fromOrganizationSlug); leave new-office
-    // unseeded so the office-holder makes an explicit choice on the intent
-    // screen instead of being able to skip past a pre-selected card.
-    followOnIntent: intent === 'same-office' ? intent : undefined,
+    // The switcher action the user clicked is the intent; carry the held-office
+    // slug for same-office so the server can inherit the position.
+    followOnIntent: intent,
     fromOrganizationSlug:
       intent === 'same-office' ? fromOrganizationSlug : undefined,
   }))
@@ -161,22 +152,7 @@ export default function FollowOnFlow({
   const [isP2vLoading, setIsP2vLoading] = useState(true)
   const [isCreating, setIsCreating] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  // Freeze whether the user holds an office the moment the initial data lands.
-  // Background refetches (window focus, or the eligibility invalidation in
-  // setNewCampaignActive) must not flip hasHeldOffice and mutate the step set
-  // mid-flow, which would silently jump the user off the intent step.
-  const [frozenHasHeldOffice, setFrozenHasHeldOffice] = useState<
-    boolean | null
-  >(null)
   const isAdvancingRef = useRef(false)
-  // Dedupe "viewed" analytics per step (mirrors OnboardingFlow's
-  // viewedStepsFiredRef): on the new-office path the user can navigate back to
-  // the intent step and forward again, which would otherwise re-fire the event.
-  const viewedStepsFiredRef = useRef<Set<OnboardingStepId>>(new Set())
-  // The intent decision is reported once, only after the step is successfully
-  // left. Guarding it avoids re-firing on a same-office creation retry and on
-  // new-office back-navigation to the intent step.
-  const intentCompletedFiredRef = useRef(false)
   // Early answers (party / ballot status) collected before the campaign
   // exists. If the post-creation flush fails, they're parked here and retried
   // on the next advance — Back is disabled after creation, so there's no other
@@ -187,23 +163,7 @@ export default function FollowOnFlow({
 
   const ready = !eligibilityQuery.isPending && !organizationsQuery.isPending
 
-  useEffect(() => {
-    if (ready && frozenHasHeldOffice === null) {
-      setFrozenHasHeldOffice(hasHeldOffice)
-    }
-  }, [ready, frozenHasHeldOffice, hasHeldOffice])
-
-  // Drop the intent step entirely for no-office candidates; the rest of the
-  // standard step set begins at welcome.
-  const flowSteps = useMemo<NonEmptyArray<OnboardingStepConfig>>(
-    () =>
-      (frozenHasHeldOffice ?? hasHeldOffice)
-        ? FOLLOW_ON_STEPS
-        : (FOLLOW_ON_STEPS.slice(
-            1,
-          ) as unknown as NonEmptyArray<OnboardingStepConfig>),
-    [frozenHasHeldOffice, hasHeldOffice],
-  )
+  const flowSteps = FOLLOW_ON_STEPS
 
   const visibleSteps = getVisibleOnboardingSteps(flowSteps, answers)
   const activeIndex = Math.max(
@@ -218,29 +178,39 @@ export default function FollowOnFlow({
   const isP2vBlocking = activeStep.id === 'path-to-victory' && isP2vLoading
   const isOfficeHydrationBlocking =
     activeStep.id === 'office-selection' && isHydratingOffice
+  // same-office inherits the held office; block Continue until we have its slug
+  // so we never POST a follow-on the server would 400 (e.g. a direct
+  // ?intent=same-office URL whose eligibility lookup hasn't resolved a slug).
+  const isSameOfficeMissingSlug =
+    activeStep.id === 'welcome' &&
+    answers.followOnIntent === 'same-office' &&
+    !answers.fromOrganizationSlug
   const canContinue =
     isActiveStepValid &&
     !isCreating &&
     !isP2vBlocking &&
-    !isOfficeHydrationBlocking
+    !isOfficeHydrationBlocking &&
+    !isSameOfficeMissingSlug
 
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [activeStepId])
 
+  // The switcher passes the held-office slug via ?from=, but a direct
+  // ?intent=same-office URL omits it — backfill from eligibility once it
+  // resolves so both the Continue gate and the create payload have the slug.
   useEffect(() => {
-    // activeStepId initializes to 'intent', so without the held-office gate
-    // this would fire on mount for every user — including no-office candidates,
-    // for whom the intent step is sliced out once eligibility resolves.
     if (
-      (frozenHasHeldOffice ?? hasHeldOffice) === true &&
-      activeStepId === 'intent' &&
-      !viewedStepsFiredRef.current.has('intent')
+      intent === 'same-office' &&
+      !answers.fromOrganizationSlug &&
+      reelectionOfficeSlug
     ) {
-      viewedStepsFiredRef.current.add('intent')
-      trackEvent(EVENTS.OnboardingV2.NewCampaignContextViewed)
+      setAnswers((current) => ({
+        ...current,
+        fromOrganizationSlug: reelectionOfficeSlug,
+      }))
     }
-  }, [activeStepId, frozenHasHeldOffice, hasHeldOffice])
+  }, [intent, answers.fromOrganizationSlug, reelectionOfficeSlug])
 
   const updateAnswers = (patch: Partial<OnboardingAnswers>) => {
     setAnswers((current) => ({ ...current, ...patch }))
@@ -372,12 +342,12 @@ export default function FollowOnFlow({
 
   // The campaign is created as soon as we have what the follow-on endpoint
   // needs: nothing extra for same-office (position inherited), so we create on
-  // leaving the intent step; the picked office for new-office, so we create on
-  // leaving the office step. After that the new campaign is live for the
-  // projection / insights steps, and the remaining answers persist onto it.
+  // leaving the first step (welcome); the picked office for new-office, so we
+  // create on leaving the office step. After that the new campaign is live for
+  // the projection / insights steps, and the remaining answers persist onto it.
   const shouldCreateOnLeaving = (stepId: OnboardingStepId): boolean => {
     if (liveCampaign) return false
-    if (answers.followOnIntent === 'same-office') return stepId === 'intent'
+    if (answers.followOnIntent === 'same-office') return stepId === 'welcome'
     return stepId === 'office-selection' || stepId === 'manual-office-entry'
   }
 
@@ -488,20 +458,6 @@ export default function FollowOnFlow({
       if (!created) return
     }
 
-    // Report the intent only once the step is actually completed — after any
-    // campaign creation, so a failed same-office create (which returns above)
-    // doesn't emit it, and the ref guards against a repeat on back-navigation.
-    if (
-      activeStep.id === 'intent' &&
-      answers.followOnIntent &&
-      !intentCompletedFiredRef.current
-    ) {
-      intentCompletedFiredRef.current = true
-      trackEvent(EVENTS.OnboardingV2.NewCampaignContextCompleted, {
-        intent: answers.followOnIntent,
-      })
-    }
-
     if (nextStep) setActiveStepId(nextStep.id)
   }
 
@@ -536,8 +492,6 @@ export default function FollowOnFlow({
     )
   }
 
-  const intentHeading = `Are you running for re-election in ${officeName} or a new office?`
-
   return (
     <div className="min-h-screen bg-base-surface pb-28 text-foreground">
       <OnboardingTopBar
@@ -549,7 +503,7 @@ export default function FollowOnFlow({
           {isP2vBlocking ? null : (
             <div className="space-y-4">
               <h1 className="text-4xl font-bold text-foreground sm:text-5xl">
-                {activeStep.id === 'intent' ? intentHeading : activeStep.title}
+                {activeStep.title}
               </h1>
               <p className="text-lg text-muted-foreground sm:text-base">
                 {activeStep.description}
@@ -562,14 +516,6 @@ export default function FollowOnFlow({
               <AlertDescription>{errorMessage}</AlertDescription>
             </Alert>
           ) : null}
-
-          {activeStep.id === 'intent' && (
-            <IntentStep
-              officeName={officeName}
-              value={answers.followOnIntent}
-              onChange={(value) => updateAnswers({ followOnIntent: value })}
-            />
-          )}
 
           {activeStep.id === 'ballot-status' && (
             <RadioCardGroup
@@ -625,18 +571,6 @@ export default function FollowOnFlow({
             />
           )}
 
-          {activeStep.id === 'voter-demographics' && (
-            <VoterDemographicsStep
-              ballotReadyPositionId={answers.structuredOffice?.positionId}
-              orgPositionId={
-                liveCampaign?.organization?.positionId ?? undefined
-              }
-              city={answers.structuredOffice?.city}
-              state={answers.structuredOffice?.state}
-              office={answers.structuredOffice?.positionName}
-            />
-          )}
-
           {activeStep.id === 'pledge' && <PledgeStep />}
         </section>
       </main>
@@ -648,12 +582,12 @@ export default function FollowOnFlow({
             variant="ghost"
             size="large"
             onClick={goBack}
-            // Once the campaign exists, going back can't un-create it; block it
-            // so the user can't return to the intent step, switch same->new,
-            // and finish on a campaign that was created for the other intent.
-            // On the first step (no previousStep) Back exits the flow instead
-            // of dead-ending, so it stays enabled there.
-            disabled={liveCampaign !== null}
+            // Once the campaign exists, going back can't un-create it, so block
+            // back-navigation to earlier steps. Also block while a create is in
+            // flight: on the first step Back exits to /dashboard, which would
+            // otherwise abandon the session mid-creation. On the first step (no
+            // previousStep) Back exits the flow, so it stays enabled there.
+            disabled={liveCampaign !== null || isCreating}
           >
             Back
           </Button>

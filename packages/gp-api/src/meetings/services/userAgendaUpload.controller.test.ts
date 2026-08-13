@@ -211,7 +211,7 @@ describe('POST /v1/meetings/:date/briefing/agenda — UPLOAD source', () => {
         }),
       }),
     )
-    const params = dispatchSpy.mock.calls[0][0].params as Record<
+    const params = dispatchSpy.mock.calls[0]?.[0].params as Record<
       string,
       unknown
     >
@@ -319,10 +319,10 @@ describe('POST /v1/meetings/:date/briefing/agenda — UPLOAD source', () => {
       where: { electedOfficeId: eo.id },
     })
     expect(rows).toHaveLength(1)
-    expect(rows[0].uploadKey).toBe(
+    expect(rows[0]?.uploadKey).toBe(
       `agendas/${eo.id}/2026-07-15/${secondId}.pdf`,
     )
-    expect(rows[0].experimentRunId).toBe(second.data.experimentRunId)
+    expect(rows[0]?.experimentRunId).toBe(second.data.experimentRunId)
   })
 })
 
@@ -392,7 +392,7 @@ describe('POST /v1/meetings/:date/briefing/agenda — URL source', () => {
     )
     // URL paste path passes the user's own URL through; the envelope-strip
     // `_input_files` key belongs to the UPLOAD path and must not appear here.
-    const params = dispatchSpy.mock.calls[0][0].params as Record<
+    const params = dispatchSpy.mock.calls[0]?.[0].params as Record<
       string,
       unknown
     >

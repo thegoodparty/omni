@@ -33,11 +33,14 @@ import {
   DispatchRequestDto,
   DispatchResponseSchema,
   IssueIdParamDto,
+  SeedRequestDto,
+  SeedResponseSchema,
   SelfDispatchRequestDto,
 } from '../schemas/communityIssues.schema'
 import { CommunityIssueDispatchService } from '../services/communityIssueDispatch.service'
 import { CommunityIssuePrioritizeService } from '../services/communityIssuePrioritize.service'
 import { CommunityIssueReadService } from '../services/communityIssueRead.service'
+import { CommunityIssueSeedService } from '../services/communityIssueSeed.service'
 
 const toApi = (record: Priority): PriorityDto => ({
   id: record.id,
@@ -59,7 +62,21 @@ export class CommunityIssuesController {
     private readonly read: CommunityIssueReadService,
     private readonly prioritize: CommunityIssuePrioritizeService,
     private readonly dispatch: CommunityIssueDispatchService,
+    private readonly seedService: CommunityIssueSeedService,
   ) {}
+
+  // Preview/dev-only deterministic seeding for e2e tests; the service rejects
+  // the call on qa/prod. Scoped to the caller's own elected-office org.
+  @Post('seed')
+  @UseElectedOffice()
+  @HttpCode(HttpStatus.CREATED)
+  @ResponseSchema(SeedResponseSchema)
+  async seed(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Body() body: SeedRequestDto,
+  ) {
+    return this.seedService.seed(electedOffice, body)
+  }
 
   @Post('dispatch')
   @UseGuards(AdminOrM2MGuard)
@@ -85,6 +102,24 @@ export class CommunityIssuesController {
       electedOffice.organizationSlug,
       body.type,
     )
+  }
+
+  /**
+   * Self-serve landing catch-up: called client-side after any elected
+   * official lands on the community issues dashboard. Dispatches both
+   * experiment types if eligible and not already in flight, skipping the
+   * inactivity gate (landing already proves the user is active) but applying
+   * a freshness gate so a list generated within the active window
+   * (INACTIVITY_THRESHOLD_DAYS) isn't needlessly re-run. Distinct from
+   * `self-dispatch` above, which is staff-only, single-type, and backs a
+   * manual refresh button rather than a fire-on-every-landing check.
+   */
+  @Post('dispatch-if-needed')
+  @UseElectedOffice()
+  @HttpCode(HttpStatus.OK)
+  @ResponseSchema(DispatchResponseSchema)
+  async dispatchIfNeeded(@ReqElectedOffice() electedOffice: ElectedOffice) {
+    return this.dispatch.dispatchIfNeeded(electedOffice.organizationSlug)
   }
 
   @Get()

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { createRef } from 'react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import type { ChatStreamEvent } from '../../data/contracts'
@@ -98,8 +99,40 @@ describe('<ChiefOfStaffChatBody>', () => {
         content: 'What is on my agenda?',
       }),
     )
-    // The user's own message bubble is shown.
-    expect(screen.getByText('What is on my agenda?')).toBeInTheDocument()
+    // The user's own message bubble is shown. Scoped to the transcript: the
+    // composer is a textarea, and React keeps a controlled textarea's
+    // textContent in sync with its value, so an unscoped text query would also
+    // match the draft still sitting in the composer.
+    expect(
+      within(screen.getByTestId('cos-conversation')).getByText(
+        'What is on my agenda?',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('returns focus to the composer after a turn completes', async () => {
+    const user = userEvent.setup()
+    createMock.mockResolvedValue({ conversationId: 'conv_1' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'All set.' },
+        { type: 'done', assistantMessageId: 'asst_1' },
+      ]),
+    )
+
+    render(<ChiefOfStaffChatBody active />)
+
+    const input = screen.getByLabelText(/ask a question/i)
+    await user.type(input, 'anything?')
+    // Clicking send moves focus off the input; the composer also disables while
+    // the turn runs. Once it completes the input should regain focus so the
+    // candidate can keep chatting without clicking back in.
+    await user.click(screen.getByRole('button', { name: /send/i }))
+
+    await waitFor(() =>
+      expect(screen.getByText('All set.')).toBeInTheDocument(),
+    )
+    await waitFor(() => expect(input).toHaveFocus())
   })
 
   it('renders tool calls as human-readable status lines', async () => {
@@ -178,6 +211,59 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(screen.getByText('Found it.')).toBeInTheDocument()
   })
 
+  it('reveals streamed text gradually instead of dumping the chunk', async () => {
+    const user = userEvent.setup()
+    createMock.mockResolvedValue({ conversationId: 'conv_1' })
+    const long = 'word '.repeat(120).trim()
+    streamMessageMock.mockReturnValue(
+      makeStream([{ type: 'text', delta: long }, { type: 'done' }]),
+    )
+
+    render(<ChiefOfStaffChatBody active />)
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'go')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+
+    // The reply starts appearing before the whole chunk is revealed...
+    await waitFor(() => expect(screen.getByText(/^word/)).toBeInTheDocument())
+    expect(screen.queryByText(long)).not.toBeInTheDocument()
+    // The network phase is over, so the composer unlocks during the drain.
+    expect(screen.getByLabelText(/ask a question/i)).toBeEnabled()
+    // ...and finishes revealing shortly after.
+    await waitFor(() => expect(screen.getByText(long)).toBeInTheDocument(), {
+      timeout: 6000,
+    })
+  })
+
+  it('types in a seeded assistant-only transcript instead of dumping it', async () => {
+    const greeting =
+      "Hi, I'm your campaign manager. I keep an eye on your plan and tell " +
+      'you the two or three things that matter most this week.'
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_greet',
+        role: 'assistant',
+        content: greeting,
+        createdAt: '2026-07-01T00:00:00.000Z',
+      },
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv_greet" />)
+
+    // Typing has begun (a prefix is visible) but the full greeting has not
+    // been dumped at once.
+    await waitFor(() =>
+      expect(screen.getByText(/^Hi, I'm your campaign/)).toBeInTheDocument(),
+    )
+    expect(screen.queryByText(greeting)).not.toBeInTheDocument()
+    // It finishes typing and stays (committed to history).
+    await waitFor(
+      () => expect(screen.getByText(greeting)).toBeInTheDocument(),
+      { timeout: 6000 },
+    )
+  })
+
   it('surfaces a retryable error when the stream errors', async () => {
     const user = userEvent.setup()
     createMock.mockResolvedValue({ conversationId: 'conv_1' })
@@ -199,5 +285,594 @@ describe('<ChiefOfStaffChatBody>', () => {
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
+  })
+
+  it('renders custom suggestions alongside a seeded greeting when showSuggestionsWithGreeting is set', async () => {
+    const user = userEvent.setup()
+    const onSelect = vi.fn()
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_greet',
+        role: 'assistant',
+        content: 'Welcome back to your campaign.',
+        createdAt: '2026-07-01T00:00:00.000Z',
+      },
+    ])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_greet"
+        showSuggestionsWithGreeting
+        suggestions={[{ label: 'Tell my story', onSelect }]}
+      />,
+    )
+
+    // The seeded greeting types in (playback) and the custom chip renders
+    // alongside it (the default gate would hide chips while playback runs).
+    await waitFor(() =>
+      expect(screen.getByText(/^Welcome back/)).toBeInTheDocument(),
+    )
+    const chip = await screen.findByRole('button', { name: 'Tell my story' })
+    await user.click(chip)
+    expect(onSelect).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not render suggestions with a greeting once the transcript has a real user turn (resumed conversation)', async () => {
+    const onSelect = vi.fn()
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_resume',
+        role: 'assistant',
+        content: 'Welcome back to your campaign.',
+        createdAt: '2026-07-01T00:00:00.000Z',
+      },
+      {
+        id: 'm2',
+        conversationId: 'conv_resume',
+        role: 'user',
+        content: 'earlier question',
+        createdAt: '2026-07-01T00:00:01.000Z',
+      },
+      {
+        id: 'm3',
+        conversationId: 'conv_resume',
+        role: 'assistant',
+        content: 'earlier answer',
+        createdAt: '2026-07-01T00:00:02.000Z',
+      },
+    ])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_resume"
+        showSuggestionsWithGreeting
+        suggestions={[{ label: 'Tell my story', onSelect }]}
+      />,
+    )
+
+    // The resumed transcript loads (already has a real user turn)...
+    await waitFor(() =>
+      expect(screen.getByText('earlier answer')).toBeInTheDocument(),
+    )
+    // ...and the chips do not render, unlike the freshly-seeded-greeting case.
+    expect(
+      screen.queryByRole('button', { name: 'Tell my story' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders the default suggestions only on an empty transcript and sends the label text on click', async () => {
+    const user = userEvent.setup()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_1' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'On it.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    render(<ChiefOfStaffChatBody active />)
+
+    const chip = await screen.findByRole('button', {
+      name: "What's most urgent this week?",
+    })
+    await user.click(chip)
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ content: "What's most urgent this week?" }),
+      ),
+    )
+    // The clicked label becomes a real user message (default send behavior)...
+    expect(
+      screen.getByText("What's most urgent this week?"),
+    ).toBeInTheDocument()
+    // ...and the chips no longer render once the transcript is non-empty.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', {
+          name: "What's most urgent this week?",
+        }),
+      ).not.toBeInTheDocument(),
+    )
+  })
+
+  it('kicks off a hidden send that streams a reply without adding a user bubble', async () => {
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_k' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Canned kickoff reply.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    render(<ChiefOfStaffChatBody active pendingKickoff="__kickoff__" />)
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ content: '__kickoff__' }),
+      ),
+    )
+    await waitFor(() =>
+      expect(screen.getByText('Canned kickoff reply.')).toBeInTheDocument(),
+    )
+    // The kickoff message is hidden, no user bubble for it in the transcript.
+    expect(screen.queryByText('__kickoff__')).not.toBeInTheDocument()
+  })
+
+  it('fires the kickoff into an override conversation without minting a new one', async () => {
+    // A fresh create is mocked so that, if the kickoff wrongly raced the load,
+    // it would mint this id, the assertions below prove it does not.
+    createMock.mockResolvedValue({ conversationId: 'conv_new' })
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_resume',
+        role: 'user',
+        content: 'earlier question',
+        createdAt: '2026-07-10T00:00:00.000Z',
+      },
+      {
+        id: 'm2',
+        conversationId: 'conv_resume',
+        role: 'assistant',
+        content: 'earlier answer',
+        createdAt: '2026-07-10T00:00:01.000Z',
+      },
+    ])
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Kickoff into the resumed chat.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_resume"
+        pendingKickoff="__kickoff__"
+      />,
+    )
+
+    // The resumed transcript loads first...
+    await waitFor(() =>
+      expect(screen.getByText('earlier answer')).toBeInTheDocument(),
+    )
+    // ...and the kickoff streams its reply.
+    await waitFor(() =>
+      expect(
+        screen.getByText('Kickoff into the resumed chat.'),
+      ).toBeInTheDocument(),
+    )
+
+    // It never minted a fresh conversation for the override.
+    expect(createMock).not.toHaveBeenCalled()
+    // The kickoff targeted the resumed conversation, not a new one.
+    expect(streamMessageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conv_resume',
+        content: '__kickoff__',
+      }),
+    )
+    // It fired exactly once (not re-fired on re-render).
+    expect(streamMessageMock).toHaveBeenCalledTimes(1)
+    // The hidden kickoff prompt is not shown.
+    expect(screen.queryByText('__kickoff__')).not.toBeInTheDocument()
+  })
+
+  it('re-fires the kickoff when pendingKickoff is cleared then re-set to the same value (close/reopen)', async () => {
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_k' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Kickoff reply.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    const { rerender } = render(
+      <ChiefOfStaffChatBody active pendingKickoff="__kickoff__" />,
+    )
+
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
+
+    // Parent clears the kickoff on close (surface still mounted)...
+    rerender(<ChiefOfStaffChatBody active={false} />)
+    // ...then re-opens with the SAME sentinel on the still-mounted body.
+    rerender(<ChiefOfStaffChatBody active pendingKickoff="__kickoff__" />)
+
+    // The kickoff fires a second time, so the story flow can restart.
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(2))
+  })
+
+  it('does not fire the kickoff twice on a re-render that keeps pendingKickoff set', async () => {
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_k' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Kickoff reply.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    const { rerender } = render(
+      <ChiefOfStaffChatBody active pendingKickoff="__kickoff__" />,
+    )
+
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
+
+    // A re-render with the same value must not re-fire it.
+    rerender(<ChiefOfStaffChatBody active pendingKickoff="__kickoff__" />)
+    await waitFor(() =>
+      expect(screen.getByText('Kickoff reply.')).toBeInTheDocument(),
+    )
+    expect(streamMessageMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('hides the with-greeting chips after a hidden kickoff send (no user turn)', async () => {
+    const user = userEvent.setup()
+    createMock.mockResolvedValue({ conversationId: 'conv_greet' })
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_greet',
+        role: 'assistant',
+        content: 'Welcome back to your campaign.',
+        createdAt: '2026-07-01T00:00:00.000Z',
+      },
+    ])
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Tell me your why.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_greet"
+        showSuggestionsWithGreeting
+        suggestions={[{ label: 'Personalize', kickoff: '__kick__' }]}
+      />,
+    )
+
+    // The chip renders alongside the seeded greeting...
+    const chip = await screen.findByRole('button', { name: 'Personalize' })
+    await user.click(chip)
+
+    // ...the hidden kickoff streams its reply (no user bubble)...
+    await waitFor(() =>
+      expect(screen.getByText('Tell me your why.')).toBeInTheDocument(),
+    )
+    // ...and the chips are gone even though there is still no user turn.
+    expect(
+      screen.queryByRole('button', { name: 'Personalize' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('does not show with-greeting chips when resuming a conversation that already has a kickoff reply (assistant-only, no user turn)', async () => {
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_prior',
+        role: 'assistant',
+        content: 'Welcome back to your campaign.',
+        createdAt: '2026-07-01T00:00:00.000Z',
+      },
+      {
+        id: 'm2',
+        conversationId: 'conv_prior',
+        role: 'assistant',
+        content: 'Here is what I found for your week.',
+        createdAt: '2026-07-01T00:00:01.000Z',
+      },
+    ])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_prior"
+        showSuggestionsWithGreeting
+        suggestions={[{ label: 'Personalize', kickoff: '__kick__' }]}
+      />,
+    )
+
+    // The prior kickoff reply loads (assistant messages, no user turn)...
+    // Both bubbles type in on a real interval (~900ms for these two), which
+    // overruns waitFor's 1s default on a loaded CI box.
+    await waitFor(
+      () =>
+        expect(
+          screen.getByText('Here is what I found for your week.'),
+        ).toBeInTheDocument(),
+      { timeout: 6000 },
+    )
+    // ...and the starter chips do not re-appear.
+    expect(
+      screen.queryByRole('button', { name: 'Personalize' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders a suggestion description as a secondary line, and label-only when absent', async () => {
+    listConversationsMock.mockResolvedValue([])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        suggestions={[
+          {
+            label: 'Draft a fundraising email',
+            description: 'A short pitch for your next event',
+            onSelect: vi.fn(),
+          },
+          { label: 'Plain chip', onSelect: vi.fn() },
+        ]}
+      />,
+    )
+
+    await screen.findByRole('button', { name: /Draft a fundraising email/ })
+    expect(screen.getByText('Draft a fundraising email')).toBeInTheDocument()
+    expect(
+      screen.getByText('A short pitch for your next event'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Plain chip' }),
+    ).toBeInTheDocument()
+  })
+
+  it('fires a hidden kickoff send when a suggestion with `kickoff` is clicked', async () => {
+    const user = userEvent.setup()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_kick' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Kicked off reply.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        suggestions={[
+          { label: 'Start my story', kickoff: '__story_kickoff__' },
+        ]}
+      />,
+    )
+
+    const chip = await screen.findByRole('button', { name: 'Start my story' })
+    await user.click(chip)
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ content: '__story_kickoff__' }),
+      ),
+    )
+    await waitFor(() =>
+      expect(screen.getByText('Kicked off reply.')).toBeInTheDocument(),
+    )
+    // The kickoff content is hidden, no user bubble for it in the transcript.
+    expect(screen.queryByText('__story_kickoff__')).not.toBeInTheDocument()
+  })
+
+  it('calls onSelect and does not send when a suggestion has no kickoff', async () => {
+    const user = userEvent.setup()
+    listConversationsMock.mockResolvedValue([])
+    const onSelect = vi.fn()
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        suggestions={[{ label: 'Just select', onSelect }]}
+      />,
+    )
+
+    const chip = await screen.findByRole('button', { name: 'Just select' })
+    await user.click(chip)
+
+    expect(onSelect).toHaveBeenCalledTimes(1)
+    expect(streamMessageMock).not.toHaveBeenCalled()
+  })
+
+  it('DEFAULT: built-in chips still render label-only and visibly send on click (regression)', async () => {
+    const user = userEvent.setup()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_1' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'On it.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    render(<ChiefOfStaffChatBody active />)
+
+    const chip = await screen.findByRole('button', {
+      name: "What's most urgent this week?",
+    })
+    // Label-only: no extra secondary-line text node beyond the label itself.
+    expect(chip.textContent).toBe("What's most urgent this week?")
+
+    await user.click(chip)
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ content: "What's most urgent this week?" }),
+      ),
+    )
+    expect(
+      screen.getByText("What's most urgent this week?"),
+    ).toBeInTheDocument()
+  })
+
+  it('excludes a hidden sentinel user turn AND its canned assistant reply from a reloaded transcript', async () => {
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_hide',
+        role: 'assistant',
+        content: 'Welcome back to your campaign.',
+        createdAt: '2026-07-01T00:00:00.000Z',
+      },
+      {
+        id: 'm2',
+        conversationId: 'conv_hide',
+        role: 'user',
+        content: '__start_story__',
+        createdAt: '2026-07-01T00:00:01.000Z',
+      },
+      {
+        id: 'm3',
+        conversationId: 'conv_hide',
+        role: 'assistant',
+        content: 'Tell me your why.',
+        createdAt: '2026-07-01T00:00:02.000Z',
+      },
+    ])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_hide"
+        hiddenMessageContents={['__start_story__']}
+      />,
+    )
+
+    // The assistant turn that preceded the sentinel still renders...
+    await waitFor(
+      () =>
+        expect(
+          screen.getByText('Welcome back to your campaign.'),
+        ).toBeInTheDocument(),
+      { timeout: 6000 },
+    )
+    // ...but the sentinel user turn is never shown as a bubble...
+    expect(screen.queryByText('__start_story__')).not.toBeInTheDocument()
+    // ...and neither is the canned reply that immediately followed it (it would
+    // otherwise be an orphaned assistant bubble with no preceding user turn).
+    expect(screen.queryByText('Tell me your why.')).not.toBeInTheDocument()
+  })
+
+  it('excludes the product-overview sentinel AND its canned reply from a reloaded transcript', async () => {
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_po',
+        role: 'assistant',
+        content: 'Welcome back to your campaign.',
+        createdAt: '2026-07-01T00:00:00.000Z',
+      },
+      {
+        id: 'm2',
+        conversationId: 'conv_po',
+        role: 'user',
+        content: '__product_overview__',
+        createdAt: '2026-07-01T00:00:01.000Z',
+      },
+      {
+        id: 'm3',
+        conversationId: 'conv_po',
+        role: 'assistant',
+        content: 'Here is what your campaign manager can do.',
+        createdAt: '2026-07-01T00:00:02.000Z',
+      },
+    ])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_po"
+        hiddenMessageContents={['__start_story__', '__product_overview__']}
+      />,
+    )
+
+    await waitFor(
+      () =>
+        expect(
+          screen.getByText('Welcome back to your campaign.'),
+        ).toBeInTheDocument(),
+      { timeout: 6000 },
+    )
+    expect(screen.queryByText('__product_overview__')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Here is what your campaign manager can do.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders all messages including a sentinel when hiddenMessageContents is unset (default)', async () => {
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_show',
+        role: 'assistant',
+        content: 'Welcome back to your campaign.',
+        createdAt: '2026-07-01T00:00:00.000Z',
+      },
+      {
+        id: 'm2',
+        conversationId: 'conv_show',
+        role: 'user',
+        content: '__start_story__',
+        createdAt: '2026-07-01T00:00:01.000Z',
+      },
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv_show" />)
+
+    // No filtering prop: the raw sentinel renders as a user bubble.
+    await waitFor(() =>
+      expect(screen.getByText('__start_story__')).toBeInTheDocument(),
+    )
+  })
+
+  it('focuses the composer when a suggestion requests it via composerRef', async () => {
+    const user = userEvent.setup()
+    listConversationsMock.mockResolvedValue([])
+    const composerRef = createRef<HTMLTextAreaElement>()
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        composerRef={composerRef}
+        suggestions={[
+          {
+            label: 'Focus composer',
+            onSelect: () => composerRef.current?.focus(),
+          },
+        ]}
+      />,
+    )
+
+    const chip = await screen.findByRole('button', { name: 'Focus composer' })
+    expect(screen.getByLabelText(/ask a question/i)).not.toHaveFocus()
+    await user.click(chip)
+    expect(screen.getByLabelText(/ask a question/i)).toHaveFocus()
   })
 })

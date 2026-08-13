@@ -5,12 +5,14 @@ import { PinoLogger } from 'nestjs-pino'
 import { of, throwError } from 'rxjs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { ElectionApiTokenService } from '@/vendors/clerk/services/electionApiToken.service'
 import {
   ElectionApiRaceNotFoundError,
   ElectionApiService,
 } from './electionApi.service'
 
 const BR_HASH = 'hash-abc'
+const AUTH_HEADER = { Authorization: 'Bearer mt_test' }
 
 const validResponse = {
   candidate_count: 2,
@@ -65,6 +67,10 @@ describe('ElectionApiService', () => {
         ElectionApiService,
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: HttpService, useValue: { post: mockHttpPost } },
+        {
+          provide: ElectionApiTokenService,
+          useValue: { authHeader: vi.fn().mockResolvedValue(AUTH_HEADER) },
+        },
       ],
     }).compile()
 
@@ -79,6 +85,7 @@ describe('ElectionApiService', () => {
     expect(mockHttpPost).toHaveBeenCalledWith(
       'http://test-election-api/v1/campaign-strategy-context',
       { brHashId: BR_HASH },
+      { headers: AUTH_HEADER },
     )
     expect(result).toEqual({
       state: 'CA',
@@ -227,7 +234,7 @@ describe('ElectionApiService', () => {
     const result = await service.getRaceContext(BR_HASH)
 
     expect(result.candidates).toHaveLength(1)
-    expect(result.candidates[0].fullName).toBe('No Email')
+    expect(result.candidates[0]?.fullName).toBe('No Email')
   })
 
   it('throws BadGateway when election-api returns a response that fails schema validation', async () => {
@@ -253,6 +260,10 @@ describe('ElectionApiService construction', () => {
             ElectionApiService,
             { provide: PinoLogger, useValue: createMockLogger() },
             { provide: HttpService, useValue: { post: vi.fn() } },
+            {
+              provide: ElectionApiTokenService,
+              useValue: { authHeader: vi.fn().mockResolvedValue(AUTH_HEADER) },
+            },
           ],
         }).compile(),
       ).rejects.toThrow('ELECTION_API_URL is not set')

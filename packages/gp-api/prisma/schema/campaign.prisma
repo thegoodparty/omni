@@ -46,12 +46,21 @@ model Campaign {
   website                  Website?
   outreach                 Outreach[]
   campaignTasks            CampaignTask[]
+  campaignTrackerTasks     CampaignTrackerTask[]
   campaignPlan             CampaignPlan?
   campaignStrategy         CampaignStrategy?
   campaignStory            CampaignStory?
   electedOffices           ElectedOffice[]
   voterOutreachActivities  VoterOutreachActivity[]
+  raceOpponents            RaceOpponent[]
+  raceOpponentResearch     RaceOpponentResearch[]
+  raceOpponentContrasts    RaceOpponentContrast[]
+  raceOpponentSummaries    RaceOpponentSummary[]
+  raceOpponentFieldAnalysis RaceOpponentFieldAnalysis?
+  raceOpponentStandoutActions RaceOpponentStandoutAction[]
+  peerlyPhoneLists          PeerlyPhoneList[]
+  recommendedListsSnapshot  RecommendedListsSnapshot?
 
-  @@index([slug])
+  @@index([userId])
   @@map("campaign")
 }

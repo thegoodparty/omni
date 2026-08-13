@@ -134,6 +134,27 @@ export default function ExpandPollPage({
     )
   }
 
+  // Before the spinner branch: a district-gated query is neither success nor
+  // error, so this would otherwise spin forever.
+  if (query.isUnavailable) {
+    return (
+      <ExpandPollLayout>
+        <div className="flex flex-col items-center gap-4 my-8 text-center">
+          <h2 className="text-xl font-semibold">
+            We don&apos;t have constituent data for this office yet
+          </h2>
+          <p className="text-muted-foreground">
+            A poll can&apos;t be expanded without it. Visit Contacts and our
+            team can set this up for you.
+          </p>
+          <Button onClick={() => router.push('/dashboard/contacts')}>
+            Visit Contacts
+          </Button>
+        </div>
+      </ExpandPollLayout>
+    )
+  }
+
   if (query.status !== 'success') {
     return (
       <ExpandPollLayout>

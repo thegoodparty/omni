@@ -8,7 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common'
 import { PublicAccess } from '@/authentication/decorators/PublicAccess.decorator'
-import { WEBAPP_ROOT } from '@/shared/util/appEnvironment.util'
+import { APP_ROOT } from '@/shared/util/appEnvironment.util'
 import { BriefingPdfService } from '../services/briefingPdf.service'
 import { BriefingsPdfRateLimitGuard } from './briefingsPdfRateLimit.guard'
 
@@ -17,9 +17,11 @@ import { BriefingsPdfRateLimitGuard } from './briefingsPdfRateLimit.guard'
  *
  * Intentionally lives outside the elected-office-scoped meetings controller
  * because share links must work for unauthenticated recipients (the briefing
- * UUID is the share secret). The matching gp-webapp Vercel rewrite exposes
- * the same handler at `goodparty.org/api/v1/briefings/:uuid` so the URL we
- * embed in mailto:/sms: payloads lives on the marketing domain.
+ * UUID is the share secret). gp-webapp's middleware proxies `/api/v1/*` on
+ * the app origin (`app.goodparty.org`) through to this handler, so that is
+ * the origin the share URL is built on. It must NOT be the marketing origin
+ * (`goodparty.org`) — that host is a separate deployment with no such proxy,
+ * so every share link and QR scan pointed there 404s.
  *
  * Hardening notes:
  * - `ParseUUIDPipe({ version: '7' })` rejects anything that doesn't match the
@@ -50,14 +52,14 @@ export class BriefingsPdfController {
     // The 8-character prefix is enough to disambiguate adjacent requests
     // when triaging together with the global request-id.
     this.logger.log(`getBriefingPdf: serving briefing ${uuid.slice(0, 8)}…`)
-    // The QR code on the cover targets the public share URL on the
-    // marketing domain (rewritten to this controller via Vercel) so it
-    // works for unauthenticated recipients of the forwarded PDF. Use the
-    // shared `WEBAPP_ROOT` constant — `requireEnv`'s missing-value error
-    // makes that fail at startup rather than silently dropping the QR.
+    // The QR code on the cover targets the public share URL so it works for
+    // unauthenticated recipients of a forwarded PDF. `APP_ROOT` is the only
+    // correct base here: it is app.goodparty.org in prod and the per-env
+    // webapp origin elsewhere. A PDF outlives the session that produced it,
+    // so a wrong base here keeps 404ing long after it is fixed.
     const { buffer, filename } = await this.briefingPdf.renderById(
       uuid,
-      WEBAPP_ROOT,
+      APP_ROOT,
     )
     return new StreamableFile(buffer, {
       type: 'application/pdf',

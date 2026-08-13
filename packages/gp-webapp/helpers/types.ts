@@ -237,16 +237,20 @@ export interface VoterFileFilters {
   audienceLikelyVoters?: boolean
   audienceUnreliableVoters?: boolean
   audienceUnlikelyVoters?: boolean
-  audienceFirstTimeVoters?: boolean
   audienceUnknown?: boolean
   partyIndependent?: boolean
   partyDemocrat?: boolean
   partyRepublican?: boolean
-  partyUnknown?: boolean
+  partyOther?: boolean
   age18_25?: boolean
   age25_35?: boolean
   age35_50?: boolean
   age50Plus?: boolean
+  age18_24?: boolean
+  age25_34?: boolean
+  age35_49?: boolean
+  age50_64?: boolean
+  age65Plus?: boolean
   ageUnknown?: boolean
   genderMale?: boolean
   genderFemale?: boolean

@@ -2,19 +2,18 @@ import * as pulumi from '@pulumi/pulumi'
 import * as aws from '@pulumi/aws'
 
 export interface AssetsBucketConfig {
-  environment: 'dev' | 'qa' | 'prod'
+  environment: 'dev' | 'prod'
 }
 
 export function createAssetsBucket({ environment }: AssetsBucketConfig): {
   bucket: aws.s3.BucketV2
   bucketRegionalDomainName: pulumi.Output<string>
 } {
-  const select = <T>(values: Record<'dev' | 'qa' | 'prod', T>): T =>
+  const select = <T>(values: Record<'dev' | 'prod', T>): T =>
     values[environment]
 
   const bucketName = select({
     dev: 'assets-dev.goodparty.org',
-    qa: 'assets-qa.goodparty.org',
     prod: 'assets.goodparty.org',
   })
 
@@ -45,16 +44,7 @@ export function createAssetsBucket({ environment }: AssetsBucketConfig): {
         allowedHeaders: ['*'],
         allowedMethods: ['GET', 'POST', 'PUT'],
         allowedOrigins: select({
-          dev: [
-            'http://localhost:4000',
-            'https://dev.goodparty.org',
-            'https://qa.goodparty.org',
-          ],
-          qa: [
-            'http://localhost:4000',
-            'https://gp-ui-git-qa-good-party.vercel.app',
-            'https://qa.goodparty.org',
-          ],
+          dev: ['http://localhost:4000', 'https://dev.goodparty.org'],
           prod: ['https://goodparty.org'],
         }),
       },

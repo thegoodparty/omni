@@ -19,6 +19,7 @@ import { lastValueFrom } from 'rxjs'
 import { serializeError } from 'serialize-error'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { SlackChannel } from 'src/vendors/slack/slackService.types'
+import { ElectionApiTokenService } from '@/vendors/clerk/services/electionApiToken.service'
 import { ElectionApiRoutes } from '../constants/elections.const'
 import {
   BuildRaceTargetDetailsInput,
@@ -46,6 +47,7 @@ export class ElectionsService {
     private readonly httpService: HttpService,
     private readonly slack: SlackService,
     private readonly logger: PinoLogger,
+    private readonly tokenService: ElectionApiTokenService,
   ) {
     this.logger.setContext(ElectionsService.name)
     if (!ElectionsService.BASE_URL) {
@@ -72,8 +74,10 @@ export class ElectionsService {
     ) as Record<string, string | number | boolean | string[]>
     this.logger.debug({ filteredParams }, `Election API GET ${path} params: `)
     try {
+      const headers = await this.tokenService.authHeader()
       const { data, status } = (await lastValueFrom(
         this.httpService.get(fullUrl, {
+          headers,
           params: query,
           paramsSerializer: (params) =>
             Object.entries(params)
@@ -100,6 +104,16 @@ export class ElectionsService {
         const finalMessage = apiMessage
           ? `${baseMessage}: ${apiMessage}`
           : `${baseMessage}: ${error.message}`
+        // A 404 from election-api is an expected "resource not found" outcome
+        // (e.g. an org points at a position/district that no longer resolves) —
+        // routine data variance, not an upstream fault. Surface it as a 404,
+        // which the gp-api controller error alerts deliberately exclude, rather
+        // than a 502 that pages on every failed district match. Log at warn so
+        // telemetry still captures it. Genuine faults (5xx, network) stay 502.
+        if (error.response?.status === 404) {
+          this.logger.warn(finalMessage)
+          throw new NotFoundException(apiMessage ?? finalMessage)
+        }
         this.logger.error(finalMessage)
         throw new BadGatewayException(finalMessage)
       }
@@ -116,8 +130,9 @@ export class ElectionsService {
     const fullUrl = `${ElectionsService.BASE_URL}/${ElectionsService.API_VERSION}/${path}`
     this.logger.debug({ body }, `Election API POST ${path} body: `)
     try {
+      const headers = await this.tokenService.authHeader()
       const { data, status } = (await lastValueFrom(
-        this.httpService.post(fullUrl, body),
+        this.httpService.post(fullUrl, body, { headers }),
       )) as { data: Res; status: number }
       if (status >= 200 && status < 300) return data
       this.logger.warn(`Election API POST ${path} responded ${status}`)
@@ -133,6 +148,12 @@ export class ElectionsService {
         const finalMessage = apiMessage
           ? `${baseMessage}: ${apiMessage}`
           : `${baseMessage}: ${error.message}`
+        // See electionApiGet: a 404 is an expected not-found, not a fault — map
+        // it to a 404 (excluded from error alerts) instead of a paging 502.
+        if (error.response?.status === 404) {
+          this.logger.warn(finalMessage)
+          throw new NotFoundException(apiMessage ?? finalMessage)
+        }
         this.logger.error(finalMessage)
         throw new BadGatewayException(finalMessage)
       }
@@ -252,8 +273,7 @@ export class ElectionsService {
     name?: string
     officeType?: string[]
     displayOfficeLevels?: string[]
-    electionDateFrom?: string
-    electionDateTo?: string
+    timeframe?: 'future' | 'past'
   }): Promise<RaceListItem[]> {
     const result = await this.electionApiGet<RaceListItem[], typeof query>(
       'positions/search',
@@ -301,6 +321,35 @@ export class ElectionsService {
     })
     return districts?.[0]?.id ?? null
   }
+
+  /**
+   * Resolve the civics person id linked to a gp-api user via election-api's
+   * `person.gp_api_user_id` filter. Powers gp-api's own backfill of
+   * `User.person_id`: the data platform writes only the election-api column,
+   * and gp-api pulls it here and writes its own DB — no data-team → gp-api
+   * write. The gp-api User.id is numeric; election-api stores it as text, so
+   * pass `String(gpApiUserId)`. Returns null on ANY failure (404 / 5xx /
+   * network) so the caller degrades gracefully — the column is empty until the
+   * data platform's ETL populates it, so this is a graceful no-op until then.
+   */
+  async getPersonIdByGpApiUserId(
+    gpApiUserId: number | string,
+  ): Promise<string | null> {
+    try {
+      const result = await this.electionApiGet<
+        { id: string }[],
+        { gpApiUserId: string; columns: string }
+      >('persons', { gpApiUserId: String(gpApiUserId), columns: 'id' })
+      return result?.[0]?.id ?? null
+    } catch (error) {
+      this.logger.warn(
+        { error, gpApiUserId },
+        'Election API GET persons?gpApiUserId failed',
+      )
+      return null
+    }
+  }
+
   // Gold flow: match a district via BallotReady position ID.
   // Returns district data even when projected turnout is unavailable,
   // using sentinel values (-1) so callers can distinguish partial matches.
@@ -386,10 +435,17 @@ export class ElectionsService {
       }
     } catch (error) {
       const { district } = positionWithDistrict ?? {}
+      // A NotFoundException means election-api simply had no position/district
+      // to match — routine data variance, not a system fault. We still log
+      // every failure at info (with failureKind) so telemetry dashboards keep
+      // their aggregate "no matched district" stats, but we only page botDev
+      // for genuine errors so routine misses don't create alert noise.
+      const isNoMatch = error instanceof NotFoundException
       this.logger.info({
         event: 'DistrictMatch',
         matchType: 'gold',
         result: 'failure',
+        failureKind: isNoMatch ? 'no_match' : 'error',
         reason: error instanceof Error ? error.message : String(error),
         error: serializeError(error),
         electionDate,
@@ -401,21 +457,23 @@ export class ElectionsService {
         districtName: district?.L2DistrictName,
         projectedTurnout: district?.projectedTurnout?.projectedTurnout,
       })
-      const message = this.buildSlackErrorMessage(
-        'Election API error: getPositionMatchedRaceTargetDetails',
-        {
-          ballotreadyPositionId,
-          positionId,
-          electionDate,
-          campaignId,
-        },
-        error,
-      )
-      await this.slack.formattedMessage({
-        message,
-        error,
-        channel: SlackChannel.botDev,
-      })
+      if (!isNoMatch) {
+        const message = this.buildSlackErrorMessage(
+          'Election API error: getPositionMatchedRaceTargetDetails',
+          {
+            ballotreadyPositionId,
+            positionId,
+            electionDate,
+            campaignId,
+          },
+          error,
+        )
+        await this.slack.formattedMessage({
+          message,
+          error,
+          channel: SlackChannel.botDev,
+        })
+      }
       throw error
     }
   }
@@ -444,43 +502,47 @@ export class ElectionsService {
 
       return this.calculateRaceTargetMetrics(turnout)
     } catch (error) {
-      const context: Record<string, string | number | undefined> =
-        'districtId' in data
-          ? { districtId: data.districtId }
-          : {
-              state: data.state,
-              L2DistrictType: data.L2DistrictType,
-              L2DistrictName: data.L2DistrictName,
-            }
-      if ('electionDate' in data) context.electionDate = data.electionDate
-      if ('electionCode' in data) {
-        context.electionCode = data.electionCode
-        context.electionYear = data.electionYear
+      // A NotFoundException here (no projectedTurnout / election-api 404) is an
+      // expected no-match, not a fault — skip the botDev page so routine misses
+      // don't create alert noise. Genuine upstream errors still page. Either
+      // way we return null so callers fall back gracefully.
+      if (!(error instanceof NotFoundException)) {
+        const context: Record<string, string | number | undefined> =
+          'districtId' in data
+            ? { districtId: data.districtId }
+            : {
+                state: data.state,
+                L2DistrictType: data.L2DistrictType,
+                L2DistrictName: data.L2DistrictName,
+              }
+        if ('electionDate' in data) context.electionDate = data.electionDate
+        if ('electionCode' in data) {
+          context.electionCode = data.electionCode
+          context.electionYear = data.electionYear
+        }
+        const message = this.buildSlackErrorMessage(
+          'Election API error: buildRaceTargetDetails',
+          context,
+          error,
+        )
+        await this.slack.formattedMessage({
+          message,
+          error,
+          channel: SlackChannel.botDev,
+        })
       }
-      const message = this.buildSlackErrorMessage(
-        'Election API error: buildRaceTargetDetails',
-        context,
-        error,
-      )
-      await this.slack.formattedMessage({
-        message,
-        error,
-        channel: SlackChannel.botDev,
-      })
       return null
     }
   }
 
   /**
    * Resolve a filing fee for a race identified by its BallotReady race hash
-   * (`Race.br_hash_id` in election-api). This bypasses the Position-based
-   * lookup (`getPositionMatchedRaceTargetDetails`) which is currently broken
-   * because `Position.placeId` isn't projected by the election-api dbt mart.
-   *
-   * The campaign stores this hash on `details.raceId` (set by the office
-   * picker after the office-picker fix). Returns `null` on any error —
-   * callers must fall back to the Position-based path or accept no filing
-   * fee. We deliberately don't throw so this stays an opt-in enrichment.
+   * (`Race.br_hash_id` in election-api). A direct race-hash lookup, used when
+   * the caller holds the hash (the campaign stores it on `details.raceId`, set
+   * by the office picker) rather than resolving via the position. Returns
+   * `null` on any error — callers must fall back to the Position-based path or
+   * accept no filing fee. We deliberately don't throw so this stays an opt-in
+   * enrichment.
    */
   async fetchFilingFeeByRaceHash(
     brHashId: string,
@@ -625,10 +687,10 @@ export class ElectionsService {
       .map((s) => s.trim())
       .filter((s) => s.length > 0)
     if (segments.length === 0) return l2DistrictName
-    let longest = segments[0]
-    for (let i = 1; i < segments.length; i++) {
-      if (segments[i].length > longest.length) {
-        longest = segments[i]
+    let longest = segments[0] ?? l2DistrictName
+    for (const segment of segments) {
+      if (segment.length > longest.length) {
+        longest = segment
       }
     }
     return longest

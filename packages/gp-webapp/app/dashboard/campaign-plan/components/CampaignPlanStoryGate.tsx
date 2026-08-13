@@ -2,8 +2,15 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { useQuery } from '@tanstack/react-query'
 import { Button, Card, ScrollTextIcon, SparklesIcon } from '@styleguide'
 import AlertDialog from '@shared/utils/AlertDialog'
+import { issueDescriptionText } from '@shared/utils/issueDescriptionText'
+import {
+  getUserWebsite,
+  USER_WEBSITE_QUERY_KEY,
+} from 'app/dashboard/website/util/website.util'
+import { getBioPlainLength } from 'app/dashboard/profile/texting-compliance/candidate-profile/candidateProfile.utils'
 import { CAMPAIGN_STORY_SECTIONS } from 'app/dashboard/campaign-story/sections'
 import {
   isCampaignStoryComplete,
@@ -20,12 +27,32 @@ const CampaignPlanStoryGate = ({
   onGenerate,
 }: CampaignPlanStoryGateProps): React.JSX.Element => {
   const { data: story, isError } = useCampaignStory()
+  // The "why" (bio) and issues live on the website (shared with Pro-upgrade),
+  // not the story.
+  const {
+    data: website,
+    isLoading: websiteLoading,
+    isError: websiteIsError,
+  } = useQuery({
+    queryKey: USER_WEBSITE_QUERY_KEY,
+    queryFn: getUserWebsite,
+    // Always refetch on mount: a candidate who just edited their why or issues
+    // on the story page (a direct saveAboutFields write that doesn't touch this
+    // cache) must see them here, not a stale within-staleTime snapshot that
+    // would wrongly gate them. Mirrors useCampaignStory's refetch.
+    refetchOnMount: 'always',
+  })
+  const bio = website?.content?.about?.bio ?? ''
+  const issues = website?.content?.about?.issues ?? []
   const [confirmOpen, setConfirmOpen] = useState(false)
 
   // Only spin while genuinely loading — an errored fetch leaves data undefined
   // forever, so fall through (fail closed) to the "complete your story" prompt
   // rather than spinning indefinitely.
-  if (story === undefined && !isError) {
+  if (
+    (story === undefined && !isError) ||
+    (websiteLoading && !websiteIsError)
+  ) {
     return (
       <div className="flex h-[40vh] items-center justify-center">
         <div className="size-8 animate-spin rounded-full border-b-2 border-primary" />
@@ -33,7 +60,15 @@ const CampaignPlanStoryGate = ({
     )
   }
 
-  if (!isCampaignStoryComplete(story)) {
+  // Fail open on a website-fetch error: don't read it as "no why / no issues"
+  // and block a candidate who actually has a complete story.
+  if (
+    !isCampaignStoryComplete(
+      story,
+      websiteIsError || getBioPlainLength(bio) > 0,
+      websiteIsError || issues.length > 0,
+    )
+  ) {
     return (
       <Card className={CARD_CLASS}>
         <ScrollTextIcon className="size-8 text-primary" />
@@ -48,7 +83,11 @@ const CampaignPlanStoryGate = ({
           </p>
         </div>
         <Button asChild>
-          <Link href="/dashboard/campaign-story">Go to Campaign Story</Link>
+          {/* Deep link: CampaignManagerHome auto-launches the story-intake
+              chat flow on `?personalize=1`, same as its own story card. */}
+          <Link href="/dashboard?personalize=1">
+            Open your campaign manager
+          </Link>
         </Button>
       </Card>
     )
@@ -68,6 +107,14 @@ const CampaignPlanStoryGate = ({
       </div>
 
       <div className="flex w-full flex-col gap-4">
+        <div className="flex flex-col gap-1">
+          <span className="text-sm font-semibold text-foreground">
+            Your why
+          </span>
+          <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+            {bio ? issueDescriptionText(bio) : ''}
+          </p>
+        </div>
         {CAMPAIGN_STORY_SECTIONS.map(({ id, title }) => (
           <div key={id} className="flex flex-col gap-1">
             <span className="text-sm font-semibold text-foreground">
@@ -78,6 +125,27 @@ const CampaignPlanStoryGate = ({
             </p>
           </div>
         ))}
+        {issues.length > 0 && (
+          <div className="flex flex-col gap-1">
+            <span className="text-sm font-semibold text-foreground">
+              Your issues
+            </span>
+            <ul className="flex flex-col gap-2">
+              {issues.map((issue, index) => (
+                <li key={index} className="flex flex-col">
+                  <span className="text-sm font-medium text-foreground">
+                    {issue.title}
+                  </span>
+                  <span className="text-sm text-muted-foreground">
+                    {issue.description
+                      ? issueDescriptionText(issue.description)
+                      : ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       <div className="flex w-full flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2">
@@ -85,7 +153,7 @@ const CampaignPlanStoryGate = ({
           Generate my Campaign Plan
         </Button>
         <Button variant="ghost" className="sm:ml-auto" asChild>
-          <Link href="/dashboard/campaign-story">Edit my Story</Link>
+          <Link href="/dashboard?personalize=1">Edit in campaign manager</Link>
         </Button>
       </div>
 

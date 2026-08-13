@@ -3,12 +3,14 @@ import {
   ChatMessage,
   ChatMessageRole,
   ChatMessageSegmentKind,
+  Prisma,
 } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
-import { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import {
   LlmService,
   LlmStreamResult,
+  LlmStreamUsage,
   LlmTool,
 } from '@/llm/services/llm.service'
 import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
@@ -23,8 +25,16 @@ export type ChatStreamErrorCode =
 
 export type ChatStreamChunk =
   | { type: 'text'; delta: string }
+  // The model has begun writing a tool call's arguments (before tool_call).
+  // Transient signal for a per-tool "generating" indicator; not persisted.
+  | { type: 'tool_input_start'; toolName: string }
   | { type: 'tool_call'; toolName: string; args: unknown }
   | { type: 'tool_result'; toolName: string; result: unknown }
+  // Keep-alive while the model works silently — tool-arg generation (e.g. the
+  // ordinance draft body) streams no chunks for minutes, and without wire
+  // traffic client idle watchdogs and LB idle timeouts kill a healthy stream.
+  // Carries no content; not persisted.
+  | { type: 'ping' }
   | { type: 'done'; assistantMessageId?: string }
   | {
       type: 'error'
@@ -42,10 +52,28 @@ export interface StreamArgs {
   signal?: AbortSignal
   clientMessageId?: string
   models?: string[]
+  maxSteps?: number
+  // Called once after a clean finish with the turn's resolved token usage and
+  // the model that produced it. Optional so only scopes that meter usage (the
+  // ordinance flow) pay for it; a throw here is logged, never fails the turn.
+  onUsage?: (usage: LlmStreamUsage, model: string) => void | Promise<void>
+  // Braintrust span name for this turn. This service is shared across chat
+  // scopes, so the caller supplies a scope-specific name (e.g.
+  // 'ordinance_flow-chat-stream'); falls back to a generic name if unset.
+  traceName?: string
+  // Optional post-generation hook. On a clean finish, given the full assembled
+  // text, returns a line to append (e.g. the CoS professional-advice
+  // disclaimer) or null. Streamed as the final text chunk and included in the
+  // persisted turn; a throw is logged, never fails the turn.
+  finalizeText?: (fullText: string) => string | null
 }
 
 export const MAX_CHAT_HISTORY_MESSAGES = 40
 export const MAX_BUFFERED_CHUNKS = 256
+
+// Ping cadence. Well under the webapp's 60s stream-idle watchdog and typical
+// LB idle timeouts, so several beats must be missed before a client gives up.
+export const CHAT_STREAM_HEARTBEAT_MS = 15_000
 
 // Sentinel persisted as the assistant message body when a stream is
 // aborted before any text was produced (e.g. user navigated away during
@@ -68,6 +96,15 @@ const RETRYABLE: Record<ChatStreamErrorCode, boolean> = {
   rate_limited: true,
   aborted: false,
   internal: false,
+}
+
+// Tool args arrive typed as `unknown` from the AI SDK, but they are JSON by
+// construction (the model produced them against the tool's JSON schema), so
+// persisting them as the segment payload is safe.
+const toJsonPayload = (value: unknown): Prisma.InputJsonValue | null => {
+  if (value === null || value === undefined) return null
+
+  return value as Prisma.InputJsonValue
 }
 
 const isAbortError = (err: unknown, signal?: AbortSignal): boolean => {
@@ -120,11 +157,23 @@ const roleToOpenAiRole = (
 const toLlmMessages = (
   systemPrompt: string,
   history: ChatMessage[],
-): ChatCompletionMessageParam[] => {
-  const out: ChatCompletionMessageParam[] = [
-    { role: 'system', content: systemPrompt },
-  ]
-  for (const m of history) {
+): LlmMessage[] => {
+  // A scope may seed an assistant greeting as the conversation's first message
+  // (Campaign Manager) so it persists and replays. Anthropic requires the
+  // message list to open with a user turn, so fold a leading assistant message
+  // into the system prompt instead of sending it as an invalid leading turn.
+  // (Also covers the rare case where history truncation starts on an assistant
+  // reply.)
+  const [first, ...tail] = history
+  const leadingGreeting =
+    first?.role === ChatMessageRole.assistant ? first : null
+  const system = leadingGreeting
+    ? `${systemPrompt}\n\nYou already greeted the candidate with:\n${leadingGreeting.content}`
+    : systemPrompt
+  const rest = leadingGreeting ? tail : history
+
+  const out: LlmMessage[] = [{ role: 'system', content: system }]
+  for (const m of rest) {
     const role = roleToOpenAiRole(m.role)
     if (role === 'system') {
       out.push({ role: 'system', content: m.content })
@@ -135,6 +184,11 @@ const toLlmMessages = (
       continue
     }
     if (role === 'assistant') {
+      // A widget-only turn persists with empty content (its tool segments
+      // aren't replayed to the model). Sending `{content: ''}` makes Anthropic
+      // reject the turn ("text content blocks must be non-empty"), so drop
+      // empty-content assistant turns from the replayed history.
+      if (m.content.length === 0) continue
       out.push({ role: 'assistant', content: m.content })
       continue
     }
@@ -262,15 +316,98 @@ export class ChatStreamService {
     const textBuffer: string[] = []
     let toolCallCount = 0
 
+    // Ordered display structure of the turn (text runs and tool calls
+    // interleaved), built at PRODUCTION time as the model streams — not as the
+    // client drains — so it is complete regardless of how far the SSE consumer
+    // reads. Persisted only if the turn used a tool (see persistAssistantText).
+    const segments: PersistedSegment[] = []
+    const pushTextDelta = (delta: string): void => {
+      // Skip empty deltas (the OpenAI SDK can terminate a stream with delta:'')
+      // so we never open a blank text segment that renders as a phantom bubble.
+      if (!delta) return
+      const last = segments[segments.length - 1]
+      if (last && last.kind === ChatMessageSegmentKind.text) {
+        last.text = (last.text ?? '') + delta
+      } else {
+        segments.push({ kind: ChatMessageSegmentKind.text, text: delta })
+      }
+    }
+
+    let persistedId: string | undefined
+    let persisted = false
+    // Set synchronously before the persist await so a second caller (the finally
+    // fallback racing driveStream) can't double-write the assistant row.
+    let persisting = false
+    // Persists the turn exactly once. Writes real content (text and/or a
+    // widget-only tool turn on a clean finish); if there is nothing to persist
+    // as content, falls back to the interrupted sentinel so the turn is never a
+    // zero-row hole — the retry affordance must survive a client disconnect
+    // mid-tool-call. Guarded so the driveStream call and the finally fallback
+    // can never both write. Note the deliberate trade-off: if a turn is
+    // interrupted after a tool already committed to its own record (e.g. an
+    // ordinance-flow present_* write), the transcript shows the sentinel while
+    // that record keeps the write — the record is the source of truth and Retry
+    // re-runs the tool, so the transient mismatch is acceptable.
+    const persistOnce = async (cleanFinish: boolean): Promise<void> => {
+      if (persisted || persisting) return
+      persisting = true
+      try {
+        const row =
+          (await this.persistAssistantText(
+            args.conversationId,
+            textBuffer.join(''),
+            segments,
+            cleanFinish,
+          )) ??
+          // Only an interrupted turn falls back to the sentinel. A clean finish
+          // that produced no content was not interrupted — persist nothing
+          // rather than a spurious retry affordance.
+          (cleanFinish
+            ? null
+            : await this.persistAssistantText(
+                args.conversationId,
+                CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER,
+              ))
+        if (row) {
+          persistedId = row.id
+          persisted = true
+        }
+      } catch (persistErr) {
+        this.logger.error(
+          { err: persistErr, conversationId: args.conversationId },
+          'failed to persist assistant message',
+        )
+      } finally {
+        persisting = false
+      }
+    }
+
+    // The AI SDK routes mid-generation provider errors to onError, not by
+    // throwing from textStream — so consuming textStream ends normally and the
+    // error would otherwise be swallowed. Capture it here to surface as a
+    // stream error (client gets an error chunk; the turn isn't marked clean).
+    let streamError: Error | undefined
     let result: LlmStreamResult
     try {
       result = await this.llm.streamChatCompletion({
         messages,
         tools: args.tools,
         ...(args.models && { models: args.models }),
+        ...(args.maxSteps && { maxSteps: args.maxSteps }),
         ...(args.signal && { abortSignal: args.signal }),
+        onStreamError: (err) => {
+          streamError = err
+        },
+        onToolInputStart: ({ toolName }) => {
+          void queue.push({ type: 'tool_input_start', toolName })
+        },
         onToolCallStart: ({ name, input }) => {
           toolCallCount += 1
+          segments.push({
+            kind: ChatMessageSegmentKind.tool,
+            toolName: name,
+            payload: toJsonPayload(input),
+          })
           void queue.push({
             type: 'tool_call',
             toolName: name,
@@ -294,12 +431,42 @@ export class ChatStreamService {
       return
     }
 
+    // Started only after a successful connect (a connect error returns above
+    // and would leak the interval). push() no-ops once the queue closes, so a
+    // straggling tick after teardown is harmless.
+    const heartbeat = setInterval(() => {
+      void queue.push({ type: 'ping' })
+    }, CHAT_STREAM_HEARTBEAT_MS)
+
     const consumeStream = async (): Promise<{ error?: Error }> => {
       try {
         for await (const delta of result.textStream) {
           if (args.signal?.aborted) break
           textBuffer.push(delta)
+          pushTextDelta(delta)
           await queue.push({ type: 'text', delta })
+        }
+        // textStream ends normally even on a provider error (the SDK swallows
+        // it to onStreamError), so surface any captured error here.
+        if (streamError) return { error: streamError }
+        // Clean finish: let the caller append a final line (the CoS
+        // professional-advice disclaimer) before the queue closes, so it both
+        // streams to the client and lands in textBuffer for persistence. A
+        // throw here must not fail an otherwise-complete turn.
+        if (!args.signal?.aborted && args.finalizeText) {
+          try {
+            const extra = args.finalizeText(textBuffer.join(''))
+            if (extra) {
+              textBuffer.push(extra)
+              pushTextDelta(extra)
+              await queue.push({ type: 'text', delta: extra })
+            }
+          } catch (finalizeErr) {
+            this.logger.error(
+              { err: finalizeErr, conversationId: args.conversationId },
+              'finalizeText hook failed',
+            )
+          }
         }
         return {}
       } catch (err) {
@@ -311,6 +478,7 @@ export class ChatStreamService {
           error: err instanceof Error ? err : new Error(String(err)),
         }
       } finally {
+        clearInterval(heartbeat)
         queue.close()
       }
     }
@@ -330,11 +498,31 @@ export class ChatStreamService {
       if (error) {
         tracedMetrics.errorCode = classifyError(error, args.signal)
       }
+      // Persist the moment generation finishes, decoupled from client draining:
+      // an SSE client parked on write backpressure (or a slow/backgrounded tab)
+      // must never cost us the turn. A clean tool-only finish still persists so
+      // the widget replays on reload; an interrupt leaves it unpersisted here
+      // and the finally writes the sentinel instead.
+      const cleanFinish = !args.signal?.aborted && !tracedMetrics.errorCode
+      await persistOnce(cleanFinish)
+      // Meter usage only on a clean finish; a partial/aborted turn's usage is
+      // unreliable. Guarded so metering never breaks the turn.
+      if (cleanFinish && args.onUsage) {
+        try {
+          const usage = await result.usage
+          await args.onUsage(usage, result.model)
+        } catch (usageErr) {
+          this.logger.error(
+            { err: usageErr, conversationId: args.conversationId },
+            'failed to record turn usage',
+          )
+        }
+      }
       return tracedMetrics
     }
 
     const streamDone = this.braintrust
-      ? this.braintrust.traced('briefing-chat-stream', driveStream, {
+      ? this.braintrust.traced(args.traceName ?? 'chat-stream', driveStream, {
           input: {
             conversationId: args.conversationId,
             userMessageLength: args.userMessage.length,
@@ -347,59 +535,17 @@ export class ChatStreamService {
         })
       : driveStream()
 
-    let persistedId: string | undefined
-    let persisted = false
-
-    // Ordered display structure of the turn, built from the same chunks the
-    // client sees (in queue order): text runs and tool calls interleaved.
-    // Persisted only if the turn used a tool (see persistAssistantText).
-    const segments: PersistedSegment[] = []
-    const pushTextDelta = (delta: string): void => {
-      // Skip empty deltas (the OpenAI SDK can terminate a stream with delta:'')
-      // so we never open a blank text segment that renders as a phantom bubble.
-      if (!delta) return
-      const last = segments[segments.length - 1]
-      if (last && last.kind === ChatMessageSegmentKind.text) {
-        last.text = (last.text ?? '') + delta
-      } else {
-        segments.push({ kind: ChatMessageSegmentKind.text, text: delta })
-      }
-    }
-
+    let completedNormally = false
     try {
+      // The yield loop is now purely client delivery — segments and persistence
+      // are handled in driveStream, so a parked consumer can't block either.
       while (true) {
         const next = await queue.next()
         if (!next) break
-        const chunk = next.chunk
-        if (chunk.type === 'text') {
-          pushTextDelta(chunk.delta)
-        } else if (chunk.type === 'tool_call') {
-          segments.push({
-            kind: ChatMessageSegmentKind.tool,
-            toolName: chunk.toolName,
-          })
-        }
-        yield chunk
+        yield next.chunk
       }
 
       const metrics = await streamDone
-
-      try {
-        const row = await this.persistAssistantText(
-          args.conversationId,
-          textBuffer.join(''),
-          segments,
-        )
-        if (row) {
-          persistedId = row.id
-          persisted = true
-        }
-      } catch (persistErr) {
-        this.logger.error(
-          { err: persistErr, conversationId: args.conversationId },
-          'failed to persist assistant message',
-        )
-      }
 
       if (metrics.errorCode) {
         this.logger.error(
@@ -410,34 +556,27 @@ export class ChatStreamService {
         return
       }
 
+      // Set before the yield: a consumer that breaks on the done chunk calls
+      // .return() on the generator, which jumps straight to finally without
+      // resuming past this yield — so the flag must already be true.
+      completedNormally = true
       yield {
         type: 'done',
         ...(persistedId !== undefined && { assistantMessageId: persistedId }),
       }
     } finally {
-      if (!persisted) {
-        const hasText = textBuffer.length > 0
-        const fallbackText = hasText
-          ? textBuffer.join('')
-          : CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER
-        try {
-          // Carry the segments when there's real partial text — the turn may
-          // have emitted tool calls before the primary persist failed. But with
-          // the interrupted sentinel (no text), pass none: tool-only segments
-          // would make the reload render orphaned pills and hide the sentinel's
-          // retry affordance.
-          await this.persistAssistantText(
-            args.conversationId,
-            fallbackText,
-            hasText ? segments : undefined,
-          )
-        } catch (err) {
-          this.logger.error(
-            { err, conversationId: args.conversationId },
-            'failed to persist partial/sentinel assistant text on premature return',
-          )
-        }
-      }
+      // A premature consumer return jumps here while driveStream may still be
+      // running; consumeStream's own finally clears too — clearInterval is
+      // idempotent.
+      clearInterval(heartbeat)
+      // Fallback for a premature return (client returned the iterator before
+      // driveStream reached its persist). `completedNormally` is a deterministic
+      // signal (no racy read of the floating driveStream's metrics): on a clean
+      // finish driveStream already persisted — or it was a clean-empty turn with
+      // nothing to save — so persistOnce(true) is a no-op / writes nothing; a
+      // premature return is an interrupt, so persistOnce(false) writes the
+      // sentinel. No-op if already persisted.
+      await persistOnce(completedNormally)
     }
   }
 
@@ -445,14 +584,18 @@ export class ChatStreamService {
     conversationId: string,
     text: string,
     segments?: PersistedSegment[],
+    allowToolOnly = false,
   ): Promise<ChatMessage | null> {
-    if (text.length === 0) return null
     // Only persist the structure when the turn actually used a tool — a
     // pure-text turn renders identically from `content`, so storing a single
     // text segment would be wasted rows.
     const usedTool = segments?.some(
       (s) => s.kind === ChatMessageSegmentKind.tool,
     )
+    // A widget-only turn (tool calls, no text) still persists on a clean finish
+    // so the widget replays; without `allowToolOnly` a zero-text turn is
+    // dropped (the caller writes the interrupted sentinel instead).
+    if (text.length === 0 && !(allowToolOnly && usedTool)) return null
     return this.store.appendMessage({
       conversationId,
       role: ChatMessageRole.assistant,

@@ -6,28 +6,23 @@ import {
   MdFactCheck,
   MdFileOpen,
   MdFolderShared,
+  MdMenuBook,
   MdMessage,
   MdPeople,
   MdPoll,
   MdSensorDoor,
-  MdWeb,
 } from 'react-icons/md'
 import {
-  BookOpen,
-  Bot,
   Circle,
   CircleUserRound,
   ClipboardList,
   DoorClosed,
   ExternalLink,
   FileText,
-  Globe,
-  LayoutDashboard,
   LogOut,
   Send,
   Settings,
   Sparkles,
-  UserCog,
   UserRound,
   UsersRound,
   type LucideIcon,
@@ -42,8 +37,12 @@ import { useUser as useClerkUser } from '@clerk/nextjs'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useCampaignStrategyExists } from './useCampaignStrategyExists'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
+import { useNativeDoorKnockingFlag } from 'app/shared/experiments/nativeDoorKnockingFlag'
+import { useDistrictResolution } from './useDistrictResolution'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
-import { Campaign } from 'helpers/types'
+// Labels and icons shared with each tab's page title bar (DashboardNavHeader),
+// so the left rail and the top of the page can never read differently.
+import { NAV_HEADER_ICONS, NAV_LABELS } from './navLabels'
 import { CIRCLE_COMMUNITY_BASE } from 'appEnv'
 import {
   Avatar,
@@ -70,8 +69,6 @@ import {
   useOrganization,
 } from '@shared/organization-picker'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
-import { useChiefOfStaffFlag } from '@shared/experiments/chiefOfStaffFlag'
-import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 
 interface MenuItem {
@@ -100,21 +97,11 @@ const VOTER_DATA_UPGRADE_ITEM: MenuItem = {
   id: 'upgrade-pro-dashboard',
 }
 
-const WEBSITE_MENU_ITEM: MenuItem = {
-  label: 'Website',
-  icon: <MdWeb />,
-  v2Icon: Globe,
-  v2Category: 'campaign',
-  link: '/dashboard/website',
-  id: 'website-dashboard',
-  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickWebsite),
-}
-
 const DEFAULT_MENU_ITEMS: MenuItem[] = [
   {
-    label: 'Campaign Manager',
+    label: NAV_LABELS.campaignManager,
     icon: <MdFactCheck />,
-    v2Icon: LayoutDashboard,
+    v2Icon: NAV_HEADER_ICONS.dashboard,
     link: '/dashboard',
     v2Category: 'campaign',
     id: 'campaign-tracker-dashboard',
@@ -130,24 +117,14 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickVoterOutreach),
   },
   VOTER_DATA_UPGRADE_ITEM,
-  WEBSITE_MENU_ITEM,
   {
     label: 'My Profile',
     icon: <MdAccountCircle />,
     v2Icon: Circle,
     v2Category: null,
-    link: '/dashboard/campaign-details',
+    link: '/dashboard/profile',
     id: 'campaign-details-dashboard',
     onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickMyProfile),
-  },
-  {
-    label: 'AI Assistant',
-    icon: <MdAutoAwesome />,
-    v2Icon: Bot,
-    v2Category: 'campaign',
-    link: '/dashboard/campaign-assistant',
-    id: 'campaign-assistant-dashboard',
-    onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickAIAssistant),
   },
   {
     label: 'Content Builder',
@@ -179,17 +156,7 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
   },
 ]
 
-const VOTER_RECORDS_MENU_ITEM: MenuItem = {
-  id: 'voter-records-dashboard',
-  label: 'Voter Data',
-  link: '/dashboard/voter-records',
-  icon: <MdFolderShared />,
-  v2Icon: UsersRound,
-  v2Category: 'campaign',
-  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickVoterData),
-}
-
-const ECANVASSER_MENU_ITEM: MenuItem = {
+const DOOR_KNOCKING_MENU_ITEM: MenuItem = {
   id: 'door-knocking-dashboard',
   label: 'Door Knocking',
   link: '/dashboard/door-knocking',
@@ -264,64 +231,95 @@ const CHIEF_OF_STAFF_MENU_ITEM: MenuItem = {
   v2Category: 'elected-office',
 }
 
-const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
-  id: 'campaign-plan-dashboard',
-  label: 'Campaign Plan',
-  link: '/dashboard/campaign-plan',
+const PUBLIC_PROFILE_MENU_ITEM: MenuItem = {
+  id: 'public-profile-dashboard',
+  label: NAV_LABELS.publicProfile,
+  link: '/dashboard/public-profile',
+  icon: <MdFactCheck />,
+  v2Icon: NAV_HEADER_ICONS.profile,
+  v2Category: 'elected-office',
+}
+
+const ORDINANCES_MENU_ITEM: MenuItem = {
+  id: 'ordinances-dashboard',
+  label: 'Ordinances',
+  link: '/dashboard/ordinances',
   icon: <MdFileOpen />,
   v2Icon: ScrollTextIcon,
+  v2Category: 'elected-office',
+}
+
+const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
+  id: 'campaign-plan-dashboard',
+  label: NAV_LABELS.campaignPlan,
+  link: '/dashboard/campaign-plan',
+  icon: <MdFileOpen />,
+  v2Icon: NAV_HEADER_ICONS.scroll,
   v2Category: 'campaign',
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignPlan),
 }
 
 const CAMPAIGN_STORY_MENU_ITEM: MenuItem = {
   id: 'campaign-story-dashboard',
-  label: 'Campaign Story',
+  label: NAV_LABELS.campaignStory,
   link: '/dashboard/campaign-story',
-  icon: <MdFileOpen />,
-  v2Icon: BookOpen,
+  icon: <MdMenuBook />,
+  v2Icon: NAV_HEADER_ICONS.book,
   v2Category: 'campaign',
 }
 
+const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
+  id: 'race-opponent-dashboard',
+  label: NAV_LABELS.knowYourOpponent,
+  link: '/dashboard/race-opponent',
+  icon: <MdFactCheck />,
+  v2Icon: NAV_HEADER_ICONS.flag,
+  v2Category: 'campaign',
+}
+
+// Which of the two door-knocking products the candidate would actually land on.
+// `nativeEnabled` is the flag's settled value, so it matches what
+// DoorKnockingPageGate decides on the page itself.
+interface DoorKnockingNavGate {
+  ecanvasserConnected: boolean
+  nativeEnabled: boolean
+  districtResolvable: boolean
+}
+
 export const getDashboardMenuItems = (
-  campaign: Campaign | null,
   serveAccessEnabled: boolean,
   isElectedOffice: boolean,
   isElectedOfficeLoading: boolean,
-  chiefOfStaffEnabled: boolean,
   campaignStrategyExists: boolean,
-  winVoterDataReady: boolean,
-  winVoterDataEnabled: boolean,
   campaignStoryEnabled: boolean,
   communityIssuesEnabled: boolean,
+  ordinancesEnabled: boolean,
+  doorKnocking: DoorKnockingNavGate = {
+    ecanvasserConnected: false,
+    nativeEnabled: false,
+    districtResolvable: false,
+  },
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
   // Community Issues nav is gated behind serve-community-issues-v1 so it can be
   // dark-launched independently; the page route itself is serve-access gated.
   const communityIssuesShown = isElectedOffice && communityIssuesEnabled
+  const ordinancesShown = isElectedOffice && ordinancesEnabled
 
   const voterDataIndex = menuItems.indexOf(VOTER_DATA_UPGRADE_ITEM)
   if (serveAccessEnabled && isElectedOffice) {
     menuItems[voterDataIndex] = CONTACTS_MENU_ITEM
-  } else if (!isElectedOfficeLoading && winVoterDataReady) {
-    // Hold off until BOTH the elected-office query and the win-voter-data flag
-    // settle — the same combined guard useWinVoterContext applies elsewhere in
-    // this PR. Until then a Serve elected-official reads as not-elected-office,
-    // and the flag reads off, so committing here would swap the slot
-    // (placeholder → legacy Voter Data → Contacts) as each input resolves.
-    // While not ready, the generic upgrade placeholder holds the slot.
+  } else if (!isElectedOfficeLoading) {
+    // Hold off until the elected-office query settles — until then a Serve
+    // elected-official reads as not-elected-office, so committing here would
+    // swap the slot (placeholder → Contacts) as the query resolves. While not
+    // ready, the generic upgrade placeholder holds the slot.
     //
-    // With the flag on, pro AND non-pro Win campaigns get the unified Contacts
-    // page — a non-pro candidate sees the district aggregates and a blurred
-    // preview and is upsold there (ENG-10495). The legacy Voter Data page stays
-    // pro-only for the flag-off cohort; non-pro flag-off users keep the upgrade
-    // placeholder.
-    if (winVoterDataEnabled) {
-      menuItems[voterDataIndex] = WIN_CONTACTS_MENU_ITEM
-    } else if (campaign?.isPro) {
-      menuItems[voterDataIndex] = VOTER_RECORDS_MENU_ITEM
-    }
+    // Pro AND non-pro Win campaigns get the unified Contacts page — a non-pro
+    // candidate sees the district aggregates and a blurred preview and is
+    // upsold there (ENG-10495).
+    menuItems[voterDataIndex] = WIN_CONTACTS_MENU_ITEM
   }
   if (isElectedOffice) {
     menuItems.splice(voterDataIndex, 0, POLLS_MENU_ITEM)
@@ -329,32 +327,31 @@ export const getDashboardMenuItems = (
     if (communityIssuesShown) {
       menuItems.splice(1, 0, COMMUNITY_ISSUES_MENU_ITEM)
     }
+    if (ordinancesShown) {
+      menuItems.splice(communityIssuesShown ? 2 : 1, 0, ORDINANCES_MENU_ITEM)
+    }
+    // The office holder's editable public /people profile (Serve side of §4).
+    menuItems.push(PUBLIC_PROFILE_MENU_ITEM)
   }
 
   // Chief of Staff is the primary Serve tab (Serve home), so it sits above
-  // Briefing Assistant. Same serve-access + elected-office gate, plus its own
-  // chief-of-staff flag so it can ramp to internal staff independently.
-  const chiefOfStaffShown =
-    serveAccessEnabled && isElectedOffice && chiefOfStaffEnabled
+  // Briefing Assistant. Gated on the same serve-access + elected-office check.
+  const chiefOfStaffShown = serveAccessEnabled && isElectedOffice
   if (chiefOfStaffShown) {
     menuItems.unshift(CHIEF_OF_STAFF_MENU_ITEM)
   }
 
   // Campaign Manager (dashboard home) is index 0, pushed down by each item
   // unshifted above it: BRIEFINGS for an elected office, COMMUNITY_ISSUES when
-  // its flag is on, then Chief of Staff when shown. Insert campaign items right
-  // after Campaign Manager (and Story before Plan, so the Plan splice lands
-  // first) to render the campaign-category nav as [Campaign Manager, Campaign
-  // Plan, Campaign Story, …].
+  // its flag is on, then Chief of Staff when shown. Insert the Plan/Tracker
+  // item right after Campaign Manager to render the campaign-category nav as
+  // [Campaign Manager, Campaign Plan, …].
   const afterCampaignManager =
     1 +
     (isElectedOffice ? 1 : 0) +
     (communityIssuesShown ? 1 : 0) +
+    (ordinancesShown ? 1 : 0) +
     (chiefOfStaffShown ? 1 : 0)
-
-  if (campaignStoryEnabled) {
-    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
-  }
 
   // Gated on the dedicated existence endpoint, NOT campaign.hasCampaignStrategy
   // — the cached campaign object gets overwritten by responses that lack that
@@ -362,7 +359,46 @@ export const getDashboardMenuItems = (
   // the tab even before a plan exists: it hosts the "complete your story to
   // generate a plan" gate.
   if (campaignStrategyExists || campaignStoryEnabled) {
-    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_PLAN_MENU_ITEM)
+    // The story cohort gets the campaign tracker on this page, so label it as
+    // such; the legacy (story-off) cohort still sees the plan content there.
+    menuItems.splice(afterCampaignManager, 0, {
+      ...CAMPAIGN_PLAN_MENU_ITEM,
+      label: campaignStoryEnabled
+        ? NAV_LABELS.campaignTracker
+        : CAMPAIGN_PLAN_MENU_ITEM.label,
+    })
+  }
+
+  // Story-cohort users get a "Your story" tab just above the tracker (the story
+  // is what the tracker + plan are generated from).
+  if (campaignStoryEnabled) {
+    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
+  }
+
+  // Visible to non-Pro users too: the page renders a locked upgrade view
+  // rather than the feature — the content is gated on isPro at the route.
+  menuItems.push(KNOW_YOUR_OPPONENT_MENU_ITEM)
+
+  // Public Profile for Win candidates (campaign-category twin of the
+  // elected-office item pushed above). The route resolves the product itself;
+  // the category filter shows exactly one of the two per org type.
+  menuItems.push({
+    ...PUBLIC_PROFILE_MENU_ITEM,
+    id: 'public-profile-campaign',
+    v2Category: 'campaign',
+  })
+
+  // Mirror DoorKnockingPageGate: with the flag on, the route renders the native
+  // voter map and an eCanvasser record is irrelevant; with it off (or
+  // unsettled) it renders the legacy eCanvasser dashboard, which is only worth
+  // linking to for an integrated org. Gating on eCanvasser alone hid the native
+  // pilot from every candidate who never integrated it. The native map also
+  // needs a resolvable district — every pack and turf read 400s without one.
+  const doorKnockingShown = doorKnocking.nativeEnabled
+    ? doorKnocking.districtResolvable
+    : doorKnocking.ecanvasserConnected
+  if (doorKnockingShown) {
+    menuItems.push(DOOR_KNOCKING_MENU_ITEM)
   }
 
   return menuItems
@@ -377,53 +413,50 @@ export default function DashboardMenu({
     useElectedOffice()
   const { ready: _flagsReady, on: serveAccessEnabled } =
     useFlagOn('serve-access')
-  const { enabled: chiefOfStaffEnabled } = useChiefOfStaffFlag()
-  // Master gate for the Win voter-data rollout. When on, a pro Win campaign
-  // sees the Contacts item (reusing the Serve route) in place of the legacy
-  // Voter Data item. Read with trackExposure=false — the page is the treatment
-  // surface, not the menu — so the nav read doesn't inflate the exposed
-  // population.
-  const { ready: winVoterDataReady, enabled: winVoterDataEnabled } =
-    useWinVoterDataFlag(false)
-  // Menu isn't the treatment surface (the page's FeatureFlagGuard is), so don't
-  // track exposure here — mirrors the win-voter-data gate above.
+  // Menu isn't the treatment surface (the page's FeatureFlagGuard is), so
+  // don't track exposure here.
   const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
   // Nav-only gate for the Community Issues tab; mirrors the serve-access read.
   const { on: communityIssuesEnabled } = useFlagOn('serve-community-issues-v1')
+  // Nav-only gate for the Ordinances tab; the page's FeatureFlagGuard is the
+  // treatment surface.
+  const { on: ordinancesEnabled } = useFlagOn('serve-ordinances')
+  // The page's gate is the treatment surface, so read without tracking exposure.
+  const { ready: nativeDoorKnockingReady, enabled: nativeDoorKnockingEnabled } =
+    useNativeDoorKnockingFlag(false)
+  const { isUnresolvable: isDistrictUnresolvable } = useDistrictResolution()
   const campaignStrategyExists = useCampaignStrategyExists()
 
-  const menuItems = useMemo(() => {
-    const items = getDashboardMenuItems(
-      campaign,
+  const menuItems = useMemo(
+    () =>
+      getDashboardMenuItems(
+        serveAccessEnabled,
+        !!electedOffice,
+        isElectedOfficeLoading,
+        campaignStrategyExists,
+        campaignStoryEnabled,
+        communityIssuesEnabled,
+        ordinancesEnabled,
+        {
+          ecanvasserConnected: !!ecanvasser,
+          nativeEnabled: nativeDoorKnockingReady && nativeDoorKnockingEnabled,
+          districtResolvable: !isDistrictUnresolvable,
+        },
+      ),
+    [
       serveAccessEnabled,
-      !!electedOffice,
+      ecanvasser,
+      electedOffice,
       isElectedOfficeLoading,
-      chiefOfStaffEnabled,
       campaignStrategyExists,
-      winVoterDataReady,
-      winVoterDataEnabled,
       campaignStoryEnabled,
       communityIssuesEnabled,
-    )
-
-    if (ecanvasser) {
-      items.push(ECANVASSER_MENU_ITEM)
-    }
-
-    return items
-  }, [
-    campaign,
-    serveAccessEnabled,
-    ecanvasser,
-    electedOffice,
-    isElectedOfficeLoading,
-    chiefOfStaffEnabled,
-    campaignStrategyExists,
-    winVoterDataReady,
-    winVoterDataEnabled,
-    campaignStoryEnabled,
-    communityIssuesEnabled,
-  ])
+      ordinancesEnabled,
+      nativeDoorKnockingReady,
+      nativeDoorKnockingEnabled,
+      isDistrictUnresolvable,
+    ],
+  )
 
   useEffect(() => {
     if (campaign && ecanvasser) {
@@ -471,18 +504,12 @@ const NewNavMenu = ({
       label: 'Profile',
       icon: CircleUserRound,
       id: 'nav-dash-profile',
-      href: '/dashboard/campaign-details',
+      href: '/dashboard/profile',
       onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickMyProfile),
     },
-    settings: {
-      label: 'Settings',
-      icon: Settings,
-      id: 'nav-dash-settings',
-      href: '/dashboard/profile',
-    },
     account: {
-      label: 'Account',
-      icon: UserCog,
+      label: 'Account Settings',
+      icon: Settings,
       id: 'nav-dash-account',
       href: '/dashboard/account',
     },
@@ -596,7 +623,6 @@ const NewNavMenu = ({
                   {sidebarItem(accountManagementMenuItems.community)}
                   <SidebarSeparator />
                   {sidebarItem(accountManagementMenuItems.profile)}
-                  {sidebarItem(accountManagementMenuItems.settings)}
                   {sidebarItem(accountManagementMenuItems.account)}
                   <SidebarSeparator />
                   {sidebarItem(accountManagementMenuItems.logout)}
@@ -638,7 +664,6 @@ const NewNavMenu = ({
                   sideOffset={4}
                 >
                   {dropDownItem(accountManagementMenuItems.profile)}
-                  {dropDownItem(accountManagementMenuItems.settings)}
                   {dropDownItem(accountManagementMenuItems.account)}
                   <DropdownMenuSeparator />
                   {dropDownItem(accountManagementMenuItems.community)}

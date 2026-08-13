@@ -1,8 +1,10 @@
 'use client'
+import { Suspense } from 'react'
 import DashboardLayout from '../../shared/DashboardLayout'
 import { OutreachHeader } from './OutreachHeader'
 import FreeTextsBanner from './FreeTextsBanner'
 import OutreachCreateCards from './OutreachCreateCards'
+import { OutreachComposeDeepLink } from './OutreachComposeDeepLink'
 import { OutreachTable } from 'app/dashboard/outreach/components/OutreachTable'
 import {
   OutreachProvider,
@@ -18,6 +20,8 @@ interface OutreachPageProps {
   outreaches?: Outreach[]
   mockOutreaches?: Outreach[]
   tcrCompliance?: TcrCompliance
+  preselectedListId?: number
+  highlightOutreachId?: number
 }
 
 export const OutreachPage = ({
@@ -26,19 +30,29 @@ export const OutreachPage = ({
   outreaches = [],
   mockOutreaches = [],
   tcrCompliance,
+  preselectedListId,
+  highlightOutreachId,
 }: OutreachPageProps) => {
   useSingleEffect(() => {
     trackEvent(EVENTS.Outreach.ViewAccessed)
   }, [])
+
   return (
     <OutreachProvider initValue={outreaches}>
       <DashboardLayout pathname={pathname} campaign={campaign}>
         <OutreachHeader />
         <FreeTextsBanner tcrCompliance={tcrCompliance} />
-        <OutreachCreateCards tcrCompliance={tcrCompliance} />
+        <OutreachCreateCards
+          tcrCompliance={tcrCompliance}
+          preselectedListId={preselectedListId}
+        />
+        <Suspense>
+          <OutreachComposeDeepLink tcrCompliance={tcrCompliance} />
+        </Suspense>
         <OutreachTable
           {...{
             mockOutreaches,
+            highlightOutreachId,
           }}
         />
       </DashboardLayout>

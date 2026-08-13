@@ -1,5 +1,10 @@
 import type { OnboardingStepConfig, NonEmptyArray } from './onboardingTypes'
 
+// Shared "Why we ask" aside copy for all three story steps (rendered in the
+// right-hand WhyThisMatters panel).
+const STORY_WHY_WE_ASK =
+  "We use all of this to personalize and craft your outreach so you don't have to, and to build you a personalized campaign plan. You can skip this and add it later, but the more you tell me now, the sharper your first plan will be."
+
 export const ONBOARDING_STEPS: NonEmptyArray<OnboardingStepConfig> = [
   {
     id: 'welcome',
@@ -81,14 +86,37 @@ export const ONBOARDING_STEPS: NonEmptyArray<OnboardingStepConfig> = [
       "Most candidates think they need to convince everyone. You don't. You need to find your win number, talk to them, and make sure they vote. We'll show you exactly what that takes.",
     shouldSkip: ({ answers }) => answers.officePath === 'manual',
   },
+  // The Campaign Story is split into three skippable steps (why → background →
+  // voter issues). Continue always advances; Skip on any of them skips ALL three
+  // and jumps to the pledge, and the answers are persisted only on the final
+  // step's Continue — see OnboardingFlow's handleStoryContinue / handleStorySkip.
+  // Each renders the standard onboarding chrome (page heading + description +
+  // "Why we ask" aside) around its card.
   {
-    id: 'voter-demographics',
-    title: 'Voter insights for your district',
+    id: 'campaign-story-why',
+    title: 'Why are you running?',
     description:
-      'We use survey and voter data along with your district demographics to project likely top issues for your race.',
+      'Help us understand what inspired you to run for public office.',
+    whyThisMatters: STORY_WHY_WE_ASK,
+    isValid: () => true,
+  },
+  {
+    id: 'campaign-story-background',
+    title: "What's your background?",
+    description:
+      'Tell us a bit about who you are, and your relationship to your community.',
     whyThisMatters:
-      'We use this data to help you understand what voters care most about, and to customize your campaign plan.',
-    shouldSkip: ({ answers }) => answers.officePath === 'manual',
+      'The more we can learn about your background, the better we can craft your outreach using your voice, tone, and experience in your community.',
+    isValid: () => true,
+  },
+  {
+    id: 'campaign-story-issues',
+    title: 'What issues do you most want to solve if elected?',
+    description:
+      "Add each policy priority as it's own entry. Include a short title and description.",
+    whyThisMatters:
+      'We use each priority to draft targeted outreach and shape your campaign plan. Add as many as matter to you. You can always edit or remove them later.',
+    isValid: () => true,
   },
   {
     id: 'pledge',
@@ -99,3 +127,16 @@ export const ONBOARDING_STEPS: NonEmptyArray<OnboardingStepConfig> = [
 ]
 
 export const firstOnboardingStepId = ONBOARDING_STEPS[0].id
+
+// The three Campaign Story steps, in order. Grouped so the flag-gated injection,
+// the follow-on filter, and OnboardingFlow's per-step branching all agree on
+// what counts as a story step. `campaign-story-issues` is the final one (its
+// Continue persists all three answers).
+export const STORY_STEP_IDS = [
+  'campaign-story-why',
+  'campaign-story-background',
+  'campaign-story-issues',
+] as const satisfies ReadonlyArray<OnboardingStepConfig['id']>
+
+export const isStoryStepId = (id: OnboardingStepConfig['id']): boolean =>
+  (STORY_STEP_IDS as ReadonlyArray<string>).includes(id)

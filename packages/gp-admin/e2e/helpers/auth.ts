@@ -8,9 +8,6 @@ export const TEST_USERS = {
   DEV_ADMIN: 'dev-admin',
   DEV_SALES: 'dev-sales',
   DEV_READONLY: 'dev-readonly',
-  QA_ADMIN: 'qa-admin',
-  QA_SALES: 'qa-sales',
-  QA_READONLY: 'qa-readonly',
   PROD_ADMIN: 'prod-admin',
   PROD_SALES: 'prod-sales',
   PROD_READONLY: 'prod-readonly',
@@ -41,18 +38,6 @@ const TEST_USER_ENV_MAP: Record<
   [TEST_USERS.DEV_READONLY]: {
     email: 'CLERK_TEST_DEV_READONLY_EMAIL',
     password: 'CLERK_TEST_DEV_READONLY_PASSWORD',
-  },
-  [TEST_USERS.QA_ADMIN]: {
-    email: 'CLERK_TEST_QA_ADMIN_EMAIL',
-    password: 'CLERK_TEST_QA_ADMIN_PASSWORD',
-  },
-  [TEST_USERS.QA_SALES]: {
-    email: 'CLERK_TEST_QA_SALES_EMAIL',
-    password: 'CLERK_TEST_QA_SALES_PASSWORD',
-  },
-  [TEST_USERS.QA_READONLY]: {
-    email: 'CLERK_TEST_QA_READONLY_EMAIL',
-    password: 'CLERK_TEST_QA_READONLY_PASSWORD',
   },
   [TEST_USERS.PROD_ADMIN]: {
     email: 'CLERK_TEST_PROD_ADMIN_EMAIL',
@@ -203,14 +188,14 @@ export async function signIn(
 /**
  * Switches to a different organization using the OrganizationSwitcher component.
  * @param page - Playwright page object
- * @param orgName - The name of the organization to switch to (e.g., 'Development', 'QA', 'Production')
+ * @param orgName - The name of the organization to switch to (e.g., 'Development', 'Production')
  */
 export async function switchOrganization(
   page: Page,
   orgName: string
 ): Promise<void> {
   // Find and click the organization switcher trigger (contains current org name text)
-  const orgSwitcher = page.getByText(/Development|QA|Production/).first()
+  const orgSwitcher = page.getByText(/Development|Production/).first()
   await orgSwitcher.click()
 
   // Wait for dropdown to appear and click the organization

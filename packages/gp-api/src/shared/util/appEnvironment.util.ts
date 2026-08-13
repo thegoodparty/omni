@@ -3,17 +3,23 @@ import { requireEnv, getEnv } from 'src/shared/util/env.util'
 enum AppEnv {
   PROD = 'production',
   DEV = 'development',
-  QA = 'qa',
   LOCAL = 'local',
 }
 const CURRENT_ENV = process.env.NODE_ENV
 
-// Set per-deploy in deploy/index.ts as one of 'preview' | 'dev' | 'qa' | 'prod'.
+// Set per-deploy in deploy/index.ts as one of 'preview' | 'dev' | 'prod'.
 // This is the only env signal that reliably distinguishes a prod deploy from a
 // non-prod deploy (NODE_ENV is pinned to 'production' in every Docker build —
 // see the IS_PROD caution below).
 export const OTEL_SERVICE_ENVIRONMENT = process.env.OTEL_SERVICE_ENVIRONMENT
 export const IS_PROD_DEPLOY = OTEL_SERVICE_ENVIRONMENT === 'prod'
+
+// Fail-closed allowlist of the known NON-prod deploys. Deliberately NOT
+// `!IS_PROD_DEPLOY`: an absent or unexpected OTEL_SERVICE_ENVIRONMENT
+// ('production', 'staging', undefined, a typo) is not in this list, so a
+// test-only affordance gated on it DENIES rather than silently ungating prod.
+export const IS_NON_PROD_DEPLOY =
+  OTEL_SERVICE_ENVIRONMENT === 'preview' || OTEL_SERVICE_ENVIRONMENT === 'dev'
 
 // Canonical prod user-facing app origin. In prod the webapp (Clerk-protected
 // app routes such as /serve/welcome, /reset-password, /set-password) is served
@@ -26,10 +32,10 @@ const PROD_APP_ROOT = 'https://app.goodparty.org' as const
 // (magic-link, password reset, password set). Resolution order:
 //   1. APP_ROOT_URL — explicit override (local .env / .env.test); always wins.
 //   2. Non-prod deploys — WEBAPP_ROOT_URL, the per-env webapp origin the infra
-//      already sets (https://dev.goodparty.org, https://qa.goodparty.org). That
+//      already sets (https://dev.goodparty.org). That
 //      is the host able to redeem env-scoped Clerk tickets. APP_ROOT_URL is
 //      never set in any deployed env, so previously non-prod fell through to the
-//      prod default below and dev/qa links pointed at the prod app — a
+//      prod default below and dev links pointed at the prod app — a
 //      dev-instance Clerk ticket opened on the prod host bounces to /login.
 //   3. Prod deploys (and the final safety fallback) — PROD_APP_ROOT, kept
 //      explicit because prod's WEBAPP_ROOT_URL is the marketing origin (see
@@ -61,7 +67,7 @@ export const WEBAPP_ROOT = requireEnv('WEBAPP_ROOT_URL') // marketing site
 export const ASSET_DOMAIN = requireEnv('ASSET_DOMAIN')
 export const WEBAPP_API_PATH = '/api/v1/'
 
-// CAUTION: IS_PROD is true in EVERY Docker-built deploy (preview/dev/qa/prod)
+// CAUTION: IS_PROD is true in EVERY Docker-built deploy (preview/dev/prod)
 // because deploy/Dockerfile pins NODE_ENV=production for runtime performance.
 // IS_PROD therefore only reliably distinguishes LOCAL vs DEPLOYED — not
 // prod-deploy vs non-prod-deploy. For routing that needs to differ between

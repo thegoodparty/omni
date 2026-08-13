@@ -8,11 +8,12 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common'
+import type { JSONSchema7 } from 'json-schema'
 import {
-  ChatCompletionMessageParam,
-  ChatCompletionNamedToolChoice,
-  ChatCompletionTool,
-} from 'openai/resources/chat/completions'
+  type LlmFunctionTool,
+  type LlmMessage,
+  type LlmToolChoice,
+} from '@/llm/types/llmMessages.types'
 import { PositionLevel } from 'src/generated/graphql.types'
 import { LlmService } from '@/llm/services/llm.service'
 import { extractToolCallContent } from '@/ai/util/llmResponseFormat.util'
@@ -80,23 +81,14 @@ export class RacesService {
     level,
     name,
     officeType,
-    electionDate,
+    timeframe,
   }: RacesByZipSchema): Promise<RaceListItem[]> {
-    const today = new Date().toISOString().slice(0, 10)
-    const electionDateTo =
-      electionDate ??
-      (() => {
-        const d = new Date()
-        d.setFullYear(d.getFullYear() + 2)
-        return d.toISOString().slice(0, 10)
-      })()
     return this.elections.searchPositions({
       zip: zipcode,
       name,
       officeType,
       displayOfficeLevels: expandLevelToDisplayLevels(level),
-      electionDateFrom: electionDate ?? today,
-      electionDateTo,
+      timeframe,
     })
   }
 
@@ -397,10 +389,7 @@ export class RacesService {
       }
     }
 
-    const toolProperties: Record<
-      string,
-      { type: string; description: string }
-    > = {}
+    const toolProperties: Record<string, JSONSchema7> = {}
     let systemPrompt: string | undefined
     if (level === 'county') {
       systemPrompt = COUNTY_PROMPT
@@ -438,7 +427,7 @@ export class RacesService {
       description: 'The county name.',
     }
 
-    const tool: ChatCompletionTool = {
+    const tool: LlmFunctionTool = {
       type: 'function',
       function: {
         name: 'extractLocation',
@@ -450,7 +439,7 @@ export class RacesService {
       },
     }
 
-    const messages: ChatCompletionMessageParam[] = [
+    const messages: LlmMessage[] = [
       { role: 'system', content: systemPrompt },
       {
         role: 'user',
@@ -459,7 +448,7 @@ export class RacesService {
       },
     ]
 
-    const toolChoice: ChatCompletionNamedToolChoice = {
+    const toolChoice: LlmToolChoice = {
       type: 'function',
       function: { name: 'extractLocation' },
     }
@@ -505,8 +494,7 @@ export class RacesService {
       }
       const { races } = ballotReadyData
       const results = races?.edges || []
-      for (let i = 0; i < results.length; i++) {
-        const result = results[i]
+      for (const result of results) {
         const { position, election } = result.node
         if (position?.name && election?.electionDay) {
           if (position.name.toLowerCase() === officeName.toLowerCase()) {

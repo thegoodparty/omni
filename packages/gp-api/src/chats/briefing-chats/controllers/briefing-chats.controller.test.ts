@@ -4,6 +4,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import { EventEmitter } from 'events'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import type { BriefingChatCreateService } from '../services/briefingChatCreate.service'
@@ -484,6 +485,51 @@ describe('BriefingChatsController.streamMessage', () => {
     expect(replyRaw.state.ended).toBe(true)
   })
 
+  it('stops awaiting drain and writes through the rest when the client stalls on backpressure', async () => {
+    vi.useFakeTimers()
+    const raw = new StreamableReply()
+    // Every write backpressures and the client never drains (idle/backgrounded
+    // tab): the old unbounded waitForDrain would wedge here until the 300s
+    // request timeout. The controller must give up after the stall timeout and
+    // write the remaining chunks through so the turn completes.
+    raw.writeReturn = false
+    const reply = { raw } as unknown as FastifyReply
+    serviceSpy = buildService({
+      sendMessage: vi.fn(() =>
+        buildIterable([
+          { type: 'text', delta: 'a' },
+          { type: 'text', delta: 'b' },
+          { type: 'done' },
+        ]),
+      ),
+    })
+    const controller = new BriefingChatsController(
+      serviceSpy,
+      buildCreateService(),
+      logger,
+    )
+    const { req } = buildReq()
+
+    const p = controller.streamMessage(
+      buildUser(USER_ID),
+      ANNOTATION_ID,
+      validBody('hi'),
+      req,
+      reply,
+    )
+    // Advance past the stall timeout (but not the 300s request timeout).
+    await vi.advanceTimersByTimeAsync(15_001)
+    await p
+    vi.useRealTimers()
+
+    expect(raw.state.writes).toHaveLength(3)
+    expect(raw.state.ended).toBe(true)
+    // No abort/error chunk — a stall is not a failure, just a slow client.
+    expect(raw.state.writes.some((w) => w.includes('"type":"error"'))).toBe(
+      false,
+    )
+  })
+
   it('logs and recovers when the iterable throws after headers are written', async () => {
     const failingIterable: AsyncIterable<ChatStreamChunk> = {
       [Symbol.asyncIterator]: async function* () {
@@ -566,7 +612,9 @@ describe('BriefingChatsController.streamMessage', () => {
     const endCalls = raw.end.mock.invocationCallOrder
     expect(writeCalls.length).toBeGreaterThan(0)
     expect(endCalls.length).toBeGreaterThan(0)
-    expect(endCalls[0]).toBeGreaterThan(writeCalls[writeCalls.length - 1])
+    expect(endCalls[0]).toBeGreaterThan(
+      nthOrThrow(writeCalls, writeCalls.length - 1),
+    )
   })
 
   it('does not time out before the prior 90s threshold (timeout extended to 300s)', async () => {
@@ -698,7 +746,9 @@ describe('BriefingChatsController.streamMessage', () => {
     expect(lastWrite).toContain('"retryable":true')
     const writeCalls = raw.write.mock.invocationCallOrder
     const endCalls = raw.end.mock.invocationCallOrder
-    expect(endCalls[0]).toBeGreaterThan(writeCalls[writeCalls.length - 1])
+    expect(endCalls[0]).toBeGreaterThan(
+      nthOrThrow(writeCalls, writeCalls.length - 1),
+    )
   })
 
   it('logs (does not silently swallow) write failures during timeout chunk emission', async () => {
@@ -805,9 +855,9 @@ describe('BriefingChatsController.getConversation', () => {
     )
     expect(result.conversationId).toBe('conv-1')
     expect(result.messages).toHaveLength(1)
-    expect(result.messages[0].id).toBe('m-1')
-    expect(result.messages[0].role).toBe(ChatMessageRole.user)
-    expect(result.messages[0].content).toBe('hi')
+    expect(result.messages[0]?.id).toBe('m-1')
+    expect(result.messages[0]?.role).toBe(ChatMessageRole.user)
+    expect(result.messages[0]?.content).toBe('hi')
   })
 })
 

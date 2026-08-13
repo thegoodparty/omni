@@ -1,0 +1,13 @@
+model PeerlyPhoneListRecipient {
+  id                String          @id @default(uuid(7))
+  peerlyPhoneList   PeerlyPhoneList @relation(fields: [peerlyPhoneListId], references: [id], onDelete: Cascade)
+  peerlyPhoneListId String          @map("peerly_phone_list_id")
+  personId          String          @map("person_id")
+  // Peerly inbound events are phone-keyed, and this row is where phone and
+  // personId are last seen together — task 04 maps inbound events back to a
+  // person through this column.
+  phone             String
+
+  @@unique([peerlyPhoneListId, personId])
+  @@map("peerly_phone_list_recipient")
+}

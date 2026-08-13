@@ -1,4 +1,4 @@
-<!-- v2 — 2026-05-04 -->
+<!-- v3 — 2026-07-13 -->
 
 # /clickup-epic-create
 
@@ -8,11 +8,11 @@ This is deliberately an **Epic-orchestration** procedure, not a single-ticket fl
 
 <!-- BEGIN: resolve-runbooks-dir (keep in sync across commands/*.md) -->
 
-> **Where this runs:** All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to the runbooks repo root. When invoked from any directory, first resolve and `cd` into the repo:
+> **Where this runs:** Runbooks lives in the `omni` monorepo at `packages/runbooks`. All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to that package root. When invoked from any directory, first resolve and `cd` into it:
 >
 > 1. If `$RUNBOOKS_DIR` is set, use it.
-> 2. Else first that exists: `$HOME/Documents/gp/dev/runbooks`, `$HOME/code/runbooks`, `$HOME/runbooks`.
-> 3. Else ask the user where the runbooks repo is; suggest `export RUNBOOKS_DIR=<path>` in their shell profile.
+> 2. Else first that exists: `$HOME/Documents/gp/dev/omni/packages/runbooks`, `$HOME/code/omni/packages/runbooks`, `$HOME/omni/packages/runbooks`.
+> 3. Else ask the user where the omni repo is (the runbooks package is at `<omni>/packages/runbooks`); suggest `export RUNBOOKS_DIR=<omni>/packages/runbooks` in their shell profile.
 
 <!-- END: resolve-runbooks-dir -->
 
@@ -50,14 +50,14 @@ User input may be passed as free-text initial context (e.g., `~/docs/auth-redesi
    Confirm you have it by summarizing in 2–3 sentences and asking "Did I understand the design correctly?". Don't proceed until the user confirms.
 
    Then classify what you actually have — this command assumes a **tech design** as input, not a PRD. Picking the wrong starting point is the single biggest cause of bad ticket breakdowns:
-   - **PRD / product spec** — describes the user problem, goals, success metrics, mockups; does _not_ prescribe architecture, data model, components, or specific files. **Stop here.** Tell the user: "This reads like a PRD, not a tech design. The architecture choices belong upstream of ticket creation — run `/prd-to-tech-design` first to bless the technical approach, then come back here with the tech design as input." Offer to switch into `/prd-to-tech-design` inline.
+   - **PRD / product spec** — describes the user problem, goals, success metrics, mockups; does _not_ prescribe architecture, data model, components, or specific files. **Stop here.** Tell the user: "This reads like a PRD, not a tech design. The architecture choices belong upstream of ticket creation — produce a tech design first (at GoodParty: the `create-tdd` skill in the omni repo), then come back here with the tech design as input."
    - **Tech design** — names architecture, components, data model, libraries, file paths; tradeoffs are already considered. Proceed.
-   - **Hybrid** — has some architectural specifics but is silent on others. Surface the gaps to the user: "The doc covers X technically but doesn't address Y, Z. Want me to run `/prd-to-tech-design` for the gaps first, or proceed and make calls during recon?". Let the user choose; default to running the design command first when the gaps are load-bearing (data model, auth, sync vs. async).
+   - **Hybrid** — has some architectural specifics but is silent on others. Surface the gaps to the user: "The doc covers X technically but doesn't address Y, Z. Want to close the gaps in a tech design first, or proceed and make calls during recon?". Let the user choose; default to closing the design gaps first when they are load-bearing (data model, auth, sync vs. async).
    - **Trivial / small** — a one-paragraph description of a small change (typo fix, copy update, single-component refactor). Proceed without forcing a tech design — the ceremony isn't worth it for tasks that don't have meaningful architecture decisions.
 
    Don't paraphrase the input back as a "tech design" yourself — if it's actually a PRD, the value is in the team-blessed architecture review, not in the agent silently inventing it during Phase 2.
 
-   **Extract milestones from the input.** If the input is a blessed tech design produced by `/prd-to-tech-design`, parse its `milestones:` frontmatter array and `## Milestones` section body. Carry these milestones forward — they shape the Epic body, the per-task `milestone:` field, and the milestone marker tasks created in Phase 6. If the tech design has no milestones (or the input is a hybrid/trivial doc that didn't pass through `/prd-to-tech-design`), that's a valid state — you'll confirm in Phase 3 whether any apply. Never fabricate milestones the source didn't specify.
+   **Extract milestones from the input.** If the tech design carries milestones — a `milestones:` frontmatter array, a `## Milestones` section, or phased delivery in its Scope section (MVP, Phase 1/2, dated checkpoints) — parse them out. Carry these milestones forward — they shape the Epic body, the per-task `milestone:` field, and the milestone marker tasks created in Phase 6. If the input has no milestones, that's a valid state — you'll confirm in Phase 3 whether any apply. Never fabricate milestones the source didn't specify.
 
 3. **Get the GitHub repo.** From `$ARGUMENTS` or by asking. Accept either:
    - **Local checkout path** (e.g., `~/code/api`) → use directly.

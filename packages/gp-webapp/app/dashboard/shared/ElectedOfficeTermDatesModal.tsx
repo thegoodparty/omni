@@ -30,20 +30,32 @@ interface ElectedOfficeTermDatesModalProps {
   otherRanges: DisabledRange[]
   onSaved: () => void
   onDismiss: () => void
+  // Voluntary edit surface (e.g. the profile "Office details" card) vs. the
+  // forced gap-filler prompt. When dismissible, escape / outside-click close
+  // the modal and the copy reflects editing rather than a required action.
+  dismissible?: boolean
+  title?: string
+  description?: string
+  saveLabel?: string
 }
 
 /**
  * Dashboard prompt shown to any elected official whose office is missing a term
  * start or end date. Reuses the serve onboarding term-date picker + validation
- * so the two surfaces never diverge. Escape / outside-click are blocked so the
- * prompt isn't dismissed by accident; the explicit close still lets the user
- * defer (it reappears on the next dashboard load until the dates are saved).
+ * so the two surfaces never diverge. By default escape / outside-click are
+ * blocked so the prompt isn't dismissed by accident; the explicit close still
+ * lets the user defer (it reappears on the next dashboard load until the dates
+ * are saved). Pass `dismissible` to reuse it as a voluntary term-date editor.
  */
 export function ElectedOfficeTermDatesModal({
   office,
   otherRanges,
   onSaved,
   onDismiss,
+  dismissible = false,
+  title = 'Add your term dates',
+  description = 'We need your term start and end dates to keep your GoodParty.org tools accurate. Please add them to continue.',
+  saveLabel = 'Save term dates',
 }: ElectedOfficeTermDatesModalProps): React.JSX.Element {
   const { errorSnackbar } = useSnackbar()
   const [termStartDate, setTermStartDate] = useState<Date | undefined>(
@@ -89,15 +101,12 @@ export function ElectedOfficeTermDatesModal({
     <Dialog open onOpenChange={handleOpenChange}>
       <DialogContent
         className="sm:max-w-2xl"
-        onEscapeKeyDown={(e) => e.preventDefault()}
-        onInteractOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={dismissible ? undefined : (e) => e.preventDefault()}
+        onInteractOutside={dismissible ? undefined : (e) => e.preventDefault()}
       >
         <DialogHeader>
-          <DialogTitle>Add your term dates</DialogTitle>
-          <DialogDescription>
-            We need your term start and end dates to keep your GoodParty.org
-            tools accurate. Please add them to continue.
-          </DialogDescription>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
         <TermDatesFields
@@ -111,7 +120,7 @@ export function ElectedOfficeTermDatesModal({
 
         <DialogFooter>
           <Button onClick={handleSubmit} disabled={!valid || saving}>
-            {saving ? 'Saving…' : 'Save term dates'}
+            {saving ? 'Saving…' : saveLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

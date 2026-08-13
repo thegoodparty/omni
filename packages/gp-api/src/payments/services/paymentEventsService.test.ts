@@ -2,6 +2,7 @@ import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { Campaign, User } from '../../generated/prisma'
 import Stripe from 'stripe'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { CheckoutSessionMode, WebhookEventType } from '../payments.types'
 import { PaymentEventsService } from './paymentEventsService'
@@ -14,6 +15,7 @@ describe('PaymentEventsService', () => {
     findUser: vi.fn(),
     findByCustomerId: vi.fn(),
     patchUserMetaData: vi.fn(),
+    compareAndSwapCheckoutSessionId: vi.fn(),
   }
   const campaignsService = {
     findActiveByUserId: vi.fn(),
@@ -33,6 +35,8 @@ describe('PaymentEventsService', () => {
   const crm = { getCrmCompanyOwnerName: vi.fn() }
   const tcrComplianceService = { enqueueAgenticKickoffIfNeeded: vi.fn() }
   const purchaseService = { completeCheckoutSession: vi.fn() }
+  const raceOpponentService = { autoCollectOnProUpgrade: vi.fn() }
+  const moduleRef = { get: vi.fn() }
 
   const mockUser = { id: 1, email: 'test@example.com' } as User
   const mockCampaign = {
@@ -96,7 +100,9 @@ describe('PaymentEventsService', () => {
     usersService.patchUserMetaData.mockResolvedValue(undefined)
     campaignsService.findActiveByUserId.mockResolvedValue(mockCampaign)
     campaignsService.patchCampaignDetails.mockResolvedValue(undefined)
-    campaignsService.setIsPro.mockResolvedValue(undefined)
+    campaignsService.setIsPro.mockResolvedValue({ becamePro: true })
+    raceOpponentService.autoCollectOnProUpgrade.mockResolvedValue(undefined)
+    moduleRef.get.mockReturnValue(raceOpponentService)
     analytics.trackProPayment.mockResolvedValue(undefined)
     analytics.track.mockResolvedValue(undefined)
     slackService.message.mockResolvedValue(undefined)
@@ -113,10 +119,10 @@ describe('PaymentEventsService', () => {
       crm as never,
       voterFileDownloadAccess as never,
       organizationsService as never,
-      {} as never,
       analytics as never,
       purchaseService as never,
       tcrComplianceService as never,
+      moduleRef as never,
       logger,
     )
   })
@@ -131,6 +137,19 @@ describe('PaymentEventsService', () => {
         { pro: true },
       )
       expect(usersService.patchUserMetaData).toHaveBeenCalled()
+    })
+
+    it('patches customerId unconditionally but clears the session id via compare-and-swap', async () => {
+      await service.handleEvent(subscriptionEvent)
+
+      expect(usersService.patchUserMetaData).toHaveBeenCalledWith(1, {
+        customerId: 'cus_test',
+      })
+      expect(usersService.compareAndSwapCheckoutSessionId).toHaveBeenCalledWith(
+        1,
+        'cs_test',
+        null,
+      )
     })
 
     it('resolves the authoritative ballot level and forwards it to the voter-file alert', async () => {
@@ -197,8 +216,10 @@ describe('PaymentEventsService', () => {
       expect(
         campaignsService.setIsPro.mock.invocationCallOrder[0],
       ).toBeLessThan(
-        tcrComplianceService.enqueueAgenticKickoffIfNeeded.mock
-          .invocationCallOrder[0],
+        firstOrThrow(
+          tcrComplianceService.enqueueAgenticKickoffIfNeeded.mock
+            .invocationCallOrder,
+        ),
       )
     })
 
@@ -216,6 +237,55 @@ describe('PaymentEventsService', () => {
         expect.objectContaining({ error: enqueueError }),
         expect.stringContaining('agentic compliance kickoff'),
       )
+      expect(usersService.patchUserMetaData).toHaveBeenCalled()
+    })
+  })
+
+  describe('auto-dispatch opponent collection on Pro upgrade', () => {
+    it('dispatches collection once when checkout flips the campaign to Pro', async () => {
+      campaignsService.setIsPro.mockResolvedValue({ becamePro: true })
+
+      await service.handleEvent(subscriptionEvent)
+
+      expect(
+        raceOpponentService.autoCollectOnProUpgrade,
+      ).toHaveBeenCalledExactlyOnceWith(mockCampaign.id)
+    })
+
+    it('dispatches collection once when a resumed subscription flips to Pro', async () => {
+      campaignsService.setIsPro.mockResolvedValue({ becamePro: true })
+
+      await service.handleEvent(subscriptionResumedEvent)
+
+      expect(
+        raceOpponentService.autoCollectOnProUpgrade,
+      ).toHaveBeenCalledExactlyOnceWith(mockCampaign.id)
+    })
+
+    it('does not dispatch when the campaign was already Pro (no transition)', async () => {
+      campaignsService.setIsPro.mockResolvedValue({ becamePro: false })
+
+      await service.handleEvent(subscriptionEvent)
+
+      expect(raceOpponentService.autoCollectOnProUpgrade).not.toHaveBeenCalled()
+    })
+
+    it('does not fail the webhook when the dispatch throws', async () => {
+      campaignsService.setIsPro.mockResolvedValue({ becamePro: true })
+      const dispatchError = new Error('SQS down')
+      raceOpponentService.autoCollectOnProUpgrade.mockRejectedValueOnce(
+        dispatchError,
+      )
+
+      await expect(
+        service.handleEvent(subscriptionEvent),
+      ).resolves.not.toThrow()
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ error: dispatchError }),
+        expect.stringContaining('auto-dispatch opponent collection'),
+      )
+      // The Pro upgrade itself still completes.
       expect(usersService.patchUserMetaData).toHaveBeenCalled()
     })
   })
@@ -361,6 +431,51 @@ describe('PaymentEventsService', () => {
         expect.objectContaining({ userId: mockUser.id }),
         expect.stringContaining('active campaign'),
       )
+    })
+  })
+
+  describe('checkoutSessionExpiredHandler', () => {
+    const expiredEvent = (sessionId: string) =>
+      ({
+        type: WebhookEventType.CheckoutSessionExpired,
+        data: {
+          object: { id: sessionId, metadata: { userId: '1' } },
+        },
+      }) as unknown as Stripe.CheckoutSessionExpiredEvent
+
+    it('conditionally clears the stored session id via compare-and-swap', async () => {
+      usersService.compareAndSwapCheckoutSessionId.mockResolvedValue(true)
+
+      await service.checkoutSessionExpiredHandler(expiredEvent('cs_expired'))
+
+      expect(usersService.compareAndSwapCheckoutSessionId).toHaveBeenCalledWith(
+        1,
+        'cs_expired',
+        null,
+      )
+    })
+
+    it('tolerates a lost swap (newer session stored or user missing)', async () => {
+      usersService.compareAndSwapCheckoutSessionId.mockResolvedValue(false)
+
+      await expect(
+        service.checkoutSessionExpiredHandler(expiredEvent('cs_expired')),
+      ).resolves.toBeUndefined()
+      expect(usersService.patchUserMetaData).not.toHaveBeenCalled()
+    })
+
+    it('logs and returns when the expired session carries no userId metadata', async () => {
+      const event = {
+        type: WebhookEventType.CheckoutSessionExpired,
+        data: { object: { id: 'cs_expired', metadata: {} } },
+      } as unknown as Stripe.CheckoutSessionExpiredEvent
+
+      await expect(
+        service.checkoutSessionExpiredHandler(event),
+      ).resolves.toBeUndefined()
+      expect(
+        usersService.compareAndSwapCheckoutSessionId,
+      ).not.toHaveBeenCalled()
     })
   })
 

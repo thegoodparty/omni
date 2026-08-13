@@ -1,0 +1,142 @@
+[
+  {
+    "id": "knock-on-doors",
+    "title": "Knock on Doors",
+    "description": "Knock your target doors to connect with voters face-to-face.",
+    "phase": "active",
+    "channel": "doorKnocking"
+  },
+  {
+    "id": "make-phone-bank-calls",
+    "title": "Make phone bank calls",
+    "description": "Complete a phone bank shift to reach voters and share your message.",
+    "phase": "active",
+    "channel": "phoneBanking"
+  },
+  {
+    "id": "schedule-social-posts",
+    "title": "Plan and Schedule 2 Social Posts for the week",
+    "description": "Plan and schedule two social posts to engage supporters and reach voters.",
+    "phase": "active",
+    "channel": "general"
+  },
+  {
+    "id": "social-media-update",
+    "title": "Social media update",
+    "description": "Post campaign activities and photos on your channel of choice.",
+    "phase": "active",
+    "channel": "general"
+  },
+  {
+    "id": "fundraising-ask",
+    "title": "Fundraising ask",
+    "description": "Make a fundraising solicitation (email and/or social) to close the month strong.",
+    "phase": "active",
+    "channel": "general"
+  },
+  {
+    "id": "email-update",
+    "title": "Email update",
+    "description": "Send a campaign progress update to your email contacts.",
+    "phase": "active",
+    "channel": "general"
+  },
+  {
+    "id": "organize-volunteer-event",
+    "title": "Organize a Volunteer Voter Contact Event",
+    "description": "Give supporters a way to give back. Plan a volunteer voter contact event.",
+    "phase": "active",
+    "channel": "general"
+  },
+  {
+    "id": "hold-volunteer-event",
+    "title": "Hold a Volunteer Voter Contact Event",
+    "description": "Bring volunteers together to connect with voters and build momentum.",
+    "phase": "active",
+    "channel": "general"
+  },
+  {
+    "id": "attend-community-event",
+    "title": "Attend a community event",
+    "description": "Show up where voters already gather. Your plan's events list creates one card per event - festival, parade, farmers' market, holiday celebration, or candidate forum - each with its own date and address. Sign up or RSVP ahead where the event needs it.",
+    "phase": "active",
+    "channel": "event"
+  },
+  {
+    "id": "attend-related-office-meeting",
+    "title": "Attend the local related-office meeting",
+    "description": "Attend the public meeting for the office you are running for (e.g. city council). Generated from the governing body's meeting calendar, not the plan's events list.",
+    "phase": "active",
+    "channel": "event"
+  },
+  {
+    "id": "setup-opponent-monitoring",
+    "title": "Set up opponent monitoring",
+    "description": "Set Google Alerts for your opponents and watch local news. Most of the time the right move is not to respond, so decide on purpose rather than reacting to everything.",
+    "phase": "active",
+    "channel": "general"
+  },
+  {
+    "id": "send-direct-mail",
+    "title": "Send a direct mail piece",
+    "description": "Plan a mail program of at least three pieces over the campaign and send your first one. Repetition is what makes mail stick.",
+    "phase": "active",
+    "channel": "directMail"
+  },
+  {
+    "id": "record-voter-contacts",
+    "title": "Record your voter contacts",
+    "description": "Log the doors, calls, and conversations you had off the platform this week so your progress counts everything you've done, not just what ran through GoodParty. Continues every week through GOTV.",
+    "phase": "active",
+    "channel": "general"
+  },
+  {
+    "id": "voter-registration-deadline",
+    "title": "Voter Registration Deadline",
+    "description": "Final day for voters to register for this election.",
+    "phase": "gotv",
+    "channel": "awareness"
+  },
+  {
+    "id": "early-voting-start",
+    "title": "Early Voting Start Date",
+    "description": "Beginning of the early vote period.",
+    "phase": "gotv",
+    "channel": "awareness"
+  },
+  {
+    "id": "early-voting-end",
+    "title": "Early Voting End Date",
+    "description": "End of the early vote period.",
+    "phase": "gotv",
+    "channel": "awareness"
+  },
+  {
+    "id": "election-day",
+    "title": "Election Day",
+    "description": "Today is Election Day! Get out and vote, and make sure your supporters do too. Good luck!",
+    "phase": "gotv",
+    "channel": "awareness"
+  },
+  {
+    "id": "gotv-social-post",
+    "title": "Create a Get Out The Vote social post",
+    "description": "Remind your supporters that it is time to vote.",
+    "phase": "gotv",
+    "channel": "general"
+  },
+  {
+    "id": "build-chase-list",
+    "title": "Build your chase list",
+    "description": "Pull together the list of supporters who are with you but have not voted yet. These are the people your final push is all about.",
+    "phase": "gotv",
+    "channel": "general"
+  },
+  {
+    "id": "start-vote-tripling",
+    "title": "Start vote tripling",
+    "description": "Ask each supporter to remind three friends to vote, and write down their names. One of the cheapest ways to add votes in the final stretch.",
+    "phase": "gotv",
+    "channel": "general"
+  }
+]

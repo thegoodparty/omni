@@ -1,10 +1,8 @@
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
 import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.service'
-import {
-  BallotReadyService,
-  selectPreferredOfficeHolder,
-} from '@/elections/services/ballotReady.service'
+import { BallotReadyService } from '@/elections/services/ballotReady.service'
+import { selectPreferredOfficeHolder } from '@/elections/util/ballotReady.util'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { MagicLinkService } from '@/magicLink/magicLink.service'
 import {
@@ -138,6 +136,7 @@ export class AdminElectedOfficeController {
     await this.analytics
       .track(user.id, EVENTS.Onboarding.MagicLinkSent, {
         email,
+        type: 'serve',
         prefilledElectedOfficeId: prefill?.electedOfficeId,
         ballotReadyPositionId: prefill?.ballotReadyPositionId,
       })

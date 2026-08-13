@@ -23,16 +23,17 @@ the dry-run numbers, and get an explicit go before the real dispatch.
 ## Prerequisites
 
 - AWS access via SSO profile `gp-admin` (run `aws --profile gp-admin sts get-caller-identity` to confirm; if it fails, the human runs `aws sso login --profile gp-admin`).
-- This repo's `packages/gp-api` on `develop` or `master` (the script `scripts/dispatch-imminent-briefings.ts` and the `useImminenceGate` endpoint are merged). Verify the checked-out branch before running.
-- **Prod gp-api must be running a build where `dispatchManual` enforces the serve-ICP gate under `useImminenceGate`** (the same fail-closed check the daily cron uses; landed 2026-06-11). The script has no client-side ICP filter — the server gate is the only enforcement, so if prod predates it the cohort WILL include non-ICP offices. Verify before dispatching: `cd packages/gp-api && git log master --oneline -S 'skipping gated manual dispatch' -- src/meetings/services/meetingBriefings.service.ts` must show a commit, and prod must be deployed at or past it. Abort and tell the human if not.
+- This repo's `packages/gp-api` on `main` (the script `scripts/dispatch-imminent-briefings.ts` and the `useImminenceGate` endpoint are merged). Verify the checked-out branch before running.
+- **Prod gp-api must be running a build where `dispatchManual` enforces the serve-ICP gate under `useImminenceGate`** (the same fail-closed check the daily cron uses; landed 2026-06-11). The script has no client-side ICP filter — the server gate is the only enforcement, so if prod predates it the cohort WILL include non-ICP offices. Verify before dispatching: `cd packages/gp-api && git log main --oneline -S 'skipping gated manual dispatch' -- src/meetings/services/meetingBriefings.service.ts` must show a commit, and prod must be deployed at or past it. Abort and tell the human if not.
 - `psql` not required; everything goes through `npx tsx`.
-- The daily meetings cron is disabled in prod, so a time window cleanly identifies your cohort. Confirm no other meeting_briefing dispatch is running concurrently.
+- **The daily meetings cron is ENABLED in prod as of 2026-07-15** (`MEETINGS_AUTOMATION_ENABLED=true`, `dispatchDailyBriefings` at `@Cron('0 7 * * *')` in `meetingBriefings.service.ts`). It writes `experimentType: meeting_briefing` rows to the same table your manual cohort does, so a bare `createdAt` time window can now pick up cron-dispatched runs too if your window overlaps 7am UTC. Prefer diffing against `records.push`'d `electedOfficeId`s from your own run's JSONL log over a pure time-window query, or run outside the cron's firing window.
+- The cron path (`dispatchBriefingIfNeeded`) also applies a 30-day user-inactivity gate (`isInactiveUser` in `src/shared/util/userActivity.util.ts`) that **`dispatchManual` — the endpoint this script calls — does not enforce itself**. The script now replicates that gate client-side (filters the office pool before dispatching) so a manual run doesn't diverge from what the cron would actually do, but the underlying gap in `dispatchManual` is still open; don't assume the endpoint is gate-complete if you call it directly instead of through this script.
 
 ## Secrets and where they live (you gather these, do not ask the human to set env)
 
 - Prod DB password + prod Clerk keys: AWS Secrets Manager secret `GP_API_PROD`.
 - Prod DB host: `gp-api-db-prod.cluster-cmb1uukjsfbe.us-west-2.rds.amazonaws.com`, db `gpdb`, user `gpuser`. Reachable directly (no tunnel) as of 2026-06.
-- The M2M **caller** secret `GP_PROD_MACHINE_SECRET` is gp-admin's, NOT gp-api's. It lives in the `gp-admin-web` Vercel project (`prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT`, production target). Pull it via the Vercel API using `VERCEL_TOKEN` + `VERCEL_TEAM_ID` from `GP_API_PROD` (no `vercel login` needed). Minting with gp-api's own `GP_WEBAPP_MACHINE_SECRET` fails with 401.
+- The M2M **caller** secret `GP_PROD_MACHINE_SECRET` is gp-admin's, NOT gp-api's. It lives in the `gp-admin-web` Vercel project (`prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT`, production target). Pull it via the Vercel API using `VERCEL_TOKEN` + `VERCEL_TEAM_ID` from `GP_API_PROD` (no `vercel login` needed). Minting with gp-api's own `GP_API_MACHINE_SECRET` fails with 401.
 - Artifacts (schedule + briefing JSON) live in S3 bucket `gp-agent-artifacts-prod`, keys `meeting_briefing/<runId>/artifact.json` and the schedule equivalent.
 
 ### Gotchas
@@ -72,14 +73,16 @@ In the SAME shell (env does not persist across calls):
 npx tsx scripts/dispatch-imminent-briefings.ts --dry-run --target=200
 ```
 
-Show the human: pool size (~1,800 offices), target 200, max cost (~$1,200).
-Note offices already covered by a future briefing (e.g. the prior cohort's
+Show the human: total offices (~1,800), how many the local 30-day activity
+gate skips, the resulting eligible pool, target 200, max cost (~$1,200). Note
+offices already covered by a future briefing (e.g. the prior cohort's
 `briefing_ready` ones) are skipped by the gate dedupe, and offices whose
-position is not serve-ICP are skipped fail-closed server-side. The pool count
-is NOT ICP-filtered — until the Databricks `is_serve_icp` backfill is broadly
-populated, expect far more gate-skips per dispatch than the reference run, and
-possibly an unreachable target (the script just exhausts the pool and reports
-fewer dispatched). Wait for explicit go.
+position is not serve-ICP are skipped fail-closed server-side. Neither the
+ICP status nor coverage dedupe is visible in the pool count (only the activity
+gate is applied client-side) — until the Databricks `is_serve_icp` backfill is
+broadly populated, expect far more gate-skips per dispatch than the reference
+run, and possibly an unreachable target (the script just exhausts the pool and
+reports fewer dispatched). Wait for explicit go.
 
 ## Step 3: real dispatch
 
@@ -163,6 +166,15 @@ Emit `scripts/output/meeting_briefing_cohort_<date>.csv` with columns:
 - `elected_office_id`: resolve via `electedOffice.findMany` where organizationSlug in the cohort slugs (covers all rows incl. failures).
 - `meeting_briefing_id`: `meetingBriefing.findMany` where experimentRunId in cohort runIds (populated only for `briefing_ready`; blank otherwise, since only ready/user-provided statuses persist a MeetingBriefing row).
 
+## Visual review (optional)
+
+To eyeball briefings rendered in the real webapp UI, use the `view-briefing-gallery`
+skill — it pulls `<runId>/artifact.json` into a local dev-only gallery at
+`http://localhost:4000/dev/briefings`. Its pull helper defaults to the **dev** bucket;
+for this prod cohort, copy the artifacts from `gp-agent-artifacts-prod` into
+`.local-briefings/<runId>.json` yourself (or point `LOCAL_BRIEFINGS_DIR` at a dir you
+populate).
+
 ## Reference numbers from the 2026-06-08 cohort of 100 (for sanity-checking yours)
 
 - ~1,850 elected offices; ~1,612 have a real (found) schedule; cadence ~1.6 meetings/30d (mostly twice-monthly).
@@ -170,3 +182,4 @@ Emit `scripts/output/meeting_briefing_cohort_<date>.csv` with columns:
 - ~96% success; ~$6/dispatched briefing actual (not the $3.90 code estimate); ~15 min avg runtime.
 - 100 dispatches took 346 endpoint calls (the rest gate-skipped). For 200 expect to walk a larger slice of the pool, and note prior-cohort `briefing_ready` offices are deduped out.
 - That cohort predates both the serve-ICP gating and the in-flight cap: expect a worse dispatched/calls ratio (server-side ICP skips) and a longer wall-clock dispatch phase (throttling) than those numbers suggest.
+- That cohort also predates the client-side 30-day activity gate (added 2026-07-15): expect a smaller eligible pool up front than 1,800, on top of the ICP/coverage skips that happen per-call.

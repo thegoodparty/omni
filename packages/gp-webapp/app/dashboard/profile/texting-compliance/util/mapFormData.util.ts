@@ -17,9 +17,18 @@ interface PostalAddress {
   streetLines: string[]
 }
 
+export interface ManualAddress {
+  addressLine1: string
+  addressLine2?: string
+  city: string
+  state: string
+  zip: string
+}
+
 interface FormData {
   ein: string
   address: Address
+  manualAddress?: ManualAddress
   campaignCommitteeName: string
   website: string
   electionFilingLink: string
@@ -32,8 +41,9 @@ interface FormData {
 
 interface MappedFormData {
   ein: string
-  placeId: string
-  formattedAddress: string
+  placeId?: string
+  formattedAddress?: string
+  manualAddress?: ManualAddress
   committeeName: string
   websiteDomain?: string
   filingUrl: string
@@ -47,7 +57,9 @@ interface MappedFormData {
 // TODO: refactor the API to accept the entire Google Places address object so
 //  that we don't have to extract the postal address here, we can just pass it
 //  along
-export const extractPostalAddress = (address: Address): PostalAddress => {
+export const extractPostalAddress = (address: {
+  address_components?: AddressComponent[]
+}): PostalAddress => {
   if (!address || !address.address_components) {
     return {
       postalCode: '',
@@ -85,6 +97,7 @@ export const extractPostalAddress = (address: Address): PostalAddress => {
 export const mapFormData = ({
   ein,
   address: { place_id, formatted_address },
+  manualAddress,
   campaignCommitteeName,
   website,
   electionFilingLink,
@@ -95,8 +108,15 @@ export const mapFormData = ({
   committeeType,
 }: FormData): MappedFormData => ({
   ein,
-  placeId: place_id,
-  formattedAddress: formatted_address,
+  // The API requires exactly one address source. An intact autocomplete
+  // selection (place_id present) wins — the form clears it the moment any
+  // address field is hand-edited, so its presence means the selection is
+  // authoritative. Otherwise the structured fields ride as manualAddress
+  // (placeId/formattedAddress omitted: empty strings fail the API's
+  // trim().min(1) validators).
+  ...(place_id
+    ? { placeId: place_id, formattedAddress: formatted_address }
+    : { manualAddress }),
   committeeName: campaignCommitteeName,
   websiteDomain: website || undefined,
   filingUrl: electionFilingLink,

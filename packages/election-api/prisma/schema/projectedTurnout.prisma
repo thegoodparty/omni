@@ -2,6 +2,7 @@ enum ElectionCode {
   General
   LocalOrMunicipal
   ConsolidatedGeneral
+  Primary
 }
 
 model ProjectedTurnout {

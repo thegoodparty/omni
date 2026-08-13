@@ -20,7 +20,7 @@ import type { FastifyRequest } from 'fastify'
  * instances and `request.ip` is only meaningful when fastify is configured
  * with `trustProxy` so the upstream load balancer's `X-Forwarded-For` is
  * respected. The right long-term answer is (a) Vercel/Cloudflare WAF rules
- * on `goodparty.org/api/v1/briefings/*`, and/or (b) replacing the UUID with
+ * on `app.goodparty.org/api/v1/briefings/*`, and/or (b) replacing the UUID with
  * a signed/expiring share token stored in `share_tokens`. Track that in
  * follow-up before scaling shares to large volumes.
  *
@@ -142,8 +142,8 @@ export class BriefingsPdfRateLimitGuard implements CanActivate {
     const sorted = [...this.buckets.entries()].sort(
       (a, b) => a[1].lastRefillMs - b[1].lastRefillMs,
     )
-    for (let i = 0; i < target && i < sorted.length; i++) {
-      this.buckets.delete(sorted[i][0])
+    for (const [key] of sorted.slice(0, target)) {
+      this.buckets.delete(key)
     }
     this.logger.warn(
       `Rate-limit cap hit: evicted ${target} oldest buckets (size now ${this.buckets.size}). ` +

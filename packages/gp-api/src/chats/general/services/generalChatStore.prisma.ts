@@ -43,6 +43,43 @@ export class GeneralChatStoreService extends createPrismaBase(
     })
   }
 
+  // Conversations in a scope whose anchor points at a given resource, newest
+  // first. Used by anchored scopes (ordinance_flow) to find-or-create one
+  // conversation per (resource, step): the caller filters the small result set
+  // by the anchor's step. Postgres JSON path filter on the anchor column.
+  findByAnchorResource(args: {
+    ownerUserId: number
+    organizationSlug: string | null
+    scope: ChatScope
+    resourceId: string
+  }): Promise<ChatConversation[]> {
+    const { ownerUserId, organizationSlug, scope, resourceId } = args
+    return this.findMany({
+      where: {
+        ownerUserId,
+        organizationSlug,
+        scope,
+        deletedAt: null,
+        anchor: { path: ['resourceId'], equals: resourceId },
+      },
+      orderBy: { updatedAt: Prisma.SortOrder.desc },
+    })
+  }
+
+  // The candidate's most recent conversation in a scope, for scopes that run as
+  // a single ongoing thread (the campaign manager) rather than one per open.
+  findLatestByScope(args: {
+    ownerUserId: number
+    organizationSlug: string | null
+    scope: ChatScope
+  }): Promise<ChatConversation | null> {
+    const { ownerUserId, organizationSlug, scope } = args
+    return this.findFirst({
+      where: { ownerUserId, organizationSlug, scope, deletedAt: null },
+      orderBy: { updatedAt: Prisma.SortOrder.desc },
+    })
+  }
+
   // Sets the title once, only if it is still null, so a concurrent/repeat send
   // can't clobber the first user message's truncation.
   async setTitleIfUnset(id: string, title: string): Promise<void> {

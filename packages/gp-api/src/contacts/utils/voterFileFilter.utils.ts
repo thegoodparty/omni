@@ -1,3 +1,4 @@
+import { INCOME_RANGE_MAPPING } from '@goodparty_org/contracts'
 import { VoterFileFilter } from '../../generated/prisma'
 
 type RangeCondition = {
@@ -9,6 +10,9 @@ type FilterValue =
   | boolean
   | {
       in?: string[] | number[]
+      // Only the activity-condition/support-status resolution engine's `id`
+      // key uses `notIn` — every other filter value collapses to `in`/`eq`.
+      notIn?: string[]
       eq?: string | number
       gte?: number
       lte?: number
@@ -22,22 +26,23 @@ export type FilterObject = Record<string, FilterValue>
 type NumericRange = { min: number; max: number | null }
 
 const processNumericRanges = (ranges: NumericRange[]): FilterValue => {
-  if (ranges.length === 1) {
-    const range = ranges[0]
-    if (range.max === null) {
-      return { gte: range.min }
+  const [firstRange] = ranges
+  if (ranges.length === 1 && firstRange) {
+    if (firstRange.max === null) {
+      return { gte: firstRange.min }
     }
-    return { gte: range.min, lte: range.max }
+    return { gte: firstRange.min, lte: firstRange.max }
   }
 
   const sortedRanges = [...ranges].sort((a, b) => a.min - b.min)
   const hasUnbounded = sortedRanges.some((r) => r.max === null)
-  const minValue = sortedRanges[0].min
+  const minValue = sortedRanges[0]?.min ?? 0
 
   const isContiguous = sortedRanges.every((range, index) => {
     if (index === 0) return true
     const prevRange = sortedRanges[index - 1]
     return (
+      prevRange != null &&
       prevRange.max !== null &&
       (range.min === prevRange.max || range.min === prevRange.max + 1)
     )
@@ -66,8 +71,50 @@ const addIncludeNull = (filter: FilterValue): FilterValue => {
   return { ...filter, _includeNull: true }
 }
 
+// Audience boolean -> people-api voterStatus value. Exported so the
+// filter-dimensions catalog (filterDimensions.catalog.ts) enumerates the same
+// vocabulary this conversion sends, instead of restating it.
+export const AUDIENCE_VOTER_STATUS_VALUES = [
+  { field: 'audienceSuperVoters', value: 'Super' },
+  { field: 'audienceLikelyVoters', value: 'Likely' },
+  { field: 'audienceUnreliableVoters', value: 'Unreliable' },
+  { field: 'audienceUnlikelyVoters', value: 'Unlikely' },
+  { field: 'audienceUnknown', value: 'Unknown' },
+] as const
+
+// Contacts-made boolean -> bucket (ENG-10839). 5 means "5+" (>= 5 logged
+// interactions). Resolved by ContactsMadeResolutionService, never sent to
+// people-api as a raw filter key (see fieldsHandledSeparately below) — kept
+// here so the filter-dimensions catalog and the resolution service share one
+// vocabulary, mirroring AUDIENCE_VOTER_STATUS_VALUES above.
+export const CONTACTS_MADE_BUCKET_FIELDS = [
+  { field: 'contactsMade0', bucket: 0 },
+  { field: 'contactsMade1', bucket: 1 },
+  { field: 'contactsMade2', bucket: 2 },
+  { field: 'contactsMade3', bucket: 3 },
+  { field: 'contactsMade4', bucket: 4 },
+  { field: 'contactsMade5Plus', bucket: 5 },
+] as const
+
+// languageCodes entry -> the people-api language filter value (also the
+// human-readable label the catalog shows for that code).
+export const LANGUAGE_CODE_TO_LABEL: Record<string, string> = {
+  en: 'English',
+  es: 'Spanish',
+  other: 'Other',
+}
+
+// The only incomeRanges strings the conversion below understands; anything
+// else is silently dropped, so the catalog advertises exactly these keys.
+// Single-sourced from contracts so people-api's pack encoder buckets by the
+// same bounds.
+export { INCOME_RANGE_MAPPING }
+
+// Accepts a full persisted VoterFileFilter (saved-segment path) or the
+// unsaved, partial filter set the live count sends (ENG-10517). Only the filter
+// fields are read; missing ones are treated as unset, exactly like false/empty.
 export const convertVoterFileFilterToFilters = (
-  segment: VoterFileFilter,
+  segment: Partial<VoterFileFilter>,
 ): FilterObject => {
   const filters: FilterObject = {}
   const excludeFields = new Set([
@@ -75,13 +122,20 @@ export const convertVoterFileFilterToFilters = (
     'createdAt',
     'updatedAt',
     'name',
-    'voterCount',
+    'search',
     'campaignId',
     'campaign',
     'outreaches',
     'registeredVoterTrue',
     'registeredVoterFalse',
     'registeredVoterUnknown',
+    // Resolved by the activity-condition/support-status resolution engine
+    // (CRM feature 4 task 05), not this generic key->filter loop — an
+    // activityConditions array of objects or a supportStatus string array
+    // would otherwise fall into the generic `else` branch below and produce
+    // a meaningless FilterObject entry.
+    'activityConditions',
+    'supportStatus',
   ])
 
   const fieldsHandledSeparately = new Set([
@@ -91,12 +145,11 @@ export const convertVoterFileFilterToFilters = (
     'audienceLikelyVoters',
     'audienceUnreliableVoters',
     'audienceUnlikelyVoters',
-    'audienceFirstTimeVoters',
     'audienceUnknown',
     'partyIndependent',
     'partyDemocrat',
     'partyRepublican',
-    'partyUnknown',
+    'partyOther',
     'genderMale',
     'genderFemale',
     'genderUnknown',
@@ -104,6 +157,11 @@ export const convertVoterFileFilterToFilters = (
     'age25_35',
     'age35_50',
     'age50Plus',
+    'age18_24',
+    'age25_34',
+    'age35_49',
+    'age50_64',
+    'age65Plus',
     'ageUnknown',
     'likelyMarried',
     'likelySingle',
@@ -135,6 +193,12 @@ export const convertVoterFileFilterToFilters = (
     'homeownerNo',
     'homeownerUnknown',
     'incomeUnknown',
+    'contactsMade0',
+    'contactsMade1',
+    'contactsMade2',
+    'contactsMade3',
+    'contactsMade4',
+    'contactsMade5Plus',
   ])
 
   for (const [key, value] of Object.entries(segment)) {
@@ -147,22 +211,19 @@ export const convertVoterFileFilterToFilters = (
       filters[key] = true
     } else if (Array.isArray(value) && value.length > 0) {
       if (key === 'languageCodes') {
-        const filterMap: Record<string, string> = {
-          en: 'English',
-          es: 'Spanish',
-          other: 'Other',
-        }
+        const filterMap = LANGUAGE_CODE_TO_LABEL
         const normalizedLanguages: string[] = value
           .map((lang: string) => filterMap[lang])
-          .filter(Boolean)
+          .filter((lang): lang is string => Boolean(lang))
 
         filters['language'] =
           normalizedLanguages.length === 1
             ? { eq: normalizedLanguages[0] }
             : { in: normalizedLanguages }
       } else if (key === 'voterStatus') {
+        const values = value.map(String)
         filters['voterStatus'] =
-          value.length === 1 ? { eq: value[0] } : { in: value }
+          values.length === 1 ? { eq: values[0] } : { in: values }
       } else if (key === 'incomeRanges') {
         // Income ranges are handled separately after the loop
         // to allow combining with incomeUnknown using _includeNull
@@ -173,13 +234,9 @@ export const convertVoterFileFilterToFilters = (
   }
 
   if (!filters['voterStatus']) {
-    const voterStatusValues: string[] = []
-    if (segment.audienceSuperVoters) voterStatusValues.push('Super')
-    if (segment.audienceLikelyVoters) voterStatusValues.push('Likely')
-    if (segment.audienceUnreliableVoters) voterStatusValues.push('Unreliable')
-    if (segment.audienceUnlikelyVoters) voterStatusValues.push('Unlikely')
-    if (segment.audienceFirstTimeVoters) voterStatusValues.push('First Time')
-    if (segment.audienceUnknown) voterStatusValues.push('Unknown')
+    const voterStatusValues: string[] = AUDIENCE_VOTER_STATUS_VALUES.filter(
+      ({ field }) => segment[field],
+    ).map(({ value }) => value)
     if (voterStatusValues.length > 0) {
       filters['voterStatus'] =
         voterStatusValues.length === 1
@@ -192,7 +249,7 @@ export const convertVoterFileFilterToFilters = (
   if (segment.partyIndependent) politicalPartyValues.push('Independent')
   if (segment.partyDemocrat) politicalPartyValues.push('Democratic')
   if (segment.partyRepublican) politicalPartyValues.push('Republican')
-  if (segment.partyUnknown) politicalPartyValues.push('Unknown')
+  if (segment.partyOther) politicalPartyValues.push('Other')
   if (politicalPartyValues.length > 0) {
     filters['politicalParty'] =
       politicalPartyValues.length === 1
@@ -210,73 +267,25 @@ export const convertVoterFileFilterToFilters = (
   }
 
   const ageRanges: Array<{ min: number; max: number | null }> = []
+  // Retired keys keep the exact bounds they were saved with (ENG-10752) —
+  // reinterpreting them would silently change existing lists' membership.
   if (segment.age18_25) ageRanges.push({ min: 18, max: 25 })
   if (segment.age25_35) ageRanges.push({ min: 25, max: 35 })
   if (segment.age35_50) ageRanges.push({ min: 35, max: 50 })
   if (segment.age50Plus) ageRanges.push({ min: 50, max: null })
+  if (segment.age18_24) ageRanges.push({ min: 18, max: 24 })
+  if (segment.age25_34) ageRanges.push({ min: 25, max: 34 })
+  if (segment.age35_49) ageRanges.push({ min: 35, max: 49 })
+  if (segment.age50_64) ageRanges.push({ min: 50, max: 64 })
+  if (segment.age65Plus) ageRanges.push({ min: 65, max: null })
 
-  const shouldIncludeNull = segment.ageUnknown
   if (ageRanges.length > 0) {
-    if (ageRanges.length === 1) {
-      const range = ageRanges[0]
-      if (range.max === null) {
-        filters['ageInt'] = { gte: range.min }
-      } else {
-        filters['ageInt'] = { gte: range.min, lte: range.max }
-      }
-    } else {
-      const sortedRanges = ageRanges.sort((a, b) => a.min - b.min)
-      const hasUnbounded = sortedRanges.some((r) => r.max === null)
-      const minAge = sortedRanges[0].min
-      const maxAge = hasUnbounded
-        ? null
-        : Math.max(...sortedRanges.map((r) => r.max ?? 0))
-
-      const isContiguous = sortedRanges.every((range, index) => {
-        if (index === 0) return true
-        const prevRange = sortedRanges[index - 1]
-        return (
-          prevRange.max !== null &&
-          (range.min === prevRange.max || range.min === prevRange.max + 1)
-        )
-      })
-
-      if (isContiguous && !hasUnbounded) {
-        filters['ageInt'] = { gte: minAge, lte: maxAge ?? 120 }
-      } else if (isContiguous && hasUnbounded) {
-        filters['ageInt'] = { gte: minAge }
-      } else {
-        const allAges = new Set<number>()
-        for (const range of ageRanges) {
-          if (range.max === null) {
-            for (let age = range.min; age <= 120; age++) {
-              allAges.add(age)
-            }
-          } else {
-            for (let age = range.min; age <= range.max; age++) {
-              allAges.add(age)
-            }
-          }
-        }
-        filters['ageInt'] = { in: Array.from(allAges).sort((a, b) => a - b) }
-      }
-    }
+    const ageFilter = processNumericRanges(ageRanges)
+    filters['ageInt'] = segment.ageUnknown
+      ? addIncludeNull(ageFilter)
+      : ageFilter
   } else if (segment.ageUnknown) {
     filters['ageInt'] = { is: 'null' }
-  }
-
-  if (shouldIncludeNull && ageRanges.length > 0) {
-    // Filter object shape varies at runtime — broad Prisma filter type requires narrowing
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    const currentFilter = filters['ageInt'] as {
-      gte?: number
-      lte?: number
-      in?: number[]
-    }
-    filters['ageInt'] = {
-      ...currentFilter,
-      _includeNull: true,
-    } as typeof currentFilter & { _includeNull: true }
   }
 
   const maritalValues: string[] = []
@@ -365,22 +374,10 @@ export const convertVoterFileFilterToFilters = (
         : { in: homeownerValues }
   }
 
-  const incomeRangeMapping: Record<string, NumericRange> = {
-    'Under $25k': { min: 0, max: 24999 },
-    '$25k - $35k': { min: 25000, max: 34999 },
-    '$35k - $50k': { min: 35000, max: 49999 },
-    '$50k - $75k': { min: 50000, max: 74999 },
-    '$75k - $100k': { min: 75000, max: 99999 },
-    '$100k - $125k': { min: 100000, max: 124999 },
-    '$125k - $150k': { min: 125000, max: 149999 },
-    '$150k - $200k': { min: 150000, max: 199999 },
-    '$200k+': { min: 200000, max: null },
-  }
-
   const incomeRanges: NumericRange[] = []
   if (segment.incomeRanges && Array.isArray(segment.incomeRanges)) {
     for (const rangeStr of segment.incomeRanges) {
-      const range = incomeRangeMapping[rangeStr]
+      const range = INCOME_RANGE_MAPPING[rangeStr]
       if (range) {
         incomeRanges.push(range)
       }

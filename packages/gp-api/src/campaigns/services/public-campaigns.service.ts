@@ -96,18 +96,19 @@ export class PublicCampaignsService extends createPrismaBase(MODELS.Campaign) {
     }
 
     if (campaignsWithLastName.length === 1) {
-      return this.withCandidateAvatar(campaignsWithLastName[0])
+      const [onlyMatch] = campaignsWithLastName
+      return onlyMatch ? this.withCandidateAvatar(onlyMatch) : null
     }
 
     const campaignsWithBothNames = campaignsWithLastName.filter((campaign) =>
       this.matchesCandidateName(campaign.slug, firstName, lastName),
     )
 
-    return this.withCandidateAvatar(
+    const chosen =
       campaignsWithBothNames.length > 0
         ? campaignsWithBothNames[0]
-        : campaignsWithLastName[0],
-    )
+        : campaignsWithLastName[0]
+    return chosen ? this.withCandidateAvatar(chosen) : null
   }
 
   // Resolve the claimed candidate's uploaded photo from Clerk (not the stale
@@ -138,6 +139,19 @@ export class PublicCampaignsService extends createPrismaBase(MODELS.Campaign) {
   ): boolean {
     const campaignTokens = campaignSlug.split('-').filter(Boolean)
     const set = new Set(campaignTokens)
+
+    // `findSlug` de-duplicates colliding slugs by appending a counter (1-99) to
+    // the name *before* slugify, so a second "Mike Vick" is stored as
+    // `mike-vick1`, not `mike-vick-1`. Without stripping that counter the last
+    // name never matches and the candidate's own page reports them unclaimed.
+    const lastToken = campaignTokens.at(-1)
+    const collisionBase = lastToken
+      ? /^(.+?)\d{1,2}$/.exec(lastToken)?.[1]
+      : undefined
+    if (collisionBase) {
+      set.add(collisionBase)
+    }
+
     return requiredTokens.every((token) => set.has(token))
   }
 

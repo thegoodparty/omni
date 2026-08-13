@@ -2,7 +2,6 @@ import {
   ContactStatsCategory,
   ContactsStats,
 } from 'app/dashboard/polls/shared/queries'
-import { numberFormatter } from 'helpers/numberHelper'
 
 export interface ContactStatsRendered {
   totalConstituents: string | null
@@ -72,12 +71,12 @@ export const getContactStatsRendered = (
   const medianIncomeRange = getMedianIncomeRange(
     stats.buckets.estimatedIncomeRange,
   )
-  const visibleContactsPercent = totalConstituents
-    ? (totalVisibleContacts / totalConstituents) * 100
-    : 0
+  const visibleContactsPercent = !totalConstituents
+    ? 0
+    : (totalVisibleContacts / totalConstituents) * 100
   return {
     totalConstituents: totalVisibleContacts
-      ? numberFormatter(totalVisibleContacts)
+      ? totalVisibleContacts.toLocaleString()
       : '--',
     homeownersPercent: homeownersPercent ? `${homeownersPercent}%` : '--',
     hasChildrenUnder18Percent: hasChildrenUnder18Percent

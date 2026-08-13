@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useClerk } from '@clerk/nextjs'
+import { isClerkAPIResponseError } from '@clerk/nextjs/errors'
 import { useSearchParams } from 'next/navigation'
 import { ArrowRight } from 'lucide-react'
 import { Button, GoodPartyOrgLogoWordmark } from '@styleguide'
@@ -33,6 +34,13 @@ const MISSING_TICKET_MESSAGE =
 const CONSUMED_TICKET_MESSAGE =
   'This sign-in link has already been used or has expired. Request a new link, or sign in below.'
 
+// Shown for transient/recoverable failures (network blips, a post-exchange
+// `setActive` hiccup, etc.) — anything that is NOT a genuinely dead ticket.
+// Critically distinct from CONSUMED_TICKET_MESSAGE so we never tell a user the
+// link is invalid when the real problem was a temporary glitch.
+const RETRYABLE_MESSAGE =
+  'Something went wrong while signing you in. Please go to login to try again, or request a new link from your GoodParty contact.'
+
 /**
  * Best-effort decode of the `sub` (user id) claim from the sign-in-token JWT so
  * we can tell whether the already-active session belongs to the person the
@@ -50,6 +58,31 @@ function decodeTicketUserId(ticket: string): string | null {
   } catch {
     return null
   }
+}
+
+/**
+ * Does a thrown error indicate the sign-in token itself is dead (single-use
+ * ticket already consumed, expired, or otherwise invalid)? Only those warrant
+ * the "request a new link" copy. We inspect the Clerk API error's code/messages
+ * for the ticket / sign-in-token / expired signals; a transient network or
+ * `setActive` failure won't match and so falls through to the retryable
+ * message instead of being mislabeled as a consumed link.
+ */
+function isConsumedOrExpiredTicketError(err: unknown): boolean {
+  if (!isClerkAPIResponseError(err)) return false
+  return err.errors.some((e) => {
+    const haystack = `${e.code ?? ''} ${e.message ?? ''} ${
+      e.longMessage ?? ''
+    }`.toLowerCase()
+    return (
+      haystack.includes('ticket') ||
+      haystack.includes('sign-in token') ||
+      haystack.includes('sign in token') ||
+      haystack.includes('expired') ||
+      haystack.includes('already been used') ||
+      haystack.includes('consumed')
+    )
+  })
 }
 
 export default function ServeWelcomeContent() {
@@ -72,12 +105,17 @@ export default function ServeWelcomeContent() {
   // reliable signal (the redemption itself is button-gated to defeat email
   // scanners), so fire once on mount — even if the ticket is missing/expired,
   // a human still arrived here. Replaces the former onboarding-flow-mount
-  // 'Serve Onboarding - Magic Link Activated' event.
+  // 'Serve Onboarding - Magic Link Activated' event. The `type: 'serve'`
+  // property mirrors the server-side `Onboarding - Magic Link Sent` so the
+  // sent → clicked funnel can be segmented per flow (serve vs win) in Amplitude.
   const magicLinkClickedRef = useRef(false)
   useEffect(() => {
     if (magicLinkClickedRef.current) return
     magicLinkClickedRef.current = true
-    trackEvent(EVENTS.Onboarding.MagicLinkClicked, { hasTicket: !!ticket })
+    trackEvent(EVENTS.Onboarding.MagicLinkClicked, {
+      hasTicket: !!ticket,
+      type: 'serve',
+    })
   }, [ticket])
 
   async function redeem() {
@@ -87,14 +125,44 @@ export default function ServeWelcomeContent() {
     }
     if (redeemingRef.current) return
 
+    // Latch the guard for the whole attempt. Once the exchange has been
+    // attempted the ticket may already be spent server-side, so we must NEVER
+    // re-run `signIn.create` for this mount — even after an error. Any recovery
+    // flows through the session-state check below, not a second exchange.
     redeemingRef.current = true
     setError(null)
     setRedeeming(true)
+
+    const ticketUserId = decodeTicketUserId(ticket)
+    // Whoever (if anyone) was signed in when this attempt began. Lets us detect
+    // a session that appears *during* the redeem even when the ticket's user id
+    // can't be decoded from the token.
+    const initialUserId = clerk.user?.id ?? null
+
+    // Has redemption effectively succeeded — i.e. is a session for the ticket's
+    // user now active? Used as a recovery signal so transient post-exchange
+    // failures — and clerk-js's internal FAPI retry of the exchange POST that
+    // throws "already consumed" after the first attempt already succeeded —
+    // resolve to success instead of a spurious "consumed link" error.
+    // `clerk.user` is a live getter on the Clerk singleton, so it reflects a
+    // session established mid-redeem.
+    const isSignedInAsTicketUser = () => {
+      const currentUserId = clerk.user?.id ?? null
+      if (!currentUserId) return false
+      // Preferred signal: the active session belongs to the ticket's user.
+      if (ticketUserId) return currentUserId === ticketUserId
+      // Fallback when the token isn't a decodable JWT (no `sub` to compare): a
+      // session that appeared (or changed) since this attempt started is the
+      // one the exchange just established. Requiring a change from
+      // `initialUserId` avoids treating a pre-existing, not-yet-cleared
+      // different session as a successful redemption.
+      return currentUserId !== initialUserId
+    }
+
     try {
       // Only touch the existing session once the user has explicitly clicked.
       if (clerk.user) {
-        const ticketUserId = decodeTicketUserId(ticket)
-        if (ticketUserId && ticketUserId === clerk.user.id) {
+        if (isSignedInAsTicketUser()) {
           // The person is already signed in as the ticket's user. Don't redeem
           // (that would burn the one-time ticket for no reason) — just continue
           // to the post-auth redirect.
@@ -127,10 +195,54 @@ export default function ServeWelcomeContent() {
       })
 
       if (result.status !== 'complete' || !result.createdSessionId) {
-        throw new Error(`Sign-in not complete (status: ${result.status}).`)
+        // Before concluding the ticket is dead, check whether a session for the
+        // ticket user already exists: clerk-js's FAPI layer can internally
+        // retry the exchange POST, so the first attempt may have established a
+        // session even though this (retried) result came back incomplete. Mirror
+        // the same recovery the outer catch performs.
+        if (isSignedInAsTicketUser()) {
+          window.location.href = POST_AUTH_REDIRECT
+          return
+        }
+        // The exchange returned without completing a sign-in and no session
+        // exists: the ticket is genuinely invalid/expired/already-consumed.
+        // Show the recovery copy; the latched guard prevents a re-attempt.
+        setError(CONSUMED_TICKET_MESSAGE)
+        setRedeeming(false)
+        return
       }
 
-      await setActive({ session: result.createdSessionId })
+      // The ticket is now irreversibly spent. From here a failure must NEVER be
+      // reported as a consumed/expired link. `setActive` only flips the active
+      // session client-side, so a transient failure is safe to retry once.
+      try {
+        await setActive({ session: result.createdSessionId })
+      } catch (setActiveErr) {
+        console.warn(
+          '[serve/welcome] setActive failed after a completed ticket exchange; retrying once',
+          setActiveErr,
+        )
+        try {
+          await setActive({ session: result.createdSessionId })
+        } catch (retryErr) {
+          console.warn(
+            '[serve/welcome] setActive retry failed; checking session state before continuing',
+            retryErr,
+          )
+          // setActive establishes the active-session cookie; if it never
+          // succeeded we can only proceed when a session for the ticket user is
+          // nonetheless active (e.g. an earlier partial activation or clerk-js's
+          // internal retry wrote it). Otherwise the user isn't actually signed
+          // in — navigating to the post-auth redirect would silently bounce them
+          // to login with their ticket already spent, so surface the retryable
+          // message instead.
+          if (!isSignedInAsTicketUser()) {
+            setError(RETRYABLE_MESSAGE)
+            setRedeeming(false)
+            return
+          }
+        }
+      }
 
       // Tell gp-api the link was redeemed so the sales HubSpot card reflects it.
       // Best-effort and non-blocking: `keepalive` lets the request outlive the
@@ -146,9 +258,29 @@ export default function ServeWelcomeContent() {
       window.location.href = POST_AUTH_REDIRECT
     } catch (err) {
       console.error('[serve/welcome] redemption failed:', err)
-      setError(CONSUMED_TICKET_MESSAGE)
+
+      // The exchange POST can be auto-retried by clerk-js's FAPI layer after a
+      // transient blip; the first attempt may have already consumed the ticket
+      // AND established the session, so the retry throws "already consumed" even
+      // though sign-in actually succeeded. If a session for the ticket user now
+      // exists, redemption succeeded — navigate instead of surfacing an error.
+      if (isSignedInAsTicketUser()) {
+        window.location.href = POST_AUTH_REDIRECT
+        return
+      }
+
+      // Only a genuinely dead ticket gets the "request a new link" copy.
+      // Transient network failures get a distinct, retryable message — never
+      // the consumed message.
+      setError(
+        isConsumedOrExpiredTicketError(err)
+          ? CONSUMED_TICKET_MESSAGE
+          : RETRYABLE_MESSAGE,
+      )
       setRedeeming(false)
-      redeemingRef.current = false
+      // Intentionally do NOT reset `redeemingRef`: the exchange has been
+      // attempted, so a second click must not fire `signIn.create` again on a
+      // possibly-spent ticket.
     }
   }
 

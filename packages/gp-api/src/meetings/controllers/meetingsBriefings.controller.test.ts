@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from '@/shared/test-utils/arrays.util'
 import { ExperimentRunStatus } from '../../generated/prisma'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { ElectionsService } from '@/elections/services/elections.service'
-import { addDays, getDay, parseISO } from 'date-fns'
+import { addDays, getDay, parseISO, subDays } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { parseIsoDateAsUTC } from '@/shared/util/date.util'
@@ -297,9 +298,9 @@ describe('GET /v1/meetings', () => {
     const probe = await service.client.get('/v1/meetings', {
       headers: { 'x-organization-slug': orgSlug },
     })
-    const targetDate = (
-      probe.data.meetings as Array<{ meetingDate: string }>
-    )[0].meetingDate
+    const targetDate = firstOrThrow(
+      probe.data.meetings as Array<{ meetingDate: string }>,
+    ).meetingDate
 
     const briefingRun = await service.prisma.experimentRun.create({
       data: {
@@ -378,6 +379,78 @@ describe('GET /v1/meetings', () => {
     ])
   })
 
+  it('includes a MeetingBriefing row 30-45 days in the past', async () => {
+    const orgSlug = 'eo-past-briefing-in-window'
+    const eo = await seedElectedOffice(orgSlug)
+    const briefingRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+      },
+    })
+    const pastDate = formatInTimeZone(
+      subDays(new Date(), 35),
+      'UTC',
+      'yyyy-MM-dd',
+    )
+    await service.prisma.meetingBriefing.create({
+      data: {
+        electedOfficeId: eo.id,
+        meetingDate: parseIsoDateAsUTC(pastDate),
+        meetingTime: '19:00',
+        meetingTimezone: 'America/Denver',
+        experimentRunId: briefingRun.runId,
+        artifactBucket: 'briefing-bucket',
+        artifactKey: 'briefing-key.json',
+      },
+    })
+
+    const result = await service.client.get('/v1/meetings', {
+      headers: { 'x-organization-slug': orgSlug },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.meetings).toEqual([
+      expect.objectContaining({ meetingDate: pastDate, hasBriefing: true }),
+    ])
+  })
+
+  it('excludes a MeetingBriefing row more than 60 days in the past', async () => {
+    const orgSlug = 'eo-past-briefing-outside-window'
+    const eo = await seedElectedOffice(orgSlug)
+    const briefingRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+      },
+    })
+    const pastDate = formatInTimeZone(
+      subDays(new Date(), 65),
+      'UTC',
+      'yyyy-MM-dd',
+    )
+    await service.prisma.meetingBriefing.create({
+      data: {
+        electedOfficeId: eo.id,
+        meetingDate: parseIsoDateAsUTC(pastDate),
+        meetingTime: '19:00',
+        meetingTimezone: 'America/Denver',
+        experimentRunId: briefingRun.runId,
+        artifactBucket: 'briefing-bucket',
+        artifactKey: 'briefing-key.json',
+      },
+    })
+
+    const result = await service.client.get('/v1/meetings', {
+      headers: { 'x-organization-slug': orgSlug },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.meetings).toEqual([])
+  })
+
   it('uses artifact meeting_name and location when present', async () => {
     const orgSlug = 'eo-artifact-fields'
     const eo = await seedElectedOffice(orgSlug)
@@ -387,9 +460,9 @@ describe('GET /v1/meetings', () => {
     const probe = await service.client.get('/v1/meetings', {
       headers: { 'x-organization-slug': orgSlug },
     })
-    const targetDate = (
-      probe.data.meetings as Array<{ meetingDate: string }>
-    )[0].meetingDate
+    const targetDate = firstOrThrow(
+      probe.data.meetings as Array<{ meetingDate: string }>,
+    ).meetingDate
 
     const briefingRun = await service.prisma.experimentRun.create({
       data: {
@@ -441,9 +514,9 @@ describe('GET /v1/meetings', () => {
     const probe = await service.client.get('/v1/meetings', {
       headers: { 'x-organization-slug': orgSlug },
     })
-    const targetDate = (
-      probe.data.meetings as Array<{ meetingDate: string }>
-    )[0].meetingDate
+    const targetDate = firstOrThrow(
+      probe.data.meetings as Array<{ meetingDate: string }>,
+    ).meetingDate
 
     const briefingRun = await service.prisma.experimentRun.create({
       data: {
@@ -931,5 +1004,189 @@ describe('POST /v1/meetings/briefings/dispatch', () => {
 
     expect(result.status).toBe(403)
     expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('GET /v1/meetings/briefings/dispatch/preview', () => {
+  it('returns 400 when electedOfficeId is missing', async () => {
+    const result = await service.client.get(
+      '/v1/meetings/briefings/dispatch/preview',
+    )
+    expect(result.status).toBe(400)
+  })
+
+  it('returns 404 when elected office is not found', async () => {
+    const result = await service.client.get(
+      '/v1/meetings/briefings/dispatch/preview?electedOfficeId=nonexistent',
+    )
+    expect(result.status).toBe(404)
+  })
+
+  it('403s a user session previewing an office it does not own', async () => {
+    const otherUser = await service.prisma.user.create({
+      data: {
+        clerkId: `other-prev-${Date.now()}`,
+        email: `other-prev-${Date.now()}@test.example`,
+        firstName: 'Other',
+        lastName: 'User',
+      },
+    })
+    const orgSlug = `eo-prev-idor-${Date.now()}`
+    await service.prisma.organization.create({
+      data: { slug: orgSlug, ownerId: otherUser.id },
+    })
+    const eo = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: otherUser.id },
+    })
+
+    const result = await service.client.get(
+      `/v1/meetings/briefings/dispatch/preview?electedOfficeId=${eo.id}`,
+    )
+    expect(result.status).toBe(403)
+  })
+
+  it('reports gateWouldDispatch when ICP, uncovered, and a meeting is imminent', async () => {
+    const orgSlug = `eo-prev-pass-${Date.now()}`
+    const eo = await seedBriefingTarget(orgSlug, 'FREQ=DAILY')
+
+    const result = await service.client.get(
+      `/v1/meetings/briefings/dispatch/preview?electedOfficeId=${eo.id}`,
+    )
+
+    expect(result.status).toBe(200)
+    expect(result.data).toEqual({
+      contextOk: true,
+      isServeIcp: true,
+      scheduleKnown: true,
+      nextMeetingDate: expect.any(String),
+      imminentMeetingDate: expect.any(String),
+      coveredByBriefingDate: null,
+      gateWouldDispatch: true,
+      overrideWouldDispatch: true,
+    })
+  })
+
+  it('reports a gate skip when the position is not serve-ICP', async () => {
+    const orgSlug = `eo-prev-icp-${Date.now()}`
+    const eo = await seedBriefingTarget(orgSlug, 'FREQ=DAILY')
+    vi.spyOn(
+      service.app.get(ElectionsService),
+      'getPositionById',
+    ).mockResolvedValue({
+      id: 'pos-real',
+      brPositionId: 'br-pos-g',
+      brDatabaseId: 'br-db-g',
+      state: 'MN',
+      name: 'City Council',
+      isServeIcp: false,
+    })
+
+    const result = await service.client.get(
+      `/v1/meetings/briefings/dispatch/preview?electedOfficeId=${eo.id}`,
+    )
+
+    expect(result.status).toBe(200)
+    expect(result.data.isServeIcp).toBe(false)
+    expect(result.data.gateWouldDispatch).toBe(false)
+    expect(result.data.imminentMeetingDate).toEqual(expect.any(String))
+    expect(result.data.overrideWouldDispatch).toBe(true)
+  })
+
+  it('reports a gate skip when a future briefing already covers the official', async () => {
+    const orgSlug = `eo-prev-covered-${Date.now()}`
+    const eo = await seedBriefingTarget(orgSlug, 'FREQ=DAILY')
+    const existingRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+      },
+    })
+    await service.prisma.meetingBriefing.create({
+      data: {
+        electedOfficeId: eo.id,
+        meetingDate: new Date('2099-12-31'),
+        meetingTime: '19:00',
+        meetingTimezone: 'America/Denver',
+        experimentRunId: existingRun.runId,
+        artifactBucket: 'b',
+        artifactKey: 'existing.json',
+      },
+    })
+
+    const result = await service.client.get(
+      `/v1/meetings/briefings/dispatch/preview?electedOfficeId=${eo.id}`,
+    )
+
+    expect(result.status).toBe(200)
+    expect(result.data.coveredByBriefingDate).toBe('2099-12-31')
+    expect(result.data.gateWouldDispatch).toBe(false)
+    expect(result.data.overrideWouldDispatch).toBe(true)
+  })
+
+  it('reports scheduleKnown:false and no dispatch paths when no schedule exists', async () => {
+    const orgSlug = `eo-prev-nosched-${Date.now()}`
+    await service.prisma.organization.create({
+      data: { slug: orgSlug, ownerId: service.user.id, positionId: 'br-pos-g' },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: `test-campaign-${orgSlug}`,
+        organizationSlug: orgSlug,
+        details: {},
+      },
+    })
+    const eo = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: service.user.id },
+    })
+    vi.spyOn(
+      service.app.get(ElectionsService),
+      'getPositionById',
+    ).mockResolvedValue({
+      id: 'pos-real',
+      brPositionId: 'br-pos-g',
+      brDatabaseId: 'br-db-g',
+      state: 'MN',
+      name: 'City Council',
+      isServeIcp: true,
+    })
+
+    const result = await service.client.get(
+      `/v1/meetings/briefings/dispatch/preview?electedOfficeId=${eo.id}`,
+    )
+
+    expect(result.status).toBe(200)
+    expect(result.data).toEqual({
+      contextOk: true,
+      isServeIcp: true,
+      scheduleKnown: false,
+      nextMeetingDate: null,
+      imminentMeetingDate: null,
+      coveredByBriefingDate: null,
+      gateWouldDispatch: false,
+      overrideWouldDispatch: false,
+    })
+  })
+
+  it('reports override-only when the next meeting is beyond 3 days but within 60', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date('2026-06-01T12:00:00Z'))
+    try {
+      const orgSlug = `eo-prev-out-${Date.now()}`
+      const eo = await seedBriefingTarget(orgSlug, 'FREQ=MONTHLY;BYMONTHDAY=5')
+
+      const result = await service.client.get(
+        `/v1/meetings/briefings/dispatch/preview?electedOfficeId=${eo.id}`,
+      )
+
+      expect(result.status).toBe(200)
+      expect(result.data.imminentMeetingDate).toBeNull()
+      expect(result.data.nextMeetingDate).toEqual(expect.any(String))
+      expect(result.data.gateWouldDispatch).toBe(false)
+      expect(result.data.overrideWouldDispatch).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

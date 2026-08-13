@@ -24,7 +24,10 @@ export const ANNOTATION_KIND_VALUES = [
 export const AnnotationKindSchema = z.enum(ANNOTATION_KIND_VALUES)
 export type AnnotationKind = z.infer<typeof AnnotationKindSchema>
 
-export const ANNOTATION_RESOURCE_TYPE_VALUES = ['briefing'] as const
+export const ANNOTATION_RESOURCE_TYPE_VALUES = [
+  'briefing',
+  'ordinance',
+] as const
 export const AnnotationResourceTypeSchema = z.enum(
   ANNOTATION_RESOURCE_TYPE_VALUES,
 )
@@ -114,6 +117,10 @@ export type AnnotationNote = z.infer<typeof AnnotationNoteSchema>
 export const AnnotationBugReportSchema = z.object({
   id: z.string(),
   description: z.string(),
+  // The flagged passage, captured at submit time. Null for briefing bug
+  // reports (they re-derive it from the anchor against immutable content);
+  // set for ordinance drafts, whose editable body makes the anchor unreliable.
+  excerpt: z.string().nullable(),
   submitted_at: z.string(),
 })
 export type AnnotationBugReport = z.infer<typeof AnnotationBugReportSchema>
@@ -163,6 +170,7 @@ export type Annotation = z.infer<typeof AnnotationSchema>
 
 const noteBodySchema = z.string().min(1).max(10_000)
 const bugReportDescriptionSchema = z.string().min(1).max(4_000)
+const bugReportExcerptSchema = z.string().min(1).max(10_000)
 const reviewBodySchema = z.string().min(1).max(10_000)
 
 export const CreateAnnotationRequestSchema = z.discriminatedUnion('kind', [
@@ -180,6 +188,9 @@ export const CreateAnnotationRequestSchema = z.discriminatedUnion('kind', [
     anchor: AnnotationAnchorSchema,
     payload: z.object({
       description: bugReportDescriptionSchema,
+      // Optional: the flagged passage, for resources whose content is editable
+      // and whose anchor can't reliably re-derive it later (ordinance drafts).
+      excerpt: bugReportExcerptSchema.optional(),
     }),
   }),
   z.object({
@@ -203,7 +214,7 @@ export type UpdateNoteRequest = z.infer<typeof UpdateNoteRequestSchema>
 // Attachment request shapes (Phase 2 — camera / upload intake)
 // ---------------------------------------------------------------------------
 
-const ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024 // 20 MB
+export const ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024 // 20 MB
 // Limited to what the OCR pipeline can actually read end-to-end. Textract's
 // DetectDocumentText accepts only JPEG / PNG / PDF / TIFF, so allowing heic
 // or webp here would land the attachment in S3 but always fail OCR. HEIC

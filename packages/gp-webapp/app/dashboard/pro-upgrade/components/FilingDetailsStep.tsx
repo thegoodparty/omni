@@ -14,7 +14,6 @@ import {
 } from '@styleguide'
 import Body2 from '@shared/typography/Body2'
 import TextField from '@shared/inputs/TextField'
-import AddressAutocomplete from '@shared/AddressAutocomplete'
 import {
   FormDataProvider,
   useFormData,
@@ -32,9 +31,12 @@ import {
 } from 'app/dashboard/profile/texting-compliance/util/registrationFormData.util'
 import { StyledAlert } from '@shared/alerts/StyledAlert'
 import {
+  EMPTY_MANUAL_ADDRESS,
   fieldDisplayNames,
+  FilingAddressFields,
   getFailingFields,
   getValidationMessage,
+  isManualAddressValue,
   validateRegistrationForm,
   type ValidationField,
 } from 'app/dashboard/profile/texting-compliance/register/components/TextingComplianceRegistrationForm'
@@ -97,14 +99,16 @@ export const getInitialFilingDetailsState = (
 const getStringValue = (value: FormDataState[keyof FormDataState]): string =>
   typeof value === 'string' ? value : ''
 
-// Peerly delivers the verification PIN only to an email or phone that matches
-// the filing, so both are required here; address is optional. Reuse the shared
-// validator's per-channel selection: email + phone selected (required), address
-// not (optional), which also satisfies its >=1-channel rule (86aj5bqvw).
+// Peerly delivers the verification PIN to an email or phone that matches the
+// filing, so both are required. The filing address is required too: the agentic
+// flow submits a TCR registration whose postal address is resolved from this
+// placeId, so a blank address starts a run that only fails several paid steps
+// later at the Peerly submit. (Supersedes 86aj5bqvw, which made the address
+// optional before the agentic Peerly postal-address requirement was known.)
 const validateFilingDetails = (data: FormDataState) =>
   validateRegistrationForm(data, {
     requireWebsite: false,
-    contactSelection: { email: true, phone: true, address: false },
+    contactSelection: { email: true, phone: true, address: true },
   })
 
 interface FilingDetailsFormProps {
@@ -128,7 +132,7 @@ const FilingDetailsForm = ({
 
   const { validations, isValid } = validateRegistrationForm(formData, {
     requireWebsite: false,
-    contactSelection: { email: true, phone: true, address: false },
+    contactSelection: { email: true, phone: true, address: true },
   })
 
   // `website` is validated but has no input in this form (the agentic flow
@@ -146,14 +150,18 @@ const FilingDetailsForm = ({
   const showError = (field: ValidationField): boolean =>
     attemptedSubmit && !validations[field]
 
-  const addressValue = formData.address
-  const initialAddress =
-    addressValue &&
-    typeof addressValue === 'object' &&
-    'formatted_address' in addressValue
-      ? (addressValue as { formatted_address: string }).formatted_address
-      : ''
-  const [addressInput, setAddressInput] = useState(initialAddress)
+  const addressValue =
+    formData.address &&
+    typeof formData.address === 'object' &&
+    'formatted_address' in formData.address
+      ? (formData.address as { formatted_address: string; place_id: string })
+      : null
+  const manualAddress = isManualAddressValue(formData.manualAddress)
+    ? formData.manualAddress
+    : {
+        ...EMPTY_MANUAL_ADDRESS,
+        addressLine1: addressValue?.formatted_address || '',
+      }
 
   const [validFecCommitteeId, setValidFecCommitteeId] = useState(
     getFecCommitteeIdValidation(getStringValue(formData.fecCommitteeId)),
@@ -288,8 +296,8 @@ const FilingDetailsForm = ({
           <div className="font-medium">Filing contact details</div>
           <Body2 className="text-base-muted-foreground mt-1 mb-4">
             Enter the email and phone that appear on your campaign filing — your
-            PIN is sent to one of these to verify your campaign. Add the filing
-            address too if it appears on your filing.
+            PIN is sent to one of these to verify your campaign. Your filing
+            address (PO Boxes are fine) is required to register for texting.
           </Body2>
           <div className="flex flex-col gap-6">
             <TextField
@@ -310,24 +318,11 @@ const FilingDetailsForm = ({
               value={getStringValue(phone)}
               onChange={(e) => handleChange({ phone: e.target.value })}
             />
-            <AddressAutocomplete
-              value={addressInput}
-              onChange={(value) => {
-                setAddressInput(value)
-                if (!value) handleChange({ address: null })
-              }}
-              onSelect={(place) => {
-                setAddressInput(place.formatted_address || '')
-                handleChange({
-                  address: {
-                    formatted_address: place.formatted_address || '',
-                    place_id: place.place_id || '',
-                  },
-                })
-              }}
-              placeholder="Address (optional)"
-              variant="outlined"
-              dropdownClassName="texting-compliance-address-dropdown"
+            <FilingAddressFields
+              address={addressValue}
+              manualAddress={manualAddress}
+              onChange={(patch) => handleChange(patch)}
+              showError={showError('address')}
             />
           </div>
         </div>

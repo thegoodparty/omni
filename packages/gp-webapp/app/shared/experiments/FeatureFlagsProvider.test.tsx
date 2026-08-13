@@ -1,59 +1,29 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { User, UserRole } from 'helpers/types'
-import { Experiment } from '@amplitude/experiment-js-client'
-import { reportErrorToSentry } from '@shared/sentry'
-import { buildUserTraits } from 'helpers/buildUserTraits'
 
-const mockExperimentClient = {
-  fetch: vi.fn().mockResolvedValue(undefined),
-  variant: vi.fn(
-    (_key: string, fallback?: unknown) => fallback ?? { value: undefined },
-  ),
-  all: vi.fn(() => ({})),
-  exposure: vi.fn(),
-  clear: vi.fn(),
-}
+vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
 
-vi.mock('@amplitude/experiment-js-client', () => ({
-  Experiment: {
-    initialize: vi.fn(() => mockExperimentClient),
-  },
-}))
-
+const mockTrack = vi.fn()
 vi.mock('@shared/utils/analytics', () => ({
-  getReadyAnalytics: vi.fn().mockResolvedValue(null),
-}))
-
-vi.mock('@shared/sentry', () => ({
-  reportErrorToSentry: vi.fn(),
-}))
-
-vi.mock('helpers/buildUserTraits', () => ({
-  buildUserTraits: vi.fn(),
+  getReadyAnalytics: vi.fn(async () => ({ track: mockTrack })),
 }))
 
 let mockUser: User | null = null
 let mockIsUserLoading = false
-
 vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => [mockUser, vi.fn(), mockIsUserLoading],
 }))
 
-const mockApiKey = vi.hoisted(() => ({ value: 'test-amplitude-key' }))
-
-vi.mock('appEnv', () => ({
-  get NEXT_PUBLIC_AMPLITUDE_API_KEY() {
-    return mockApiKey.value
-  },
-}))
-
 import React from 'react'
+import { reportErrorToSentry } from '@shared/sentry'
 import {
   FeatureFlagsProvider,
   useFeatureFlags,
   useFlagOn,
 } from './FeatureFlagsProvider'
+
+const VARIANTS_ROUTE = '/api/feature-flags'
 
 const fullUser: User = {
   id: 42,
@@ -68,455 +38,203 @@ const fullUser: User = {
   hasPassword: true,
 }
 
-const fullUserTraits = {
-  email: 'jane@example.com',
-  name: 'Jane Doe',
-  phone: '555-1234',
-  zip: '90210',
-}
+// gp-api-resolved variants the /api/feature-flags route returns, controllable
+// per test. The mock throws on any non-/api/feature-flags URL, so a stray
+// Amplitude call would fail the test — resolution must stay same-origin.
+// (A global fetch stub, not api.mock/MSW, because /api/feature-flags is a Next
+// route handler, not an APIEndpoints entry MSW could key off.)
+let serverVariants: Record<string, { value?: string }> = {}
+let fetchShouldReject = false
+let fetchOk = true
+const fetchMock = vi.fn(async (url: string) => {
+  if (url !== VARIANTS_ROUTE) throw new Error(`unexpected fetch: ${url}`)
+  if (fetchShouldReject) throw new Error('network error')
+  return {
+    ok: fetchOk,
+    json: async () => ({ variants: serverVariants }),
+  } as unknown as Response
+})
 
 const wrapper = ({ children }: { children: React.ReactNode }) => (
   <FeatureFlagsProvider>{children}</FeatureFlagsProvider>
 )
 
+const seededWrapper = ({ children }: { children: React.ReactNode }) => (
+  <FeatureFlagsProvider initialVariants={{ 'campaign-story': { value: 'on' } }}>
+    {children}
+  </FeatureFlagsProvider>
+)
+
 beforeEach(() => {
   mockUser = null
   mockIsUserLoading = false
-  mockApiKey.value = 'test-amplitude-key'
-  mockExperimentClient.fetch.mockReset().mockResolvedValue(undefined)
-  mockExperimentClient.variant
-    .mockReset()
-    .mockImplementation(
-      (_key: string, fallback?: unknown) => fallback ?? { value: undefined },
-    )
-  mockExperimentClient.all.mockReset().mockReturnValue({})
-  mockExperimentClient.exposure.mockReset()
-  mockExperimentClient.clear.mockReset()
-  vi.mocked(Experiment.initialize)
-    .mockReset()
-    .mockReturnValue(mockExperimentClient as never)
+  serverVariants = {}
+  fetchShouldReject = false
+  fetchOk = true
+  fetchMock.mockClear()
+  mockTrack.mockClear()
   vi.mocked(reportErrorToSentry).mockReset()
-  vi.mocked(buildUserTraits).mockReset().mockReturnValue(fullUserTraits)
+  vi.stubGlobal('fetch', fetchMock)
 })
 
-describe('FeatureFlagsProvider', () => {
-  describe('ExperimentUser construction', () => {
-    it('fetches with user_id and user_properties from buildUserTraits when user exists', async () => {
-      mockUser = fullUser
-
-      renderHook(() => useFeatureFlags(), { wrapper })
-
-      await waitFor(() => {
-        expect(mockExperimentClient.fetch).toHaveBeenCalledWith({
-          user_id: '42',
-          user_properties: fullUserTraits,
-        })
-      })
-      expect(buildUserTraits).toHaveBeenCalledWith(fullUser)
-    })
-
-    it('fetches with empty ExperimentUser when no user is logged in', async () => {
-      mockUser = null
-
-      renderHook(() => useFeatureFlags(), { wrapper })
-
-      await waitFor(() => {
-        expect(mockExperimentClient.fetch).toHaveBeenCalledWith({})
-      })
-      expect(buildUserTraits).not.toHaveBeenCalled()
-    })
-  })
-
-  describe('ready state', () => {
-    it('becomes ready after successful fetch', async () => {
-      const { result } = renderHook(() => useFeatureFlags(), { wrapper })
-
-      await waitFor(() => {
-        expect(result.current.ready).toBe(true)
-      })
-    })
-
-    it('becomes ready even when fetch fails', async () => {
-      mockExperimentClient.fetch.mockRejectedValueOnce(
-        new Error('network error'),
-      )
-
-      const { result } = renderHook(() => useFeatureFlags(), { wrapper })
-
-      await waitFor(() => {
-        expect(result.current.ready).toBe(true)
-      })
-    })
-
-    it('becomes ready immediately when no API key is configured', async () => {
-      mockApiKey.value = ''
-
-      const { result } = renderHook(() => useFeatureFlags(), { wrapper })
-
-      await waitFor(() => {
-        expect(result.current.ready).toBe(true)
-      })
-      expect(Experiment.initialize).not.toHaveBeenCalled()
-      expect(mockExperimentClient.fetch).not.toHaveBeenCalled()
-    })
-  })
-
-  describe('refresh behavior', () => {
-    it('returns early without fetching when client is null', async () => {
-      mockApiKey.value = ''
-
-      const { result } = renderHook(() => useFeatureFlags(), { wrapper })
-
-      await waitFor(() => {
-        expect(result.current.ready).toBe(true)
-      })
-
-      mockExperimentClient.fetch.mockReset()
-
-      await act(async () => {
-        await result.current.refresh()
-      })
-
-      expect(mockExperimentClient.fetch).not.toHaveBeenCalled()
-    })
-
-    it('calls client.clear() when user identity changes', async () => {
-      mockUser = null
-      const { result, rerender } = renderHook(() => useFeatureFlags(), {
-        wrapper,
-      })
-
-      await waitFor(() => {
-        expect(result.current.ready).toBe(true)
-      })
-      mockExperimentClient.clear.mockReset()
-
-      mockUser = fullUser
-      rerender()
-
-      await waitFor(() => {
-        expect(mockExperimentClient.clear).toHaveBeenCalled()
-      })
-    })
-
-    it('does not call client.clear() when user identity stays the same', async () => {
-      mockUser = fullUser
-      const { result } = renderHook(() => useFeatureFlags(), { wrapper })
-
-      await waitFor(() => {
-        expect(result.current.ready).toBe(true)
-      })
-      mockExperimentClient.clear.mockReset()
-
-      await act(async () => {
-        await result.current.refresh()
-      })
-
-      expect(mockExperimentClient.clear).not.toHaveBeenCalled()
-    })
-  })
-
-  describe('re-fetching on user change', () => {
-    it('re-fetches when user changes', async () => {
-      mockUser = null
-      const { result, rerender } = renderHook(() => useFeatureFlags(), {
-        wrapper,
-      })
-
-      await waitFor(() => {
-        expect(result.current.ready).toBe(true)
-      })
-      expect(mockExperimentClient.fetch).toHaveBeenCalledTimes(1)
-      expect(mockExperimentClient.fetch).toHaveBeenCalledWith({})
-
-      mockUser = fullUser
-      rerender()
-
-      await waitFor(() => {
-        expect(mockExperimentClient.fetch).toHaveBeenCalledTimes(2)
-      })
-      expect(mockExperimentClient.fetch).toHaveBeenLastCalledWith({
-        user_id: '42',
-        user_properties: fullUserTraits,
-      })
-    })
-
-    it('re-fetches when traits change even if the user id is unchanged', async () => {
-      mockUser = fullUser
-      const { result, rerender } = renderHook(() => useFeatureFlags(), {
-        wrapper,
-      })
-
-      await waitFor(() => {
-        expect(result.current.ready).toBe(true)
-      })
-      expect(mockExperimentClient.fetch).toHaveBeenCalledTimes(1)
-
-      // Same id, new traits (e.g. the user updated their zip) — a segment input
-      // changed, so Amplitude must be re-evaluated.
-      const updatedTraits = { ...fullUserTraits, zip: '10001' }
-      vi.mocked(buildUserTraits).mockReturnValue(updatedTraits)
-      mockUser = { ...fullUser, zip: '10001' }
-      rerender()
-
-      await waitFor(() => {
-        expect(mockExperimentClient.fetch).toHaveBeenLastCalledWith({
-          user_id: '42',
-          user_properties: updatedTraits,
-        })
-      })
-    })
-  })
-
-  describe('error reporting', () => {
-    it('reports fetch errors to Sentry', async () => {
-      const error = new Error('network error')
-      mockExperimentClient.fetch.mockRejectedValueOnce(error)
-
-      const { result } = renderHook(() => useFeatureFlags(), { wrapper })
-
-      await waitFor(() => {
-        expect(result.current.ready).toBe(true)
-      })
-
-      expect(reportErrorToSentry).toHaveBeenCalledWith(error, {
-        context: 'FeatureFlagsProvider.refresh',
-      })
-    })
-
-    it('wraps non-Error fetch failures in Error before reporting to Sentry', async () => {
-      mockExperimentClient.fetch.mockRejectedValueOnce('string-error')
-
-      const { result } = renderHook(() => useFeatureFlags(), { wrapper })
-
-      await waitFor(() => {
-        expect(result.current.ready).toBe(true)
-      })
-
-      expect(reportErrorToSentry).toHaveBeenCalledWith(
-        expect.objectContaining({ message: 'string-error' }),
-        { context: 'FeatureFlagsProvider.refresh' },
-      )
-    })
-  })
-
-  describe('client initialization', () => {
-    it('initializes the Experiment client only once across re-renders', async () => {
-      mockUser = null
-      const { result, rerender } = renderHook(() => useFeatureFlags(), {
-        wrapper,
-      })
-
-      await waitFor(() => {
-        expect(result.current.ready).toBe(true)
-      })
-
-      mockUser = fullUser
-      rerender()
-
-      await waitFor(() => {
-        expect(mockExperimentClient.fetch).toHaveBeenCalledTimes(2)
-      })
-
-      expect(Experiment.initialize).toHaveBeenCalledTimes(1)
-    })
-  })
-
-  describe('context value delegation', () => {
-    it('delegates variant() to the experiment client', async () => {
-      mockExperimentClient.variant.mockReturnValue({ value: 'treatment' })
-
-      const { result } = renderHook(() => useFeatureFlags(), { wrapper })
-
-      await waitFor(() => {
-        expect(result.current.ready).toBe(true)
-      })
-
-      const v = result.current.variant('my-flag')
-      expect(mockExperimentClient.variant).toHaveBeenCalledWith(
-        'my-flag',
-        undefined,
-      )
-      expect(v).toEqual({ value: 'treatment' })
-    })
-
-    it('delegates all() to the experiment client', async () => {
-      mockExperimentClient.all.mockReturnValue({ 'flag-a': { value: 'on' } })
-
-      const { result } = renderHook(() => useFeatureFlags(), { wrapper })
-
-      await waitFor(() => {
-        expect(result.current.ready).toBe(true)
-      })
-
-      const flags = result.current.all()
-      expect(flags).toEqual({ 'flag-a': { value: 'on' } })
-    })
-
-    it('delegates exposure() to the experiment client', async () => {
-      const { result } = renderHook(() => useFeatureFlags(), { wrapper })
-
-      await waitFor(() => {
-        expect(result.current.ready).toBe(true)
-      })
-
-      result.current.exposure('my-flag')
-      expect(mockExperimentClient.exposure).toHaveBeenCalledWith('my-flag')
-    })
-
-    it('delegates clear() to the experiment client', async () => {
-      const { result } = renderHook(() => useFeatureFlags(), { wrapper })
-
-      await waitFor(() => {
-        expect(result.current.ready).toBe(true)
-      })
-
-      result.current.clear()
-      expect(mockExperimentClient.clear).toHaveBeenCalled()
-    })
-
-    it('refresh() triggers a new fetch', async () => {
-      const { result } = renderHook(() => useFeatureFlags(), { wrapper })
-
-      await waitFor(() => {
-        expect(result.current.ready).toBe(true)
-      })
-      expect(mockExperimentClient.fetch).toHaveBeenCalledTimes(1)
-
-      await act(async () => {
-        await result.current.refresh()
-      })
-
-      expect(mockExperimentClient.fetch).toHaveBeenCalledTimes(2)
-    })
-  })
+afterEach(() => {
+  vi.unstubAllGlobals()
 })
 
 describe('server-seeded initialVariants', () => {
-  const seededWrapper = ({ children }: { children: React.ReactNode }) => (
-    <FeatureFlagsProvider
-      initialVariants={{ 'campaign-story': { value: 'on' } }}
-    >
-      {children}
-    </FeatureFlagsProvider>
-  )
-
-  it('initializes the client with the seed and fetchOnStart disabled', async () => {
+  it('is ready immediately and never fetches when seeded for an authed user', async () => {
     mockUser = fullUser
 
-    renderHook(() => useFeatureFlags(), { wrapper: seededWrapper })
-
-    await waitFor(() => {
-      expect(Experiment.initialize).toHaveBeenCalled()
-    })
-    expect(Experiment.initialize).toHaveBeenCalledWith(
-      'test-amplitude-key',
-      expect.objectContaining({
-        fetchOnStart: false,
-        initialVariants: { 'campaign-story': { value: 'on' } },
-      }),
-    )
-  })
-
-  it('is ready immediately and does not fetch on mount when seeded', async () => {
-    mockUser = fullUser
-
-    const { result } = renderHook(() => useFeatureFlags(), {
+    const { result } = renderHook(() => useFlagOn('campaign-story'), {
       wrapper: seededWrapper,
     })
 
     expect(result.current.ready).toBe(true)
+    expect(result.current.on).toBe(true)
     // Give the gated effect a chance to (wrongly) fetch; it must not.
     await act(async () => {
       await Promise.resolve()
     })
-    expect(mockExperimentClient.fetch).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('adopts the first authed identity then refetches when it changes', async () => {
+  it('trusts an empty server seed (authed, zero flags) without refetching', async () => {
+    // getFlagVariants returns {} for an authed user with no flags assigned — an
+    // authoritative answer, not a missing seed. Trust it; don't fire a redundant
+    // /api/feature-flags fetch on every SSR render.
     mockUser = fullUser
-
-    const { result, rerender } = renderHook(() => useFeatureFlags(), {
-      wrapper: seededWrapper,
-    })
-
-    await waitFor(() => {
-      expect(result.current.ready).toBe(true)
-    })
-    expect(mockExperimentClient.fetch).not.toHaveBeenCalled()
-
-    // A genuine identity change after the seed must still trigger a refetch —
-    // the seed short-circuit is one-shot, not a permanent fetch suppressor.
-    mockUser = { ...fullUser, id: 99 }
-    rerender()
-
-    await waitFor(() => {
-      expect(mockExperimentClient.fetch).toHaveBeenCalledWith({
-        user_id: '99',
-        user_properties: fullUserTraits,
-      })
-    })
-  })
-
-  it('clears and refetches anonymously when the user logs out after seeding', async () => {
-    mockUser = fullUser
-
-    const { result, rerender } = renderHook(() => useFeatureFlags(), {
-      wrapper: seededWrapper,
-    })
-
-    await waitFor(() => {
-      expect(result.current.ready).toBe(true)
-    })
-    mockExperimentClient.clear.mockReset()
-
-    mockUser = null
-    rerender()
-
-    await waitFor(() => {
-      expect(mockExperimentClient.fetch).toHaveBeenCalledWith({})
-    })
-    expect(mockExperimentClient.clear).toHaveBeenCalled()
-  })
-
-  it('discards the seed and fetches anonymously when the client has no user', async () => {
-    // Server seeded for an authed SSR session, but the client resolves
-    // anonymous — the seed is for the wrong identity and must not be trusted.
-    mockUser = null
-
-    renderHook(() => useFeatureFlags(), { wrapper: seededWrapper })
-
-    await waitFor(() => {
-      expect(mockExperimentClient.fetch).toHaveBeenCalledWith({})
-    })
-    expect(mockExperimentClient.clear).toHaveBeenCalled()
-  })
-
-  it('treats an empty seed as no seed (no initialVariants, fetches normally)', async () => {
-    mockUser = fullUser
-    const emptyWrapper = ({ children }: { children: React.ReactNode }) => (
+    const emptySeedWrapper = ({ children }: { children: React.ReactNode }) => (
       <FeatureFlagsProvider initialVariants={{}}>
         {children}
       </FeatureFlagsProvider>
     )
 
-    renderHook(() => useFeatureFlags(), { wrapper: emptyWrapper })
-
-    await waitFor(() => {
-      expect(mockExperimentClient.fetch).toHaveBeenCalled()
+    const { result } = renderHook(() => useFlagOn('anything'), {
+      wrapper: emptySeedWrapper,
     })
-    expect(Experiment.initialize).toHaveBeenCalledWith(
-      'test-amplitude-key',
-      expect.objectContaining({
-        fetchOnStart: false,
-        initialVariants: undefined,
+
+    expect(result.current.ready).toBe(true)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(result.current.on).toBe(false)
+  })
+
+  it('keeps the seed when the client reports no user (ad-blocker-degraded Clerk)', async () => {
+    // The server produced the seed (it authenticated the request), but the
+    // client reports no user — e.g. an ad blocker broke Clerk's client SDK so
+    // useUser reads signed-out while the server session is still valid. The
+    // provider must KEEP serving the seed and must NOT fetch; discarding it here
+    // reintroduces the ad-blocker bug this change fixes.
+    mockUser = null
+    mockIsUserLoading = false
+
+    const { result } = renderHook(() => useFlagOn('campaign-story'), {
+      wrapper: seededWrapper,
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(result.current.on).toBe(true)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('re-resolves through gp-api when the identity changes after seeding', async () => {
+    mockUser = fullUser
+    serverVariants = { 'campaign-story': { value: 'off' } }
+
+    const { result, rerender } = renderHook(() => useFlagOn('campaign-story'), {
+      wrapper: seededWrapper,
+    })
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    mockUser = { ...fullUser, id: 99 }
+    rerender()
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(VARIANTS_ROUTE, {
+        credentials: 'include',
+        redirect: 'manual',
       }),
     )
+    await waitFor(() => expect(result.current.on).toBe(false))
+  })
+})
+
+describe('client resolution (no seed)', () => {
+  it('resolves an authed user through gp-api, never Amplitude', async () => {
+    mockUser = fullUser
+    serverVariants = { 'my-feature': { value: 'on' } }
+
+    const { result } = renderHook(() => useFlagOn('my-feature'), { wrapper })
+
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(fetchMock).toHaveBeenCalledWith(VARIANTS_ROUTE, {
+      credentials: 'include',
+      redirect: 'manual',
+    })
+    expect(result.current.on).toBe(true)
+    // The whole point: resolution is same-origin only, exactly once — never
+    // a second/Amplitude call. (The mock throws on any other URL.)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls.every(([url]) => url === VARIANTS_ROUTE)).toBe(
+      true,
+    )
+  })
+
+  it('stays empty for an anonymous visitor and never fetches', async () => {
+    mockUser = null
+
+    const { result } = renderHook(() => useFlagOn('my-feature'), { wrapper })
+
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(result.current.on).toBe(false)
+  })
+
+  it('re-resolves on login (anonymous -> authed)', async () => {
+    mockUser = null
+    serverVariants = { 'my-feature': { value: 'on' } }
+
+    const { result, rerender } = renderHook(() => useFlagOn('my-feature'), {
+      wrapper,
+    })
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    mockUser = fullUser
+    rerender()
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(VARIANTS_ROUTE, {
+        credentials: 'include',
+        redirect: 'manual',
+      }),
+    )
+    await waitFor(() => expect(result.current.on).toBe(true))
+  })
+
+  it('clears to empty on logout (authed -> anonymous)', async () => {
+    mockUser = fullUser
+    serverVariants = { 'my-feature': { value: 'on' } }
+
+    const { result, rerender } = renderHook(() => useFlagOn('my-feature'), {
+      wrapper,
+    })
+    await waitFor(() => expect(result.current.on).toBe(true))
+
+    mockUser = null
+    rerender()
+
+    await waitFor(() => expect(result.current.on).toBe(false))
   })
 })
 
 describe('user-loading gate', () => {
-  it('does not fetch while the user is still loading', async () => {
+  it('does not fetch or become ready while the user is still loading', async () => {
     mockIsUserLoading = true
 
     const { result } = renderHook(() => useFeatureFlags(), { wrapper })
@@ -524,114 +242,343 @@ describe('user-loading gate', () => {
     await act(async () => {
       await Promise.resolve()
     })
-    expect(mockExperimentClient.fetch).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
     expect(result.current.ready).toBe(false)
   })
+})
 
-  it('fetches once the user finishes loading', async () => {
-    mockIsUserLoading = true
-    const { rerender } = renderHook(() => useFeatureFlags(), { wrapper })
-
-    expect(mockExperimentClient.fetch).not.toHaveBeenCalled()
-
-    mockIsUserLoading = false
+describe('refresh error handling', () => {
+  it('becomes ready and reports to Sentry when the refresh fetch fails', async () => {
     mockUser = fullUser
-    rerender()
+    fetchShouldReject = true
 
-    await waitFor(() => {
-      expect(mockExperimentClient.fetch).toHaveBeenCalledWith({
-        user_id: '42',
-        user_properties: fullUserTraits,
-      })
+    const { result } = renderHook(() => useFeatureFlags(), { wrapper })
+
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(reportErrorToSentry).toHaveBeenCalledWith(expect.any(Error), {
+      context: 'FeatureFlagsProvider.refresh',
+    })
+  })
+})
+
+describe('exposure tracking', () => {
+  it('fires $exposure once per flag key via variant() (deduped)', async () => {
+    mockUser = fullUser
+
+    const { result } = renderHook(() => useFeatureFlags(), {
+      wrapper: seededWrapper,
+    })
+    await waitFor(() => expect(result.current.ready).toBe(true))
+
+    act(() => {
+      result.current.variant('campaign-story')
+      result.current.variant('campaign-story')
+      result.current.variant('campaign-story')
+    })
+
+    await waitFor(() =>
+      expect(mockTrack).toHaveBeenCalledWith('$exposure', {
+        flag_key: 'campaign-story',
+        variant: 'on',
+      }),
+    )
+    expect(mockTrack).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not fire $exposure for all()', async () => {
+    mockUser = fullUser
+
+    const { result } = renderHook(() => useFeatureFlags(), {
+      wrapper: seededWrapper,
+    })
+    await waitFor(() => expect(result.current.ready).toBe(true))
+
+    act(() => {
+      result.current.all()
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(mockTrack).not.toHaveBeenCalled()
+  })
+})
+
+describe('context value', () => {
+  it('clear() empties the variant set', async () => {
+    mockUser = fullUser
+
+    const { result } = renderHook(() => useFeatureFlags(), {
+      wrapper: seededWrapper,
+    })
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.all()).toEqual({ 'campaign-story': { value: 'on' } })
+
+    act(() => {
+      result.current.clear()
+    })
+    expect(result.current.all()).toEqual({})
+  })
+
+  it('variant() falls back to the provided fallback for an unknown key', async () => {
+    mockUser = fullUser
+
+    const { result } = renderHook(() => useFeatureFlags(), {
+      wrapper: seededWrapper,
+    })
+    await waitFor(() => expect(result.current.ready).toBe(true))
+
+    expect(result.current.variant('unknown', { value: 'off' })).toEqual({
+      value: 'off',
     })
   })
 })
 
 describe('useFlagOn', () => {
-  it('returns on=true when variant value is "on" and provider is ready', async () => {
-    mockExperimentClient.variant.mockReturnValue({ value: 'on' })
+  it('uses variant() (the exposing path) by default', async () => {
+    mockUser = fullUser
 
-    const { result } = renderHook(() => useFlagOn('my-feature'), { wrapper })
-
-    await waitFor(() => {
-      expect(result.current.ready).toBe(true)
+    const { result } = renderHook(() => useFlagOn('campaign-story'), {
+      wrapper: seededWrapper,
     })
+    await waitFor(() => expect(result.current.ready).toBe(true))
 
     expect(result.current.on).toBe(true)
-  })
-
-  it('returns on=false when variant value is "off"', async () => {
-    mockExperimentClient.variant.mockReturnValue({ value: 'off' })
-
-    const { result } = renderHook(() => useFlagOn('my-feature'), { wrapper })
-
-    await waitFor(() => {
-      expect(result.current.ready).toBe(true)
-    })
-
-    expect(result.current.on).toBe(false)
-  })
-
-  it('returns on=false when variant value is undefined', async () => {
-    mockExperimentClient.variant.mockReturnValue({ value: undefined })
-
-    const { result } = renderHook(() => useFlagOn('my-feature'), { wrapper })
-
-    await waitFor(() => {
-      expect(result.current.ready).toBe(true)
-    })
-
-    expect(result.current.on).toBe(false)
-  })
-
-  it('returns on=false when provider is not ready', () => {
-    mockExperimentClient.fetch.mockReturnValue(
-      new Promise(() => {
-        /* never resolves */
+    await waitFor(() =>
+      expect(mockTrack).toHaveBeenCalledWith('$exposure', {
+        flag_key: 'campaign-story',
+        variant: 'on',
       }),
     )
+  })
 
-    const { result } = renderHook(() => useFlagOn('my-feature'), { wrapper })
+  it('uses all() and fires no exposure when trackExposure is false', async () => {
+    mockUser = fullUser
+
+    const { result } = renderHook(
+      () => useFlagOn('campaign-story', { trackExposure: false }),
+      { wrapper: seededWrapper },
+    )
+    await waitFor(() => expect(result.current.ready).toBe(true))
+
+    expect(result.current.on).toBe(true)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(mockTrack).not.toHaveBeenCalled()
+  })
+
+  it('returns on=false while the provider is not ready', () => {
+    mockIsUserLoading = true
+
+    const { result } = renderHook(() => useFlagOn('campaign-story'), {
+      wrapper,
+    })
 
     expect(result.current.ready).toBe(false)
     expect(result.current.on).toBe(false)
   })
+})
 
-  it('reads via variant (the exposing path) by default', async () => {
-    mockExperimentClient.variant.mockReturnValue({ value: 'on' })
+describe('regression coverage', () => {
+  it('re-resolves on a same-id trait change (segment input edit)', async () => {
+    // gp-api/Amplitude segment on traits (e.g. zip), so a same-session trait
+    // edit must re-resolve even though the user id is unchanged.
+    mockUser = fullUser
+    serverVariants = { 'my-feature': { value: 'off' } }
 
-    const { result } = renderHook(() => useFlagOn('my-feature'), { wrapper })
-
-    await waitFor(() => {
-      expect(result.current.ready).toBe(true)
+    const { result, rerender } = renderHook(() => useFlagOn('my-feature'), {
+      wrapper,
     })
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
 
-    expect(result.current.on).toBe(true)
-    expect(mockExperimentClient.variant).toHaveBeenCalledWith('my-feature', {
-      value: 'off',
-    })
-    expect(mockExperimentClient.all).not.toHaveBeenCalled()
+    serverVariants = { 'my-feature': { value: 'on' } }
+    mockUser = { ...fullUser, zip: '10001' }
+    rerender()
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(result.current.on).toBe(true))
   })
 
-  it('reads via all (not variant) when trackExposure is false, so no exposure fires', async () => {
-    mockExperimentClient.all.mockReturnValue({ 'my-feature': { value: 'on' } })
+  it('fails safe to empty AND reports a real (non-redirect) refresh 5xx', async () => {
+    // A genuine error response (5xx, not the auth-expiry redirect) must clear the
+    // previous identity's variants AND surface to Sentry. refresh() runs on the
+    // identity change without pre-clearing, so the store has to fall to empty.
+    mockUser = fullUser
+    serverVariants = { 'campaign-story': { value: 'on' } }
 
-    const { result } = renderHook(
-      () => useFlagOn('my-feature', { trackExposure: false }),
-      { wrapper },
+    const { result, rerender } = renderHook(() => useFlagOn('campaign-story'), {
+      wrapper: seededWrapper,
+    })
+    await waitFor(() => expect(result.current.on).toBe(true))
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    fetchOk = false
+    mockUser = { ...fullUser, id: 99 }
+    rerender()
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    await waitFor(() => expect(result.current.on).toBe(false))
+    expect(reportErrorToSentry).toHaveBeenCalledWith(expect.any(Error), {
+      context: 'FeatureFlagsProvider.refresh',
+    })
+  })
+
+  it('reports to Sentry when a 200 response fails schema validation', async () => {
+    // A valid HTTP 200 whose body doesn't match the contract (deploy skew /
+    // contract drift) must fail safe to empty AND surface to Sentry.
+    mockUser = fullUser
+    fetchMock.mockImplementationOnce(
+      async () =>
+        ({
+          ok: true,
+          json: async () => ({ variants: 'not-a-record' }),
+        }) as unknown as Response,
     )
 
-    await waitFor(() => {
-      expect(result.current.ready).toBe(true)
+    const { result } = renderHook(() => useFeatureFlags(), { wrapper })
+
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(reportErrorToSentry).toHaveBeenCalledWith(expect.any(Error), {
+      context: 'FeatureFlagsProvider.refresh',
+    })
+    expect(result.current.all()).toEqual({})
+  })
+
+  it('stays silent on an auth-expiry redirect (opaque response), clearing to empty', async () => {
+    // An expired session redirects to /login; with redirect:'manual' that arrives
+    // as an opaque (ok:false, type:'opaqueredirect') response. That's routine, so
+    // clear to empty WITHOUT a Sentry report.
+    mockUser = fullUser
+    serverVariants = { 'campaign-story': { value: 'on' } }
+
+    const { result, rerender } = renderHook(() => useFlagOn('campaign-story'), {
+      wrapper: seededWrapper,
+    })
+    await waitFor(() => expect(result.current.on).toBe(true))
+
+    fetchMock.mockImplementationOnce(
+      async () =>
+        ({
+          ok: false,
+          type: 'opaqueredirect',
+          status: 0,
+          json: async () => ({}),
+        }) as unknown as Response,
+    )
+    mockUser = { ...fullUser, id: 99 }
+    rerender()
+
+    await waitFor(() => expect(result.current.on).toBe(false))
+    expect(reportErrorToSentry).not.toHaveBeenCalled()
+  })
+
+  it('clears a seeded variant set on real logout', async () => {
+    mockUser = fullUser
+
+    const { result, rerender } = renderHook(() => useFlagOn('campaign-story'), {
+      wrapper: seededWrapper,
+    })
+    await waitFor(() => expect(result.current.on).toBe(true))
+
+    mockUser = null
+    rerender()
+
+    await waitFor(() => expect(result.current.on).toBe(false))
+  })
+
+  it('re-fires $exposure after a refresh replaces the variant set', async () => {
+    mockUser = fullUser
+    serverVariants = { 'campaign-story': { value: 'on' } }
+
+    const { result, rerender } = renderHook(() => useFeatureFlags(), {
+      wrapper: seededWrapper,
+    })
+    await waitFor(() => expect(result.current.ready).toBe(true))
+
+    act(() => {
+      result.current.variant('campaign-story')
+    })
+    await waitFor(() => expect(mockTrack).toHaveBeenCalledTimes(1))
+
+    // An identity change refreshes and resets the exposure dedup set.
+    mockUser = { ...fullUser, id: 99 }
+    rerender()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+
+    act(() => {
+      result.current.variant('campaign-story')
+    })
+    await waitFor(() => expect(mockTrack).toHaveBeenCalledTimes(2))
+  })
+
+  it('does not reset the exposure dedup on a failed (empty) refresh', async () => {
+    // A transient failure clears variants but must NOT reset the dedup set —
+    // otherwise the same key re-fires $exposure once a set is in place again,
+    // double-counting for the session.
+    mockUser = fullUser
+    serverVariants = { 'campaign-story': { value: 'on' } }
+
+    const { result, rerender } = renderHook(() => useFeatureFlags(), {
+      wrapper: seededWrapper,
+    })
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    act(() => {
+      result.current.variant('campaign-story')
+    })
+    await waitFor(() => expect(mockTrack).toHaveBeenCalledTimes(1))
+
+    // Identity change → refresh 5xxs → variants cleared, dedup left intact.
+    fetchOk = false
+    mockUser = { ...fullUser, id: 99 }
+    rerender()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    await waitFor(() => expect(result.current.all()).toEqual({}))
+
+    // Reading the now-absent flag must not fire another exposure.
+    act(() => {
+      result.current.variant('campaign-story')
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(mockTrack).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores a stale refresh that resolves after a newer identity change', async () => {
+    // Call 1 (identity A) hangs and would resolve 'on'; call 2 (identity B) uses
+    // the default mock (serverVariants → 'off'). The slower, superseded A must
+    // NOT overwrite B when it finally resolves.
+    let releaseFirst!: () => void
+    const firstInFlight = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    fetchMock.mockImplementationOnce(async () => {
+      await firstInFlight
+      return {
+        ok: true,
+        json: async () => ({ variants: { 'my-feature': { value: 'on' } } }),
+      } as unknown as Response
+    })
+    serverVariants = { 'my-feature': { value: 'off' } }
+    mockUser = fullUser
+
+    const { result, rerender } = renderHook(() => useFlagOn('my-feature'), {
+      wrapper,
     })
 
-    expect(result.current.on).toBe(true)
-    // variant() is the call that emits an Amplitude exposure under
-    // automaticExposureTracking; the non-exposing read must avoid it.
-    expect(mockExperimentClient.variant).not.toHaveBeenCalledWith(
-      'my-feature',
-      expect.anything(),
-    )
-    expect(mockExperimentClient.all).toHaveBeenCalled()
+    // refresh A is in flight (hanging); change identity → refresh B resolves off.
+    mockUser = { ...fullUser, id: 99 }
+    rerender()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.on).toBe(false)
+
+    // Release the stale first response and flush; it must not clobber identity B.
+    await act(async () => {
+      releaseFirst()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(result.current.on).toBe(false)
   })
 })

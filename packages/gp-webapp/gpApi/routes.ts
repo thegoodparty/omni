@@ -173,36 +173,6 @@ export const apiRoutes = {
         method: 'DELETE',
       },
     },
-    chat: {
-      get: {
-        path: '/campaigns/ai/chat/:threadId',
-        method: 'GET',
-      },
-      update: {
-        path: '/campaigns/ai/chat/:threadId',
-        method: 'PUT',
-      },
-      create: {
-        path: '/campaigns/ai/chat',
-        method: 'POST',
-      },
-      stream: {
-        path: '/campaigns/ai/chat/stream',
-        method: 'POST',
-      },
-      list: {
-        path: '/campaigns/ai/chat',
-        method: 'GET',
-      },
-      delete: {
-        path: '/campaigns/ai/chat/:threadId',
-        method: 'DELETE',
-      },
-      feedback: {
-        path: '/campaigns/ai/chat/:threadId/feedback',
-        method: 'POST',
-      },
-    },
     updateHistory: {
       create: {
         path: '/campaigns/mine/update-history',
@@ -274,6 +244,10 @@ export const apiRoutes = {
         path: '/campaigns/tcr-compliance/mine',
         method: 'GET',
       },
+      complianceState: {
+        path: '/campaigns/tcr-compliance/mine/compliance-state',
+        method: 'GET',
+      },
       create: {
         path: '/campaigns/tcr-compliance',
         method: 'POST',
@@ -338,18 +312,6 @@ export const apiRoutes = {
     voterFile: {
       get: {
         path: '/voters/voter-file',
-        method: 'GET',
-      },
-      wakeUp: {
-        path: '/voters/voter-file/wake-up',
-        method: 'GET',
-      },
-      helpMessage: {
-        path: '/voters/voter-file/help-message',
-        method: 'POST',
-      },
-      canDownload: {
-        path: '/voters/voter-file/can-download',
         method: 'GET',
       },
     },

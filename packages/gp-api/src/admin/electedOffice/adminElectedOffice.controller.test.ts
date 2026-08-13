@@ -52,6 +52,7 @@ function makeController() {
     elections,
     magicLink,
     magicLinkDelivery,
+    analytics,
   }
 }
 
@@ -109,6 +110,15 @@ describe('AdminElectedOfficeController.createMagicLink', () => {
     ctx.magicLink.recordSent.mockRejectedValueOnce(new Error('db down'))
     await expect(ctx.controller.createMagicLink(dto({}))).resolves.toEqual(
       expect.objectContaining({ userId: 1 }),
+    )
+  })
+
+  it('tracks the magic-link-sent event tagged as a serve link', async () => {
+    await ctx.controller.createMagicLink(dto({}))
+    expect(ctx.analytics.track).toHaveBeenCalledWith(
+      1,
+      'Onboarding - Magic Link Sent',
+      expect.objectContaining({ email: 'eo@example.com', type: 'serve' }),
     )
   })
 

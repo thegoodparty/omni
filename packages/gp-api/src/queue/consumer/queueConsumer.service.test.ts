@@ -4,13 +4,20 @@ import { InternalServerErrorException } from '@nestjs/common'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
+import { RaceOpponentPersistService } from '@/raceOpponent/services/raceOpponentPersist.service'
+import { RaceOpponentResearchPersistService } from '@/raceOpponent/services/raceOpponentResearchPersist.service'
 import { AnnotationAttachmentService } from '@/annotations/services/annotationAttachment.service'
 import { CommunityIssueService } from '@/communityIssues/services/communityIssue.service'
+import { OrdinanceCodePersistService } from '@/ordinances/services/ordinanceCodePersist.service'
+import { OrdinanceQualityLoopService } from '@/ordinances/services/ordinanceQualityLoop.service'
+import { RecommendedListsComputeService } from '@/recommendedLists/services/recommendedListsCompute.service'
 import { AiContentService } from '@/campaigns/ai/content/aiContent.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { AiGenerationService } from '@/campaigns/tasks/services/aiGeneration.service'
 import { CampaignTasksService } from '@/campaigns/tasks/services/campaignTasks.service'
+import { CampaignTrackerTasksService } from '@/campaigns/campaignTracker/services/campaignTrackerTasks.service'
 import { WeeklyTasksDigestHandlerService } from '@/campaigns/tasks/services/weeklyTasksDigestHandler.service'
+import { Nightly10DlcReportService } from '@/campaigns/tcrCompliance/services/nightly10DlcReport.service'
 import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.service'
@@ -26,6 +33,7 @@ import { DomainsService } from '@/websites/services/domains.service'
 import { Test, TestingModule } from '@nestjs/testing'
 import type { Message } from '@aws-sdk/client-sqs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { PollsService } from 'src/polls/services/polls.service'
 import type { PollResponseJsonRow } from '../queue.types'
@@ -115,6 +123,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
   let contactsService: {
     findContacts: ReturnType<typeof vi.fn>
     findPersonByPhone: ReturnType<typeof vi.fn>
+    resolveProAccess: ReturnType<typeof vi.fn>
   }
   let pollIssuesService: {
     model: { deleteMany: ReturnType<typeof vi.fn> }
@@ -178,6 +187,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
         .fn()
         .mockResolvedValue({ pagination: { totalResults: 100 } }),
       findPersonByPhone: vi.fn().mockResolvedValue(null),
+      resolveProAccess: vi.fn().mockResolvedValue(true),
     }
     pollIssuesService = {
       model: { deleteMany: vi.fn().mockResolvedValue(undefined) },
@@ -219,12 +229,19 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       pollsService as unknown as PollsService,
       pollIssuesService as never,
       pollIndividualMessage as never,
       electedOfficeService as never,
       contactsService as never,
       s3Service as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -295,9 +312,12 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     expect(contactsService.findPersonByPhone).toHaveBeenCalledWith(
       '5559999999',
       expect.anything(),
+      expect.anything(),
     )
     expect(pollIndividualMessage.client.$transaction).toHaveBeenCalled()
-    const txCb = pollIndividualMessage.client.$transaction.mock.calls[0][0]
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
     const mockTx = {
       pollIndividualMessage: { deleteMany: vi.fn(), createMany: vi.fn() },
       $executeRaw: vi.fn(),
@@ -331,8 +351,11 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     expect(contactsService.findPersonByPhone).toHaveBeenCalledWith(
       '5559999999',
       expect.anything(),
+      expect.anything(),
     )
-    const txCb = pollIndividualMessage.client.$transaction.mock.calls[0][0]
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
     const mockTx = {
       pollIndividualMessage: { deleteMany: vi.fn(), createMany: vi.fn() },
       $executeRaw: vi.fn(),
@@ -346,6 +369,73 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
         }),
       ]),
     })
+  })
+
+  it('maps each unmapped phone to its own person regardless of lookup resolution order (bounded fan-out is order-independent)', async () => {
+    pollIndividualMessage.findMany.mockResolvedValue([])
+
+    const phones = Array.from(
+      { length: 40 },
+      (_, i) => `+1555${String(i).padStart(7, '0')}`,
+    )
+    const expectedPersonId = (normalized: string): string =>
+      `person-${normalized.replace(/^\+1/, '')}`
+
+    // Resolve out of order: later phones resolve first. If the fan-out ever
+    // mismatched a result to the wrong phone (e.g. by relying on completion
+    // order), this shuffled timing would surface it.
+    contactsService.findPersonByPhone.mockImplementation(
+      async (digitsOnly: string) => {
+        const index = Number(digitsOnly.slice(-4))
+        await new Promise((resolve) =>
+          setTimeout(resolve, (phones.length - index) % 7),
+        )
+        return { id: `person-${digitsOnly}` }
+      },
+    )
+
+    const json = createPollAnalysisJson(
+      phones.map((phoneNumber, i) => ({
+        phoneNumber,
+        receivedAt: `2024-01-15T10:00:${String(i).padStart(2, '0')}Z`,
+        originalMessage: `Reply ${i}`,
+        clusterId: 1,
+      })),
+    )
+    s3Service.getFile.mockResolvedValue(json)
+    const message = createPollAnalysisCompleteMessage({ pollId })
+
+    const result = await service.processMessage(message)
+
+    expect(result).toBe(true)
+    // Pro-access resolved once, not once per phone.
+    expect(contactsService.resolveProAccess).toHaveBeenCalledTimes(1)
+    expect(contactsService.findPersonByPhone).toHaveBeenCalledTimes(
+      phones.length,
+    )
+
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
+    const captured: Array<{ personCellPhone: string; personId: string }> = []
+    const mockTx = {
+      pollIndividualMessage: {
+        deleteMany: vi.fn(),
+        createMany: vi.fn((args: { data: typeof captured }) => {
+          captured.push(...args.data)
+        }),
+      },
+      $executeRaw: vi.fn(),
+    }
+    await txCb(mockTx)
+
+    const mapping = new Map(
+      captured.map((row) => [row.personCellPhone, row.personId]),
+    )
+    expect(mapping.size).toBe(phones.length)
+    for (const normalized of phones) {
+      expect(mapping.get(normalized)).toBe(expectedPersonId(normalized))
+    }
   })
 
   it('does not call People DB fallback when every response phone maps to outreach', async () => {
@@ -386,7 +476,9 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     const result = await service.processMessage(message)
 
     expect(result).toBe(true)
-    const txCb = pollIndividualMessage.client.$transaction.mock.calls[0][0]
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
     const mockTx = {
       pollIndividualMessage: { deleteMany: vi.fn(), createMany: vi.fn() },
       $executeRaw: vi.fn(),
@@ -446,7 +538,9 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     })
     expect(pollIssuesService.client.pollIssue.createMany).toHaveBeenCalled()
     expect(pollIndividualMessage.client.$transaction).toHaveBeenCalled()
-    const txCb = pollIndividualMessage.client.$transaction.mock.calls[0][0]
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
     const mockTx = {
       pollIndividualMessage: { deleteMany: vi.fn(), createMany: vi.fn() },
       $executeRaw: vi.fn(),
@@ -480,7 +574,9 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
 
     await service.processMessage(message)
 
-    const txCb = pollIndividualMessage.client.$transaction.mock.calls[0][0]
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
     const mockTx = {
       pollIndividualMessage: { deleteMany: vi.fn(), createMany: vi.fn() },
       $executeRaw: vi.fn(),
@@ -663,7 +759,9 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       where: { pollId: fixturePollId },
     })
     expect(pollIndividualMessage.client.$transaction).toHaveBeenCalled()
-    const txCb = pollIndividualMessage.client.$transaction.mock.calls[0][0]
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
     const mockTx = {
       pollIndividualMessage: { deleteMany: vi.fn(), createMany: vi.fn() },
       $executeRaw: vi.fn(),
@@ -690,7 +788,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       ]),
     })
     expect(
-      mockTx.pollIndividualMessage.createMany.mock.calls[0][0].data,
+      firstOrThrow(mockTx.pollIndividualMessage.createMany.mock.calls)[0].data,
     ).toHaveLength(3)
   })
 
@@ -710,7 +808,9 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     const result = await service.processMessage(message)
 
     expect(result).toBe(true)
-    const txCb = pollIndividualMessage.client.$transaction.mock.calls[0][0]
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
     const mockTx = {
       pollIndividualMessage: { deleteMany: vi.fn(), createMany: vi.fn() },
       $executeRaw: vi.fn(),
@@ -736,7 +836,9 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
 
     await service.processMessage(message)
 
-    const txCb = pollIndividualMessage.client.$transaction.mock.calls[0][0]
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
     const mockTx = {
       pollIndividualMessage: { deleteMany: vi.fn(), createMany: vi.fn() },
       $executeRaw: vi.fn(),
@@ -751,7 +853,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       ]),
     })
     expect(
-      mockTx.pollIndividualMessage.createMany.mock.calls[0][0].data,
+      firstOrThrow(mockTx.pollIndividualMessage.createMany.mock.calls)[0].data,
     ).toHaveLength(1)
     // No join records should be created for opt-out without clusterId
     expect(mockTx.$executeRaw).not.toHaveBeenCalled()
@@ -785,7 +887,9 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
 
     await service.processMessage(message)
 
-    const txCb = pollIndividualMessage.client.$transaction.mock.calls[0][0]
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
     const mockTx = {
       pollIndividualMessage: { deleteMany: vi.fn(), createMany: vi.fn() },
       $executeRaw: vi.fn(),
@@ -793,7 +897,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     await txCb(mockTx)
     // The individual message is still created
     expect(
-      mockTx.pollIndividualMessage.createMany.mock.calls[0][0].data,
+      firstOrThrow(mockTx.pollIndividualMessage.createMany.mock.calls)[0].data,
     ).toHaveLength(1)
     expect(mockTx.pollIndividualMessage.createMany).toHaveBeenCalledWith({
       data: expect.arrayContaining([
@@ -825,7 +929,9 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     expect(second).toBe(true)
     expect(pollIndividualMessage.client.$transaction).toHaveBeenCalledTimes(2)
 
-    const txCb = pollIndividualMessage.client.$transaction.mock.calls[0][0]
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
     const mockTx = {
       pollIndividualMessage: { deleteMany: vi.fn(), createMany: vi.fn() },
       $executeRaw: vi.fn(),
@@ -838,8 +944,9 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
         sender: expect.anything(),
       },
     })
-    const deleteWhere =
-      mockTx.pollIndividualMessage.deleteMany.mock.calls[0][0].where
+    const deleteWhere = firstOrThrow(
+      mockTx.pollIndividualMessage.deleteMany.mock.calls,
+    )[0].where
     expect(deleteWhere.id.in).toHaveLength(1)
     expect(mockTx.pollIndividualMessage.createMany).toHaveBeenCalled()
   })
@@ -880,7 +987,14 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       domainsService as unknown as DomainsService,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1068,6 +1182,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       pollsService as never,
       {} as never,
       {} as never,
@@ -1075,6 +1190,12 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       contactsService as never,
       s3Service as never,
       usersService as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1109,8 +1230,9 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       ]),
       skipDuplicates: true,
     })
-    const { data } =
-      pollsService.client.pollIndividualMessage.createMany.mock.calls[0][0]
+    const { data } = firstOrThrow(
+      pollsService.client.pollIndividualMessage.createMany.mock.calls,
+    )[0]
     expect(data).toHaveLength(2)
   })
 
@@ -1210,22 +1332,54 @@ describe('QueueConsumerService - message type routing', () => {
           provide: WeeklyTasksDigestHandlerService,
           useValue: { handleWeeklyTasksDigest: vi.fn() },
         },
+        {
+          provide: Nightly10DlcReportService,
+          useValue: { handleNightlyReport: vi.fn().mockResolvedValue(true) },
+        },
         { provide: ExperimentRunsService, useValue: {} },
         {
           provide: MeetingBriefingsService,
-          useValue: { onExperimentRunCompleted: vi.fn() },
+          useValue: {
+            onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
+          },
         },
         {
           provide: CommunityIssueService,
-          useValue: { onExperimentRunCompleted: vi.fn() },
+          useValue: {
+            onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
+          },
         },
         {
           provide: CampaignStrategyService,
           useValue: { onExperimentRunCompleted: vi.fn() },
         },
         {
+          provide: CampaignTrackerTasksService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: RaceOpponentPersistService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: RaceOpponentResearchPersistService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: OrdinanceCodePersistService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: OrdinanceQualityLoopService,
+          useValue: { handleStep: vi.fn() },
+        },
+        {
           provide: AnnotationAttachmentService,
           useValue: { runOcr: vi.fn() },
+        },
+        {
+          provide: RecommendedListsComputeService,
+          useValue: { handleRecompute: vi.fn() },
         },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
@@ -1288,6 +1442,52 @@ describe('QueueConsumerService - message type routing', () => {
     expect(result).toBe(true)
   })
 
+  it('routes ordinanceQualityLoop messages to the loop handler', async () => {
+    const loop = module.get(OrdinanceQualityLoopService)
+    const handleSpy = vi.spyOn(loop, 'handleStep').mockResolvedValue(true)
+    const data = {
+      ordinanceId: 'ord-1',
+      loopRunId: 'run-1',
+      iteration: 0,
+      phase: 'qc',
+      expectedInputHash: 'hash-1',
+      attempt: 1,
+    }
+
+    const result = await service.processMessage({
+      MessageId: 'msg-quality-loop',
+      Body: JSON.stringify({
+        type: QueueType.ORDINANCE_QUALITY_LOOP,
+        data,
+      }),
+    })
+
+    expect(result).toBe(true)
+    expect(handleSpy).toHaveBeenCalledWith(data)
+  })
+
+  it('propagates a requeue signal from the loop handler', async () => {
+    const loop = module.get(OrdinanceQualityLoopService)
+    vi.spyOn(loop, 'handleStep').mockResolvedValue(false)
+
+    const result = await service.processMessage({
+      MessageId: 'msg-quality-loop-requeue',
+      Body: JSON.stringify({
+        type: QueueType.ORDINANCE_QUALITY_LOOP,
+        data: {
+          ordinanceId: 'ord-1',
+          loopRunId: 'run-1',
+          iteration: 1,
+          phase: 'revise',
+          expectedInputHash: 'hash-2',
+          attempt: 1,
+        },
+      }),
+    })
+
+    expect(result).toBe(false)
+  })
+
   it('routes weeklyTasksDigest messages to the handler', async () => {
     const handler = module.get(WeeklyTasksDigestHandlerService)
     const handleSpy = vi
@@ -1328,6 +1528,64 @@ describe('QueueConsumerService - message type routing', () => {
         data: {
           windowStart: 'not-a-date',
         },
+      }),
+    }
+
+    // withLegacyErrorSwallowing catches the Zod parse failure and returns true
+    const result = await service.processMessage(message)
+
+    expect(result).toBe(true)
+    expect(handleSpy).not.toHaveBeenCalled()
+  })
+
+  it('routes nightly10DlcReport messages and returns the handler boolean', async () => {
+    const report = module.get(Nightly10DlcReportService)
+    const handleSpy = vi
+      .spyOn(report, 'handleNightlyReport')
+      .mockResolvedValue(true)
+
+    const message: Message = {
+      MessageId: 'msg-nightly-ok',
+      Body: JSON.stringify({
+        type: QueueType.NIGHTLY_10DLC_REPORT,
+        data: { reportDate: '2026-07-10' },
+      }),
+    }
+
+    const result = await service.processMessage(message)
+
+    expect(result).toBe(true)
+    expect(handleSpy).toHaveBeenCalledExactlyOnceWith({
+      reportDate: '2026-07-10',
+    })
+  })
+
+  it('requeues nightly10DlcReport when the handler reports a failed post', async () => {
+    const report = module.get(Nightly10DlcReportService)
+    vi.spyOn(report, 'handleNightlyReport').mockResolvedValue(false)
+
+    const message: Message = {
+      MessageId: 'msg-nightly-slack-fail',
+      Body: JSON.stringify({
+        type: QueueType.NIGHTLY_10DLC_REPORT,
+        data: { reportDate: '2026-07-10' },
+      }),
+    }
+
+    const result = await service.processMessage(message)
+
+    expect(result).toBe(false)
+  })
+
+  it('discards nightly10DlcReport with invalid payload and does not call handler', async () => {
+    const report = module.get(Nightly10DlcReportService)
+    const handleSpy = vi.spyOn(report, 'handleNightlyReport')
+
+    const message: Message = {
+      MessageId: 'msg-nightly-invalid',
+      Body: JSON.stringify({
+        type: QueueType.NIGHTLY_10DLC_REPORT,
+        data: { reportDate: 'not-a-date' },
       }),
     }
 
@@ -1426,15 +1684,18 @@ describe('QueueConsumerService - message type routing', () => {
 describe('QueueConsumerService - handleAgentExperimentResult', () => {
   let service: QueueConsumerService
   let module: TestingModule
-  let runs: Map<string, { runId: string; status: string }>
+  let runs: Map<
+    string,
+    { runId: string; status: string; experimentType?: string }
+  >
   let mockExperimentRuns: {
     findUnique: ReturnType<typeof vi.fn>
     optimisticLockingUpdate: ReturnType<typeof vi.fn>
     markStarted: ReturnType<typeof vi.fn>
   }
 
-  const seedRun = (runId: string, status: string) => {
-    runs.set(runId, { runId, status })
+  const seedRun = (runId: string, status: string, experimentType?: string) => {
+    runs.set(runId, { runId, status, experimentType })
     return runs.get(runId)
   }
 
@@ -1497,20 +1758,49 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: UsersService, useValue: {} },
         { provide: AnalyticsService, useValue: {} },
         { provide: WeeklyTasksDigestHandlerService, useValue: {} },
+        { provide: Nightly10DlcReportService, useValue: {} },
         { provide: ExperimentRunsService, useValue: mockExperimentRuns },
         {
           provide: MeetingBriefingsService,
-          useValue: { onExperimentRunCompleted: vi.fn() },
+          useValue: {
+            onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
+          },
         },
         {
           provide: CommunityIssueService,
-          useValue: { onExperimentRunCompleted: vi.fn() },
+          useValue: {
+            onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
+          },
         },
         {
           provide: CampaignStrategyService,
           useValue: { onExperimentRunCompleted: vi.fn() },
         },
+        {
+          provide: CampaignTrackerTasksService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: RaceOpponentPersistService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: RaceOpponentResearchPersistService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: OrdinanceCodePersistService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: OrdinanceQualityLoopService,
+          useValue: { handleStep: vi.fn() },
+        },
         { provide: AnnotationAttachmentService, useValue: { runOcr: vi.fn() } },
+        {
+          provide: RecommendedListsComputeService,
+          useValue: { handleRecompute: vi.fn() },
+        },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
@@ -1558,5 +1848,183 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
     expect(result).toBe(true)
     expect(runs.get('run-done')?.status).toBe('COMPLETED')
     expect(mockExperimentRuns.optimisticLockingUpdate).not.toHaveBeenCalled()
+  })
+
+  // The silent-gap trap: without this fan-out call the run completes but its
+  // artifact is never persisted, and nothing else would catch that.
+  it('invokes the ordinance persist hook with the completed run', async () => {
+    seedRun('run-ordinance', 'RUNNING', 'find_existing_ordinances')
+    const persistSpy = vi.spyOn(
+      module.get(OrdinanceCodePersistService),
+      'onExperimentRunCompleted',
+    )
+
+    const result = await service.processMessage(
+      agentResultMessage({ runId: 'run-ordinance', status: 'success' }),
+    )
+
+    expect(result).toBe(true)
+    expect(persistSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 'run-ordinance',
+        status: 'COMPLETED',
+        experimentType: 'find_existing_ordinances',
+      }),
+    )
+  })
+
+  it('skips a late result for a SUPERSEDED run without mutating state', async () => {
+    seedRun('run-superseded', 'SUPERSEDED')
+
+    const result = await service.processMessage(
+      agentResultMessage({
+        runId: 'run-superseded',
+        status: 'success',
+      }),
+    )
+
+    expect(result).toBe(true)
+    expect(runs.get('run-superseded')?.status).toBe('SUPERSEDED')
+    expect(mockExperimentRuns.optimisticLockingUpdate).not.toHaveBeenCalled()
+  })
+})
+
+describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
+  const buildService = (handleStep: ReturnType<typeof vi.fn>) =>
+    new QueueConsumerService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { handleStep } as never,
+      {} as never,
+      createMockLogger(),
+    )
+
+  const loopMessage = (data: unknown): Message => ({
+    MessageId: 'msg-loop-1',
+    Body: JSON.stringify({ type: QueueType.ORDINANCE_QUALITY_LOOP, data }),
+  })
+
+  it('dispatches a valid quality loop step to handleStep', async () => {
+    const handleStep = vi.fn().mockResolvedValue(true)
+    const service = buildService(handleStep)
+    const payload = {
+      ordinanceId: 'o1',
+      loopRunId: 'run-1',
+      iteration: 1,
+      phase: 'qc',
+      expectedInputHash: 'hash-1',
+      attempt: 1,
+    }
+
+    const result = await service.processMessage(loopMessage(payload))
+
+    expect(result).toBe(true)
+    expect(handleStep).toHaveBeenCalledWith(payload)
+  })
+
+  it('acks and drops a malformed quality loop message instead of requeueing', async () => {
+    const handleStep = vi.fn()
+    const service = buildService(handleStep)
+
+    // A malformed message can never become valid; requeueing it would block
+    // the ordinance's FIFO group with redeliveries until the DLQ limit.
+    const result = await service.processMessage(
+      loopMessage({ ordinanceId: 'o1' }),
+    )
+
+    expect(result).toBe(true)
+    expect(handleStep).not.toHaveBeenCalled()
+  })
+})
+
+describe('QueueConsumerService - RECOMMENDED_LISTS_RECOMPUTE', () => {
+  const buildService = (handleRecompute: ReturnType<typeof vi.fn>) =>
+    new QueueConsumerService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { handleRecompute } as never,
+      createMockLogger(),
+    )
+
+  const recomputeMessage = (data: unknown): Message => ({
+    MessageId: 'msg-reclists-1',
+    Body: JSON.stringify({
+      type: QueueType.RECOMMENDED_LISTS_RECOMPUTE,
+      data,
+    }),
+  })
+
+  it('dispatches a valid recompute message to handleRecompute', async () => {
+    const handleRecompute = vi.fn().mockResolvedValue(true)
+    const service = buildService(handleRecompute)
+    const payload = { campaignId: 42, raceId: 'race-1', attempt: 1 }
+
+    const result = await service.processMessage(recomputeMessage(payload))
+
+    expect(result).toBe(true)
+    expect(handleRecompute).toHaveBeenCalledWith(payload)
+  })
+
+  it('acks and drops a malformed recompute message instead of requeueing', async () => {
+    const handleRecompute = vi.fn()
+    const service = buildService(handleRecompute)
+
+    const result = await service.processMessage(
+      recomputeMessage({ campaignId: 'not-a-number' }),
+    )
+
+    expect(result).toBe(true)
+    expect(handleRecompute).not.toHaveBeenCalled()
   })
 })

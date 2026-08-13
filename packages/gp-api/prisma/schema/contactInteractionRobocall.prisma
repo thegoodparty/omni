@@ -1,0 +1,23 @@
+model ContactInteractionRobocall {
+  id               String       @id @default(uuid(7))
+  createdAt        DateTime     @default(now()) @map("created_at")
+  organizationSlug String       @map("organization_slug")
+  organization     Organization @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  personId         String       @map("person_id")
+  occurredAt       DateTime     @map("occurred_at")
+  outreach         Outreach?    @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  // Null for manual logs; Postgres treats NULLs as distinct so the unique
+  // index never collides those rows.
+  outreachId       Int?         @map("outreach_id")
+  answeredAt       DateTime?    @map("answered_at")
+  voicemailLeftAt  DateTime?    @map("voicemail_left_at")
+  // Peerly call id for write-back idempotency (feature 5).
+  sourceCallId     String?      @map("source_call_id")
+  note             String?
+  manual           Boolean      @default(false)
+
+  @@unique([outreachId, personId])
+  @@unique([organizationSlug, sourceCallId])
+  @@index([organizationSlug, personId, occurredAt])
+  @@map("contact_interaction_robocall")
+}

@@ -1,6 +1,5 @@
 import { useTestService } from '@/test-service'
 import { ContactsService } from '@/contacts/services/contacts.service'
-import { FeaturesService } from '@/features/services/features.service'
 import { describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -37,17 +36,13 @@ const seedOrgWithCampaign = async (opts: {
   })
 }
 
-describe('GET /v1/contacts authz + win-voter-data gating', () => {
-  it('allows a pro Win campaign owner when win-voter-data is on', async () => {
+describe('GET /v1/contacts authz', () => {
+  it('allows a pro Win campaign owner', async () => {
     await seedOrgWithCampaign({
       slug: WIN_SLUG,
       ownerId: service.user.id,
       isPro: true,
     })
-    const features = service.app.get(FeaturesService)
-    const isFeatureEnabled = vi
-      .spyOn(features, 'isFeatureEnabled')
-      .mockResolvedValue(true)
     vi.spyOn(
       service.app.get(ContactsService),
       'findContacts',
@@ -59,22 +54,14 @@ describe('GET /v1/contacts authz + win-voter-data gating', () => {
 
     expect(result.status).toBe(200)
     expect(result.data).toEqual(PEOPLE_PAYLOAD)
-    expect(isFeatureEnabled).toHaveBeenCalledWith({
-      user: expect.objectContaining({ id: service.user.id }),
-      feature: 'win-voter-data',
-    })
   })
 
-  it('admits a non-pro Win campaign to the base list when the flag is on', async () => {
+  it('admits a non-pro Win campaign to the base list', async () => {
     await seedOrgWithCampaign({
       slug: WIN_SLUG,
       ownerId: service.user.id,
       isPro: false,
     })
-    vi.spyOn(
-      service.app.get(FeaturesService),
-      'isFeatureEnabled',
-    ).mockResolvedValue(true)
     const findContacts = vi
       .spyOn(service.app.get(ContactsService), 'findContacts')
       .mockResolvedValue(PEOPLE_PAYLOAD)
@@ -89,16 +76,12 @@ describe('GET /v1/contacts authz + win-voter-data gating', () => {
     expect(findContacts).toHaveBeenCalled()
   })
 
-  it('admits a non-pro Win campaign to district stats when the flag is on', async () => {
+  it('admits a non-pro Win campaign to district stats', async () => {
     await seedOrgWithCampaign({
       slug: WIN_SLUG,
       ownerId: service.user.id,
       isPro: false,
     })
-    vi.spyOn(
-      service.app.get(FeaturesService),
-      'isFeatureEnabled',
-    ).mockResolvedValue(true)
     const getDistrictStats = vi
       .spyOn(service.app.get(ContactsService), 'getDistrictStats')
       .mockResolvedValue(undefined as never)
@@ -111,28 +94,6 @@ describe('GET /v1/contacts authz + win-voter-data gating', () => {
     expect(getDistrictStats).toHaveBeenCalled()
   })
 
-  it('makes the Win path unreachable when win-voter-data is off', async () => {
-    await seedOrgWithCampaign({
-      slug: WIN_SLUG,
-      ownerId: service.user.id,
-      isPro: true,
-    })
-    vi.spyOn(
-      service.app.get(FeaturesService),
-      'isFeatureEnabled',
-    ).mockResolvedValue(false)
-    const findContacts = vi
-      .spyOn(service.app.get(ContactsService), 'findContacts')
-      .mockResolvedValue(PEOPLE_PAYLOAD)
-
-    const result = await service.client.get('/v1/contacts', {
-      headers: { [ORG_SLUG_HEADER]: WIN_SLUG },
-    })
-
-    expect(result.status).toBe(403)
-    expect(findContacts).not.toHaveBeenCalled()
-  })
-
   it('rejects a user who does not own the organization', async () => {
     await service.prisma.user.create({
       data: { id: OTHER_OWNER_ID, clerkId: 'user_other', email: 'o@gp.org' },
@@ -142,26 +103,18 @@ describe('GET /v1/contacts authz + win-voter-data gating', () => {
       ownerId: OTHER_OWNER_ID,
       isPro: true,
     })
-    const isFeatureEnabled = vi
-      .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-      .mockResolvedValue(true)
 
     const result = await service.client.get('/v1/contacts', {
       headers: { [ORG_SLUG_HEADER]: WIN_SLUG },
     })
 
     expect(result.status).toBe(404)
-    // The ownership guard rejects before the flag gate is reached.
-    expect(isFeatureEnabled).not.toHaveBeenCalled()
   })
 
-  it('leaves elected-office access unchanged and unflagged', async () => {
+  it('allows elected-office access', async () => {
     await service.prisma.organization.create({
       data: { slug: EO_SLUG, ownerId: service.user.id },
     })
-    const isFeatureEnabled = vi
-      .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-      .mockResolvedValue(false)
     vi.spyOn(
       service.app.get(ContactsService),
       'findContacts',
@@ -173,60 +126,101 @@ describe('GET /v1/contacts authz + win-voter-data gating', () => {
 
     expect(result.status).toBe(200)
     expect(result.data).toEqual(PEOPLE_PAYLOAD)
-    // eo- orgs bypass the win-voter-data flag entirely.
-    expect(isFeatureEnabled).not.toHaveBeenCalled()
   })
 
-  // The gate is wired on all four contacts endpoints, but only listContacts
-  // is covered above. A 403 with flag off + a pro org proves the gate runs on
-  // these handlers too — only assertContactsAccess reads the flag, so no
-  // pre-existing pro check could produce it. Each data method is stubbed so a
-  // wiring regression fails as a clean non-403 instead of a real network call.
-  const SOME_UUID = '00000000-0000-0000-0000-000000000000'
-  const gatedEndpoints: Array<{
-    name: string
-    path: string
-    serviceMethod: 'downloadContacts' | 'getDistrictStats' | 'findPerson'
-  }> = [
-    {
-      name: 'download',
-      path: '/v1/contacts/download',
-      serviceMethod: 'downloadContacts',
-    },
-    {
-      name: 'stats',
-      path: '/v1/contacts/stats',
-      serviceMethod: 'getDistrictStats',
-    },
-    {
-      name: 'get by id',
-      path: `/v1/contacts/${SOME_UUID}`,
-      serviceMethod: 'findPerson',
-    },
-  ]
+  it('returns the live count for an in-progress filter set (ENG-10517)', async () => {
+    await seedOrgWithCampaign({
+      slug: WIN_SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    const countContacts = vi
+      .spyOn(service.app.get(ContactsService), 'countContacts')
+      .mockResolvedValue({ count: 742 })
 
-  it.each(gatedEndpoints)(
-    'gates $name behind win-voter-data',
-    async ({ path, serviceMethod }) => {
-      await seedOrgWithCampaign({
-        slug: WIN_SLUG,
-        ownerId: service.user.id,
-        isPro: true,
-      })
-      vi.spyOn(
-        service.app.get(FeaturesService),
-        'isFeatureEnabled',
-      ).mockResolvedValue(false)
-      const method = vi
-        .spyOn(service.app.get(ContactsService), serviceMethod)
-        .mockResolvedValue(undefined as never)
+    const result = await service.client.post(
+      '/v1/contacts/count',
+      { partyDemocrat: true },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
 
-      const result = await service.client.get(path, {
-        headers: { [ORG_SLUG_HEADER]: WIN_SLUG },
-      })
+    expect(result.status).toBe(201)
+    expect(result.data).toEqual({ count: 742 })
+    expect(countContacts).toHaveBeenCalledWith(
+      expect.objectContaining({ partyDemocrat: true }),
+      expect.objectContaining({ slug: WIN_SLUG }),
+    )
+  })
 
-      expect(result.status).toBe(403)
-      expect(method).not.toHaveBeenCalled()
-    },
-  )
+  it('returns the list-detail demographics/reachability/history payload (ENG-10706)', async () => {
+    await seedOrgWithCampaign({
+      slug: WIN_SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    const payload: Awaited<ReturnType<ContactsService['getListDetail']>> = {
+      demographics: { people: 100, avgAge: 42, avgIncome: 55000 },
+      reachability: {
+        sms: 60,
+        robocall: 60,
+        phoneBanking: 60,
+        doorKnocking: 30,
+        polls: 60,
+      },
+      outreachHistory: [],
+    }
+    const getListDetail = vi
+      .spyOn(service.app.get(ContactsService), 'getListDetail')
+      .mockResolvedValue(payload)
+
+    const result = await service.client.get(
+      '/v1/contacts/list-detail?segment=42',
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(200)
+    expect(result.data).toEqual(payload)
+    expect(getListDetail).toHaveBeenCalledWith(
+      expect.objectContaining({ segment: 42 }),
+      expect.objectContaining({ slug: WIN_SLUG }),
+    )
+  })
+
+  it('accepts a segment-less list-detail request for the universe row (ENG-10778)', async () => {
+    await seedOrgWithCampaign({
+      slug: WIN_SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    const payload: Awaited<ReturnType<ContactsService['getListDetail']>> = {
+      demographics: { people: 85696, avgAge: 47, avgIncome: 61000 },
+      reachability: {
+        sms: 60000,
+        robocall: 60000,
+        phoneBanking: 45000,
+        doorKnocking: 30000,
+        polls: 60000,
+      },
+      outreachHistory: [],
+    }
+    const getListDetail = vi
+      .spyOn(service.app.get(ContactsService), 'getListDetail')
+      .mockResolvedValue(payload)
+
+    const result = await service.client.get('/v1/contacts/list-detail', {
+      headers: { [ORG_SLUG_HEADER]: WIN_SLUG },
+    })
+
+    // Response validates against ListDetailContactsResponseSchema (the
+    // global ZodResponseInterceptor would 500 otherwise).
+    expect(result.status).toBe(200)
+    expect(result.data).toEqual(payload)
+    // No `segment` key at all — a bare `{}`, not `{ segment: undefined }`
+    // (Zod's `.optional()` on a missing query param omits the key).
+    expect(getListDetail.mock.calls[0]?.[0]).not.toHaveProperty('segment')
+    expect(getListDetail).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ slug: WIN_SLUG }),
+    )
+  })
 })

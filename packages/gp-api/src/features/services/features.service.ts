@@ -20,6 +20,13 @@ if (!AMPLITUDE_PROJECT_API_KEY) {
   throw new Error('AMPLITUDE_PROJECT_API_KEY is not set')
 }
 
+// The .env.example default. Local dev runs with this placeholder and no real
+// Amplitude, so every remote flag evaluation 401s. We treat that as "local box"
+// and default gated features ON so they stay developable; a real key fails
+// closed instead (see isFeatureEnabled).
+const PLACEHOLDER_API_KEY = 'some_key'
+const usingPlaceholderKey = AMPLITUDE_PROJECT_API_KEY === PLACEHOLDER_API_KEY
+
 const amplitude = Experiment.initializeRemote(AMPLITUDE_PROJECT_API_KEY)
 
 @Injectable()
@@ -34,12 +41,24 @@ export class FeaturesService {
   /**
    * Determines if the specified feature is enabled for the given user.
    *
-   * Throws an error if the Amplitude service failes to return a value.
+   * The local placeholder key defaults every gated feature on without ever
+   * calling Amplitude, so features stay developable on a dev box that has no
+   * real key. With a real key, an unreachable Amplitude degrades instead of
+   * throwing — fail closed (off) — so a flag outage never 500s a gated route.
    */
   async isFeatureEnabled(params: {
     user: number | User
     feature: string
   }): Promise<boolean> {
+    // The placeholder key always 401s upstream — skip the doomed round-trip
+    // (its retries cost real seconds per gated request, enough to push CI
+    // tests into their timeout) and go straight to the local-box default.
+    // Before the user lookup: the answer doesn't depend on the user, so the
+    // DB read would be wasted too.
+    if (usingPlaceholderKey) {
+      return true
+    }
+
     const user =
       typeof params.user === 'number'
         ? await this.usersService.findUniqueOrThrow({
@@ -47,23 +66,35 @@ export class FeaturesService {
           })
         : params.user
 
-    const variants = await amplitude.fetchV2({
-      user_id: user.id.toString(),
-      user_properties: {
-        email: user.email,
-      },
-    })
+    try {
+      const variants = await amplitude.fetchV2({
+        user_id: user.id.toString(),
+        user_properties: {
+          email: user.email,
+        },
+      })
 
-    const value = variants[params.feature]?.value === 'on'
+      const value = variants[params.feature]?.value === 'on'
 
-    this.logger.info({
-      userId: user.id,
-      feature: params.feature,
-      value,
-      msg: 'Calculated feature toggle for user',
-    })
+      this.logger.info({
+        userId: user.id,
+        feature: params.feature,
+        value,
+        msg: 'Calculated feature toggle for user',
+      })
 
-    return value
+      return value
+    } catch (err) {
+      // Only reachable with a real key (placeholder short-circuits above):
+      // fail closed so a flag outage never 500s a gated route.
+      this.logger.warn({
+        err,
+        userId: user.id,
+        feature: params.feature,
+        msg: 'Amplitude flag evaluation failed; failing closed',
+      })
+      return false
+    }
   }
 
   /**
@@ -74,17 +105,35 @@ export class FeaturesService {
    * evaluations target the same segments.
    */
   async getAllVariants(user: User): Promise<ExperimentVariants> {
-    const variants = await amplitude.fetchV2({
-      user_id: user.id.toString(),
-      user_properties: this.buildUserProperties(user),
-    })
+    // Same placeholder short-circuit as isFeatureEnabled: the fetch can only
+    // 401, and the client falls back to its own SDK evaluation regardless.
+    if (usingPlaceholderKey) {
+      return {}
+    }
 
-    return Object.fromEntries(
-      Object.entries(variants).map(([flag, variant]) => [
-        flag,
-        { value: variant.value ?? variant.key, key: variant.key },
-      ]),
-    )
+    try {
+      const variants = await amplitude.fetchV2({
+        user_id: user.id.toString(),
+        user_properties: this.buildUserProperties(user),
+      })
+
+      return Object.fromEntries(
+        Object.entries(variants).map(([flag, variant]) => [
+          flag,
+          { value: variant.value ?? variant.key, key: variant.key },
+        ]),
+      )
+    } catch (err) {
+      // Mirror isFeatureEnabled: an Amplitude outage must not 500 the seed
+      // endpoint. Returning no variants lets the client fall back to its own
+      // SDK evaluation rather than crashing the page that requested the seed.
+      this.logger.warn({
+        err,
+        userId: user.id,
+        msg: 'Amplitude fetchV2 failed in getAllVariants; returning empty variants',
+      })
+      return {}
+    }
   }
 
   private buildUserProperties(user: User): ExperimentUserProperties {

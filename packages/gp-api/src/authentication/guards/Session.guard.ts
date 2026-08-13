@@ -61,7 +61,8 @@ export class SessionGuard implements CanActivate {
         request.m2mToken = await this.authProvider.verifyM2MToken(token)
         return true
       } catch {
-        this.logger.debug('M2M token verification failed in SessionGuard')
+        // Reason is already logged at the ClerkAuthService boundary; here we
+        // just fall back to public-or-throw for a non-verifiable M2M token.
         return this.allowPublicOrThrow(context)
       }
     }
@@ -109,7 +110,11 @@ export class SessionGuard implements CanActivate {
           'Agent token is only valid on the MCP endpoint',
         )
       }
-      this.sessions.trackSession(user)
+      // Agent tokens act on a user's behalf via MCP — that isn't the user
+      // opening the product, so it must not bump their activity signal.
+      if (!request.agentToken) {
+        this.sessions.trackSession(user)
+      }
     } catch (err) {
       if (err instanceof UnauthorizedException) {
         throw err

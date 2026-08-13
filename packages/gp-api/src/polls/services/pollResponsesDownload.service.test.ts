@@ -103,7 +103,7 @@ describe('PollResponsesDownloadService', () => {
       copyStream.end()
 
       const output = await drainStream(result.getStream())
-      const headerLine = output.split('\n')[0]
+      const headerLine = output.split('\n')[0] ?? ''
       expect(headerLine.endsWith('\'=HYPERLINK("http://evil","x")')).toBe(true)
     })
 
@@ -157,7 +157,7 @@ describe('PollResponsesDownloadService', () => {
       await service.streamPollResponses(VALID_UUID, POLL_NAME, FILE_NAME)
       copyStream.end()
 
-      const sql = vi.mocked(copyTo).mock.calls[0][0] as string
+      const sql = vi.mocked(copyTo).mock.calls[0]?.[0] as string
       expect(sql).toContain(
         "left(pim.content, 1) = ANY (ARRAY['=', '+', '-', '@'])",
       )
@@ -170,7 +170,7 @@ describe('PollResponsesDownloadService', () => {
       await service.streamPollResponses(VALID_UUID, POLL_NAME, FILE_NAME)
       copyStream.end()
 
-      const sql = vi.mocked(copyTo).mock.calls[0][0] as string
+      const sql = vi.mocked(copyTo).mock.calls[0]?.[0] as string
       expect(sql).toContain("string_agg(DISTINCT pi.title, '; '")
       expect(sql).toContain('ORDER BY pi.title')
       expect(sql).toContain('_PollIndividualMessageToPollIssue')

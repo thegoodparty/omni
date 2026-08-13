@@ -335,12 +335,16 @@ test.describe.serial('poll onboarding @dev-only', () => {
 
     // Store for reuse in subsequent tests
     sharedUser = user
-    await NavigationHelper.dismissOverlays(page)
 
-    // Elected office users now land on /dashboard/briefings after winning their
-    // race, so navigate to the polls welcome screen before onboarding.
+    // Elected office users now land on /dashboard/chief-of-staff after winning
+    // their race, so navigate to the polls welcome screen before onboarding.
     await page.goto('/polls/welcome')
-    await page.getByRole('button', { name: "Let's get started" }).click()
+    // Dismiss the cookie banner AFTER landing on /polls/welcome — it re-renders
+    // per page and overlaps the "Let's get started" CTA, intercepting the click.
+    await NavigationHelper.dismissOverlays(page)
+    // The CTA is a styleguide Button rendered `asChild` over a <Link>, so it is
+    // an <a> (role=link), not a <button>.
+    await page.getByRole('link', { name: "Let's get started" }).click()
 
     // Confirm constituent count.
     const constituentCount = await page

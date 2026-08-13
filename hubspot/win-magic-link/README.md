@@ -1,8 +1,7 @@
-# Win Magic Link — HubSpot App Card (Internal)
+# Win Magic Link — HubSpot App Card
 
-> **Internal testing tool, not production.** A HubSpot UI-extension App Card on
-> the Contact record that lets a salesperson send a candidate ("Win")
-> onboarding magic link directly from the record.
+> A HubSpot UI-extension App Card on the Contact record that lets a salesperson
+> send a candidate ("Win") onboarding magic link directly from the record.
 
 The card calls a serverless **app function** that holds the gp-api M2M bearer
 token as a HubSpot secret and hits the admin endpoint:

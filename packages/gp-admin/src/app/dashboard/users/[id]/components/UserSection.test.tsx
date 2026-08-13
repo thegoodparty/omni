@@ -14,6 +14,7 @@ const mockUser: User = {
   phone: '5551234567',
   zip: '12345',
   hasPassword: true,
+  createdAt: new Date('2024-01-01'),
   roles: [UserRole.admin, UserRole.candidate],
   metaData: {
     hubspotId: 'hs_12345',
@@ -21,10 +22,10 @@ const mockUser: User = {
   },
 }
 
-function renderWithUser(user: User) {
+function renderWithUser(user: User, isPro = false) {
   return render(
     <UserProvider user={user}>
-      <UserSection />
+      <UserSection isPro={isPro} />
     </UserProvider>
   )
 }
@@ -45,6 +46,18 @@ describe('UserSection', () => {
     renderWithUser(mockUser)
 
     expect(screen.getByText('(555) 123-4567')).toBeInTheDocument()
+  })
+
+  it('shows the Pro badge when isPro is true', () => {
+    renderWithUser(mockUser, true)
+
+    expect(screen.getByText('Pro')).toBeInTheDocument()
+  })
+
+  it('hides the Pro badge when isPro is false', () => {
+    renderWithUser(mockUser, false)
+
+    expect(screen.queryByText('Pro')).not.toBeInTheDocument()
   })
 
   it('renders metadata card', () => {

@@ -28,6 +28,7 @@ const baseUser: User = {
   smsConsentAt: null,
   smsConsentSource: null,
   smsOptedOutAt: null,
+  personId: null,
 }
 
 const adminUser: User = {
@@ -233,7 +234,9 @@ describe('SessionGuard — impersonating flag', () => {
     it('allows an agent token on a non-McpController route with a valid marker', async () => {
       class CampaignsController {}
       const req = buildRequest('agent-tok')
-      req.headers['x-mcp-internal-marker'] = MARKER
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+      const headers = req.headers as unknown as Record<string, string>
+      headers['x-mcp-internal-marker'] = MARKER
       const ctx = buildContextForClass(req, CampaignsController)
 
       await expect(guard.canActivate(ctx)).resolves.toBe(true)
@@ -243,7 +246,9 @@ describe('SessionGuard — impersonating flag', () => {
     it('rejects an agent token on a non-McpController route without a valid marker', async () => {
       class CampaignsController {}
       const req = buildRequest('agent-tok')
-      req.headers['x-mcp-internal-marker'] = 'wrong-marker'
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+      const headers = req.headers as unknown as Record<string, string>
+      headers['x-mcp-internal-marker'] = 'wrong-marker'
       const ctx = buildContextForClass(req, CampaignsController)
 
       await expect(guard.canActivate(ctx)).rejects.toThrow(

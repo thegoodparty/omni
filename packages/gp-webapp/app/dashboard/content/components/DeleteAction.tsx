@@ -1,4 +1,5 @@
 'use client'
+import { useRouter } from 'next/navigation'
 import AlertDialog from '@shared/utils/AlertDialog'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { clientFetch } from 'gpApi/clientFetch'
@@ -29,12 +30,14 @@ export default function DeleteAction({
   setShowDelete,
 }: DeleteActionProps): React.JSX.Element {
   const { successSnackbar, errorSnackbar } = useSnackbar()
+  const router = useRouter()
 
   const handleDelete = async (documentKey: string) => {
     const deleteResp = await deleteContent(documentKey)
     if (deleteResp) {
       successSnackbar('Deleted')
-      window.location.href = '/dashboard/content'
+      router.push('/dashboard/content')
+      router.refresh()
     } else {
       errorSnackbar('Failed to delete.')
     }

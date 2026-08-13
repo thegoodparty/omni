@@ -1,3 +1,14 @@
+// Age keys retired by ENG-10752 (the overlapping 18-25/25-35/35-50/50+ split).
+// Saved VoterFileFilter rows still carry them with their original query
+// bounds, so read-side surfaces (ListFilterSummary) keep labeling them; the
+// pickers only offer the new mutually exclusive ranges above.
+export const legacyAgeOptions = [
+  { key: 'age18_25', label: '18-25' },
+  { key: 'age25_35', label: '25-35' },
+  { key: 'age35_50', label: '35-50' },
+  { key: 'age50Plus', label: '50+' },
+]
+
 const filterSections = [
   {
     title: 'General Information',
@@ -15,10 +26,11 @@ const filterSections = [
         key: 'age',
         label: 'Age',
         options: [
-          { key: 'age18_25', label: '18-25' },
-          { key: 'age25_35', label: '25-35' },
-          { key: 'age35_50', label: '35-50' },
-          { key: 'age50Plus', label: '50+' },
+          { key: 'age18_24', label: '18-24' },
+          { key: 'age25_34', label: '25-34' },
+          { key: 'age35_49', label: '35-49' },
+          { key: 'age50_64', label: '50-64' },
+          { key: 'age65Plus', label: '65+' },
           { key: 'ageUnknown', label: 'Unknown' },
         ],
       },
@@ -29,7 +41,22 @@ const filterSections = [
           { key: 'partyDemocrat', label: 'Democrat' },
           { key: 'partyIndependent', label: 'Independent' },
           { key: 'partyRepublican', label: 'Republican' },
-          { key: 'partyUnknown', label: 'Unknown' },
+          { key: 'partyOther', label: 'Other' },
+        ],
+      },
+      {
+        // Win-only (campaign activity): the wizard hides this for Serve
+        // (VoterFileStep.tsx strips it like political_party) and pulls it out
+        // to render above Support status instead of inline here (ENG-10839).
+        key: 'contacts_made',
+        label: 'Prior Contacts Made',
+        options: [
+          { key: 'contactsMade0', label: '0' },
+          { key: 'contactsMade1', label: '1' },
+          { key: 'contactsMade2', label: '2' },
+          { key: 'contactsMade3', label: '3' },
+          { key: 'contactsMade4', label: '4' },
+          { key: 'contactsMade5Plus', label: '5+' },
         ],
       },
     ],
@@ -63,11 +90,11 @@ const filterSections = [
     fields: [
       {
         key: 'voter_likely',
-        label: 'Voter Likely',
+        label: 'Voter Likelihood',
         options: [
-          { key: 'audienceFirstTimeVoters', label: 'First Time' },
-          { key: 'audienceLikelyVoters', label: 'Likely' },
           { key: 'audienceSuperVoters', label: 'Super' },
+          { key: 'audienceLikelyVoters', label: 'Likely' },
+          { key: 'audienceUnreliableVoters', label: 'Unreliable' },
           { key: 'audienceUnlikelyVoters', label: 'Unlikely' },
           { key: 'audienceUnknown', label: 'Unknown' },
         ],

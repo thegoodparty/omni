@@ -199,6 +199,36 @@ describe('validateInsightsSql', () => {
         ),
       ).toThrow(/table.*allow/i)
     })
+
+    it('rejects a schema-qualified table that shares the allowlisted bare name', () => {
+      // other_schema.<allowed> parses to { db: 'other_schema', table: <allowed> };
+      // the qualifier must not be dropped, or it reads a same-named table in
+      // another schema and escapes the curated mart.
+      expect(() =>
+        validateInsightsSql(
+          `SELECT COUNT(*) FROM other_schema.int__l2_nationwide_uniform_w_haystaq WHERE district_id = '${DISTRICT}'`,
+          defaultOpts,
+        ),
+      ).toThrow(/table.*allow/i)
+    })
+
+    it('rejects a three-part catalog.schema.table reference', () => {
+      expect(() =>
+        validateInsightsSql(
+          `SELECT COUNT(*) FROM other_catalog.other_schema.int__l2_nationwide_uniform_w_haystaq WHERE district_id = '${DISTRICT}'`,
+          defaultOpts,
+        ),
+      ).toThrow(/table.*allow/i)
+    })
+
+    it('still allows the bare allowlisted table', () => {
+      expect(
+        validateInsightsSql(
+          `SELECT COUNT(*) AS n FROM int__l2_nationwide_uniform_w_haystaq WHERE district_id = '${DISTRICT}'`,
+          defaultOpts,
+        ),
+      ).toContain('int__l2_nationwide_uniform_w_haystaq')
+    })
   })
 
   describe('enforces aggregate-only shape', () => {
@@ -388,6 +418,20 @@ describe('validateInsightsSql', () => {
 })
 
 describe('scrubResults', () => {
+  it('suppresses small cells keyed on unknown_count, the alias the score-semantics guidance recommends', () => {
+    const res = scrubResults([{ unknown_count: 42 }], { minCellSize: 100 })
+    expect(res.kept).toHaveLength(0)
+    expect(res.suppressed).toBe(1)
+    expect(res.reason).toBe('cell_size')
+  })
+
+  it('masks a sub-threshold secondary count column on rows kept by the primary count', () => {
+    const res = scrubResults([{ count: 5000, unknown_count: 12 }], {
+      minCellSize: 100,
+    })
+    expect(res.kept).toEqual([{ count: 5000, unknown_count: null }])
+  })
+
   it('returns empty result with reason null when given no rows', () => {
     expect(scrubResults([], { minCellSize: 100 })).toEqual({
       kept: [],
@@ -544,13 +588,13 @@ describe('scrubResults', () => {
     })
   })
 
-  it('uses the first matching alias when multiple aliases exist on a row', () => {
+  it('keys row suppression on the first matching alias and masks sub-threshold secondary count columns', () => {
     const rows = [
       { party: 'D', count: 150, n: 5 },
       { party: 'R', count: 50, n: 500 },
     ]
     expect(scrubResults(rows, { minCellSize: 100 })).toEqual({
-      kept: [{ party: 'D', count: 150, n: 5 }],
+      kept: [{ party: 'D', count: 150, n: null }],
       suppressed: 1,
       reason: 'cell_size',
     })
@@ -615,6 +659,11 @@ describe('buildDistrictInsightsTool', () => {
     )
     // Must hint at useful column families.
     expect(tool.description).toMatch(/hs_/)
+    // Must state the score scale and its relative (percentile-rank) basis so
+    // score averages are never presented as absolute shares of constituents.
+    expect(tool.description).toMatch(/percentile rank/i)
+    expect(tool.description).toMatch(/deviation from 50/i)
+    expect(tool.description).toMatch(/nulls mean unknown/i)
     // Must remind the LLM not to echo to the user (defense in depth — the
     // system prompt also enforces this).
     expect(tool.description).toMatch(/never echo|plain language/i)

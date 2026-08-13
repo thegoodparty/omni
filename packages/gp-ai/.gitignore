@@ -1,0 +1,119 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+discovery_results
+
+# Virtual environments
+.venv
+
+# Environment variables
+.env
+
+# Google OAuth tokens
+token.pickle
+
+# Logs
+logs/
+
+#local testing files
+local_testing.py
+
+#offline files
+offline_data*/
+
+#ai tooling (CLAUDE.md is tracked; only ignore ad-hoc local notes that may have used CLAUDE-* names)
+CLAUDE-*.md
+
+#output files
+*output*/
+*output.txt
+*results*/
+*cache*/
+*smac3_output*/
+input*
+!broker/endpoints/inputs_read.py
+!pmf_engine/runner/input_files.py
+*.zip
+enhanced_data/
+
+#vector store files
+vector_store/
+
+#macOS files
+.DS_Store
+
+# Google API credentials
+token.pickle
+
+# may be sensitive
+data
+
+# AWS Infrastructure
+infrastructure/*/lambdas/*/node_modules/
+infrastructure/*/lambdas/*/dist/
+infrastructure/*/deploy/terraform/.terraform/
+infrastructure/*/deploy/terraform/tfplan
+infrastructure/*/deploy/terraform/modules/lambda/*.zip
+infrastructure/**/.env.*
+infrastructure/.env.*
+**/.terraform/
+**/.terraform.tfstate.lock.info
+**/terraform.tfstate
+**/terraform.tfstate.backup
+**/tfplan
+
+# Terraform variable files with secrets (allow .example files)
+infrastructure/**/environments/*.tfvars
+infrastructure/**/environments/**/*.tfvars
+infrastructure/shared/environments/*.tfvars
+!infrastructure/**/environments/*.tfvars.example
+!infrastructure/**/environments/**/*.tfvars.example
+!infrastructure/shared/environments/*.tfvars.example
+
+# *.auto.tfvars hold only AWS resource identifiers (vpc/subnet/cert/zone ids and a
+# work email) and are committed so CI can plan and apply with no hand-created
+# files. The blanket rule above STAYS: shared/slack-notifier's terraform.tfvars is
+# a Slack webhook URL, i.e. a bearer credential. Do not widen this.
+!infrastructure/**/*.auto.tfvars
+
+# Node.js
+node_modules/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+# ...except the serve-analyze lambda-trigger's. It is a real npm package whose zip
+# Terraform hashes at plan time, so CI must `npm ci` it reproducibly. This negation
+# MUST stay after the blanket rule above — in gitignore the last match wins.
+!infrastructure/modules/serve-analyze-fargate/lambda-trigger/package-lock.json
+
+# TypeScript build artifacts
+*.d.ts.map
+*.js.map
+
+# Slack notifier secrets
+infrastructure/shared/slack-notifier/terraform.tfvars
+*.js.map
+
+#pickle files
+*.pickle
+
+# Lambda build artifacts
+.lambda_build/
+*/.lambda_build/
+
+# Local dev scratch + buggy env-var paths
+$WORKSPACE/
+spot-testing/
+
+# Terraform lock files live in env wrappers, not in reusable modules
+infrastructure/modules/**/.terraform.lock.hcl
+
+# terraform plan files (any name variant) — binary, embed account/identity recon values
+**/*.tfplan
+**/tfplan-*

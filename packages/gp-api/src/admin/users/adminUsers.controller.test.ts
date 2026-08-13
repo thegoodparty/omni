@@ -7,8 +7,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AdminUsersController } from './adminUsers.controller'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { UsersService } from 'src/users/services/users.service'
-import { SlackService } from 'src/vendors/slack/services/slack.service'
-
 const mockUser: User = {
   id: 1,
   createdAt: new Date('2024-01-01'),
@@ -29,6 +27,7 @@ const mockUser: User = {
   smsConsentAt: null,
   smsConsentSource: null,
   smsOptedOutAt: null,
+  personId: null,
 }
 
 const mockTargetUser: User = {
@@ -52,7 +51,6 @@ describe('AdminUsersController', () => {
   let controller: AdminUsersController
   let usersService: UsersService
   let campaignsService: CampaignsService
-  let slackService: SlackService
 
   beforeEach(() => {
     const usersServiceMock: Partial<UsersService> = {
@@ -71,16 +69,7 @@ describe('AdminUsersController', () => {
     }
     campaignsService = campaignsServiceMock as CampaignsService
 
-    const slackServiceMock: Partial<SlackService> = {
-      message: vi.fn(),
-    }
-    slackService = slackServiceMock as SlackService
-
-    controller = new AdminUsersController(
-      usersService,
-      slackService,
-      createMockLogger(),
-    )
+    controller = new AdminUsersController(usersService, createMockLogger())
   })
 
   describe('guards', () => {

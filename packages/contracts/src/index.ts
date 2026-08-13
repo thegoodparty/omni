@@ -17,6 +17,18 @@ export {
   type OutreachStatus,
   OUTREACH_STATUS_VALUES,
   OutreachStatusSchema,
+  type SupportAnswer,
+  SUPPORT_ANSWER_VALUES,
+  SupportAnswerSchema,
+  type DoorKnockOutcome,
+  DOOR_KNOCK_OUTCOME_VALUES,
+  DoorKnockOutcomeSchema,
+  type WillVoteAnswer,
+  WILL_VOTE_ANSWER_VALUES,
+  WillVoteAnswerSchema,
+  type VoterOutreachAttributionSource,
+  VOTER_OUTREACH_ATTRIBUTION_SOURCE_VALUES,
+  VoterOutreachAttributionSourceSchema,
   type PollStatus,
   POLL_STATUS_VALUES,
   PollStatusSchema,
@@ -47,7 +59,19 @@ export {
   type ArtifactReviewVerdict,
   ARTIFACT_REVIEW_VERDICT_VALUES,
   ArtifactReviewVerdictSchema,
-} from "./generated/enums";
+  type OrdinanceStatus,
+  ORDINANCE_STATUS_VALUES,
+  OrdinanceStatusSchema,
+  type OrdinanceSeedType,
+  ORDINANCE_SEED_TYPE_VALUES,
+  OrdinanceSeedTypeSchema,
+  type OrdinanceQualityLoopStatus,
+  ORDINANCE_QUALITY_LOOP_STATUS_VALUES,
+  OrdinanceQualityLoopStatusSchema,
+  type ActivityConditionAction,
+  ACTIVITY_CONDITION_ACTION_VALUES,
+  ActivityConditionActionSchema,
+} from './generated/enums'
 
 export {
   PersonSchema,
@@ -56,13 +80,90 @@ export {
   type PeopleListPagination,
   PeopleListResponseSchema,
   type PeopleListResponse,
-} from "./people/Person.schema";
+  HOUSEHOLD_KEY_RESIDENCE_COLUMNS,
+  DOOR_KNOCKING_UNIT_KEY_COLUMNS,
+  SupportStatusRollupSchema,
+  type SupportStatusRollup,
+} from './people/Person.schema'
 
-export { EmailSchema } from "./shared/Email.schema";
-export { PhoneSchema } from "./shared/Phone.schema";
-export { ZipSchema } from "./shared/Zip.schema";
-export { PasswordSchema } from "./shared/Password.schema";
-export { RolesSchema } from "./shared/Roles.schema";
+export {
+  VoterLikelihoodSchema,
+  type VoterLikelihood,
+  ContactStatusFieldSchema,
+  type ContactStatusField,
+  ContactStatusSourceSchema,
+  type ContactStatusSource,
+  UpdateContactStatusInputSchema,
+  type UpdateContactStatusInput,
+  ContactStatusesSchema,
+  type ContactStatuses,
+  VOTER_LIKELIHOOD_LABELS,
+  SUPPORT_STATUS_ROLLUP_LABELS,
+  resolveContactStatusLabel,
+} from './people/ContactStatus.schema'
+
+export {
+  ContactNoteSchema,
+  type ContactNote,
+  ContactNoteInputSchema,
+  type ContactNoteInput,
+  ContactNoteListResponseSchema,
+  type ContactNoteListResponse,
+} from './people/ContactNote.schema'
+
+export {
+  ConstituentActivityTypeSchema,
+  type ConstituentActivityType,
+  ConstituentActivityEventTypeSchema,
+  type ConstituentActivityEventType,
+  ConstituentActivityEventSchema,
+  type ConstituentActivityEvent,
+  PollConstituentActivitySchema,
+  type PollConstituentActivity,
+  OutreachConstituentActivitySchema,
+  type OutreachConstituentActivity,
+  DoorKnockConstituentActivitySchema,
+  type DoorKnockConstituentActivity,
+  TextConstituentActivitySchema,
+  type TextConstituentActivity,
+  RobocallConstituentActivitySchema,
+  type RobocallConstituentActivity,
+  StatusChangeConstituentActivitySchema,
+  type StatusChangeConstituentActivity,
+  ConstituentActivitySchema,
+  type ConstituentActivity,
+  GetIndividualActivitiesResponseSchema,
+  type GetIndividualActivitiesResponse,
+} from './people/ContactActivity.schema'
+
+export {
+  LogContactInteractionInputSchema,
+  type LogContactInteractionInput,
+  LogContactInteractionResponseSchema,
+  type LogContactInteractionResponse,
+} from './people/LogContactInteraction.schema'
+
+export {
+  ListDetailDemographicsSchema,
+  type ListDetailDemographics,
+  ListDetailReachabilitySchema,
+  type ListDetailReachability,
+  ListDetailOutreachHistoryEntrySchema,
+  type ListDetailOutreachHistoryEntry,
+  ListDetailContactsResponseSchema,
+  type ListDetailContactsResponse,
+} from './people/ListDetailContacts.schema'
+
+export {
+  PeopleAggregatesResponseSchema,
+  type PeopleAggregatesResponse,
+} from './people/PeopleAggregates.schema'
+
+export { EmailSchema } from './shared/Email.schema'
+export { PhoneSchema } from './shared/Phone.schema'
+export { ZipSchema } from './shared/Zip.schema'
+export { PasswordSchema } from './shared/Password.schema'
+export { RolesSchema } from './shared/Roles.schema'
 export {
   PaginationSchema,
   PaginationOptionsSchema,
@@ -76,8 +177,9 @@ export {
   PaginationMetaSchema,
   type PaginationMeta,
   type PaginatedList,
-} from "./shared/Pagination.schema";
-export { makeOptional } from "./shared/zod.util";
+} from './shared/Pagination.schema'
+export { makeOptional } from './shared/zod.util'
+export { zCoerceDate, zDate } from './shared/Date.schema'
 
 export {
   WHY_BROWSING_VALUES,
@@ -86,34 +188,34 @@ export {
   UserMetaDataObjectSchema,
   UserMetaDataSchema,
   type UserMetaData,
-} from "./users/UserMetaData.schema";
+} from './users/UserMetaData.schema'
 
 export {
   SIGN_UP_MODE,
   CreateUserInputSchema,
   type CreateUserInput,
-} from "./users/CreateUserInput.schema";
+} from './users/CreateUserInput.schema'
 
 export {
   ReadUserOutputSchema,
   type ReadUserOutput,
-} from "./users/ReadUserOutput.schema";
+} from './users/ReadUserOutput.schema'
 
 export {
   UpdatePasswordSchema,
   type UpdatePasswordInput,
-} from "./users/UpdatePassword.schema";
+} from './users/UpdatePassword.schema'
 
 export {
   USER_SORT_KEYS,
   ListUsersPaginationSchema,
   type ListUsersPagination,
-} from "./users/ListUsersPagination.schema";
+} from './users/ListUsersPagination.schema'
 
 export {
   UpdateUserInputSchema,
   type UpdateUserInput,
-} from "./users/UpdateUserInput.schema";
+} from './users/UpdateUserInput.schema'
 
 export {
   BALLOT_READY_POSITION_LEVEL_VALUES,
@@ -140,10 +242,16 @@ export {
   COMPLIANCE_STAGE_VALUES,
   ComplianceStage,
   ComplianceStageSchema,
+  PEERLY_CV_VERIFICATION_STATUS_VALUES,
+  PeerlyCvVerificationStatus,
+  PeerlyCvVerificationStatusSchema,
+  PIN_DELIVERY_METHOD_VALUES,
+  PinDeliveryMethod,
+  PinDeliveryMethodSchema,
   ORGANIZATION_STATUS_VALUES,
   OrganizationStatus,
   OrganizationStatusSchema,
-} from "./campaigns/enums";
+} from './campaigns/enums'
 
 export type {
   VoterGoals,
@@ -163,19 +271,19 @@ export type {
   CampaignDetails,
   CampaignData,
   CampaignAiContent,
-} from "./campaigns/types";
+} from './campaigns/types'
 
 export {
   CampaignSchema,
   type ReadCampaignOutput,
-} from "./campaigns/Campaign.schema";
+} from './campaigns/Campaign.schema'
 
-export { ReadCampaignOutputSchema } from "./campaigns/ReadCampaignOutput.schema";
+export { ReadCampaignOutputSchema } from './campaigns/ReadCampaignOutput.schema'
 
 export {
   SetDistrictOutputSchema,
   type SetDistrictOutput,
-} from "./campaigns/SetDistrictOutput.schema";
+} from './campaigns/SetDistrictOutput.schema'
 
 export {
   MilestoneWindowSchema,
@@ -186,7 +294,7 @@ export {
   type RaceCandidate,
   type RaceMilestones,
   type RaceTargetMetrics,
-} from "./campaigns/RaceTargetMetrics.schema";
+} from './campaigns/RaceTargetMetrics.schema'
 
 export {
   CommunityEventSchema,
@@ -197,138 +305,173 @@ export {
   type CommunityEvent,
   type CommunityEventsResult,
   type CommunityEventsResponse,
-} from "./campaigns/CommunityEvents.schema";
+} from './campaigns/CommunityEvents.schema'
 
 export {
   CampaignStorySchema,
   CAMPAIGN_STORY_FIELD_MAX_LENGTH,
   type CampaignStory,
-} from "./campaigns/CampaignStory.schema";
+} from './campaigns/CampaignStory.schema'
 
 export {
   CampaignStoryRewriteSchema,
   type CampaignStoryRewrite,
-} from "./campaigns/CampaignStoryRewrite.schema";
+} from './campaigns/CampaignStoryRewrite.schema'
+
+export {
+  CampaignStrategyPhaseKeySchema,
+  TaskTypeSchema,
+  TaskChannelSchema,
+  DayOfWeekSchema,
+  TaskStatusSchema,
+  TaskPersonalizationSchema,
+  PriorityTierSchema,
+  GeneratorSourceSchema,
+  TaskTimingSchema,
+  CampaignTaskDefinitionSchema,
+  type CampaignStrategyPhaseKey,
+  type TaskType,
+  type TaskChannel,
+  type DayOfWeek,
+  type TaskStatus,
+  type TaskPersonalization,
+  type PriorityTier,
+  type GeneratorSource,
+  type TaskTiming,
+  type CampaignTaskDefinition,
+} from './campaigns/CampaignTaskCatalog.schema'
+
+export { CAMPAIGN_TASK_CATALOG } from './campaigns/CampaignTaskCatalog.data'
+
+export {
+  VOTER_CONTACT_SCHEDULE,
+  voterContactSendOffsetDays,
+  type VoterContactSend,
+} from './campaigns/VoterContactSchedule.data'
 
 export {
   CampaignWithPositionNameSchema,
   type CampaignWithPositionName,
-} from "./campaigns/CampaignWithPositionName.schema";
+} from './campaigns/CampaignWithPositionName.schema'
 
 export {
   CampaignWithLiveContextSchema,
   type CampaignWithLiveContext,
-} from "./campaigns/CampaignWithLiveContext.schema";
+} from './campaigns/CampaignWithLiveContext.schema'
 
 export {
   FilingInstructionsContentSchema,
   type FilingInstructionsContent,
-} from "./campaigns/FilingInstructionsContent.schema";
+} from './campaigns/FilingInstructionsContent.schema'
 
 export {
   OrganizationSchema,
   type Organization,
   OrganizationWithStatusSchema,
   type OrganizationWithStatus,
-} from "./campaigns/Organization.schema";
+} from './campaigns/Organization.schema'
 
 export {
   ElectedOfficeSchema,
   type ElectedOffice,
-} from "./campaigns/ElectedOffice.schema";
+} from './campaigns/ElectedOffice.schema'
 
 export {
   EligibilitySchema,
   type Eligibility,
-} from "./campaigns/Eligibility.schema";
+} from './campaigns/Eligibility.schema'
 
 export {
   CAMPAIGN_SORT_KEYS,
   ListCampaignsPaginationSchema,
   type ListCampaignsPagination,
-} from "./campaigns/ListCampaignsPagination.schema";
+} from './campaigns/ListCampaignsPagination.schema'
+
+export * from './campaigns/compliance'
 
 export {
   UpdateCampaignM2MSchema,
   type UpdateCampaignM2MInput,
-} from "./campaigns/UpdateCampaignM2M.schema";
+} from './campaigns/UpdateCampaignM2M.schema'
 
 export {
   ComplianceStateDomainSchema,
   type ComplianceStateDomain,
+  PinDeliverySchema,
+  type PinDelivery,
   ComplianceStateOutputSchema,
   type ComplianceStateOutput,
-} from "./campaigns/ComplianceStateOutput.schema";
+} from './campaigns/ComplianceStateOutput.schema'
 
 export {
   SubmitToPeerlyPinDeliveryChannelsSchema,
   type SubmitToPeerlyPinDeliveryChannels,
   SubmitToPeerlyOutputSchema,
   type SubmitToPeerlyOutput,
-} from "./campaigns/SubmitToPeerlyOutput.schema";
+} from './campaigns/SubmitToPeerlyOutput.schema'
 
-export type { Ecanvasser, EcanvasserSummary } from "./ecanvasser/types";
+export type { Ecanvasser, EcanvasserSummary } from './ecanvasser/types'
 
 export {
   SURVEY_STATUS_VALUES,
   type SurveyStatus,
   SurveyStatusSchema,
-} from "./ecanvasser/enums";
+} from './ecanvasser/enums'
 
 export {
   CreateEcanvasserInputSchema,
   type CreateEcanvasserInput,
-} from "./ecanvasser/CreateEcanvasserInput.schema";
+} from './ecanvasser/CreateEcanvasserInput.schema'
 
 export {
   UpdateEcanvasserInputSchema,
   type UpdateEcanvasserInput,
-} from "./ecanvasser/UpdateEcanvasserInput.schema";
+} from './ecanvasser/UpdateEcanvasserInput.schema'
 
 export {
   CreateSurveyInputSchema,
   type CreateSurveyInput,
-} from "./ecanvasser/CreateSurveyInput.schema";
+} from './ecanvasser/CreateSurveyInput.schema'
 
 export {
   UpdateSurveyInputSchema,
   type UpdateSurveyInput,
-} from "./ecanvasser/UpdateSurveyInput.schema";
+} from './ecanvasser/UpdateSurveyInput.schema'
 
 export {
   CreateSurveyQuestionInputSchema,
   type CreateSurveyQuestionInput,
-} from "./ecanvasser/CreateSurveyQuestionInput.schema";
+} from './ecanvasser/CreateSurveyQuestionInput.schema'
 
 export {
   UpdateSurveyQuestionInputSchema,
   type UpdateSurveyQuestionInput,
-} from "./ecanvasser/UpdateSurveyQuestionInput.schema";
+} from './ecanvasser/UpdateSurveyQuestionInput.schema'
 
 export {
   RaceListItemSchema,
   RaceListItemArraySchema,
   type RaceListItem,
-} from "./elections/raceListItem";
+} from './elections/raceListItem'
 
-export { RaceFullSchema, type RaceFull } from "./elections/raceFull";
+export { RaceFullSchema, type RaceFull } from './elections/raceFull'
 
 export {
   RaceFrequencyByBrHashSchema,
   type RaceFrequencyByBrHash,
-} from "./elections/raceFrequency";
+} from './elections/raceFrequency'
 
 export {
   NextElectionForPositionSchema,
   type NextElectionForPosition,
-} from "./elections/nextElectionForPosition";
+} from './elections/nextElectionForPosition'
 
-export { ZipCodesArraySchema } from "./elections/zipCodes";
+export { ZipCodesArraySchema } from './elections/zipCodes'
 
 export {
   ElectedOfficeSupportSchema,
   type ElectedOfficeSupport,
-} from "./elections/ElectedOfficeSupport.schema";
+} from './elections/ElectedOfficeSupport.schema'
 
 export {
   SPEECH_SYNTHESIS_ENGINE_VALUES,
@@ -344,14 +487,14 @@ export {
   type SynthesizeSpeechSegment,
   SynthesizeSpeechResponseSchema,
   type SynthesizeSpeechResponse,
-} from "./speech/synthesizeSpeech.schema";
+} from './speech/synthesizeSpeech.schema'
 
 export {
   TranscribeSessionRequestSchema,
   type TranscribeSessionRequest,
   TranscribeSessionResponseSchema,
   type TranscribeSessionResponse,
-} from "./speech/transcribeSession.schema";
+} from './speech/transcribeSession.schema'
 
 export {
   ANNOTATION_KIND_VALUES,
@@ -381,6 +524,7 @@ export {
   type CreateAnnotationRequest,
   UpdateNoteRequestSchema,
   type UpdateNoteRequest,
+  ATTACHMENT_MAX_BYTES,
   AttachmentPresignRequestSchema,
   type AttachmentPresignRequest,
   AttachmentPresignResponseSchema,
@@ -391,7 +535,7 @@ export {
   type AnnotationResponse,
   AnnotationsListResponseSchema,
   type AnnotationsListResponse,
-} from "./annotations/Annotation.schema";
+} from './annotations/Annotation.schema'
 
 export {
   ARTIFACT_RESOURCE_TYPE_VALUES,
@@ -408,11 +552,15 @@ export {
   type ArtifactFeedbackResponse,
   BriefingFeedbackListResponseSchema,
   type BriefingFeedbackListResponse,
-} from "./artifactFeedback/ArtifactFeedback.schema";
+} from './artifactFeedback/ArtifactFeedback.schema'
 
-export * from "./artifactReview";
+export * from './artifactReview'
 
-export * from "./experiments";
+export * from './recommendedLists'
+
+export * from './raceOpponent'
+
+export * from './experiments'
 
 export {
   AgentRunCandidateSummarySchema,
@@ -425,7 +573,7 @@ export {
   type AgentRun,
   AgentRunDetailSchema,
   type AgentRunDetail,
-} from "./agentRuns/AgentRun.schema";
+} from './agentRuns/AgentRun.schema'
 
 export {
   BRIEFING_DATE_RANGE_VALUES,
@@ -438,7 +586,7 @@ export {
   type BriefingAdminListQuery,
   BriefingAdminRowSchema,
   type BriefingAdminRow,
-} from "./adminBriefings/AdminBriefing.schema";
+} from './adminBriefings/AdminBriefing.schema'
 
 export {
   PrioritySchema,
@@ -447,7 +595,7 @@ export {
   type CreatePriorityInput,
   UpdatePriorityInputSchema,
   type UpdatePriorityInput,
-} from "./priorities/Priority.schema";
+} from './priorities/Priority.schema'
 
 export {
   DASHBOARD_CARD_TYPE_VALUES,
@@ -462,7 +610,7 @@ export {
   type DashboardCard,
   DashboardCardsResponseSchema,
   type DashboardCardsResponse,
-} from "./dashboard/DashboardCard.schema";
+} from './dashboard/DashboardCard.schema'
 
 export {
   ONBOARDING_CARD_KEY_VALUES,
@@ -477,16 +625,18 @@ export {
   type OnboardingCardsResponse,
   OnboardingCardKeyParamSchema,
   type OnboardingCardKeyParam,
-} from "./dashboard/OnboardingCard.schema";
+} from './dashboard/OnboardingCard.schema'
 
 export {
   SupportEstimateSchema,
   type SupportEstimate,
-} from "./dashboard/SupportEstimate.schema";
+} from './dashboard/SupportEstimate.schema'
 
 export {
   ChatAnchorSnapshotSchema,
   type ChatAnchorSnapshot,
+  CommunityIssueChatAnchorSchema,
+  OrdinanceChatAnchorSchema,
   ChatAnchorSchema,
   type ChatAnchor,
   CreateChatRequestSchema,
@@ -494,6 +644,8 @@ export {
   CreateChatResponseSchema,
   type CreateChatResponse,
   CHAT_MESSAGE_MAX_LENGTH,
+  CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+  CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   SendChatMessageRequestSchema,
   type SendChatMessageRequest,
   ChatMessageSegmentSchema,
@@ -513,4 +665,125 @@ export {
   type ChatStreamErrorCode,
   ChatStreamEventSchema,
   type ChatStreamEvent,
-} from "./chats/Chat.schema";
+} from './chats/Chat.schema'
+
+export {
+  MeetingAgentDispatchKindSchema,
+  type MeetingAgentDispatchKind,
+  DispatchMeetingAgentRequestSchema,
+  type DispatchMeetingAgentRequest,
+  DispatchMeetingAgentResultSchema,
+  type DispatchMeetingAgentResult,
+  BriefingDispatchPreviewSchema,
+  type BriefingDispatchPreview,
+} from './meetings/MeetingAgentDispatch.schema'
+
+export {
+  CommunityIssuesDispatchRequestSchema,
+  type CommunityIssuesDispatchRequest,
+  CommunityIssuesDispatchResultSchema,
+  type CommunityIssuesDispatchResult,
+} from './communityIssues/CommunityIssueDispatch.schema'
+
+export * from './ordinances/Ordinance.schema'
+export * from './ordinances/redline'
+
+export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
+
+export { BboxSchema, type Bbox } from './shared/Bbox.schema'
+
+export {
+  INCOME_RANGE_MAPPING,
+  type IncomeRange,
+  PEOPLE_FILTER_VALUE_ENUMS,
+  createEnumFilterSchema,
+  createIdFilterSchema,
+  createNumericFilterSchema,
+  PeopleFiltersSchema,
+  type PeopleFilters,
+  IdOverridesSchema,
+  type IdOverrides,
+} from './people/PeopleFilters.schema'
+
+export {
+  MAX_OVERLAP_SAVED_FILTER_SETS,
+  PeopleOverlapCountRequestSchema,
+  type PeopleOverlapCountRequest,
+  PeopleOverlapCountResponseSchema,
+  type PeopleOverlapCountResponse,
+} from './people/PeopleOverlapCount.schema'
+
+export {
+  DoorKnockingEvaluateRequestSchema,
+  type DoorKnockingEvaluateRequest,
+  DoorKnockingEvaluatedPersonSchema,
+  type DoorKnockingEvaluatedPerson,
+  DoorKnockingEvaluateResponseSchema,
+  type DoorKnockingEvaluateResponse,
+} from './doorKnocking/DoorKnockingEvaluation.schema'
+
+export {
+  DoorKnockingResidentsRequestSchema,
+  type DoorKnockingResidentsRequest,
+  DoorKnockingResidentTargetSchema,
+  type DoorKnockingResidentTarget,
+  DoorKnockingResidentsAddressSchema,
+  type DoorKnockingResidentsAddress,
+  DoorKnockingResidentsResponseSchema,
+  type DoorKnockingResidentsResponse,
+} from './doorKnocking/DoorKnockingResidents.schema'
+
+export {
+  DoorKnockingPackRequestSchema,
+  type DoorKnockingPackRequest,
+  PACK_ARRAY_TYPES,
+  PACK_CORE_ARRAYS,
+  DoorKnockingPackDimSchema,
+  type DoorKnockingPackDim,
+  DoorKnockingPackArraySchema,
+  type DoorKnockingPackArray,
+  DoorKnockingPackManifestSchema,
+  type DoorKnockingPackManifest,
+} from './doorKnocking/DoorKnockingPack.schema'
+
+export {
+  GeoJsonPolygonSchema,
+  type GeoJsonPolygon,
+  CreateDoorKnockingTurfSchema,
+  type CreateDoorKnockingTurf,
+  UpdateDoorKnockingTurfSchema,
+  type UpdateDoorKnockingTurf,
+  DoorKnockingTurfSchema,
+  type DoorKnockingTurf,
+  DoorKnockingKnockRequestSchema,
+  type DoorKnockingKnockRequest,
+  DoorKnockingRouteHeaderSchema,
+  type DoorKnockingRouteHeader,
+  DoorKnockingKnockResponseSchema,
+  type DoorKnockingKnockResponse,
+  DoorKnockingModeSchema,
+  type DoorKnockingMode,
+} from './doorKnocking/DoorKnockingTurf.schema'
+
+export {
+  DOOR_KNOCK_STATUSES,
+  DoorKnockStatusSchema,
+  type DoorKnockStatus,
+  RoutePayloadTargetSchema,
+  type RoutePayloadTarget,
+  RoutePayloadAddressSchema,
+  type RoutePayloadAddress,
+  RoutePayloadStopSchema,
+  type RoutePayloadStop,
+  DoorKnockingRoutePayloadSchema,
+  type DoorKnockingRoutePayload,
+  RoutePathGeometrySchema,
+  type RoutePathGeometry,
+} from './doorKnocking/DoorKnockingRoutePayload.schema'
+
+export {
+  RecordDoorKnockInteractionSchema,
+  type RecordDoorKnockInteraction,
+  RecordDoorKnockInteractionResponseSchema,
+  type RecordDoorKnockInteractionResponse,
+} from './doorKnocking/DoorKnockingInteraction.schema'

@@ -12,6 +12,9 @@ import { DistrictResolverService } from '@/chats/briefing-chats/services/distric
 import { InMemoryDatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { FeaturesService } from '@/features/services/features.service'
 import type { CommunityIssueReadPort } from './services/communityIssueRead.port'
+import type { Organization } from '../../../generated/prisma'
+import type { ContactsService } from '@/contacts/services/contacts.service'
+import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 
 const USER_ID = 7
 const ORG = 'eo-123'
@@ -69,6 +72,7 @@ describe('ChiefOfStaffHandler', () => {
           conversationId: 'c1',
           electedOfficeId: 'office-1',
           organizationSlug: ORG,
+          organization: { slug: ORG } as Organization,
           userFirstName: 'Jordan',
           userLastName: 'Lee',
           officeTitle: 'Council Member',
@@ -78,6 +82,7 @@ describe('ChiefOfStaffHandler', () => {
           anchor: null,
           districtFilters: null,
           constituentToolEnabled: false,
+          crmToolsEnabled: false,
         }),
       ),
     } as unknown as ChiefOfStaffContextService
@@ -433,6 +438,204 @@ describe('ChiefOfStaffHandler', () => {
       expect(Object.keys(handler.buildTools(ctx))).not.toContain(
         'read_community_issues',
       )
+    })
+  })
+
+  describe('CRM contact tools (serve-crm gating)', () => {
+    const buildContacts = (): ContactsService =>
+      ({
+        getFilterDimensions: vi.fn(() => []),
+        countContacts: vi.fn(),
+      }) as unknown as ContactsService
+
+    const buildCrmHandler = (deps: {
+      features?: FeaturesService
+      contacts?: ContactsService
+      voterFileFilters?: VoterFileFilterService
+    }) =>
+      new ChiefOfStaffHandler(
+        store,
+        context,
+        buildBriefings(),
+        port,
+        [],
+        undefined,
+        undefined,
+        deps.features,
+        undefined,
+        deps.contacts,
+        deps.voterFileFilters,
+      )
+
+    it('registers both tools when contacts service present and serve-crm on', async () => {
+      const features = buildFeatures(true)
+      const handler = buildCrmHandler({ features, contacts: buildContacts() })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(ctx.crmToolsEnabled).toBe(true)
+      expect(features.isFeatureEnabled).toHaveBeenCalledWith({
+        user: USER_ID,
+        feature: 'serve-crm',
+      })
+      const toolNames = Object.keys(handler.buildTools(ctx))
+      expect(toolNames).toContain('describe_filter_dimensions')
+      expect(toolNames).toContain('count_contacts')
+    })
+
+    it('omits both tools when the serve-crm flag is off', async () => {
+      const handler = buildCrmHandler({
+        features: buildFeatures(false),
+        contacts: buildContacts(),
+      })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(ctx.crmToolsEnabled).toBe(false)
+      const toolNames = Object.keys(handler.buildTools(ctx))
+      expect(toolNames).not.toContain('describe_filter_dimensions')
+      expect(toolNames).not.toContain('count_contacts')
+    })
+
+    it('omits both tools (and never hits Amplitude) without the contacts service', async () => {
+      const features = buildFeatures(true)
+      const handler = buildCrmHandler({ features })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(ctx.crmToolsEnabled).toBe(false)
+      expect(features.isFeatureEnabled).not.toHaveBeenCalled()
+      expect(Object.keys(handler.buildTools(ctx))).not.toContain(
+        'count_contacts',
+      )
+    })
+
+    it('keeps the chat working (tools off) when the flag service throws', async () => {
+      const handler = buildCrmHandler({
+        features: buildThrowingFeatures(),
+        contacts: buildContacts(),
+      })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(ctx.crmToolsEnabled).toBe(false)
+      expect(Object.keys(handler.buildTools(ctx))).not.toContain(
+        'count_contacts',
+      )
+    })
+
+    it('advertises the tools and rules in the prompt only when registered', async () => {
+      const onHandler = buildCrmHandler({
+        features: buildFeatures(true),
+        contacts: buildContacts(),
+      })
+      const onPrompt = onHandler.buildSystemPrompt(
+        await onHandler.loadContext('c1', USER_ID),
+      )
+      expect(onPrompt).toContain('count_contacts')
+      expect(onPrompt).toContain('describe_filter_dimensions')
+      expect(onPrompt).toContain('CONTACT LIST RULES')
+
+      const offHandler = buildCrmHandler({
+        features: buildFeatures(false),
+        contacts: buildContacts(),
+      })
+      const offPrompt = offHandler.buildSystemPrompt(
+        await offHandler.loadContext('c1', USER_ID),
+      )
+      expect(offPrompt).not.toContain('count_contacts')
+      expect(offPrompt).not.toContain('CONTACT LIST RULES')
+    })
+
+    const buildVoterFileFilters = (): VoterFileFilterService =>
+      ({
+        findByOrganizationSlug: vi.fn(() => Promise.resolve([])),
+      }) as unknown as VoterFileFilterService
+
+    it('registers crud_saved_filters under the same serve-crm gate', async () => {
+      const handler = buildCrmHandler({
+        features: buildFeatures(true),
+        contacts: buildContacts(),
+        voterFileFilters: buildVoterFileFilters(),
+      })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(Object.keys(handler.buildTools(ctx))).toContain(
+        'crud_saved_filters',
+      )
+      const prompt = handler.buildSystemPrompt(ctx)
+      expect(prompt).toContain('crud_saved_filters')
+      expect(prompt).toContain('SAVED LIST RULES')
+
+      const offHandler = buildCrmHandler({
+        features: buildFeatures(false),
+        contacts: buildContacts(),
+        voterFileFilters: buildVoterFileFilters(),
+      })
+      const offCtx = await offHandler.loadContext('c1', USER_ID)
+      expect(Object.keys(offHandler.buildTools(offCtx))).not.toContain(
+        'crud_saved_filters',
+      )
+      expect(offHandler.buildSystemPrompt(offCtx)).not.toContain(
+        'crud_saved_filters',
+      )
+    })
+
+    it('keeps the read tools but omits crud without the filter service', async () => {
+      const handler = buildCrmHandler({
+        features: buildFeatures(true),
+        contacts: buildContacts(),
+      })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const toolNames = Object.keys(handler.buildTools(ctx))
+      expect(toolNames).toContain('count_contacts')
+      expect(toolNames).not.toContain('crud_saved_filters')
+      expect(handler.buildSystemPrompt(ctx)).not.toContain('crud_saved_filters')
+    })
+  })
+
+  describe('finalizeAssistantText (professional-advice backstop)', () => {
+    it('appends the disclaimer to an eval-style legal-advice answer', () => {
+      const handler = new ChiefOfStaffHandler(
+        store,
+        context,
+        buildBriefings(),
+        port,
+        [],
+      )
+      // The CoS eval failure that shipped with no disclaimer: a statute
+      // citation, a colleague's criminal exposure, and a complaint-filing
+      // path. Nothing appended a disclaimer before this change; the backstop
+      // does now.
+      const answer =
+        'Under RCW 42.30.120 the vote is void. A colleague who knew and ' +
+        'voted anyway could face criminal liability, and a resident can ' +
+        'file a complaint with the county prosecutor.'
+      const appended = handler.finalizeAssistantText(answer)
+      expect(appended?.startsWith('\n\n')).toBe(true)
+      expect(appended).toContain('qualified professional')
+    })
+
+    it('leaves an ordinary office answer untouched', () => {
+      const handler = new ChiefOfStaffHandler(
+        store,
+        context,
+        buildBriefings(),
+        port,
+        [],
+      )
+      expect(
+        handler.finalizeAssistantText(
+          'Turnout in your district was about 65% last cycle.',
+        ),
+      ).toBeNull()
+    })
+
+    it("does not double the model's own disclaimer", () => {
+      const handler = new ChiefOfStaffHandler(
+        store,
+        context,
+        buildBriefings(),
+        port,
+        [],
+      )
+      expect(
+        handler.finalizeAssistantText(
+          'RCW 42.30 applies. This is not a substitute for professional ' +
+            'advice; check with your city attorney.',
+        ),
+      ).toBeNull()
     })
   })
 })

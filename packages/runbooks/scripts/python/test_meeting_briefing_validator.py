@@ -371,3 +371,130 @@ class TestDiscoveredAgendaLocation:
         findings: list = []
         v.check_discovered_agenda_location(artifact, findings)
         assert findings == []
+
+
+class TestRecentNewsRecency:
+    """check_recent_news_recency backs the citation-quality design's Problem
+    Statement 2: a recent_news entry with no publication_date, or one dated
+    more than 60 days before meeting_date, must fail the run."""
+
+    def _artifact(self, entries: list[dict], meeting_date: str = "2026-07-09") -> dict:
+        return {
+            "meeting_date": meeting_date,
+            "items": [
+                {
+                    "id": "item_001",
+                    "tier": "featured",
+                    "display": {"recent_news": entries},
+                }
+            ],
+        }
+
+    def _entry(self, publication_date, headline: str = "h") -> dict:
+        return {
+            "headline": headline,
+            "publication": "Local Times",
+            "article_type": "reporting",
+            "publication_date": publication_date,
+            "url": "https://example.com/a",
+        }
+
+    def test_within_60_days_passes(self):
+        v = _load_validator()
+        artifact = self._artifact([self._entry("2026-05-15")])  # 55 days before
+        findings: list = []
+        v.check_recent_news_recency(artifact, findings)
+        assert findings == []
+
+    def test_more_than_60_days_before_fails(self):
+        v = _load_validator()
+        artifact = self._artifact([self._entry("2026-01-01")])
+        findings: list = []
+        v.check_recent_news_recency(artifact, findings)
+        assert len(findings) == 1
+        assert findings[0].check == "recent_news.stale"
+        assert findings[0].severity == "error"
+
+    def test_missing_publication_date_fails(self):
+        v = _load_validator()
+        artifact = self._artifact([self._entry(None)])
+        findings: list = []
+        v.check_recent_news_recency(artifact, findings)
+        assert len(findings) == 1
+        assert findings[0].check == "recent_news.missing_publication_date"
+
+    def test_unparseable_publication_date_fails(self):
+        v = _load_validator()
+        artifact = self._artifact([self._entry("not-a-date")])
+        findings: list = []
+        v.check_recent_news_recency(artifact, findings)
+        assert len(findings) == 1
+        assert findings[0].check == "recent_news.invalid_publication_date"
+
+    def test_null_recent_news_does_not_fail(self):
+        v = _load_validator()
+        artifact = {
+            "meeting_date": "2026-07-09",
+            "items": [{"id": "item_001", "tier": "featured", "display": {"recent_news": None}}],
+        }
+        findings: list = []
+        v.check_recent_news_recency(artifact, findings)
+        assert findings == []
+
+    def test_missing_meeting_date_does_not_raise(self):
+        """meeting_date absence is a schema/consistency problem owned elsewhere;
+        this check should no-op rather than crash."""
+        v = _load_validator()
+        artifact = {"items": [{"id": "item_001", "tier": "featured", "display": {"recent_news": [self._entry("2026-01-01")]}}]}
+        findings: list = []
+        v.check_recent_news_recency(artifact, findings)
+        assert findings == []
+
+
+class TestTalkingPointsShapeScan:
+    """check_no_data_internals_in_candidate_text must scan both the legacy
+    array<string> shape and the new array<{text, why}> shape for leaked
+    data-source internals — it must not treat a talking_point dict as opaque
+    truthy content and skip scanning it."""
+
+    def _artifact(self, talking_points) -> dict:
+        return {
+            "items": [
+                {
+                    "id": "item_001",
+                    "display": {"summary": "ok", "talking_points": talking_points},
+                }
+            ],
+        }
+
+    def test_legacy_string_leak_is_caught(self):
+        v = _load_validator()
+        artifact = self._artifact(["Ask about the hs_gun_control_support score"])
+        findings: list = []
+        v.check_no_data_internals_in_candidate_text(artifact, findings)
+        assert len(findings) == 1
+        assert findings[0].check == "candidate_text.data_source_internal_leak"
+
+    def test_new_shape_leak_in_text_is_caught(self):
+        v = _load_validator()
+        artifact = self._artifact([{"text": "Ask about the hs_gun_control_support score", "why": "matters"}])
+        findings: list = []
+        v.check_no_data_internals_in_candidate_text(artifact, findings)
+        assert len(findings) == 1
+        assert findings[0].check == "candidate_text.data_source_internal_leak"
+        assert "talking_points[0].text" in findings[0].message
+
+    def test_new_shape_leak_in_why_is_caught(self):
+        v = _load_validator()
+        artifact = self._artifact([{"text": "Ask staff about the fee", "why": "The Haystaq column hs_gun_control_support backs this"}])
+        findings: list = []
+        v.check_no_data_internals_in_candidate_text(artifact, findings)
+        assert len(findings) == 1
+        assert "talking_points[0].why" in findings[0].message
+
+    def test_new_shape_clean_content_passes(self):
+        v = _load_validator()
+        artifact = self._artifact([{"text": "Ask staff to confirm the fee tier", "why": "Avoids an ambiguous vote record"}])
+        findings: list = []
+        v.check_no_data_internals_in_candidate_text(artifact, findings)
+        assert findings == []

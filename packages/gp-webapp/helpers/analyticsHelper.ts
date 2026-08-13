@@ -21,7 +21,14 @@ const UTM_KEYS = [
   'utm_term',
 ] as const
 
-const CLID_SUFFIX = 'clid'
+const CLID_KEYS = [
+  'fbclid',
+  'gclid',
+  'ttclid',
+  'msclkid',
+  'twclid',
+  'li_fat_id',
+] as const
 
 export const EVENTS = {
   CampaignStory: {
@@ -29,6 +36,29 @@ export const EVENTS = {
     RewriteAccepted: 'Campaign Story - Rewrite Accepted',
     RewriteDiscarded: 'Campaign Story - Rewrite Discarded',
     RewriteLimitReached: 'Campaign Story - Rewrite Limit Reached',
+  },
+  // Know Your Opponent (Win). Browser-observed views and activation moments the
+  // candidate drives directly: OpponentProfileViewed fires when the sourced
+  // opponent Handbook renders, OpponentActivityViewed when the "what's new"
+  // activity stream renders, UpgradeViewed when a non-Pro candidate lands on the
+  // locked upgrade pitch, OpponentsManuallyAdded when the manual-entry form is
+  // submitted, and ResearchStarted when a research run starts (manual submit or
+  // the auto-fired collection that follows discovery). StandoutActionsViewed
+  // fires when the "N ways to stand out" cards render on the brief, and
+  // StandoutActionClicked when a card's "Send SMS to voters" CTA is clicked —
+  // the race-opponent half of the outreach funnel, joining to
+  // Outreach.ClickCreate with source 'deep_link' when the composer opens.
+  // Together they measure how far candidates get from upgrade through
+  // activation to the report. The self-research-completion and contrast events
+  // are server-truth and fire from gp-api, not here.
+  RaceOpponent: {
+    OpponentProfileViewed: 'Win - Opponent Profile Viewed',
+    OpponentActivityViewed: 'Win - Opponent Activity Viewed',
+    UpgradeViewed: 'Win - Opponent Upgrade Viewed',
+    OpponentsManuallyAdded: 'Win - Opponents Manually Added',
+    ResearchStarted: 'Win - Opponent Research Started',
+    StandoutActionsViewed: 'Win - Opponent Standout Actions Viewed',
+    StandoutActionClicked: 'Win - Opponent Standout Action Clicked',
   },
   polls: {
     resultsViewed: 'Polls - Poll Results Overview Viewed',
@@ -60,31 +90,23 @@ export const EVENTS = {
     paymentCompleted: 'Payment - Completed',
   },
 
+  SignIn: {
+    LoginCompleted: 'Sign In: Login Completed',
+  },
   SignUp: {
     ClickLogin: 'Sign Up: Click Login',
   },
-  SignIn: {
-    ClickCreateAccount: 'Sign In: Click Create Account',
-    ClickForgotPassword: 'Sign In: Click Forgot Password',
-    LoginCompleted: 'Sign In: Login Completed',
-  },
-  Password: {
-    PasswordResetRequested: 'Account - Password Reset Requested',
-    PasswordResetCompleted: 'Account - Password Reset Completed',
-    PasswordSetCompleted: 'Account - Password Set Completed',
-  },
-  SetPassword: {
-    ClickSetPassword: 'Set Password: Click Set Password',
-  },
   Onboarding: {
     RegistrationCompleted: 'Onboarding - Registration Completed',
-    ClickFinishLater: 'Onboarding: Click Finish Later',
-    // Top of the serve (elected-official) magic-link funnel. The recipient
-    // landed on the /serve/welcome redemption page (client-side, fired once on
-    // landing). Its paired top-of-funnel event "Onboarding - Magic Link Sent"
-    // is emitted server-side in gp-api. The `Onboarding -` prefix is
-    // intentional (these two are funnel siblings of the Onboarding group, not
-    // the per-screen `Serve Onboarding -` stages below).
+    // Top of the magic-link funnel. The recipient landed on the redemption
+    // page (client-side, fired once on landing) — `/serve/welcome` for the
+    // elected-official flow and `/win/welcome` for the candidate flow. Both
+    // fire this single event, carrying a `type: 'serve' | 'win'` property that
+    // mirrors its server-side funnel sibling "Onboarding - Magic Link Sent"
+    // (gp-api), so the sent → clicked rate is a per-flow property filter in
+    // Amplitude rather than two separate events. The `Onboarding -` prefix is
+    // intentional (a funnel sibling of the Onboarding group, not the per-screen
+    // `Serve Onboarding -` stages below).
     MagicLinkClicked: 'Onboarding - Magic Link Clicked',
     OfficeStep: {
       ClickNext: 'Onboarding - Office Step: Click Next',
@@ -94,27 +116,6 @@ export const EVENTS = {
       OfficeSearched: 'Onboarding - Candidate Office Searched',
       OfficeCompleted: 'Onboarding - Candidate Office Completed',
     },
-    PartyStep: {
-      ClickSubmit: 'Onboarding - Party Step: Click Submit',
-      Completed: 'Onboarding - Candidate Affiliation Completed',
-    },
-    PledgeStep: {
-      ClickAskQuestion: 'Onboarding - Pledge Step: Click Ask a Question',
-      ClickSubmit: 'Onboarding - Pledge Step: Click Submit',
-      Completed: 'Onboarding - Candidate Pledge Completed',
-    },
-    CompleteStep: {
-      ClickGoToDashboard: 'Onboarding - Complete Step: Click Go to Dashboard',
-    },
-    WelcomeCompleted: 'Onboarding - Welcome Completed',
-    BallotStatusCompleted: 'Onboarding - Ballot Status Completed',
-    KnowYourVotersCompleted: 'Onboarding - Know Your Voters Completed',
-    PartySelectionCompleted: 'Onboarding - Party Selection Completed',
-    OfficeSelectionCompleted: 'Onboarding - Office Selection Completed',
-    PathToVictoryUpdated: 'Onboarding - Path To Victory Updated',
-    PathToVictoryErrored: 'Onboarding - Path To Victory Errored',
-    PathToVictoryCompleted: 'Onboarding - Path To Victory Completed',
-    PledgeCompleted: 'Onboarding - Pledge Completed',
   },
   ServeOnboarding: {
     GettingStartedViewed: 'Serve Onboarding - Getting Started Viewed',
@@ -161,21 +162,17 @@ export const EVENTS = {
       AvatarDropdown: {
         CloseDropdown: 'Navigation - Top - Avatar Dropdown: Close Dropdown',
         ClickProfile: 'Navigation Top - Avatar Dropdown: Click Profile',
-        ClickSettings: 'Navigation Top - Avatar Dropdown: Click Settings',
         ClickLogout: 'Navigation Top - Avatar Dropdown: Click Logout',
       },
     },
     Dashboard: {
       ClickDashboard: 'Navigation - Dashboard: Click Dashboard',
-      ClickAIAssistant: 'Navigation - Dashboard: Click AI Assistant',
       ClickVoterData: 'Navigation - Dashboard: Click Voter Data',
       ClickDoorKnocking: 'Navigation - Dashboard: Click Door Knocking',
-      ClickIssues: 'Navigation - Dashboard: Click Issues',
       ClickContentBuilder: 'Navigation - Dashboard: Click Content Builder',
       ClickMyProfile: 'Navigation - Dashboard: Click My Profile',
       ClickCampaignTeam: 'Navigation - Dashboard: Click Campaign Team',
       ClickCommunity: 'Navigation - Dashboard: Click Community',
-      ClickWebsite: 'Navigation - Dashboard: Click Website',
       ClickVoterOutreach: 'Navigation - Dashboard: Click Voter Outreach',
       ClickContacts: 'Navigation - Dashboard: Click Contacts',
       ClickPolls: 'Navigation - Dashboard: Click Polls',
@@ -194,10 +191,12 @@ export const EVENTS = {
   },
 
   Dashboard: {
-    Viewed: 'Dashboard - Candidate Dashboard Viewed',
     CampaignPlan: {
       GenerationCompleted: 'Dashboard - Campaign Plan Generation Completed',
+      // The legacy dashboard task checklist (story-off cohort only). The
+      // campaign tracker that replaced it fires CampaignTrackerViewed below.
       Viewed: 'Dashboard - Campaign Plan Viewed',
+      CampaignTrackerViewed: 'Campaign Plan - Campaign Tracker Viewed',
       WeekNavigated: 'Dashboard - Campaign Plan Week Navigated',
       TaskCTAClicked: 'Dashboard - Campaign Plan Task CTA Clicked',
       TaskStatusUpdated: 'Dashboard - Campaign Task Status Updated',
@@ -207,14 +206,8 @@ export const EVENTS = {
       MediaRequested: 'Dashboard - Campaign Plan: Media Requested',
       StrategicLandscapeRequested:
         'Dashboard - Campaign Plan: Strategic Landscape Requested',
-      CommunityEventsRequested:
-        'Dashboard - Campaign Plan: Community Events Requested',
       MediaResultsReceived: 'Dashboard - Campaign Plan: Media Results Received',
       MediaDisplayed: 'Dashboard - Campaign Plan: Media Displayed',
-      CommunityEventsResultsReceived:
-        'Dashboard - Campaign Plan: Community Events Results Received',
-      CommunityEventsDisplayed:
-        'Dashboard - Campaign Plan: Community Events Displayed',
       StrategicLandscapeResultsReceived:
         'Dashboard - Campaign Plan: Strategic Landscape Results Received',
       StrategicLandscapeDisplayed:
@@ -267,7 +260,6 @@ export const EVENTS = {
           Exit: 'Schedule Text Campaign: Exit',
           Next: 'Schedule Text Campaign: Next',
           Back: 'Schedule Text Campaign: Back',
-          Submit: 'Schedule Text Campaign: Submit',
           Complete: {
             ReturnToDashboard:
               'Schedule Text Campaign: Complete - Return to Dashboard',
@@ -337,30 +329,8 @@ export const EVENTS = {
       ClickDelete: 'Dashboard - Campaign Action History: Click Delete',
     },
   },
-  Account: {
-    ProSubscriptionCanceled: 'Account - Pro Subscription Canceled',
-  },
-  AIAssistant: {
-    ClickNewChat: 'AI Assistant: Click new chat',
-    ClickViewChatHistory: 'AI Assistant: Click view chat history',
-    AskQuestion: 'AI Assistant: Ask a question',
-    ChatHistory: {
-      ClickMenu: 'AI Assistant - Chat History: Click menu',
-      ClickDelete: 'AI Assistant - Chat History: Click delete',
-    },
-    Chat: {
-      ClickThumbsUp: 'AI Assistant - Chat: Click thumbs up',
-      ClickThumbsDown: 'AI Assistant - Chat: Click thumbs down',
-      ClickRegenerate: 'AI Assistant - Chat: Click regenerate',
-      ClickCopy: 'AI Assistant - Chat: Click copy',
-    },
-  },
   ProUpgrade: {
     ClickExit: 'Pro Upgrade: Click exit top nav',
-    EditOffice: 'Pro Upgrade: Edit office',
-    SubmitEditOffice: 'Pro Upgrade: Submit edit office',
-    ConfirmOffice: 'Pro Upgrade: Confirm office',
-    ExitEditOffice: 'Pro Upgrade: Exit edit office',
     Banner: {
       ClickUpgrade:
         'Pro Upgrade - Level Up Your Campaign Banner: Click upgrade',
@@ -370,28 +340,11 @@ export const EVENTS = {
       Exit: 'Pro Upgrade - Modal: Exit',
       ClickButton: 'Pro Upgrade - Modal: Click Button',
     },
-    SplashPage: {
-      ClickUpgrade: 'Pro Upgrade - Splash Page: Click upgrade',
-      Exit: 'Pro Upgrade - Splash Page: Exit',
-    },
     CommitteeCheck: {
-      ClickBack: 'Pro Upgrade - Committee Check Page: Click back',
-      ClickNext: 'Pro Upgrade - Committee Check Page: Click next',
-      HoverNameHelp:
-        'Pro Upgrade - Committee Check Page: Hover "Name of Campaign Committee" help',
-      ToggleRequired:
-        'Pro Upgrade - Committee Check Page: Toggle EIN requirement',
       HoverEinHelp:
         'Pro Upgrade - Committee Check Page: Hover "EIN number" help',
       ClickUpload: 'Pro Upgrade - Committee Check Page: Click Upload ',
-      HoverUploadHelp:
-        'Pro Upgrade - Committee Check Page: Hover "Upload" help',
     },
-    ServiceAgreement: {
-      ClickBack: 'Pro Upgrade - Service Agreement Page: Click back',
-      ClickFinish: 'Pro Upgrade - Service Agreement Page: Click finish',
-    },
-    ClickGoToStripe: 'Pro Upgrade: Click Go to Stripe',
     // Agentic Pro Upgrade → 10DLC compliance funnel (ENG-10294). Kept separate
     // from the legacy Modal / SplashPage / CommitteeCheck events above, which
     // belong to the older upgrade UX. The funnel's submit/checkout-start signals
@@ -401,6 +354,9 @@ export const EVENTS = {
     Compliance: {
       BannerViewed: 'Pro Upgrade - Banner Viewed',
       BannerGetPro: 'Pro Upgrade - Banner: Click Get Pro',
+      TextingSetupBannerViewed: 'Pro Upgrade - Texting Setup Banner Viewed',
+      TextingSetupBannerStart:
+        'Pro Upgrade - Texting Setup Banner: Click Start',
       LockedItemClicked: 'Pro Upgrade - Locked Item: Click',
       ValuePropViewed: 'Pro Upgrade - Value Prop Viewed',
       ValuePropGetPro: 'Pro Upgrade - Value Prop: Click Get Pro',
@@ -438,10 +394,88 @@ export const EVENTS = {
     SegmentDeleted: 'Contacts - Segment Deleted',
     SegmentUpdated: 'Contacts - Segment Updated',
     SegmentViewed: 'Contacts - Segment Viewed',
-    ColumnEdited: 'Contacts - Column Edited',
     OutreachTimelineViewed: 'Contacts - Outreach Timeline Viewed',
+    // Fires once per page entry when the org has no resolvable district, so the
+    // page can only offer the support handoff. 437 active campaigns are in that
+    // state; this measures how many actually land here, which is what would
+    // justify building self-serve remediation.
+    VoterDataUnavailable: 'Contacts - Voter Data Unavailable',
+    // ENG-10767: the CRM contacts assistant (crm/assistant/). Opened fires
+    // once per drawer open with { context, source: 'message' | 'history' }
+    // (a bar submit opens with a message; a history pick opens a past
+    // conversation); MessageSent fires per user send ({ context }) — the
+    // initial bar submit and every composer follow-up — so open-to-send
+    // drop-off is visible.
+    AssistantChatOpened: 'Contacts - Assistant Chat Opened',
+    AssistantMessageSent: 'Contacts - Assistant Message Sent',
+    // ENG-10767: per-stage funnel for the URL-stable create-list wizard
+    // (crm/wizard/CreateListWizard.tsx) — RouteTracker page views can't see
+    // its stages. Viewed fires on every stage entry (including Back
+    // re-entry); Completed fires on advance (Name Completed on a successful
+    // create, alongside the List Created outcome event — funnel completion
+    // and outcome answer different questions). All carry { context }; the
+    // conditions/name stages add { branch: 'voterFile' | 'activity' }.
+    // Serve's 2-step wizard never fires the Method stage (no branch
+    // chooser, ENG-10750).
+    ListWizard: {
+      MethodViewed: 'Contacts - List Wizard Method Viewed',
+      MethodCompleted: 'Contacts - List Wizard Method Completed',
+      ConditionsViewed: 'Contacts - List Wizard Conditions Viewed',
+      ConditionsCompleted: 'Contacts - List Wizard Conditions Completed',
+      NameViewed: 'Contacts - List Wizard Name Viewed',
+      NameCompleted: 'Contacts - List Wizard Name Completed',
+    },
+  },
+  // ENG-10688: the CRM brief specs the typeahead search events as
+  // product-specific by nav surface — "Voter Data" (Win) vs "Constituent
+  // Data" (Serve) — a deliberate exception to the Contacts group's
+  // context-property rule above. Both fire from useContactTypeaheadSearch
+  // with { resultCount }.
+  ConstituentData: {
+    ContactSearched: 'Constituent Data - Contact Searched',
+    // ENG-10697: person-record Notes section, fires once per successful
+    // create (never on failure/edit/delete). Same product-specific naming
+    // exception as ContactSearched above.
+    NoteAdded: 'Constituent Data - Note Added',
+    // ENG-10698: fires once per record open (CRM flag on) — distinct from
+    // `Contacts.Viewed` ('Contacts - Contacts Viewed'), which only fires from
+    // the pre-CRM page.
+    ContactViewed: 'Constituent Data - Contact Viewed',
+    // ENG-10709: crm/wizard's two create branches + the list-detail download
+    // seam. Same product-specific naming exception as the events above.
+    // ListCreated fires once per successful voter-file-branch create with
+    // { variableCount } (Win variant also carries hasParty — Serve is
+    // nonpartisan and must never see it). ActivityListCreated fires once per
+    // successful activity-branch create with { sourceCampaign, actionFilter }.
+    // ListExported fires once per confirmed-successful download with
+    // { listSize }.
+    ListCreated: 'Constituent Data - List Created',
+    ActivityListCreated: 'Constituent Data - Activity List Created',
+    ListExported: 'Constituent Data - List Exported',
   },
   VoterData: {
+    ContactSearched: 'Voter Data - Contact Searched',
+    NoteAdded: 'Voter Data - Note Added',
+    ContactViewed: 'Voter Data - Contact Viewed',
+    // ENG-10709: see the ConstituentData variants above for the full seam
+    // description — Win-only difference is ListCreated's hasParty property.
+    ListCreated: 'Voter Data - List Created',
+    ActivityListCreated: 'Voter Data - Activity List Created',
+    ListExported: 'Voter Data - List Exported',
+    // ENG-10767: entry point of the CRM list → outreach funnel. Fires on
+    // every "Send outreach" click in the CRM with
+    // { surface: 'listCard' | 'listDetail' | 'universeRow' } plus { listId }
+    // for the two saved-list surfaces (the universe row links bare). Joins to
+    // the outreach wizard's audienceSource: 'deepLink' property on the
+    // audience-step Next and Voter Outreach - Campaign Completed events.
+    // Win-only by construction (ENG-10749 hides the button for Serve), so
+    // there is no ConstituentData variant.
+    SendOutreachClicked: 'Voter Data - Send Outreach Clicked',
+    // ENG-10836: the person-record status row (Voter Likelihood / Support
+    // Status dropdowns). Fires once per confirmed-successful change with
+    // { field, from, to } — never on a failed PATCH. Win-only surface (Opt In
+    // Status is read-only, no event), so there is no ConstituentData variant.
+    ContactStatusChanged: 'Voter Data - Contact Status Changed',
     ClickNeedHelp: 'Voter Data: Click Need Help',
     NeedHelp: {
       Exit: 'Voter Data - Need Help: Exit modal',
@@ -525,23 +559,8 @@ export const EVENTS = {
       ClickDelete: 'Profile - Running Against: Click Delete',
       ClickSave: 'Profile - Running Against: Click Save',
     },
-    Why: {
-      ClickSave: 'Profile - Why Section: Click Save',
-    },
-    WhyRunning: {
-      ClickSave: 'Profile - Why Running: Click Save',
-    },
-    FunFact: {
-      ClickSave: 'Profile - Fun Fact: Click Save',
-    },
     TopIssues: {
-      ClickFinish: 'Profile - Top Issues: Click Finish Entering Issues',
-      ClickEdit: 'Profile - Top Issues: Click Edit',
-      SubmitEdit: 'Profile - Top Issues: Submit Edit',
       CancelEdit: 'Profile - Top Issues: Cancel Edit',
-      ClickDelete: 'Profile - Top Issues: Click Delete',
-      SubmitDelete: 'Profile - Top Issues: Submit Delete',
-      CancelDelete: 'Profile - Top Issues: Cancel Delete',
     },
     PolicyPriorities: {
       ClickAdd: 'Profile - Policy Priorities: Click Add',
@@ -553,7 +572,6 @@ export const EVENTS = {
       ClickDelete: 'Profile - Policy Priorities: Click Delete',
       SubmitDelete: 'Profile - Policy Priorities: Submit Delete',
       CancelDelete: 'Profile - Policy Priorities: Cancel Delete',
-      ClickSave: 'Profile - Policy Priorities: Click Save',
     },
     CandidateProfile: {
       ClickSubmit: 'Profile - Candidate Profile: Click Submit',
@@ -564,24 +582,19 @@ export const EVENTS = {
   Settings: {
     PersonalInfo: {
       ClickUpload: 'Settings - Personal Info: Click Upload',
-      ClickSave: 'Settings - Personal Info: Click Save',
     },
     Account: {
       ClickUpgrade: 'Settings - Account Settings: Click Upgrade',
-      ClickSendEmail: 'Settings - Account Settings: Click Send Email',
       ClickManageSubscription:
         'Settings - Account Settings: Click Manage Pro Subscription',
-    },
-    Notifications: {
-      ToggleEmail: 'Settings - Notifications: Toggle Email',
-    },
-    Password: {
-      ClickSave: 'Settings - Password: Click Save',
     },
     DeleteAccount: {
       ClickDelete: 'Settings - Delete Account: Click Delete',
       SubmitDelete: 'Settings - Delete Account: Submit Delete',
       CancelDelete: 'Settings - Delete Account: Cancel Delete',
+    },
+    Notifications: {
+      ToggleEmail: 'Settings - Notifications: Toggle Email',
     },
   },
   Outreach: {
@@ -635,8 +648,6 @@ export const EVENTS = {
     ReadAloudStopped: 'Briefing Assistant - Read Aloud Stopped',
     ReadAloudCompleted: 'Briefing Assistant - Read Aloud Completed',
     ReadAloudFailed: 'Briefing Assistant - Read Aloud Failed',
-    DictationStarted: 'Briefing Assistant - Dictation Started',
-    DictationFailed: 'Briefing Assistant - Dictation Failed',
     ShareDrawerOpened: 'Briefing Assistant - Share Drawer Opened',
     ShareCompleted: 'Briefing Assistant - Share Completed',
     AttachmentClicked: 'Briefing Assistant - Attachment Clicked',
@@ -644,6 +655,13 @@ export const EVENTS = {
     AgendaSubmissionFailed: 'Briefing Assistant - Agenda Submission Failed',
     SourcesExpanded: 'Briefing Assistant - Sources Expanded',
     TocItemClicked: 'Briefing Assistant - TOC Item Clicked',
+  },
+  // Speech-to-text dictation. Shared capability used across features (briefings,
+  // onboarding story steps, etc.), so the events are not namespaced to any one.
+  // The firing `label` prop identifies the surface (e.g. onboarding_story_why).
+  Dictation: {
+    Started: 'Dictation - Started',
+    Failed: 'Dictation - Failed',
   },
   // V2 onboarding flow that ends in the generated campaign plan. All new
   // events (no reuse of legacy Onboarding/Dashboard events) so V2 funnels
@@ -653,9 +671,6 @@ export const EVENTS = {
     // Follow-on "new campaign context" screen (the multi-org re-election vs
     // new-office choice). Only office-holders see it; candidates skip straight
     // to welcome. The chosen path is carried as the `intent` property.
-    NewCampaignContextViewed: 'Onboarding V2 - New Campaign Context Viewed',
-    NewCampaignContextCompleted:
-      'Onboarding V2 - New Campaign Context Completed',
     WelcomeViewed: 'Onboarding V2 - Welcome Viewed',
     WelcomeCompleted: 'Onboarding V2 - Welcome Completed',
     BallotStatusViewed: 'Onboarding V2 - Ballot Status Viewed',
@@ -669,8 +684,6 @@ export const EVENTS = {
     VotesNeededCompleted: 'Onboarding V2 - Votes Needed Completed',
     VoterInsightsViewed: 'Onboarding V2 - Voter Insights Viewed',
     VoterInsightsCompleted: 'Onboarding V2 - Voter Insights Completed',
-    ResourcesViewed: 'Onboarding V2 - Resources Viewed',
-    ResourcesCompleted: 'Onboarding V2 - Resources Completed',
     PledgeViewed: 'Onboarding V2 - Pledge Viewed',
     PledgeCompleted: 'Onboarding V2 - Pledge Completed',
     PlanShared: 'Onboarding V2 - Plan Shared',
@@ -693,6 +706,14 @@ export const EVENTS = {
     VotesNeededFailed: 'Onboarding V2 - Votes Needed Failed',
     OfficeNextClicked: 'Onboarding V2 - Office Next Clicked',
     PledgeSubmitClicked: 'Onboarding V2 - Pledge Submit Clicked',
+    WhyAreYouRunningViewed: 'Onboarding V2 - Why Are You Running Viewed',
+    WhyAreYouRunningCompleted: 'Onboarding V2 - Why Are You Running Completed',
+    BackgroundViewed: "Onboarding V2 - What's Your Background Viewed",
+    BackgroundCompleted: "Onboarding V2 - What's Your Background Completed",
+    IssuesViewed: 'Onboarding V2 - What Issues Do You Want To Solve Viewed',
+    IssuesCompleted:
+      'Onboarding V2 - What Issues Do You Want To Solve Completed',
+    OnboardingSkipped: 'Onboarding V2 - Onboarding Skipped',
   },
   CommunityIssues: {
     ListViewed: 'Community Issues - List Viewed',
@@ -700,6 +721,47 @@ export const EVENTS = {
     PrioritizeClicked: 'Community Issues - Prioritize Clicked',
     AskAIStarted: 'Community Issues - Ask AI Started',
     RunPollClicked: 'Community Issues - Run Poll Clicked',
+  },
+  Ordinances: {
+    ClarifyViewed: 'Ordinances - Clarify Viewed',
+    ClarifyCompleted: 'Ordinances - Clarify Completed',
+    AuthorityViewed: 'Ordinances - Authority Viewed',
+    AuthorityCompleted: 'Ordinances - Authority Completed',
+    CurrentLawViewed: 'Ordinances - Current Law Viewed',
+    CurrentLawCompleted: 'Ordinances - Current Law Completed',
+    HowOthersSolvedItViewed: 'Ordinances - How Others Solved It Viewed',
+    HowOthersSolvedItCompleted: 'Ordinances - How Others Solved It Completed',
+    DraftCreationViewed: 'Ordinances - Draft Creation Viewed',
+    DraftCreationCompleted: 'Ordinances - Draft Creation Completed',
+    DraftDetailsViewed: 'Ordinances - Draft Details Viewed',
+    DraftDetailsDownloaded: 'Ordinances - Draft Details Downloaded',
+    DraftDetailsStatusUpdated: 'Ordinances - Draft Details Status Updated',
+    DraftDetailsDeleted: 'Ordinances - Draft Details Deleted',
+  },
+  // ENG-10626: the native door-knocking surface (voter map, turf cutting,
+  // routed walk). Distinct from Dashboard.VoterContact.DoorKnocking above,
+  // which belongs to the legacy eCanvasser/script surface — different funnel,
+  // don't merge them.
+  //
+  // The walk is the session: Started when the walk view opens, then exactly
+  // one of Completed (left having logged at least one door) or Abandoned
+  // (left having logged none). RouteBuildFailed is the funnel's only real
+  // failure, since building a route is the one step that calls a paid vendor.
+  //
+  // Session Completed also fires the canonical
+  // Dashboard.VoterContact.CampaignCompleted with medium 'doorKnocking' —
+  // that's the event the door-knocking activation metric counts, and the
+  // manual "log progress" modal already feeds it the same way.
+  DoorKnocking: {
+    ListCreated: 'Door Knocking - List Created',
+    ListEdited: 'Door Knocking - List Edited',
+    ListDeleted: 'Door Knocking - List Deleted',
+    RouteBuilt: 'Door Knocking - Route Built',
+    RouteBuildFailed: 'Door Knocking - Route Build Failed',
+    SessionStarted: 'Door Knocking - Session Started',
+    SessionCompleted: 'Door Knocking - Session Completed',
+    SessionAbandoned: 'Door Knocking - Session Abandoned',
+    DoorLogged: 'Door Knocking - Door Logged',
   },
 } as const
 
@@ -717,11 +779,20 @@ export const extractClids = (
   const clids: Record<string, string> = {}
 
   for (const [key, value] of searchParams.entries()) {
-    if (key.toLowerCase().endsWith('clid')) {
+    if ((CLID_KEYS as readonly string[]).includes(key.toLowerCase()) && value) {
       clids[key] = value
     }
   }
   return clids
+}
+
+// Raw, unhashed Meta click cookies for Segment's Facebook Conversions API
+// destination (server-side CAPI has no cookie access). Do not reconstruct or
+// re-timestamp `_fbc` when the cookie is already present.
+export const getMetaClickIds = (): { fbc?: string; fbp?: string } => {
+  const fbc = cookie.get('_fbc')
+  const fbp = cookie.get('_fbp')
+  return { ...(fbc ? { fbc } : {}), ...(fbp ? { fbp } : {}) }
 }
 
 interface TrackRegistrationParams {
@@ -738,6 +809,13 @@ export const trackRegistrationCompleted = async ({
   signUpMethod = 'email',
 }: TrackRegistrationParams): Promise<void> => {
   const signUpDate = new Date().toISOString()
+  const metaClickIds = getMetaClickIds()
+  const clids = getPersistedClids()
+  const fbclid = clids.fbclid_last ?? clids.fbclid_first ?? undefined
+  const attributionTraits = {
+    ...metaClickIds,
+    ...(fbclid ? { fbclid } : {}),
+  }
 
   try {
     const analyticsInstance = await analytics
@@ -746,20 +824,22 @@ export const trackRegistrationCompleted = async ({
         await analyticsInstance.ready()
       }
       const hutk = cookie.get('hubspotutk')
-      analyticsInstance.identify(userId, {
+      await analyticsInstance.identify(userId, {
         signUpDate,
         signUpMethod,
         ...(email ? { email } : {}),
         ...(hutk ? { hutk } : {}),
+        ...attributionTraits,
       })
     }
   } catch (error) {
     console.error('Error identifying user for registration:', error)
   }
 
-  trackEvent(EVENTS.Onboarding.RegistrationCompleted, {
+  await trackEvent(EVENTS.Onboarding.RegistrationCompleted, {
     signUpDate,
     signUpMethod,
+    ...attributionTraits,
   })
 }
 
@@ -788,8 +868,9 @@ export const persistClidsOnce = (): void => {
 
   const params = new URLSearchParams(window.location.search)
 
-  for (const [key, value] of params.entries()) {
-    if (!key.toLowerCase().endsWith(CLID_SUFFIX) || !value) continue
+  for (const key of CLID_KEYS) {
+    const value = params.get(key)
+    if (!value) continue
 
     const firstKey = `${key}_first`
     const lastKey = `${key}_last`
@@ -837,15 +918,12 @@ export const getPersistedClids = (): Record<string, string | null> => {
   const clids: Record<string, string | null> = {}
 
   try {
-    for (let i = 0; i < window.sessionStorage.length; i++) {
-      const key = window.sessionStorage.key(i)
-      if (
-        key &&
-        (key.toLowerCase().endsWith(`${CLID_SUFFIX}_first`) ||
-          key.toLowerCase().endsWith(`${CLID_SUFFIX}_last`))
-      ) {
-        clids[key] = window.sessionStorage.getItem(key)
-      }
+    for (const key of CLID_KEYS) {
+      const first = window.sessionStorage.getItem(`${key}_first`)
+      const last = window.sessionStorage.getItem(`${key}_last`)
+
+      if (first) clids[`${key}_first`] = first
+      if (last) clids[`${key}_last`] = last
     }
   } catch {
     return {}

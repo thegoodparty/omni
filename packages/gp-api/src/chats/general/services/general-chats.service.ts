@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { ChatScope } from '../../../generated/prisma'
+import { ChatMessageRole, ChatScope } from '../../../generated/prisma'
 import {
   ChatMessageWithSegments,
   ChatStoreService,
@@ -176,6 +176,51 @@ export class GeneralChatsService {
         return
       }
 
+      const ctx = await handler.loadContext(args.conversationId, args.userId)
+
+      const canned = handler.maybeCannedReply?.(args.userMessage, ctx) ?? null
+      if (canned !== null) {
+        if (!args.clientMessageId) {
+          yield {
+            type: 'error',
+            code: 'internal',
+            message: 'clientMessageId is required for this request.',
+            retryable: false,
+          }
+          return
+        }
+        // Persist the user (sentinel) turn BEFORE the canned assistant reply
+        // so history alternates user/assistant. Anthropic rejects two
+        // consecutive assistant turns on the candidate's next real message.
+        // The user turn dedups on clientMessageId; the assistant reply carries
+        // a derived idempotency key so a retry with the same clientMessageId
+        // re-streams the same reply without appending a second assistant row.
+        const userTurn = await self.chatStore.appendUserMessageIfAlive({
+          conversationId: args.conversationId,
+          ownerUserId: args.userId,
+          content: args.userMessage,
+          clientMessageId: args.clientMessageId,
+        })
+        if (!userTurn) {
+          yield {
+            type: 'error',
+            code: 'conversation_not_found',
+            message: 'Conversation not found.',
+            retryable: false,
+          }
+          return
+        }
+        const saved = await self.chatStore.appendMessage({
+          conversationId: args.conversationId,
+          role: ChatMessageRole.assistant,
+          content: canned,
+          clientMessageId: `${args.clientMessageId}:assistant`,
+        })
+        yield { type: 'text', delta: canned }
+        yield { type: 'done', assistantMessageId: saved.id }
+        return
+      }
+
       if (conversation.title === null) {
         await self.store.setTitleIfUnset(
           args.conversationId,
@@ -183,7 +228,6 @@ export class GeneralChatsService {
         )
       }
 
-      const ctx = await handler.loadContext(args.conversationId, args.userId)
       const systemPrompt = handler.buildSystemPrompt(ctx)
       const tools = handler.buildTools(ctx)
 
@@ -194,8 +238,16 @@ export class GeneralChatsService {
         tools,
         userMessage: args.userMessage,
         models: handler.models,
+        traceName: `${handler.scope}-chat-stream`,
+        ...(handler.maxSteps && { maxSteps: handler.maxSteps }),
         ...(args.signal && { signal: args.signal }),
         ...(args.clientMessageId && { clientMessageId: args.clientMessageId }),
+        ...(handler.onTurnUsage && {
+          onUsage: (usage, model) => handler.onTurnUsage!(ctx, usage, model),
+        }),
+        ...(handler.finalizeAssistantText && {
+          finalizeText: (text) => handler.finalizeAssistantText!(text),
+        }),
       })
 
       for await (const chunk of inner) yield chunk

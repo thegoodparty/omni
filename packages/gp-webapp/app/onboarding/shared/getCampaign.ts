@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { cache } from 'react'
 import type { Campaign } from 'helpers/types'
 import { serverRequest } from 'gpApi/server-request'
 import { getServerToken, isTokenExpired } from 'helpers/tokenHelper'
@@ -8,7 +9,10 @@ interface GetCampaignParams {
   slug: string
 }
 
-export async function fetchUserCampaign(): Promise<Campaign | null> {
+// Wrapped in React `cache()` so the PageWrapper layout and the page it renders
+// share a single `GET /v1/campaigns/mine` per server render instead of firing
+// two identical requests. Matches getServerUser / getCurrentUserOrganizations.
+export const fetchUserCampaign = cache(async (): Promise<Campaign | null> => {
   // These next two lines of code are very important. Without these lines of code,
   // we receive ~200K unauthed requests a day to this endpoint, which is ~ half our
   // API traffic as of Mar 6 2026. Likely bots just hammering the site.
@@ -27,7 +31,7 @@ export async function fetchUserCampaign(): Promise<Campaign | null> {
     return null
   }
   return result.data
-}
+})
 
 export default async function getCampaign(
   params: GetCampaignParams,

@@ -6,11 +6,9 @@ import {
 } from 'src/helpers/navigation.helper'
 import { waitForDashboardReady } from 'src/helpers/dashboard'
 
-// Scoped to the non-Pro assertions so it stays preview-safe (read-only cached
-// user, no paid user minted). The Pro/banner-hidden inverse ("banner gone +
-// Voter Data → /dashboard/contacts") is asserted in the Pro happy-path spec
-// against its existing Pro user, per ENG-10478 — minting a second paid user
-// solely for the hidden state would make this spec @dev-only for no benefit.
+// Scoped to non-Pro (read-only cached user, no paid user minted); the
+// Pro/banner-hidden inverse is asserted in the Pro happy-path spec, per
+// ENG-10478.
 test.describe('Pro upgrade dashboard entry (non-Pro)', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
@@ -32,12 +30,13 @@ test.describe('Pro upgrade dashboard entry (non-Pro)', () => {
       page.getByText('76% of candidates who use Pro win'),
     ).toBeVisible()
 
-    // Locked-item routing: the "Voter Data" sidebar link targets the wizard
-    // index, not the Contacts page. Assert the href (stable route) rather than
-    // the lock icon (less stable than the route).
+    // Voter Data routing: a non-Pro Win campaign's "Voter Data" sidebar link
+    // targets the Contacts page — the district-aggregate upsell surface
+    // (ENG-10495) — not the wizard index. Assert the href (stable route)
+    // rather than the lock icon (less stable than the route).
     await expect(
       page.getByRole('link', { name: 'Voter Data' }),
-    ).toHaveAttribute('href', '/dashboard/pro-upgrade')
+    ).toHaveAttribute('href', '/dashboard/contacts')
 
     // Get Pro opens the wizard, which re-derives the resume step and lands a
     // zero-progress non-Pro candidate on the value-prop intro.

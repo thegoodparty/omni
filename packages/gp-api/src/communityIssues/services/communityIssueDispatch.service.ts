@@ -1,11 +1,27 @@
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
-import { Injectable } from '@nestjs/common'
+import { WrapperType } from '@/shared/types/utility.types'
+import { EVENTS } from '@/vendors/segment/segment.types'
+import { forwardRef, Inject, Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { ElectedOffice, ExperimentRunStatus } from '../../generated/prisma'
+import { differenceInCalendarDays } from 'date-fns'
+import pMap from 'p-map'
+import {
+  ElectedOffice,
+  ExperimentRunStatus,
+  Prisma,
+} from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { bucketForSlug } from '../communityIssueBucketing'
+import {
+  INACTIVITY_THRESHOLD_DAYS,
+  isInactiveUser,
+} from '@/shared/util/userActivity.util'
+import {
+  bucketForSlug,
+  topIssuesBucketForDate,
+} from '../communityIssueBucketing'
 
 const EXPERIMENT_TYPES = ['top_community_issues', 'trending_issues'] as const
 
@@ -14,6 +30,13 @@ type CommunityIssueExperimentType = (typeof EXPERIMENT_TYPES)[number]
 // Per-cron-tick cap: limits how many dispatches can fire in a single run of
 // the daily cron (both trending and top share this constant).
 const DISPATCH_CAP_PER_TICK = 200
+
+// Max orgs dispatched in parallel within a cron slice. Bounds the fan-out to
+// the DB / election-api / dispatch queue while collapsing the previously
+// fully-serial per-org latency. The agent job system queues internally, so no
+// inter-tick sleep is needed — the daily bucketing + per-tick cap already
+// bound how much fires per run.
+const DISPATCH_CONCURRENCY = 10
 
 const isAutomationEnabled = () =>
   process.env.MEETINGS_AUTOMATION_ENABLED === 'true'
@@ -24,11 +47,39 @@ const TOP_CRON_JOB = 'top_community_issues'
 type DispatchSummary = { dispatched: number; skipped: number }
 
 type ResolvedDispatchContext = {
+  userId: number
   clerkUserId: string
   state: string
   positionName: string
   districtDescriptor: string
+  l2DistrictType?: string
+  l2DistrictName?: string
   isServeIcp?: boolean | null
+  lastVisitedMs?: number
+}
+
+// Builds the agent params for one (org, type) dispatch. The L2 district key is
+// only included for top_community_issues — trending_issues' manifest is
+// additionalProperties:false, so passing l2_* there fails the runtime
+// input-schema check. Shared across all dispatch paths so they can't diverge.
+const buildDispatchParams = (
+  organizationSlug: string,
+  experimentType: CommunityIssueExperimentType,
+  ctx: ResolvedDispatchContext,
+) => {
+  const base = {
+    organization_slug: organizationSlug,
+    state: ctx.state,
+    office: ctx.positionName,
+    district_descriptor: ctx.districtDescriptor,
+  }
+  return experimentType === 'top_community_issues'
+    ? {
+        ...base,
+        l2_district_type: ctx.l2DistrictType,
+        l2_district_name: ctx.l2DistrictName,
+      }
+    : base
 }
 
 @Injectable()
@@ -39,6 +90,13 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     private readonly experimentRuns: ExperimentRunsService,
     private readonly organizations: OrganizationsService,
     private readonly cronLock: CronLockService,
+    // analytics.service sits on a circular import chain (analytics -> users
+    // -> campaigns -> analytics); a plain class-typed param here makes SWC's
+    // reflected design:paramtypes eagerly capture AnalyticsService before
+    // that cycle finishes loading, undefining an unrelated CampaignsService
+    // dependency at DI time. forwardRef + WrapperType defers resolution.
+    @Inject(forwardRef(() => AnalyticsService))
+    private readonly analytics: WrapperType<AnalyticsService>,
   ) {
     super()
   }
@@ -96,12 +154,11 @@ export class CommunityIssueDispatchService extends createPrismaBase(
         organizationSlug: electedOffice.organizationSlug,
         clerkUserId: ctx.clerkUserId,
         priority: 'HIGH',
-        params: {
-          organization_slug: electedOffice.organizationSlug,
-          state: ctx.state,
-          office: ctx.positionName,
-          district_descriptor: ctx.districtDescriptor,
-        },
+        params: buildDispatchParams(
+          electedOffice.organizationSlug,
+          experimentType,
+          ctx,
+        ),
       })
     }
   }
@@ -179,10 +236,55 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       : { dispatched: 0, skipped: 1 }
   }
 
+  /**
+   * Self-serve landing catch-up: dispatch both experiment types for the
+   * caller's own org, skipping the inactivity gate (landing on the dashboard
+   * already proves activity). ICP eligibility and the in-flight check still
+   * apply, same as every other dispatch path. Distinct from
+   * `dispatchSelfServe` (staff-only, single type, manual refresh button).
+   *
+   * Freshness gate: only re-generate a list whose last completed run is older
+   * than the active window. The window is INACTIVITY_THRESHOLD_DAYS — the same
+   * threshold the cron uses to stop dispatching for an inactive user — so the
+   * two are one concept: while a user is active the cron keeps their issues
+   * fresh, and once they've been away long enough for the cron to have stopped,
+   * their return regenerates immediately.
+   */
+  async dispatchIfNeeded(orgSlug: string): Promise<DispatchSummary> {
+    const ctx = await this.resolveContext(orgSlug)
+    if (!ctx || ctx.isServeIcp !== true) {
+      return { dispatched: 0, skipped: EXPERIMENT_TYPES.length }
+    }
+
+    let dispatched = 0
+    let skipped = 0
+    for (const experimentType of EXPERIMENT_TYPES) {
+      const didDispatch = await this.dispatchTypeForOrg(
+        orgSlug,
+        experimentType,
+        ctx,
+        {
+          skipActivityGate: true,
+          freshnessWindowDays: INACTIVITY_THRESHOLD_DAYS,
+        },
+      )
+      if (didDispatch) {
+        dispatched++
+      } else {
+        skipped++
+      }
+    }
+    return { dispatched, skipped }
+  }
+
   private async dispatchTypeForOrg(
     orgSlug: string,
     experimentType: CommunityIssueExperimentType,
     ctx: ResolvedDispatchContext,
+    {
+      skipActivityGate = true,
+      freshnessWindowDays,
+    }: { skipActivityGate?: boolean; freshnessWindowDays?: number } = {},
   ): Promise<boolean> {
     const inFlight = await this.client.experimentRun.findFirst({
       where: {
@@ -206,18 +308,74 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       return false
     }
 
+    // Freshness gate (on-demand landing path only): skip if a completed run is
+    // newer than the window. Same measure isInactiveUser applies to a user's
+    // lastVisited, so "issues are still fresh" and "user is still active" stay
+    // one concept. Cron/admin/staff paths omit the window and never skip here.
+    if (freshnessWindowDays !== undefined) {
+      const lastCompleted = await this.client.experimentRun.findFirst({
+        where: {
+          organizationSlug: orgSlug,
+          experimentType,
+          status: ExperimentRunStatus.COMPLETED,
+        },
+        orderBy: { updatedAt: Prisma.SortOrder.desc },
+        select: { updatedAt: true },
+      })
+      if (
+        lastCompleted &&
+        differenceInCalendarDays(new Date(), lastCompleted.updatedAt) <=
+          freshnessWindowDays
+      ) {
+        this.logger.info(
+          { orgSlug, experimentType, lastCompletedAt: lastCompleted.updatedAt },
+          'dispatchTypeForOrg: skipping org with fresh completed run',
+        )
+        return false
+      }
+    }
+
+    // Activity gate: skip on the cron path when the user hasn't opened the
+    // product within INACTIVITY_THRESHOLD_DAYS, firing a re-engagement
+    // signal instead. Admin/staff dispatch paths (dispatchForCohort,
+    // dispatchSelfServe) never set skipActivityGate, so they keep their
+    // existing unconditional-dispatch behavior.
+    if (!skipActivityGate && isInactiveUser(ctx.lastVisitedMs, new Date())) {
+      await this.trackDispatchSkippedInactive(orgSlug, experimentType, ctx)
+      return false
+    }
+
     await this.experimentRuns.dispatchRun({
       type: experimentType,
       organizationSlug: orgSlug,
       clerkUserId: ctx.clerkUserId,
-      params: {
-        organization_slug: orgSlug,
-        state: ctx.state,
-        office: ctx.positionName,
-        district_descriptor: ctx.districtDescriptor,
-      },
+      params: buildDispatchParams(orgSlug, experimentType, ctx),
     })
     return true
+  }
+
+  private async trackDispatchSkippedInactive(
+    orgSlug: string,
+    experimentType: CommunityIssueExperimentType,
+    ctx: ResolvedDispatchContext,
+  ): Promise<void> {
+    const event =
+      experimentType === 'trending_issues'
+        ? EVENTS.CommunityIssues.TrendingIssuesDispatchSkipped
+        : EVENTS.CommunityIssues.TopIssuesDispatchSkipped
+    try {
+      await this.analytics.track(ctx.userId, event, {
+        lastVisitedAt: ctx.lastVisitedMs ?? null,
+        daysSinceLastVisit: ctx.lastVisitedMs
+          ? differenceInCalendarDays(new Date(), new Date(ctx.lastVisitedMs))
+          : null,
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, orgSlug, experimentType },
+        `[SEGMENT] Failed to track ${event}`,
+      )
+    }
   }
 
   /**
@@ -265,7 +423,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     const claimed = await this.cronLock.tryClaimDailyRun(TOP_CRON_JOB, now)
     if (!claimed) return
 
-    const todayBucket = Math.min(now.getUTCDate(), 28) - 1
+    const todayBucket = topIssuesBucketForDate(now)
 
     await this.dispatchSlice(
       'top_community_issues',
@@ -302,45 +460,29 @@ export class CommunityIssueDispatchService extends createPrismaBase(
 
     const capped = slice.slice(0, DISPATCH_CAP_PER_TICK)
 
-    for (const { organizationSlug } of capped) {
-      const ctx = await this.resolveContext(organizationSlug)
-      if (!ctx || ctx.isServeIcp !== true) continue
+    // Bounded concurrency over the slice: each org's dispatch work is
+    // independent, so we fan out up to DISPATCH_CONCURRENCY at a time instead
+    // of awaiting them one by one. No inter-tick throttle — the agent job
+    // system queues internally.
+    await pMap(
+      capped,
+      async ({ organizationSlug }) => {
+        try {
+          const ctx = await this.resolveContext(organizationSlug)
+          if (!ctx || ctx.isServeIcp !== true) return
 
-      const inFlight = await this.client.experimentRun.findFirst({
-        where: {
-          organizationSlug,
-          experimentType,
-          status: {
-            in: [
-              ExperimentRunStatus.QUEUED,
-              ExperimentRunStatus.RUNNING,
-              ExperimentRunStatus.AWAITING_RESUME,
-            ],
-          },
-        },
-        select: { runId: true },
-      })
-      if (inFlight) continue
-
-      await this.experimentRuns
-        .dispatchRun({
-          type: experimentType,
-          organizationSlug,
-          clerkUserId: ctx.clerkUserId,
-          params: {
-            organization_slug: organizationSlug,
-            state: ctx.state,
-            office: ctx.positionName,
-            district_descriptor: ctx.districtDescriptor,
-          },
-        })
-        .catch((err: unknown) =>
+          await this.dispatchTypeForOrg(organizationSlug, experimentType, ctx, {
+            skipActivityGate: false,
+          })
+        } catch (err: unknown) {
           this.logger.error(
             { err, organizationSlug, experimentType },
             'community-issue cron dispatch failed for org; continuing',
-          ),
-        )
-    }
+          )
+        }
+      },
+      { concurrency: DISPATCH_CONCURRENCY },
+    )
   }
 
   private async resolveContext(
@@ -381,11 +523,15 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       : `${serveCtx.positionName}, ${serveCtx.state}`
 
     return {
+      userId: eo.user.id,
       clerkUserId: eo.user.clerkId,
       state: serveCtx.state,
       positionName: serveCtx.positionName,
       districtDescriptor,
+      l2DistrictType: serveCtx.l2DistrictType,
+      l2DistrictName: serveCtx.l2DistrictName,
       isServeIcp: serveCtx.isServeIcp,
+      lastVisitedMs: eo.user.metaData?.lastVisited,
     }
   }
 }

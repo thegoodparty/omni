@@ -2,11 +2,14 @@
 
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
+import { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
 import { MessageSquareIcon } from '@styleguide/components/ui/icons'
 import {
+  COMPLIANCE_STATE_QUERY_KEY,
   TCR_COMPLIANCE_QUERY_KEY,
   TCR_COMPLIANCE_STATUS,
+  getComplianceState,
   getTcrCompliance,
 } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import ComplianceCardArt from './ComplianceCardArt'
@@ -18,32 +21,68 @@ import TextingComplianceInReview from './TextingComplianceInReview'
 // Post-payment compliance surface for the Pro-upgrade flow. The agent
 // provisions the domain/site and submits TCR to Peerly after payment; this
 // card only reflects the TCR record's status, it does not drive the agent.
+const LoadingShell = (): React.JSX.Element => (
+  <Card
+    className="relative mt-4 overflow-hidden p-4 md:p-6"
+    id="texting-compliance"
+  >
+    <div className="flex flex-col gap-2 pr-24">
+      <div className="h-6 w-2/3 animate-pulse rounded-md bg-slate-200" />
+      <div className="h-4 w-full animate-pulse rounded-md bg-slate-200" />
+    </div>
+  </Card>
+)
+
 export default function ProUpgrade3Compliance(): React.JSX.Element {
   const { data: tcrCompliance, isPending } = useQuery({
     queryKey: TCR_COMPLIANCE_QUERY_KEY,
     queryFn: getTcrCompliance,
   })
 
+  const isSubmitted = tcrCompliance?.status === TCR_COMPLIANCE_STATUS.SUBMITTED
+
+  // Only the `submitted` (awaiting-PIN) state gates on the live Peerly CV
+  // status, so fetch compliance-state only then — this keeps the extra Peerly
+  // read (and its cost) off every other Pro candidate's dashboard load.
+  const { data: complianceState, isPending: isCvStatePending } = useQuery({
+    queryKey: COMPLIANCE_STATE_QUERY_KEY,
+    queryFn: getComplianceState,
+    enabled: isSubmitted,
+  })
+
   // Hold a placeholder shell while loading so we don't flash the neutral
   // fallback to a candidate who is actually awaiting-PIN / in review / etc.
   if (isPending) {
-    return (
-      <Card
-        className="relative mt-4 overflow-hidden p-4 md:p-6"
-        id="texting-compliance"
-      >
-        <div className="flex flex-col gap-2 pr-24">
-          <div className="h-6 w-2/3 animate-pulse rounded-md bg-slate-200" />
-          <div className="h-4 w-full animate-pulse rounded-md bg-slate-200" />
-        </div>
-      </Card>
-    )
+    return <LoadingShell />
   }
 
   if (tcrCompliance) {
     switch (tcrCompliance.status) {
-      case TCR_COMPLIANCE_STATUS.SUBMITTED:
-        return <ProUpgrade3PinEntry tcrCompliance={tcrCompliance} />
+      case TCR_COMPLIANCE_STATUS.SUBMITTED: {
+        // Peerly issues the PIN only once CampaignVerify reaches APPROVED. Show
+        // the PIN box only then; before that (REQUESTED/IN_REVIEW, or no CV
+        // request yet) show an in-progress state so we don't ask a candidate to
+        // enter a PIN that was never sent. While the CV status is still loading,
+        // hold the shell rather than flash the wrong surface.
+        if (isCvStatePending) {
+          return <LoadingShell />
+        }
+        const cvStatus = complianceState?.peerlyCvStatus ?? null
+        const pinReady =
+          cvStatus === PeerlyCvVerificationStatus.APPROVED ||
+          cvStatus === PeerlyCvVerificationStatus.VERIFIED
+        return pinReady ? (
+          <ProUpgrade3PinEntry
+            tcrCompliance={tcrCompliance}
+            pinDelivery={complianceState?.pinDelivery ?? null}
+          />
+        ) : (
+          <TextingComplianceInReview
+            title="Your registration is being verified"
+            description="We’ll email you as soon as your PIN is ready to enter. This can take a few business days."
+          />
+        )
+      }
       case TCR_COMPLIANCE_STATUS.PENDING:
         return (
           <TextingComplianceInReview

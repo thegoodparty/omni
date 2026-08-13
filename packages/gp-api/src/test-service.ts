@@ -1,14 +1,9 @@
 import { UnauthorizedException } from '@nestjs/common'
 import { NestFastifyApplication } from '@nestjs/platform-fastify'
 import { User } from './generated/prisma'
-import {
-  PostgreSqlContainer,
-  StartedPostgreSqlContainer,
-} from '@testcontainers/postgresql'
+import { StartedPostgreSqlContainer } from '@testcontainers/postgresql'
 import axios, { AxiosInstance } from 'axios'
 import { randomBytes } from 'crypto'
-import { sync as glob } from 'fast-glob'
-import { readFileSync } from 'fs'
 import jwt from 'jsonwebtoken'
 import { Client } from 'pg'
 import { afterAll, beforeAll, beforeEach, vi } from 'vitest'
@@ -19,8 +14,23 @@ import {
 } from './authentication/interfaces/auth-provider.interface'
 import './configrc'
 import { PrismaService } from './prisma/prisma.service'
+import {
+  TEMPLATE_DB,
+  TEMPLATE_LOCK_KEY,
+  startTestPostgres,
+} from './test-postgres'
+import { ClerkUserEnricherService } from './vendors/clerk/services/clerk-user-enricher.service'
+import { ElectionApiTokenService } from './vendors/clerk/services/electionApiToken.service'
 
 export const TEST_CLERK_ID = 'user_test_123'
+
+/**
+ * What ClerkUserEnricherService resolves to when Clerk cannot be reached: the
+ * DB identity fields stand, but a locally stored avatar is never served as if
+ * it were Clerk's.
+ */
+const dropClerkAvatar = <T extends object>(user: T): T =>
+  'avatar' in user ? { ...user, avatar: null } : user
 
 export type TestServiceContext = {
   /** A client targeting the test service. */
@@ -65,39 +75,36 @@ export const useTestService = (): TestServiceContext => {
     // database names per suite to ensure that suites are isolated from each other.
     const uniqueDbName = `test_db_${randomBytes(8).toString('hex')}`
 
-    // Start PostgreSQL container
-    container = await new PostgreSqlContainer('postgres:16-alpine')
-      .withDatabase('postgres') // Connect to default postgres database initially
-      .withUsername('test_user')
-      .withPassword('test_password')
-      .withReuse()
-      .start()
+    container = await startTestPostgres()
 
     const baseConnectionUri = container.getConnectionUri()
 
-    const runQuery = async (connectionString: string, query: string) => {
-      const pgClient = new Client({ connectionString })
-      await pgClient.connect()
-      await pgClient.query(query)
-      await pgClient.end()
+    // Clone the schema template that globalSetup built once, rather than
+    // replaying every migration here. The copy is a near-instant Postgres
+    // operation, which is what keeps 60+ suites off a per-suite migration
+    // replay against the one shared container.
+    //
+    // Held in shared mode: a concurrent vitest run process's globalSetup can
+    // be rebuilding this same template (see test-global-setup.ts) right now.
+    // The shared lock blocks only while that rebuild's exclusive lock is
+    // held, so the clone can't land against a template mid-drop/rebuild.
+    const admin = new Client({ connectionString: baseConnectionUri })
+    await admin.connect()
+    try {
+      await admin.query(`SELECT pg_advisory_lock_shared(${TEMPLATE_LOCK_KEY})`)
+      await admin.query(
+        `CREATE DATABASE ${uniqueDbName} TEMPLATE ${TEMPLATE_DB}`,
+      )
+    } finally {
+      await admin.query(
+        `SELECT pg_advisory_unlock_shared(${TEMPLATE_LOCK_KEY})`,
+      )
+      await admin.end()
     }
-
-    // Create the unique database.
-    await runQuery(
-      container.getConnectionUri(),
-      `CREATE DATABASE ${uniqueDbName}`,
-    )
 
     const databaseUrl = baseConnectionUri.replace(
       '/postgres',
       `/${uniqueDbName}`,
-    )
-    // Run the migrations
-    await runQuery(
-      databaseUrl,
-      glob(`${__dirname}/../prisma/schema/migrations/*/*.sql`)
-        .map((file) => readFileSync(file, 'utf8'))
-        .join('\n'),
     )
     // Set DATABASE_URL for Prisma with the unique database
     process.env.DATABASE_URL = databaseUrl
@@ -129,6 +136,33 @@ export const useTestService = (): TestServiceContext => {
         }
         return { externalUserId: sub }
       },
+    )
+
+    // election-api calls now require a Clerk M2M token (ElectionApiTokenService).
+    // Route tests don't set GP_API_MACHINE_SECRET and stub the election-api HTTP
+    // calls anyway, so stub the token — otherwise authHeader() throws and every
+    // election-api-backed endpoint (e.g. district resolution behind contacts
+    // count) returns a 502.
+    const electionApiTokenService = app.get(ElectionApiTokenService)
+    vi.spyOn(electionApiTokenService, 'authHeader').mockResolvedValue({
+      Authorization: 'Bearer test-election-api-token',
+    })
+
+    // SessionGuard enriches the request user through Clerk on every
+    // authenticated call, so unstubbed this is a live round trip to
+    // api.clerk.com per request. It can only ever 401, since .env.test carries
+    // a placeholder CLERK_SECRET_KEY. The guard and enrichUser/enrichUsers
+    // absorb that 401 by keeping the DB fields and dropping the avatar, so
+    // resolve to that outcome directly instead. The enricher's own behavior
+    // stays covered by clerk-user-enricher.service.test.ts, which mocks the
+    // Clerk client rather than the service.
+    const enricher = app.get(ClerkUserEnricherService)
+    vi.spyOn(enricher, 'fetchClerkFields').mockResolvedValue(null)
+    vi.spyOn(enricher, 'enrichUser').mockImplementation((user) =>
+      Promise.resolve(dropClerkAvatar(user)),
+    )
+    vi.spyOn(enricher, 'enrichUsers').mockImplementation((users) =>
+      Promise.resolve(users.map(dropClerkAvatar)),
     )
 
     // Start the application on a random available port

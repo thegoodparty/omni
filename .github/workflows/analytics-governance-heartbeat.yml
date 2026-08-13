@@ -1,0 +1,95 @@
+name: Analytics governance heartbeat
+
+# Dead man's switch for the analytics-governance scheduled workflow (DATA-2054).
+#
+# The governance workflow notifies Slack when a run FAILS, but nothing alerts
+# when runs STOP HAPPENING: GitHub silently disables schedules after 60 days of
+# repo inactivity, and a broken or renamed workflow file never fails — it just
+# stops. This checker alarms on absence: every day it reads the governance
+# workflow's state and last-success age from the GitHub API and posts to the
+# same Slack channel when the workflow is disabled or has not succeeded within
+# MAX_GAP_HOURS (cadence is Mon+Thu, so a healthy gap never exceeds ~96h).
+#
+# Arming: until the governance workflow has its first-ever successful run
+# (e.g. while its secrets are still being provisioned), staleness is reported
+# in the job log only — no Slack noise, no red run.
+#
+# Residual risk, by design (accepted in DATA-2054, documented in the runbook):
+# this checker shares two dependencies with the thing it watches — GitHub
+# Actions itself, and the Slack bot token. If GHA is fully down, or the repo is
+# so inactive that schedules disable, or the Slack token is revoked, both die
+# together. When it cannot post the alert it fails the run instead, which still
+# surfaces as a red scheduled run and a GitHub failure notification.
+
+on:
+  schedule:
+    - cron: '30 12 * * *' # daily, 90 min after the governance runs on Mon/Thu
+  workflow_dispatch: {}
+
+permissions:
+  actions: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SLACK_APP_BOT_TOKEN: ${{ secrets.SLACK_APP_BOT_TOKEN }}
+      SLACK_EVENT_LIFECYCLE_CHANNEL_ID: ${{ vars.SLACK_EVENT_LIFECYCLE_CHANNEL_ID }}
+      WORKFLOW_FILE: analytics-governance.yml
+      # 120h sits between the two constraints. It must exceed 97.5h: the
+      # heartbeat fires 90 min after Monday's 11:00 run starts, so a Monday run
+      # still in progress shows age 96h + 1.5h — a smaller threshold (e.g. 96h
+      # or delegate-suggested 84h) false-alarms on any run slower than 90 min.
+      # It must stay below the next-success reset points: a missed Monday is
+      # reset by Thursday at age 144h (alert fires Tuesday 12:30, age 121.5h),
+      # a missed Thursday by Monday at 168h (alert fires Saturday, 121.5h).
+      # So every single missed run alerts 1-2 days later, with a 25.5h margin
+      # against false alarms. The comparison must be -ge, not -gt: age_hours is
+      # integer-truncated, so the designed Tuesday alert (real age ~121h) can
+      # land at a computed 120 — with -gt it silently slips a day, as it did on
+      # 2026-08-11 (age 120.92h -> 120, "Heartbeat OK").
+      MAX_GAP_HOURS: 120
+    steps:
+      - name: Check workflow state and last success
+        run: |
+          set -euo pipefail
+          repo="${{ github.repository }}"
+          actions_url="${{ github.server_url }}/$repo/actions/workflows/$WORKFLOW_FILE"
+
+          alert() {
+            echo "::error::$1"
+            if [ -z "$SLACK_APP_BOT_TOKEN" ] || [ -z "$SLACK_EVENT_LIFECYCLE_CHANNEL_ID" ]; then
+              echo "::error::Cannot post to Slack (token/channel unset) — failing loudly instead."
+              exit 1
+            fi
+            payload=$(jq -n --arg ch "$SLACK_EVENT_LIFECYCLE_CHANNEL_ID" \
+              --arg text "Analytics governance dead man's switch: $1 $actions_url" \
+              '{channel: $ch, text: $text}')
+            ok=$(curl -sf -X POST https://slack.com/api/chat.postMessage \
+              -H "Authorization: Bearer $SLACK_APP_BOT_TOKEN" \
+              -H 'Content-type: application/json; charset=utf-8' \
+              --data "$payload" | jq -r '.ok')
+            [ "$ok" = "true" ] || { echo "::error::Slack post rejected."; exit 1; }
+            exit 1
+          }
+
+          state=$(gh api "repos/$repo/actions/workflows/$WORKFLOW_FILE" --jq '.state')
+          echo "Workflow state: $state"
+          if [ "$state" != "active" ]; then
+            alert "the workflow is '$state' (not active). It will never run or fail on its own — re-enable it."
+          fi
+
+          last=$(gh api "repos/$repo/actions/workflows/$WORKFLOW_FILE/runs?status=success&per_page=1" \
+            --jq '.workflow_runs[0].updated_at // empty')
+          if [ -z "$last" ]; then
+            echo "No successful run yet — switch is not armed (expected while secrets are being provisioned)."
+            exit 0
+          fi
+
+          age_hours=$(( ($(date -u +%s) - $(date -u -d "$last" +%s)) / 3600 ))
+          echo "Last success: $last (${age_hours}h ago; threshold ${MAX_GAP_HOURS}h)"
+          if [ "$age_hours" -ge "$MAX_GAP_HOURS" ]; then
+            alert "no successful run in ${age_hours}h (threshold ${MAX_GAP_HOURS}h; cadence is Mon+Thu). Last success: $last."
+          fi
+          echo "Heartbeat OK."

@@ -12,11 +12,12 @@ import {
 import { eventually } from 'tests/utils/eventually'
 
 // E2E coverage for the "Run for a new office" branch of the follow-on flow
-// (ENG-10389 task 11). Unlike same-office, this path must NOT skip the office
-// picker: the office-holder makes an explicit new-office choice on the intent
-// screen, picks a different seat, and the flow creates a brand-new campaign org
-// alongside the existing ones (multi-org). Verifies the produced state (the new
-// active campaign org plus the prior orgs), not just navigation.
+// (ENG-10389 task 11; ENG-10539 dropped the intent screen). Unlike same-office,
+// this path must NOT skip the office picker: the office-holder picks the
+// "Run for a new office" action, chooses a different seat, and the flow creates
+// a brand-new campaign org alongside the existing ones (multi-org). Verifies the
+// produced state (the new active campaign org plus the prior orgs), not just
+// navigation.
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
@@ -43,15 +44,14 @@ const getOrgs = async (client: AxiosInstance): Promise<Org[]> => {
   return data.organizations
 }
 
-test('new-office follow-on: intent screen, office picker shown, new active org', async ({
+test('new-office follow-on: office picker shown, new active org', async ({
   page,
 }) => {
   test.setTimeout(180_000)
 
-  // A held-office user reaches the intent screen (a no-office candidate would
-  // skip it). reelectionOfficeSlug is populated from the elected office, so the
-  // switcher offers both "run for" actions and FollowOnFlow renders the intent
-  // step — we then take the new-office branch.
+  // reelectionOfficeSlug is populated from the elected office, so the switcher
+  // offers both "run for" actions. We take the "Run for a new office" action,
+  // which is itself the intent — there is no intent screen.
   const { client } = await setupElectedOfficeUser(page, RACE)
 
   const orgsBefore = await getOrgs(client)
@@ -88,25 +88,8 @@ test('new-office follow-on: intent screen, office picker shown, new active org',
     { timeout: 15_000 },
   )
 
-  // 4: IntentStep names the held office. new-office is NOT pre-selected — the
-  // office-holder makes an explicit choice (neither card is checked on arrival).
-  const intentHeading = page.getByRole('heading', {
-    level: 1,
-    name: /running for re-election in .+ or a new office/i,
-  })
-  await expect(intentHeading).toBeVisible({ timeout: 15_000 })
-  await expect(intentHeading).toContainText(electedOfficeOrg.name)
-  await expect(
-    page.getByRole('radio', { name: /same office/i }),
-  ).not.toBeChecked()
-  await expect(
-    page.getByRole('radio', { name: /new office/i }),
-  ).not.toBeChecked()
-  await page.getByRole('radio', { name: /new office/i }).click()
-  await expect(page.getByRole('radio', { name: /new office/i })).toBeChecked()
-  await clickContinue(page)
-
-  // welcome (follow-on copy).
+  // 4: no intent screen — "Run for a new office" lands straight on welcome
+  // (follow-on copy). The office picker is still shown later (not skipped).
   await expect(
     page.getByRole('heading', { level: 1, name: /set up your new campaign/i }),
   ).toBeVisible({ timeout: 15_000 })
@@ -166,12 +149,6 @@ test('new-office follow-on: intent screen, office picker shown, new active org',
   await expect(
     page.getByRole('heading', { level: 1, name: /votes needed to win/i }),
   ).toBeVisible({ timeout: 30_000 })
-  await clickContinue(page)
-
-  // voter-demographics.
-  await expect(
-    page.getByRole('heading', { level: 1, name: /voter insights/i }),
-  ).toBeVisible({ timeout: 15_000 })
   await clickContinue(page)
 
   // pledge -> launch -> dashboard.

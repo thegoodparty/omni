@@ -55,7 +55,7 @@ const seedCard = async (
       ctaLabel: 'Learn more',
       ctaHref: '/dashboard/briefings/2026-07-15',
       dueDate: overrides.dueDate,
-      sourceBriefingId: `briefing-${cardSeq}`,
+      sourceExternalId: `briefing-${cardSeq}`,
       sourceItemId: `item-${cardSeq}`,
       dismissedAt: overrides.dismissedAt ?? null,
     },

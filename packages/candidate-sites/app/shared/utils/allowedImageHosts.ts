@@ -12,7 +12,6 @@
 export const ALLOWED_IMAGE_HOSTS = [
   'assets.goodparty.org',
   'assets-dev.goodparty.org',
-  'assets-qa.goodparty.org',
   'images.ctfassets.net',
   'maps.googleapis.com',
   'assets.civicengine.com',

@@ -5,22 +5,17 @@ import {
   OUTREACH_TYPES,
 } from 'app/dashboard/outreach/constants'
 import TaskFlow from 'app/dashboard/components/tasks/flows/TaskFlow'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
-import {
-  P2PUpgradeModal,
-  P2P_MODAL_VARIANTS,
-} from 'app/dashboard/shared/P2PUpgradeModal'
-import { ComplianceModal } from 'app/dashboard/shared/ComplianceModal'
-import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useP2pUxEnabled } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
+import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
 import type { TcrCompliance } from 'helpers/types'
 import type { OutreachType } from 'gpApi/types/outreach.types'
 
 interface OutreachCreateCardsProps {
   tcrCompliance?: TcrCompliance
+  preselectedListId?: number
 }
 
 interface FlowModalTask {
@@ -74,25 +69,43 @@ export const OUTREACH_OPTIONS: OutreachOption[] = [
 
 const OutreachCreateCards = ({
   tcrCompliance,
+  preselectedListId,
 }: OutreachCreateCardsProps): React.JSX.Element => {
-  const { p2pUxEnabled } = useP2pUxEnabled()
   const [campaign] = useCampaign()
-  const { isPro, hasFreeTextsOffer } = campaign || {}
+  const { isPro } = campaign || {}
   const [flowModalTask, setFlowModalTask] = useState<FlowModalTask | null>(null)
   const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
-  const [showP2PModal, setShowP2PModal] = useState(false)
-  const [showComplianceModal, setShowComplianceModal] = useState(false)
+  const { runTextGate, gateModals } = useTextOutreachGate(tcrCompliance)
+
+  // ENG-10762 (Bugbot follow-up): mirrors `preselectedListId` into state that
+  // survives OutreachComposeDeepLink's listId-strip (its router.replace
+  // re-fetches the force-dynamic outreach page's RSC payload without
+  // ?listId, so the prop reverts to undefined on that pass — this component
+  // instance's own state doesn't). Consume-once: cleared as soon as the
+  // TaskFlow that carried it closes, so a later-opened flow (any card)
+  // starts clean instead of inheriting a stale preselect. A later deep link
+  // that updates the id while this component stays mounted still applies.
+  // `lastSyncedPropListIdRef` tracks the last PROP value already pulled in —
+  // not the (post-close) pending state — so clearing pending on close can't
+  // immediately get re-synced back from an unchanged prop.
+  // ENG-10764/10765: robocall's and phone banking's AudienceStep now apply
+  // preselectedListId too, so closing either must also consume it — see
+  // `isConsumingFlow`.
+  const [pendingPreselectedListId, setPendingPreselectedListId] =
+    useState(preselectedListId)
+  const lastSyncedPropListIdRef = useRef(preselectedListId)
+  useEffect(() => {
+    if (
+      preselectedListId !== undefined &&
+      preselectedListId !== lastSyncedPropListIdRef.current
+    ) {
+      lastSyncedPropListIdRef.current = preselectedListId
+      setPendingPreselectedListId(preselectedListId)
+    }
+  }, [preselectedListId])
 
   const openProUpgradeModal = () => {
     setShowProUpgradeModal(true)
-  }
-
-  const openP2PModal = () => {
-    setShowP2PModal(true)
-  }
-
-  const openComplianceModal = () => {
-    setShowComplianceModal(true)
   }
 
   const openTaskFlow = (type: OutreachType) =>
@@ -100,21 +113,12 @@ const OutreachCreateCards = ({
       flowType: type,
     })
 
-  const isTextCompliant =
-    tcrCompliance?.status === TCR_COMPLIANCE_STATUS.APPROVED
-
   const handleCreateClick = (requiresPro?: boolean) => (type: OutreachType) => {
     trackEvent(EVENTS.Outreach.ClickCreate, { type })
 
     if (type === OUTREACH_TYPES.text) {
-      if (!isPro) {
-        return openP2PModal()
-      }
-      if (p2pUxEnabled && !isTextCompliant) {
-        trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceModalViewed, {
-          source: 'outreach_page',
-        })
-        return openComplianceModal()
+      if (!runTextGate()) {
+        return
       }
     } else if (requiresPro && !isPro) {
       trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceStarted, {
@@ -167,37 +171,33 @@ const OutreachCreateCards = ({
         }}
       />
 
-      <P2PUpgradeModal
-        {...{
-          variant: (() => {
-            if (!isPro) return P2P_MODAL_VARIANTS.NonProUpgrade
-            if (p2pUxEnabled && hasFreeTextsOffer && !isTextCompliant) {
-              return P2P_MODAL_VARIANTS.ProFreeTextsNonCompliant
-            }
-            return P2P_MODAL_VARIANTS.NonProUpgrade
-          })(),
-          open: showP2PModal,
-          onClose: () => setShowP2PModal(false),
-          onUpgradeLinkClick: undefined,
-        }}
-      />
-
-      {p2pUxEnabled && (
-        <ComplianceModal
-          {...{
-            open: showComplianceModal,
-            tcrComplianceStatus: tcrCompliance?.status,
-            onClose: () => setShowComplianceModal(false),
-          }}
-        />
-      )}
+      {gateModals}
 
       {flowModalTask && campaign && (
         <TaskFlow
           forceOpen
           type={flowModalTask.flowType}
           campaign={campaign}
-          onClose={() => setFlowModalTask(null)}
+          preselectedListId={pendingPreselectedListId}
+          onClose={() => {
+            // ENG-10764/10765: robocall's and phone banking's AudienceStep
+            // now apply the preselect too, so both must consume it on close
+            // the same as text — door knocking still passes it through
+            // untouched.
+            const isConsumingFlow =
+              flowModalTask.flowType === OUTREACH_TYPES.text ||
+              flowModalTask.flowType === OUTREACH_TYPES.robocall ||
+              flowModalTask.flowType === OUTREACH_TYPES.phoneBanking
+            setFlowModalTask(null)
+            // Consume-once, but only flows whose audience step actually
+            // applies the id — closing a non-consuming flow must not burn
+            // it. Reset the ref too so a later deep link re-firing the
+            // identical id re-syncs.
+            if (isConsumingFlow) {
+              setPendingPreselectedListId(undefined)
+              lastSyncedPropListIdRef.current = undefined
+            }
+          }}
         />
       )}
     </div>

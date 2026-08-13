@@ -13,23 +13,30 @@ import {
   User,
 } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { AreaCodeFromZipService } from 'src/ai/util/areaCodeFromZip.util'
 import { CampaignTcrComplianceService } from 'src/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { PrismaService } from 'src/prisma/prisma.service'
 import { GooglePlacesService } from 'src/vendors/google/services/google-places.service'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
+import { S3Service } from 'src/vendors/aws/services/s3.service'
 import type {
   CampaignGeographyInput,
   ResolveP2pJobGeographyServices,
 } from '../util/campaignGeography.util'
 import type { CreateOutreachSchema } from '../schemas/createOutreachSchema'
-import { OutreachAttributionService } from './outreachAttribution.service'
+import { OutreachMaterializationService } from './outreachMaterialization.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { OutreachService, type P2pOutreachImageInput } from './outreach.service'
 
 const mockOutreachCreate = vi.fn()
 const mockOutreachFindMany = vi.fn()
+const mockOutreachUpdateMany = vi.fn()
+const mockOutreachUpdate = vi.fn()
+const mockOutreachFindUniqueOrThrow = vi.fn()
+const mockGetFileBytes = vi.fn()
 
 const mockTcrFindFirstOrThrow = vi.fn()
 const mockPeerlyCreateJob = vi.fn()
@@ -37,7 +44,7 @@ const mockResolveP2pJobGeography = vi.fn()
 const mockNotifySuccess = vi.fn()
 const mockFindVoterFileFilter = vi.fn()
 const mockFilterAccessCheck = vi.fn()
-const mockRecordSegmentAttribution = vi.fn()
+const mockMaterializeOutreach = vi.fn()
 
 vi.mock('../util/campaignGeography.util', () => ({
   resolveP2pJobGeography: (
@@ -89,6 +96,10 @@ describe('OutreachService', () => {
   beforeEach(async () => {
     mockOutreachCreate.mockReset()
     mockOutreachFindMany.mockReset()
+    mockOutreachUpdateMany.mockReset()
+    mockOutreachUpdate.mockReset()
+    mockOutreachFindUniqueOrThrow.mockReset()
+    mockGetFileBytes.mockReset()
     mockTcrFindFirstOrThrow.mockReset()
     mockPeerlyCreateJob.mockReset()
     mockResolveP2pJobGeography.mockReset()
@@ -97,8 +108,8 @@ describe('OutreachService', () => {
     mockFindVoterFileFilter.mockReset()
     mockFilterAccessCheck.mockReset()
     mockFilterAccessCheck.mockResolvedValue(undefined)
-    mockRecordSegmentAttribution.mockReset()
-    mockRecordSegmentAttribution.mockResolvedValue(undefined)
+    mockMaterializeOutreach.mockReset()
+    mockMaterializeOutreach.mockResolvedValue(undefined)
 
     const mockPrismaService = {
       outreach: {
@@ -107,8 +118,10 @@ describe('OutreachService', () => {
         findFirst: vi.fn(),
         findFirstOrThrow: vi.fn(),
         findUnique: vi.fn(),
-        findUniqueOrThrow: vi.fn(),
+        findUniqueOrThrow: mockOutreachFindUniqueOrThrow,
         count: vi.fn(),
+        updateMany: mockOutreachUpdateMany,
+        update: mockOutreachUpdate,
       },
     }
 
@@ -140,10 +153,14 @@ describe('OutreachService', () => {
           },
         },
         {
-          provide: OutreachAttributionService,
+          provide: OutreachMaterializationService,
           useValue: {
-            recordSegmentAttribution: mockRecordSegmentAttribution,
+            materializeOutreach: mockMaterializeOutreach,
           },
+        },
+        {
+          provide: S3Service,
+          useValue: { getFileBytesWithContentType: mockGetFileBytes },
         },
         OutreachService,
       ],
@@ -179,14 +196,18 @@ describe('OutreachService', () => {
 
       expect(mockOutreachCreate).toHaveBeenCalledTimes(1)
       expect(mockOutreachCreate).toHaveBeenCalledWith({
-        data: { ...baseCreateDto, imageUrl },
+        data: {
+          ...baseCreateDto,
+          organizationSlug: mockCampaign.organizationSlug,
+          imageUrl,
+        },
         include: { voterFileFilter: true },
       })
       expect(result).toEqual(created)
     })
 
-    it('hands the created outreach to segment attribution', async () => {
-      const created = { id: 7, ...baseCreateDto, voterFileFilter: null }
+    it('hands the created outreach to list materialization', async () => {
+      const created = { id: 9, ...baseCreateDto, voterFileFilter: null }
       mockOutreachCreate.mockResolvedValue(created)
 
       await service.create(
@@ -197,19 +218,16 @@ describe('OutreachService', () => {
         undefined,
       )
 
-      expect(mockRecordSegmentAttribution).toHaveBeenCalledWith(
-        mockUser,
+      expect(mockMaterializeOutreach).toHaveBeenCalledWith(
         mockCampaign,
         created,
       )
     })
 
-    it('still returns the outreach when attribution throws', async () => {
-      const created = { id: 8, ...baseCreateDto, voterFileFilter: null }
+    it('still returns the outreach when materialization throws', async () => {
+      const created = { id: 10, ...baseCreateDto, voterFileFilter: null }
       mockOutreachCreate.mockResolvedValue(created)
-      mockRecordSegmentAttribution.mockRejectedValue(
-        new Error('people api down'),
-      )
+      mockMaterializeOutreach.mockRejectedValue(new Error('people api down'))
 
       const result = await service.create(
         mockUser,
@@ -220,6 +238,87 @@ describe('OutreachService', () => {
       )
 
       expect(result).toEqual(created)
+    })
+
+    it('hands the finalized outreach to list materialization on purchase finalize', async () => {
+      const draft = {
+        id: 42,
+        campaignId: 1,
+        outreachType: OutreachType.p2p,
+        status: OutreachStatus.pending,
+        imageUrl: 'https://assets.goodparty.org/outreach/img.png',
+        phoneListId: 100,
+        script: 'hello voter',
+        identityId: 'ident-1',
+        title: 'P2P Title',
+        name: null,
+        didState: null,
+        didNpaSubset: null,
+        date: new Date('2025-02-01T12:00:00.000Z'),
+        audienceRequest: null,
+        campaignPlanDueDate: null,
+        textCount: null,
+        billableTextCount: null,
+        voterFileFilterId: 7,
+        voterFileFilter: null,
+        campaign: { ...mockCampaign, user: mockUser },
+      }
+      mockOutreachUpdateMany.mockResolvedValue({ count: 1 })
+      mockOutreachFindUniqueOrThrow.mockResolvedValue(draft)
+      mockGetFileBytes.mockResolvedValue({
+        bytes: Buffer.from('img'),
+        contentType: 'image/png',
+      })
+      mockPeerlyCreateJob.mockResolvedValue('job-123')
+      mockOutreachUpdate.mockResolvedValue({})
+
+      await service.finalizeOutreachPurchase(42, 1)
+
+      expect(mockMaterializeOutreach).toHaveBeenCalledWith(
+        draft.campaign,
+        expect.objectContaining({ id: 42, projectId: 'job-123' }),
+      )
+    })
+
+    it('materializes on finalize even when the campaign has no user', async () => {
+      const draft = {
+        id: 43,
+        campaignId: 1,
+        outreachType: OutreachType.p2p,
+        status: OutreachStatus.pending,
+        imageUrl: 'https://assets.goodparty.org/outreach/img.png',
+        phoneListId: 100,
+        script: 'hello voter',
+        identityId: 'ident-1',
+        title: 'P2P Title',
+        name: null,
+        didState: null,
+        didNpaSubset: null,
+        date: new Date('2025-02-01T12:00:00.000Z'),
+        audienceRequest: null,
+        campaignPlanDueDate: null,
+        textCount: null,
+        billableTextCount: null,
+        voterFileFilterId: 7,
+        voterFileFilter: null,
+        campaign: { ...mockCampaign, user: null },
+      }
+      mockOutreachUpdateMany.mockResolvedValue({ count: 1 })
+      mockOutreachFindUniqueOrThrow.mockResolvedValue(draft)
+      mockGetFileBytes.mockResolvedValue({
+        bytes: Buffer.from('img'),
+        contentType: 'image/png',
+      })
+      mockPeerlyCreateJob.mockResolvedValue('job-456')
+      mockOutreachUpdate.mockResolvedValue({})
+
+      await service.finalizeOutreachPurchase(43, 1)
+
+      expect(mockMaterializeOutreach).toHaveBeenCalledWith(
+        draft.campaign,
+        expect.objectContaining({ id: 43, projectId: 'job-456' }),
+      )
+      expect(mockNotifySuccess).not.toHaveBeenCalled()
     })
 
     it('forwards campaignPlanDueDate from the DTO into notifySuccess', async () => {
@@ -240,24 +339,24 @@ describe('OutreachService', () => {
       )
     })
 
-    it('does not persist campaignPlanDueDate (no such Outreach column)', async () => {
+    it('persists campaignPlanDueDate on the outreach row', async () => {
       const dto: CreateOutreachSchema = {
         ...baseCreateDto,
         campaignPlanDueDate: '2026-04-19',
       }
       mockOutreachCreate.mockResolvedValue({
         id: 1,
-        ...baseCreateDto,
+        ...dto,
         voterFileFilter: null,
       })
 
       await service.create(mockUser, mockCampaign, dto, undefined, undefined)
 
-      const [createArg] = mockOutreachCreate.mock.calls[0]
-      expect(createArg.data).not.toHaveProperty('campaignPlanDueDate')
+      const [createArg] = firstOrThrow(mockOutreachCreate.mock.calls)
+      expect(createArg.data).toHaveProperty('campaignPlanDueDate', '2026-04-19')
     })
 
-    it('forwards text counts into notifySuccess without persisting them', async () => {
+    it('forwards text counts into notifySuccess and persists them', async () => {
       const dto: CreateOutreachSchema = {
         ...baseCreateDto,
         textCount: 5200,
@@ -265,7 +364,7 @@ describe('OutreachService', () => {
       }
       mockOutreachCreate.mockResolvedValue({
         id: 1,
-        ...baseCreateDto,
+        ...dto,
         voterFileFilter: null,
       })
 
@@ -274,9 +373,11 @@ describe('OutreachService', () => {
       expect(mockNotifySuccess).toHaveBeenCalledWith(
         expect.objectContaining({ textCount: 5200, billableTextCount: 200 }),
       )
-      const [createArg] = mockOutreachCreate.mock.calls[0]
-      expect(createArg.data).not.toHaveProperty('textCount')
-      expect(createArg.data).not.toHaveProperty('billableTextCount')
+      const [createArg] = firstOrThrow(mockOutreachCreate.mock.calls)
+      expect(createArg.data).toMatchObject({
+        textCount: 5200,
+        billableTextCount: 200,
+      })
     })
 
     it('creates non-P2P outreach without imageUrl when both omitted', async () => {
@@ -292,7 +393,10 @@ describe('OutreachService', () => {
       )
 
       expect(mockOutreachCreate).toHaveBeenCalledWith({
-        data: baseCreateDto,
+        data: {
+          ...baseCreateDto,
+          organizationSlug: mockCampaign.organizationSlug,
+        },
         include: { voterFileFilter: true },
       })
     })
@@ -355,6 +459,7 @@ describe('OutreachService', () => {
       expect(mockOutreachCreate).toHaveBeenCalledWith({
         data: expect.objectContaining({
           ...p2pCreateDto,
+          organizationSlug: mockCampaign.organizationSlug,
           projectId: 'job-id-456',
           status: OutreachStatus.pending,
           didState: 'CA',
@@ -363,13 +468,80 @@ describe('OutreachService', () => {
         }),
         include: { voterFileFilter: true },
       })
-      // P2P also records per-voter attribution (the texting/P2P write path).
-      expect(mockRecordSegmentAttribution).toHaveBeenCalledWith(
-        mockUser,
+      // P2P materializes the resolved filter into interaction rows.
+      expect(mockMaterializeOutreach).toHaveBeenCalledWith(
         mockCampaign,
         created,
       )
       expect(result).toEqual(created)
+    })
+
+    it('blocks a P2P send with a testing-specific message for an internal-testing approval', async () => {
+      mockTcrFindFirstOrThrow.mockResolvedValue({
+        peerlyIdentityId: null,
+        internalTestingApprovedAt: new Date(),
+      })
+
+      await expect(
+        service.create(
+          mockUser,
+          mockCampaign,
+          p2pCreateDto,
+          'https://cdn.example.com/p2p.png',
+          p2pImage,
+        ),
+      ).rejects.toThrow(
+        'Campaign is 10DLC-approved for internal testing only; ' +
+          'real P2P sends are disabled',
+      )
+      expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
+    })
+
+    it('blocks a P2P send with the generic message when no Peerly identity exists', async () => {
+      mockTcrFindFirstOrThrow.mockResolvedValue({
+        peerlyIdentityId: null,
+        internalTestingApprovedAt: null,
+      })
+
+      await expect(
+        service.create(
+          mockUser,
+          mockCampaign,
+          p2pCreateDto,
+          'https://cdn.example.com/p2p.png',
+          p2pImage,
+        ),
+      ).rejects.toThrow(
+        'TCR Compliance Peerly identity ID is required for P2P outreach',
+      )
+      expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
+    })
+
+    it('throws BadRequest when the resolved P2P script exceeds the MMS limit', async () => {
+      mockTcrFindFirstOrThrow.mockResolvedValue({
+        peerlyIdentityId: 'identity-123',
+      })
+      // The DTO script is a short aiContent key; the oversized text only
+      // appears after resolution, so schema validation alone can't catch it.
+      const campaignWithLongScript = {
+        ...mockCampaign,
+        aiContent: {
+          smsKey: { content: 'x'.repeat(P2P_SCRIPT_MAX_LENGTH + 1) },
+        },
+      } as unknown as Campaign
+
+      await expect(
+        service.create(
+          mockUser,
+          campaignWithLongScript,
+          p2pCreateDto,
+          'https://cdn.example.com/p2p.png',
+          p2pImage,
+        ),
+      ).rejects.toThrow(BadRequestException)
+
+      expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
+      expect(mockOutreachCreate).not.toHaveBeenCalled()
     })
 
     it('throws BadRequest when P2P flow has no peerlyIdentityId', async () => {
@@ -537,7 +709,13 @@ describe('OutreachService', () => {
       const result = await service.findByCampaignId(1)
 
       expect(mockOutreachFindMany).toHaveBeenCalledWith({
-        where: { campaignId: 1 },
+        where: {
+          campaignId: 1,
+          OR: [
+            { status: { not: OutreachStatus.pending_payment } },
+            { status: null },
+          ],
+        },
         include: { voterFileFilter: true },
       })
       expect(result).toEqual(list)

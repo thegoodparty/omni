@@ -1,10 +1,10 @@
 'use client'
 import Modal from '@shared/utils/Modal'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import { IoArrowForward } from 'react-icons/io5'
 import InstructionsStep from './InstructionsStep'
-import AudienceStep from './AudienceStep'
+import AudienceStep, { type AudienceSource } from './AudienceStep'
 import AddScriptStep from './AddScriptStep/AddScriptStep'
 import ScheduleStep from './ScheduleStep'
 import ImageStep from './ImageStep'
@@ -43,6 +43,8 @@ import { Campaign } from 'helpers/types'
 import { OutreachType } from 'gpApi/types/outreach.types'
 import { useQueryClient } from '@tanstack/react-query'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
+import { clientRequest } from 'gpApi/typed-request'
+import { LoadingAnimation } from '@shared/utils/LoadingAnimation'
 
 interface TaskFlowState extends FlowState {
   step: number
@@ -54,6 +56,21 @@ interface TaskFlowState extends FlowState {
   voterCount: number
   phoneListToken: string | null
   leadsLoaded: number | null
+  // ENG-10808: from the phone-list status poll's capture-row fields
+  // (ENG-10800/ENG-10801) — surfaced on the purchase review alongside
+  // leadsLoaded so a user can see why it's smaller than their list.
+  excludedOptedOutCount: number | null
+  excludedDuplicatePhoneCount: number | null
+  // ENG-10765: distinguishes a saved-list selection from a throwaway
+  // checkbox-built filter (both carry an `id` on voterFileFilter) so
+  // DownloadStep knows to hit the segment export instead of the checkbox
+  // voter-file download.
+  savedListId: number | null
+  // ENG-10767: how the audience was chosen, reported by AudienceStep on
+  // advance and carried onto the Campaign Completed events so a campaign is
+  // attributable to the CRM list → outreach funnel.
+  audienceSource: AudienceSource | null
+  audienceListId: number | null
 }
 
 const DEFAULT_STATE: TaskFlowState = {
@@ -69,6 +86,11 @@ const DEFAULT_STATE: TaskFlowState = {
   phoneListToken: '',
   phoneListId: null,
   leadsLoaded: null,
+  excludedOptedOutCount: null,
+  excludedDuplicatePhoneCount: null,
+  savedListId: null,
+  audienceSource: null,
+  audienceListId: null,
 }
 
 type TaskFlowProps = {
@@ -81,6 +103,8 @@ type TaskFlowProps = {
   onComplete?: () => void | Promise<void>
   defaultAiTemplateId?: string | number
   campaignPlanDueDate?: string
+  initialScriptText?: string
+  preselectedListId?: number
 }
 
 const TaskFlow = ({
@@ -93,6 +117,8 @@ const TaskFlow = ({
   onComplete,
   defaultAiTemplateId,
   campaignPlanDueDate,
+  initialScriptText,
+  preselectedListId,
 }: TaskFlowProps): React.JSX.Element => {
   const { p2pUxEnabled } = useP2pUxEnabled()
   const [open, setOpen] = useState(forceOpen)
@@ -108,9 +134,16 @@ const TaskFlow = ({
   const outreachOption = OUTREACH_OPTIONS.find(
     (outreach) => outreach.type === type,
   )
-  const { phoneListToken, phoneListId, leadsLoaded } = state
+  const {
+    phoneListToken,
+    phoneListId,
+    leadsLoaded,
+    excludedOptedOutCount,
+    excludedDuplicatePhoneCount,
+  } = state
   const { id: campaignId, aiContent } = campaign
   const [stopPolling, setStopPolling] = useState(false)
+  const [draftOutreachId, setDraftOutreachId] = useState<number | null>(null)
 
   const contactCount = leadsLoaded ?? undefined
   const effectiveOutreachType = getEffectiveOutreachType(type, p2pUxEnabled)
@@ -119,6 +152,10 @@ const TaskFlow = ({
     pricePerContact: dollarsToCents(outreachOption?.cost || 0) || 0,
     outreachType: effectiveOutreachType,
     campaignId,
+    outreachId: draftOutreachId ?? undefined,
+    // Server re-derives the billed count from this token rather than
+    // trusting contactCount (ENG-10802).
+    phoneListToken: phoneListToken || undefined,
   }
 
   const trackingAttrs = useMemo(
@@ -126,12 +163,29 @@ const TaskFlow = ({
     [type],
   )
 
+  // ENG-10767: mirrors the audience attribution outside React state — the
+  // audience step reports it via onChangeCallback and calls nextCallback in
+  // the same tick, so handleNext's trackEvent would otherwise read the
+  // pre-update state.
+  const audienceTrackingRef = useRef<{
+    audienceSource?: AudienceSource
+    listId?: number
+  }>({})
+
   const handleChange = useCallback(
     (
       changeSetOrKey: Partial<TaskFlowState> | keyof TaskFlowState | string,
       value?: TaskFlowState[keyof TaskFlowState],
     ) => {
       if (typeof changeSetOrKey === 'object') {
+        if (changeSetOrKey.audienceSource) {
+          audienceTrackingRef.current = {
+            audienceSource: changeSetOrKey.audienceSource,
+            ...(changeSetOrKey.audienceListId != null
+              ? { listId: changeSetOrKey.audienceListId }
+              : {}),
+          }
+        }
         setState((prevState) => ({
           ...prevState,
           ...changeSetOrKey,
@@ -185,6 +239,9 @@ const TaskFlow = ({
     }
     trackEvent(EVENTS.Dashboard.VoterContact.Texting.ScheduleCampaign.Next, {
       step: stepName,
+      // ENG-10767: the audience advance carries how the audience was chosen
+      // (read from the ref, not state — see audienceTrackingRef above).
+      ...(stepName === STEPS.audience ? audienceTrackingRef.current : {}),
     })
     setState((prevState) => ({
       ...prevState,
@@ -197,6 +254,12 @@ const TaskFlow = ({
     trackEvent(EVENTS.Dashboard.VoterContact.Texting.ScheduleCampaign.Back, {
       step: stepName,
     })
+    // Leaving the purchase step invalidates its draft: upstream edits (script,
+    // image, audience) must produce a fresh draft on re-entry. Abandoned
+    // drafts stay pending_payment and are hidden server-side.
+    if (stepName === STEPS.purchase) {
+      setDraftOutreachId(null)
+    }
     setState({
       ...state,
       step: state.step - 1,
@@ -205,6 +268,8 @@ const TaskFlow = ({
 
   const handleReset = () => {
     setState(DEFAULT_STATE)
+    setDraftOutreachId(null)
+    audienceTrackingRef.current = {}
   }
 
   const handleAddScriptOnComplete = async (
@@ -285,20 +350,54 @@ const TaskFlow = ({
   )
 
   const isPurchaseCompletingRef = useRef(false)
+  const isDraftCreatingRef = useRef(false)
+
+  // Draft-first purchase: the campaign is persisted (status pending_payment)
+  // BEFORE checkout so the server can finalize it from the Stripe webhook even
+  // if this tab dies after paying. The checkout session can't be created until
+  // the draft id exists — it rides along in the session metadata.
+  useEffect(() => {
+    if (
+      stepName !== STEPS.purchase ||
+      draftOutreachId ||
+      isDraftCreatingRef.current ||
+      !phoneListId
+    ) {
+      return
+    }
+    isDraftCreatingRef.current = true
+    ;(async () => {
+      try {
+        const outreach = await onCreateOutreach({ draft: true })
+        if (outreach?.id) {
+          setDraftOutreachId(outreach.id)
+        } else {
+          handleBack()
+        }
+      } finally {
+        isDraftCreatingRef.current = false
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepName, draftOutreachId, phoneListId, onCreateOutreach])
 
   const handlePurchaseComplete = async () => {
     if (isPurchaseCompletingRef.current) return
     isPurchaseCompletingRef.current = true
     try {
-      const outreach = await onCreateOutreach()
-      if (!outreach?.id) {
-        errorSnackbar('Campaign could not be created. Please try again.')
-        return
-      }
       trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
         medium: type,
         price: state.budget,
         voterContacts: state.audience?.count || 0,
+        // ENG-10767: closes the CRM list → outreach funnel (joins to
+        // Voter Data - Send Outreach Clicked via listId). Fires well after
+        // the audience advance, so state is committed here.
+        ...(state.audienceSource
+          ? { audienceSource: state.audienceSource }
+          : {}),
+        ...(state.audienceListId != null
+          ? { listId: state.audienceListId }
+          : {}),
       })
       successSnackbar('Request submitted successfully.')
 
@@ -308,6 +407,19 @@ const TaskFlow = ({
         [contactField]:
           (currentContacts[contactField] || 0) + (state.voterCount || 0),
       }))
+
+      // The server finalized the draft during payment completion — refetch so
+      // the new campaign appears in the list without a reload.
+      try {
+        const { data } = await clientRequest('GET /v1/outreach', {})
+        if (data) {
+          setOutreaches(data)
+        }
+      } catch {
+        // Best-effort: an async (deferred) payment finalizes via webhook
+        // later, and the list shows the campaign on next load either way.
+      }
+      await refreshCampaign()
 
       await handleNext()
     } finally {
@@ -363,10 +475,17 @@ const TaskFlow = ({
                   setStopPolling(true)
                   return
                 }
-                const { phoneListId, leadsLoaded } = result
+                const {
+                  phoneListId,
+                  leadsLoaded,
+                  excludedOptedOutCount,
+                  excludedDuplicatePhoneCount,
+                } = result
                 handleChange({
                   phoneListId,
                   leadsLoaded,
+                  excludedOptedOutCount,
+                  excludedDuplicatePhoneCount,
                 })
                 setStopPolling(true)
               },
@@ -385,6 +504,7 @@ const TaskFlow = ({
             withVoicemail={!!state.voicemail}
             audience={state.audience}
             isCustom={isCustom}
+            preselectedListId={preselectedListId}
             {...callbackProps}
             onCreateVoterFileFilter={onCreateVoterFileFilter}
             onCreatePhoneList={onCreatePhoneList}
@@ -397,6 +517,7 @@ const TaskFlow = ({
               campaign,
               onComplete: handleAddScriptOnComplete,
               defaultAiTemplateId,
+              initialScriptText,
               ...callbackProps,
             }}
           />
@@ -433,6 +554,12 @@ const TaskFlow = ({
                         medium: type,
                         price: state.budget,
                         voterContacts: state.audience?.count || 0,
+                        ...(state.audienceSource
+                          ? { audienceSource: state.audienceSource }
+                          : {}),
+                        ...(state.audienceListId != null
+                          ? { listId: state.audienceListId }
+                          : {}),
                       },
                     )
                     successSnackbar('Request submitted successfully.')
@@ -443,7 +570,12 @@ const TaskFlow = ({
             isLastStep
           />
         )}
-        {stepName === STEPS.purchase && (
+        {stepName === STEPS.purchase && !draftOutreachId && (
+          <div className="p-4 w-[80vw] max-w-xl">
+            <LoadingAnimation {...{}} />
+          </div>
+        )}
+        {stepName === STEPS.purchase && draftOutreachId && (
           <CheckoutSessionProvider
             {...{
               type: PURCHASE_TYPES.TEXT,
@@ -454,9 +586,13 @@ const TaskFlow = ({
               {...{
                 onComplete: handlePurchaseComplete,
                 phoneListId,
+                phoneListToken: phoneListToken || undefined,
                 contactCount,
                 type,
                 pricePerContact: purchaseMetaData?.pricePerContact,
+                outreachId: draftOutreachId,
+                excludedOptedOutCount,
+                excludedDuplicatePhoneCount,
               }}
             />
           </CheckoutSessionProvider>
@@ -467,6 +603,7 @@ const TaskFlow = ({
               type,
               scriptText: state.scriptText,
               audience: state.audience,
+              savedListId: state.savedListId ?? undefined,
               ...callbackProps,
               onCreateOutreach: async () => {
                 await onCreateOutreach()

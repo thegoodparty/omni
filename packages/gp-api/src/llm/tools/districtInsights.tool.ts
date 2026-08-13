@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import type { DatabricksProvider } from './queryDatabricks.tool'
 import { isRecord } from './util/isRecord.util'
+import { HS_SCORE_SEMANTICS } from './hsScoreSemantics'
 import { parseSingleSelect } from './util/sqlAst.util'
 
 export class SqlRejected extends Error {
@@ -85,14 +86,25 @@ const collectTableRefs = (node: unknown, acc: Set<string>): void => {
   }
   if (!isRecord(node)) return
 
-  // Common shape: { table: 'x' } from FROM/JOIN entries
+  // Common shape: { table: 'x' } from FROM/JOIN entries. node-sql-parser puts
+  // any schema/catalog qualifier in node.db. The allowlist holds BARE table
+  // names (resolved via the session's pinned catalog/schema), so record the
+  // qualifier too — a schema-qualified reference like
+  // other_schema.serve_agent_voters then fails the allowlist instead of
+  // matching the bare name and reading a same-named table in another schema
+  // (CWE-863).
   const table = node.table
   if (typeof table === 'string' && table.length > 0) {
-    acc.add(stripQuotes(table))
+    const db = node.db
+    const qualifier =
+      typeof db === 'string' && db.length > 0 ? `${stripQuotes(db)}.` : ''
+    acc.add(`${qualifier}${stripQuotes(table)}`)
   }
 
   for (const key of Object.keys(node)) {
-    if (key === 'table') continue
+    // table + db are folded into the qualified name above; don't recurse into
+    // them (a future AST that nests an object in db must not leak a bare name).
+    if (key === 'table' || key === 'db') continue
     collectTableRefs(node[key], acc)
   }
 }
@@ -258,7 +270,16 @@ export interface ScrubResult {
   reason: 'cell_size' | 'no_count_column' | null
 }
 
-const DEFAULT_COUNT_ALIASES = ['count', 'n', 'voters', 'total', 'count_voters']
+// 'unknown_count' is the alias the score-semantics guidance recommends for
+// null-segment counts — it must be suppressible like any other count.
+const DEFAULT_COUNT_ALIASES = [
+  'count',
+  'n',
+  'voters',
+  'total',
+  'count_voters',
+  'unknown_count',
+]
 
 const findCountKey = (
   row: Record<string, unknown>,
@@ -291,12 +312,13 @@ export const scrubResults = (
   rows: Array<Record<string, unknown>>,
   opts: ScrubOptions,
 ): ScrubResult => {
-  if (rows.length === 0) {
+  const [firstRow] = rows
+  if (!firstRow) {
     return { kept: [], suppressed: 0, reason: null }
   }
 
   const aliases = [...(opts.countColumnAliases ?? []), ...DEFAULT_COUNT_ALIASES]
-  const countKey = findCountKey(rows[0], aliases)
+  const countKey = findCountKey(firstRow, aliases)
 
   if (countKey === null) {
     return { kept: rows, suppressed: 0, reason: 'no_count_column' }
@@ -304,10 +326,21 @@ export const scrubResults = (
 
   const kept: Array<Record<string, unknown>> = []
   let suppressed = 0
+  const aliasSet = new Set(aliases.map((a) => a.toLowerCase()))
   for (const row of rows) {
     const value = coerceToNumber(row[countKey])
     if (value >= opts.minCellSize) {
-      kept.push(row)
+      // Row-level suppression keys on one count column, but a query can carry
+      // more than one count-like value (e.g. a small unknown_count selected
+      // alongside a large group count). Mask any secondary count-alias cell
+      // below the threshold so no sub-threshold exact count reaches the model.
+      const masked: Record<string, unknown> = { ...row }
+      for (const key of Object.keys(masked)) {
+        if (key === countKey) continue
+        if (!aliasSet.has(key.toLowerCase())) continue
+        if (coerceToNumber(masked[key]) < opts.minCellSize) masked[key] = null
+      }
+      kept.push(masked)
     } else {
       suppressed += 1
     }
@@ -353,6 +386,8 @@ const buildDescription = (
   return `Query aggregate constituent data for YOUR district. Use this for questions about how your constituents feel on issues, demographic composition, turnout propensity.
 
 Table: ${tableName} (one row per registered voter, joined with Haystaq modeled scores; 200+ hs_* scored columns)
+
+${HS_SCORE_SEMANTICS}
 
 Required WHERE clause (your district scope, copy verbatim):
   WHERE ${whereClause}

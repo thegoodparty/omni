@@ -18,6 +18,13 @@ interface OutreachPurchaseFormProps {
   contactCount?: number
   pricePerContact?: number
   onError?: () => void
+  outreachId?: number
+  phoneListToken?: string
+  // ENG-10808: from the phone-list status poll's capture-row fields — shown
+  // here so a user can see why contactCount is smaller than their saved
+  // list's raw membership.
+  excludedOptedOutCount?: number | null
+  excludedDuplicatePhoneCount?: number | null
 }
 
 export const OutreachPurchaseForm = ({
@@ -25,6 +32,10 @@ export const OutreachPurchaseForm = ({
   contactCount = 0,
   pricePerContact = 0,
   onError = noop,
+  outreachId,
+  phoneListToken,
+  excludedOptedOutCount,
+  excludedDuplicatePhoneCount,
 }: OutreachPurchaseFormProps) => {
   const [campaign] = useCampaign()
   const { p2pUxEnabled } = useP2pUxEnabled()
@@ -50,6 +61,8 @@ export const OutreachPurchaseForm = ({
         contactCount,
         pricePerContact,
         outreachType: 'p2p',
+        outreachId,
+        phoneListToken,
       })
       if (!response.ok) {
         onError()
@@ -82,6 +95,27 @@ export const OutreachPurchaseForm = ({
           <span className="text-gray-700">Number of texts</span>
           <span className="font-medium">{contactCount.toLocaleString()}</span>
         </div>
+
+        {/* ENG-10808: only worth a line when the build actually excluded
+        someone — a 0 count here would just be noise under "Number of
+        texts". */}
+        {!!excludedOptedOutCount && (
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-gray-700">Excluded (opted out)</span>
+            <span className="font-medium">
+              {excludedOptedOutCount.toLocaleString()}
+            </span>
+          </div>
+        )}
+
+        {!!excludedDuplicatePhoneCount && (
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-gray-700">Duplicate numbers removed</span>
+            <span className="font-medium">
+              {excludedDuplicatePhoneCount.toLocaleString()}
+            </span>
+          </div>
+        )}
 
         {hasFreeTextsOffer && (
           <div className="flex justify-between items-center mb-2">

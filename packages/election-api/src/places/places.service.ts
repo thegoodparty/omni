@@ -18,8 +18,12 @@ import {
 } from './place.types'
 import { getDedupedRacesBySlug } from 'src/races/races.util'
 
-const COUNTY_MTFCC = { G4020: true }
-const DISTRICT_MTFCC = { G5420: true, G5410: true, G5400: true }
+const COUNTY_MTFCC: Record<string, boolean> = { G4020: true }
+const DISTRICT_MTFCC: Record<string, boolean> = {
+  G5420: true,
+  G5410: true,
+  G5400: true,
+}
 
 @Injectable()
 export class PlacesService extends createPrismaBase(MODELS.Place) {
@@ -94,9 +98,9 @@ export class PlacesService extends createPrismaBase(MODELS.Place) {
         place.others = []
         if (!place.children) continue
         for (const child of place.children) {
-          if (COUNTY_MTFCC[child.mtfcc!]) {
+          if (child.mtfcc && COUNTY_MTFCC[child.mtfcc]) {
             place.counties.push(child)
-          } else if (DISTRICT_MTFCC[child.mtfcc!]) {
+          } else if (child.mtfcc && DISTRICT_MTFCC[child.mtfcc]) {
             place.districts.push(child)
           } else {
             place.others.push(child)
@@ -121,22 +125,6 @@ export class PlacesService extends createPrismaBase(MODELS.Place) {
     return places
   }
 
-  async getPlaceByPositionId(positionId: string) {
-    const result = await this.client.position.findUnique({
-      where: { id: positionId },
-      select: { place: true },
-    })
-    if (!result) {
-      throw new NotFoundException(`Position not found for id=${positionId}`)
-    }
-    if (!result.place) {
-      throw new NotFoundException(
-        `No place associated with position id=${positionId}`,
-      )
-    }
-    return result.place
-  }
-
   async getPlacesWithMostElections(minRaces: number, count: number) {
     const places = await this.client.$queryRaw<
       { slug: string; name: string; race_count: number }[]
@@ -149,10 +137,10 @@ export class PlacesService extends createPrismaBase(MODELS.Place) {
       WHERE    p."mtfcc" <> 'G4000'
       GROUP BY p.id
       HAVING   COUNT(r.id) > ${minRaces}
-      ORDER BY race_count DESC;
+      ORDER BY race_count DESC
+      LIMIT    ${count};
     `
-    const topPlaces = places.slice(0, count)
-    return topPlaces
+    return places
   }
 
   private buildRaceInclude(
@@ -230,7 +218,7 @@ export class PlacesService extends createPrismaBase(MODELS.Place) {
             county.Races = getDedupedRacesBySlug(county.Races)
           }
         }
-        for (const other of place.counties ?? []) {
+        for (const other of place.others ?? []) {
           if (hasRaces(other)) {
             other.Races = getDedupedRacesBySlug(other.Races)
           }

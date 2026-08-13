@@ -5,8 +5,11 @@ import {
   User,
   VoterFileFilter,
 } from '../../generated/prisma'
+import { ZodValidationException } from 'nestjs-zod'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ZodError } from 'zod'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { CampaignTcrComplianceService } from 'src/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { CrmCampaignsService } from 'src/campaigns/services/crmCampaigns.service'
@@ -174,7 +177,7 @@ describe('OutreachNotificationService', () => {
         outreach: baseOutreach,
       })
 
-      const [blocks] = mockSlackMessage.mock.calls[0]
+      const [blocks] = firstOrThrow(mockSlackMessage.mock.calls)
       expect(JSON.stringify(blocks)).toContain('peerly.com')
     })
 
@@ -185,7 +188,7 @@ describe('OutreachNotificationService', () => {
         outreach: { ...baseOutreach, projectId: null },
       })
 
-      const [blocks] = mockSlackMessage.mock.calls[0]
+      const [blocks] = firstOrThrow(mockSlackMessage.mock.calls)
       expect(JSON.stringify(blocks)).not.toContain('peerly.com')
     })
 
@@ -198,7 +201,7 @@ describe('OutreachNotificationService', () => {
         billableTextCount: 7259,
       })
 
-      const [message] = mockSlackMessage.mock.calls[0]
+      const [message] = firstOrThrow(mockSlackMessage.mock.calls)
       expect(findLabeledValue(message, '# of Texts: ')).toBe('12,259')
       expect(findLabeledValue(message, '# of Billable Texts: ')).toBe('7,259')
     })
@@ -211,7 +214,7 @@ describe('OutreachNotificationService', () => {
         campaignPlanDueDate: '2026-07-01',
       })
 
-      const [blocks] = mockSlackMessage.mock.calls[0]
+      const [blocks] = firstOrThrow(mockSlackMessage.mock.calls)
       expect(JSON.stringify(blocks)).toContain('2026-07-01')
     })
 
@@ -222,7 +225,7 @@ describe('OutreachNotificationService', () => {
         outreach: baseOutreach,
       })
 
-      const [message] = mockSlackMessage.mock.calls[0]
+      const [message] = firstOrThrow(mockSlackMessage.mock.calls)
       expect(findLabeledValue(message, 'Peerly Job ID: ')).toBe(
         'peerly-job-123',
       )
@@ -242,7 +245,7 @@ describe('OutreachNotificationService', () => {
       expect(mockTcrFindFirst).toHaveBeenCalledWith({
         where: { campaignId: baseCampaign.id },
       })
-      const [message] = mockSlackMessage.mock.calls[0]
+      const [message] = firstOrThrow(mockSlackMessage.mock.calls)
       expect(findLabeledValue(message, PEERLY_IDENTITY_LABEL)).toBe(
         'identity-789',
       )
@@ -257,7 +260,7 @@ describe('OutreachNotificationService', () => {
         outreach: baseOutreach,
       })
 
-      const [message] = mockSlackMessage.mock.calls[0]
+      const [message] = firstOrThrow(mockSlackMessage.mock.calls)
       expect(findLabeledValue(message, PEERLY_IDENTITY_LABEL)).toBe('N/A')
     })
 
@@ -270,7 +273,7 @@ describe('OutreachNotificationService', () => {
         outreach: baseOutreach,
       })
 
-      const [message] = mockSlackMessage.mock.calls[0]
+      const [message] = firstOrThrow(mockSlackMessage.mock.calls)
       expect(findLabeledValue(message, PEERLY_IDENTITY_LABEL)).toBe('N/A')
     })
 
@@ -286,7 +289,7 @@ describe('OutreachNotificationService', () => {
       ).resolves.toBeUndefined()
 
       expect(mockSlackMessage).toHaveBeenCalledTimes(1)
-      const [message] = mockSlackMessage.mock.calls[0]
+      const [message] = firstOrThrow(mockSlackMessage.mock.calls)
       expect(findLabeledValue(message, PEERLY_IDENTITY_LABEL)).toBe('N/A')
     })
 
@@ -395,7 +398,7 @@ describe('OutreachNotificationService', () => {
       })
 
       expect(mockSlackMessage).toHaveBeenCalledTimes(1)
-      const [blocks, channel] = mockSlackMessage.mock.calls[0]
+      const [blocks, channel] = firstOrThrow(mockSlackMessage.mock.calls)
       const blob = JSON.stringify(blocks)
       expect(blob).toContain('FAILED')
       expect(blob).toContain('tcrLookup')
@@ -412,7 +415,7 @@ describe('OutreachNotificationService', () => {
         error: new Error('bad input'),
       })
 
-      const [blocks] = mockSlackMessage.mock.calls[0]
+      const [blocks] = firstOrThrow(mockSlackMessage.mock.calls)
       expect(JSON.stringify(blocks)).toContain('unknown')
     })
 
@@ -426,10 +429,34 @@ describe('OutreachNotificationService', () => {
         error: new Error(longMessage),
       })
 
-      const [blocks] = mockSlackMessage.mock.calls[0]
+      const [blocks] = firstOrThrow(mockSlackMessage.mock.calls)
       const blob = JSON.stringify(blocks)
       expect(blob).toContain('x'.repeat(500))
       expect(blob).not.toContain('x'.repeat(501))
+    })
+
+    it('includes zod issue paths and messages for validation failures', async () => {
+      const zodError = new ZodError([
+        {
+          code: 'custom',
+          path: ['script'],
+          message: 'Script cannot exceed 2000 characters for P2P outreach',
+        },
+      ])
+
+      await service.notifyFailure({
+        user: mockUser,
+        campaign: baseCampaign,
+        createOutreachDto: { outreachType: OutreachType.p2p },
+        step: 'validation',
+        error: new ZodValidationException(zodError),
+      })
+
+      const [blocks] = firstOrThrow(mockSlackMessage.mock.calls)
+      const blob = JSON.stringify(blocks)
+      expect(blob).toContain(
+        'script: Script cannot exceed 2000 characters for P2P outreach',
+      )
     })
 
     it('shows "None" when script is missing', async () => {
@@ -441,7 +468,7 @@ describe('OutreachNotificationService', () => {
         error: new Error('boom'),
       })
 
-      const [blocks] = mockSlackMessage.mock.calls[0]
+      const [blocks] = firstOrThrow(mockSlackMessage.mock.calls)
       expect(JSON.stringify(blocks)).toContain('None')
     })
 
@@ -458,7 +485,7 @@ describe('OutreachNotificationService', () => {
         error: new Error('boom'),
       })
 
-      const [blocks] = mockSlackMessage.mock.calls[0]
+      const [blocks] = firstOrThrow(mockSlackMessage.mock.calls)
       const blob = JSON.stringify(blocks)
       expect(blob).toContain('a'.repeat(200))
       expect(blob).not.toContain('a'.repeat(201))
@@ -473,7 +500,7 @@ describe('OutreachNotificationService', () => {
         error: new Error('boom'),
       })
 
-      const [blocks] = mockSlackMessage.mock.calls[0]
+      const [blocks] = firstOrThrow(mockSlackMessage.mock.calls)
       expect(JSON.stringify(blocks)).toContain('Not provided')
     })
   })

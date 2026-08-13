@@ -222,7 +222,7 @@ This project's deployment is managed via [Pulumi](https://www.pulumi.com/) withi
 
 There is an in-tree CLI for interacting with the Pulumi stack: `npm run infra`.
 
-For example, to validate deployment changes, you can run `npm run infra diff <dev|qa|prod>` -- this will output a summary of changes that will be applied to the specified environment.
+For example, to validate deployment changes, you can run `npm run infra diff <dev|prod>` -- this will output a summary of changes that will be applied to the specified environment.
 
 > Note: You'll need to be authenticated via the AWS CLI locally before running `infra` commands.
 

@@ -11,16 +11,18 @@ import {
   InternalServerErrorException,
   NotFoundException,
   Param,
+  ParseIntPipe,
   Post,
+  UseGuards,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
+import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { CampaignTcrComplianceService } from './services/campaignTcrCompliance.service'
 import { ComplianceStateService } from './services/complianceState.service'
 import { CreateTcrComplianceDto } from './schemas/createTcrComplianceDto.schema'
 import { CreateAgenticTcrComplianceDto } from './schemas/createAgenticTcrComplianceDto.schema'
-import { SubmitToPeerlyDto } from './schemas/submitToPeerlyDto.schema'
 import { UseCampaign } from '../decorators/UseCampaign.decorator'
 import { ReqCampaign } from '../decorators/ReqCampaign.decorator'
 import { Campaign, TcrComplianceStatus, User } from '../../generated/prisma'
@@ -79,6 +81,62 @@ export class CampaignTcrComplianceController {
     return this.complianceStateService.findStateForCampaign(campaign.id)
   }
 
+  // Admin (gp-admin via M2M) view of any campaign's compliance state — same
+  // payload as `mine/compliance-state`, without the session-campaign scoping.
+  @Get('admin/:campaignId/compliance-state')
+  @UseGuards(AdminOrM2MGuard)
+  @UseInterceptors(ZodResponseInterceptor)
+  @ResponseSchema(ComplianceStateOutputSchema)
+  async getComplianceStateForCampaign(
+    @Param('campaignId', ParseIntPipe) campaignId: number,
+  ) {
+    return this.complianceStateService.findStateForCampaign(campaignId)
+  }
+
+  @Post('admin/:campaignId/resend-cv-pin')
+  @UseGuards(AdminOrM2MGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async resendCampaignVerifyPinForCampaign(
+    @Param('campaignId', ParseIntPipe) campaignId: number,
+  ) {
+    const campaign = await this.campaignsService.findUniqueOrThrow({
+      where: { id: campaignId },
+    })
+    await this.tcrComplianceService.resendCampaignVerifyPin(campaign)
+  }
+
+  // Admin "treat as 10DLC approved (internal testing)" checkbox. Creates an
+  // approved TcrCompliance row with no Peerly identity for an internal
+  // (@goodparty.org / @test.goodparty.org) account, so UI gates pass while
+  // real P2P sends stay blocked. Refuses (409) when real compliance exists.
+  @Post('admin/:campaignId/internal-testing-approval')
+  @UseGuards(AdminOrM2MGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async grantInternalTestingApproval(
+    @Param('campaignId', ParseIntPipe) campaignId: number,
+  ) {
+    const campaign = await this.campaignsService.findUniqueOrThrow({
+      where: { id: campaignId },
+    })
+    const user = await this.userService.findByCampaign(campaign)
+    if (!user) {
+      throw new NotFoundException('User not found for this campaign')
+    }
+    await this.tcrComplianceService.grantInternalTestingApproval(user, campaign)
+  }
+
+  @Delete('admin/:campaignId/internal-testing-approval')
+  @UseGuards(AdminOrM2MGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async revokeInternalTestingApproval(
+    @Param('campaignId', ParseIntPipe) campaignId: number,
+  ) {
+    await this.campaignsService.findUniqueOrThrow({
+      where: { id: campaignId },
+    })
+    await this.tcrComplianceService.revokeInternalTestingApproval(campaignId)
+  }
+
   @Post('submit-to-peerly')
   @UseCampaign()
   @HttpCode(HttpStatus.OK)
@@ -90,10 +148,22 @@ export class CampaignTcrComplianceController {
       '10DLC compliance. Precondition (enforced by the route): the ' +
       'compliance stage must be `awaiting_pin` — i.e., the domain is ' +
       "registered and the candidate's website is published and " +
-      'verified live. Calls with any earlier stage return 422. ' +
-      'Required inputs: EIN, committee name, office level, election ' +
-      'filing details, contact email and phone, and the verified ' +
-      'website URL. Creates the Peerly Identity, Identity Profile, ' +
+      'verified live, AND the website content is genuine (a real bio ' +
+      'of at least 500 characters and at least one real, non-template ' +
+      'issue). Calls with any earlier stage return 422; calls with ' +
+      'generic or template content return 400. ' +
+      'No request body is needed: gp-api reads the EIN, committee name, ' +
+      'office level, election filing details, contact email and phone, ' +
+      "and website host from the candidate's saved compliance record — " +
+      'just call it for the current campaign. gp-api re-validates the ' +
+      'saved filing URL and returns 400 if it is a goodparty.org page, ' +
+      "the candidate's own campaign website, or (for non-federal " +
+      'candidates) an FEC filing URL (CampaignVerify rejects all of ' +
+      'those); the candidate must correct their saved filing details ' +
+      'before this can succeed. A 400 from this tool — including a ' +
+      'CampaignVerify rejection of the submitted data — is never ' +
+      'transient: do not retry it; record it as a rejection blocker. ' +
+      'Creates the Peerly Identity, Identity Profile, ' +
       '10DLC Brand, and Campaign Verify Request; Peerly then sends a ' +
       'PIN to the candidate via the contact channels supplied. ' +
       'Returns the Peerly identity id, CV verification id, derived ' +
@@ -102,20 +172,13 @@ export class CampaignTcrComplianceController {
       'check. Idempotent on retry: a second call returns the existing ' +
       'record without re-submitting to Peerly.',
   })
-  async submitToPeerly(
-    @ReqCampaign() campaign: Campaign,
-    @Body() input: SubmitToPeerlyDto,
-  ) {
+  async submitToPeerly(@ReqCampaign() campaign: Campaign) {
     const user = await this.userService.findByCampaign(campaign)
     if (!user) {
       throw new NotFoundException('User not found for this campaign')
     }
 
-    return this.tcrComplianceService.submitToPeerlyForAgent(
-      user,
-      campaign,
-      input,
-    )
+    return this.tcrComplianceService.submitToPeerlyForAgent(user, campaign)
   }
 
   @Post('agentic')

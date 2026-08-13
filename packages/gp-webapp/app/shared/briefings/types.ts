@@ -38,6 +38,14 @@ export type ConstituentSentiment = NonNullable<
 >
 export type RecentNewsEntry = NonNullable<ItemDisplay['recent_news']>[number]
 export type BudgetImpact = NonNullable<ItemDisplay['budget_impact']>
+
+/**
+ * A single talking_points entry — either a legacy bare string (artifacts
+ * generated before the {text, why} shape shipped) or the new structured
+ * `{text, why}` object every new run emits. See TalkingPointsList for the
+ * render-time type guard.
+ */
+export type TalkingPoint = NonNullable<ItemDisplay['talking_points']>[number]
 export type BudgetImpactFigure = BudgetImpact['figures'][number]
 
 export type Source = MeetingBriefingFull['sources'][number]
@@ -51,7 +59,8 @@ export type HaystaqStatus = ConstituentSentiment['haystaq_status']
  * `app/shared/briefings/server.ts` from briefing_type + meeting_date, and the
  * Prisma row UUID (`briefing_id`) returned alongside the artifact by
  * `GET /v1/meetings/:date/briefing`. The UUID powers public share URLs of
- * the form `goodparty.org/api/v1/briefings/{uuid}`.
+ * the form `app.goodparty.org/api/v1/briefings/{uuid}` — the app origin, not
+ * the marketing one, which does not proxy `/api/v1/*` to gp-api.
  */
 export type Briefing = MeetingBriefingFull & {
   title: string
@@ -109,7 +118,10 @@ export interface BriefingSummary {
 // ---------------------------------------------------------------------------
 
 export type AnnotationKind = 'note' | 'chat' | 'bug_report' | 'review'
-export type AnnotationResourceType = 'briefing'
+// The annotation system is shared across resources; ordinances flag bugs on
+// their drafts too. Briefings only ever load briefing rows, but the mapped
+// shape must accept whatever resource_type the API returns.
+export type AnnotationResourceType = 'briefing' | 'ordinance'
 
 export interface AnnotationAnchor {
   jsonPath: string | null

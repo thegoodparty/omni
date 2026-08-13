@@ -1,0 +1,756 @@
+/**
+ * GoodParty Design System Tokens
+ * 
+ * This file defines all CSS custom properties from the Figma design system.
+ * It is the source of truth for design tokens in the webapp.
+ * 
+ * To update:
+ * 1. Check Figma design system for updated values
+ * 2. Use Figma MCP or manually copy values here
+ * 3. Update styleguide-scope.css if new mappings are needed
+ * 
+ * Last synced with Figma: January 2026
+ * Figma file: https://www.figma.com/design/dmMrTWyBirANhArKs5mTmr/GoodParty-Design-System----shadcn-ui
+ */
+
+:root {
+  /* ==========================================================================
+   * GOODPARTY BRAND COLORS
+   * ========================================================================== */
+  /* Branding red scale — main brand color at 500 */
+  --goodparty-red-50: #fff1f2;
+  --goodparty-red-100: #ffd9dc;
+  --goodparty-red-200: #ffb3ba;
+  --goodparty-red-300: #ff8691;
+  --goodparty-red-400: #f5506a;
+  --goodparty-red-500: #dc1438;
+  --goodparty-red-600: #b80f2e;
+  --goodparty-red-700: #940c25;
+  --goodparty-red-800: #70091b;
+  --goodparty-red-900: #4d0612;
+  --goodparty-red-950: #2e030a;
+  --goodparty-red: var(--goodparty-red-500);
+
+  /* Branding blue scale — main brand color at 600 */
+  --goodparty-blue-50: #eff5ff;
+  --goodparty-blue-100: #d6e7ff;
+  --goodparty-blue-200: #adc9ff;
+  --goodparty-blue-300: #80a9ff;
+  --goodparty-blue-400: #4576f1;
+  --goodparty-blue-500: #1e63ec;
+  --goodparty-blue-600: #0048c2;
+  --goodparty-blue-700: #043d9d;
+  --goodparty-blue-800: #03307c;
+  --goodparty-blue-900: #02235a;
+  --goodparty-blue-950: #011639;
+  --goodparty-blue: var(--goodparty-blue-600);
+
+  --goodparty-cream: #fcf8f3;
+
+  /* ==========================================================================
+   * STANDARD TAILWIND COLOR PALETTE
+   * Referenced by base and theme tokens via var()
+   * ========================================================================== */
+
+  /* base */
+  --tw-black: #000000;
+  --tw-white: #ffffff;
+
+  /* slate */
+  --tw-slate-50: #f8fafc;
+  --tw-slate-100: #f1f5f9;
+  --tw-slate-200: #e2e8f0;
+  --tw-slate-300: #cbd5e1;
+  --tw-slate-400: #94a3b8;
+  --tw-slate-500: #64748b;
+  --tw-slate-600: #475569;
+  --tw-slate-700: #334155;
+  --tw-slate-800: #1e293b;
+  --tw-slate-900: #0f172a;
+  --tw-slate-950: #020617;
+
+  /* gray */
+  --tw-gray-50: #f9fafb;
+  --tw-gray-100: #f3f4f6;
+  --tw-gray-200: #e5e7eb;
+  --tw-gray-300: #d1d5db;
+  --tw-gray-400: #9ca3af;
+  --tw-gray-500: #6b7280;
+  --tw-gray-600: #4b5563;
+  --tw-gray-700: #374151;
+  --tw-gray-800: #1f2937;
+  --tw-gray-900: #111827;
+  --tw-gray-950: #030712;
+
+  /* zinc */
+  --tw-zinc-50: #fafafa;
+  --tw-zinc-100: #f4f4f5;
+  --tw-zinc-200: #e4e4e7;
+  --tw-zinc-300: #d4d4d8;
+  --tw-zinc-400: #a1a1aa;
+  --tw-zinc-500: #71717a;
+  --tw-zinc-600: #52525b;
+  --tw-zinc-700: #3f3f46;
+  --tw-zinc-800: #27272a;
+  --tw-zinc-900: #18181b;
+  --tw-zinc-950: #09090b;
+
+  /* neutral */
+  --tw-neutral-50: #fafafa;
+  --tw-neutral-100: #f5f5f5;
+  --tw-neutral-200: #e5e5e5;
+  --tw-neutral-300: #d4d4d4;
+  --tw-neutral-400: #a3a3a3;
+  --tw-neutral-500: #737373;
+  --tw-neutral-600: #525252;
+  --tw-neutral-700: #404040;
+  --tw-neutral-800: #262626;
+  --tw-neutral-900: #171717;
+  --tw-neutral-950: #0a0a0a;
+
+  /* stone */
+  --tw-stone-50: #fafaf9;
+  --tw-stone-100: #f5f5f4;
+  --tw-stone-200: #e7e5e4;
+  --tw-stone-300: #d6d3d1;
+  --tw-stone-400: #a8a29e;
+  --tw-stone-500: #78716c;
+  --tw-stone-600: #57534e;
+  --tw-stone-700: #44403c;
+  --tw-stone-800: #292524;
+  --tw-stone-900: #1c1917;
+  --tw-stone-950: #0c0a09;
+
+  /* red */
+  --tw-red-50: #fef2f2;
+  --tw-red-100: #fee2e2;
+  --tw-red-200: #fecaca;
+  --tw-red-300: #fca5a5;
+  --tw-red-400: #f87171;
+  --tw-red-500: #ef4444;
+  --tw-red-600: #dc2626;
+  --tw-red-700: #b91c1c;
+  --tw-red-800: #991b1b;
+  --tw-red-900: #7f1d1d;
+  --tw-red-950: #450a0a;
+
+  /* orange */
+  --tw-orange-50: #fff7ed;
+  --tw-orange-100: #ffedd5;
+  --tw-orange-200: #fed7aa;
+  --tw-orange-300: #fdba74;
+  --tw-orange-400: #fb923c;
+  --tw-orange-500: #f97316;
+  --tw-orange-600: #ea580c;
+  --tw-orange-700: #c2410c;
+  --tw-orange-800: #9a3412;
+  --tw-orange-900: #7c2d12;
+  --tw-orange-950: #431407;
+
+  /* amber */
+  --tw-amber-50: #fffbeb;
+  --tw-amber-100: #fef3c7;
+  --tw-amber-200: #fde68a;
+  --tw-amber-300: #fcd34d;
+  --tw-amber-400: #fbbf24;
+  --tw-amber-500: #f59e0b;
+  --tw-amber-600: #d97706;
+  --tw-amber-700: #b45309;
+  --tw-amber-800: #92400e;
+  --tw-amber-900: #78350f;
+  --tw-amber-950: #451a03;
+
+  /* yellow */
+  --tw-yellow-50: #fefce8;
+  --tw-yellow-100: #fef9c3;
+  --tw-yellow-200: #fef08a;
+  --tw-yellow-300: #fde047;
+  --tw-yellow-400: #facc15;
+  --tw-yellow-500: #eab308;
+  --tw-yellow-600: #ca8a04;
+  --tw-yellow-700: #a16207;
+  --tw-yellow-800: #854d0e;
+  --tw-yellow-900: #713f12;
+  --tw-yellow-950: #422006;
+
+  /* lime */
+  --tw-lime-50: #f7fee7;
+  --tw-lime-100: #ecfccb;
+  --tw-lime-200: #d9f99d;
+  --tw-lime-300: #bef264;
+  --tw-lime-400: #a3e635;
+  --tw-lime-500: #84cc16;
+  --tw-lime-600: #65a30d;
+  --tw-lime-700: #4d7c0f;
+  --tw-lime-800: #3f6212;
+  --tw-lime-900: #365314;
+  --tw-lime-950: #1a2e05;
+
+  /* green */
+  --tw-green-50: #f0fdf4;
+  --tw-green-100: #dcfce7;
+  --tw-green-200: #bbf7d0;
+  --tw-green-300: #86efac;
+  --tw-green-400: #4ade80;
+  --tw-green-500: #22c55e;
+  --tw-green-600: #16a34a;
+  --tw-green-700: #15803d;
+  --tw-green-800: #166534;
+  --tw-green-900: #14532d;
+  --tw-green-950: #052e16;
+
+  /* emerald */
+  --tw-emerald-50: #ecfdf5;
+  --tw-emerald-100: #d1fae5;
+  --tw-emerald-200: #a7f3d0;
+  --tw-emerald-300: #6ee7b7;
+  --tw-emerald-400: #34d399;
+  --tw-emerald-500: #10b981;
+  --tw-emerald-600: #059669;
+  --tw-emerald-700: #047857;
+  --tw-emerald-800: #065f46;
+  --tw-emerald-900: #064e3b;
+  --tw-emerald-950: #022c22;
+
+  /* teal */
+  --tw-teal-50: #f0fdfa;
+  --tw-teal-100: #ccfbf1;
+  --tw-teal-200: #99f6e4;
+  --tw-teal-300: #5eead4;
+  --tw-teal-400: #2dd4bf;
+  --tw-teal-500: #14b8a6;
+  --tw-teal-600: #0d9488;
+  --tw-teal-700: #0f766e;
+  --tw-teal-800: #115e59;
+  --tw-teal-900: #134e4a;
+  --tw-teal-950: #042f2e;
+
+  /* cyan */
+  --tw-cyan-50: #ecfeff;
+  --tw-cyan-100: #cffafe;
+  --tw-cyan-200: #a5f3fc;
+  --tw-cyan-300: #67e8f9;
+  --tw-cyan-400: #22d3ee;
+  --tw-cyan-500: #06b6d4;
+  --tw-cyan-600: #0891b2;
+  --tw-cyan-700: #0e7490;
+  --tw-cyan-800: #155e75;
+  --tw-cyan-900: #164e63;
+  --tw-cyan-950: #083344;
+
+  /* sky */
+  --tw-sky-50: #f0f9ff;
+  --tw-sky-100: #e0f2fe;
+  --tw-sky-200: #bae6fd;
+  --tw-sky-300: #7dd3fc;
+  --tw-sky-400: #38bdf8;
+  --tw-sky-500: #0ea5e9;
+  --tw-sky-600: #0284c7;
+  --tw-sky-700: #0369a1;
+  --tw-sky-800: #075985;
+  --tw-sky-900: #0c4a6e;
+  --tw-sky-950: #082f49;
+
+  /* blue */
+  --tw-blue-50: #eff6ff;
+  --tw-blue-100: #dbeafe;
+  --tw-blue-200: #bfdbfe;
+  --tw-blue-300: #93c5fd;
+  --tw-blue-400: #60a5fa;
+  --tw-blue-500: #3b82f6;
+  --tw-blue-600: #2563eb;
+  --tw-blue-700: #1d4ed8;
+  --tw-blue-800: #1e40af;
+  --tw-blue-900: #1e3a8a;
+  --tw-blue-950: #172554;
+
+  /* indigo */
+  --tw-indigo-50: #eef2ff;
+  --tw-indigo-100: #e0e7ff;
+  --tw-indigo-200: #c7d2fe;
+  --tw-indigo-300: #a5b4fc;
+  --tw-indigo-400: #818cf8;
+  --tw-indigo-500: #6366f1;
+  --tw-indigo-600: #4f46e5;
+  --tw-indigo-700: #4338ca;
+  --tw-indigo-800: #3730a3;
+  --tw-indigo-900: #312e81;
+  --tw-indigo-950: #1e1b4b;
+
+  /* violet */
+  --tw-violet-50: #f5f3ff;
+  --tw-violet-100: #ede9fe;
+  --tw-violet-200: #ddd6fe;
+  --tw-violet-300: #c4b5fd;
+  --tw-violet-400: #a78bfa;
+  --tw-violet-500: #8b5cf6;
+  --tw-violet-600: #7c3aed;
+  --tw-violet-700: #6d28d9;
+  --tw-violet-800: #5b21b6;
+  --tw-violet-900: #4c1d95;
+  --tw-violet-950: #2e1065;
+
+  /* purple */
+  --tw-purple-50: #faf5ff;
+  --tw-purple-100: #f3e8ff;
+  --tw-purple-200: #e9d5ff;
+  --tw-purple-300: #d8b4fe;
+  --tw-purple-400: #c084fc;
+  --tw-purple-500: #a855f7;
+  --tw-purple-600: #9333ea;
+  --tw-purple-700: #7e22ce;
+  --tw-purple-800: #6b21a8;
+  --tw-purple-900: #581c87;
+  --tw-purple-950: #3b0764;
+
+  /* fuchsia */
+  --tw-fuchsia-50: #fdf4ff;
+  --tw-fuchsia-100: #fae8ff;
+  --tw-fuchsia-200: #f5d0fe;
+  --tw-fuchsia-300: #f0abfc;
+  --tw-fuchsia-400: #e879f9;
+  --tw-fuchsia-500: #d946ef;
+  --tw-fuchsia-600: #c026d3;
+  --tw-fuchsia-700: #a21caf;
+  --tw-fuchsia-800: #86198f;
+  --tw-fuchsia-900: #701a75;
+  --tw-fuchsia-950: #4a044e;
+
+  /* pink */
+  --tw-pink-50: #fdf2f8;
+  --tw-pink-100: #fce7f3;
+  --tw-pink-200: #fbcfe8;
+  --tw-pink-300: #f9a8d4;
+  --tw-pink-400: #f472b6;
+  --tw-pink-500: #ec4899;
+  --tw-pink-600: #db2777;
+  --tw-pink-700: #be185d;
+  --tw-pink-800: #9d174d;
+  --tw-pink-900: #831843;
+  --tw-pink-950: #500724;
+
+  /* rose */
+  --tw-rose-50: #fff1f2;
+  --tw-rose-100: #ffe4e6;
+  --tw-rose-200: #fecdd3;
+  --tw-rose-300: #fda4af;
+  --tw-rose-400: #fb7185;
+  --tw-rose-500: #f43f5e;
+  --tw-rose-600: #e11d48;
+  --tw-rose-700: #be123c;
+  --tw-rose-800: #9f1239;
+  --tw-rose-900: #881337;
+  --tw-rose-950: #4c0519;
+
+  --color-bright-yellow-50: #fffadf;
+  --color-bright-yellow-100: #fff1c9;
+  --color-bright-yellow-200: #ffedba;
+  --color-bright-yellow-300: #ffe291;
+  --color-bright-yellow-400: #ffe06c;
+  --color-bright-yellow-500: #ffd759;
+  --color-bright-yellow-600: #ffc523;
+  --color-bright-yellow-700: #dba219;
+  --color-bright-yellow-800: #b78211;
+  --color-bright-yellow-900: #93640b;
+  --color-bright-yellow-950: #7a4f06;
+  --color-grayscale-50: #f7fafb;
+  --color-grayscale-100: #eef3f6;
+  --color-grayscale-200: #e0e6ec;
+  --color-grayscale-300: #d1d8df;
+  --color-grayscale-400: #b9c3cc;
+  --color-grayscale-500: #879099;
+  --color-grayscale-600: #70757a;
+  --color-grayscale-700: #595c5f;
+  --color-grayscale-800: #3e4042;
+  --color-grayscale-900: #2d2e30;
+  --color-grayscale-950: #1e1f20;
+  --color-grayscale-black: #000000;
+  --color-grayscale-white: #ffffff;
+  --color-halo-green-50: #ddf2e8;
+  --color-halo-green-100: #cceadd;
+  --color-halo-green-200: #b2e1cc;
+  --color-halo-green-300: #7fdcb2;
+  --color-halo-green-400: #63d1a0;
+  --color-halo-green-500: #55bc8e;
+  --color-halo-green-600: #3a9d7b;
+  --color-halo-green-700: #257f68;
+  --color-halo-green-800: #16695c;
+  --color-halo-green-900: #115449;
+  --color-halo-green-950: #043630;
+  --color-lavender-50: #f8ecff;
+  --color-lavender-100: #f1e5ff;
+  --color-lavender-200: #eddcff;
+  --color-lavender-300: #e5cdff;
+  --color-lavender-400: #dcbcff;
+  --color-lavender-500: #d7b2ff;
+  --color-lavender-600: #cda1ff;
+  --color-lavender-700: #9e6beb;
+  --color-lavender-800: #652cc8;
+  --color-lavender-900: #441e9f;
+  --color-lavender-950: #1a0e46;
+  --color-midnight-50: #ecf5ff;
+  --color-midnight-100: #d8e7f7;
+  --color-midnight-200: #b4cef0;
+  --color-midnight-300: #84a3d2;
+  --color-midnight-400: #5975a6;
+  --color-midnight-500: #3e527c;
+  --color-midnight-600: #293f6c;
+  --color-midnight-700: #1d305c;
+  --color-midnight-800: #14234d;
+  --color-midnight-900: #0b1529;
+  --color-midnight-950: #060b17;
+  --color-waxflower-50: #ffebd8;
+  --color-waxflower-100: #ffe0c1;
+  --color-waxflower-200: #ffcaa2;
+  --color-waxflower-300: #ffb67f;
+  --color-waxflower-400: #ff9364;
+  --color-waxflower-500: #f27e4b;
+  --color-waxflower-600: #db6b49;
+  --color-waxflower-700: #b74932;
+  --color-waxflower-800: #ae3920;
+  --color-waxflower-900: #932b1f;
+  --color-waxflower-950: #511508;
+
+  /* ==========================================================================
+   * WEBAPP LEGACY PALETTE
+   * Custom scales from the pre-Figma era. Values differ from --tw-* equivalents.
+   * Consumers should migrate to --tw-* or theme tokens over time.
+   * ========================================================================== */
+
+  /* Gray */
+  --gray-100: #f8f8f8;
+  --gray-200: #e8e8e8;
+  --gray-300: #b2b2b2;
+  --gray-400: #999999;
+  --gray-500: #7f7f7f;
+  --gray-600: #666666;
+  --gray-700: #4d4d4d;
+  --gray-800: #333333;
+  --gray-900: #1a1a1a;
+
+  /* Indigo (webapp custom — gray-blue, not standard Tailwind indigo) */
+  --indigo-50: #f7fafb;
+  --indigo-100: #eef3f6;
+  --indigo-200: #e0e6ec;
+  --indigo-300: #b9c3cc;
+  --indigo-400: #879099;
+  --indigo-500: #484e55;
+  --indigo-600: #343d49;
+  --indigo-700: #242d3d;
+  --indigo-800: #161f31;
+  --indigo-900: #0d1528;
+
+  /* Blue (webapp custom) */
+  --blue-50: #e3f1ff;
+  --blue-100: #d1e7fe;
+  --blue-200: #a3cdfe;
+  --blue-300: #75affe;
+  --blue-400: #2563eb;
+  --blue-500: #1b6afc;
+  --blue-600: #1351d8;
+  --blue-700: #0d3cb5;
+  --blue-800: #082a92;
+  --blue-900: #051d78;
+
+  /* Green (webapp custom) */
+  --green-50: #eeffe9;
+  --green-100: #dffad6;
+  --green-200: #b9f6b0;
+  --green-300: #86e382;
+  --green-400: #5ec963;
+  --green-500: #30a541;
+  --green-600: #187637;
+  --green-700: #0f5f31;
+  --green-800: #094f2d;
+  --green-900: #033a20;
+
+  /* Red (webapp custom — aligned with Figma error tokens) */
+  --red-50: #ffe8e8;
+  --red-100: #fdcdcd;
+  --red-200: #ffaeae;
+  --red-300: #f56c6a;
+  --red-400: #ec4451;
+  --red-500: #e00c30;
+  --red-600: #b90a27;
+  --red-700: #93081f;
+  --red-800: #6c0617;
+  --red-900: #560311;
+  --red-950: #370009;
+
+  /* Yellow */
+  --yellow-50: #fffadf;
+  --yellow-100: #fff1c9;
+  --yellow-200: #ffedba;
+  --yellow-300: #ffe291;
+  --yellow-400: #ffe06c;
+  --yellow-500: #ffd759;
+  --yellow-600: #ffc523;
+  --yellow-700: #dba219;
+  --yellow-800: #b78211;
+  --yellow-900: #93640b;
+
+  /* Orange (webapp custom — aligned with Figma warning tokens) */
+  --orange-50: #fff5d5;
+  --orange-100: #ffeeb7;
+  --orange-200: #fde19a;
+  --orange-300: #ffcd66;
+  --orange-400: #ffb93f;
+  --orange-500: #ff9800;
+  --orange-600: #db7900;
+  --orange-700: #b75e00;
+  --orange-800: #934500;
+  --orange-900: #7a3400;
+  --orange-950: #471e00;
+
+  /* Purple (webapp custom — #6e37ff as main, differs from --tw-violet-* and --tw-purple-*) */
+  --purple-50: #f8f3ff;
+  --purple-100: #e6d7ff;
+  --purple-200: #cbafff;
+  --purple-300: #ae86ff;
+  --purple-400: #9669ff;
+  --purple-500: #6e37ff;
+  --purple-600: #5428db;
+  --purple-700: #3d1bb7;
+  --purple-800: #2a1193;
+  --purple-900: #1c0a7a;
+
+  /* Cream */
+  --cream-500: #fcf8f3;
+  --cream: #fcf8f3;
+
+  --border-radius-none: 0px;
+  --border-radius-sm: 4px;
+  --border-radius-base: 8px;
+  --border-radius-md: 12px;
+  --border-radius-lg: 16px;
+  --border-radius-xl: 20px;
+  --border-radius-2xl: 24px;
+  --border-radius-3xl: 32px;
+  --border-radius-full: 9999px;
+
+  /* ==========================================================================
+   * BRAND ALIASES (reference theme tokens for backward compatibility)
+   * Theme tokens are defined at the end of this file
+   * ========================================================================== */
+  --brand-primary: var(--theme-primary);
+  --brand-secondary: var(--theme-secondary);
+  --brand-accent: #63d1a0;
+  --brand-destructive: var(--theme-destructive);
+  --brand-surface-primary: #ffffff;
+  --brand-surface-secondary: #f7fafb;
+  --brand-surface-tertiary: #eef3f6;
+  --brand-surface-inverse: #2d2e30;
+  --brand-text-primary: #000000;
+  --brand-text-secondary: #70757a;
+  --brand-text-tertiary: #879099;
+  --brand-text-inverse: #ffffff;
+  --brand-text-disabled: #b9c3cc;
+  --brand-border-primary: #d1d8df;
+  --brand-border-secondary: #e0e6ec;
+  --brand-border-strong: #70757a;
+  --brand-border-inverse: #ffffff;
+  --semantic-primary-default: #2563eb;
+  --semantic-primary-hover: #0d3cb5;
+  --semantic-primary-active: #082a92;
+  --semantic-primary-focus: #1351d8;
+  --semantic-primary-disabled: #2563eb;
+  --semantic-secondary-default: #0b1529;
+  --semantic-secondary-hover: #14234d;
+  --semantic-secondary-active: #060b17;
+  --semantic-secondary-focus: #1d305c;
+  --semantic-secondary-disabled: #0b1529;
+  --semantic-success-default: #30a541;
+  --semantic-success-hover: #0f5f31;
+  --semantic-success-active: #094f2d;
+  --semantic-success-focus: #5ec963;
+  --semantic-success-disabled: #30a541;
+  --semantic-success-subtle: #eeffe9;
+  --semantic-success-muted: #dffad6;
+  --semantic-danger-default: #dc2626;
+  --semantic-danger-hover: #93081f;
+  --semantic-danger-active: #991b1b;
+  --semantic-danger-focus: #f87171;
+  --semantic-danger-disabled: #dc2626;
+  --semantic-danger-subtle: #fef2f2;
+  --semantic-danger-muted: #fee2e2;
+  --semantic-warning-default: #ff9800;
+  --semantic-warning-hover: #db7900;
+  --semantic-warning-active: #b75e00;
+  --semantic-warning-focus: #ffb93f;
+  --semantic-warning-disabled: #ff9800;
+  --semantic-warning-subtle: #fff5d5;
+  --semantic-warning-muted: #ffeeb7;
+  --semantic-info-default: #1b6afc;
+  --semantic-info-hover: #0d3cb5;
+  --semantic-info-active: #082a92;
+  --semantic-info-focus: #2563eb;
+  --semantic-info-disabled: #1b6afc;
+  --semantic-info-subtle: #e3f1ff;
+  --semantic-info-muted: #d1e7fe;
+  --semantic-accent-default: #63d1a0;
+  --semantic-accent-hover: #55bc8e;
+  --semantic-accent-active: #3a9d7b;
+  --semantic-accent-focus: #7fdcb2;
+  --semantic-accent-disabled: #63d1a0;
+  --semantic-accent-subtle: #ddf2e8;
+  --semantic-accent-muted: #cceadd;
+  --semantic-surface-default: #ffffff;
+  --semantic-surface-subtle: #f7fafb;
+  --semantic-surface-muted: #eef3f6;
+  --semantic-surface-inverse: #2d2e30;
+  --semantic-surface-overlay: #000000;
+  --semantic-text-primary: #1e1f20;
+  --semantic-text-default: #000000;
+  --semantic-text-subtle: #70757a;
+  --semantic-text-muted: #879099;
+  --semantic-text-inverse: #ffffff;
+  --semantic-text-disabled: #b9c3cc;
+  --semantic-text-link: #1351d8;
+  --semantic-text-link-hover: #082a92;
+  --semantic-border-default: #d1d8df;
+  --semantic-border-subtle: #e0e6ec;
+  --semantic-border-strong: #70757a;
+  --semantic-border-inverse: #ffffff;
+  --semantic-border-focus: #1b6afc;
+  --semantic-link-default: #2563eb;
+  --semantic-link-hover: #1d4ed8;
+  --semantic-link-focus: #2563eb;
+
+  /* ==========================================================================
+   * BASE/THEME VARIABLES (from Figma theme tokens)
+   * ========================================================================== */
+  --base-foreground: var(--tw-neutral-950);
+  --base-background: var(--tw-white);
+  --base-muted-foreground: var(--tw-neutral-500);
+  --base-muted: var(--tw-neutral-100);
+  --base-inactive: var(--tw-neutral-200);
+  --base-border: var(--tw-neutral-300);
+  --base-accent: var(--tw-neutral-100);
+  --base-accent-foreground: var(--tw-neutral-950);
+  --base-surface: var(--tw-white);
+  --base-surface-foreground: var(--tw-neutral-950);
+  --base-focus-ring: var(--tw-neutral-400);
+  --base-ring-offset: var(--tw-white);
+  --base-foreground-dark: #ffffff;
+  --base-background-dark: var(--tw-neutral-950);
+
+  /* ==========================================================================
+   * THEME COLORS (from Figma theme tokens)
+   * Semantic: main = 600 | light = 200 | dark = 900 (light mode)
+   * ========================================================================== */
+  --theme-primary: var(--color-brand-blue-500);
+  --theme-primary-light: var(--color-brand-blue-100);
+  --theme-primary-dark: var(--color-brand-blue-950);
+  --theme-primary-foreground: var(--tw-white);
+  --theme-primary-focus: color-mix(
+    in srgb,
+    var(--color-brand-blue-500) 30%,
+    transparent
+  );
+  --theme-secondary: var(--color-lavender-800);
+  --theme-secondary-light: var(--color-lavender-200);
+  --theme-secondary-dark: var(--color-lavender-950);
+  --theme-secondary-foreground: var(--tw-white);
+  --theme-secondary-focus: color-mix(
+    in srgb,
+    var(--color-lavender-800) 30%,
+    transparent
+  );
+  --theme-tertiary: var(--tw-slate-800);
+  --theme-tertiary-light: var(--tw-slate-200);
+  --theme-tertiary-dark: var(--tw-slate-900);
+  --theme-tertiary-foreground: var(--tw-white);
+  --theme-tertiary-focus: color-mix(
+    in srgb,
+    var(--tw-slate-800) 30%,
+    transparent
+  );
+  --theme-destructive: var(--tw-red-600);
+  --theme-destructive-light: var(--tw-red-200);
+  --theme-destructive-dark: var(--tw-red-900);
+  --theme-destructive-foreground: var(--tw-white);
+  --theme-destructive-focus: color-mix(
+    in srgb,
+    var(--tw-red-600) 30%,
+    transparent
+  );
+  --theme-success: var(--tw-green-600);
+  --theme-success-light: var(--tw-green-200);
+  --theme-success-dark: var(--tw-green-900);
+  --theme-success-foreground: var(--tw-white);
+  --theme-success-focus: color-mix(
+    in srgb,
+    var(--tw-green-600) 30%,
+    transparent
+  );
+  --theme-info: var(--tw-blue-600);
+  --theme-info-light: var(--tw-blue-200);
+  --theme-info-dark: var(--tw-blue-900);
+  --theme-info-foreground: var(--tw-white);
+  --theme-info-focus: color-mix(in srgb, var(--tw-blue-600) 30%, transparent);
+  --theme-warning: var(--tw-orange-600);
+  --theme-warning-light: var(--tw-orange-200);
+  --theme-warning-dark: var(--tw-orange-900);
+  --theme-warning-foreground: var(--tw-black);
+  --theme-warning-focus: color-mix(
+    in srgb,
+    var(--tw-orange-600) 30%,
+    transparent
+  );
+  --component-link: var(--color-brand-blue-500);
+
+  /* ==========================================================================
+   * DATA/CHART COLORS (from Figma)
+   * ========================================================================== */
+  --data-chart-1: var(--color-midnight-400);
+  --data-chart-2: var(--color-lavender-600);
+  --data-chart-3: var(--color-halo-green-400);
+  --data-chart-4: var(--color-bright-yellow-600);
+  --data-chart-5: var(--color-waxflower-400);
+  --data-chart-6: var(--color-slate-600);
+  --data-chart-7: var(--tw-indigo-400);
+
+  /* ==========================================================================
+   * COMPONENT INPUT TOKENS (from Figma)
+   * ========================================================================== */
+  --component-input-active: var(--color-brand-blue-500);
+  --component-input-inactive: var(--tw-neutral-500);
+  --component-input-foreground: var(--tw-black);
+  --component-input-base: var(--tw-white);
+  --component-input-border: var(--tw-neutral-300);
+  --component-input-focus: color-mix(
+    in srgb,
+    var(--color-brand-blue-500) 30%,
+    transparent
+  );
+  --component-input-inactive-focus: color-mix(
+    in srgb,
+    var(--tw-neutral-500) 30%,
+    transparent
+  );
+
+  /* ==========================================================================
+   * COMPONENT TOOLTIP TOKENS (from Figma)
+   * ========================================================================== */
+  --component-tooltip-base: var(--tw-neutral-800);
+  --component-tooltip-foreground: var(--tw-white);
+
+  /* ==========================================================================
+   * COMPONENT CARD TOKENS (from Figma)
+   * ========================================================================== */
+  --component-card-base: var(--tw-white);
+  --component-card-foreground: var(--tw-neutral-950);
+  --component-card-border: var(--tw-neutral-300);
+
+  /* ==========================================================================
+   * COMPONENT SIDEBAR TOKENS (from Figma)
+   * ========================================================================== */
+  --component-sidebar-background: var(--tw-neutral-50);
+  --component-sidebar-foreground: var(--base-foreground); /* #0a0a0a */
+  --component-sidebar-primary: #171717;
+  --component-sidebar-primary-foreground: var(--base-background); /* #ffffff */
+  --component-sidebar-accent: var(--base-accent); /* #f5f5f5 */
+  --component-sidebar-accent-foreground: var(--tw-neutral-900);
+  --component-sidebar-border: var(--tw-neutral-200);
+  --component-sidebar-ring: var(--theme-primary); /* #2563eb */
+}

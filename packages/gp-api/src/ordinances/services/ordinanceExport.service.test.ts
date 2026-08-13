@@ -1,0 +1,219 @@
+import { describe, expect, it } from 'vitest'
+import JSZip from 'jszip'
+import { Ordinance } from '../../generated/prisma'
+import {
+  OrdinanceExportService,
+  checkRowHeaderFits,
+  tallySummary,
+} from './ordinanceExport.service'
+
+// .docx is a zip; the rendered text lives in word/document.xml, so unzip it to
+// assert the ordinance content actually landed in the document.
+const docxText = async (buffer: Buffer): Promise<string> => {
+  const zip = await JSZip.loadAsync(buffer)
+  return (await zip.file('word/document.xml')?.async('string')) ?? ''
+}
+
+const record = (overrides: Partial<Ordinance> = {}): Ordinance =>
+  ({
+    slug: 'tree-canopy',
+    draftTitle: 'Draft amendment to Chapter 34',
+    draftBody: 'Section 1. Canopy goal.\n\n(a) Forty percent by 2040.',
+    goalText: 'Tree canopy',
+    draftSources: [
+      {
+        id: 's1',
+        title: 'Or. Rev. Stat. § 227.215',
+        url: 'https://example.gov/227',
+      },
+    ],
+    qualityReport: {
+      checks: [
+        {
+          id: 'authority',
+          label: 'Authority',
+          status: 'pass',
+          note: 'Within council power.',
+          source: { id: 's1', title: 'Src', url: 'https://example.gov/x' },
+        },
+      ],
+      tally: { pass: 1, flag: 0, attention: 0 },
+      stale: false,
+      ranAgainstBodyHash: 'h',
+    },
+    ...overrides,
+  }) as unknown as Ordinance
+
+describe('OrdinanceExportService', () => {
+  const service = new OrdinanceExportService()
+
+  it('renders a valid PDF', async () => {
+    const result = await service.render(record(), 'pdf')
+
+    expect(result.contentType).toBe('application/pdf')
+    expect(result.filename).toBe('tree-canopy.pdf')
+    // PDF files start with the %PDF- magic marker.
+    expect(result.buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-')
+    expect(result.buffer.length).toBeGreaterThan(500)
+  })
+
+  it('renders a valid Word document with the draft, sources, and QA', async () => {
+    const result = await service.render(record(), 'docx')
+
+    expect(result.contentType).toContain('wordprocessingml.document')
+    expect(result.filename).toBe('tree-canopy.docx')
+    // .docx is a zip; zip files start with the PK magic marker.
+    expect(result.buffer.subarray(0, 2).toString('ascii')).toBe('PK')
+
+    const xml = await docxText(result.buffer)
+    // Title + body land in the document.
+    expect(xml).toContain('Draft amendment to Chapter 34')
+    expect(xml).toContain('Canopy goal')
+    // The review disclaimer opens the appendix (not legal advice / attorney
+    // review / verify against source).
+    expect(xml).toContain('Review before you rely on this.')
+    expect(xml).toContain('not legal advice')
+    expect(xml).toContain('have a licensed attorney review it')
+    // The attorney reference section: sources + quality checks.
+    expect(xml).toContain('Sources')
+    expect(xml).toContain('Or. Rev. Stat. § 227.215')
+    expect(xml).toContain('Quality report')
+    expect(xml).toContain('Authority')
+    // Styled QA: tally summary + the colored status pill (light fill via a
+    // `clear` shading, not a solid black one).
+    expect(xml).toContain('Reviewed by 1 check')
+    expect(xml).toContain('PASS')
+    expect(xml).toContain('DCFCE7')
+    expect(xml).toContain('w:val="clear"')
+  })
+
+  it('renders amendment redline as Word tracked changes (ins/del)', async () => {
+    const amendment = record({
+      draftBody:
+        'Section 1. {-Use of AI-}{+AI Disclosure+} required.\n\n(a) Kept.',
+    })
+    const xml = await docxText((await service.render(amendment, 'docx')).buffer)
+    // Native Word revisions an attorney can accept or reject.
+    expect(xml).toContain('<w:ins')
+    expect(xml).toContain('<w:del')
+    expect(xml).toContain('AI Disclosure')
+    expect(xml).toContain('Use of AI')
+    expect(xml).toContain('Kept.')
+  })
+
+  it('renders an amendment redline PDF without throwing', async () => {
+    const amendment = record({ draftBody: 'Section 1. {-old-}{+new+} text.' })
+    const result = await service.render(amendment, 'pdf')
+    expect(result.buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-')
+    expect(result.buffer.length).toBeGreaterThan(500)
+  })
+
+  it('formats the tally summary with singular/plural checks', () => {
+    // Both renderers embed this string; the PDF stream is compressed so it
+    // can't be asserted from the raw buffer — test the shared function directly.
+    expect(tallySummary(1, { pass: 1, flag: 0, attention: 0 })).toBe(
+      'Reviewed by 1 check    1 pass · 0 flag · 0 attention',
+    )
+    expect(tallySummary(6, { pass: 4, flag: 1, attention: 1 })).toBe(
+      'Reviewed by 6 checks    4 pass · 1 flag · 1 attention',
+    )
+    // A stale report is prefixed with an outdated-results warning.
+    expect(tallySummary(6, { pass: 4, flag: 1, attention: 1 }, true)).toBe(
+      'Results may be outdated — re-run the quality check. ' +
+        'Reviewed by 6 checks    4 pass · 1 flag · 1 attention',
+    )
+  })
+
+  it('warns in the document when the quality report is stale', async () => {
+    const staleRecord = record({
+      qualityReport: {
+        checks: [
+          { id: 'authority', label: 'Authority', status: 'pass', note: 'ok' },
+        ],
+        tally: { pass: 1, flag: 0, attention: 0 },
+        stale: true,
+        ranAgainstBodyHash: 'old',
+      },
+    } as Partial<Ordinance>)
+
+    const xml = await docxText(
+      (await service.render(staleRecord, 'docx')).buffer,
+    )
+    expect(xml).toContain('Results may be outdated')
+  })
+
+  it('breaks a check row to a new page when its header would overflow', () => {
+    const bottom = 738
+    const pillH = 14
+    // Fits with room to spare, and exactly at the boundary (y + pill + 4).
+    expect(checkRowHeaderFits(700, pillH, bottom)).toBe(true)
+    expect(checkRowHeaderFits(720, pillH, bottom)).toBe(true)
+    // One point past the boundary must not fit, so the row starts a new page.
+    expect(checkRowHeaderFits(721, pillH, bottom)).toBe(false)
+    expect(checkRowHeaderFits(730, pillH, bottom)).toBe(false)
+  })
+
+  it('renders a long multi-page draft without throwing', async () => {
+    const longBody = Array.from(
+      { length: 120 },
+      (_, i) => `Section ${i}. Lorem ipsum dolor sit amet, consectetur.`,
+    ).join('\n')
+    const manyChecks = Array.from({ length: 6 }, (_, i) => ({
+      id: `c${i}`,
+      label: `Check number ${i}`,
+      status: 'flag' as const,
+      note: 'This needs work before adoption. '.repeat(3),
+    }))
+    const big = record({
+      draftBody: longBody,
+      qualityReport: {
+        checks: manyChecks,
+        tally: { pass: 0, flag: 6, attention: 0 },
+        stale: false,
+        ranAgainstBodyHash: 'h',
+      },
+    } as Partial<Ordinance>)
+
+    const pdf = await service.render(big, 'pdf')
+
+    // The page-break guard must render a valid, multi-page PDF without throwing.
+    expect(pdf.buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-')
+    expect(pdf.buffer.length).toBeGreaterThan(2000)
+  })
+
+  it('renders a check with an empty note without error', async () => {
+    const emptyNote = record({
+      qualityReport: {
+        checks: [
+          { id: 'clarity', label: 'Clarity', status: 'attention', note: '' },
+        ],
+        tally: { pass: 0, flag: 0, attention: 1 },
+        stale: false,
+        ranAgainstBodyHash: 'h',
+      },
+    } as Partial<Ordinance>)
+
+    const pdf = await service.render(emptyNote, 'pdf')
+    expect(pdf.buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-')
+
+    // Word renders the note-less check (label + pill) without erroring.
+    const xml = await docxText((await service.render(emptyNote, 'docx')).buffer)
+    expect(xml).toContain('Clarity')
+    expect(xml).toContain('ATTENTION')
+  })
+
+  it('renders the empty-state fallbacks when there is no report or sources', async () => {
+    const bare = record({
+      draftSources: null,
+      qualityReport: null,
+    } as Partial<Ordinance>)
+
+    const pdf = await service.render(bare, 'pdf')
+    const docx = await service.render(bare, 'docx')
+
+    expect(pdf.buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-')
+    const xml = await docxText(docx.buffer)
+    expect(xml).toContain('No sources cited.')
+    expect(xml).toContain('No quality report was generated.')
+  })
+})

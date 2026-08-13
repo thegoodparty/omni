@@ -1,9 +1,35 @@
 import type {
+  CreateDoorKnockingTurf,
+  DoorKnockingKnockRequest,
+  DoorKnockingKnockResponse,
+  DoorKnockingRoutePayload,
+  DoorKnockingTurf,
+  RecordDoorKnockInteraction,
+  RecordDoorKnockInteractionResponse,
+  UpdateDoorKnockingTurf,
+  CreateOrdinanceRequest,
   ExperimentVariantsResponse,
+  Ordinance,
+  OrdinanceListResponse,
+  OrdinanceQualityIterationsResponse,
+  OrdinanceQualityRun,
+  SaveOrdinanceClarifyAnswerRequest,
+  UpdateOrdinanceRequest,
   Priority,
   ChatAnchor,
+  RaceOpponentSourceType,
+  RaceOpponentCollectionStatus,
+  RaceOpponentResearchStatus,
+  RaceOpponentFindingKind,
+  SummarySource,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
+import type {
+  GetMinePersonProfileResponse,
+  PersonProfile,
+  SetProfileIssuesRequest,
+  UpsertPersonProfileRequest,
+} from 'app/dashboard/public-profile/shared/types'
 import type {
   SynthesizeSpeechRequest,
   SynthesizeSpeechResponse,
@@ -20,6 +46,7 @@ import {
 import type {
   CampaignStory,
   CampaignStoryRewrite,
+  RaceOpponentThreatTier,
 } from '@goodparty_org/contracts'
 import type { ContactsStats } from 'app/dashboard/polls/shared/queries'
 import type { GetPollIssuesResponse } from 'app/dashboard/polls/shared/serverApiCalls'
@@ -27,10 +54,21 @@ import type {
   SegmentResponse,
   Person,
   ListContactsResponse,
+  ListDetailContactsResponse,
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
-} from 'app/dashboard/contacts/[[...attr]]/components/shared/contacts-types'
+  ContactNote,
+  ContactNoteInput,
+  ContactNoteListResponse,
+  ContactStatuses,
+  LogContactInteractionInput,
+  LogContactInteractionResponse,
+  SupportStatusRollup,
+  UpdateContactStatusInput,
+} from 'app/dashboard/contacts/crm/shared/contacts-types'
+import type { ActivityConditionInput } from 'app/dashboard/contacts/crm/shared/activityConditionOptions'
 import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
+import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import type {
   ChatConversationListResponse,
   ChatConversationMessagesResponse,
@@ -59,6 +97,42 @@ export interface MeetingsListItemDto {
 }
 
 export type UserAgendaStatus = 'processing' | 'failed' | 'completed' | 'unknown'
+
+// A row of campaign_position with its relations included. `description` is the
+// candidate's own wording; `position.name` is the catalog stance it was chosen
+// from, and reads as a usable sentence on its own when the candidate wrote
+// nothing. `position` is a required relation in the schema and `topIssue` is
+// not, but both are typed nullable: this is a wire shape, and a script that
+// renders nothing beats one that throws at the door.
+export type CampaignIssuePosition = {
+  id: number
+  description: string | null
+  order: number | null
+  topIssue: { id: number; name: string } | null
+  position: { id: number; name: string } | null
+}
+
+/**
+ * A Campaign Tracker task row (campaign_tracker_tasks). Mirrors the gp-api
+ * CampaignTrackerTask model returned by the /campaigns/tracker-tasks endpoints.
+ */
+export type CampaignTrackerTask = {
+  id: string
+  title: string
+  description: string
+  cta: string | null
+  link: string | null
+  flowType: string | null
+  week: number
+  date: string
+  completed: boolean
+  phase: string | null
+  proRequired: boolean | null
+  // true for the static launch/pre-launch rows materialized at bootstrap;
+  // false for the dynamic tasks + events the CAP run produces. Lets the client
+  // tell "still generating" (only static present) from "done".
+  isDefaultTask: boolean
+}
 
 /** Request/response shapes for the user-agenda-upload flow. */
 export type UserAgendaSubmitRequest =
@@ -149,6 +223,21 @@ export type APIEndpoints = {
     Response: User
   }
 
+  // Submits the HubSpot registration form with the visitor's hubspotutk so
+  // the contact gets web/paid original-source attribution instead of the
+  // "offline sources" Segment's server-side destination would assign.
+  'POST /v1/users/me/crm-registration': {
+    Request: { hutk?: string }
+    Response: {}
+  }
+
+  // Used to refresh the outreach list after payment finalizes a draft
+  // (draft-first purchase flow). Server hides pending_payment rows.
+  'GET /v1/outreach': {
+    Request: {}
+    Response: Outreach[]
+  }
+
   // Server-side flag resolution: gp-api evaluates Amplitude Experiment for the
   // current user and returns the full variant map, so the browser never has to
   // reach Amplitude (which ad blockers / some networks block) to render gated
@@ -224,27 +313,29 @@ export type APIEndpoints = {
     Response: CampaignStory
   }
 
-  // Partial upsert — each Campaign Story field autosaves on blur, so any
-  // subset of why/background/issues may be sent.
-  // At least one field is required (the server's Zod schema rejects an empty
-  // body with 400) — encode that in the type so a call site can't send `{}`.
+  // Partial upsert of the story. Only `background` lives on the story now (the
+  // `why` and issues moved to the website, shared with Pro-upgrade); the
+  // server's Zod schema rejects an empty body with 400, so `background` is
+  // required here.
   'PUT /v1/campaigns/mine/story': {
-    Request:
-      | { why: string; background?: string; issues?: string }
-      | { why?: string; background: string; issues?: string }
-      | { why?: string; background?: string; issues: string }
+    Request: { background: string }
     Response: CampaignStory
   }
 
-  // AI-suggested rewrite of one Campaign Story field. The server pairs the
-  // submitted text with the candidate's name and a section-specific prompt;
-  // `text` must be non-empty (the Zod schema rejects blank input with 400).
+  // AI-suggested rewrite of a Campaign Story prompt or a website issue's "Policy
+  // focus". The server pairs the submitted text with the candidate's name and a
+  // section-specific prompt; `text` must be non-empty (the Zod schema rejects
+  // blank input with 400).
   'POST /v1/campaigns/mine/story/rewrite': {
-    // `field` is single-sourced from the contract so it can't drift from the
-    // stored story shape; the server's Zod enum is the runtime mirror.
+    // `why` (now the website bio) and `background` are the story prompts;
+    // `issue` rewrites a Policy focus (website issue description). `why` is no
+    // longer a CampaignStory key, so the set is listed explicitly. The server's
+    // Zod enum is the runtime mirror.
     Request: {
-      field: keyof CampaignStory
+      field: 'why' | 'background' | 'issue'
       text: string
+      // Optional context for an `issue` rewrite: the policy title.
+      title?: string
     }
     Response: CampaignStoryRewrite
   }
@@ -298,10 +389,12 @@ export type APIEndpoints = {
     Response: StrategicLandscapeResponse
   }
 
-  // Section 7 community events. Polling endpoint — same shape as
-  // strategic-landscape. 200 → ready (events array up to length 3), 202 →
-  // generating (poll again ~3s). Mirrors `CommunityEventsResponseSchema`
-  // in `gp-api/src/campaignStrategy/schemas/communityEvents.schema.ts`.
+  // Section 7 community events (legacy / story-off plan only). Polling
+  // endpoint — same shape as strategic-landscape. 200 → ready (events array up
+  // to length 3), 202 → generating (poll again ~3s). Mirrors
+  // `CommunityEventsResponseSchema` in
+  // `gp-api/src/campaignStrategy/schemas/communityEvents.schema.ts`. Story-on
+  // campaigns get events from the campaign tracker (CAP) instead.
   'POST /v1/campaignStrategy/mine/community-events': {
     Request: {}
     Response: CommunityEventsResponse
@@ -313,6 +406,39 @@ export type APIEndpoints = {
   'GET /v1/campaignStrategy/mine/exists': {
     Request: {}
     Response: { exists: boolean }
+  }
+
+  // The candidate's own issue stances (campaign_position), ordered by `order`
+  // with topIssue and position included — CampaignPositionsController's @Get(),
+  // behind CampaignOwnerOrAdminGuard. The legacy issues editor reaches this
+  // through clientFetch; typed here for the door script.
+  'GET /v1/campaigns/:id/positions': {
+    Request: { id: string }
+    Response: CampaignIssuePosition[]
+  }
+
+  // Campaign Tracker tasks (campaign_tracker_tasks). The new tracker reads and
+  // completes these; mirrors /campaigns/tracker-tasks in gp-api.
+  'GET /v1/campaigns/tracker-tasks': {
+    Request: {}
+    Response: CampaignTrackerTask[]
+  }
+
+  'PUT /v1/campaigns/tracker-tasks/complete/:id': {
+    Request: { id: string; type?: string; quantity?: number }
+    Response: CampaignTrackerTask
+  }
+
+  'DELETE /v1/campaigns/tracker-tasks/complete/:id': {
+    Request: { id: string }
+    Response: CampaignTrackerTask
+  }
+
+  // Manual generation override, non-prod only (gp-api 404s it in prod). Fire to
+  // dispatch a tracker run for the current campaign on demand.
+  'POST /v1/campaigns/tracker-tasks/generate': {
+    Request: {}
+    Response: void
   }
 
   'GET /v1/elected-office/current': {
@@ -415,6 +541,78 @@ export type APIEndpoints = {
     Response: void
   }
 
+  'GET /v1/ordinances': {
+    Request: {}
+    Response: OrdinanceListResponse
+  }
+
+  'POST /v1/ordinances': {
+    Request: CreateOrdinanceRequest
+    Response: Ordinance
+  }
+
+  'GET /v1/priorities': {
+    Request: {}
+    Response: Priority[]
+  }
+
+  'GET /v1/ordinances/:slug': {
+    Request: {}
+    Response: Ordinance
+  }
+
+  // Ordinance draft annotations. Only bug_report is supported here (the draft's
+  // "Flag a bug" affordance); the passage rides in payload.excerpt because the
+  // draft body is editable and a positional anchor would go stale.
+  'GET /v1/ordinances/:slug/annotations': {
+    Request: { slug: string }
+    Response: { annotations: ApiAnnotation[] }
+  }
+  'POST /v1/ordinances/:slug/annotations': {
+    Request: ApiCreateAnnotationInput & { slug: string }
+    Response: ApiAnnotation
+  }
+
+  'PATCH /v1/ordinances/:slug': {
+    Request: UpdateOrdinanceRequest
+    Response: Ordinance
+  }
+
+  'DELETE /v1/ordinances/:slug': {
+    Request: {}
+    Response: void
+  }
+
+  'POST /v1/ordinances/:slug/clarify-answers': {
+    Request: SaveOrdinanceClarifyAnswerRequest
+    Response: Ordinance
+  }
+
+  'POST /v1/ordinances/:slug/quality-report': {
+    Request: {}
+    Response: OrdinanceQualityRun
+  }
+
+  'GET /v1/ordinances/:slug/quality-report': {
+    Request: {}
+    Response: OrdinanceQualityRun
+  }
+
+  'POST /v1/ordinances/:slug/quality-loop': {
+    Request: {}
+    Response: Ordinance
+  }
+
+  'DELETE /v1/ordinances/:slug/quality-loop': {
+    Request: {}
+    Response: Ordinance
+  }
+
+  'GET /v1/ordinances/:slug/quality-iterations': {
+    Request: {}
+    Response: OrdinanceQualityIterationsResponse
+  }
+
   'GET /v1/contacts/stats': {
     Request: {}
     Response: ContactsStats
@@ -504,11 +702,19 @@ export type APIEndpoints = {
   }
 
   'POST /v1/voters/voter-file/filter': {
-    Request: { name?: string } & Record<string, unknown>
+    Request: {
+      name?: string
+      activityConditions?: ActivityConditionInput[]
+      supportStatus?: SupportStatusRollup[]
+    } & Record<string, unknown>
     Response: SegmentResponse
   }
   'PUT /v1/voters/voter-file/filter/:id': {
-    Request: { name?: string } & Record<string, unknown>
+    Request: {
+      name?: string
+      activityConditions?: ActivityConditionInput[]
+      supportStatus?: SupportStatusRollup[]
+    } & Record<string, unknown>
     Response: SegmentResponse
   }
   'GET /v1/voters/voter-file/filters': {
@@ -529,13 +735,93 @@ export type APIEndpoints = {
     }
     Response: ListContactsResponse
   }
+  'PATCH /v1/contacts/:personId/status': {
+    Request: UpdateContactStatusInput
+    Response: ContactStatuses
+  }
   'GET /v1/contacts/:id': {
     Request: {}
     Response: Person
   }
+  'POST /v1/contacts/count': {
+    Request: {
+      activityConditions?: ActivityConditionInput[]
+      supportStatus?: SupportStatusRollup[]
+    } & Record<string, unknown>
+    Response: { count: number }
+  }
+  'POST /v1/contacts/overlap-count': {
+    Request: {
+      activityConditions?: ActivityConditionInput[]
+      supportStatus?: SupportStatusRollup[]
+    } & Record<string, unknown>
+    Response: { count: number }
+  }
   'GET /v1/contacts/download': {
     Request: { segment?: string }
     Response: Blob
+  }
+  // Binary SoA pack for the door-knocking exploration map — fetched via raw
+  // fetch(...arrayBuffer()), not clientRequest (which is JSON-only).
+  'GET /v1/door-knocking/pack': {
+    Request: undefined
+    Response: ArrayBuffer
+  }
+  'GET /v1/door-knocking/turfs': {
+    Request: { voterFileFilterId?: number }
+    Response: DoorKnockingTurf[]
+  }
+  'POST /v1/door-knocking/turfs': {
+    Request: CreateDoorKnockingTurf
+    Response: DoorKnockingTurf
+  }
+  'PUT /v1/door-knocking/turfs/:id': {
+    Request: UpdateDoorKnockingTurf
+    Response: DoorKnockingTurf
+  }
+  'DELETE /v1/door-knocking/turfs/:id': {
+    Request: {}
+    Response: undefined
+  }
+  'POST /v1/door-knocking/turfs/:id/knock': {
+    Request: DoorKnockingKnockRequest
+    Response: DoorKnockingKnockResponse
+  }
+  'GET /v1/door-knocking/turfs/:id/route': {
+    Request: {}
+    Response: DoorKnockingRoutePayload
+  }
+  'POST /v1/door-knocking/interactions': {
+    Request: RecordDoorKnockInteraction
+    Response: RecordDoorKnockInteractionResponse
+  }
+  'GET /v1/contacts/list-detail': {
+    // Omitted segment = the universe row's detail (ENG-10778): the whole
+    // unfiltered district.
+    Request: { segment?: number }
+    Response: ListDetailContactsResponse
+  }
+
+  'GET /v1/contacts/:personId/notes': {
+    Request: {}
+    Response: ContactNoteListResponse
+  }
+  'POST /v1/contacts/:personId/notes': {
+    Request: ContactNoteInput
+    Response: ContactNote
+  }
+  'PATCH /v1/contacts/notes/:noteId': {
+    Request: ContactNoteInput
+    Response: ContactNote
+  }
+  'DELETE /v1/contacts/notes/:noteId': {
+    Request: {}
+    Response: {}
+  }
+
+  'POST /v1/contacts/:personId/interactions': {
+    Request: LogContactInteractionInput
+    Response: LogContactInteractionResponse
   }
 
   'GET /v1/contact-engagement/:id/issues': {
@@ -543,13 +829,28 @@ export type APIEndpoints = {
     Response: GetConstituentIssuesResponse
   }
   'GET /v1/contact-engagement/:id/activities': {
-    Request: { take?: number; after?: string }
+    Request: { take?: number; after?: string; lalVoterId?: string }
     Response: GetIndividualActivitiesResponse
   }
 
   'GET /v1/meetings': {
     Request: {}
     Response: MeetingsListResponseDto
+  }
+
+  // Self-serve landing catch-up: called client-side after landing on the
+  // dashboard. Resolves the office from the authenticated user and dispatches
+  // a briefing if the cron's gates would allow it, skipping only the 90-day
+  // activity gate (landing already proves activity). `inFlight` covers both
+  // a fresh dispatch from this call and a run already in progress from an
+  // earlier one — either way the caller should show the loading banner.
+  'POST /v1/meetings/dispatch-if-needed': {
+    Request: {}
+    Response: {
+      dispatched: boolean
+      inFlight: boolean
+      meetingDate: string | null
+    }
   }
 
   'GET /v1/meetings/:date/briefing': {
@@ -724,11 +1025,474 @@ export type APIEndpoints = {
     Response: Priority
   }
 
+  // --- Person public-profile overlay (in-product editing; Serve + Win) -------
+  // Owner-scoped by req.user in gp-api; there is no way to address another
+  // user's profile. `canCreate` is false until the data team has minted the
+  // caller's canonical personId (publish is unavailable until then).
+  'GET /v1/person-profiles/mine': {
+    Request: {}
+    Response: GetMinePersonProfileResponse
+  }
+  'POST /v1/person-profiles': {
+    Request: UpsertPersonProfileRequest
+    Response: PersonProfile
+  }
+  'PUT /v1/person-profiles/mine': {
+    Request: UpsertPersonProfileRequest
+    Response: PersonProfile
+  }
+  'POST /v1/person-profiles/mine/publish': {
+    Request: {}
+    Response: PersonProfile
+  }
+  'POST /v1/person-profiles/mine/unpublish': {
+    Request: {}
+    Response: PersonProfile
+  }
+  'DELETE /v1/person-profiles/mine': {
+    Request: {}
+    Response: PersonProfile
+  }
+  'PUT /v1/person-profiles/mine/issues': {
+    Request: SetProfileIssuesRequest
+    Response: PersonProfile
+  }
+  // Multipart image upload — call with `{}` payload and `{ body: formData,
+  // query: { target: 'avatar' | 'cover' } }` overrides.
+  'POST /v1/person-profiles/mine/upload-image': {
+    Request: {}
+    Response: PersonProfile
+  }
+
   'POST /v1/community-issues/self-dispatch': {
     Request: { type: 'top_community_issues' | 'trending_issues' }
     Response: { dispatched: number; skipped: number }
   }
+
+  // Preview/dev-only deterministic test seeding (gp-api disables it on qa/prod).
+  // Used by the Community Issues e2e suite; not called from product code.
+  'POST /v1/community-issues/seed': {
+    Request: {
+      issues: Array<{
+        list: 'top_community' | 'trending'
+        category: string
+        priority: 'low' | 'medium' | 'high'
+        title: string
+        summary: string
+        rank: number
+        detail: CommunityIssueContent
+        relatedBriefing?: {
+          meetingDate: string
+          briefingItemId: string
+          content: string
+        }
+      }>
+    }
+    Response: {
+      issues: Array<{
+        id: string
+        list: string
+        rank: number | null
+        title: string
+      }>
+    }
+  }
+
+  // Self-serve landing catch-up: called client-side after landing on the
+  // community issues dashboard. Dispatches both experiment types if eligible
+  // and not already in flight, skipping only the 90-day activity gate.
+  // Distinct from self-dispatch above (staff-only, single-type, manual
+  // refresh button).
+  'POST /v1/community-issues/dispatch-if-needed': {
+    Request: {}
+    Response: { dispatched: number; skipped: number }
+  }
+
+  'GET /v1/campaigns/mine/race-opponent': {
+    Request: {}
+    Response: RaceOpponentResponse
+  }
+
+  'POST /v1/campaigns/mine/race-opponent/collect': {
+    Request: {}
+    Response: { runId: string | null; status: RaceOpponentCollectionStatus }
+  }
+
+  // Manual opponent entry: when discovery finds nobody, the candidate names
+  // opponents by hand and runs collection on them. Mirrors gp-api's
+  // ManualOpponentsRequestSchema (name required; ballotpediaUrl/website are
+  // optional https URLs; 1-10 opponents) and returns the same collect shape.
+  'POST /v1/campaigns/mine/race-opponent/opponents/manual': {
+    Request: {
+      opponents: Array<{
+        name: string
+        ballotpediaUrl?: string
+        website?: string
+      }>
+    }
+    Response: { runId: string | null; status: RaceOpponentCollectionStatus }
+  }
+
+  // Self-research: the candidate's own footprint pass. start/status/report all
+  // derive their inputs from the campaign server-side, so none take a body.
+  'POST /v1/campaigns/mine/race-opponent/self-research': {
+    Request: {}
+    Response: StartSelfResearchResponse
+  }
+
+  'GET /v1/campaigns/mine/race-opponent/self-research/status': {
+    Request: {}
+    Response: SelfResearchStatusResponse
+  }
+
+  'GET /v1/campaigns/mine/race-opponent/self-research/report': {
+    Request: {}
+    Response: SelfResearchReportResponse
+  }
+
+  // Contrasts: the candidate review/edit/route surface (ENG-10575). generate
+  // drafts contrasts from opponent findings; list returns only candidate-
+  // visible (cleared/approved/used) contrasts; PATCH edits a contrast's text;
+  // route writes a DRAFT into Campaign Story or a texting Outreach (no send).
+  'POST /v1/campaigns/mine/race-opponent/contrasts/generate': {
+    Request: {}
+    Response: GenerateContrastsResponse
+  }
+
+  'GET /v1/campaigns/mine/race-opponent/contrasts': {
+    Request: {}
+    Response: ListContrastsResponse
+  }
+
+  // `id` is the path param (PathParamsOf types it as string and the runtime
+  // substitutes it into the URL), so it is NOT redeclared in Request —
+  // redeclaring it as a number would intersect with the string path param to
+  // `never`.
+  // Only candidate-authored fields are editable. opponentFact/sourceUrl/
+  // issueTag/routing are sourced from the opponent finding and immutable, so
+  // they are not part of the edit request (mirrors EditContrastRequestSchema).
+  'PATCH /v1/campaigns/mine/race-opponent/contrasts/:id': {
+    Request: {
+      candidateFact?: string
+      contrastSentence?: string
+    }
+    Response: ContrastResponse
+  }
+
+  'POST /v1/campaigns/mine/race-opponent/contrasts/:id/route': {
+    Request: { target: ContrastRouteTarget }
+    Response: RouteContrastResponse
+  }
+
+  // Opponent identify/research/profile/activity. All hard-gated server-side on a
+  // completed self-research pass — they 403 until self-research is done. identify
+  // defaults the opponent set from the election-api roster; research requires a
+  // candidate-confirmed opponentName in the body (never auto-run on a namesake).
+  'POST /v1/campaigns/mine/race-opponent/opponents/identify': {
+    Request: {}
+    Response: IdentifyOpponentsResponse
+  }
+
+  'POST /v1/campaigns/mine/race-opponent/opponents/research': {
+    Request: StartOpponentResearchRequest
+    Response: StartOpponentResearchResponse
+  }
+
+  'GET /v1/campaigns/mine/race-opponent/opponents/profile': {
+    Request: { opponentName: string }
+    Response: OpponentProfileResponse
+  }
+
+  // Viewing the activity stream advances lastViewedAt server-side, so a fresh GET
+  // re-flags only findings that landed after this read.
+  'GET /v1/campaigns/mine/race-opponent/opponents/activity': {
+    Request: {}
+    Response: RaceOpponentActivityResponse
+  }
 }
+
+// Wire shapes for the self-research routes. Mirror the contract schemas in
+// @goodparty_org/contracts (RaceOpponentResearchSchema / RaceOpponentFinding-
+// Schema), but dates arrive over JSON as ISO strings (the contract coerces them
+// to Date), so the date leaves are typed as string here.
+export type SelfResearchRecord = {
+  id: number
+  kind: RaceOpponentFindingKind
+  opponentName: string | null
+  electionCandidacyId: string | null
+  status: RaceOpponentResearchStatus
+  runId: string | null
+  attempts: number
+  completedAt: string | null
+  lastViewedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+// Every finding is sourced-or-silent at the type level: sourceUrl and
+// sourceExtract are always non-empty. draftedResponse is self-research only.
+export type SelfResearchFinding = {
+  id: number
+  researchId: number
+  claim: string
+  sourceUrl: string
+  sourceExtract: string
+  sourceTitle: string | null
+  sourceReachableAt: string | null
+  category: string
+  occurredAt: string | null
+  draftedResponse: string | null
+  createdAt: string
+}
+
+export type StartSelfResearchResponse = {
+  research: SelfResearchRecord
+}
+
+export type SelfResearchStatusResponse = {
+  status: RaceOpponentResearchStatus
+  research: SelfResearchRecord | null
+}
+
+export type SelfResearchReportResponse = {
+  research: SelfResearchRecord & { findings: SelfResearchFinding[] }
+}
+
+// Opponent identify returns roster-defaulted candidate names; the candidate
+// confirms a match before research is dispatched. Mirrors
+// IdentifyOpponentsResponseSchema in @goodparty_org/contracts.
+export type IdentifyOpponentsResponse = {
+  opponentNames: string[]
+}
+
+// Mirrors StartOpponentResearchRequestSchema. opponentName is the confirmed
+// match (required); electionCandidacyId is an optional roster reference.
+export type StartOpponentResearchRequest = {
+  opponentName: string
+  electionCandidacyId?: string | null
+}
+
+export type StartOpponentResearchResponse = {
+  research: SelfResearchRecord
+}
+
+// The opponent Handbook: the research row plus its sourced findings. Same wire
+// shape as the self-research report (dates as ISO strings over JSON); reuses
+// SelfResearchFinding for the finding leaves.
+export type OpponentProfileResponse = {
+  research: SelfResearchRecord & { findings: SelfResearchFinding[] }
+}
+
+// One "what's new" item: an opponent finding flagged with whether it landed
+// after the candidate last viewed the stream.
+export type RaceOpponentActivityItem = SelfResearchFinding & {
+  newSinceLastVisit: boolean
+}
+
+// Mirrors RaceOpponentActivityResponseSchema. `researchStatus` is the
+// authoritative opponent-research lifecycle from the persisted row (not_started
+// when none exists); the UI drives its initial view off it. The `refresh`
+// envelope matches the community-issues feed shape exactly so the activity feed
+// renders from the same pattern.
+export type RaceOpponentActivityResponse = {
+  findings: RaceOpponentActivityItem[]
+  researchStatus: RaceOpponentResearchStatus
+  refresh: {
+    status: 'running' | 'completed' | 'failed'
+    lastCompletedAt: string | null
+  }
+}
+
+// Wire shape of GET /v1/campaigns/mine/race-opponent. Mirrors
+// RaceOpponentResponseSchema in @goodparty_org/contracts, but dates arrive over
+// JSON as ISO strings (the contract type coerces them to Date), so they're
+// typed as string here.
+export type RaceOpponentItem = {
+  id: number
+  opponentName: string
+  sourceType: RaceOpponentSourceType
+  sourceUrl: string | null
+  content: unknown
+  collectedAt: string
+}
+
+// Display-ready summary structured by the race_opponent_summary step. Mirrors
+// RaceOpponentSummarySchema in @goodparty_org/contracts, but generatedAt arrives
+// over JSON as an ISO string (the contract coerces it to Date).
+//
+// v2 (ENG-10630/ENG-10634): mirrors NormalizedSummarySource in contracts — the
+// rich fields (url/title/publisher) are always present (the contract backfills
+// them from the hostname for legacy-normalized rows), while sourceType/
+// sourceUrl are the legacy passthrough gp-api still sends during the rollout.
+// RaceOpponentList/IssueContrastCard/the PDF still key off sourceType/sourceUrl
+// until ENG-10635 migrates them onto the rich fields, so those stay optional
+// (not removed) rather than required.
+export type RaceOpponentSummarySourceRef = {
+  url: string
+  title: string
+  publisher: string
+  description?: string
+  sourceType?: RaceOpponentSourceType
+  sourceUrl?: string
+}
+
+export type RaceOpponentSummarySection = {
+  text: string
+  sources: RaceOpponentSummarySourceRef[]
+}
+
+export type RaceOpponentSummaryKeyPosition = {
+  label: string
+  detail: string
+  sources: RaceOpponentSummarySourceRef[]
+}
+
+export type RaceOpponentSummary = {
+  opponentName: string
+  overview: RaceOpponentSummarySection | null
+  background: RaceOpponentSummarySection | null
+  keyPositions: RaceOpponentSummaryKeyPosition[]
+  generatedAt: string | null
+  threatTier?: RaceOpponentThreatTier
+  // v2 (ENG-10630/ENG-10635): interpretive, no required sources.
+  whyTheyreRunning?: { text: string } | null
+  // v2 (ENG-10630/ENG-10635): sourced-or-silent, like overview/background.
+  issuesThatMatter?: {
+    items: string[]
+    sources: RaceOpponentSummarySourceRef[]
+  } | null
+  // Phase 3 analytical fields, all optional (the analysis may be absent).
+  whyTheyMatter?: string
+  whatYouNeedToKnow?: Array<{
+    text: string
+    sources?: RaceOpponentSummarySourceRef[]
+  }>
+  // Relaxed sourcing: an item cites a source where one is direct, else omits it.
+  whereSoft?: Array<{ text: string; sources?: RaceOpponentSummarySourceRef[] }>
+  issueContrasts?: RaceOpponentIssueContrast[]
+}
+
+export type IssueSalience = 'high' | 'medium' | 'low'
+
+export type RaceOpponentIssueContrast = {
+  issue: string
+  salience: IssueSalience
+  whyItMatters: string
+  opponentStance: string
+  opponentSources?: RaceOpponentSummarySourceRef[]
+  candidateStance: string
+}
+
+// Campaign-level SWOT (ENG-10630/ENG-10636). Mirrors
+// RaceOpponentFieldAnalysisSchema in @goodparty_org/contracts, but
+// generatedAt arrives over JSON as an ISO string (the contract coerces it to
+// Date). Interpretive section: sources may be empty, unlike the
+// sourced-or-silent summary sections above.
+export type RaceOpponentFieldAnalysis = {
+  strengths: string[]
+  weaknesses: string[]
+  opportunities: string[]
+  threats: string[]
+  sources: SummarySource[]
+  generatedAt: string | null
+}
+
+// Stand-out action cards (ENG-10644/ENG-10650). Mirrors
+// RaceOpponentStandoutActionSchema in @goodparty_org/contracts.
+export type RaceOpponentStandoutAction = {
+  title: string
+  body: string
+  smsMessage: string
+  // Nullish: DB nulls round-trip, and older payloads may omit it.
+  opponentName?: string | null
+  issue: string
+}
+
+export type RaceOpponentResponse = {
+  opponents: Array<{
+    opponentName: string
+    // Enriched from the campaign-strategy opponent roster by name match; null
+    // when the collected name doesn't match a roster row (don't guess).
+    party: string | null
+    isIncumbent: boolean | null
+    // Phase 3: surfaced on the opponent object (in addition to summary) so the
+    // roster can tier and order without opening the detail. Optional until an
+    // opponent has analysis.
+    threatTier?: RaceOpponentThreatTier
+    // Sent only as the no-summary fallback; gp-api omits it once a structured
+    // summary exists (ENG-10622).
+    items?: RaceOpponentItem[]
+    // Optional + nullable: ENG-10588 wires the producer to populate this from
+    // the race_opponent_summary step; until then gp-api omits the field.
+    summary?: RaceOpponentSummary | null
+    // v2 (ENG-10630/ENG-10635): populated from the opponent's roster/collected
+    // data; nullish so older gp-api payloads that predate this field still parse.
+    websiteUrl?: string | null
+  }>
+  lastCollectedAt: string | null
+  collectionStatus: RaceOpponentCollectionStatus
+  // v2 (ENG-10630/ENG-10636): campaign-level SWOT, null until candidate_platform
+  // data is available; nullish so older gp-api payloads still parse.
+  fieldAnalysis?: RaceOpponentFieldAnalysis | null
+  // Phase 6 (ENG-10644/ENG-10650): the contract defaults this to [] so current
+  // gp-api always sends an array (never null); optional here so older payloads
+  // that predate the field still parse.
+  standoutActions?: RaceOpponentStandoutAction[]
+}
+
+// Where a contrast is routed. Mirrors RaceOpponentContrastRoutingSchema in
+// @goodparty_org/contracts (the read shape, which includes 'mail') vs the
+// narrower route target (story | texting only).
+export type ContrastRouting = 'story' | 'texting' | 'mail'
+export type ContrastRouteTarget = 'story' | 'texting'
+export type ContrastStatus =
+  | 'draft'
+  | 'pending_review'
+  | 'cleared'
+  | 'blocked'
+  | 'approved'
+  | 'used'
+  | 'discarded'
+
+// Wire shape of a contrast. Mirrors RaceOpponentContrastSchema in
+// @goodparty_org/contracts, but date leaves arrive over JSON as ISO strings
+// (the contract coerces them to Date). All six content fields are non-empty;
+// the UI additionally guards that every field is present before rendering.
+export type ContrastRecord = {
+  id: number
+  opponentFact: string
+  sourceUrl: string
+  candidateFact: string
+  contrastSentence: string
+  issueTag: string
+  routing: ContrastRouting
+  status: ContrastStatus
+  editCount: number
+  findingId: number | null
+  routedWebsiteId: number | null
+  routedOutreachId: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type ListContrastsResponse = {
+  contrasts: ContrastRecord[]
+}
+
+export type GenerateContrastsResponse = {
+  contrasts: ContrastRecord[]
+  routedToReviewCount: number
+}
+
+export type ContrastResponse = {
+  contrast: ContrastRecord
+}
+
+// The route endpoint returns one of two channel-specific shapes: a story route
+// carries routedWebsiteId, a texting route carries routedOutreachId.
+export type RouteContrastResponse =
+  | { contrast: ContrastRecord; routedWebsiteId: number }
+  | { contrast: ContrastRecord; routedOutreachId: number }
 
 export type CommunityIssueCard = {
   id: string
@@ -744,7 +1508,12 @@ export type CommunityIssueCard = {
 export type CommunityIssueSource = {
   id: string
   name: string
-  source_type: 'news' | 'government_website' | 'research' | 'poll'
+  source_type:
+    | 'news'
+    | 'government_website'
+    | 'research'
+    | 'poll'
+    | 'advocacy_org'
   url?: string | null
   publisher?: string | null
   article_type?: string | null
@@ -786,7 +1555,7 @@ export type CommunityIssueDetail = CommunityIssueCard & {
 // in gp-api. The AnnotationsApi client maps to/from the camelCase shape
 // the rest of the frontend uses.
 export type ApiAnnotationKind = 'note' | 'chat' | 'bug_report' | 'review'
-export type ApiAnnotationResourceType = 'briefing'
+export type ApiAnnotationResourceType = 'briefing' | 'ordinance'
 
 export interface ApiAnnotationAnchorInput {
   json_path: string | null
@@ -842,6 +1611,8 @@ export interface ApiAttachmentDownloadUrlResponse {
 export interface ApiAnnotationBugReport {
   id: string
   description: string
+  /** The flagged passage; null for briefings (re-derived from the anchor). */
+  excerpt: string | null
   submitted_at: string
 }
 
@@ -892,7 +1663,7 @@ export type ApiCreateAnnotationInput =
   | {
       kind: 'bug_report'
       anchor: ApiAnnotationAnchorInput
-      payload: { description: string }
+      payload: { description: string; excerpt?: string }
     }
   | {
       kind: 'review'
@@ -975,6 +1746,12 @@ export type ElectedOffice = {
   // Resume checkpoint: the furthest serve-onboarding step the holder reached,
   // written on every "Continue". Null when no checkpoint has been recorded.
   onboardingStep: string | null
+  // The campaign this office was created from, when the holder reached office by
+  // winning a GoodParty.org campaign (the "I won" flow). Null for a net-new serve
+  // lead (sales/magic-link/BallotReady) who was never a candidate. Marks a
+  // win-origin official who already onboarded as a candidate, so post-auth
+  // routing must NOT send them into serve onboarding for a missing term/date.
+  campaignId: number | null
 }
 
 export type ElectedOfficeInput = {

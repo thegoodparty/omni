@@ -20,6 +20,7 @@ import {
 import { AddProjectDomainResponseBody } from '@vercel/sdk/models/addprojectdomainop'
 import { BuySingleDomainResponseBody } from '@vercel/sdk/models/buysingledomainop'
 import { GetDomainResponseBody } from '@vercel/sdk/models/getdomainop'
+import { GetOrderStatus } from '@vercel/sdk/models/getorderop'
 import { GetProjectDomainResponseBody } from '@vercel/sdk/models/getprojectdomainop'
 import { Records } from '@vercel/sdk/models/getrecordsop'
 import { VerifyProjectDomainResponseBody } from '@vercel/sdk/models/verifyprojectdomainop'
@@ -62,6 +63,7 @@ import {
   PatternExpansionLimitError,
 } from '../util/domainPatterns.util'
 import { parseIsoDateAsUTC } from '@/shared/util/date.util'
+import { sleep } from '@/shared/util/sleep.util'
 
 const MAX_PATTERN_CANDIDATES = 50
 
@@ -74,6 +76,13 @@ const DOMAIN_RESERVATION_KIND = {
 
 const DOMAIN_PURCHASE_IN_PROGRESS_MESSAGE =
   'Domain registration already in progress for this campaign'
+
+// Vercel's registrar buy is asynchronous: buySingleDomain 2xx means "order
+// accepted", not "domain bought" (completion is typically ~13s). Poll bound
+// keeps worst-case in-request wait under agent/ALB timeouts; on timeout the
+// domain goes inactive and a retry re-drives idempotently (boughtAt check).
+const REGISTRAR_ORDER_POLL_INTERVAL_MS = 3_000
+const REGISTRAR_ORDER_POLL_MAX_ATTEMPTS = 15
 
 const GP_CAMPAIGN_DOMAIN_FORWARD_ADDRESS = 'candidate-domains@goodparty.org'
 
@@ -98,7 +107,7 @@ export class DomainsService
 
   // This will attempt to setup domain email forwarding for domains that have not yet done so.
   @Timeout(0)
-  private async backfillDomainEmailRedirects() {
+  async backfillDomainEmailRedirects() {
     if (!this.shouldEnableDomainPurchase()) {
       this.logger.debug(': Domain purchase disabled - skipping backfill')
       return
@@ -1067,7 +1076,8 @@ export class DomainsService
         | null = null,
       existingDomain: GetDomainResponseBody | null = null,
       projectResult: AddProjectDomainResponseBody | null = null,
-      forwardEmailDomain: ForwardEmailDomainResponse | null = null
+      forwardEmailDomain: ForwardEmailDomainResponse | null = null,
+      registrarOrderId: string | null = null
 
     if (this.shouldEnableDomainPurchase()) {
       try {
@@ -1097,9 +1107,10 @@ export class DomainsService
       }
 
       try {
-        vercelResult =
-          ownedDomain ||
-          (await this.vercel.purchaseDomain(
+        if (ownedDomain) {
+          vercelResult = ownedDomain
+        } else {
+          const buyResult = await this.vercel.purchaseDomain(
             domain.name,
             {
               firstName: contact.firstName,
@@ -1112,7 +1123,14 @@ export class DomainsService
               zipCode: contact.zipCode,
             },
             domain.price.toNumber(),
-          ))
+          )
+          await this.assertRegistrarOrderCompleted(
+            buyResult.orderId,
+            domain.name,
+          )
+          registrarOrderId = buyResult.orderId
+          vercelResult = buyResult
+        }
         let existingProjectDomain: GetProjectDomainResponseBody | null = null
         try {
           existingProjectDomain = await this.vercel.getProjectDomain(
@@ -1165,7 +1183,7 @@ export class DomainsService
     await this.model.update({
       where: { id: domain.id },
       data: {
-        operationId: `vercel-${domain.name}-${Date.now()}`,
+        operationId: registrarOrderId ?? `vercel-${domain.name}-${Date.now()}`,
         status: DomainStatus.submitted,
         // The registrant contact is a constant, already-ICANN-verified
         // GoodParty identity (see DOMAIN_REGISTRANT_CONTACT), so the registrar
@@ -1189,6 +1207,35 @@ export class DomainsService
       projectResult,
       message,
     }
+  }
+
+  private async assertRegistrarOrderCompleted(
+    orderId: string,
+    domainName: string,
+  ): Promise<void> {
+    for (
+      let attempt = 1;
+      attempt <= REGISTRAR_ORDER_POLL_MAX_ATTEMPTS;
+      attempt++
+    ) {
+      const order = await this.vercel.getRegistrarOrder(orderId)
+      if (order.status === GetOrderStatus.Completed) {
+        return
+      }
+      if (order.status === GetOrderStatus.Failed) {
+        throw new Error(
+          `Registrar order ${orderId} for ${domainName} failed` +
+            (order.error ? `: ${JSON.stringify(order.error)}` : ''),
+        )
+      }
+      if (attempt < REGISTRAR_ORDER_POLL_MAX_ATTEMPTS) {
+        await sleep(REGISTRAR_ORDER_POLL_INTERVAL_MS)
+      }
+    }
+    throw new Error(
+      `Registrar order ${orderId} for ${domainName} did not complete after ` +
+        `${REGISTRAR_ORDER_POLL_MAX_ATTEMPTS} polls`,
+    )
   }
 
   async configureDomain(websiteId: number) {

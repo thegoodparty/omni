@@ -1,0 +1,163 @@
+terraform {
+  required_version = ">= 1.5.0"
+
+  backend "s3" {
+    bucket       = "goodparty-terraform-state-us-west-2"
+    key          = "broker/dev/terraform.tfstate"
+    region       = "us-west-2"
+    use_lockfile = true
+    encrypt      = true
+  }
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
+provider "aws" {
+  region = "us-west-2"
+
+  default_tags {
+    tags = {
+      Project = "broker"
+    }
+  }
+}
+
+# Bootstrap toggle, named to match qa/prod so operators use one procedure
+# (`-var bootstrap=true` on first apply, then false) across every environment.
+# On qa/prod `bootstrap` guards the whole stack because a fresh env has nothing
+# yet; on dev everything else already exists, so the only thing left to guard
+# is the agent_run_inputs cross-stack lookup. Same flag, same intent — it just
+# has less to guard here. Other dev lookups (fargate, control_plane,
+# agent_experiment_metadata) predate this and aren't bootstrap-gated.
+variable "bootstrap" {
+  type        = bool
+  default     = false
+  description = "Skip the agent_run_inputs remote_state lookup so plan succeeds before that stack exists. Mirrors the qa/prod bootstrap flag; on dev it gates only this lookup (the rest of the stack is already applied). The broker module's count-guarded attachment leaves the IAM grant unset until the variable flips back to false on the second apply."
+}
+
+variable "docker_image_tag" {
+  description = "Immutable, SHA-pinned image tag (e.g. broker-a1b2c3d4). CI passes this per deploy; there is no default so a missing value fails loudly instead of silently shipping a mutable tag."
+  type        = string
+}
+
+data "terraform_remote_state" "fargate" {
+  backend = "s3"
+  config = {
+    bucket = "goodparty-terraform-state-us-west-2"
+    key    = "pmf-engine-fargate/dev/terraform.tfstate"
+    region = "us-west-2"
+  }
+}
+
+data "terraform_remote_state" "control_plane" {
+  backend = "s3"
+  config = {
+    bucket = "goodparty-terraform-state-us-west-2"
+    key    = "pmf-engine-control-plane/dev/terraform.tfstate"
+    region = "us-west-2"
+  }
+}
+
+data "aws_s3_bucket" "artifacts" {
+  bucket = "gp-agent-artifacts-dev"
+}
+
+data "aws_sqs_queue" "results" {
+  name = "develop-Queue.fifo"
+}
+
+data "terraform_remote_state" "agent_experiment_metadata" {
+  backend = "s3"
+  config = {
+    bucket = "goodparty-terraform-state-us-west-2"
+    key    = "agent-experiment-metadata/dev/terraform.tfstate"
+    region = "us-west-2"
+  }
+}
+
+data "terraform_remote_state" "agent_run_inputs" {
+  count = var.bootstrap ? 0 : 1
+
+  backend = "s3"
+  config = {
+    bucket = "goodparty-terraform-state-us-west-2"
+    key    = "agent-run-inputs/dev/terraform.tfstate"
+    region = "us-west-2"
+  }
+}
+
+resource "aws_secretsmanager_secret" "service_tokens" {
+  name        = "broker-service-tokens-dev"
+  description = "Plaintext SERVICE_TOKEN used by the dispatch Lambda to call broker /internal/mint-run-token. Hash lives in broker-dev."
+
+  tags = {
+    Environment = "dev"
+  }
+}
+
+resource "aws_secretsmanager_secret_version" "service_tokens_initial" {
+  secret_id     = aws_secretsmanager_secret.service_tokens.id
+  secret_string = jsonencode({})
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
+}
+
+module "broker" {
+  source = "../../../modules/broker"
+
+  environment        = "dev"
+  vpc_id             = "vpc-0763fa52c32ebcf6a"
+  private_subnet_ids = ["subnet-053357b931f0524d4", "subnet-0bb591861f72dcb7f"]
+  ecr_repository_url = "333022194791.dkr.ecr.us-west-2.amazonaws.com/gp-ai-projects"
+  docker_image_tag   = var.docker_image_tag
+
+  # Cross-SG references: empty on first apply (count-guarded rules skipped),
+  # populated on re-apply after fargate + control-plane have been applied.
+  agent_security_group_id           = try(data.terraform_remote_state.fargate.outputs.security_group_id, "")
+  dispatch_lambda_security_group_id = try(data.terraform_remote_state.control_plane.outputs.dispatch_lambda_sg_id, "")
+
+  artifact_bucket_arn  = data.aws_s3_bucket.artifacts.arn
+  artifact_bucket_name = data.aws_s3_bucket.artifacts.bucket
+
+  experiment_metadata_bucket_name     = data.terraform_remote_state.agent_experiment_metadata.outputs.bucket_name
+  experiment_metadata_read_policy_arn = data.terraform_remote_state.agent_experiment_metadata.outputs.read_policy_arn
+
+  results_queue_arn = data.aws_sqs_queue.results.arn
+  results_queue_url = data.aws_sqs_queue.results.url
+
+  sns_topic_arn = try(data.terraform_remote_state.fargate.outputs.sns_topic_arn, "")
+
+  agent_run_inputs_read_policy_arn = try(data.terraform_remote_state.agent_run_inputs[0].outputs.read_policy_arn, "")
+}
+
+output "security_group_id" {
+  value       = module.broker.security_group_id
+  description = "Broker security group ID (consumed by fargate + control-plane for egress rules)"
+}
+
+output "service_tokens_secret_arn" {
+  value       = aws_secretsmanager_secret.service_tokens.arn
+  description = "ARN of broker-service-tokens-dev (consumed by control-plane for dispatch Lambda env)"
+}
+
+output "broker_url" {
+  value       = module.broker.broker_url
+  description = "Service Connect URL for the broker"
+}
+
+output "secrets_arn" {
+  value       = module.broker.secrets_arn
+  description = "ARN of broker-dev (7 keys including SERVICE_TOKEN_HASH)"
+}
+
+output "dynamodb_table_name" {
+  value       = module.broker.dynamodb_table_name
+  description = "DynamoDB scope tickets table name"
+}

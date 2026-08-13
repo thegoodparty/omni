@@ -1,27 +1,8 @@
 import type { PaginationOptions } from '@goodparty_org/contracts'
 
-export type ElectedOffice = {
-  id: string
-  organizationSlug: string
-  electedDate: string | null
-  swornInDate: string | null
-  termStartDate: string | null
-  termEndDate: string | null
-  termLengthDays: number | null
-  isActive: boolean
-  party: string | null
-  pledgedAt: string | null
-  onboardingCompletedAt: string | null
-  // True when the holder self-reported their office/term via the net-new serve
-  // onboarding flow (vs a sales/BallotReady prefill).
-  selfReported: boolean
-  // Resume checkpoint: the furthest serve-onboarding step the holder reached.
-  onboardingStep: string | null
-  userId: number
-  campaignId: number | null
-  createdAt: string
-  updatedAt: string
-}
+// The response shape is owned by @goodparty_org/contracts; re-exported so SDK
+// consumers import it from the SDK surface without a shadow definition.
+export type { ElectedOffice } from '@goodparty_org/contracts'
 
 export type ListElectedOfficesOptions = PaginationOptions & {
   userId?: number

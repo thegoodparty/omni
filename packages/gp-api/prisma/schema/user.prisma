@@ -16,8 +16,14 @@ model User {
   avatar                String?
   password              String?
   hasPassword           Boolean                 @default(false) @map("has_password")
+  /// Also unique case-insensitively via a raw-SQL expression index
+  /// (user_email_lower_unique on LOWER(email)) that schema.prisma can't declare.
   email                 String                  @unique
   clerkId               String?                 @unique @map("clerk_id")
+  // Canonical civics person id (= election-api gp_candidate_id). Null until the
+  // data team's entity resolution mints a Person and reverse-ETL sets it here;
+  // required before this user can own a public PersonProfile.
+  personId              String?                 @unique @map("person_id")
   phone                 String?
   zip                   String?
   roles                 UserRole[]              @default([])
@@ -46,6 +52,8 @@ model User {
   chatConversations     ChatConversation[]
   artifactFeedbacks     ArtifactFeedback[]
   userAgendaUploads     UserAgendaUpload[]
+  personProfile         PersonProfile?
+  contactStatusEvents   ContactStatusEvent[]
 
   @@index([firstName])
   @@index([lastName])

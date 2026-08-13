@@ -41,12 +41,8 @@ export const CampaignCreatedBy: { ADMIN: 'admin' } = { ADMIN: 'admin' }
 export const CAMPAIGN_LAUNCH_STATUS_VALUES = ['launched'] as const
 export type CampaignLaunchStatus =
   (typeof CAMPAIGN_LAUNCH_STATUS_VALUES)[number]
-export const CampaignLaunchStatusSchema = z.enum(
-  CAMPAIGN_LAUNCH_STATUS_VALUES,
-)
-export const CampaignLaunchStatus = toEnumObject(
-  CAMPAIGN_LAUNCH_STATUS_VALUES,
-)
+export const CampaignLaunchStatusSchema = z.enum(CAMPAIGN_LAUNCH_STATUS_VALUES)
+export const CampaignLaunchStatus = toEnumObject(CAMPAIGN_LAUNCH_STATUS_VALUES)
 
 export const CAMPAIGN_STATUS_VALUES = ['candidate', 'onboarding'] as const
 export type CampaignStatus = (typeof CAMPAIGN_STATUS_VALUES)[number]
@@ -90,3 +86,44 @@ export const COMPLIANCE_STAGE_VALUES = [
 export type ComplianceStage = (typeof COMPLIANCE_STAGE_VALUES)[number]
 export const ComplianceStageSchema = z.enum(COMPLIANCE_STAGE_VALUES)
 export const ComplianceStage = toEnumObject(COMPLIANCE_STAGE_VALUES)
+
+// Peerly CampaignVerify (CV) states, in lifecycle order:
+// REQUESTED/IN_REVIEW (no PIN issued yet) → APPROVED (PIN sent, awaiting
+// entry) → VERIFIED (candidate's PIN entered; a CV token can now be minted and
+// the usecase submitted — distinct from APPROVED, which the CV authority can
+// reach before the candidate completes PIN entry). Mirrors the values Peerly
+// returns from retrieve_cv; surfaced so the FE can gate the PIN-entry screen on
+// APPROVED+. This is the single source of truth for the enum — the gp-api
+// Peerly vendor layer re-exports it (vendors/peerly/peerly.types.ts).
+export const PEERLY_CV_VERIFICATION_STATUS_VALUES = [
+  'REQUESTED',
+  'IN_REVIEW',
+  'APPROVED',
+  'VERIFIED',
+  'REJECTED',
+  'WITHDRAWN',
+] as const
+export type PeerlyCvVerificationStatus =
+  (typeof PEERLY_CV_VERIFICATION_STATUS_VALUES)[number]
+export const PeerlyCvVerificationStatusSchema = z.enum(
+  PEERLY_CV_VERIFICATION_STATUS_VALUES,
+)
+export const PeerlyCvVerificationStatus = toEnumObject(
+  PEERLY_CV_VERIFICATION_STATUS_VALUES,
+)
+
+// The channel Peerly used to deliver the CampaignVerify PIN, from the enriched
+// retrieve_cv payload's `verification_method`. `email` → filing email;
+// `text`/`phone`/`call` → filing phone; `mail` → filing postal address. An
+// unrecognized Peerly value degrades to null upstream rather than being coerced
+// into one of these.
+export const PIN_DELIVERY_METHOD_VALUES = [
+  'email',
+  'text',
+  'phone',
+  'call',
+  'mail',
+] as const
+export type PinDeliveryMethod = (typeof PIN_DELIVERY_METHOD_VALUES)[number]
+export const PinDeliveryMethodSchema = z.enum(PIN_DELIVERY_METHOD_VALUES)
+export const PinDeliveryMethod = toEnumObject(PIN_DELIVERY_METHOD_VALUES)

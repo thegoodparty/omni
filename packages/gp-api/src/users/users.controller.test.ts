@@ -38,6 +38,7 @@ const mockUser: User = {
   smsConsentAt: null,
   smsConsentSource: null,
   smsOptedOutAt: null,
+  personId: null,
 }
 
 function getGuards(methodName: keyof UsersController) {

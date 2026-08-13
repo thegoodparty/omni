@@ -1,61 +1,29 @@
-import { auth } from '@clerk/nextjs/server'
-import { getServerUser } from 'helpers/userServerHelper'
-import { redirect } from 'next/navigation'
-import pageMetaData from 'helpers/metadataHelper'
-import ProfilePage from './components/ProfilePage'
 import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
-import { fetchUserWebsite } from 'helpers/fetchUserWebsite'
-import { serverFetch } from 'gpApi/serverFetch'
-import { apiRoutes } from 'gpApi/routes'
-import type { TcrCompliance } from 'helpers/types'
-import type { ComponentProps } from 'react'
+import pageMetaData from 'helpers/metadataHelper'
+import candidateAccess from '../shared/candidateAccess'
+import DetailsPage from 'app/dashboard/campaign-details/components/DetailsPage'
+import { getServerUser } from 'helpers/userServerHelper'
 
 const meta = pageMetaData({
-  title: 'Profile Settings',
-  description: 'Profile settings for GoodParty.org.',
+  title: 'Profile | GoodParty.org',
+  description: 'Manage your public profile on GoodParty.org.',
+  slug: '/dashboard/profile',
 })
 export const metadata = meta
 
-type ProfilePageProps = ComponentProps<typeof ProfilePage>
+export const dynamic = 'force-dynamic'
 
-const Page = async (): Promise<React.JSX.Element> => {
-  const { userId } = await auth()
-  if (!userId) {
-    redirect('/login')
-  }
+export default async function Page(): Promise<React.JSX.Element> {
+  await candidateAccess()
 
-  const user = await getServerUser()
-  if (!user) {
-    throw new Error('Failed to load user profile. Please try again.')
-  }
   const campaign = await fetchUserCampaign()
-  const { subscriptionCancelAt } = campaign?.details || {}
+  const user = await getServerUser()
 
-  const [website, domainStatusResponse, tcrComplianceResponse] =
-    await Promise.all([
-      fetchUserWebsite(),
-      serverFetch<string>(apiRoutes.domain.status),
-      serverFetch<TcrCompliance>(apiRoutes.campaign.tcrCompliance.fetch),
-    ])
-
-  const domainStatus = domainStatusResponse.ok
-    ? domainStatusResponse.data
-    : null
-  const tcrCompliance = tcrComplianceResponse.ok
-    ? tcrComplianceResponse.data
-    : null
-
-  const childProps: ProfilePageProps = {
-    user,
-    campaign,
-    isPro: Boolean(campaign?.isPro),
-    subscriptionCancelAt,
-    website,
-    domainStatus,
-    tcrCompliance,
-  }
-
-  return <ProfilePage {...childProps} />
+  return (
+    <DetailsPage
+      pathname="/dashboard/profile"
+      campaign={campaign ?? undefined}
+      user={user}
+    />
+  )
 }
-
-export default Page

@@ -92,6 +92,7 @@ describe('PurchaseService', () => {
     smsConsentAt: null,
     smsConsentSource: null,
     smsOptedOutAt: null,
+    personId: null,
   }
 
   const mockCampaign: Campaign = {

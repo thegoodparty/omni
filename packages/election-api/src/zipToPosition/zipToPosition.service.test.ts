@@ -15,28 +15,34 @@ import { PrismaModule } from 'src/prisma/prisma.module'
 import { PrismaService } from 'src/prisma/prisma.service'
 import { ZipToPositionService } from './zipToPosition.service'
 
-describe('ZipToPositionService', () => {
+describe('ZipToPositionService.search', () => {
   let service: ZipToPositionService
   let findMany: ReturnType<typeof vi.fn>
+  let raceFindMany: ReturnType<typeof vi.fn>
+
+  const positionRow = {
+    positionId: 'pos-1',
+    name: 'Mayor',
+    displayOfficeLevel: 'City',
+    state: 'CA',
+    district: '',
+    position: { brPositionId: 'br-pos-1' },
+  }
 
   beforeEach(() => {
-    findMany = vi.fn().mockResolvedValue([])
+    findMany = vi.fn().mockResolvedValue([positionRow])
+    raceFindMany = vi.fn().mockResolvedValue([])
     service = new ZipToPositionService()
     Object.defineProperty(service, '_prisma', {
       value: {
-        zipToPosition: {
-          findMany,
-        },
+        zipToPosition: { findMany },
+        race: { findMany: raceFindMany },
       },
     })
   })
 
-  it('queries ZipToPosition by zip and date range, joining Position and Place', async () => {
-    await service.search({
-      zip: '90210',
-      electionDateFrom: '2026-01-01',
-      electionDateTo: '2027-12-31',
-    })
+  it('queries ZipToPosition for distinct positionIds + display metadata', async () => {
+    await service.search({ zip: '90210' })
 
     expect(findMany).toHaveBeenCalledWith({
       where: {
@@ -45,14 +51,68 @@ describe('ZipToPositionService', () => {
           { pctDistrictzipToZip: { gte: 0.005 } },
         ],
         zipCode: '90210',
-        electionDate: {
-          gte: new Date('2026-01-01'),
-          lte: new Date('2027-12-31'),
-        },
       },
-      include: { position: { include: { place: true } } },
-      orderBy: [{ electionDate: 'asc' }, { name: 'asc' }],
+      select: {
+        positionId: true,
+        name: true,
+        displayOfficeLevel: true,
+        state: true,
+        district: true,
+        position: { select: { brPositionId: true } },
+      },
+      distinct: ['positionId'],
     })
+  })
+
+  it('joins Race by the covered positionIds', async () => {
+    await service.search({ zip: '90210' })
+
+    expect(raceFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ positionId: { in: ['pos-1'] } }),
+      }),
+    )
+  })
+
+  it('returns an empty array (and skips the Race query) when no positions match', async () => {
+    findMany.mockResolvedValue([])
+
+    const result = await service.search({ zip: '00000' })
+
+    expect(result).toEqual([])
+    expect(raceFindMany).not.toHaveBeenCalled()
+  })
+
+  it('filters Race to future elections by default', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-05-12T12:00:00Z'))
+
+    await service.search({ zip: '90210' })
+
+    expect(raceFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          electionDate: { gte: new Date('2026-05-12T00:00:00Z') },
+        }),
+      }),
+    )
+    vi.useRealTimers()
+  })
+
+  it('filters Race to past elections when timeframe is past', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-05-12T12:00:00Z'))
+
+    await service.search({ zip: '90210', timeframe: 'past' })
+
+    expect(raceFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          electionDate: { lt: new Date('2026-05-12T00:00:00Z') },
+        }),
+      }),
+    )
+    vi.useRealTimers()
   })
 
   it('always applies the null-safe pct_districtzip_to_zip threshold filter', async () => {
@@ -86,19 +146,16 @@ describe('ZipToPositionService', () => {
     )
   })
 
-  it('maps a ZipToPosition row + Place into a RaceListItem', async () => {
-    findMany.mockResolvedValue([
+  it('maps a Race + position metadata + Place into a RaceListItem', async () => {
+    findMany.mockResolvedValue([positionRow])
+    raceFindMany.mockResolvedValue([
       {
-        id: 'ztp-1',
-        name: 'Mayor',
+        id: 'race-1',
+        positionId: 'pos-1',
         electionDate: new Date('2026-11-03'),
-        displayOfficeLevel: 'City',
-        state: 'CA',
-        district: '',
-        position: {
-          brPositionId: 'br-pos-1',
-          place: { name: 'Beverly Hills' },
-        },
+        isPrimary: false,
+        isRunoff: false,
+        Place: { name: 'Beverly Hills' },
       },
     ])
 
@@ -106,10 +163,12 @@ describe('ZipToPositionService', () => {
 
     expect(result).toEqual([
       {
-        id: 'ztp-1',
+        id: 'race-1',
         brPositionId: 'br-pos-1',
         position: { name: 'Mayor', level: 'City', state: 'CA' },
         election: { electionDay: '2026-11-03' },
+        isPrimary: false,
+        isRunoff: false,
         city: 'Beverly Hills',
         district: null,
       },
@@ -248,6 +307,8 @@ describe.skipIf(process.env.CI === 'true')(
     const positionAtlantaId = randomUUID()
     const ztpBeverlyHillsId = randomUUID()
     const ztpAtlantaId = randomUUID()
+    const raceBeverlyHillsId = randomUUID()
+    const raceAtlantaId = randomUUID()
 
     beforeAll(async () => {
       moduleRef = await Test.createTestingModule({
@@ -268,6 +329,9 @@ describe.skipIf(process.env.CI === 'true')(
     })
 
     beforeEach(async () => {
+      await prisma.race.deleteMany({
+        where: { id: { in: [raceBeverlyHillsId, raceAtlantaId] } },
+      })
       await prisma.zipToPosition.deleteMany({
         where: { id: { in: [ztpBeverlyHillsId, ztpAtlantaId] } },
       })
@@ -295,7 +359,6 @@ describe.skipIf(process.env.CI === 'true')(
             brPositionId: `br-pos-bh-${positionBeverlyHillsId}`,
             state: 'CA',
             name: 'Mayor',
-            placeId: placeBeverlyHillsId,
           },
           {
             id: positionAtlantaId,
@@ -337,9 +400,40 @@ describe.skipIf(process.env.CI === 'true')(
           },
         ],
       })
+
+      // Future races so the default (future) timeframe returns them. The
+      // Beverly Hills race carries placeId so search resolves its city.
+      await prisma.race.createMany({
+        data: [
+          {
+            id: raceBeverlyHillsId,
+            positionId: positionBeverlyHillsId,
+            placeId: placeBeverlyHillsId,
+            electionDate: new Date('2099-11-03'),
+            slug: `ca/beverly-hills/mayor-${raceBeverlyHillsId}`,
+            state: 'CA',
+            positionLevel: 'CITY',
+            isPrimary: false,
+            isRunoff: false,
+          },
+          {
+            id: raceAtlantaId,
+            positionId: positionAtlantaId,
+            electionDate: new Date('2099-11-03'),
+            slug: `ga/atlanta/city-council-${raceAtlantaId}`,
+            state: 'GA',
+            positionLevel: 'CITY',
+            isPrimary: false,
+            isRunoff: false,
+          },
+        ],
+      })
     })
 
     afterEach(async () => {
+      await prisma.race.deleteMany({
+        where: { id: { in: [raceBeverlyHillsId, raceAtlantaId] } },
+      })
       await prisma.zipToPosition.deleteMany({
         where: { id: { in: [ztpBeverlyHillsId, ztpAtlantaId] } },
       })
@@ -349,13 +443,16 @@ describe.skipIf(process.env.CI === 'true')(
       await prisma.place.deleteMany({ where: { id: placeBeverlyHillsId } })
     })
 
-    it('returns only the row for the requested zip, joined to its Place', async () => {
+    it('returns the race for the requested zip, with its Place as city', async () => {
       const result = await service.search({ zip: '90210' })
 
       expect(result).toHaveLength(1)
-      expect(result[0].id).toBe(ztpBeverlyHillsId)
-      expect(result[0].city).toBe('Beverly Hills')
-      expect(result.find((r) => r.id === ztpAtlantaId)).toBeUndefined()
+      expect(result[0]?.id).toBe(raceBeverlyHillsId)
+      expect(result[0]?.brPositionId).toBe(
+        `br-pos-bh-${positionBeverlyHillsId}`,
+      )
+      expect(result[0]?.city).toBe('Beverly Hills')
+      expect(result.find((r) => r.id === raceAtlantaId)).toBeUndefined()
     })
   },
 )

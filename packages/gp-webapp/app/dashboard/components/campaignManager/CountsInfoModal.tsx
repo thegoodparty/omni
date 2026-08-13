@@ -1,39 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { noop } from '@shared/utils/noop'
 import { numberFormatter } from 'helpers/numberHelper'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ModalOrDrawer } from '@shared/ui/ModalOrDrawer'
-import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
+import { districtStatsQueryOptions } from 'app/dashboard/polls/shared/queries'
+import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 import { RaceTargetMetrics } from 'helpers/types'
-
-const CONTACTS_STATS_ROUTE = 'GET /v1/contacts/stats'
-
-const useRegisteredVoters = (enabled: boolean) => {
-  const [registeredVoters, setRegisteredVoters] = useState<number | null>(null)
-
-  useEffect(() => {
-    if (!enabled) return
-    let cancelled = false
-    clientRequest(CONTACTS_STATS_ROUTE, {})
-      .then((res) => {
-        if (cancelled) return
-        setRegisteredVoters(res.data?.totalConstituents ?? null)
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return
-        setRegisteredVoters(null)
-        reportErrorToSentry(error, {
-          context: 'dashboard.countsInfoModal.fetchContactsStats',
-        })
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [enabled])
-
-  return registeredVoters
-}
 
 interface CountsInfoModalProps {
   open?: boolean
@@ -47,8 +21,29 @@ export const CountsInfoModal = ({
   raceTargetMetrics,
 }: CountsInfoModalProps): React.JSX.Element => {
   const { projectedTurnout, winNumber } = raceTargetMetrics ?? {}
-  const registeredVoters = useRegisteredVoters(open)
+  // Shared with the other contacts-stats consumers (queryKey
+  // ['contacts-stats']); lazy-gated so the fetch only runs while the modal is
+  // open, preserving the original hand-rolled hook's behavior.
+  // An org with no resolvable district can only 400 here, and the row below
+  // already hides when the count is null — so the fetch is pure waste plus a
+  // Sentry report for an expected product state.
+  const { isUnresolvable } = useDistrictResolution()
+  const { data, error } = useQuery({
+    ...districtStatsQueryOptions,
+    enabled: open && !isUnresolvable,
+  })
+  const registeredVoters = data?.totalConstituents ?? null
   const showRegisteredVoters = registeredVoters !== null && registeredVoters > 0
+
+  // Only report while the modal is open: the shared query stays subscribed to
+  // the ['contacts-stats'] cache even when disabled, so without the open gate a
+  // failure from another consumer would surface here and report while closed.
+  useEffect(() => {
+    if (!open || !error) return
+    reportErrorToSentry(error, {
+      context: 'dashboard.countsInfoModal.fetchContactsStats',
+    })
+  }, [open, error])
 
   return (
     <ModalOrDrawer

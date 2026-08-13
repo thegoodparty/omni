@@ -15,8 +15,9 @@ vi.mock('@clerk/nextjs', () => ({
 }))
 
 const mockSetCookie = vi.fn<(name: string, value: string) => void>()
+const mockGetCookie = vi.fn<(name: string) => string | false>(() => false)
 vi.mock('helpers/cookieHelper', () => ({
-  getCookie: vi.fn(() => false),
+  getCookie: (name: string) => mockGetCookie(name),
   setCookie: (name: string, value: string) => mockSetCookie(name, value),
   deleteCookie: vi.fn(),
 }))
@@ -42,6 +43,8 @@ const setLocation = (search = '') => {
 
 beforeEach(() => {
   mockSetCookie.mockClear()
+  mockGetCookie.mockClear()
+  mockGetCookie.mockImplementation(() => false)
   mockTrackRegistration.mockClear()
   replaceSpy = vi.fn()
   setLocation('')
@@ -150,8 +153,16 @@ describe('PostAuthRedirectPage', () => {
     await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/login'))
   })
 
-  it('signup source + fresh createdAt: fires trackRegistrationCompleted', async () => {
+  it('signup source + fresh createdAt: fires trackRegistrationCompleted and submits the CRM registration with the hubspotutk', async () => {
     setLocation('?source=signup')
+    mockGetCookie.mockImplementation((name) =>
+      name === 'hubspotutk' ? 'test-hutk-cookie' : false,
+    )
+    const crmRegistrationBodies: Array<{ hutk?: string }> = []
+    api.mock('POST /v1/users/me/crm-registration', ({ body }) => {
+      crmRegistrationBodies.push(body)
+      return { status: 200, data: {} }
+    })
     api.mock('GET /v1/organizations', {
       status: 200,
       data: { organizations: [orgFixture] },
@@ -178,6 +189,7 @@ describe('PostAuthRedirectPage', () => {
     render(<PostAuthRedirectPage />)
 
     await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+    expect(crmRegistrationBodies).toEqual([{ hutk: 'test-hutk-cookie' }])
     expect(mockTrackRegistration).toHaveBeenCalledTimes(1)
     expect(mockTrackRegistration).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -187,8 +199,49 @@ describe('PostAuthRedirectPage', () => {
     )
   })
 
+  it('signup source + fresh createdAt, no hubspotutk cookie: still submits the CRM registration without a hutk', async () => {
+    setLocation('?source=signup')
+    const crmRegistrationBodies: Array<{ hutk?: string }> = []
+    api.mock('POST /v1/users/me/crm-registration', ({ body }) => {
+      crmRegistrationBodies.push(body)
+      return { status: 200, data: {} }
+    })
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [orgFixture] },
+    })
+    api.mock('GET /v1/users/me', {
+      status: 200,
+      data: {
+        id: 42,
+        email: 'new-user@example.com',
+        roles: [],
+        createdAt: new Date().toISOString(),
+      } as any,
+    })
+    api.mock('GET /v1/campaigns/mine/status', {
+      status: 200,
+      data: { status: 'candidate', slug: 'org-one' },
+    })
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
+
+    render(<PostAuthRedirectPage />)
+
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+    expect(crmRegistrationBodies).toEqual([{}])
+  })
+
   it('signup source + stale createdAt: does NOT fire (URL-tampering guard)', async () => {
     setLocation('?source=signup')
+    const crmRegistrationBodies: Array<{ hutk?: string }> = []
+    api.mock('POST /v1/users/me/crm-registration', ({ body }) => {
+      crmRegistrationBodies.push(body)
+      return { status: 200, data: {} }
+    })
     api.mock('GET /v1/organizations', {
       status: 200,
       data: { organizations: [orgFixture] },
@@ -216,6 +269,7 @@ describe('PostAuthRedirectPage', () => {
 
     await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
     expect(mockTrackRegistration).not.toHaveBeenCalled()
+    expect(crmRegistrationBodies).toEqual([])
   })
 
   it('next param: honors a same-origin deep link over the resolved path', async () => {
@@ -304,7 +358,7 @@ describe('PostAuthRedirectPage', () => {
     await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
   })
 
-  it('routes an incomplete EO to serve onboarding even when a campaign org is listed first', async () => {
+  it('routes an incomplete serve-lead EO (no campaign) to serve onboarding even when a campaign org is listed first', async () => {
     const electedOfficeOrg = {
       ...orgFixture,
       slug: 'serve-org',
@@ -326,9 +380,12 @@ describe('PostAuthRedirectPage', () => {
       status: 404,
       data: { message: 'none' },
     })
+    // A genuine serve lead: incomplete onboarding AND no campaign of origin.
     api.mock('GET /v1/elected-office/mine', {
       status: 200,
-      data: [{ id: 'eo-9', onboardingCompletedAt: null }] as any,
+      data: [
+        { id: 'eo-9', onboardingCompletedAt: null, campaignId: null },
+      ] as any,
     })
 
     render(<PostAuthRedirectPage />)
@@ -336,6 +393,47 @@ describe('PostAuthRedirectPage', () => {
     await waitFor(() =>
       expect(replaceSpy).toHaveBeenCalledWith('/serve/onboarding'),
     )
+  })
+
+  it('routes a just-won, win-origin EO (has campaign, no term dates) to the dashboard, not serve onboarding', async () => {
+    // The just-won routing bug: an office created by winning a campaign carries a
+    // campaignId and has already onboarded as a candidate, so a missing
+    // onboardingCompletedAt/term date must NOT drag it into serve onboarding.
+    const electedOfficeOrg = {
+      ...orgFixture,
+      slug: 'serve-org',
+      name: 'Serve Org',
+      electedOfficeId: 'eo-win',
+    }
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [orgFixture, electedOfficeOrg] },
+    })
+    api.mock('GET /v1/users/me', { status: 200, data: { roles: [] } as any })
+    api.mock('GET /v1/campaigns/mine/status', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/mine', {
+      status: 200,
+      data: [
+        {
+          id: 'eo-win',
+          onboardingCompletedAt: null,
+          campaignId: 7,
+          termStartDate: null,
+          termEndDate: null,
+        },
+      ] as any,
+    })
+
+    render(<PostAuthRedirectPage />)
+
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
   })
 
   it('routes to /dashboard (not serve onboarding) when an EO org exists but no EO record resolves', async () => {

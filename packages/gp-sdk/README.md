@@ -57,6 +57,12 @@ const updatedCampaign = await client.campaigns.update(1, {
   details: { office: 'Mayor' },
 })
 
+// Admin 10DLC internal-testing approval (M2M): marks an internal
+// (@goodparty.org) campaign as 10DLC-approved for testing; real sends
+// stay blocked because no Peerly identity exists.
+await client.campaigns.grantInternalTestingApproval(1)
+await client.campaigns.revokeInternalTestingApproval(1)
+
 const offices = await client.electedOffices.list({
   userId: 42,
   offset: 0,
@@ -124,6 +130,20 @@ const briefings = await client.admin.briefings.list({
 // Each row includes a `review` field ({ verdict, failReason, reviewerEmail, reviewedAt } | null)
 
 const briefing = await client.admin.briefings.get('briefing-uuid')
+
+// Meeting briefings dispatch (admin / M2M)
+const preview = await client.meetingBriefings.dispatchPreview('office-uuid')
+
+const briefingDispatch = await client.meetingBriefings.dispatch({
+  electedOfficeId: 'office-uuid',
+  kind: 'briefing', // 'schedule' | 'briefing'
+  useImminenceGate: true,
+})
+
+// Community issues dispatch (admin / M2M)
+const issuesDispatch = await client.communityIssues.dispatch({
+  orgSlugs: ['eo-123'],
+})
 
 client.destroy()
 ```

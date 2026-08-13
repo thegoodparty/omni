@@ -33,7 +33,11 @@ import { useIsMobile } from '@styleguide/hooks/use-mobile'
 import { usePathname, useRouter } from 'next/navigation'
 import { useCampaign } from './hooks/useCampaign'
 
-const SHARED_PATHS = ['/dashboard/profile', '/dashboard/campaign-details']
+const SHARED_PATHS = [
+  '/dashboard/profile',
+  '/dashboard/campaign-details',
+  '/dashboard/account',
+]
 
 interface OrganizationContextValue {
   organizations: Organization[]
@@ -176,7 +180,9 @@ export const OrganizationPicker = () => {
 
     const isOnSharedPage = SHARED_PATHS.some((p) => pathname?.startsWith(p))
     if (!isOnSharedPage) {
-      router.push(org.electedOfficeId ? '/dashboard/briefings' : '/dashboard')
+      router.push(
+        org.electedOfficeId ? '/dashboard/chief-of-staff' : '/dashboard',
+      )
     }
   }
 

@@ -2,13 +2,18 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   NotFoundException,
   Param,
   Post,
+  Query,
   Req,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
+import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { ElectedOffice, User } from '../../generated/prisma'
 import { addMonths, subDays } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -26,8 +31,12 @@ import {
   MeetingDateParamSchema,
 } from '../schemas/meetingDateParam.schema'
 import {
+  BriefingDispatchOutcomeSchema,
+  BriefingDispatchPreviewSchema,
   DispatchMeetingAgentDto,
   DispatchMeetingAgentSchema,
+  DispatchPreviewQuery,
+  DispatchPreviewQuerySchema,
 } from '../schemas/dispatchMeetingAgent.schema'
 import {
   UserAgendaFinalizeRequest,
@@ -37,6 +46,12 @@ import {
   UserAgendaPresignRequestSchema,
   UserAgendaPresignResponseSchema,
 } from '../schemas/userAgendaUpload.schema'
+import {
+  BriefingSeedRequestDto,
+  BriefingSeedRequestSchema,
+  BriefingSeedResponseSchema,
+} from '../schemas/briefingSeed.schema'
+import { BriefingSeedService } from '../services/briefingSeed.service'
 import { MeetingBriefingsService } from '../services/meetingBriefings.service'
 import { UserAgendaUploadService } from '../services/userAgendaUpload.service'
 
@@ -58,6 +73,7 @@ export class MeetingsBriefingsController {
   constructor(
     private readonly meetingBriefings: MeetingBriefingsService,
     private readonly userAgendaUploads: UserAgendaUploadService,
+    private readonly briefingSeed: BriefingSeedService,
     private readonly s3: S3Service,
   ) {}
 
@@ -71,7 +87,7 @@ export class MeetingsBriefingsController {
 
     const now = new Date()
     const windowFrom = parseIsoDateAsUTC(
-      formatInTimeZone(subDays(now, 4), 'UTC', 'yyyy-MM-dd'),
+      formatInTimeZone(subDays(now, 60), 'UTC', 'yyyy-MM-dd'),
     )
     const windowTo = addMonths(now, 3)
     const today = formatInTimeZone(now, 'UTC', 'yyyy-MM-dd')
@@ -230,6 +246,20 @@ export class MeetingsBriefingsController {
     return { ...artifact, briefing_id: row.id }
   }
 
+  // Preview/dev-only deterministic seeding for e2e tests; the service rejects
+  // the call on qa/prod. Scoped to the caller's own elected office.
+  @UseElectedOffice()
+  @Post('briefings/seed')
+  @HttpCode(HttpStatus.CREATED)
+  @ResponseSchema(BriefingSeedResponseSchema)
+  async seedBriefing(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Body(new ZodValidationPipe(BriefingSeedRequestSchema))
+    body: BriefingSeedRequestDto,
+  ) {
+    return this.briefingSeed.seed(electedOffice, body)
+  }
+
   @UseGuards(UserOrM2MGuard)
   @Post('briefings/dispatch')
   async dispatchAgent(
@@ -258,6 +288,36 @@ export class MeetingsBriefingsController {
       )
     }
     return { dispatched: result.dispatched, kind: body.kind }
+  }
+
+  @UseGuards(UserOrM2MGuard)
+  @Get('briefings/dispatch/preview')
+  @ResponseSchema(BriefingDispatchPreviewSchema)
+  previewDispatch(
+    @Query(new ZodValidationPipe(DispatchPreviewQuerySchema))
+    { electedOfficeId }: DispatchPreviewQuery,
+    @Req() req: IncomingRequest,
+  ) {
+    const requestingUserId = req.m2mToken ? undefined : effectiveUser(req)?.id
+    return this.meetingBriefings.previewManualDispatch(
+      electedOfficeId,
+      requestingUserId,
+    )
+  }
+
+  /**
+   * Self-serve landing catch-up: called client-side after the user lands on
+   * the dashboard. Resolves the office from the authenticated user (not an
+   * admin-supplied ID) and dispatches a briefing if the cron's gates would
+   * allow it, skipping only the activity gate — landing already proves the
+   * user is active. Distinct from the admin-only `briefings/dispatch` above.
+   */
+  @UseElectedOffice()
+  @Post('dispatch-if-needed')
+  @UseInterceptors(ZodResponseInterceptor)
+  @ResponseSchema(BriefingDispatchOutcomeSchema)
+  async dispatchIfNeeded(@ReqElectedOffice() electedOffice: ElectedOffice) {
+    return this.meetingBriefings.dispatchBriefingIfDue(electedOffice)
   }
 
   /**

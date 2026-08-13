@@ -13,19 +13,23 @@ import clsx from 'clsx'
 import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { districtStatsQueryOptions } from './queries'
+import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 
 export default function ConfidenceAlert() {
   const queryClient = useQueryClient()
   const [poll] = usePoll()
   const { lowConfidence } = poll
+  const { isUnresolvable } = useDistrictResolution()
 
   // Prefetch the district stats query if the poll has low confidence. We're going to need
   // this to calculate the recommended poll size, and this _can_ be a slow query.
+  //
+  // prefetchQuery ignores `enabled`, so gating here means not calling it at all.
   useEffect(() => {
-    if (lowConfidence) {
+    if (lowConfidence && !isUnresolvable) {
       queryClient.prefetchQuery(districtStatsQueryOptions)
     }
-  }, [lowConfidence])
+  }, [lowConfidence, isUnresolvable])
 
   if (isPollExpanding(poll)) {
     const alertData =

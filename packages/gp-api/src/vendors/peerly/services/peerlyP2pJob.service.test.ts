@@ -1,9 +1,12 @@
-import { BadGatewayException } from '@nestjs/common'
+import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 import { createMockLogger } from 'src/shared/test-utils/mockLogger.util'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import { P2P_JOB_DEFAULTS } from '../constants/p2pJob.constants'
+import { GetJobResponseDto } from '../schemas/peerlyP2pSms.schema'
+import { PeerlyJobStatus } from '../peerly.types'
 import { PeerlyMediaService } from './peerlyMedia.service'
 import { PeerlyP2pJobService } from './peerlyP2pJob.service'
 import { PeerlyScheduleService } from './peerlySchedule.service'
@@ -236,6 +239,19 @@ describe('PeerlyP2pJobService', () => {
       )
     })
 
+    it('rejects script text over the MMS limit before any Peerly calls', async () => {
+      await expect(
+        service.createPeerlyP2pJob({
+          ...baseJobParams,
+          scriptText: 'x'.repeat(P2P_SCRIPT_MAX_LENGTH + 1),
+        }),
+      ).rejects.toThrow(BadRequestException)
+
+      expect(mockMediaService.createMedia).not.toHaveBeenCalled()
+      expect(mockScheduleService.createSchedule).not.toHaveBeenCalled()
+      expect(mockHttpService.post).not.toHaveBeenCalled()
+    })
+
     it('throws BadGatewayException when media creation fails', async () => {
       mockMediaService.createMedia.mockRejectedValue(
         new Error('Media upload failed'),
@@ -317,7 +333,11 @@ describe('PeerlyP2pJobService', () => {
 
   describe('getJob', () => {
     it('returns job from HTTP service', async () => {
-      const mockJob = { id: 'job-1', status: 'active' }
+      const mockJob = {
+        id: 'job-1',
+        status: PeerlyJobStatus.ACTIVE,
+        leads_remaining: 42,
+      }
       mockHttpService.get.mockResolvedValue({ data: mockJob })
 
       const result = await service.getJob('job-1')
@@ -328,6 +348,41 @@ describe('PeerlyP2pJobService', () => {
 
     it('throws BadGatewayException when retrieval fails', async () => {
       mockHttpService.get.mockRejectedValue(new Error('API error'))
+
+      await expect(service.getJob('job-1')).rejects.toThrow(BadGatewayException)
+    })
+
+    // The outreach-completion sweep (OutreachCompletionService) drives a
+    // status write off `leads_remaining`; a malformed vendor payload must
+    // 502 rather than silently mis-driving that transition. This exercises
+    // the real GetJobResponseDto parse — the file's other tests stub
+    // validateResponse as a blind passthrough, which would hide a schema
+    // regression here.
+    it('throws BadGatewayException when the job response fails GetJobResponseDto validation', async () => {
+      mockHttpService.get.mockResolvedValue({
+        data: { id: 'job-1', status: PeerlyJobStatus.ACTIVE },
+      })
+      mockHttpService.validateResponse.mockImplementationOnce((data, dto) =>
+        (dto as typeof GetJobResponseDto).create(data),
+      )
+
+      await expect(service.getJob('job-1')).rejects.toThrow(BadGatewayException)
+    })
+
+    // end_date is the completion predicate's sole input (ENG-10739): a job
+    // payload without it must 502 the poll, not parse to Invalid Date and
+    // pin the outreach in_progress forever.
+    it('throws BadGatewayException when the job response lacks end_date', async () => {
+      mockHttpService.get.mockResolvedValue({
+        data: {
+          id: 'job-1',
+          status: PeerlyJobStatus.ACTIVE,
+          leads_remaining: 0,
+        },
+      })
+      mockHttpService.validateResponse.mockImplementationOnce((data, dto) =>
+        (dto as typeof GetJobResponseDto).create(data),
+      )
 
       await expect(service.getJob('job-1')).rejects.toThrow(BadGatewayException)
     })

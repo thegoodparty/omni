@@ -39,16 +39,11 @@ import { PaginatedResults, WrapperType } from 'src/shared/types/utility.types'
 import { objectNotEmpty } from 'src/shared/util/objects.util'
 import { toDateOnlyString } from 'src/shared/util/date.util'
 import { buildSlug } from 'src/shared/util/slug.util'
-import { UsersService } from 'src/users/services/users.service'
 import { getUserFullName } from 'src/users/util/users.util'
-import { GooglePlacesService } from 'src/vendors/google/services/google-places.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
-import { SlackService } from 'src/vendors/slack/services/slack.service'
-import { StripeService } from '../../vendors/stripe/services/stripe.service'
 import { AiContentInputValues } from '../ai/content/aiContent.types'
 import {
   CampaignPlanVersionData,
-  PlanVersion,
   UpdateCampaignFieldsInput,
 } from '../campaigns.types'
 import { CreateFollowOnCampaignBody } from '../schemas/updateCampaign.schema'
@@ -67,18 +62,14 @@ enum CandidateVerification {
 @Injectable()
 export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
   constructor(
-    @Inject(forwardRef(() => UsersService))
-    private usersService: WrapperType<UsersService>,
     @Inject(forwardRef(() => CrmCampaignsService))
     private readonly crm: WrapperType<CrmCampaignsService>,
-    private readonly analytics: AnalyticsService,
+    @Inject(forwardRef(() => AnalyticsService))
+    private readonly analytics: WrapperType<AnalyticsService>,
     private planVersionService: CampaignPlanVersionsService,
-    private readonly stripeService: StripeService,
-    private readonly googlePlaces: GooglePlacesService,
     private readonly elections: ElectionsService,
     private readonly ballotReady: BallotReadyService,
     private readonly organizations: OrganizationsService,
-    private readonly slack: SlackService,
     @Inject(forwardRef(() => CampaignTasksService))
     private readonly campaignTasks: WrapperType<CampaignTasksService>,
   ) {
@@ -611,9 +602,11 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
         })
 
-    // TODO: this should throw an exception if the update failed
-    //  https://goodparty.atlassian.net/browse/WEB-4384
-    if (updatedCampaign && trackCampaign) {
+    if (!updatedCampaign) {
+      throw new InternalServerErrorException(`Failed to update campaign ${id}`)
+    }
+
+    if (trackCampaign) {
       if (scalarFields?.isPro) {
         await this.analytics.identify(updatedCampaign.userId, {
           isPro: scalarFields.isPro,
@@ -623,7 +616,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       await this.crm.trackCampaign(updatedCampaign.id)
     }
 
-    return updatedCampaign ? updatedCampaign : null
+    return updatedCampaign
   }
 
   async patchCampaignDetails(
@@ -672,32 +665,49 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     await this.crm.trackCampaign(campaign.id)
   }
 
+  // Returns whether this call flipped the campaign from non-Pro to Pro, so a
+  // caller can fire a one-time side effect (e.g. auto-dispatching opponent
+  // collection) only on the genuine false->true transition and not on a no-op
+  // re-write of an already-Pro campaign.
   async setIsPro(
     campaignId: number,
     isPro: boolean = true,
     trackCampaign: boolean = true,
-  ) {
-    const existingCampaign = await this.model.findUnique({
-      where: { id: campaignId },
-      select: {
-        isPro: true,
-        hasFreeTextsOffer: true,
-        freeTextsOfferRedeemedAt: true,
-      },
-    })
+  ): Promise<{ becamePro: boolean }> {
+    // The transition detection (read prior isPro) and the write must serialize:
+    // Stripe delivers webhooks at-least-once, so two concurrent deliveries for
+    // the same subscription could otherwise both read isPro=false, both compute
+    // becamePro=true, and both fire the one-time Pro-upgrade side effects.
+    // Serializable makes the second writer block on the first and observe
+    // isPro=true, so it computes becamePro=false.
+    const { campaign, isBecomingProFirstTime } = await this.client.$transaction(
+      async (tx) => {
+        const existingCampaign = await tx.campaign.findUnique({
+          where: { id: campaignId },
+          select: {
+            isPro: true,
+            hasFreeTextsOffer: true,
+            freeTextsOfferRedeemedAt: true,
+          },
+        })
 
-    const isBecomingProFirstTime = !existingCampaign?.isPro && isPro
-    const hasNeverRedeemedFreeTexts =
-      !existingCampaign?.freeTextsOfferRedeemedAt
-    const shouldGrantOffer = isBecomingProFirstTime && hasNeverRedeemedFreeTexts
+        const isBecomingProFirstTime = !existingCampaign?.isPro && isPro
+        const shouldGrantOffer =
+          isBecomingProFirstTime && !existingCampaign?.freeTextsOfferRedeemedAt
 
-    const campaign = await this.model.update({
-      where: { id: campaignId },
-      data: {
-        isPro,
-        ...(shouldGrantOffer && { hasFreeTextsOffer: true }),
+        const campaign = await tx.campaign.update({
+          where: { id: campaignId },
+          data: {
+            isPro,
+            ...(shouldGrantOffer && { hasFreeTextsOffer: true }),
+          },
+        })
+
+        return { campaign, isBecomingProFirstTime }
       },
-    })
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    )
+
     // Must be in serial so as to not overwrite campaign details w/ concurrent queries
     await this.patchCampaignDetails(campaignId, {
       isProUpdatedAt: formatISO(new Date()),
@@ -717,6 +727,8 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       }
       await this.crm.trackCampaign(campaignId)
     }
+
+    return { becamePro: isBecomingProFirstTime }
   }
 
   async checkFreeTextsEligibility(campaignId: number): Promise<boolean> {
@@ -917,7 +929,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
 
     const newVersion = {
       date: new Date().toString(),
-      text: aiContent[key]?.content,
+      text: aiContent[key]?.content ?? '',
       // if new inputValues are specified we use those
       // otherwise we use the inputValues from the prior generation.
       inputValues:
@@ -937,12 +949,8 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       versions = existingVersions?.data as CampaignPlanVersionData
     }
 
-    let foundKey = false
-    if (!versions[key]) {
-      versions[key] = []
-    } else {
-      foundKey = true
-    }
+    const foundKey = versions[key] != null
+    const keyVersions = (versions[key] ??= [])
 
     // determine if we should update the current version or add a new one.
     // if regenerate is true, we should always add a new version.
@@ -950,8 +958,8 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     // we should update the existing version.
 
     let updateExistingVersion = false
-    if (regenerate === false && foundKey === true && versions[key].length > 0) {
-      const lastVersion = versions[key][0] as PlanVersion
+    if (regenerate === false && foundKey === true && keyVersions.length > 0) {
+      const lastVersion = keyVersions[0]
       const lastVersionDate = new Date(lastVersion?.date || 0)
       const diff = differenceInMilliseconds(new Date(), lastVersionDate)
       if (diff < 300000) {
@@ -960,14 +968,13 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     }
 
     if (updateExistingVersion === true) {
-      for (let i = 0; i < versions[key].length; i++) {
-        const version = versions[key][i]
+      for (const version of keyVersions) {
         if (
           JSON.stringify(version.inputValues) === JSON.stringify(inputValues)
         ) {
           // this version already exists. lets update it.
-          versions[key][i].text = newVersion.text
-          versions[key][i].date = new Date().toString()
+          version.text = newVersion.text
+          version.date = new Date().toString()
           break
         }
       }
@@ -978,7 +985,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       // here, we determine if we need to save an older version of the content.
       // because in the past we didn't create a Content version for every new generation.
       // otherwise if they translate they won't have the old version to go back to.
-      versions[key].push({
+      keyVersions.push({
         ...oldVersion,
         date: oldVersion.date.toString(),
       })
@@ -987,9 +994,9 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     if (updateExistingVersion === false) {
       this.logger.info('adding new version')
       // add new version to the top of the list.
-      const length = versions[key].unshift(newVersion)
+      const length = keyVersions.unshift(newVersion)
       if (length > 10) {
-        versions[key].length = 10
+        keyVersions.length = 10
       }
     }
 

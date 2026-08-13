@@ -3,6 +3,7 @@ import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { MagicLinkModule } from '@/magicLink/magicLink.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.module'
+import { CronModule } from '@/cron/cron.module'
 import { forwardRef, Global, Module } from '@nestjs/common'
 import { AwsModule } from 'src/vendors/aws/aws.module'
 import { ElectionsModule } from 'src/elections/elections.module'
@@ -30,9 +31,13 @@ import { CrmCampaignsService } from './services/crmCampaigns.service'
 import { EligibilityService } from './services/eligibility.service'
 import { CampaignTasksController } from './tasks/campaignTasks.controller'
 import { CampaignTasksService } from './tasks/services/campaignTasks.service'
+import { CampaignTrackerController } from './campaignTracker/campaignTracker.controller'
+import { CampaignTrackerTasksService } from './campaignTracker/services/campaignTrackerTasks.service'
+import { CampaignTrackerDispatchService } from './campaignTracker/services/campaignTrackerDispatch.service'
 import { AiGenerationService } from './tasks/services/aiGeneration.service'
 import { CampaignTcrComplianceController } from './tcrCompliance/campaignTcrCompliance.controller'
 import { CampaignTcrComplianceService } from './tcrCompliance/services/campaignTcrCompliance.service'
+import { Nightly10DlcReportService } from './tcrCompliance/services/nightly10DlcReport.service'
 import { ComplianceStateService } from './tcrCompliance/services/complianceState.service'
 import { WeeklyTasksDigestService } from './tasks/services/weeklyTasksDigest.service'
 import { WeeklyTasksDigestHandlerService } from './tasks/services/weeklyTasksDigestHandler.service'
@@ -56,7 +61,9 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     forwardRef(() => EcanvasserIntegrationModule),
     ScheduledMessagingModule,
     StripeModule,
-    PeerlyModule,
+    // PeerlyModule -> ContactsModule -> CampaignsModule -> PeerlyModule:
+    // every edge of the cycle needs forwardRef
+    forwardRef(() => PeerlyModule),
     GoogleModule,
     AnalyticsModule,
     UsersModule,
@@ -66,12 +73,14 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     AgentExperimentsModule,
     ElectedOfficeModule,
     MagicLinkModule,
+    CronModule,
   ],
   controllers: [
     CampaignsController,
     CampaignPositionsController,
     CampaignUpdateHistoryController,
     CampaignTasksController,
+    CampaignTrackerController,
     CampaignTcrComplianceController,
     PublicCampaignsController,
     EligibilityController,
@@ -84,9 +93,12 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     CampaignUpdateHistoryService,
     CrmCampaignsService,
     CampaignTasksService,
+    CampaignTrackerTasksService,
+    CampaignTrackerDispatchService,
     AiGenerationService,
     CampaignTcrComplianceService,
     ComplianceStateService,
+    Nightly10DlcReportService,
     WeeklyTasksDigestService,
     WeeklyTasksDigestHandlerService,
     PublicCampaignsService,
@@ -98,8 +110,10 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     CrmCampaignsService,
     CampaignTcrComplianceService,
     CampaignTasksService,
+    CampaignTrackerTasksService,
     AiGenerationService,
     WeeklyTasksDigestHandlerService,
+    Nightly10DlcReportService,
     EligibilityService,
   ],
 })

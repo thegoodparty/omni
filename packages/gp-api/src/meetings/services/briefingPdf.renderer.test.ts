@@ -85,6 +85,40 @@ describe('renderBriefingPdf', () => {
     expect(text).toContain('Agenda item 2')
   })
 
+  it('renders the `text` of {text, why} talking points, dropping `why`', async () => {
+    // New generations emit talking_points as {text, why} objects; legacy
+    // artifacts emit bare strings (ITEM_BASE above). Both must render — the
+    // PDF has no room for the secondary rationale line gp-webapp shows.
+    const artifact = makeArtifact({
+      items: [
+        {
+          ...makeItem(1, 'featured'),
+          display: {
+            ...ITEM_BASE.display,
+            talking_points: [
+              {
+                text: 'Ask staff to confirm the fee tier.',
+                why: 'Avoids an ambiguous vote record.',
+              },
+              {
+                text: 'Pull this before the vote if cost questions arise.',
+                why: 'The consent agenda leaves no other path.',
+              },
+              {
+                text: 'Lead with the bond-funded framing.',
+                why: 'Pre-empts the likely cost objection.',
+              },
+            ],
+          },
+        },
+      ],
+    })
+    const buf = await renderBriefingPdf(artifact)
+    const { text } = await extractText(buf)
+    expect(text).toContain('Ask staff to confirm the fee tier.')
+    expect(text).not.toContain('Avoids an ambiguous vote record.')
+  })
+
   it('TOC page numbers match the actual page where each item starts', async () => {
     // Three featured items with substantial bodies; we then look at the TOC
     // page and assert each item's reference matches its real page index.
@@ -186,12 +220,12 @@ describe('renderBriefingPdf', () => {
     // arithmetic uses `widthOfString`, and `doc.image()` consumes the
     // resulting Buffer. Asserting the URL text on the cover proves the
     // branch ran end-to-end without throwing and produced a parseable PDF.
-    // Mirror what the service actually passes: the public share URL on
-    // the marketing-domain rewrite (which serves the same PDF for any
-    // recipient, authenticated or not). The renderer just prints whatever
+    // Mirror what the service actually passes: the public share URL on the
+    // app origin, whose /api/v1/* proxy serves the same PDF for any
+    // recipient, authenticated or not. The renderer just prints whatever
     // string it's given; the test is about the QR branch firing.
     const liveBriefingUrl =
-      'https://goodparty.org/api/v1/briefings/0192b1d6-3b8e-7a4e-b3c4-9aa1c4d5e6f0'
+      'https://app.goodparty.org/api/v1/briefings/0192b1d6-3b8e-7a4e-b3c4-9aa1c4d5e6f0'
     const buf = await renderBriefingPdf(makeArtifact(), { liveBriefingUrl })
     expect(buf).toBeInstanceOf(Buffer)
     expect(buf.slice(0, 4).toString('latin1')).toBe('%PDF')

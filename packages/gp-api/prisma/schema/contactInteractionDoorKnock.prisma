@@ -1,0 +1,46 @@
+// Vocabulary locked by the 2026-07-15 CRM designs — exactly three-way.
+enum SupportAnswer {
+  supporter
+  unsure
+  non_supporter
+}
+
+enum DoorKnockOutcome {
+  answered
+  not_home
+  refused_to_engage
+  // Door-knocking-tool additions (July 2026): flattened end-states from the
+  // canvasser question flow. Additive — CRM readers unaffected.
+  inaccessible
+  not_a_voter
+}
+
+enum WillVoteAnswer {
+  yes
+  no
+  unsure
+}
+
+model ContactInteractionDoorKnock {
+  id               String           @id @default(uuid(7))
+  createdAt        DateTime         @default(now()) @map("created_at")
+  organizationSlug String           @map("organization_slug")
+  organization     Organization     @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  personId         String           @map("person_id")
+  occurredAt       DateTime         @map("occurred_at")
+  outcome          DoorKnockOutcome
+  supportAnswer    SupportAnswer?   @map("support_answer")
+  // GOTV signal captured by the door-knocking tool; null on manual/legacy
+  // rows and unused by the feed until it wants it.
+  willVote         WillVoteAnswer?  @map("will_vote")
+  note             String?
+  // The door-knocking tool's route/interaction id, the idempotency key so a
+  // re-sync upserts rather than double-writes. Null for manual logs; Postgres
+  // treats NULLs as distinct so the unique index never collides those rows.
+  sourceId         String?          @map("source_id")
+  manual           Boolean          @default(false)
+
+  @@unique([organizationSlug, sourceId])
+  @@index([organizationSlug, personId, occurredAt])
+  @@map("contact_interaction_door_knock")
+}

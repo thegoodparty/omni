@@ -11,7 +11,7 @@ import {
   Req,
   Res,
 } from '@nestjs/common'
-import { ElectedOffice, User } from '../../../generated/prisma'
+import { Organization, User } from '../../../generated/prisma'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { PinoLogger } from 'nestjs-pino'
 import { ZodValidationPipe } from 'nestjs-zod'
@@ -21,10 +21,11 @@ import type {
   CreateChatResponse,
 } from '@goodparty_org/contracts'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
-import { ReqElectedOffice } from '@/electedOffice/decorators/ReqElectedOffice.decorator'
-import { UseElectedOffice } from '@/electedOffice/decorators/UseElectedOffice.decorator'
+import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
+import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
+import { waitForDrain } from '@/chats/services/streamDrain.util'
 import { GeneralChatsService } from '../services/general-chats.service'
 import {
   ChatConversationSchema,
@@ -43,6 +44,12 @@ const SSE_HEADERS: Record<string, string> = {
 }
 
 const STREAM_TIMEOUT_MS = 300_000
+
+// After this long backpressured on a single write with no drain, treat the
+// client as stalled and stop awaiting drain (write through the rest). Bounds a
+// connected-but-non-draining client so it can't wedge the stream for the full
+// STREAM_TIMEOUT_MS.
+const DRAIN_STALL_TIMEOUT_MS = 15_000
 
 const TIMEOUT_ERROR_CHUNK = `data: ${JSON.stringify({
   type: 'error',
@@ -68,45 +75,8 @@ const sanitizeChunk = (chunk: ChatStreamChunk): ChatStreamChunk => {
 const formatChunk = (chunk: ChatStreamChunk): string =>
   `data: ${JSON.stringify(sanitizeChunk(chunk))}\n\n`
 
-interface DrainableStream {
-  once?: (event: string, cb: () => void) => void
-  off?: (event: string, cb: () => void) => void
-}
-
-const waitForDrain = (
-  stream: DrainableStream,
-  signal: AbortSignal,
-): Promise<void> =>
-  new Promise<void>((resolve) => {
-    if (typeof stream.once !== 'function') {
-      resolve()
-      return
-    }
-    const cleanup = () => {
-      stream.off?.('drain', onDrain)
-      stream.off?.('close', onTerminal)
-      stream.off?.('error', onTerminal)
-      signal.removeEventListener('abort', onTerminal)
-    }
-    const onDrain = () => {
-      cleanup()
-      resolve()
-    }
-    const onTerminal = () => {
-      cleanup()
-      resolve()
-    }
-    stream.once('drain', onDrain)
-    stream.once('close', onTerminal)
-    stream.once('error', onTerminal)
-    if (signal.aborted) {
-      onTerminal()
-      return
-    }
-    signal.addEventListener('abort', onTerminal, { once: true })
-  })
-
 @Controller('chats')
+@UseOrganization()
 export class GeneralChatsController {
   constructor(
     private readonly chats: GeneralChatsService,
@@ -116,17 +86,16 @@ export class GeneralChatsController {
   }
 
   @Post()
-  @UseElectedOffice()
   @ResponseSchema(CreateChatResponseSchema)
   async createChat(
     @ReqUser() user: User,
-    @ReqElectedOffice() office: ElectedOffice,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
     @Body(ZodValidationPipe) body: CreateChatDto,
   ): Promise<CreateChatResponse> {
     return this.chats.resolveConversation(
       {
         scope: body.scope,
-        organizationSlug: office.organizationSlug,
+        organizationSlug,
         anchor: body.anchor,
       },
       user.id,
@@ -134,26 +103,23 @@ export class GeneralChatsController {
   }
 
   @Get()
-  @UseElectedOffice()
   @ResponseSchema(ChatHistoryResponseSchema)
   async listChats(
     @ReqUser() user: User,
-    @ReqElectedOffice() office: ElectedOffice,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
     @Query(ZodValidationPipe) query: ChatHistoryQueryDto,
   ): Promise<ChatHistoryResponse> {
     const conversations = await this.chats.listConversations({
       scope: query.scope,
       userId: user.id,
-      organizationSlug: office.organizationSlug,
+      organizationSlug,
     })
     return { conversations }
   }
 
-  @Post(':conversationId/messages')
-  @UseElectedOffice()
-  async streamMessage(
+  @Post(':conversationId/messages') async streamMessage(
     @ReqUser() user: User,
-    @ReqElectedOffice() office: ElectedOffice,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
     @Param('conversationId') conversationId: string,
     @Query(ZodValidationPipe) query: ChatHistoryQueryDto,
     @Body(ZodValidationPipe) body: SendChatMessageDto,
@@ -164,7 +130,7 @@ export class GeneralChatsController {
       conversationId,
       query.scope,
       user.id,
-      office.organizationSlug,
+      organizationSlug,
     )
 
     const abortController = new AbortController()
@@ -182,19 +148,25 @@ export class GeneralChatsController {
       conversationId,
       scope: query.scope,
       userId: user.id,
-      organizationSlug: office.organizationSlug,
+      organizationSlug,
       userMessage: body.content,
       signal: abortController.signal,
       ...(body.clientMessageId && { clientMessageId: body.clientMessageId }),
     })
 
     let errored = false
+    let stalled = false
     try {
       for await (const chunk of iterable) {
         if (abortController.signal.aborted) break
         const flushed: boolean = reply.raw.write(formatChunk(chunk))
-        if (!flushed) {
-          await waitForDrain(reply.raw, abortController.signal)
+        if (!flushed && !stalled) {
+          const outcome = await waitForDrain(
+            reply.raw,
+            abortController.signal,
+            DRAIN_STALL_TIMEOUT_MS,
+          )
+          if (outcome === 'stalled') stalled = true
         }
       }
     } catch (err) {
@@ -230,11 +202,10 @@ export class GeneralChatsController {
   }
 
   @Get(':conversationId')
-  @UseElectedOffice()
   @ResponseSchema(ChatConversationSchema)
   async getConversation(
     @ReqUser() user: User,
-    @ReqElectedOffice() office: ElectedOffice,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
     @Param('conversationId') conversationId: string,
     @Query(ZodValidationPipe) query: ChatHistoryQueryDto,
   ): Promise<ChatConversationResponse> {
@@ -242,7 +213,7 @@ export class GeneralChatsController {
       conversationId,
       query.scope,
       user.id,
-      office.organizationSlug,
+      organizationSlug,
     )
     return {
       conversationId,
@@ -258,6 +229,7 @@ export class GeneralChatsController {
             kind: s.kind,
             text: s.text,
             toolName: s.toolName,
+            ...(s.payload != null && { payload: s.payload }),
           })),
         }),
       })),
@@ -265,11 +237,10 @@ export class GeneralChatsController {
   }
 
   @Delete(':conversationId')
-  @UseElectedOffice()
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteConversation(
     @ReqUser() user: User,
-    @ReqElectedOffice() office: ElectedOffice,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
     @Param('conversationId') conversationId: string,
     @Query(ZodValidationPipe) query: ChatHistoryQueryDto,
   ): Promise<void> {
@@ -277,7 +248,7 @@ export class GeneralChatsController {
       conversationId,
       query.scope,
       user.id,
-      office.organizationSlug,
+      organizationSlug,
     )
   }
 }

@@ -151,12 +151,22 @@ export class OrganizationsService extends createPrismaBase(
       }
     }
 
+    // Changing the position link must also drop a stale custom name:
+    // resolvePositionContext prefers customPositionName, so leaving it in
+    // place would keep shadowing the resolved position (or survive an
+    // unlink) everywhere downstream, including the HubSpot
+    // candidate_office sync.
+    const clearsStaleCustomName =
+      'ballotReadyPositionId' in updates && !('customPositionName' in updates)
+
     const updated = await this.client.organization.update({
       where: { slug: org.slug },
       data: {
         positionId: position?.id ?? null,
         overrideDistrictId: updates.overrideDistrictId,
-        customPositionName: updates.customPositionName,
+        customPositionName: clearsStaleCustomName
+          ? null
+          : updates.customPositionName,
       },
       include: { campaign: true, electedOffice: true },
     })
@@ -187,7 +197,10 @@ export class OrganizationsService extends createPrismaBase(
     let idx = 0
     for (const org of organizations) {
       if (org.owner) {
-        org.owner = enrichedOwners[idx++]
+        const enrichedOwner = enrichedOwners[idx++]
+        if (enrichedOwner) {
+          org.owner = enrichedOwner
+        }
       }
     }
 
@@ -498,6 +511,68 @@ export class OrganizationsService extends createPrismaBase(
       : null
 
     return { district, ballotLevel: position?.level ?? null }
+  }
+
+  // CRM sync needs both the district/ballot-level and the position-name context
+  // for a single org slug. Fetching the org row and the election-api position
+  // once here avoids the duplicate lookups that separate calls to
+  // getDistrictAndBallotLevelForOrgSlug + resolvePositionContextByOrgSlug would
+  // incur. Output is the union of those two methods' results.
+  async getCrmCompanyOrgContextByOrgSlug(slug: string): Promise<{
+    district: OrgDistrict | null
+    ballotLevel: BallotReadyPositionLevel | null
+    positionName: string | null
+    ballotReadyPositionId: string | null
+  }> {
+    const org = await this.findUnique({ where: { slug } })
+    if (!org) {
+      return {
+        district: null,
+        ballotLevel: null,
+        positionName: null,
+        ballotReadyPositionId: null,
+      }
+    }
+
+    const [position, overrideDistrict] = await Promise.all([
+      org.positionId
+        ? this.electionsService.getPositionById(org.positionId, {
+            includeDistrict: true,
+          })
+        : Promise.resolve(null),
+      org.overrideDistrictId
+        ? this.electionsService.getDistrict(org.overrideDistrictId)
+        : Promise.resolve(null),
+    ])
+
+    // Preserve resolvePositionContext's invariant: a stored positionId must
+    // resolve to a real election-api position.
+    if (org.positionId && !position) {
+      throw new InternalServerErrorException(
+        `Stored positionId ${org.positionId} does not exist in election-api`,
+      )
+    }
+
+    const rawDistrict = overrideDistrict ?? position?.district
+    const district: OrgDistrict | null = rawDistrict
+      ? {
+          id: rawDistrict.id,
+          state: rawDistrict.state,
+          l2Type: rawDistrict.L2DistrictType,
+          l2Name: rawDistrict.L2DistrictName,
+        }
+      : null
+
+    return {
+      district,
+      ballotLevel: position?.level ?? null,
+      positionName: org.positionId
+        ? org.customPositionName || position?.name || null
+        : (org.customPositionName ?? null),
+      ballotReadyPositionId: org.positionId
+        ? (position?.brPositionId ?? null)
+        : null,
+    }
   }
 
   async resolveServeContext(org: Organization): Promise<{

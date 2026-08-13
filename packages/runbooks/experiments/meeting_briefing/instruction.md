@@ -9,6 +9,14 @@ Run a meeting briefing for one elected official's specific city council meeting.
 3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/meeting_briefing.json` and nowhere else.
 5. Perform the spot-check at the bottom — schema-valid data can still be garbage.
+6. As you ENTER each phase below, mark a milestone so cost analysis can attribute per-turn spend to named phases. Run this line (it appends a marker, nothing else):
+   ```python
+   try:
+       from pmf_runtime import milestone; milestone("<phase>")
+   except Exception:
+       pass  # primitive absent on this runner build — never fail the run over a marker
+   ```
+   The phase markers are called out at each Step. A run that bails early (e.g. a channel-0 confirmed miss) simply emits fewer markers — that is expected.
 
 ## EARLY EXIT CONDITIONS (gate the run before any heavy work)
 
@@ -102,7 +110,16 @@ The **Voice and register** and **Tone** rules above govern every section of the 
 
 **Always in force, including for override sections:** the **Source discipline** and **Verbosity** rules below, and the rule against speculation beyond source materials.
 
-Each override section must open with a `## Posture override` declaration block that names which rules in this file it suspends and cites this section. See Step 10 (talking points) for the canonical pattern.
+The posture override is INTERNAL authorization for how you write the section — it is NOT content. **Never emit a `## Posture override` block, a rules declaration, or any meta/preamble into the artifact.** The `talking_points` array contains ONLY the actual `{text, why}` talking-point entries the official reads; its first element must be a real talking point, never a statement about voice, rules, or which posture applies.
+
+### Constituent-data framing (never expose data internals)
+
+Every constituent-sentiment figure in a briefing comes from **GoodParty.org's modeled constituent data**. In every candidate-facing field — `display.constituent_sentiment.summary` / `detail` / `score_direction`, `talking_points`, item `summary` and executive-summary overviews, and every `sources[].name` — describe this data in plain English and attribute it to **GoodParty.org's constituent data** (or "GoodParty.org's modeled constituent sentiment"). NEVER surface data-source internals in these fields: no `hs_*` column names, no "Haystaq", "L2", "Databricks", "voter file", table names, or SQL. The `hs_*` column name belongs ONLY in the structured `haystaq_column` metadata field (never in prose or a source name).
+
+- Good: "GoodParty.org's data shows constituents in this district lean toward supporting tax cuts — a modeled 59 on a 0–100 scale."
+- Bad: "hs_tax_cuts_support is a modeled estimate of how strongly each L2-active voter aligns..." / source name "Haystaq L2 — hs_tax_cuts_support".
+
+This applies even when NO data maps to an item: if no constituent-sentiment topic fits, simply set `constituent_sentiment` to `null` and say nothing about it — do NOT explain the absence by naming the source (never write "no Haystaq column maps to this item" or similar in any candidate-facing field; the words "Haystaq"/"L2"/`hs_*` must not appear at all, present or absent).
 
 ### Source discipline
 
@@ -132,16 +149,21 @@ Concise. Priority items get full depth across all sections. Non-priority items g
 - The broker auto-injects `WHERE Residence_Addresses_State = '<state>'` into every query that touches `int__l2_nationwide_uniform_w_haystaq`. **DO NOT add a state clause yourself.** Adding one returns HTTP 422 `ScopeViolation: scope_predicate_override`. The only WHERE clauses your L2 query needs are the L2 district column (when `l2DistrictType` is set) and `Voters_Active = 'A'`. Do NOT add a `Residence_Addresses_City` clause — there is no city in PARAMS and the broker does not auto-inject one; scope is state-wide unless an L2 district narrows it.
 - **`Voters_Active` is a STRING.** Use `Voters_Active = 'A'`. `Voters_Active = 1` matches zero rows.
 - **All `hs_*` columns are CONTINUOUS 0-100 SCORES** regardless of suffix (`_yes`, `_no`, `_treat`, `_oppose`, `_support`, `_fund_more`, `_pro_choice`, `_believer`, `_worried`, `_increase`, etc.). Threshold with `>= 50` (moderate) or `>= 70` (strong). Using `= 1` because the name "looks binary" inverts your rankings — you will get all top issues at <5%.
+- **Scores are within-state percentile ranks (mean ~50).** A `mean_score` near 50 means "typical for the state" — NOT a 50/50 opinion split and NOT absolute issue support; the informative signal is the deviation from 50 (61.8 is a real lean toward, 39.7 a real lean away). A score is not a percentage of supporters, an observed survey answer, or a comparison across states, and a sub-50 mean is a lean away from the stance, not an opposition count. Never present a score as "X% of constituents support Y". Exception: `hs_new_home_buyer`/`hs_any_home_buyer` are propensity models baselined at ~60, not survey-stance percentile ranks — they are excluded from the Step 6 catalog; never select or cite them as constituent sentiment.
 - **Conditional counts use `SUM(CASE WHEN ... THEN 1 ELSE 0 END)`.** Postgres `COUNT(*) FILTER (WHERE ...)` is a syntax error in Databricks.
 - **`GROUP BY` queries are silently truncated at `scope.max_rows`.** The broker injects/clamps `LIMIT max_rows` on every query. If your `GROUP BY <high-cardinality-column>` produces more groups than the cap, the broker returns the first N groups in unspecified order — there is NO truncation signal in the response. **Always add `ORDER BY count DESC LIMIT N` to GROUP BY queries.**
 - **Use named placeholders** when parameterizing: `cursor.execute("... WHERE col = :foo", {"foo": value})`. Positional `?` raises a SQL error.
-- **Named placeholders bind VALUES, not IDENTIFIERS.** Column names, table names, and the L2 district column all have to be string-interpolated into the SQL (e.g. f-string). Whitelist-validate any identifier before interpolating it (`assert col in ALLOWED_COLS`) — the broker scope check enforces table allowlisting but doesn't validate ad-hoc column names you f-string in.
+- **Named placeholders bind VALUES, not IDENTIFIERS.** Column names, table names, and the L2 district column all have to be string-interpolated into the SQL (e.g. f-string). Whitelist-validate any identifier before interpolating it (`assert col in ALLOWED_COLS`, where `ALLOWED_COLS` is the set of column names in the Step 6 inline catalog tables — the excluded home-buyer pair is not in it) — the broker scope check enforces table allowlisting but doesn't validate ad-hoc column names you f-string in.
 - **Every query must reference an allowed table.** Bare `SELECT 1` (no FROM) is rejected.
 - **The L2 district column name is the VALUE of `PARAMS.l2DistrictType`** (e.g. `City_Ward`, `City_Council_Commissioner_District`). The value to match is `PARAMS.l2DistrictName`. Backtick-quote the column: `` `City_Council_Commissioner_District` = '25' ``.
 
 ### Web (URL discovery + retrieval) rules
 
 - **Use `WebSearch` for URL discovery.** The Claude SDK built-in `WebSearch` works (returns search results with URLs and snippets). Do NOT use `WebFetch` — the runner is in a quarantined network and `WebFetch` returns "Unable to verify if domain X is safe to fetch" because claude.ai's domain-safety check can't reach it.
+- **Web-access escalation ladder for every news/government-website citation — use the cheapest rung that answers the question, in this order. Do NOT jump straight to `http.get`:**
+  1. `WebSearch` (discovery) — free, fast; often the snippet alone tells you enough to keep looking or move on.
+  2. `pmf_runtime.http.head(url)` — verify the URL is live before you commit to citing it. Returns `{"status": int, "final_url": str}`; drop the URL if status is not `200`, and cite `final_url` (not the original) if it redirected.
+  3. `pmf_runtime.http.get(url)` — LAST RESORT, only on a `403`/`405` from `head`, or when you need the body text to confirm the article's date/topic or extract a claim. Never skip straight to this rung as a substitute for `head`.
 - **Use `pmf_runtime.http.get(url)` for page retrieval** (broker-proxied). The response is a **plain dict** (`{"status": int, "headers": dict, "body": str}`) — not a `requests.Response`. Calling `r.status_code` or `r.text` raises `AttributeError`. Verbatim:
   ```python
   from pmf_runtime import http
@@ -151,6 +173,8 @@ Concise. Priority items get full depth across all sections. Non-priority items g
   ```
 - **Use `pmf_runtime.pdf.download(url)` for PDFs** — returns raw bytes; `pdftotext -layout file.pdf -` extracts text.
 - The broker enforces an SSRF guard and URL allowlist on `http.get` / `pdf.download`. Private IPs and internal hostnames are blocked.
+- **Never brute-force sequential document IDs.** Do NOT discover a document by probing consecutive numeric IDs (`/document/37200`, `/document/37201`, …) or scanning an ID range. It reliably burns the entire run budget and rarely finds the right file. Resolve a document only through the portal's own navigation — its meetings feed, calendar, meeting-detail page, search, or document index (see the per-platform entries in Step 2). If the portal's navigation does not lead you to the target meeting (no matching meeting entry found, or the platform is unreachable), that channel is `channel_<N>_unreachable`, not a cue to enumerate IDs — record it and move to the next channel. (Exception: if navigation _did_ reach the meeting but a later parse step failed to extract the packet URL — e.g. CivicWeb's `Published: true` regex-miss in Step 2 — record that specific decision and fall through to the remaining channels; see the CivicWeb entry.)
+- **A dead, redirected-to-homepage, or off-topic URL is never citable.** This applies to every `news` and `government_website` source captured in Step 14, not just `recent_news` (Step 11) — verify liveness with `head` and confirm topicality in the fetched body before recording the source, not after.
 
 ### Output rules
 
@@ -219,6 +243,8 @@ Record which tier of the hierarchy applies in `run_metadata.run_decisions[]` (e.
 
 ### Step 2 — Resolve agenda packet source
 
+**Milestone — run `milestone("discovery")`** (per BEFORE YOU START item 6) before this step's work.
+
 **Target: the agenda packet, not the summary.** Re-read "WHAT COUNTS AS THE AGENDA PACKET" above before proceeding. You are looking for the substantive briefing PDFs (staff reports, ordinances, exhibits, etc.) — either one compiled file or the per-item attachments collection. If you end this step with only a summary, you have not resolved the packet and must route to `awaiting_agenda` in Step 3.
 
 **Precondition — `PARAMS.meetingDate` is the target.** The caller (gp-api) supplies the target meeting date based on the official's `meeting_schedule` artifact. The agent does NOT discover the next meeting on its own. Your job in Step 2 is to **verify** that `PARAMS.meetingDate` corresponds to a real meeting of the official's body on the streaming platform, then proceed to resolve the agenda packet for that specific date.
@@ -253,17 +279,20 @@ If the briefing setup pre-stages a bundled agenda packet at `/workspace/input/ag
 
 **Packet-discovery procedure on the primary platform:** after finding the meeting on the platform, enumerate every link on the meeting detail page that returns `Content-Type: application/pdf` (or `application/octet-stream` with a `.pdf` filename in `Content-Disposition`). Each substantive item should have at least one such attachment. Cap at 50 link fetches per meeting (HEAD when possible to avoid downloading every PDF before deciding to chunk it).
 
-**Channel 0 (when `PARAMS.knownAgendaLocation` is present) — try the hint first.** The hint is a URL or prose describing where prior runs found this body's agendas. Treat it as channel 0 in the discovery hierarchy:
+**Channel 0 (when `PARAMS.knownAgendaLocation` is present) — try the hint first, and TRUST a positive read.** The hint is a URL or prose describing where prior runs found this body's agendas. Treat it as channel 0 in the discovery hierarchy. Channel 0 keeps its full drill-down behavior: HEAD/GET the URL; if it is a platform calendar / meetings index, drill into it to reach the target meeting and its packet attachments; follow redirects, CDN/API hosts, and sibling links; if the hint is prose, parse it for a URL and follow the navigation it describes. A correct hint is very often a landing page you must drill _through_ to reach the packet — do not treat a landing page as a dead end.
 
-- If the hint contains a URL, HEAD/GET it. If it returns `Content-Type: application/pdf` for the target date's packet, you're done.
-- If the hint URL is a platform calendar or meetings index, drill into it to find the target meeting and its packet attachments.
-- If the hint is prose, parse it for a URL and start there; follow the navigation steps it describes.
-- **Channel 0 is NOT counted toward the 4-channel exhaustion check** below. If channel 0 succeeds you can skip channels 1-4 entirely. If channel 0 fails (404, redirects to a generic landing page, platform moved, or the parent page no longer lists this body's meetings), record a `run_decisions[]` entry with `decision: "channel_0_hint_stale"` and the URL/prose that didn't pan out, then fall through to the normal channels — **do not bail on a stale hint.**
-- The hint is a starting point, not an authority. Channels 1-4 remain the mandatory floor before declaring `awaiting_agenda`.
+Resolve channel 0 to **exactly one** of the four outcomes below, and record it as a `run_decisions[]` entry whose `decision` is the verbatim label shown. The first two are CONFIRMED bails: they let you declare a placeholder and **skip channels 1-4 entirely**. The last is the only failure mode, and it must fall through.
 
-**Before declaring `awaiting_agenda`, you MUST exhaust 4 discovery channels.** Do NOT bail after only checking the streaming platform — Fulshear-style jurisdictions hide their packet on a CDN that no public-facing UI links to.
+- `channel_0_confirmed_agenda_found` — you reached the target meeting's agenda packet from the hint. Proceed to the full briefing (the win path).
+- `channel_0_confirmed_no_agenda_yet` — you POSITIVELY rendered this body's meetings list / agenda index at the hint, confirmed a meeting on `PARAMS.meetingDate`, and confirmed no agenda packet is published for it yet. Declare `briefing_status: "awaiting_agenda"` and skip channels 1-4. In `reason`, record what you actually saw (the rendered index, the meeting row, the absent packet link).
+- `channel_0_confirmed_no_meeting` — you POSITIVELY rendered this body's calendar at the hint and it shows no meeting of the official's body on `PARAMS.meetingDate`. Declare `briefing_status: "no_meeting_found"` and skip channels 1-4. Record what the calendar did show.
+- `channel_0_unreachable_or_unconfirmed` — the hint 404'd, redirected to a generic landing page, sat behind a sign-in / bot-wall (HTTP 403), rendered only through a JS-only widget you could not read, timed out, or otherwise did NOT let you positively confirm the meeting/agenda state. **This is NOT a confirmation. Do NOT bail.** Record it and fall through to channels 1-4 exactly as before.
 
-Each channel attempted requires its own `run_decisions[]` entry whose `decision` field begins with `channel_<N>_` (where N is 1–4, matching the channel number below). Channel 1's per-platform sub-attempts (Legistar, PrimeGov, BoardDocs, etc.) go INSIDE the single `channel_1_*` entry's `reason` field — do NOT emit a separate `run_decisions[]` entry per sub-platform, that would inflate the count without exhausting the other 3 channels. The deterministic QA gate extracts the `channel_<N>_` prefix from each decision and treats any `awaiting_agenda` / `no_meeting_found` artifact that doesn't show all 4 distinct channel numbers as a quality failure. Stop early ONLY when you find packet content for the target meeting. (Channel 0's `channel_0_*` entry, when emitted, is informational and ignored by the depth check.)
+**Only `channel_0_confirmed_no_agenda_yet` or `channel_0_confirmed_no_meeting` lets you skip channels 1-4.** A failure to reach or render the hint is never a confirmation — when in any doubt, treat it as `channel_0_unreachable_or_unconfirmed` and exhaust channels 1-4. The bail is gated on a POSITIVE read at the known location, not on the mere presence of a hint. (The deterministic QA gate honors these two labels: an artifact carrying one of them is exempt from the 4-channel depth requirement; every other miss must still show all 4 channels.)
+
+**Unless channel 0 returned a confirmed-bail outcome above, then before declaring `awaiting_agenda` you MUST exhaust 4 discovery channels.** Do NOT bail after only checking the streaming platform — Fulshear-style jurisdictions hide their packet on a CDN that no public-facing UI links to.
+
+Each channel attempted requires its own `run_decisions[]` entry whose `decision` field begins with `channel_<N>_` (where N is 1–4, matching the channel number below). Channel 1's per-platform sub-attempts (Legistar, PrimeGov, BoardDocs, etc.) go INSIDE the single `channel_1_*` entry's `reason` field — do NOT emit a separate `run_decisions[]` entry per sub-platform, that would inflate the count without exhausting the other 3 channels. The deterministic QA gate extracts the `channel_<N>_` prefix from each decision and treats any `awaiting_agenda` / `no_meeting_found` artifact that doesn't show all 4 distinct channel numbers as a quality failure. Stop early ONLY when you find packet content for the target meeting, OR when channel 0 returned a confirmed-bail outcome (`channel_0_confirmed_no_agenda_yet` / `channel_0_confirmed_no_meeting`), which exempts the run from this 4-channel requirement. (Any other `channel_0_*` entry is informational and ignored by the depth check.)
 
 1. **Primary platform** (try in order; each requires its own search query + verification fetch):
    - Legistar: WebSearch `"<city>" "<state>" legistar` → extract `{client}` from `https://{client}.legistar.com` → verify `https://webapi.legistar.com/v1/{client}/events?$top=1` returns ≥1 event.
@@ -273,6 +302,7 @@ Each channel attempted requires its own `run_decisions[]` entry whose `decision`
    - BoardDocs: WebSearch `"<city>" boarddocs` → `go.boarddocs.com/<state>/<client>/Board.nsf/Public`. The `/Public` suffix is required — `Board.nsf` alone is the Domino splash page; only `/Public` exposes the meeting listing with agenda UUIDs and PDF links.
    - Granicus: WebSearch `"<city>" granicus.com` → `{client}.granicus.com/ViewPublisher.php?view_id=N`.
    - CivicClerk: WebSearch `"<city>" civicclerk` → API at `{client}.api.civicclerk.com/v1/Events`.
+   - CivicWeb (GHD Digital / iCompass): WebSearch `"<city>" civicweb` → `{client}.civicweb.net`. Meetings feed `GET /Services/MeetingsService.svc/meetings?from=PARAMS.meetingDate&to=9999-12-31` (use the target meeting date as `from` so the window always includes it; plain JSON, select the entry matching both `MeetingDate` and the official's body via `Name` → `Id`), then resolve the meeting's document IDs and download the packet PDF as described in the CivicWeb platform-reference entry below. Never enumerate document IDs.
    - Novus Agenda: WebSearch `"<city>" novusagenda`. _Drill into the meeting search results — landing-page-only checks don't count._
    - Municode/CivicPlus Meetings: WebSearch `"<city>" meetings civicplus` / `"<city>" municode meetings`.
    - Swagit (streaming): WebSearch `"<city>" swagit.com` — usually only video, but check for linked PDFs.
@@ -285,7 +315,7 @@ Each channel attempted requires its own `run_decisions[]` entry whose `decision`
    - `"<city>" "agenda packet" "<MM/DD/YYYY of target meeting>"` (Google often indexes the PDF directly even when the city site doesn't link to it)
      For each candidate PDF URL: HEAD-check it — if `Content-Type: application/pdf` and size > 1KB, fetch and use it. Many Granicus installations expose packets at `d3*.cloudfront.net/<client>/...` URLs that are only discoverable via search.
 
-**Only after channels 1–4 yield no packet content for the target meeting may you declare `awaiting_agenda`.** The `run_decisions[]` array MUST contain one entry per channel attempted with `decision` prefixed `channel_<N>_<short-label>` (e.g. `channel_1_streaming_platforms`, `channel_4_cdn_search`). All 4 distinct channel numbers must appear. Per-platform sub-attempts in channel 1 go inside that single `channel_1_*` entry's `reason` field, not as separate entries. The deterministic QA gate enforces this — an artifact missing any channel number is a quality failure.
+**Only after channels 1–4 yield no packet content for the target meeting may you declare `awaiting_agenda` — UNLESS channel 0 already returned `channel_0_confirmed_no_agenda_yet` / `channel_0_confirmed_no_meeting`, which authorizes an immediate bail.** Absent a confirmed channel-0 bail, the `run_decisions[]` array MUST contain one entry per channel attempted with `decision` prefixed `channel_<N>_<short-label>` (e.g. `channel_1_streaming_platforms`, `channel_4_cdn_search`). All 4 distinct channel numbers must appear. Per-platform sub-attempts in channel 1 go inside that single `channel_1_*` entry's `reason` field, not as separate entries. The deterministic QA gate enforces this — an artifact missing any channel number is a quality failure.
 
 **Publish-lag awareness.** Many jurisdictions release the packet on the Friday before a Monday or Tuesday meeting (~3 days lead time). If today is more than 7 days before the target meeting and channels 1–4 are empty, `awaiting_agenda` is the expected state, not a search failure — note this explicitly in the `awaiting_agenda` `run_decision` reason (e.g. `"packet_not_published — target meeting 2026-05-26 is 11 days out; typical Cheyenne lag is ~3 days, expected packet release Fri 2026-05-22"`).
 
@@ -308,12 +338,21 @@ Each channel attempted requires its own `run_decisions[]` entry whose `decision`
 - **eSCRIBE** — meetings endpoint serves HTML with item titles, numbers, and attachment links. Parse HTML rather than expecting JSON.
 - **CivicPlus AgendaCenter** — `https://{city}.gov/AgendaCenter`. Per-meeting agenda PDFs; scrape the index page, download, and extract text. Some installations are fronted by Cloudflare and return HTTP 403 to scripted requests — when that happens, check for a CivicClerk mirror first before changing strategy.
 - **CivicClerk** — `https://{client}.api.civicclerk.com/v1/Events`. OData-style filterable JSON feed (e.g. `?$filter=startDateTime ge 2026-05-15&$orderby=startDateTime`). Event detail at `/v1/Events({id})` returns `hasAgenda`, `agendaId`, `agendaFile.fileName`, `publishedFiles[]`. Many small-to-mid TX and FL cities use this — including Alvin TX. Often coexists with a CivicPlus AgendaCenter front-end; the CivicClerk API is the scriptable path.
+- **CivicWeb** (GHD Digital / iCompass) — `https://{client}.civicweb.net`, `{client}` = subdomain (e.g. `monroewa`, `threeriversmi`). The whole date→packet path works with plain `http.get`/`pdf.download` — no headless browser. **Never probe sequential `/document/{id}` IDs; the meeting-detail HTML hands you the exact packet PDF URL.**
+  1. **Meetings feed** (date → meeting `Id`): `GET /Services/MeetingsService.svc/meetings?from=PARAMS.meetingDate&to=9999-12-31` returns a plain JSON array (no auth); each entry has `Id`, `MeetingDate`, `Name`, `TypeId` (the body), and `Published` (is the agenda posted yet?). Use the target date as `from` so the window includes it, then select the entry matching **both** the target date **and** the official's body: compare on `MeetingDate`'s `YYYY-MM-DD` prefix (observed date-only, but slice the first 10 chars / use `startsWith(PARAMS.meetingDate)` so a full-datetime serialization still matches), and match `Name` to the official's governing body (derived from `PARAMS.positionName`, e.g. `"City Council"`). Multiple bodies (Council, Planning Commission, committees) often meet on the same date, so matching the date alone can silently latch onto the wrong body's `Id` and download the wrong packet. (The old `/Api/OpenData/v1/...` OData path is a 404 — this `.svc` service is the real feed. It carries no document IDs; those come from step 2.)
+  2. **Meeting `Id` → packet PDF URL:** `GET /Portal/MeetingInformation.aspx?Id={Id}`. The visible page is JS-rendered (a plain fetch shows only "Loading…"), but the **raw server HTML already embeds the merged packet's PDF href** in the print-version anchor — extract it with a regex on the raw body: `/\/document\/\d+\/[^"]+\.pdf\?handle=[A-Fa-f0-9]+/` (case-insensitive hex — some installations emit lowercase handles). A match is a URL like `/document/276122/City%20Council%20...%2014%20Jul%202026.pdf?handle=4E3A862A...`. If the regex matches nothing, this is a channel-1 miss either way — do NOT probe IDs and do NOT declare `awaiting_agenda` here (the packet may still exist on the city site or a CDN; only Step 2's channel protocol, after channels 2–4 are exhausted, may declare `awaiting_agenda`). Cross-check the step-1 `Published` flag only to label the decision: `Published: false` → record `channel_1_civicweb_not_published`; `Published: true` with no regex match means the scrape failed (HTML changed, unexpected URL shape) → record `channel_1_civicweb_regex_no_match_but_published` with the first 500 chars of raw HTML. In both cases, fall through to channels 2–4.
+  3. **Download:** the regex match is a root-relative path, so prepend the origin — `pdf.download("https://{client}.civicweb.net" + href)`, keeping the `?handle=` token → the full merged agenda packet.
+
+  Only the one merged packet is in the raw HTML; the separate short "Agenda" doc and any per-item attachments are JS-injected and unreadable by a plain fetch, so rely on the packet. `/Portal/MeetingSchedule.aspx` and `/Portal/MeetingTypeList.aspx` are JS-rendered too — use the `.svc` feed, don't scrape them. `/filepro/documents/{folderId}` is a plain-GET archive Document Center if you ever need historical folders by body.
+
 - **Municode** — sometimes hosts current ordinance text and code references that the agenda packet cites.
 - **City site PDF mirror** — many cities mirror packet PDFs at a deterministic path on their own domain, independent of the streaming platform. The path varies by city but commonly looks like `<city-site>/files/.../<body-abbr>-<YYYY>/<body-abbr>-<MM-DD-YY>-agenda.pdf` or `<city-site>/AgendaCenter/ViewFile/Agenda/_MMDDYYYY-NNN`. **Cheyenne example:** `cheyennecity.org/files/sharedassets/public/v/1/your-government/city-council/cc-2026/cc-05-26-26-agenda.pdf` (note `cc-` for Council, `fc-` for Finance Committee, `psc-` for Public Services Committee, `wscow-` for Work Session / Committee of the Whole). Once you discover the pattern from a recent past meeting on the same site, you can probe the predictable filename for the target meeting directly — often the city site has the packet before the streaming platform does. Always check this channel before declaring `awaiting_agenda`.
 
 When you do go to a platform, capture the response (`retrieved_at`, `retrieved_text_or_snapshot`) the same way as any other source. Cite it as a distinct entry in `sources[]` with its own `id`.
 
 ### Step 3 — Substantive-items check + packet-availability gate (run before classification)
+
+**Milestone — run `milestone("gate")`** (per BEFORE YOU START item 6) before this step's work.
 
 This step has two gates. Either gate failing routes to `briefing_status: "awaiting_agenda"`.
 
@@ -361,6 +400,8 @@ If **zero** substantive items exist — for example, the agenda packet is a titl
 This is a **qualitative** check based on item content, not a count threshold — agendas vary widely across jurisdictions, so "fewer than N items" does not generalize. The criterion is whether _any_ item is substantive in the sense above.
 
 ### Step 4 — Chunk the agenda packet into `raw_context` entries
+
+**Milestone — run `milestone("chunk")`** (per BEFORE YOU START item 6) before this step's work.
 
 Rules for chunking the agenda packet text into `raw_context` entries.
 
@@ -435,6 +476,8 @@ All chunks reference the agenda packet source: `source_id` points to the agenda 
 
 ### Step 5 — Classify items into tiers
 
+**Milestone — run `milestone("classify")`** (per BEFORE YOU START item 6) before this step's work.
+
 #### Tiers
 
 Every item is assigned exactly one tier:
@@ -486,7 +529,7 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 
 #### Inline Haystaq catalog (L2-verified)
 
-**housing** — Housing affordability, gentrification views, homeownership status
+**housing** — Housing affordability, gentrification views
 
 | Column                               | Meaning                                            |
 | ------------------------------------ | -------------------------------------------------- |
@@ -494,8 +537,8 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 | `hs_affordable_housing_gov_no_role`  | opposes government role in affordable housing      |
 | `hs_gentrification_support`          | supports gentrification                            |
 | `hs_gentrification_oppose`           | opposes gentrification                             |
-| `hs_new_home_buyer`                  | recently bought a home                             |
-| `hs_any_home_buyer`                  | has ever bought a home                             |
+
+`hs_new_home_buyer`/`hs_any_home_buyer` are deliberately excluded: ~60-baseline propensity models (recently/ever bought a home), not polarized sentiment — never select or cite them as constituent sentiment (see the score rule in CRITICAL RULES).
 
 **taxes** — Tax cuts, gas tax, social security tax, minimum wage, fiscal ideology
 
@@ -624,6 +667,8 @@ For each priority-eligible item:
 
 ### Step 7 — Discover the exact L2 district value (when `l2DistrictType` is set)
 
+**Milestone — run `milestone("haystaq")`** (per BEFORE YOU START item 6) before this step's work (covers Steps 7-8, the L2 district discovery + batched query).
+
 L2 district value format varies by jurisdiction. PARAMS may pass `l2DistrictName='25'` but the actual value in L2 for NYC City Council is `'NEW YORK CITY CNCL DIST 25 (EST.)'`. Before running the Step 8 batched query for district scope, run a one-shot discovery query against `int__l2_nationwide_uniform_w_haystaq` to find the exact value matching the official's district:
 
 ```python
@@ -651,6 +696,7 @@ Collect the picked columns across every priority item that found a topic match. 
 ```sql
 -- Whitelist-validate each picked column before interpolation (ASCII-only):
 --   re.fullmatch(r"hs_[a-z0-9_]{1,60}", col)
+--   and col in ALLOWED_COLS (the Step 6 inline-catalog column set)
 -- Then assemble the column list dynamically.
 -- District scope:
 SELECT
@@ -679,6 +725,8 @@ Notes:
 - If no priority item picked a column, **skip Step 8 entirely** — no zero-column queries.
 
 ### Step 9 — Per-item overview (for each featured and queued item)
+
+**Milestone — run `milestone("per_item")`** (per BEFORE YOU START item 6) before this step's work (covers Steps 9-12, the per-item generation pipeline).
 
 The first section under each priority item. Cover what the item actually decides, what changes if it passes, and what the consequences are if it fails or is deferred. Focus on the decision and its effects, not on procedure.
 
@@ -716,7 +764,17 @@ For **queued items**: talking points are optional. If the item does not warrant 
 
 #### Format
 
-Up to five bullet points. Each bullet is one or two sentences. Address the official directly.
+Every new run emits `display.talking_points` as an array of `{text, why}` objects — never bare strings. (Bare-string arrays remain schema-valid only because older artifacts already in S3 used that shape; do not emit that shape yourself.) Up to five entries. Each array element is a single `{text, why}` object and nothing else — do NOT prepend a `## Posture override` block, a rules/voice declaration, or any header/preamble. The first element must be a real talking point.
+
+- `text` — the bullet itself: one or two sentences, addressed to the official directly. Same voice and content rules as before (see "What a useful talking point does" / "What to avoid" below) — this is what changes, not the writing standard for it.
+- `why` — one to three sentences of rationale, written for the official, covering:
+  - **Strategic intent** — why this matters enough to raise in the room, not just that it's true
+  - **Risk framing** — whether raising it carries a downside (does asking make the official look uninformed, or expose a position they may not want on the record) or whether staying silent is the risk
+  - **Handling the response** — what a likely staff/colleague response looks like and how the official should handle it
+
+`why` must be substantive and specific to this item — never a restatement of `text` in different words, and never a generic "this is important because it affects constituents." If you can't write a `why` that adds new information beyond the bullet, the talking point itself is probably not sharp enough; sharpen `text` first.
+
+**`why` must not presuppose how the official will vote or where they will land.** Explain the rationale, the risk, and how to handle the likely response — never narrate an assumed position as already decided. Banned constructions: "while supporting/opposing...", "while not opposing...", "since you'll likely vote yes/no...", or any phrase that treats a vote or stance as settled. Bad: "acknowledges the constituent lean while not opposing the policy." Good: "acknowledges the constituent lean without committing you to a position — useful regardless of how you vote."
 
 #### What a useful talking point does
 
@@ -731,18 +789,24 @@ Up to five bullet points. Each bullet is one or two sentences. Address the offic
 - Summarizing what the item does — the overview already covers that
 - Hedged non-actions ("it may be worth noting," "council may want to consider")
 - Context, names, prior votes, or political dynamics not present in source materials
+- A `why` that just repeats `text` ("why: this is a good question to ask") — every `why` must add strategic context the bullet itself doesn't state
+- A `why` that presupposes the official's vote or position ("while supporting...", "since you'll oppose...") — see the banned-construction list above
 
 #### Examples
 
 These illustrate tone and approach. They are not templates.
 
-- "Constituent data shows modeled infrastructure spending support below 50 in this jurisdiction. This is bond-funded with no general fund impact — lead with that if cost questions arise."
+- `text`: "Constituent data shows modeled infrastructure spending support below 50 in this jurisdiction. This is bond-funded with no general fund impact — lead with that if cost questions arise."
+  `why`: "Framing this as bond-funded up front pre-empts the cost objection the sentiment data suggests is likely, without you having to look defensive if a colleague raises it first."
 
-- "This item is on the consent agenda and will pass without separate discussion unless pulled. If you have questions about the sole-bid process, pull it before the vote begins."
+- `text`: "This item is on the consent agenda and will pass without separate discussion unless pulled. If you have questions about the sole-bid process, pull it before the vote begins."
+  `why`: "Once the consent agenda passes as a block, there's no procedural path to revisit the sole-bid question — pulling it is the only point of leverage, and it costs you nothing if the answer turns out to be routine."
 
-- "The packet references two DFR tiers ($125K/year and $275K/year) without specifying which this application covers. Ask staff to confirm which tier before the vote so the record reflects what the council is authorizing."
+- `text`: "The packet references two DFR tiers ($125K/year and $275K/year) without specifying which this application covers. Ask staff to confirm which tier before the vote so the record reflects what the council is authorizing."
+  `why`: "Voting on an ambiguous figure creates a record problem later if the wrong tier gets billed; asking costs one sentence and staff should have the answer ready, so there's minimal downside to asking."
 
-- "Data governance for the ALPR cameras is not addressed in the packet. Asking staff what retention and access policies are in place signals careful review and protects against questions after the grant is awarded."
+- `text`: "Data governance for the ALPR cameras is not addressed in the packet. Asking staff what retention and access policies are in place signals careful review and protects against questions after the grant is awarded."
+  `why`: "ALPR grants draw privacy scrutiny after the fact; asking now, before the vote, puts the governance question on the record as something the council raised proactively rather than something a constituent had to force later."
 
 ### Step 11 — Recent news (featured and queued items)
 
@@ -758,9 +822,32 @@ Up to 3 recent headlines per priority item from local news sources. Each should 
 
 At most 2 `WebSearch` queries per priority item. Construct each query as `"<jurisdiction>" <item topic keywords> news 2026` or similar; don't run open-ended exploratory searches. If 2 queries don't produce relevant local coverage, set `display.recent_news: null`.
 
-#### Freshness
+#### Freshness — hard requirement, not a preference
 
-Articles should be from the last 60 days.
+`publication_date` is a **required, non-nullable** field on every `recent_news` entry — the schema rejects a missing value, and the QA gate independently rejects any entry more than 60 days before `PARAMS.meetingDate`. Capture the real publication date from the article (byline date, dateline, or `<meta>` publish date) when you fetch it — never leave it blank and never guess.
+
+An article you cannot date, or can date but is more than 60 days before `PARAMS.meetingDate`, does not qualify. If no article within that window can be found and verified, **omit `recent_news` entirely** (`display.recent_news: null`) rather than shipping a stale one padded in to hit the "up to 3" target. A `null` recent_news section is a correct, expected outcome; a stale one is a QA failure.
+
+#### Link liveness — verify before citing
+
+Use the same escalation ladder as URL retrieval elsewhere in this instruction, applied specifically to every candidate article before it goes in `display.recent_news` or `sources[]`:
+
+1. `WebSearch` (discovery) — find the candidate article and its snippet.
+2. `pmf_runtime.http.head(url)` — verify the URL is live. Returns `{"status": int, "final_url": str}`; drop the article if status is not `200`, and cite `final_url` if it redirected.
+3. `pmf_runtime.http.get(url)` — LAST RESORT, only when `head` returns `403`/`405` or you need the body to confirm the article's date and topic (which you do, for every article — see below).
+
+```python
+from pmf_runtime import http
+r = http.head(url)
+if r["status"] == 200:
+    body = http.get(url)   # confirm date + topic in the same pass
+elif r["status"] in (403, 405):
+    body = http.get(url)   # head blocked; get is the only option
+else:
+    body = None            # drop the article — not live
+```
+
+After confirming liveness, confirm the fetched content actually discusses the claimed topic before citing it — a live URL that redirected to a homepage, a paywall wall, or an unrelated story is not a usable source even though it returned `200`. Drop it rather than cite an off-topic or content-less page.
 
 #### Source credibility
 
@@ -772,7 +859,7 @@ Flag if coverage is predominantly from a single outlet or ideological direction 
 
 - Headline text — _Publication Name_
 
-Up to 3 bullets per priority item; set `display.recent_news` to `null` if no fresh local coverage is found. URLs go in Sources, not in the rendered briefing.
+Up to 3 bullets per priority item; set `display.recent_news` to `null` if no fresh, live, on-topic local coverage is found. URLs go in Sources, not in the rendered briefing.
 
 ### Step 12 — Budget impact (featured and queued items)
 
@@ -797,6 +884,8 @@ Populate `budget_impact.source_ids` with the ids (from the top-level `sources[]`
 Set `budget_impact` to `null`. Do not estimate or fabricate figures.
 
 ### Step 13 — Compile claims with verbatim source extracts
+
+**Milestone — run `milestone("claims_sources")`** (per BEFORE YOU START item 6) before this step's work (covers Steps 13-14, claims + sources compilation).
 
 Every factual claim in the briefing must reference at least one source. For each claim:
 
@@ -839,6 +928,12 @@ If information cannot be found in an authoritative source, record its absence �
 
 Capture each source at the moment you fetch it, not at assembly time. `retrieved_at` and `retrieved_text_or_snapshot` must be set when you call `http.get()` or query Databricks — not when you write the artifact.
 
+#### Link liveness + topicality (mandatory for `news` and `government_website` sources)
+
+Before adding a `news` or `government_website` entry to `sources[]`, run it through the escalation ladder in the "Web (URL discovery + retrieval) rules" section above: `head` to confirm the URL is live (drop on non-`200`, cite `final_url` on redirect), then `get` only when forced (a `403`/`405`, or to read the body). This is not optional and not limited to `recent_news` — every citable news or government-website URL in the briefing goes through this check, because `sources[]` backs claims the QA gate treats as authoritative.
+
+After liveness, confirm the fetched body actually discusses the claimed topic. A `200` that resolves to a homepage, a paywall/consent wall with no article body, or a page about something else is not a usable source — drop it and either find another source or route the claim per the Step 13 routing table (`omit_claim` for news-sourced claims). Never cite a URL you have not both verified live and read for topical relevance.
+
 #### Sub-documents inside the agenda packet
 
 The bundled agenda PDF is not a single document — it contains many sub-documents (staff reports / Agenda Commentary, resolutions, ordinances, engineer recommendations, bid tabulations, interlocal agreements). Cite each one as its own `sources[]` entry with a descriptive `name` and a `section_heading` that identifies the sub-document, not just `"Agenda packet, p. N"`. Examples:
@@ -852,9 +947,9 @@ The `url` for each remains `agendaPacketUrl` from PARAMS when present (the perma
 #### `retrieved_text_or_snapshot` requirements
 
 - **Agenda packet**: the verbatim extracted text of the relevant section(s), not the full document. Include enough surrounding context for a QA reader to verify the claim without re-fetching.
-- **News articles**: the article body text captured via `http.get()`. If the page is paywalled or returns no usable body, note that and do not cite the article.
+- **News articles**: the article body text captured via `http.get()`, after `http.head()` confirmed the URL is live per the liveness rule above. If the page is paywalled or returns no usable body, note that and do not cite the article.
 - **Government websites**: the relevant paragraph(s) from the page body.
-- **Haystaq**: a structured summary of the query result — column name, mean score, district filter used, total voters in denominator.
+- **GoodParty.org constituent data** (the modeled-sentiment source): set `source_type` to **`"haystaq"`** (the enum value for GoodParty.org modeled constituent data — the QA gate keys the strict framing check on this type). Set the source `name` to **`GoodParty.org modeled constituent sentiment — <topic> (<jurisdiction>)`** — never "Haystaq", "L2", "Databricks", or the `hs_*` column in the name (it renders as a citation pill the official sees). The `retrieved_text_or_snapshot` is a plain-English structured summary — the modeled position/topic, the mean score (0–100), the geographic scope (district or state), and the voter count in the denominator — attributed to GoodParty.org's data. Do not put the raw `hs_*` column name, the table name, or SQL in it.
 - **Campaign**: the verbatim passage from the campaign site.
 
 Do not truncate to a single sentence. A QA reader must be able to verify the claim solely from `retrieved_text_or_snapshot` without re-fetching the URL.
@@ -865,7 +960,7 @@ Do not truncate to a single sentence. A QA reader must be able to verify the cla
 - For the agenda packet:
   - If `agendaPacketUrl` is set in PARAMS (URL-paste path), use it verbatim as the permanent URL — it is the user's own pasted URL and is stable.
   - If the packet was pre-staged at `/workspace/input/agenda.pdf` (upload path), there is no permanent URL — set `run_metadata.agenda_packet_url` to `null` and cite the agenda packet sources[] entry with `url: null`. Record the decision in `run_metadata.run_decisions[]` (e.g. `decision: "agenda_packet_user_uploaded_no_url"`).
-- For Haystaq data: set `url` to `null`. There is no public URL for modeled constituent data.
+- For GoodParty.org constituent data: set `url` to `null`. There is no public URL for modeled constituent data.
 
 #### Allowed sources
 
@@ -873,7 +968,7 @@ Do not truncate to a single sentence. A QA reader must be able to verify the cla
 - Local government website for the jurisdiction
 - Local news outlets (see Step 11 for credibility guidance)
 - Campaign website for the elected official (contextual only)
-- Databricks Haystaq L2 modeled scores
+- GoodParty.org modeled constituent data (cite per the Constituent-data framing rule — never "Haystaq", "L2", or "Databricks" in the source name)
 
 ### Step 15 — Set `briefing_status` and emit `required_data_points`
 
@@ -972,13 +1067,13 @@ For each featured/queued item where Step 6/6b picked a column from the inline ca
 
 Fields:
 
-- `summary` — short prose using the column's directional `meaning` and the `mean_score`. Always label as a modeled estimate. Example: `"Modeled lean toward supporting gun control: 62.4 on a 0-100 scale."`
-- `detail` — one sentence describing what the score measures as a modeled estimate, not a survey result.
+- `summary` — short plain-English prose using the direction (from the column's `meaning`) and the `mean_score`, attributed to GoodParty.org's data. Always label as a modeled estimate. Frame the number as a lean relative to the ~50 state-typical anchor (see the score rule in CRITICAL RULES), never as a percentage of constituents who support the position. Never name the underlying column or data source (see "Constituent-data framing" in CRITICAL RULES). Example: `"GoodParty.org's data shows a modeled lean toward supporting gun control: 62.4 on a 0-100 scale, where about 50 is typical for the state."`
+- `detail` — one plain-English sentence describing what the modeled estimate measures, attributed to GoodParty.org's constituent data, not a survey result. Do NOT name the `hs_*` column, "Haystaq", "L2", or any table/source. Example: `"A modeled estimate, from GoodParty.org's constituent data, of how strongly residents in this district lean toward supporting gun control."`
 - `mean_score` — the `AVG(...)` result from Step 8 (float, 0–100). District scope when `l2DistrictType` was set and confirmed in Step 7; state scope otherwise.
 - `score_direction` — the column's `meaning` line from the inline catalog (e.g. for `hs_gun_control_support` use `"supports gun control"`).
 - `voter_count` — the `COUNT(*) AS voter_count` from Step 8 (district or state scope, matching `mean_score`).
 - `haystaq_column` — the picked column name from the inline catalog (e.g. `hs_gun_control_support`).
-- `haystaq_status` — `"ok"` when the Step 8 query returned a non-null mean; `"no_match"` when no defensible topic match (Step 6/6b returned null for this item) **or** when `l2DistrictType` was set but the value did not resolve in Step 7 (fell back to state scope); `"no_column"` defensively when the picked column wasn't queryable (shouldn't occur with the L2-verified catalog). The `"city_mismatch"` enum value is retained in the output schema for backward compatibility but is **deprecated** — do not emit it.
+- `haystaq_status` — `"ok"` when the Step 8 query returned a non-null mean; `"no_match"` when no defensible topic match (Step 6/6b returned null for this item) **or** when `l2DistrictType` was set but the value did not resolve in Step 7 (fell back to state scope); `"no_column"` when the picked column wasn't queryable or returned a NULL mean — a NULL `AVG` means the column has no coverage in this scope (~106 `hs_*` columns exist only in a 12- or 39-state vendor vintage and are null elsewhere); that is missing data, not an error — null the item's `constituent_sentiment` rather than re-querying or coercing to 0. The `"city_mismatch"` enum value is retained in the output schema for backward compatibility but is **deprecated** — do not emit it.
 - `district_note` — **deprecated**, always set to `null`. With city scope removed there is no within-jurisdiction baseline to compare district against.
 - `source_ids` — array of `id` values from the top-level `sources[]` list that back this section. For `haystaq_status: "ok"`, reference the Haystaq source entry you compiled in Step 14. Required-but-may-be-empty: emit `[]` only when no source defensibly backs the section (e.g. `haystaq_status` other than `"ok"`); do not fabricate citations. The UI renders these as inline source pills below the section.
 
@@ -987,6 +1082,8 @@ Do not emit `haystaq_source` on `display.constituent_sentiment` — the curated/
 Populate `research.full_treatment.haystaq_detail` with: `district_mean_score` and `district_voter_count` set from the Step 8 district-scope query (or `null` when state scope was used); `city_mean_score` and `city_voter_count` set to `null` (city scope removed); the chosen `haystaq_column`; and the executed SQL as `query_executed`. Set `haystaq_source` to `null` (the field is retained in the schema for backward compatibility but no longer carries a value under the inline-catalog model).
 
 ### Step 17 — Write the artifact
+
+**Milestone — run `milestone("assemble")`** (per BEFORE YOU START item 6) before this step's work.
 
 Assemble the final JSON artifact and write it to `/workspace/output/meeting_briefing.json`. Include every top-level field required by the output_schema:
 
@@ -1065,7 +1162,50 @@ Every briefing must include the following disclaimer at the `disclosure` field:
 
 > This briefing was generated with AI assistance and may contain errors. Inferred or synthesized content represents model-generated interpretation, not verified fact. Constituent sentiment data, where present, reflects modeled estimates for constituents in that jurisdiction.
 
+### Step 17b — Grounding self-check (run once, before Step 18)
+
+**Milestone — run `milestone("grounding_check")`** (per BEFORE YOU START item 6) before this step's work.
+
+The deterministic QA gate checks every claim's `source_extracts[]` against the `retrieved_text_or_snapshot` of its cited source(s) using a **whitespace-normalized, case-folded substring match** (it collapses runs of whitespace to one space and lowercases both sides before comparing), and it treats an extract whose **first 60 characters** still match as an acceptable partial (a warning, not a failure). Catch true grounding failures in-loop with the SAME logic the gate uses — so case-only, spacing-only, or trailing-drift differences do NOT get you dropping a valid claim:
+
+```python
+import json, re
+def _norm(s):
+    return re.sub(r"\s+", " ", s or "").strip().lower()
+art = json.load(open("/workspace/output/meeting_briefing.json"))
+srcs = {s["id"]: _norm(s.get("retrieved_text_or_snapshot")) for s in art.get("sources", [])}
+ungrounded = []
+for c in art.get("claims", []):
+    for ex in c.get("source_extracts", []):
+        needle = _norm(ex)
+        if not needle:
+            continue
+        cited = [srcs.get(sid, "") for sid in c.get("source_ids", [])]
+        if any(needle in hay for hay in cited):
+            continue
+        # Mirror the QA gate's 60-char partial-match fallback (qa_checks.py):
+        # an extract whose first 60 chars appear in the source is a WARNING,
+        # not a grounding failure — do NOT flag it ungrounded / drop the claim.
+        head = needle[:60]
+        if len(head) >= 20 and any(head in hay for hay in cited):
+            continue
+        ungrounded.append((c.get("claim_id"), ex))
+for cid, ex in ungrounded:
+    print("UNGROUNDED", cid, "::", repr(ex[:120]))
+print(f"{len(ungrounded)} ungrounded extract(s)")
+```
+
+For each `UNGROUNDED` line, fix it by exactly one of:
+
+1. **Copy the verbatim substring.** Replace the `source_extracts` entry with text copied from the cited source's `retrieved_text_or_snapshot`. Case and whitespace differences are tolerated (the check normalizes both), but the words themselves must appear in the source — don't paraphrase or drop/insert words.
+2. **Widen the snapshot.** If the passage the claim relies on is real but not in the captured snapshot, expand that source's `retrieved_text_or_snapshot` to include it (Step 14 explicitly allows generous snapshots).
+3. **Drop the claim.** If the extract cannot be grounded in any real source (it was paraphrased from memory or inferred), remove the claim, or route it per its `route_if_unsupported` (Step 13). A dropped claim is better than an ungrounded one.
+
+**Bounded fix loop — at most TWO fix passes, then finalize no matter what.** The artifact is already written (Step 17); this check only repairs grounding, it must never block delivery. Run the block, apply fixes, re-run it once more. If a second pass still shows ungrounded extracts, **drop those specific claims** (remove them, honoring `route_if_unsupported`) and move on — do NOT keep looping. Two passes maximum: a delivered briefing with a couple of dropped claims always beats a run that exhausts its turn budget chasing grounding and delivers nothing. Once the block prints `0 ungrounded extract(s)`, or you have completed the second pass, stop and go to Step 18.
+
 ### Step 18 — Self-check the artifact shape
+
+**Milestone — run `milestone("validate")`** (per BEFORE YOU START item 6) before this step's work.
 
 For a fast in-loop sanity check, you may run the runner's generic schema-only shim:
 
@@ -1077,6 +1217,8 @@ It only does JSON-schema validation — it does NOT check cross-references, requ
 
 The full deterministic QA — schema + cross-references + required_data_points coverage + discovery-channel depth + source-extract presence — runs automatically after the run as a separate quality gate; you do not invoke it yourself. Get the requirements right in-loop so the artifact clears it.
 
+**Validate at most ONCE on a complete artifact, then STOP.** If `validate_output.py` exits 0 (schema-valid), you are DONE: do not re-run the validator, do not re-read the artifact back into context to "double-check" it, and do not re-open already-completed steps to second-guess them. Re-validating a passing artifact or re-reading it to inspect it spends turns for zero quality gain — trust the clean exit and finish the run. Re-run the validator only after you have actually edited the artifact to fix a specific error it reported.
+
 ## Spot-check
 
 Validator-passing JSON can still be garbage. Before declaring success, walk this checklist:
@@ -1086,8 +1228,9 @@ Validator-passing JSON can still be garbage. Before declaring success, walk this
 - **Every Haystaq score reported in `display.constituent_sentiment`** must trace to a column in the Step 6 inline catalog and a row in the Step 8 batched L2 query.
 - **`district_note` is always `null`** — deprecated since city scope was removed.
 - **When `l2DistrictType` is set, `voter_count` should reflect the district, not the whole state** → if it looks state-sized, the L2 district WHERE clause matched zero rows and you silently fell back to state scope. Fix: re-confirm `l2DistrictType` and `l2DistrictName` came verbatim from PARAMS_JSON and were discovered via the L2 value-format check; set `haystaq_status: "no_match"` if the value genuinely doesn't resolve.
-- **All sentiment percentages <5%** → you used `= 1` instead of treating `hs_*` as 0-100 scores. Re-do the distribution check.
-- **News URL doesn't load or doesn't mention the issue** → don't trust search snippets blindly; `pmf_runtime.http.get(url)` the page and confirm before citing it.
+- **All sentiment `mean_score`s below 5** → you used `= 1` instead of treating `hs_*` as 0-100 scores. Re-do the distribution check. (A NULL `mean_score` is a different case: the column has no coverage in this state — vendor vintage — not an error; null the section with `haystaq_status: "no_column"` per Step 16, never coerce it to 0.)
+- **News URL doesn't load or doesn't mention the issue** → don't trust search snippets blindly; this is a required step, not a spot-check afterthought — every `news`/`government_website` source must clear the `http.head` liveness check plus a topicality read of the fetched body (Step 14) before it is cited anywhere.
+- **`recent_news` entry missing `publication_date` or older than 60 days before `meetingDate`** → the schema requires the field and the QA gate rejects stale entries; drop the entry and set `display.recent_news: null` if nothing else qualifies (Step 11).
 - **`run_metadata.discovered_agenda_location` is the parent page, not a deep link.** If it points at one specific packet PDF or one MetaViewer link, swap it for the platform calendar, the city's meetings index, or whatever page LISTS this body's meetings. A future run can drill into the parent page; it cannot navigate up from a deep link.
 
 ## Failure modes
@@ -1097,6 +1240,7 @@ Validator-passing JSON can still be garbage. Before declaring success, walk this
 | Broker logs `ScopeViolation: scope_predicate_override`                        | Agent added `WHERE Residence_Addresses_State = ?` or `WHERE Residence_Addresses_City = ?` on the L2 table                       | Remove the state clause (broker auto-injects state); never add a city clause (city is not in PARAMS, broker does not auto-inject one)      |
 | Broker 422 on `/databricks/query` repeatedly                                  | Positional `?`, Postgres `FILTER`, `Voters_Active = 1`, or unauthorized table                                                   | Use named placeholders, `SUM(CASE WHEN ...)`, `Voters_Active = 'A'`; check `allowed_tables`                                                |
 | Top sentiment scores all 0-5%                                                 | Treated `hs_*` as binary (`= 1`) instead of 0-100 score                                                                         | Use `AVG(CAST(\`{col}\` AS DOUBLE))`and threshold with`>= 50`                                                                              |
+| `mean_score` comes back NULL for a picked column                              | Column has no coverage in this state (~106 `hs_*` columns exist only in a 12- or 39-state vendor vintage)                       | Not an error: null the item's `constituent_sentiment` with `haystaq_status: "no_column"` (Step 16); never coerce to 0 or re-query          |
 | `total_active_voters` looks like the whole state when `l2DistrictType` is set | L2 district value didn't resolve in Step 7; agent silently fell back to state scope                                             | Verify the district via the L2 value-format discovery query in Step 6b/7; set `haystaq_status: "no_match"` if it genuinely doesn't resolve |
 | Runner: `No artifact files found in /workspace/output`                        | Agent ran out of turns or never wrote the file                                                                                  | Tighten the instruction; remove unnecessary discovery steps; check max_turns                                                               |
 | `contract_violation` callback after agent claimed success                     | The runner's schema validator caught a missing/wrong-typed field the agent didn't notice                                        | Run `python3 /workspace/validate_output.py` (schema-only shim) to catch shape errors BEFORE declaring success                              |

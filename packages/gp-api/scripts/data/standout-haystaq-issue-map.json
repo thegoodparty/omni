@@ -1,0 +1,1272 @@
+{
+ "greg-ketcham": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "supporting tax cuts",
+    "hs_column": "hs_tax_cuts_support",
+    "cited_pct": 44.5,
+    "dir": "low",
+    "standout_order": 0,
+    "opponent_name": "Andy Kerr",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": true,
+   "has_primary_threat": true,
+   "opponents": {
+    "Andy Kerr": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "diana-fahmie": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "opposing gentrification",
+    "hs_column": "hs_gentrification_oppose",
+    "cited_pct": 59.8,
+    "dir": "high",
+    "standout_order": 0,
+    "opponent_name": "Luis Rimoli",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "believing climate change is real",
+    "hs_column": "hs_climate_change_believer",
+    "cited_pct": 63.3,
+    "dir": "high",
+    "standout_order": 1,
+    "opponent_name": "Luis Rimoli",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": true,
+   "has_primary_threat": true,
+   "opponents": {
+    "Luis Rimoli": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "melissa-elder1": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "increasing school funding",
+    "hs_column": "hs_school_funding_more",
+    "cited_pct": 53.1,
+    "dir": "high",
+    "standout_order": 0,
+    "opponent_name": "Jon Painter",
+    "threat_tier": "watch_closely",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "supporting medicaid expansion",
+    "hs_column": "hs_medicaid_expansion_support",
+    "cited_pct": 51.3,
+    "dir": "high",
+    "standout_order": 1,
+    "opponent_name": "Robert Keyes",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "Jonathan Morales": "low_priority",
+    "Jon Painter": "watch_closely",
+    "Robert Keyes": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "jeffrey-solomon": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "government having a role in affordable housing",
+    "hs_column": "hs_affordable_housing_gov_has_role",
+    "cited_pct": 55.9,
+    "dir": "high",
+    "standout_order": 0,
+    "opponent_name": "Richard Lamondin",
+    "threat_tier": "watch_closely",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "more funding for public schools",
+    "hs_column": "hs_school_funding_more",
+    "cited_pct": 52.3,
+    "dir": "high",
+    "standout_order": 1,
+    "opponent_name": "Alexis Calatayud",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "Alexis Calatayud": "primary_threat",
+    "Richard Lamondin": "watch_closely"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "tina-starkey": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "being very worried about violent crime",
+    "hs_column": "hs_violent_crime_very_worried",
+    "cited_pct": 31.1,
+    "dir": "low",
+    "standout_order": 0,
+    "opponent_name": "Scott McCollum",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "Joe Swiers": "watch_closely",
+    "Scott McCollum": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "linsey-grove": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "more infrastructure funding",
+    "hs_column": "hs_infrastructure_funding_fund_more",
+    "cited_pct": 74.0,
+    "dir": "high",
+    "standout_order": 0,
+    "opponent_name": "Terri Balliet",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "government having a role in affordable housing",
+    "hs_column": "hs_affordable_housing_gov_has_role",
+    "cited_pct": 71.7,
+    "dir": "high",
+    "standout_order": 1,
+    "opponent_name": "Terri Balliet",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "Jameka Williams": "watch_closely",
+    "Terri Balliet": "primary_threat",
+    "Trevor Mallory": "watch_closely",
+    "Doug Homeyer": "low_priority"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "micaiah-owens1": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "more infrastructure funding",
+    "hs_column": "hs_infrastructure_funding_fund_more",
+    "cited_pct": 55.4,
+    "dir": "high",
+    "standout_order": 0,
+    "opponent_name": "Tonya Burns",
+    "threat_tier": "watch_closely",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "Sheldon Neeley": "primary_threat",
+    "Tonya Burns": "watch_closely"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "d'mitri-agnes": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "government having a role in affordable housing",
+    "hs_column": "hs_affordable_housing_gov_has_role",
+    "cited_pct": 70.5,
+    "dir": "high",
+    "standout_order": 0
+   }
+  ],
+  "threat": {
+   "matched": false
+  }
+ },
+ "danielle-mead": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "government having a role in affordable housing",
+    "hs_column": "hs_affordable_housing_gov_has_role",
+    "cited_pct": 52.9,
+    "dir": "high",
+    "standout_order": 0,
+    "opponent_name": "Antonio Baciu",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": true,
+   "has_primary_threat": true,
+   "opponents": {
+    "Antonio Baciu": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "woods4-boone": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "government having a role in affordable housing",
+    "hs_column": "hs_affordable_housing_gov_has_role",
+    "cited_pct": 37.9,
+    "dir": "low",
+    "standout_order": 0,
+    "opponent_name": "Chet Hand",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "supporting tax cuts",
+    "hs_column": "hs_tax_cuts_support",
+    "cited_pct": 55.3,
+    "dir": "high",
+    "standout_order": 1,
+    "opponent_name": "Chet Hand",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": true,
+   "has_primary_threat": true,
+   "opponents": {
+    "Chet Hand": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "mark-russell1": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "funding infrastructure more",
+    "hs_column": "hs_infrastructure_funding_fund_more",
+    "cited_pct": 62.7,
+    "dir": "high",
+    "standout_order": 0,
+    "opponent_name": "Matt Bowdy",
+    "threat_tier": "watch_closely",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "trusting the police",
+    "hs_column": "hs_police_trust_yes",
+    "cited_pct": 43.0,
+    "dir": "low",
+    "standout_order": 1,
+    "opponent_name": "Ruth Gao",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "Allison Head": "low_priority",
+    "Cynthia Kinnard": "watch_closely",
+    "Donald Lee Hickey": "low_priority",
+    "Jeff Hensel": "low_priority",
+    "Kevin Carman": "low_priority",
+    "Mark Blum": "low_priority",
+    "Matt Bowdy": "watch_closely",
+    "Nita Cox": "watch_closely",
+    "Pamela Ware": "low_priority",
+    "Ruth Gao": "primary_threat",
+    "Trena Smith": "low_priority"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "kathy-cohen": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "more funding for public schools",
+    "hs_column": "hs_school_funding_more",
+    "cited_pct": 61.2,
+    "dir": "high",
+    "standout_order": 0,
+    "opponent_name": "Peter Volosin",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "Peter Volosin": "primary_threat",
+    "Raekwon Moore": "low_priority",
+    "Danny Clawson": "watch_closely"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "whitney-rose": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "more infrastructure funding",
+    "hs_column": "hs_infrastructure_funding_fund_more",
+    "cited_pct": 58.1,
+    "dir": "high",
+    "standout_order": 0,
+    "opponent_name": "Kathie hess crouse",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": true,
+   "has_primary_threat": true,
+   "opponents": {
+    "Kathie hess crouse": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "rachel-gravert": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "seeing income inequality as a serious problem",
+    "hs_column": "hs_income_inequality_serious",
+    "cited_pct": 32.2,
+    "dir": "low",
+    "standout_order": 0,
+    "opponent_name": "Dave Rowley",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "funding infrastructure more",
+    "hs_column": "hs_infrastructure_funding_fund_more",
+    "cited_pct": 34.6,
+    "dir": "low",
+    "standout_order": 1,
+    "opponent_name": "Dave Rowley",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "more school funding",
+    "hs_column": "hs_school_funding_more",
+    "cited_pct": 29.9,
+    "dir": "low",
+    "standout_order": 2,
+    "opponent_name": "Dave Rowley",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": true,
+   "has_primary_threat": true,
+   "opponents": {
+    "Dave Rowley": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "heather-marie-wilson": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "supporting medicare for all",
+    "hs_column": "hs_medicare_for_all_support",
+    "cited_pct": 75.2,
+    "dir": "high",
+    "standout_order": 0,
+    "opponent_name": "Hannah Sabio-Howell",
+    "threat_tier": "watch_closely",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "government having a role in affordable housing",
+    "hs_column": "hs_affordable_housing_gov_has_role",
+    "cited_pct": 78.9,
+    "dir": "high",
+    "standout_order": 1,
+    "opponent_name": "Hannah Sabio-Howell",
+    "threat_tier": "watch_closely",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "more school funding",
+    "hs_column": "hs_school_funding_more",
+    "cited_pct": 79.2,
+    "dir": "high",
+    "standout_order": 2,
+    "opponent_name": "Jamie Pedersen",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "supporting tax cuts",
+    "hs_column": "hs_tax_cuts_support",
+    "cited_pct": 22.7,
+    "dir": "low",
+    "standout_order": 3,
+    "opponent_name": "Jamie Pedersen",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "Hannah Sabio-Howell": "watch_closely",
+    "Jamie Pedersen": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "ayub-hajiomar": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "government having a role in affordable housing",
+    "hs_column": "hs_affordable_housing_gov_has_role",
+    "cited_pct": 52.8,
+    "dir": "high",
+    "standout_order": 0,
+    "opponent_name": "Benjamin Zastrow",
+    "threat_tier": "low_priority",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "belief in climate change",
+    "hs_column": "hs_climate_change_believer",
+    "cited_pct": 54.8,
+    "dir": "high",
+    "standout_order": 1,
+    "opponent_name": "Axe Ahmed",
+    "threat_tier": "watch_closely",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "funding infrastructure more",
+    "hs_column": "hs_infrastructure_funding_fund_more",
+    "cited_pct": 50.8,
+    "dir": "high",
+    "standout_order": 2,
+    "opponent_name": "Molly Dennis",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "Axe Ahmed": "watch_closely",
+    "Benjamin Zastrow": "low_priority",
+    "Jerrod Lucker": "low_priority",
+    "Jessica Garcia": "low_priority",
+    "Joe Powers": "watch_closely",
+    "Molly Dennis": "primary_threat",
+    "Wale Elegbede": "watch_closely"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "nico-tsatsoulis": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "supporting tax cuts",
+    "hs_column": "hs_tax_cuts_support",
+    "cited_pct": 38.9,
+    "dir": "low",
+    "standout_order": 0,
+    "opponent_name": "Pat Hynes",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": true,
+   "has_primary_threat": true,
+   "opponents": {
+    "Pat Hynes": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "tobias-leonard1": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "viewing regulations as too harsh",
+    "hs_column": "hs_regulations_too_harsh",
+    "cited_pct": 37.1,
+    "dir": "low",
+    "standout_order": 0,
+    "opponent_name": "Julia Hamann",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "supporting tax cuts",
+    "hs_column": "hs_tax_cuts_support",
+    "cited_pct": 35.7,
+    "dir": "low",
+    "standout_order": 1,
+    "opponent_name": "Julia Hamann",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "trusting police",
+    "hs_column": "hs_police_trust_yes",
+    "cited_pct": 35.9,
+    "dir": "low",
+    "standout_order": 2,
+    "opponent_name": "Julia Hamann",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "Najwa Massad": "low_priority",
+    "Julia Hamann": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "aaron-bailey": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "funding infrastructure more",
+    "hs_column": "hs_infrastructure_funding_fund_more",
+    "cited_pct": 65.3,
+    "dir": "high",
+    "standout_order": 0,
+    "opponent_name": "Ryon Skalitzky",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "seeing unions as beneficial",
+    "hs_column": "hs_unions_beneficial",
+    "cited_pct": 62.9,
+    "dir": "high",
+    "standout_order": 1,
+    "opponent_name": "Ryon Skalitzky",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "government having a role in affordable housing",
+    "hs_column": "hs_affordable_housing_gov_has_role",
+    "cited_pct": 67.5,
+    "dir": "high",
+    "standout_order": 2,
+    "opponent_name": "Ryon Skalitzky",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": true,
+   "has_primary_threat": true,
+   "opponents": {
+    "Ryon Skalitzky": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "kathleenmae-rogers": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "seeing unions as beneficial",
+    "hs_column": "hs_unions_beneficial",
+    "cited_pct": 39.9,
+    "dir": "low",
+    "standout_order": 0,
+    "opponent_name": "Jeanette Cass",
+    "threat_tier": "watch_closely",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "medicare for all",
+    "hs_column": "hs_medicare_for_all_support",
+    "cited_pct": 40.5,
+    "dir": "low",
+    "standout_order": 1,
+    "opponent_name": "Hartzell Gray",
+    "threat_tier": "watch_closely",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "medicaid expansion",
+    "hs_column": "hs_medicaid_expansion_support",
+    "cited_pct": 40.4,
+    "dir": "low",
+    "standout_order": 2,
+    "opponent_name": "Mark Alford",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "more infrastructure funding",
+    "hs_column": "hs_infrastructure_funding_fund_more",
+    "cited_pct": 36.7,
+    "dir": "low",
+    "standout_order": 3,
+    "opponent_name": "Mark Alford",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "Ashleigh Rogers": "low_priority",
+    "Hartzell Gray": "watch_closely",
+    "Heather Shelton": "low_priority",
+    "Jeanette Cass": "watch_closely",
+    "Jordan Herrera": "watch_closely",
+    "Mark Alford": "primary_threat",
+    "Randy Miller": "low_priority",
+    "Scott Vera": "low_priority",
+    "Thomas Holbrook": "low_priority",
+    "Wayne Russell": "low_priority"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "andrea-bell1": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "government having a role in affordable housing",
+    "hs_column": "hs_affordable_housing_gov_has_role",
+    "cited_pct": 86.6,
+    "dir": "high",
+    "standout_order": 0,
+    "opponent_name": "Erika Sugarmon",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": true,
+   "has_primary_threat": true,
+   "opponents": {
+    "Erika Sugarmon": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "fred-crawford": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "more school funding",
+    "hs_column": "hs_school_funding_more",
+    "cited_pct": 27.4,
+    "dir": "low",
+    "standout_order": 0,
+    "opponent_name": "Jason Kirkland",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "government having a role in affordable housing",
+    "hs_column": "hs_affordable_housing_gov_has_role",
+    "cited_pct": 26.3,
+    "dir": "low",
+    "standout_order": 1,
+    "opponent_name": "Jason Kirkland",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "supporting tax cuts",
+    "hs_column": "hs_tax_cuts_support",
+    "cited_pct": 66.0,
+    "dir": "high",
+    "standout_order": 2,
+    "opponent_name": "Jason Kirkland",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": true,
+   "has_primary_threat": true,
+   "opponents": {
+    "Jason Kirkland": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "richard-robb": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "more school funding",
+    "hs_column": "hs_school_funding_more",
+    "cited_pct": 39.2,
+    "dir": "low",
+    "standout_order": 0,
+    "opponent_name": "Darren Deacon",
+    "threat_tier": "watch_closely",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "opposing gun control",
+    "hs_column": "hs_gun_control_oppose",
+    "cited_pct": 73.4,
+    "dir": "high",
+    "standout_order": 1,
+    "opponent_name": "Bryce Edgmon",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "supporting tax cuts",
+    "hs_column": "hs_tax_cuts_support",
+    "cited_pct": 63.8,
+    "dir": "high",
+    "standout_order": 2,
+    "opponent_name": "Bryce Edgmon",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "Bryce Edgmon": "primary_threat",
+    "Darren Deacon": "watch_closely",
+    "Wayne Morgan": "low_priority"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "nico-tsatsoulis1": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "government having a role in affordable housing",
+    "hs_column": "hs_affordable_housing_gov_has_role",
+    "cited_pct": 70.4,
+    "dir": "high",
+    "standout_order": 0,
+    "opponent_name": "Pat Hynes",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": true,
+   "has_primary_threat": true,
+   "opponents": {
+    "Pat Hynes": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "tracey-tackett2": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "more infrastructure funding",
+    "hs_column": "hs_infrastructure_funding_fund_more",
+    "cited_pct": 40.7,
+    "dir": "low",
+    "standout_order": 0,
+    "opponent_name": "Jim Jordan",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "more school funding",
+    "hs_column": "hs_school_funding_more",
+    "cited_pct": 34.0,
+    "dir": "low",
+    "standout_order": 1,
+    "opponent_name": "Jim Jordan",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "Jim Jordan": "primary_threat",
+    "Joshua Kolasinski": "watch_closely"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "christopher-elder": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "more school funding",
+    "hs_column": "hs_school_funding_more",
+    "cited_pct": 23.7,
+    "dir": "low",
+    "standout_order": 0,
+    "opponent_name": "Roy Klopfenstein",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "medicaid expansion",
+    "hs_column": "hs_medicaid_expansion_support",
+    "cited_pct": 30.6,
+    "dir": "low",
+    "standout_order": 1,
+    "opponent_name": "Roy Klopfenstein",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "tax cuts",
+    "hs_column": "hs_tax_cuts_support",
+    "cited_pct": 68.5,
+    "dir": "high",
+    "standout_order": 2,
+    "opponent_name": "Roy Klopfenstein",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "Roy Klopfenstein": "primary_threat",
+    "David Plant": "low_priority"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "friends-pittioni": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "government having a role in affordable housing",
+    "hs_column": "hs_affordable_housing_gov_has_role",
+    "cited_pct": 43.0,
+    "dir": "low",
+    "standout_order": 0,
+    "opponent_name": "Michelle Belkot",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "John Zingale": "watch_closely",
+    "Michelle Belkot": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "gopal-krishan": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "distrust of police",
+    "hs_column": "hs_police_trust_no",
+    "cited_pct": 54.8,
+    "dir": "high",
+    "standout_order": 0,
+    "opponent_name": "Ursula Jones Dickson",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "Pamela Price": "low_priority",
+    "Ursula Jones Dickson": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "nick-duda": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "government having a role in affordable housing",
+    "hs_column": "hs_affordable_housing_gov_has_role",
+    "cited_pct": 70.6,
+    "dir": "high",
+    "standout_order": 0,
+    "opponent_name": "Mia Jacobson",
+    "threat_tier": "low_priority",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "supporting tax cuts",
+    "hs_column": "hs_tax_cuts_support",
+    "cited_pct": 30.3,
+    "dir": "low",
+    "standout_order": 1,
+    "opponent_name": "Teresa Mosqueda",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "Mia Jacobson": "low_priority",
+    "Teresa Mosqueda": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "felicia-cowden": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "funding infrastructure more",
+    "hs_column": "hs_infrastructure_funding_fund_more",
+    "cited_pct": 47.2,
+    "dir": "low",
+    "standout_order": 0,
+    "opponent_name": "Mel Rapozo",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "Bernard Carvalho": "low_priority",
+    "Mel Rapozo": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "nater-kane": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "more school funding",
+    "hs_column": "hs_school_funding_more",
+    "cited_pct": 49.3,
+    "dir": "low",
+    "standout_order": 0,
+    "opponent_name": "Vanessa Atterbeary",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": true,
+   "has_primary_threat": true,
+   "opponents": {
+    "Vanessa Atterbeary": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "james-jones1": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "supporting a $15 minimum wage increase",
+    "hs_column": "hs_min_wage_15_increase_support",
+    "cited_pct": 79.3,
+    "dir": "high",
+    "standout_order": 0,
+    "opponent_name": "Rosalyn Henderson-Myers",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "more school funding",
+    "hs_column": "hs_school_funding_more",
+    "cited_pct": 77.6,
+    "dir": "high",
+    "standout_order": 1,
+    "opponent_name": "Rosalyn Henderson-Myers",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "government having a role in affordable housing",
+    "hs_column": "hs_affordable_housing_gov_has_role",
+    "cited_pct": 78.5,
+    "dir": "high",
+    "standout_order": 2,
+    "opponent_name": "Rosalyn Henderson-Myers",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": true,
+   "has_primary_threat": true,
+   "opponents": {
+    "Rosalyn Henderson-Myers": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "zachary-jarvinen": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "supporting medicaid expansion",
+    "hs_column": "hs_medicaid_expansion_support",
+    "cited_pct": 57.6,
+    "dir": "high",
+    "standout_order": 0,
+    "opponent_name": "Silja Paymer",
+    "threat_tier": "low_priority",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "government having a role in affordable housing",
+    "hs_column": "hs_affordable_housing_gov_has_role",
+    "cited_pct": 61.5,
+    "dir": "high",
+    "standout_order": 1,
+    "opponent_name": "IdaRose Sylvester",
+    "threat_tier": "watch_closely",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "more school funding",
+    "hs_column": "hs_school_funding_more",
+    "cited_pct": 63.2,
+    "dir": "high",
+    "standout_order": 2,
+    "opponent_name": "Paul Donahue",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "Alexander Amoroso": "watch_closely",
+    "IdaRose Sylvester": "watch_closely",
+    "Paul Donahue": "primary_threat",
+    "Silja Paymer": "low_priority"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "yevgeny-khodorkovsky": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "funding infrastructure more",
+    "hs_column": "hs_infrastructure_funding_fund_more",
+    "cited_pct": 69.3,
+    "dir": "high",
+    "standout_order": 0,
+    "opponent_name": "Jen Ahearn-Koch",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "government having a role in affordable housing",
+    "hs_column": "hs_affordable_housing_gov_has_role",
+    "cited_pct": 51.6,
+    "dir": "high",
+    "standout_order": 1,
+    "opponent_name": "Jen Ahearn-Koch",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "Jen Ahearn-Koch": "primary_threat",
+    "John Harshman": "watch_closely",
+    "Rob Rominiecki": "low_priority"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "gabriela-kroetch": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "funding infrastructure more",
+    "hs_column": "hs_infrastructure_funding_fund_more",
+    "cited_pct": 36.7,
+    "dir": "low",
+    "standout_order": 0,
+    "opponent_name": "Drew Christensen",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "supporting tax cuts",
+    "hs_column": "hs_tax_cuts_support",
+    "cited_pct": 58.3,
+    "dir": "high",
+    "standout_order": 1,
+    "opponent_name": "Drew Christensen",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "serious worry about violent crime",
+    "hs_column": "hs_violent_crime_very_worried",
+    "cited_pct": 59.4,
+    "dir": "high",
+    "standout_order": 2,
+    "opponent_name": "Drew Christensen",
+    "threat_tier": "primary_threat",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": true,
+   "has_primary_threat": true,
+   "opponents": {
+    "Drew Christensen": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ },
+ "james-etzkorn": {
+  "source": "frozen:artifact_a4644548",
+  "issues": [
+   {
+    "phrase": "seeing income inequality as a serious problem",
+    "hs_column": "hs_income_inequality_serious",
+    "cited_pct": 45.3,
+    "dir": "low",
+    "standout_order": 0,
+    "opponent_name": "Hunter Gordon",
+    "threat_tier": "watch_closely",
+    "attribution": "text:standout_title"
+   },
+   {
+    "phrase": "funding infrastructure at a higher level",
+    "hs_column": "hs_infrastructure_funding_fund_more",
+    "cited_pct": 56.0,
+    "dir": "high",
+    "standout_order": 1,
+    "opponent_name": "Benjamin Kincaid",
+    "threat_tier": "watch_closely",
+    "attribution": "text:standout_title"
+   }
+  ],
+  "threat": {
+   "matched": true,
+   "single_opponent": false,
+   "has_primary_threat": true,
+   "opponents": {
+    "Benjamin Kincaid": "watch_closely",
+    "Bryce Nickel": "low_priority",
+    "Catherine Hildebrand": "low_priority",
+    "Hunter Gordon": "watch_closely",
+    "Mary Silva": "low_priority",
+    "Suzan DelBene": "primary_threat"
+   },
+   "source": "stg_airbyte_source__gp_api_db_race_opponent_summary.sections.threatTier"
+  }
+ }
+}

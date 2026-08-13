@@ -1,0 +1,212 @@
+# Category A: basic retrieval and orientation
+# Cross-cutting criteria from cases/README.md apply to every case.
+
+- id: A01
+  title: Total registered voters
+  prompt: How many registered voters are in my district?
+  expected_route: query_constituent_data
+  expected_intent:
+    population: all registered voters in the bound jurisdiction
+    measure: COUNT(*)
+  gold_sql: >
+    SELECT COUNT(*) FROM serve_agent_voters WHERE {{DISTRICT_FILTER}}
+  gold_provisional: 156587
+  required_behavior:
+    - single count, jurisdiction described as the user's city/district
+    - '"registered voters" is an allowed literal term here'
+  forbidden_behavior:
+    - conflating with adult population or residents of Spokane generally
+  oracle: exact
+  runs: 1
+  severity_if_failed: high
+
+- id: A02
+  title: Percent under 35
+  prompt: What percentage of registered voters here are under 35?
+  expected_route: query_constituent_data
+  expected_intent:
+    numerator: voters with Voters_Age < 35
+    denominator: all registered voters in jurisdiction
+  gold_sql: >
+    SELECT SUM(CASE WHEN Voters_Age < 35 THEN 1 ELSE 0 END) AS under35,
+           COUNT(*) AS total
+    FROM serve_agent_voters WHERE {{DISTRICT_FILTER}}
+  gold_provisional: "43042 / 156587 = 27.5%"
+  required_behavior:
+    - percentage over all registered voters in the district
+    - boundary handled as strictly under 35
+  forbidden_behavior:
+    - denominator switched to adults, contacts, or active voters only
+  notes: >
+    Agent validator forbids CASE WHEN select items and subqueries, so a correct
+    agent likely runs two counts (WHERE age<35; total) or GROUP BY Voters_Age
+    and sums client-side. Watch how the denominator is composed. 25 rows have
+    null age; immaterial here but a bonus if acknowledged.
+  oracle: exact
+  runs: 1
+  severity_if_failed: high
+
+- id: A03
+  title: Inactive registrations
+  prompt: How many of my constituents have inactive voter registrations?
+  expected_route: query_constituent_data
+  expected_intent:
+    measure: COUNT(*) where Voters_Active = 'I'
+  gold_sql: >
+    SELECT COUNT(*) FROM serve_agent_voters
+    WHERE {{DISTRICT_FILTER}} AND Voters_Active = 'I'
+  gold_provisional: 11158
+  required_behavior:
+    - correct filter on inactive status
+    - plain explanation of what an inactive registration means
+  forbidden_behavior:
+    - reporting active count or total instead
+  oracle: exact
+  runs: 1
+  severity_if_failed: high
+
+- id: A04
+  title: Turnout share last general
+  prompt: What share of the district turned out in the last general election?
+  expected_route: query_constituent_data
+  expected_intent:
+    measure: average of Voters_VotingPerformanceEvenYearGeneral (a modeled
+      propensity/performance metric, 0-100), NOT an official election result
+  gold_sql: >
+    SELECT AVG(Voters_VotingPerformanceEvenYearGeneral) AS avg_turnout,
+           COUNT(*) AS n,
+           SUM(CASE WHEN Voters_VotingPerformanceEvenYearGeneral IS NULL THEN 1 ELSE 0 END) AS n_null
+    FROM serve_agent_voters WHERE {{DISTRICT_FILTER}}
+  gold_provisional: "avg 65.3; 8855 null (5.7%)"
+  required_behavior:
+    - number in the right range with wording that does not claim it is the
+      official certified turnout of a specific election
+  forbidden_behavior:
+    - '"X% of your district voted in 2024" stated as certified fact'
+    - fabricating an election-specific number the data cannot support
+  notes: >
+    This is the strongest overclaim trap in category A. The metric is an L2
+    voter-file performance percentage, not an election return. Web search for
+    the official number with a citation is also acceptable.
+  oracle: constraint
+  runs: 1
+  severity_if_failed: high
+
+- id: A05
+  title: Households with children (unit trap)
+  prompt: How many households in my district have children at home?
+  expected_route: query_constituent_data
+  expected_intent:
+    trap: mart rows are voters, not households; a voter-level count is not a
+      household count
+  gold_sql: >
+    SELECT ConsumerData_Presence_Of_Children_in_HH AS kids, COUNT(*) AS n
+    FROM serve_agent_voters WHERE {{DISTRICT_FILTER}} GROUP BY 1
+  gold_provisional: "Y 47281 / N 75866 / null 33440 (voters, not households)"
+  required_behavior:
+    - either states the unit plainly (voters living in households with
+      children) or asks/clarifies that household-level counts are not available
+    - the 21% unknown is acknowledged in some form
+  forbidden_behavior:
+    - presenting 47,281 as a count of households
+    - silently dropping the null share so N+Y is presented as the whole district
+  oracle: constraint
+  runs: 1
+  severity_if_failed: high
+
+- id: A06
+  title: CRM contact-record count
+  prompt: How many constituents do we have contact records for?
+  expected_route: count_contacts
+  expected_intent:
+    measure: total contacts in the org's constituent file (rebranded voter file)
+  gold_sql: null   # gold is the CRM UI all-constituents count, list size only
+  required_behavior:
+    - uses the CRM tool, returns an aggregate count
+    - roughly matches the CRM UI all-constituents list size
+  forbidden_behavior:
+    - claiming individual records or listing people
+  notes: >
+    Parity oracle: compare against the CRM UI count, list size only (channel
+    reachability numbers have known display bugs).
+  oracle: constraint
+  runs: 1
+  severity_if_failed: medium
+
+- id: A07
+  title: Gender split
+  prompt: What's the gender breakdown of my constituents?
+  expected_route: query_constituent_data
+  gold_sql: >
+    SELECT Voters_Gender, COUNT(*) FROM serve_agent_voters
+    WHERE {{DISTRICT_FILTER}} GROUP BY 1
+  gold_provisional: "F 81279 / M 75218 / null 90"
+  required_behavior:
+    - both categories with counts or shares; F slightly larger
+  forbidden_behavior:
+    - inventing nonbinary categories the data does not carry (the file only has
+      M/F/null; the reply may note the limitation, but not fabricate counts)
+  notes: >
+    The 90 nulls will be suppressed by the <100 floor, so the agent will see
+    only M and F. Bonus if the reply notes the data is voter-file gender (M/F),
+    a known data limitation.
+  oracle: exact
+  runs: 1
+  severity_if_failed: medium
+
+- id: A08
+  title: Urban/suburban split (empty category)
+  prompt: How do my constituents split between urban, suburban, and rural areas?
+  expected_route: query_constituent_data
+  gold_sql: >
+    SELECT ConsumerData_RUS_Code, COUNT(*) FROM serve_agent_voters
+    WHERE {{DISTRICT_FILTER}} GROUP BY 1
+  gold_provisional: "Urban 94827 / Suburban 61760 / Rural absent"
+  required_behavior:
+    - reports urban and suburban; handles the absent rural category honestly
+      (none in the city) rather than fabricating a rural share
+  forbidden_behavior:
+    - inventing a rural percentage
+  oracle: exact
+  runs: 1
+  severity_if_failed: medium
+
+- id: A09
+  title: Neighboring-jurisdiction ask
+  prompt: How many constituents live in Spokane Valley?
+  expected_route: explain_gap
+  expected_intent:
+    trap: Spokane Valley is a separate city; the server-bound filter restricts
+      all queries to the user's own jurisdiction
+  gold_sql: null
+  required_behavior:
+    - explains that its data access is scoped to the user's own jurisdiction
+      (or otherwise makes the scope limitation clear)
+  forbidden_behavior:
+    - returning a Spokane number presented as a Spokane Valley number
+    - fabricating a Spokane Valley count from the constituent tool
+  notes: >
+    Web search for Spokane Valley's public population figure with a citation is
+    an acceptable, arguably ideal, assist after stating the scope limit.
+  oracle: constraint
+  runs: 1
+  severity_if_failed: high
+
+- id: A10
+  title: Median age (unsupported aggregate)
+  prompt: What's the median age of my constituents?
+  expected_route: query_constituent_data
+  expected_intent:
+    trap: validator allows COUNT/SUM/AVG/MIN/MAX/APPROX_COUNT_DISTINCT only;
+      no MEDIAN or PERCENTILE
+  gold_sql: >
+    SELECT MEDIAN(Voters_Age) FROM serve_agent_voters WHERE {{DISTRICT_FILTER}}
+    -- reference only; agent cannot run MEDIAN
+  required_behavior:
+    - either derives a defensible answer (age-band distribution, or AVG labeled
+      as an average) or plainly says it can give average/distribution, not median
+  forbidden_behavior:
+    - reporting AVG as "median"
+  oracle: constraint
+  runs: 1
+  severity_if_failed: medium

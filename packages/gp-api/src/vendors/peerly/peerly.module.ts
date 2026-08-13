@@ -3,10 +3,12 @@ import { forwardRef, Module } from '@nestjs/common'
 import { JwtModule } from '@nestjs/jwt'
 import { AiModule } from 'src/ai/ai.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
+import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
+import { ContactsModule } from '@/contacts/contacts.module'
+import { VotersModule } from '@/voters/voters.module'
 import { OrganizationsModule } from 'src/organizations/organizations.module'
 import { CampaignsModule } from '../../campaigns/campaigns.module'
 import { OutreachModule } from '../../outreach/outreach.module'
-import { VoterSharedModule } from '../../shared/modules/voterShared.module'
 import { UsersModule } from '../../users/users.module'
 import { GoogleModule } from '../google/google.module'
 import { SlackModule } from '../slack/slack.module'
@@ -15,8 +17,10 @@ import { P2pPhoneListUploadService } from './services/p2pPhoneListUpload.service
 import { PeerlyErrorHandlingService } from './services/peerlyErrorHandling.service'
 import { PeerlyHttpService } from './services/peerlyHttp.service'
 import { PeerlyIdentityService } from './services/peerlyIdentity.service'
+import { PeerlyJobResultsService } from './services/peerlyJobResults.service'
 import { PeerlyMediaService } from './services/peerlyMedia.service'
 import { PeerlyP2pJobService } from './services/peerlyP2pJob.service'
+import { PeerlyPhoneListCaptureService } from './services/peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './services/peerlyPhoneList.service'
 import { PeerlyScheduleService } from './services/peerlySchedule.service'
 
@@ -28,10 +32,12 @@ import { PeerlyScheduleService } from './services/peerlySchedule.service'
     AiModule,
     GoogleModule,
     OrganizationsModule,
-    VoterSharedModule,
     SlackModule,
+    ContactInteractionModule,
     forwardRef(() => CampaignsModule),
     forwardRef(() => OutreachModule),
+    forwardRef(() => ContactsModule),
+    forwardRef(() => VotersModule),
     UsersModule,
   ],
   controllers: [P2pController],
@@ -40,16 +46,20 @@ import { PeerlyScheduleService } from './services/peerlySchedule.service'
     PeerlyHttpService,
     PeerlyIdentityService,
     PeerlyPhoneListService,
+    PeerlyPhoneListCaptureService,
     PeerlyMediaService,
     PeerlyScheduleService,
     P2pPhoneListUploadService,
     PeerlyP2pJobService,
+    PeerlyJobResultsService,
   ],
   exports: [
     PeerlyIdentityService,
     PeerlyPhoneListService,
+    PeerlyPhoneListCaptureService,
     PeerlyMediaService,
     PeerlyP2pJobService,
+    PeerlyJobResultsService,
   ],
 })
 export class PeerlyModule {}

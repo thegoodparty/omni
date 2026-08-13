@@ -9,6 +9,12 @@ const isPublicRoute = createRouteMatcher([
   '/logout(.*)',
   '/sign-up(.*)',
   '/impersonate(.*)',
+  // Dev-only local briefing gallery. Both the page and its API route hard-return
+  // 404 when NODE_ENV !== 'development', so they never exist in dev/prod; making
+  // them public only affects local runs (Clerk is keyless locally, so gating them
+  // behind auth just blocks the tool with no security benefit).
+  '/dev/(.*)',
+  '/api/dev/(.*)',
   // Magic-link redemption: the lead is not yet authenticated when they land
   // here; the ticket is redeemed client-side. Only /serve/welcome is public —
   // the rest of /serve (e.g. onboarding) still requires an active session.

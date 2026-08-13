@@ -1,7 +1,10 @@
 'use client'
-import { ReactNode, useEffect } from 'react'
+import { ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import DashboardMenu from './DashboardMenu'
+import DashboardNavHeader from './DashboardNavHeader'
+import { NavHeaderActionSlotContext } from './DashboardNavHeaderAction'
+import { NAV_LABELS, type NavHeaderIconKey } from './navLabels'
 import { EcanvasserProvider } from '@shared/hooks/EcanvasserProvider'
 import { useUser } from '@shared/hooks/useUser'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -18,6 +21,14 @@ import { useIsImpersonating } from '@shared/hooks/useIsImpersonating'
 import { isElectionResultDismissed } from '../election-result/dismissal'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
 import { useWinVoterContext } from './useWinVoterContext'
+import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
+import { DashboardCampaignManagerChat } from '../campaign-manager/CampaignManagerChatProvider'
+
+export interface DashboardNavHeaderConfig {
+  icon: NavHeaderIconKey
+  label: string
+  centered?: boolean
+}
 
 interface DashboardLayoutProps {
   children: ReactNode
@@ -26,6 +37,7 @@ interface DashboardLayoutProps {
   showAlert?: boolean
   wrapperClassName?: string
   hideMenu?: boolean
+  navHeader?: DashboardNavHeaderConfig
 }
 
 const DashboardLayout = ({
@@ -34,6 +46,7 @@ const DashboardLayout = ({
   campaign,
   wrapperClassName = '',
   hideMenu = false,
+  navHeader,
 }: DashboardLayoutProps): React.JSX.Element | null => {
   const [user] = useUser()
   const [hookCampaign] = useCampaign()
@@ -41,6 +54,23 @@ const DashboardLayout = ({
   const router = useRouter()
   const hookPathname = usePathname()
   const isImpersonating = useIsImpersonating()
+  const [navHeaderActionSlot, setNavHeaderActionSlot] =
+    useState<HTMLDivElement | null>(null)
+  // Whether a DashboardNavHeaderAction is mounted right now. Observed rather
+  // than declared by the page: these CTAs come and go with page state, and the
+  // bar needs the live answer to decide whether to render on mobile.
+  const [navHeaderActionCount, setNavHeaderActionCount] = useState(0)
+  const registerNavHeaderAction = useCallback(
+    (delta: number) => setNavHeaderActionCount((count) => count + delta),
+    [],
+  )
+  const navHeaderActionSlotValue = useMemo(
+    () => ({
+      element: navHeaderActionSlot,
+      register: registerNavHeaderAction,
+    }),
+    [navHeaderActionSlot, registerNavHeaderAction],
+  )
 
   const currentPath = pathname || hookPathname
   const activeCampaign = campaign || hookCampaign
@@ -94,32 +124,52 @@ const DashboardLayout = ({
           {!hideMenu && <MobileMenuTrigger />}
           <ImpersonationBanner />
           <ElectedOfficeTermDatesModalController />
-          <div className={`flex-1 p-2 md:p-4 ${wrapperClassName}`}>
-            <ProUpgradePrompt
-              campaign={activeCampaign}
-              user={user}
-              pathname={currentPath || undefined}
-              isElectedOffice={!!organization?.electedOfficeId}
+          {navHeader && (
+            <DashboardNavHeader
+              icon={navHeader.icon}
+              label={navHeader.label}
+              centered={navHeader.centered}
+              hasAction={navHeaderActionCount > 0}
+              actionSlotRef={setNavHeaderActionSlot}
             />
-            {children}
-          </div>
+          )}
+          <NavHeaderActionSlotContext.Provider value={navHeaderActionSlotValue}>
+            <DashboardCampaignManagerChat>
+              <div className={`flex-1 p-2 md:p-4 ${wrapperClassName}`}>
+                <ProUpgradePrompt
+                  campaign={activeCampaign}
+                  user={user}
+                  pathname={currentPath || undefined}
+                  isElectedOffice={!!organization?.electedOfficeId}
+                />
+                {children}
+              </div>
+            </DashboardCampaignManagerChat>
+          </NavHeaderActionSlotContext.Provider>
         </SidebarInset>
       </SidebarProvider>
     </EcanvasserProvider>
   )
 }
 
+// The full-bleed DashboardNavHeader is desktop-only, so on mobile the tab title
+// is shown here in the top bar instead. Any route that renders a navHeader (or
+// IssuesNavHeader) needs a matching entry so its title survives on mobile.
 const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/dashboard/chief-of-staff', 'Chief of Staff'],
   ['/dashboard/briefings', 'Briefing Assistant'],
+  ['/dashboard/community-issues', 'Community Issues'],
+  ['/dashboard/public-profile', NAV_LABELS.publicProfile],
+  ['/dashboard/ordinances', 'Ordinances'],
+  ['/dashboard/race-opponent', NAV_LABELS.knowYourOpponent],
+  ['/dashboard/campaign-story', NAV_LABELS.campaignStory],
   ['/dashboard/outreach', 'Voter Outreach'],
-  ['/dashboard/voter-records', 'Voter Data'],
   // /dashboard/contacts is intentionally absent: its title depends on Win vs
   // Serve, so MobileMenuTrigger resolves it from the org instead.
   ['/dashboard/polls', 'Polls'],
   ['/dashboard/website', 'Website'],
-  ['/dashboard/campaign-details', 'My Profile'],
-  ['/dashboard/campaign-assistant', 'AI Assistant'],
+  ['/dashboard/profile', 'My Profile'],
+  ['/dashboard/account', 'Account Settings'],
   ['/dashboard/content', 'Content Builder'],
   ['/dashboard/door-knocking', 'Door Knocking'],
 ]
@@ -128,8 +178,21 @@ const isContactsPath = (pathname: string): boolean =>
   pathname === '/dashboard/contacts' ||
   pathname.startsWith('/dashboard/contacts/')
 
-const getMobilePageTitle = (pathname: string | null): string | null => {
+const getMobilePageTitle = (
+  pathname: string | null,
+  campaignStoryEnabled: boolean,
+): string | null => {
   if (!pathname) return null
+  // Exact matches, ahead of the table: a '/dashboard' entry in it would prefix-
+  // match (and mistitle) every dashboard subroute that isn't listed, and the
+  // plan tab's name depends on the campaign-story flag exactly as it does in
+  // DashboardMenu.
+  if (pathname === '/dashboard') return NAV_LABELS.campaignManager
+  if (pathname === '/dashboard/campaign-plan') {
+    return campaignStoryEnabled
+      ? NAV_LABELS.campaignTracker
+      : NAV_LABELS.campaignPlan
+  }
   for (const [prefix, title] of MOBILE_PAGE_TITLES) {
     if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return title
   }
@@ -144,12 +207,15 @@ const MobileMenuTrigger = () => {
   // (useWinVoterContext) so the header and content always agree — and wait for
   // isReady so a Win user never flashes "Constituent Data" during load.
   const { isWin, isReady } = useWinVoterContext()
+  // Same trackExposure=false read DashboardMenu uses to label the plan tab —
+  // the mobile title must not disagree with the sidebar item it mirrors.
+  const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
   const pageTitle =
     pathname && isContactsPath(pathname)
       ? isReady
         ? CONTACTS_DATA_TITLE[isWin ? 'win' : 'serve']
         : null
-      : getMobilePageTitle(pathname)
+      : getMobilePageTitle(pathname, campaignStoryEnabled)
   return (
     <>
       <div className="flex lg:hidden items-center justify-between h-16 px-4 bg-sidebar border-b border-sidebar-border">

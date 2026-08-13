@@ -22,18 +22,15 @@ export const EVENTS = {
   },
   Onboarding: {
     UserCreated: 'Onboarding - User Created',
-    // Top of the serve (elected-official) magic-link funnel. Emitted when sales
-    // generates a magic link for a lead, keyed to the provisioned user id +
-    // email (the EO may not exist yet). Paired client-side with
-    // 'Onboarding - Magic Link Clicked' (gp-webapp). Prefix is intentionally
-    // `Onboarding -` (renamed from 'Serve Onboarding - Magic Link Sent').
+    // Top of the magic-link funnel. Emitted when sales generates an onboarding
+    // magic link for a lead, keyed to the provisioned user id + email. A single
+    // funnel event for both flows — the `type` property ('serve' | 'win')
+    // distinguishes the elected-official (serve) link from the candidate (win)
+    // link. The downstream record (EO or campaign) may not exist yet at send
+    // time. Paired client-side with 'Onboarding - Magic Link Clicked'
+    // (gp-webapp). Renamed from 'Serve Onboarding -'/'Win Onboarding - Magic
+    // Link Sent'.
     MagicLinkSent: 'Onboarding - Magic Link Sent',
-  },
-  WinOnboarding: {
-    // Emitted when sales generates a magic link for a candidate lead. Keyed to
-    // the provisioned user id + email (the campaign does not exist yet — the
-    // lead creates it during the office-selection onboarding step).
-    MagicLinkSent: 'Win Onboarding - Magic Link Sent',
   },
   //  ⚠️  DO NOT MODIFY - Used by HubSpot workflows for 10DLC compliance tracking
   // Used in: https://app.hubspot.com/workflows/21589597/platform/flow/1739287110/edit
@@ -48,8 +45,34 @@ export const EVENTS = {
     ComplianceFormSubmitted: 'Voter Outreach - 10DLC Compliance Form Submitted',
     //  ⚠️  DO NOT MODIFY - Used by HubSpot workflows for 10DLC compliance tracking
     CompliancePinSubmitted: 'Voter Outreach - 10DLC Compliance PIN Submitted',
+    //  ⚠️  DO NOT MODIFY - Used by HubSpot to stamp PIN delivery channel +
+    //  destination on the company and trigger the "check your texts/email"
+    //  nudge. Fired once by the PIN-delivery detection sweep.
+    CompliancePinSent: 'Voter Outreach - 10DLC Compliance PIN Sent',
+    // Fired when GoodParty staff trigger a CV PIN resend from the admin
+    // console (ENG-10689) so HubSpot can show resend activity on the
+    // contact/company. Requires a matching HubSpot custom-event definition
+    // (exact event string + property internal names) to be visible there.
+    CompliancePinResent: 'Voter Outreach - 10DLC Compliance PIN Resent',
+    // Server-side twin of gp-webapp's 'Pro Upgrade - Candidate Profile
+    // Submitted' (10DLC events must fire from gp-api for delivery
+    // reliability). Fired when a website content save transitions the
+    // compliance candidate profile from incomplete to complete.
+    ComplianceCandidateProfileSubmitted:
+      'Voter Outreach - 10DLC Compliance Candidate Profile Submitted',
+    // Fired once when Campaign Verify rejects the candidate's identity
+    // verification — either synchronously at submit (bad filing data,
+    // rejection_source 'cv_submit', carries rejection_reason) or when the
+    // PIN-delivery sweep finds the CV flipped to REJECTED after submission
+    // (rejection_source 'cv_status_check'). Drives Campaign Success
+    // fix-your-filing outreach from HubSpot.
+    ComplianceRejected: 'Voter Outreach - 10DLC Compliance Rejected',
     FreeTextsOfferRedeemed: 'Voter Outreach - Free Texts Offer Redeemed',
     CampaignVerifyTokenStatusUpdate: 'Campaign Verify Token Status Update',
+    // Carries peerlyIdentityId so Segment can stamp it onto the campaign's
+    // HubSpot company record. Peerly's 10DLC Slack notifications reference
+    // only this id, so it's the shared key Campaign Success matches on.
+    PeerlyIdentityIdCreated: 'Peerly Identity ID Created',
   },
   AiContent: {
     GenerationStarted: 'Content Builder: Generation Started',
@@ -57,6 +80,13 @@ export const EVENTS = {
   },
   Polls: {
     ResultsSynthesisCompleted: 'Poll - Results Synthesis Complete',
+  },
+  // Meeting Briefings (Serve). Fires when the daily cron skips an
+  // otherwise-eligible office because its user has been inactive beyond the
+  // activity-gate threshold — feeds a HubSpot re-engagement email. The
+  // on-demand landing check skips this gate (see meetingBriefings.service).
+  BriefingAssistant: {
+    DispatchSkipped: 'Briefing Assistant - Dispatch Skipped',
   },
   Campaigns: {
     FollowOnCreated: 'Campaign - Follow-On Created',
@@ -94,6 +124,41 @@ export const EVENTS = {
   AiChat: {
     ResponseCompleted: 'AI Assistant - Response Completed',
     ResponseFailed: 'AI Assistant - Response Failed',
+  },
+  // Know Your Opponent (Win). SelfResearchCompleted is server-truth: it fires
+  // when the self-research agent job lands its findings and the pass reaches
+  // completed (the browser only sees the job start). ContrastUsed fires when a
+  // candidate routes an approved contrast into their Campaign Story or a draft
+  // texting Outreach — a DRAFT only, marking intent to use a contrast, not a
+  // send. ContrastEdited fires when the candidate edits a cleared or approved
+  // contrast's text before routing it.
+  RaceOpponent: {
+    SelfResearchCompleted: 'Win - Self Research Completed',
+    ContrastUsed: 'Win - Contrast Used',
+    ContrastEdited: 'Win - Contrast Edited',
+  },
+  // Community issues (Serve). The agent jobs generate the feed server-side; the
+  // browser only sees a job *start*. These fire on job completion and carry the
+  // issue headline + summary so a downstream email (HubSpot) can render them.
+  CommunityIssues: {
+    InitialIssuesGenerated: 'Community Issues - Initial Issues Generated',
+    // Fire on every refresh after the first generation — a snapshot of the
+    // list's current state, not a diff against what changed.
+    TopIssuesRefreshed: 'Community Issues - Top Issues Refreshed',
+    TrendingIssuesRefreshed: 'Community Issues - Trending Issues Refreshed',
+    // Fires when the daily cron skips an otherwise-eligible org because its
+    // user has been inactive beyond the activity-gate threshold — feeds a
+    // HubSpot re-engagement email. The on-demand landing check skips this
+    // gate (see communityIssueDispatch.service).
+    TopIssuesDispatchSkipped: 'Community Issues - Top Issues Dispatch Skipped',
+    TrendingIssuesDispatchSkipped:
+      'Community Issues - Trending Issues Dispatch Skipped',
+  },
+  // Ordinance quality loop (Serve). Fires from the queue handler when a
+  // background quality-improvement loop reaches any terminal status — the
+  // browser only observes polling; completion is server truth.
+  Ordinances: {
+    QualityLoopCompleted: 'Ordinances - Quality Loop Completed',
   },
 }
 

@@ -92,15 +92,10 @@ export class EcanvasserIntegrationService extends createPrismaBase(
 
     return recentInteractions.reduce<Record<string, Record<string, number>>>(
       (acc, interaction) => {
-        const date = interaction.date.toISOString().split('T')[0]
-        if (!acc[date]) {
-          acc[date] = { count: 0 }
-        }
-        acc[date].count++
-        if (!acc[date][interaction.status]) {
-          acc[date][interaction.status] = 0
-        }
-        acc[date][interaction.status]++
+        const date = interaction.date.toISOString().split('T')[0] ?? ''
+        const bucket = (acc[date] ??= { count: 0 })
+        bucket.count = (bucket.count ?? 0) + 1
+        bucket[interaction.status] = (bucket[interaction.status] ?? 0) + 1
         return acc
       },
       {},
@@ -233,25 +228,37 @@ export class EcanvasserIntegrationService extends createPrismaBase(
         startDate,
       )
 
-      // Delete existing records only if we're doing a full sync
-      if (!startDate) {
-        await this.model.update({
-          where: { id: ecanvasser.id },
-          data: {
-            contacts: { deleteMany: {} },
-            houses: { deleteMany: {} },
-            interactions: { deleteMany: {} },
-          },
-        })
-      }
+      // The full sync deletes every child row and re-populates it. Run that
+      // delete and the repopulating upserts in one transaction so a mid-loop
+      // failure rolls back to the pre-sync rows instead of leaving the tables
+      // emptied (the outer catch only logs and resets lastSync). The delta sync
+      // (startDate set) skips the delete and only upserts, so its writes are
+      // independently safe and don't need the wrapping transaction, but routing
+      // both through the same block keeps the write path single.
+      const updated = await this.client.$transaction(
+        async (tx) => {
+          if (!startDate) {
+            await tx.ecanvasserContact.deleteMany({
+              where: { ecanvasserId: ecanvasser.id },
+            })
+            await tx.ecanvasserHouse.deleteMany({
+              where: { ecanvasserId: ecanvasser.id },
+            })
+            await tx.ecanvasserInteraction.deleteMany({
+              where: { ecanvasserId: ecanvasser.id },
+            })
+          }
 
-      // Create or update records
-      const updated = await this.model.update({
-        where: { id: ecanvasser.id },
-        data: {
-          contacts: {
-            create: contacts.map((contact) => ({
-              externalId: contact.id,
+          // Upsert each record keyed on (ecanvasserId, externalId) rather than
+          // appending. The delta sync overlaps its window on each run, so the
+          // same eCanvasser record can be re-fetched; upserting updates it in
+          // place instead of inserting a duplicate that violates the unique
+          // index. A falsy id (the API client casts responses without a runtime
+          // id check) would collapse every such record onto external_id 0 and
+          // silently overwrite, so skip those rather than corrupt the row.
+          for (const contact of contacts) {
+            if (!contact.id) continue
+            const data = {
               firstName: contact.first_name,
               lastName: contact.last_name,
               type: contact.type,
@@ -272,31 +279,87 @@ export class EcanvasserIntegrationService extends createPrismaBase(
               actionId: contact.action_id || null,
               lastInteractionId: contact.last_interaction_id || null,
               createdBy: contact.created_by || 0,
-            })),
-          },
-          houses: {
-            create: houses.map((house) => ({
+            }
+            await tx.ecanvasserContact.upsert({
+              where: {
+                ecanvasserId_externalId: {
+                  ecanvasserId: ecanvasser.id,
+                  externalId: contact.id,
+                },
+              },
+              create: {
+                ...data,
+                externalId: contact.id,
+                ecanvasserId: ecanvasser.id,
+              },
+              update: data,
+            })
+          }
+
+          for (const house of houses) {
+            if (!house.id) continue
+            const data = {
               address: house.address,
               latitude: house.latitude || null,
               longitude: house.longitude || null,
-            })),
-          },
-          interactions: {
-            create: interactions.map((interaction) => ({
-              externalId: interaction.id,
+            }
+            await tx.ecanvasserHouse.upsert({
+              where: {
+                ecanvasserId_externalId: {
+                  ecanvasserId: ecanvasser.id,
+                  externalId: house.id,
+                },
+              },
+              create: {
+                ...data,
+                externalId: house.id,
+                ecanvasserId: ecanvasser.id,
+              },
+              update: data,
+            })
+          }
+
+          for (const interaction of interactions) {
+            if (!interaction.id) continue
+            const data = {
               type: interaction.type,
               status: interaction.status?.name ?? 'Unknown',
               contactId: interaction.contact_id || 0,
               createdBy: interaction.created_by || 0,
               date: interaction.created_at,
               rating: interaction.rating || null,
-            })),
-          },
-          lastSync: new Date(),
-          error: null,
+            }
+            await tx.ecanvasserInteraction.upsert({
+              where: {
+                ecanvasserId_externalId: {
+                  ecanvasserId: ecanvasser.id,
+                  externalId: interaction.id,
+                },
+              },
+              create: {
+                ...data,
+                externalId: interaction.id,
+                ecanvasserId: ecanvasser.id,
+              },
+              update: data,
+            })
+          }
+
+          // Stamp lastSync inside the same transaction as the data writes so a
+          // crash can't leave lastSync stale relative to what was persisted — a
+          // stale lastSync would re-enter the full-sync deleteMany branch on the
+          // next run and briefly empty all three child tables.
+          return tx.ecanvasser.update({
+            where: { id: ecanvasser.id },
+            data: {
+              lastSync: new Date(),
+              error: null,
+            },
+            include: { contacts: true, interactions: true },
+          })
         },
-        include: { contacts: true, interactions: true },
-      })
+        { timeout: 60_000 },
+      )
       await this.crm.trackCampaign(campaignId)
       // Emit per-voter door-knock attribution from the freshly-synced rows. This
       // is a best-effort side effect of the sync: idempotent, and its expected
@@ -370,7 +433,10 @@ export class EcanvasserIntegrationService extends createPrismaBase(
     let idx = 0
     for (const ecanvasser of ecanvassers) {
       if (ecanvasser.campaign?.user) {
-        ecanvasser.campaign.user = enriched[idx++]
+        const enrichedUser = enriched[idx++]
+        if (enrichedUser) {
+          ecanvasser.campaign.user = enrichedUser
+        }
       }
     }
 

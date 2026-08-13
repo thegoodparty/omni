@@ -1,12 +1,15 @@
 'use client'
 
+import { useEffect } from 'react'
 import Link from 'next/link'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { Skeleton } from '@styleguide'
 import { ChevronRightIcon } from '@styleguide/components/ui/icons'
 import type { CommunityIssueCard } from 'gpApi/api-endpoints'
 import IssueCard, { issueHref } from './IssueCard'
 import IssuesNavHeader from './IssuesNavHeader'
 import CommunityIssuesChatDock from './CommunityIssuesChatDock'
+import CommunityIssuesDispatchBanner from './CommunityIssuesDispatchBanner'
 import StaffDispatchButtons from './StaffDispatchButtons'
 
 type CommunityIssueListResponse = {
@@ -20,6 +23,7 @@ type CommunityIssueListResponse = {
 type Props = {
   topCommunity: CommunityIssueListResponse
   trending: CommunityIssueListResponse
+  devPreview?: boolean
 }
 
 const SectionHeader = ({
@@ -133,12 +137,29 @@ const TopSection = ({ feed }: { feed: CommunityIssueListResponse }) => {
 const IssueFeedList = ({
   topCommunity,
   trending,
+  devPreview,
 }: Props): React.JSX.Element => {
+  useEffect(() => {
+    if (devPreview) return
+    trackEvent(EVENTS.CommunityIssues.ListViewed, {
+      topCount: topCommunity.issues.length,
+      trendingCount: trending.issues.length,
+    })
+  }, [topCommunity.issues.length, trending.issues.length])
+
   return (
     <div className="flex min-h-screen flex-col">
       <IssuesNavHeader />
       <div className="mx-auto flex w-full max-w-[640px] flex-col gap-8 px-6 pb-28 pt-6">
-        <StaffDispatchButtons />
+        {devPreview ? null : (
+          <CommunityIssuesDispatchBanner
+            initiallyRunning={
+              topCommunity.refresh.status === 'running' ||
+              trending.refresh.status === 'running'
+            }
+          />
+        )}
+        {devPreview ? null : <StaffDispatchButtons />}
         <section className="flex flex-col gap-3">
           <SectionHeader
             title="Trending community issues"

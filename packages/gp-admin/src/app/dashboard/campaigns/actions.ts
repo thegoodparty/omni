@@ -8,6 +8,7 @@ import type {
   Campaign,
   CampaignWithLiveContext,
   CampaignWithPositionName,
+  ComplianceStateOutput,
   PaginatedList,
   UpdateCampaignInput,
 } from '@goodparty_org/sdk'
@@ -51,5 +52,42 @@ export const updateCampaign = async (
     const campaign = await client.campaigns.update(id, input)
     revalidatePath(`/dashboard/users/${userId}`, 'layout')
     return campaign
+  })
+}
+
+export const getCampaignComplianceState = async (
+  campaignId: number
+): Promise<ComplianceStateOutput> => {
+  const { has } = await auth()
+  if (!has?.({ permission: PERMISSIONS.READ_CAMPAIGNS })) {
+    throw new Error('Missing read_campaigns permission')
+  }
+  return gpAction(async (client) => {
+    return client.campaigns.getComplianceState(campaignId)
+  })
+}
+
+export const resendCvPin = async (campaignId: number): Promise<void> => {
+  const { has } = await auth()
+  if (!has?.({ permission: PERMISSIONS.WRITE_CAMPAIGNS })) {
+    throw new Error('Missing write_campaigns permission')
+  }
+  return gpAction(async (client) => {
+    return client.campaigns.resendCvPin(campaignId)
+  })
+}
+
+export const setInternalTestingApproval = async (
+  campaignId: number,
+  enabled: boolean
+): Promise<void> => {
+  const { has } = await auth()
+  if (!has?.({ permission: PERMISSIONS.WRITE_CAMPAIGNS })) {
+    throw new Error('Missing write_campaigns permission')
+  }
+  return gpAction(async (client) => {
+    return enabled
+      ? client.campaigns.grantInternalTestingApproval(campaignId)
+      : client.campaigns.revokeInternalTestingApproval(campaignId)
   })
 }

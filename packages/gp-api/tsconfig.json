@@ -1,35 +1,24 @@
 {
-  "exclude": ["node_modules", "contracts", "dist", "scripts"],
+  "extends": "../../tsconfig.base.json",
+  "exclude": ["node_modules", "contracts", "dist", "scripts", "deploy"],
   "compilerOptions": {
     "module": "NodeNext",
-    "declaration": true,
-    "removeComments": true,
-    "emitDecoratorMetadata": true,
-    "experimentalDecorators": true,
-    "allowSyntheticDefaultImports": true,
-    "target": "esnext",
-    "sourceMap": true,
     "outDir": "./dist",
     "baseUrl": "./",
     "paths": {
-      "@/*": [
-        "src/*"
-      ],
-      "@e2e-tests/*": [
-        "e2e-tests/*"
-      ],
+      "@/*": ["src/*"],
+      "@e2e-tests/*": ["e2e-tests/*"],
+      // The SDK ships dist/index.d.ts ("typings") but its "exports" map has
+      // no "types" condition, so NodeNext can't find its declarations.
+      "@geoapify/route-planner-sdk": [
+        "../../node_modules/@geoapify/route-planner-sdk/dist/index.d.ts"
+      ]
     },
-    "incremental": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "strictNullChecks": true,
-    "noImplicitAny": false,
-    "strictBindCallApply": false,
-    "forceConsistentCasingInFileNames": false,
-    "noFallthroughCasesInSwitch": false,
-    "lib": ["esnext"],
-    "resolveJsonModule": true,
-    "esModuleInterop": true,
-    "preserveWatchOutput": true
+    "preserveWatchOutput": true,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noUncheckedIndexedAccess": true
   }
 }

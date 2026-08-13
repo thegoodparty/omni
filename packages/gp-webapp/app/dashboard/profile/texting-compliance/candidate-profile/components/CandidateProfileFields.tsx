@@ -1,7 +1,7 @@
 'use client'
 import { Alert, AlertDescription, CircleAlertIcon } from '@styleguide'
 import dynamic from 'next/dynamic'
-import { MIN_BIO_LENGTH } from '../candidateProfile.utils'
+import { MIN_BIO_LENGTH, WHY_RUNNING_PROMPT } from '../candidateProfile.utils'
 import type { CandidateProfileForm } from '../useCandidateProfileForm'
 import PolicyPriorities from './PolicyPriorities'
 
@@ -16,6 +16,11 @@ const RichEditor = dynamic(() => import('app/shared/utils/RichEditor'), {
 
 interface CandidateProfileFieldsProps {
   form: CandidateProfileForm
+  // Election-filing renders profile errors in the registration form's
+  // combined alert at the top of the page; this suppresses the section's own
+  // alert so the same errors aren't shown twice. Field-level error styling
+  // (the red editor border) is unaffected.
+  hideValidationAlert?: boolean
 }
 
 /**
@@ -26,6 +31,7 @@ interface CandidateProfileFieldsProps {
  */
 export default function CandidateProfileFields({
   form,
+  hideValidationAlert = false,
 }: CandidateProfileFieldsProps): React.JSX.Element {
   const {
     bioPlainLength,
@@ -42,23 +48,26 @@ export default function CandidateProfileFields({
 
   return (
     <>
-      {attemptedSubmit && (bioError || prioritiesError) && (
-        <Alert
-          variant="destructive"
-          icon={<CircleAlertIcon />}
-          className="mb-6"
-        >
-          <AlertDescription>
-            {bioError && <p>{bioError}</p>}
-            {prioritiesError && <p>{prioritiesError}</p>}
-          </AlertDescription>
-        </Alert>
-      )}
+      {!hideValidationAlert &&
+        attemptedSubmit &&
+        (bioError || prioritiesError) && (
+          <Alert
+            variant="destructive"
+            icon={<CircleAlertIcon />}
+            className="mb-6"
+          >
+            <AlertDescription>
+              {bioError && <p>{bioError}</p>}
+              {prioritiesError && <p>{prioritiesError}</p>}
+            </AlertDescription>
+          </Alert>
+        )}
 
       <div>
-        <div className="mb-1.5 block text-sm font-medium">
-          Why are you running?
-        </div>
+        <div className="block text-sm font-medium">Your why</div>
+        <p className="mb-1.5 text-sm text-muted-foreground">
+          {WHY_RUNNING_PROMPT}
+        </p>
         {initialBio !== null && (
           <RichEditor
             initialText={initialBio}

@@ -1,24 +1,36 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
 import ElectionResultPage from './ElectionResultPage'
 import { updateCampaign } from 'app/onboarding/shared/ajaxActions'
 
-const { mockErrorSnackbar, mockIsImpersonating, mockDismissElectionResult } =
-  vi.hoisted(() => ({
-    mockErrorSnackbar: vi.fn(),
-    mockIsImpersonating: vi.fn(() => false),
-    mockDismissElectionResult: vi.fn(),
-  }))
+const {
+  mockErrorSnackbar,
+  mockIsImpersonating,
+  mockDismissElectionResult,
+  mockCampaign,
+} = vi.hoisted(() => ({
+  mockErrorSnackbar: vi.fn(),
+  mockIsImpersonating: vi.fn(() => false),
+  mockDismissElectionResult: vi.fn(),
+  mockCampaign: {
+    current: { id: 1, details: { electionDate: '2025-05-20' } } as {
+      id: number
+      isPro?: boolean
+      details: { electionDate: string; subscriptionId?: string }
+    },
+  },
+}))
 
 vi.mock('app/onboarding/shared/ajaxActions', () => ({
   updateCampaign: vi.fn(),
 }))
 
 vi.mock('@shared/hooks/useCampaign', () => ({
-  useCampaign: () => [{ id: 1, details: { electionDate: '2025-05-20' } }],
+  useCampaign: () => [mockCampaign.current],
 }))
 
 vi.mock('@shared/hooks/usePositionName', () => ({
@@ -37,14 +49,46 @@ vi.mock('@shared/hooks/CampaignProvider', () => ({
   CAMPAIGN_QUERY_KEY: ['campaign'],
 }))
 
+const mockSetSelectedSlug = vi.fn()
 vi.mock('@shared/organization-picker', () => ({
   ORGANIZATIONS_QUERY_KEY: ['organizations'],
-  useSetOrganizationSlug: () => vi.fn(),
+  useSetOrganizationSlug: () => mockSetSelectedSlug,
 }))
 
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({ errorSnackbar: mockErrorSnackbar }),
 }))
+
+// Keep the real term-date validation/format helpers, but replace the calendar
+// picker UI (a react-day-picker popover that's impractical to drive in jsdom)
+// with two buttons that set known-valid, non-overlapping dates.
+vi.mock('app/serve/onboarding/termDates.shared', async () => {
+  const actual = (await vi.importActual(
+    'app/serve/onboarding/termDates.shared',
+  )) as Record<string, unknown>
+  return {
+    ...actual,
+    TermDatesFields: ({
+      onStartChange,
+      onEndChange,
+    }: {
+      onStartChange: (date: Date | undefined) => void
+      onEndChange: (date: Date | undefined) => void
+    }) => (
+      <div>
+        <button
+          type="button"
+          onClick={() => onStartChange(new Date(2027, 0, 1))}
+        >
+          set start
+        </button>
+        <button type="button" onClick={() => onEndChange(new Date(2031, 0, 1))}>
+          set end
+        </button>
+      </div>
+    ),
+  }
+})
 
 vi.mock('helpers/analyticsHelper', () => ({
   EVENTS: {
@@ -69,10 +113,83 @@ const electedOfficeOrg = {
   status: 'active' as const,
 }
 
+const eoFixture = {
+  id: 'eo-1',
+  swornInDate: null,
+  electedDate: null,
+  termStartDate: '2027-01-01',
+  termEndDate: '2031-01-01',
+  termLengthDays: null,
+  isActive: true,
+  party: null,
+  pledgedAt: null,
+  onboardingCompletedAt: '2026-06-25T00:00:00.000Z',
+  selfReported: false,
+  onboardingStep: null,
+  campaignId: 7,
+}
+
+// Set a valid, non-overlapping term via the mocked picker so "Continue" enables.
+const enterTermDates = async (): Promise<void> => {
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'set start' }),
+  )
+  await userEvent.click(screen.getByRole('button', { name: 'set end' }))
+}
+
 describe('ElectionResultPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockIsImpersonating.mockReturnValue(false)
+    mockCampaign.current = { id: 1, details: { electionDate: '2025-05-20' } }
+    // The "I won" step loads the user's other offices to disable overlapping
+    // ranges; default to none so a fresh winner can pick any dates.
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] })
+  })
+
+  it('surfaces the billing portal for a Pro campaign with an active subscription', () => {
+    mockCampaign.current = {
+      id: 1,
+      isPro: true,
+      details: { electionDate: '2025-05-20', subscriptionId: 'sub_123' },
+    }
+
+    render(<ElectionResultPage />)
+
+    // The gate blocks every other dashboard route, so this is the only place a
+    // post-election Pro user can reach their billing portal.
+    expect(
+      screen.getByText(/Pro subscription is still active/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Manage subscription' }),
+    ).toBeInTheDocument()
+  })
+
+  it('shows no subscription alert for a non-Pro campaign', () => {
+    render(<ElectionResultPage />)
+
+    expect(screen.queryByText(/Pro subscription is still active/i)).toBeNull()
+  })
+
+  it('hides the subscription alert on the term-dates step after declaring a win', async () => {
+    mockCampaign.current = {
+      id: 1,
+      isPro: true,
+      details: { electionDate: '2025-05-20', subscriptionId: 'sub_123' },
+    }
+
+    render(<ElectionResultPage />)
+    expect(
+      screen.getByText(/Pro subscription is still active/i),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+
+    // A cancellation nudge alongside "Congratulations!" would be confusing —
+    // the alert belongs on the result-choice view only.
+    expect(await screen.findByText('Congratulations!')).toBeInTheDocument()
+    expect(screen.queryByText(/Pro subscription is still active/i)).toBeNull()
   })
 
   it('lets an impersonating admin dismiss the gate without saving a result', () => {
@@ -88,63 +205,77 @@ describe('ElectionResultPage', () => {
     expect(mockUpdateCampaign).not.toHaveBeenCalled()
   })
 
-  it('does not create an elected office when saving the result fails', async () => {
-    mockUpdateCampaign.mockResolvedValue(false)
-
-    let electedOfficeCreated = false
-    api.mock('POST /v1/elected-office', () => {
-      electedOfficeCreated = true
-      return {
-        status: 200,
-        data: {
-          id: 'eo-1',
-          swornInDate: null,
-          electedDate: null,
-          termStartDate: null,
-          termEndDate: null,
-          termLengthDays: null,
-          isActive: true,
-          party: null,
-          pledgedAt: null,
-          onboardingCompletedAt: null,
-          selfReported: false,
-          onboardingStep: null,
-        },
-      }
-    })
-
-    render(<ElectionResultPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
-
-    await waitFor(() => {
-      expect(mockErrorSnackbar).toHaveBeenCalled()
-    })
-    expect(electedOfficeCreated).toBe(false)
-  })
-
-  it('creates an elected office when the result is saved', async () => {
+  it('saves the loss result and routes to the loss flow without creating an office', async () => {
     mockUpdateCampaign.mockResolvedValue({ id: 1 } as never)
 
     let electedOfficeCreated = false
     api.mock('POST /v1/elected-office', () => {
       electedOfficeCreated = true
-      return {
-        status: 200,
-        data: {
-          id: 'eo-1',
-          swornInDate: null,
-          electedDate: null,
-          termStartDate: null,
-          termEndDate: null,
-          termLengthDays: null,
-          isActive: true,
-          party: null,
-          pledgedAt: null,
-          onboardingCompletedAt: null,
-          selfReported: false,
-          onboardingStep: null,
-        },
-      }
+      return { status: 200, data: eoFixture }
+    })
+
+    render(<ElectionResultPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'I lost my race' }))
+
+    await waitFor(() => {
+      expect(router.replace).toHaveBeenCalledWith(
+        '/dashboard/election-result/loss',
+      )
+    })
+    expect(mockUpdateCampaign).toHaveBeenCalledWith([
+      { key: 'details.wonGeneral', value: false },
+    ])
+    expect(electedOfficeCreated).toBe(false)
+  })
+
+  it('does not create an office until the win is confirmed with term dates', async () => {
+    let electedOfficeCreated = false
+    api.mock('POST /v1/elected-office', () => {
+      electedOfficeCreated = true
+      return { status: 200, data: eoFixture }
+    })
+
+    render(<ElectionResultPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+
+    // The term-dates step appears and nothing is persisted yet — clicking "I won"
+    // alone must not create an office or save the result.
+    expect(await screen.findByText('Congratulations!')).toBeInTheDocument()
+    expect(mockUpdateCampaign).not.toHaveBeenCalled()
+    expect(electedOfficeCreated).toBe(false)
+  })
+
+  it('does not mark the campaign won when office creation fails on confirm', async () => {
+    mockUpdateCampaign.mockResolvedValue({ id: 1 } as never)
+
+    // The office is created BEFORE the campaign is flagged won, so a create
+    // failure must leave the campaign untouched (no "won" campaign without an
+    // office — the limbo this fix removes).
+    api.mock('POST /v1/elected-office', () => ({
+      status: 500,
+      data: { message: 'boom' },
+    }))
+
+    render(<ElectionResultPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+    await enterTermDates()
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => {
+      expect(mockErrorSnackbar).toHaveBeenCalled()
+    })
+    expect(mockUpdateCampaign).not.toHaveBeenCalled()
+  })
+
+  it('creates an already-onboarded office with term dates when the win is confirmed', async () => {
+    mockUpdateCampaign.mockResolvedValue({ id: 1 } as never)
+
+    let createBody: unknown = null
+    let createOrgSlug: string | undefined
+    api.mock('POST /v1/elected-office', ({ body, headers }) => {
+      createBody = body
+      createOrgSlug = headers['x-organization-slug']
+      return { status: 200, data: eoFixture }
     })
     api.mock('GET /v1/organizations', {
       status: 200,
@@ -153,9 +284,114 @@ describe('ElectionResultPage', () => {
 
     render(<ElectionResultPage />)
     fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+    await enterTermDates()
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() => {
-      expect(electedOfficeCreated).toBe(true)
+      expect(router.replace).toHaveBeenCalledWith('/dashboard/chief-of-staff')
     })
+    // The office is created already-onboarded (term dates + completion marker) so
+    // post-auth routing keeps the just-won official on the dashboard.
+    expect(createBody).toEqual(
+      expect.objectContaining({
+        termStartDate: '2027-01-01',
+        termEndDate: '2031-01-01',
+        onboardingCompletedAt: expect.any(String),
+      }),
+    )
+    expect(mockUpdateCampaign).toHaveBeenCalledWith([
+      { key: 'details.wonGeneral', value: true },
+    ])
+    expect(mockSetSelectedSlug).toHaveBeenCalledWith('eo-1')
+    // The create is pinned to the campaign org so the backend links campaignId
+    // (the win-origin marker) instead of resolving null off a stale cookie.
+    expect(createOrgSlug).toBe('campaign-1')
+  })
+
+  it('shows an error and does not navigate when updateCampaign fails after the office is created', async () => {
+    mockUpdateCampaign.mockResolvedValue(false)
+
+    // The office POST is idempotent on retry, but a failed campaign update must
+    // surface as an error and must NOT navigate (the win isn't fully recorded).
+    let eoCallCount = 0
+    api.mock('POST /v1/elected-office', () => {
+      eoCallCount++
+      return { status: 200, data: eoFixture }
+    })
+
+    render(<ElectionResultPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+    await enterTermDates()
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => {
+      expect(mockErrorSnackbar).toHaveBeenCalled()
+    })
+    expect(eoCallCount).toBe(1)
+    expect(router.replace).not.toHaveBeenCalled()
+  })
+
+  it('still navigates to the Chief of Staff home when the post-create org refresh fails', async () => {
+    mockUpdateCampaign.mockResolvedValue({ id: 1 } as never)
+
+    api.mock('POST /v1/elected-office', () => ({
+      status: 200,
+      data: eoFixture,
+    }))
+    // The office + campaign are already persisted; an org-list failure here must
+    // not mask success or block navigation.
+    api.mock('GET /v1/organizations', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+
+    render(<ElectionResultPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+    await enterTermDates()
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => {
+      expect(router.replace).toHaveBeenCalledWith('/dashboard/chief-of-staff')
+    })
+    expect(mockErrorSnackbar).not.toHaveBeenCalled()
+  })
+
+  it('lets the user go back from the term-dates step to the result choice', async () => {
+    render(<ElectionResultPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+
+    expect(await screen.findByText('Congratulations!')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Go back' }))
+
+    expect(
+      await screen.findByRole('button', { name: 'I won my race' }),
+    ).toBeInTheDocument()
+    expect(mockUpdateCampaign).not.toHaveBeenCalled()
+  })
+
+  it('clears a failed-confirm error when the user goes back to the result choice', async () => {
+    mockUpdateCampaign.mockResolvedValue({ id: 1 } as never)
+    // Fail the create so the term-dates view shows the inline error.
+    api.mock('POST /v1/elected-office', () => ({
+      status: 500,
+      data: { message: 'boom' },
+    }))
+
+    render(<ElectionResultPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+    await enterTermDates()
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(/An error occurred when saving/i),
+    ).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Go back' }))
+
+    // Back on the result choice, the stale error must not carry over.
+    expect(
+      await screen.findByRole('button', { name: 'I won my race' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/An error occurred when saving/i)).toBeNull()
   })
 })

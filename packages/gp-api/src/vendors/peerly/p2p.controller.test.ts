@@ -1,11 +1,16 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
-import { BadGatewayException, ConflictException } from '@nestjs/common'
+import {
+  BadGatewayException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common'
 import { FastifyReply } from 'fastify'
 import { Campaign } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { P2pController } from './p2p.controller'
 import { PhoneListState } from './peerly.types'
 import { P2pPhoneListUploadService } from './services/p2pPhoneListUpload.service'
+import { PeerlyPhoneListCaptureService } from './services/peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './services/peerlyPhoneList.service'
 
 const mockCampaign: Campaign = {
@@ -49,8 +54,9 @@ describe('P2pController', () => {
   let mockP2pPhoneListUploadService: {
     uploadPhoneList: ReturnType<typeof vi.fn>
   }
-  let mockOrganizationsService: {
-    getDistrictForOrgSlug: ReturnType<typeof vi.fn>
+  let mockPeerlyPhoneListCapture: {
+    stampPeerlyListId: ReturnType<typeof vi.fn>
+    findFirst: ReturnType<typeof vi.fn>
   }
   let mockRes: FastifyReply
 
@@ -62,14 +68,19 @@ describe('P2pController', () => {
     mockP2pPhoneListUploadService = {
       uploadPhoneList: vi.fn(),
     }
-    mockOrganizationsService = {
-      getDistrictForOrgSlug: vi.fn().mockResolvedValue(null),
+    mockPeerlyPhoneListCapture = {
+      stampPeerlyListId: vi.fn().mockResolvedValue(undefined),
+      findFirst: vi.fn().mockResolvedValue({
+        id: 1,
+        excludedOptedOutCount: 0,
+        excludedDuplicatePhoneCount: 0,
+      }),
     }
     mockRes = createMockReply()
     controller = new P2pController(
       mockPeerlyPhoneListService as unknown as PeerlyPhoneListService,
+      mockPeerlyPhoneListCapture as unknown as PeerlyPhoneListCaptureService,
       mockP2pPhoneListUploadService as unknown as P2pPhoneListUploadService,
-      mockOrganizationsService as never,
       createMockLogger(),
     )
   })
@@ -81,6 +92,7 @@ describe('P2pController', () => {
       ).mockResolvedValue(null)
 
       const result = await controller.checkPhoneListStatus(
+        mockCampaign,
         'test-token',
         mockRes,
       )
@@ -99,6 +111,7 @@ describe('P2pController', () => {
       })
 
       const result = await controller.checkPhoneListStatus(
+        mockCampaign,
         'test-token',
         mockRes,
       )
@@ -118,6 +131,7 @@ describe('P2pController', () => {
       })
 
       const result = await controller.checkPhoneListStatus(
+        mockCampaign,
         'test-token',
         mockRes,
       )
@@ -136,6 +150,7 @@ describe('P2pController', () => {
       })
 
       const result = await controller.checkPhoneListStatus(
+        mockCampaign,
         'test-token',
         mockRes,
       )
@@ -154,10 +169,10 @@ describe('P2pController', () => {
       })
 
       await expect(
-        controller.checkPhoneListStatus('test-token', mockRes),
+        controller.checkPhoneListStatus(mockCampaign, 'test-token', mockRes),
       ).rejects.toThrow(BadGatewayException)
       await expect(
-        controller.checkPhoneListStatus('test-token', mockRes),
+        controller.checkPhoneListStatus(mockCampaign, 'test-token', mockRes),
       ).rejects.toMatchObject({
         message: 'Phone list is active but no list_id was returned',
       })
@@ -169,10 +184,10 @@ describe('P2pController', () => {
       ).mockRejectedValue(new Error('Unexpected failure'))
 
       await expect(
-        controller.checkPhoneListStatus('test-token', mockRes),
+        controller.checkPhoneListStatus(mockCampaign, 'test-token', mockRes),
       ).rejects.toThrow(BadGatewayException)
       await expect(
-        controller.checkPhoneListStatus('test-token', mockRes),
+        controller.checkPhoneListStatus(mockCampaign, 'test-token', mockRes),
       ).rejects.toMatchObject({
         message: 'Failed to check phone list status.',
       })
@@ -209,15 +224,105 @@ describe('P2pController', () => {
       })
 
       const result = await controller.checkPhoneListStatus(
+        mockCampaign,
         'test-token',
         mockRes,
       )
 
-      expect(result).toEqual({ phoneListId: 123, leadsLoaded: 500 })
+      expect(result).toEqual({
+        phoneListId: 123,
+        leadsLoaded: 500,
+        excludedOptedOutCount: 0,
+        excludedDuplicatePhoneCount: 0,
+      })
       expect(mockRes.status).not.toHaveBeenCalled()
       expect(
         mockPeerlyPhoneListService.getPhoneListDetails,
       ).toHaveBeenCalledWith(123)
+      expect(mockPeerlyPhoneListCapture.stampPeerlyListId).toHaveBeenCalledWith(
+        'test-token',
+        123,
+      )
+    })
+
+    it('still returns the ready status when the stamp write fails', async () => {
+      vi.mocked(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).mockResolvedValue({
+        Data: { list_state: PhoneListState.ACTIVE, list_id: 123 },
+      })
+      vi.mocked(
+        mockPeerlyPhoneListService.getPhoneListDetails,
+      ).mockResolvedValue({
+        leads_loaded: 500,
+      })
+      vi.mocked(mockPeerlyPhoneListCapture.stampPeerlyListId).mockRejectedValue(
+        new Error('db hiccup'),
+      )
+
+      const result = await controller.checkPhoneListStatus(
+        mockCampaign,
+        'test-token',
+        mockRes,
+      )
+
+      expect(result).toEqual({
+        phoneListId: 123,
+        leadsLoaded: 500,
+        excludedOptedOutCount: 0,
+        excludedDuplicatePhoneCount: 0,
+      })
+    })
+
+    // ENG-10808: distinct, non-zero, and unequal-to-each-other values so a
+    // swapped-field or dropped-field regression fails immediately.
+    it('surfaces the capture row exclusion counts alongside phoneListId and leadsLoaded', async () => {
+      vi.mocked(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).mockResolvedValue({
+        Data: { list_state: PhoneListState.ACTIVE, list_id: 123 },
+      })
+      vi.mocked(
+        mockPeerlyPhoneListService.getPhoneListDetails,
+      ).mockResolvedValue({
+        leads_loaded: 500,
+      })
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValue({
+        id: 1,
+        excludedOptedOutCount: 12,
+        excludedDuplicatePhoneCount: 7,
+      })
+
+      const result = await controller.checkPhoneListStatus(
+        mockCampaign,
+        'test-token',
+        mockRes,
+      )
+
+      expect(result).toEqual({
+        phoneListId: 123,
+        leadsLoaded: 500,
+        excludedOptedOutCount: 12,
+        excludedDuplicatePhoneCount: 7,
+      })
+    })
+
+    it('404s a token the campaign does not own, before touching Peerly', async () => {
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValue(null)
+
+      await expect(
+        controller.checkPhoneListStatus(mockCampaign, 'foreign-token', mockRes),
+      ).rejects.toThrow(NotFoundException)
+
+      expect(mockPeerlyPhoneListCapture.findFirst).toHaveBeenCalledWith({
+        where: { token: 'foreign-token', campaignId: mockCampaign.id },
+      })
+      expect(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).not.toHaveBeenCalled()
+      expect(
+        mockPeerlyPhoneListCapture.stampPeerlyListId,
+      ).not.toHaveBeenCalled()
     })
   })
 

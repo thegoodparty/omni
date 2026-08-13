@@ -24,6 +24,10 @@ export type CRMContactProperties = {
   last_login?: string //DateString
   profile_updated_date?: string //DateString
   profile_updated_count?: string
+  // How many visitors have asked THIS person to complete their public
+  // /people profile. Written on the candidate's own contact, not the
+  // submitter's. Number-typed in HubSpot; the API takes it as a string.
+  candidate_profile_requests?: string
 }
 
 /** HubSpot related types and enums */
@@ -169,6 +173,15 @@ export namespace HubSpot {
     pro_subscription_status = 'pro_subscription_status',
     pro_upgrade_date = 'pro_upgrade_date',
     running = 'running',
+
+    // 10DLC compliance filing details
+    n10_dlc_filing_email = 'n10_dlc_filing_email',
+    n10_dlc_filing_phone = 'n10_dlc_filing_phone',
+    n10_dlc_filing_url = 'n10_dlc_filing_url',
+    n10_dlc_pin_delivery_method = 'n10_dlc_pin_delivery_method',
+    n10_dlc_pin_sent_at = 'n10_dlc_pin_sent_at',
+    n10_dlc_pin_delivery_destination = 'n10_dlc_pin_delivery_destination',
+    peerly_identity_id = 'peerly_identity_id',
 
     // election details
     br_position_id = 'br_position_id',

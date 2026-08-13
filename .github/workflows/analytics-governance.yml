@@ -1,0 +1,210 @@
+name: Analytics governance
+
+# Scheduled runner for the analytics-event governance loop (DATA-2070):
+# the provenance walk, the health monitor, the Slack digest, and the
+# event-state sheet refresh — the runs that used to require a laptop.
+#
+# State story (decided in DATA-2068): the scheduled run is the authoritative
+# writer of the git-tracked state under
+# packages/runbooks/scripts/python/instrumentation_data/. It commits changes
+# to a fixed branch and keeps a single auto-merge PR open against main;
+# per-PR provisional rows written by the instrument-analytics-event skill are
+# hints the walk verifies and overwrites. The branch is pushed with the
+# automation App token, not GITHUB_TOKEN, because GITHUB_TOKEN pushes never
+# trigger the Validate/E2E workflows the main ruleset requires — the PR
+# would hang unmergeable.
+#
+# Operational caveats (also in the governance runbook):
+# - GitHub auto-disables scheduled workflows after 60 days without repo
+#   activity. Omni is active daily, so this is theoretical, but it is a way
+#   this cron can stop without ever failing.
+# - Failures notify the same Slack channel the digest posts to. The dead man's
+#   switch (analytics-governance-heartbeat.yml) covers the "workflow stopped
+#   firing" case that failure notifications structurally cannot.
+
+on:
+  schedule:
+    - cron: '0 11 * * 1' # Mondays 11:00 UTC: provenance walk + monitor + surfaces
+    - cron: '0 11 * * 4' # Thursdays 11:00 UTC: monitor + surfaces only
+  workflow_dispatch:
+    inputs:
+      walk:
+        description: 'Also run the provenance walk'
+        type: boolean
+        default: false
+
+concurrency:
+  group: analytics-governance
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  govern:
+    runs-on: ubuntu-latest
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      SLACK_APP_BOT_TOKEN: ${{ secrets.SLACK_APP_BOT_TOKEN }}
+      SLACK_EVENT_LIFECYCLE_CHANNEL_ID: ${{ vars.SLACK_EVENT_LIFECYCLE_CHANNEL_ID }}
+      # Interim sheet identity until the Google service account (DATA-2072):
+      # a base64 of the personal OAuth token pickle. Absent -> step skips.
+      GP_SHEETS_TOKEN_B64: ${{ secrets.GP_SHEETS_TOKEN_B64 }}
+      GP_EVENT_STATE_SHEET_ID: ${{ vars.GP_EVENT_STATE_SHEET_ID }}
+      # Deep-links the Slack "browse gaps" link to the gaps tab; unset -> the
+      # browse link falls back to the sheet's default tab (DATA-2151 Phase 3).
+      GP_GAPS_TAB_GID: ${{ vars.GP_GAPS_TAB_GID }}
+    steps:
+      - name: Preflight required config
+        env:
+          AUTOMATION_APP_ID: ${{ vars.AUTOMATION_APP_ID }}
+          AUTOMATION_APP_PRIVATE_KEY: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          missing=""
+          [ -n "$DATABRICKS_HOST" ] || missing="$missing vars.DATABRICKS_HOST"
+          [ -n "$DATABRICKS_HTTP_PATH" ] || missing="$missing vars.DATABRICKS_HTTP_PATH"
+          [ -n "$DATABRICKS_CLIENT_ID" ] || missing="$missing secrets.DATABRICKS_CLIENT_ID"
+          [ -n "$DATABRICKS_CLIENT_SECRET" ] || missing="$missing secrets.DATABRICKS_CLIENT_SECRET"
+          [ -n "$AUTOMATION_APP_ID" ] || missing="$missing vars.AUTOMATION_APP_ID"
+          [ -n "$AUTOMATION_APP_PRIVATE_KEY" ] || missing="$missing secrets.AUTOMATION_APP_PRIVATE_KEY"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required config:$missing (see DATA-2069 for the Databricks service principal)"
+            exit 1
+          fi
+          [ -n "$SLACK_APP_BOT_TOKEN" ] || echo "::warning::secrets.SLACK_APP_BOT_TOKEN unset — digest and failure notifications will be skipped"
+
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+
+      # Full history: the provenance walk pickaxes all of git history.
+      - name: Checkout main (full history)
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: latest
+
+      - name: Install deps
+        working-directory: packages/runbooks/scripts/python
+        run: uv sync --frozen
+
+      - name: Provenance walk (weekly)
+        if: github.event.schedule == '0 11 * * 1' || (github.event_name == 'workflow_dispatch' && inputs.walk)
+        working-directory: packages/runbooks/scripts/python
+        run: uv run amplitude_event_provenance_backfill.py walk
+
+      # Runs before the health monitor (DATA-2151 Task 6) so its --slack-out run-data
+      # file exists in time to be folded into the health digest post below. Also emits
+      # the Slack run-data file consumed by the health step (--gap-slack).
+      - name: Instrumentation gap sweep (recommendations)
+        working-directory: packages/runbooks/scripts/python
+        continue-on-error: true
+        env:
+          OMNI_REPO: ${{ github.workspace }}
+          # Phase 2 judgment key, scoped to this analytics-governance cron (repo secret
+          # ANTHROPIC_PRODUCT_ANALYTICS_API_KEY, mapped into the SDK-standard ANTHROPIC_API_KEY
+          # env var). Unset until an omni repo admin adds it; run_judgment then reports
+          # "skipped: ANTHROPIC_API_KEY unset" and the run continues (DATA-2151).
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_PRODUCT_ANALYTICS_API_KEY }}
+        run: |
+          uv run instrumentation_gaps.py --today "$(date -u +%F)" \
+            --slack-out "$RUNNER_TEMP/gap_slack.json"
+
+      - name: Health monitor + Slack digest
+        working-directory: packages/runbooks/scripts/python
+        env:
+          # Digest triage judgment (DATA-2174), same repo secret as the gap sweep step
+          # above. Unset until an omni repo admin adds it; build_slack_triage then
+          # degrades to the rules tier via run_triage's "skipped: ANTHROPIC_API_KEY
+          # unset" status and the run continues.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_PRODUCT_ANALYTICS_API_KEY }}
+        run: |
+          # --gap-slack degrades to a health-only post when the file is absent (e.g. the
+          # gap sweep step above failed) — never fails this step.
+          uv run analytics_event_health.py --slack \
+            --gap-slack "$RUNNER_TEMP/gap_slack.json" \
+            --json instrumentation_data/analytics_event_health_report.json
+
+      - name: Commit state and keep the auto-merge PR fresh
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+          state_dir=packages/runbooks/scripts/python/instrumentation_data
+          if [ -z "$(git status --porcelain -- "$state_dir")" ]; then
+            echo "No state changes this run."
+            exit 0
+          fi
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${APP_SLUG}[bot]@users.noreply.github.com"
+          branch=bot/analytics-governance-state
+          git checkout -B "$branch"
+          git add "$state_dir"
+          git commit -m "chore(analytics): scheduled governance state refresh"
+          git push -f origin "$branch"
+          pr=$(gh pr list --head "$branch" --base main --state open --json number --jq '.[0].number // empty')
+          if [ -z "$pr" ]; then
+            gh pr create --base main --head "$branch" \
+              --title "chore(analytics): scheduled governance state refresh" \
+              --body "$(cat <<'EOF'
+          Automated state write-back from the analytics-governance scheduled run: the provenance CSV/watermark and the health log/state, per the DATA-2068 state story (the scheduled run is the authoritative writer; per-PR provisional rows are hints it verifies).
+
+          Auto-merges once delegate approves and checks pass. If a newer run fires before this merges, it force-updates this same branch, so the PR always carries the latest state.
+          EOF
+          )"
+          # Only on creation: auto-merge persists across force-pushes, and
+          # re-enabling it on an existing PR makes gh exit non-zero.
+          gh pr merge "$branch" --auto --squash
+          fi
+
+      # Interim path until DATA-2072 (Google service account — none exists in
+      # the org yet): the personal OAuth token pickle, injected as a base64
+      # secret. Skips with a visible warning when the secret is absent, so the
+      # sheet surface going un-refreshed is never silent; once the secret
+      # exists, an expired/revoked token fails the step (and so notifies
+      # Slack) rather than skipping.
+      - name: Event-state sheet refresh
+        working-directory: packages/runbooks/scripts/python
+        env:
+          GP_SHEETS_TOKEN_PATH: ${{ runner.temp }}/gsheet_token.pickle
+        run: |
+          set -euo pipefail
+          if [ -z "$GP_SHEETS_TOKEN_B64" ] || [ -z "$GP_EVENT_STATE_SHEET_ID" ]; then
+            msg="Event-state sheet NOT refreshed: no CI sheet identity yet (DATA-2072). The sheet only updates via laptop-side runs until then."
+            echo "::warning::$msg"
+            echo ":warning: $msg" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          printf '%s' "$GP_SHEETS_TOKEN_B64" | base64 -d > "$GP_SHEETS_TOKEN_PATH"
+          uv run event_state_gsheet.py refresh
+          uv run event_state_gsheet.py refresh-gaps
+
+      - name: Upload run report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: analytics-event-health-report
+          path: packages/runbooks/scripts/python/instrumentation_data/analytics_event_health_report.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Notify Slack on failure
+        if: failure() && env.SLACK_APP_BOT_TOKEN != '' && env.SLACK_EVENT_LIFECYCLE_CHANNEL_ID != ''
+        run: |
+          curl -sf -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_APP_BOT_TOKEN" \
+            -H 'Content-type: application/json; charset=utf-8' \
+            --data "{\"channel\":\"$SLACK_EVENT_LIFECYCLE_CHANNEL_ID\",\"text\":\"Analytics governance run failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}"

@@ -1,8 +1,6 @@
-import { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import { type LlmMessage } from '@/llm/types/llmMessages.types'
 
-export function createPollBiasAnalysisPrompt(
-  pollText: string,
-): ChatCompletionMessageParam[] {
+export function createPollBiasAnalysisPrompt(pollText: string): LlmMessage[] {
   return [
     {
       role: 'system',

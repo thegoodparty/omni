@@ -18,12 +18,14 @@ import { addMinutes, format, isBefore, isValid, parseISO } from 'date-fns'
 import { groupBy } from 'es-toolkit'
 import { formatInTimeZone } from 'date-fns-tz'
 import parseCsv from 'neat-csv'
+import pmap from 'p-map'
 import { serializeError } from 'serialize-error'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { AiContentService } from 'src/campaigns/ai/content/aiContent.service'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { AiGenerationService } from 'src/campaigns/tasks/services/aiGeneration.service'
 import { CampaignTasksService } from 'src/campaigns/tasks/services/campaignTasks.service'
+import { CampaignTrackerTasksService } from 'src/campaigns/campaignTracker/services/campaignTrackerTasks.service'
 import { PersonOutput } from 'src/contacts/schemas/person.schema'
 import { SampleContacts } from 'src/contacts/schemas/sampleContacts.schema'
 import { ContactsService } from 'src/contacts/services/contacts.service'
@@ -31,6 +33,11 @@ import { ElectedOfficeService } from 'src/electedOffice/services/electedOffice.s
 import { MeetingBriefingsService } from 'src/meetings/services/meetingBriefings.service'
 import { CommunityIssueService } from 'src/communityIssues/services/communityIssue.service'
 import { CampaignStrategyService } from 'src/campaignStrategy/services/campaignStrategy.service'
+import { RaceOpponentPersistService } from 'src/raceOpponent/services/raceOpponentPersist.service'
+import { RaceOpponentResearchPersistService } from 'src/raceOpponent/services/raceOpponentResearchPersist.service'
+import { OrdinanceCodePersistService } from 'src/ordinances/services/ordinanceCodePersist.service'
+import { OrdinanceQualityLoopService } from 'src/ordinances/services/ordinanceQualityLoop.service'
+import { RecommendedListsComputeService } from 'src/recommendedLists/services/recommendedListsCompute.service'
 import { PollIssuesService } from 'src/polls/services/pollIssues.service'
 import { PollsService } from 'src/polls/services/polls.service'
 import {
@@ -42,6 +49,7 @@ import { UsersService } from 'src/users/services/users.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { CampaignTcrComplianceService } from '../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
+import { csvEscape } from '../../shared/util/csv.util'
 import { isNestJsHttpException } from '../../shared/util/http.util'
 import { normalizePhoneNumber } from '../../shared/util/strings.util'
 import { ForwardEmailDomainResponse } from '../../vendors/forwardEmail/forwardEmail.types'
@@ -54,8 +62,11 @@ import {
   CampaignPlanCompleteMessageSchema,
   AgentExperimentResultSchema,
   DomainEmailForwardingMessage,
+  Nightly10DlcReportMessageSchema,
   WeeklyTasksDigestMessageSchema,
   OcrAttachmentMessageSchema,
+  OrdinanceQualityLoopMessageSchema,
+  RecommendedListsRecomputeMessageSchema,
   PollAnalysisCompleteEvent,
   PollAnalysisCompleteEventSchema,
   PollCreationEvent,
@@ -73,6 +84,7 @@ import { ExperimentRunsService } from '@/agentExperiments/services/experimentRun
 import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTypes'
 import { PollIndividualMessageService } from '@/polls/services/pollIndividualMessage.service'
 import { WeeklyTasksDigestHandlerService } from '../../campaigns/tasks/services/weeklyTasksDigestHandler.service'
+import { Nightly10DlcReportService } from '../../campaigns/tcrCompliance/services/nightly10DlcReport.service'
 import { v5 as uuidv5 } from 'uuid'
 import { PinoLogger } from 'nestjs-pino'
 import { OrgDistrict } from '@/organizations/organizations.types'
@@ -84,9 +96,19 @@ import { isJsonObject } from '@/shared/util/objects.util'
 
 type PollAnalysisIssue = PollAnalysisCompleteEvent['data']['issues'][number]
 
+// One poll can have hundreds of unmapped response phones, each resolved via an
+// HTTP POST to People-API. Firing them all at once (Promise.all) overruns
+// People-API's request/socket budget and cascades into timeouts and failures.
+// A benchmark (pollAnalysisFanout.benchmark.test.ts) modelling that downstream
+// showed a cap of 20 eliminates the errors while being at least as fast as the
+// unbounded burst at typical poll sizes (the burst pays a degradation penalty),
+// so we bound the fan-out here.
+const PEOPLE_LOOKUP_CONCURRENCY = 20
+
 const TERMINAL_STATUSES: readonly ExperimentRunStatus[] = [
   ExperimentRunStatus.COMPLETED,
   ExperimentRunStatus.FAILED,
+  ExperimentRunStatus.SUPERSEDED,
 ]
 
 const buildIssueProperties = (
@@ -120,6 +142,7 @@ export class QueueConsumerService {
     private readonly campaignsService: CampaignsService,
     private readonly aiGenerationService: AiGenerationService,
     private readonly campaignTasksService: CampaignTasksService,
+    private readonly campaignTrackerTasks: CampaignTrackerTasksService,
     private readonly tcrComplianceService: CampaignTcrComplianceService,
     private readonly domainsService: DomainsService,
     private readonly pollsService: PollsService,
@@ -131,11 +154,17 @@ export class QueueConsumerService {
     private readonly usersService: UsersService,
     private readonly organizationsService: OrganizationsService,
     private readonly weeklyTasksDigestHandler: WeeklyTasksDigestHandlerService,
+    private readonly nightly10DlcReport: Nightly10DlcReportService,
     private readonly experimentRunsService: ExperimentRunsService,
     private readonly meetingBriefings: MeetingBriefingsService,
     private readonly communityIssue: CommunityIssueService,
     private readonly campaignStrategy: CampaignStrategyService,
+    private readonly raceOpponent: RaceOpponentPersistService,
+    private readonly raceOpponentResearch: RaceOpponentResearchPersistService,
     private readonly annotationAttachments: AnnotationAttachmentService,
+    private readonly ordinanceCodePersist: OrdinanceCodePersistService,
+    private readonly ordinanceQualityLoop: OrdinanceQualityLoopService,
+    private readonly recommendedLists: RecommendedListsComputeService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(QueueConsumerService.name)
@@ -376,6 +405,14 @@ export class QueueConsumerService {
           )
           return true
         })
+      case QueueType.NIGHTLY_10DLC_REPORT:
+        this.logger.info('received nightly10DlcReport message')
+        return await this.withLegacyErrorSwallowing(message, async () => {
+          const reportData = Nightly10DlcReportMessageSchema.parse(
+            queueMessage.data,
+          )
+          return await this.nightly10DlcReport.handleNightlyReport(reportData)
+        })
       case QueueType.AGENT_EXPERIMENT_RESULT:
         return await this.handleAgentExperimentResult(
           AgentExperimentResultSchema.parse(queueMessage.data),
@@ -397,6 +434,40 @@ export class QueueConsumerService {
           await this.annotationAttachments.runOcr(attachmentId)
           return true
         })
+      case QueueType.ORDINANCE_QUALITY_LOOP: {
+        // Parse failure is a poison message — it can never become valid, and
+        // requeueing would block the ordinance's FIFO group until the DLQ
+        // limit. Ack-drop it. handleStep errors still escape to the requeue
+        // path: position resolution makes redelivery of a valid step safe.
+        const step = OrdinanceQualityLoopMessageSchema.safeParse(
+          queueMessage.data,
+        )
+        if (!step.success) {
+          this.logger.error(
+            { messageId: message.MessageId, error: step.error },
+            'malformed ordinance quality loop message, discarding',
+          )
+          return true
+        }
+        return await this.ordinanceQualityLoop.handleStep(step.data)
+      }
+      case QueueType.RECOMMENDED_LISTS_RECOMPUTE: {
+        // Parse failure is a poison message — it can never become valid, and
+        // requeueing would block the campaign's FIFO group until the DLQ
+        // limit. Ack-drop it. A valid recompute is idempotent and its own
+        // stale-guard, so redelivery of a valid message is safe.
+        const recompute = RecommendedListsRecomputeMessageSchema.safeParse(
+          queueMessage.data,
+        )
+        if (!recompute.success) {
+          this.logger.error(
+            { messageId: message.MessageId, error: recompute.error },
+            'malformed recommended lists recompute message, discarding',
+          )
+          return true
+        }
+        return await this.recommendedLists.handleRecompute(recompute.data)
+      }
       default:
         this.logger.warn(
           { messageId: message.MessageId, body: message.Body },
@@ -677,13 +748,21 @@ export class QueueConsumerService {
         { pollId, unmappedPhoneCount: unmappedPhones.length },
         "Some response phones weren't in this poll's outreach; trying People DB fallback",
       )
-      const lookups = await Promise.all(
-        unmappedPhones.map(async (normalized) => {
+      // Pro-access depends only on `organization` (constant across this loop),
+      // so resolve it once instead of letting every findPersonByPhone re-query
+      // the campaign. Bound the fan-out (see PEOPLE_LOOKUP_CONCURRENCY) so a
+      // large poll can't burst hundreds of simultaneous requests at People-API.
+      const proAccess =
+        await this.contactsService.resolveProAccess(organization)
+      const lookups = await pmap(
+        unmappedPhones,
+        async (normalized) => {
           const digitsOnly = normalized.replace(/^\+1/, '')
           try {
             const person = await this.contactsService.findPersonByPhone(
               digitsOnly,
               organization,
+              proAccess,
             )
             return { phone: normalized, personId: person?.id ?? null }
           } catch (err) {
@@ -693,7 +772,8 @@ export class QueueConsumerService {
             )
             return { phone: normalized, personId: null }
           }
-        }),
+        },
+        { concurrency: PEOPLE_LOOKUP_CONCURRENCY },
       )
       for (const { phone, personId } of lookups) {
         if (personId) phoneToPersonIdMap.set(phone, personId)
@@ -705,6 +785,7 @@ export class QueueConsumerService {
 
     for (const [, groupRows] of Object.entries(groups)) {
       const first = groupRows[0]
+      if (!first) continue
       const { phoneNumber, originalMessage, receivedAt } = first
       const isOptOut = groupRows.some((r) => Boolean(r.isOptOut))
       const hasClusterId = groupRows.some(
@@ -1054,6 +1135,21 @@ export class QueueConsumerService {
     // backstop), not from the requeue. onExperimentRunCompleted is a no-op for
     // non-campaign-strategy runs, so this only throws on a real persist failure.
     await this.campaignStrategy.onExperimentRunCompleted(updatedRun)
+    await this.campaignTrackerTasks.onExperimentRunCompleted(updatedRun)
+
+    // Same contract as campaignStrategy above: markFailed-then-throw on a
+    // persist fault, no-op for other experiment types, and the persist is an
+    // idempotent replace so bounded redelivery is safe.
+    await this.raceOpponent.onExperimentRunCompleted(updatedRun)
+
+    // Self-research persists on COMPLETED and flips the research row to failed
+    // on FAILED, so it is called for both terminal states (not just COMPLETED).
+    // Same markFailed-then-throw + idempotent-replace contract as above.
+    await this.raceOpponentResearch.onExperimentRunCompleted(updatedRun)
+
+    // Same contract again: markFailed-then-throw on a persist fault, no-op for
+    // other experiment types, idempotent under bounded redelivery.
+    await this.ordinanceCodePersist.onExperimentRunCompleted(updatedRun)
 
     return true
   }
@@ -1261,14 +1357,6 @@ export class QueueConsumerService {
       throw err
     }
   }
-}
-
-const csvEscape = (value) => {
-  if (value === null || value === undefined) return ''
-  const str = String(value)
-  const mustQuote = /[",\n]/.test(str)
-  const escaped = str.replace(/"/g, '""')
-  return mustQuote ? `"${escaped}"` : escaped
 }
 
 const buildCsvFromContacts = (people: PersonOutput[]) => {

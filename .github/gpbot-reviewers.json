@@ -1,0 +1,51 @@
+{
+  "_note": [
+    "Reviewer routing for [GP-Bot] PRs, consumed by .github/workflows/gpbot-pr-triage.yml.",
+    "Bot PRs arrive without a human owner, so this file decides who is asked to look.",
+    "Editing it is a normal reviewable PR — that is the point of it being here rather than in workflow YAML.",
+    "Slack user groups cannot be read from GitHub Actions, so the GitHub logins below are a hand-maintained mirror of the Slack group membership."
+  ],
+
+  "_todo": [
+    "Split defaultReviewers across the two groups. Until a group has its own reviewers array, it falls back to defaultReviewers, which works but ignores Serve/Win ownership when picking the name.",
+    "Confirm the Platform/Bugs routing below. It is the one list whose owner was left open."
+  ],
+
+  "defaultReviewers": [
+    "swain",
+    "tomer-tgp",
+    "dealvz",
+    "oakinh",
+    "stephtea",
+    "feliksalbright",
+    "melecia-gp",
+    "bryclevgp"
+  ],
+
+  "groups": {
+    "serve-bugs": {
+      "slackGroupId": "S0AD54G9D3K",
+      "reviewers": []
+    },
+    "win-bugs": {
+      "slackGroupId": "S0AE3NTCXM3",
+      "reviewers": []
+    }
+  },
+
+  "listRouting": {
+    "901321761872": "win-bugs",
+    "901320540273": "win-bugs",
+    "901318405462": "serve-bugs",
+    "901321495230": "win-bugs"
+  },
+
+  "_listRoutingNames": {
+    "901321761872": "Win > Bugs",
+    "901320540273": "Platform > Bugs — OPEN DECISION, provisionally win-bugs because most of the list is Pro/Stripe work",
+    "901318405462": "Serve > Backlog",
+    "901321495230": "Platform Backlog"
+  },
+
+  "defaultGroup": "win-bugs"
+}

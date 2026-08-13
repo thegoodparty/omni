@@ -9,6 +9,7 @@ import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { UsersService } from '../../users/services/users.service'
 import { PaymentIntentPayload, PaymentType } from '../payments.types'
 import { PinoLogger } from 'nestjs-pino'
+import Stripe from 'stripe'
 
 @Injectable()
 export class PaymentsService {
@@ -33,8 +34,7 @@ export class PaymentsService {
 
   async getValidatedPaymentUser(
     paymentIntentId: string,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ): Promise<{ paymentIntent: any; user: User }> {
+  ): Promise<{ paymentIntent: Stripe.PaymentIntent; user: User }> {
     const paymentIntent = await this.retrievePayment(paymentIntentId)
 
     if (paymentIntent.status !== 'succeeded') {
@@ -129,7 +129,7 @@ export class PaymentsService {
   }
 
   @Timeout(0)
-  private async backfillMissingCustomerIdsOnBoot() {
+  async backfillMissingCustomerIdsOnBoot() {
     const users = await this.usersService.findMany({
       where: {
         metaData: {

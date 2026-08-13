@@ -8,7 +8,10 @@ const mockSetActive = vi.fn()
 const mockSignInCreate = vi.fn()
 
 // `user` mirrors Clerk's active-session signal: truthy (with an `id`) when a
-// session is already active in the browser, null on a fresh visit.
+// session is already active in the browser, null on a fresh visit. Exposed via
+// a getter so it behaves like the real Clerk singleton's live `.user` — a
+// session established mid-redeem (e.g. the ticket exchange succeeded but a
+// later step threw) is observable from within the same `redeem()` closure.
 let mockUser: { id: string } | null = null
 
 vi.mock('@clerk/nextjs', () => ({
@@ -17,9 +20,30 @@ vi.mock('@clerk/nextjs', () => ({
     setActive: mockSetActive,
     signOut: mockSignOut,
     loaded: true,
-    user: mockUser,
+    get user() {
+      return mockUser
+    },
   }),
 }))
+
+// `isClerkAPIResponseError` matches when the error's constructor exposes
+// `kind === 'ClerkAPIResponseError'`, so this stand-in is recognized as a real
+// Clerk API error by the component's error-classification helper.
+class FakeClerkAPIResponseError extends Error {
+  static kind = 'ClerkAPIResponseError'
+  clerkError = true
+  errors: { code: string; message: string; longMessage: string }[]
+  constructor(
+    errors: { code: string; message: string; longMessage: string }[],
+  ) {
+    super('clerk api response error')
+    this.name = 'ClerkAPIResponseError'
+    this.errors = errors
+  }
+}
+
+const makeClerkApiError = (code: string, message: string) =>
+  new FakeClerkAPIResponseError([{ code, message, longMessage: message }])
 
 let mockSearchParams = new URLSearchParams()
 vi.mock('next/navigation', () => ({
@@ -215,6 +239,167 @@ describe('ServeWelcomeContent', () => {
     expect(window.location.href).toBe('')
   })
 
+  it('navigates to post-auth when setActive fails but a session was nonetheless established (post-exchange failure is never an expired link)', async () => {
+    // The ticket exchange completed (ticket spent), setActive keeps throwing,
+    // but a session for the ticket user did get established. The user actually
+    // signed in, so we must continue — never surface the consumed/expired copy.
+    mockSetActive.mockImplementation(async () => {
+      mockUser = { id: 'user_ticket' }
+      throw new Error('network blip')
+    })
+
+    render(<ServeWelcomeContent />)
+    fireEvent.click(continueButton())
+
+    await waitFor(() => expect(window.location.href).toBe(POST_AUTH))
+    // setActive is retried once before we proceed to the redirect.
+    expect(mockSetActive).toHaveBeenCalledTimes(2)
+    expect(
+      screen.queryByText(/already been used or has expired/i),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText(/something went wrong/i)).not.toBeInTheDocument()
+  })
+
+  it('shows a retryable (not consumed) message when setActive fails and no session was established', async () => {
+    // setActive establishes the active-session cookie; if it fully fails and no
+    // session exists, the user is not actually signed in. We must not silently
+    // bounce them to login — show the retryable message, never the consumed
+    // copy, and do not navigate.
+    mockUser = null
+    mockSetActive.mockRejectedValue(new Error('network blip'))
+
+    render(<ServeWelcomeContent />)
+    fireEvent.click(continueButton())
+
+    await waitFor(() =>
+      expect(screen.getByText(/something went wrong/i)).toBeInTheDocument(),
+    )
+    expect(mockSetActive).toHaveBeenCalledTimes(2)
+    expect(
+      screen.queryByText(/already been used or has expired/i),
+    ).not.toBeInTheDocument()
+    expect(window.location.href).toBe('')
+  })
+
+  it('treats a thrown "already consumed" exchange as success when a session for the ticket user now exists (FAPI auto-retry)', async () => {
+    // clerk-js can auto-retry the exchange POST after a transient blip; the
+    // first attempt already consumed the ticket AND established the session, so
+    // the retry throws "already consumed" even though sign-in succeeded. Mirror
+    // that by flipping the active user to the ticket's user as the throw fires.
+    mockSignInCreate.mockImplementation(async () => {
+      mockUser = { id: 'user_ticket' }
+      throw makeClerkApiError(
+        'sign_in_token_already_used',
+        'The sign-in token has already been used.',
+      )
+    })
+
+    render(<ServeWelcomeContent />)
+    fireEvent.click(continueButton())
+
+    await waitFor(() => expect(window.location.href).toBe(POST_AUTH))
+    expect(
+      screen.queryByText(/already been used or has expired/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('treats a thrown "already consumed" exchange as success when a session appears but the ticket is not a decodable JWT (FAPI auto-retry, non-standard ticket)', async () => {
+    // A ticket that is not a standard three-part JWT — decodeTicketUserId
+    // returns null, so the recovery check can't compare user ids. A session
+    // that appears during the redeem (the exchange's first attempt succeeded
+    // before the auto-retry threw "already consumed") must still be recognized
+    // as success rather than mislabeled as a consumed link.
+    mockUser = null
+    mockSearchParams = new URLSearchParams({ __clerk_ticket: 'not-a-jwt' })
+    mockSignInCreate.mockImplementation(async () => {
+      mockUser = { id: 'user_ticket' }
+      throw makeClerkApiError(
+        'sign_in_token_already_used',
+        'The sign-in token has already been used.',
+      )
+    })
+
+    render(<ServeWelcomeContent />)
+    fireEvent.click(continueButton())
+
+    await waitFor(() => expect(window.location.href).toBe(POST_AUTH))
+    expect(
+      screen.queryByText(/already been used or has expired/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('treats a non-complete exchange result as success when a session for the ticket user was nonetheless established (FAPI internal retry)', async () => {
+    mockUser = null
+    // The (internally retried) exchange comes back incomplete, but the first
+    // attempt already established the session for the ticket user. We must
+    // recover instead of declaring the link consumed.
+    mockSignInCreate.mockImplementation(async () => {
+      mockUser = { id: 'user_ticket' }
+      return { status: 'needs_first_factor', createdSessionId: null }
+    })
+
+    render(<ServeWelcomeContent />)
+    fireEvent.click(continueButton())
+
+    await waitFor(() => expect(window.location.href).toBe(POST_AUTH))
+    expect(mockSetActive).not.toHaveBeenCalled()
+    expect(
+      screen.queryByText(/already been used or has expired/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('does NOT re-run signIn.create after the exchange has been attempted, even when it fails (guard stays latched, no double-spend)', async () => {
+    mockSignInCreate.mockRejectedValue(new Error('network blip'))
+
+    render(<ServeWelcomeContent />)
+    const button = continueButton()
+    fireEvent.click(button)
+    fireEvent.click(button)
+
+    await waitFor(() =>
+      expect(screen.getByText(/something went wrong/i)).toBeInTheDocument(),
+    )
+    // The one-time ticket exchange is attempted at most once, and no Continue
+    // button remains, so a frustrated user cannot re-fire it on a spent ticket.
+    expect(mockSignInCreate).toHaveBeenCalledTimes(1)
+    expect(
+      screen.queryByRole('button', { name: /continue to goodparty/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the consumed message for a genuinely expired/consumed ticket error when not signed in as the ticket user', async () => {
+    mockSignInCreate.mockRejectedValue(
+      makeClerkApiError(
+        'sign_in_token_expired',
+        'This sign-in token has expired.',
+      ),
+    )
+
+    render(<ServeWelcomeContent />)
+    fireEvent.click(continueButton())
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/already been used or has expired/i),
+      ).toBeInTheDocument(),
+    )
+    expect(window.location.href).toBe('')
+  })
+
+  it('shows a retryable (not consumed) message for a transient non-Clerk error during the exchange', async () => {
+    mockSignInCreate.mockRejectedValue(new Error('Network request failed'))
+
+    render(<ServeWelcomeContent />)
+    fireEvent.click(continueButton())
+
+    await waitFor(() =>
+      expect(screen.getByText(/something went wrong/i)).toBeInTheDocument(),
+    )
+    expect(
+      screen.queryByText(/already been used or has expired/i),
+    ).not.toBeInTheDocument()
+  })
+
   it('shows an error with a /login link on load when the ticket is missing', async () => {
     mockSearchParams = new URLSearchParams()
 
@@ -230,13 +415,13 @@ describe('ServeWelcomeContent', () => {
     expect(mockSignInCreate).not.toHaveBeenCalled()
   })
 
-  it('fires Magic Link Clicked once on landing (top of the serve funnel) with hasTicket', async () => {
+  it('fires Magic Link Clicked once on landing (top of the serve funnel) with hasTicket and type:serve', async () => {
     render(<ServeWelcomeContent />)
 
     await waitFor(() =>
       expect(trackEventMock).toHaveBeenCalledWith(
         EVENTS.Onboarding.MagicLinkClicked,
-        { hasTicket: true },
+        { hasTicket: true, type: 'serve' },
       ),
     )
     // Landing-based, fired once on mount regardless of whether the click
@@ -255,7 +440,7 @@ describe('ServeWelcomeContent', () => {
     await waitFor(() =>
       expect(trackEventMock).toHaveBeenCalledWith(
         EVENTS.Onboarding.MagicLinkClicked,
-        { hasTicket: false },
+        { hasTicket: false, type: 'serve' },
       ),
     )
   })

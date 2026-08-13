@@ -2,15 +2,15 @@
 import Paper from '@shared/utils/Paper'
 import DashboardLayout from '../../../shared/DashboardLayout'
 import ContactsTable from './ContactsTable'
-import PersonOverlay from './person/PersonOverlay'
+import PersonOverlay from '../../crm/person/PersonOverlay'
 import Download from './Download'
 import SegmentSection from './segments/SegmentSection'
 import ContactsStatsSection from './ContactsStatsSection'
 import { ContactSearch } from './ContactSearch'
-import { ContactProModalProvider } from '../hooks/ContactProModal'
+import { ContactProModalProvider } from '../../crm/ContactProModal'
 import { useEffect, useRef, useState } from 'react'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
-import { useContactsTable } from '../hooks/ContactsTableProvider'
+import { useContactsTable } from '../../crm/ContactsTableProvider'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import H2 from '@shared/typography/H2'
 import Body2 from '@shared/typography/Body2'
@@ -24,17 +24,17 @@ export default function ContactsPage() {
     isCustomSegment,
     searchTerm,
     totalSegmentContacts,
-    isVoterDataUnavailable,
+    voterDataUnavailable,
     isWinContext,
     isWinContextReady,
   } = useContactsTable()
   const labels = getContactsLabels(isWinContext)
 
-  // isWinContext reads false until both the elected-office query and the
-  // win-voter-data flag settle, so firing before then would emit a spurious
-  // serve event followed by a win one on every Win page load. Wait for
-  // isWinContextReady, and latch with a ref so a later isWinContext toggle
-  // (flag re-fetch on identity change, useElectedOffice focus revalidation)
+  // isWinContext reads false until the elected-office query settles, so
+  // firing before then would emit a spurious serve event followed by a win
+  // one on every Win page load. Wait for isWinContextReady, and latch with
+  // a ref so a later isWinContext toggle (useElectedOffice focus
+  // revalidation)
   // can't re-fire — one Contacts Viewed per mount with the settled context.
   const hasFiredViewedRef = useRef(false)
   useEffect(() => {
@@ -46,22 +46,36 @@ export default function ContactsPage() {
   }, [isWinContextReady, isWinContext])
   return (
     <ContactProModalProvider value={setShowProModal}>
-      <DashboardLayout>
+      <DashboardLayout
+        navHeader={
+          isWinContextReady && !isWinContext
+            ? { icon: 'users', label: labels.dataTitle }
+            : undefined
+        }
+      >
         <Paper className="h-full">
           {/* Wait for the Win/Serve context to settle before naming anything:
-              isWinContext reads false until the elected-office query and the
-              win-voter-data flag resolve, so rendering early would flash the
+              isWinContext reads false until the elected-office query resolves,
+              so rendering early would flash the
               Serve copy ("constituent") to a Win user (ENG-10448). */}
           {isWinContextReady && (
             <div className="flex flex-col">
-              <h1 className="text-3xl font-semibold">{labels.dataTitle}</h1>
+              {/* Serve shows the title in the full-bleed nav header above, so the
+                  page heading would duplicate it — Win has no nav header, so it
+                  keeps the in-page title. */}
+              {isWinContext && (
+                <h1 className="text-3xl font-semibold">{labels.dataTitle}</h1>
+              )}
               <p className="text-lg font-normal text-muted-foreground">
                 {labels.subheading}
               </p>
             </div>
           )}
 
-          {isVoterDataUnavailable ? (
+          {/* The union, not the reactive flag alone: the proactive predicate
+              gates the contacts query, so the 400 that used to set
+              isVoterDataUnavailable never fires. */}
+          {voterDataUnavailable ? (
             <div className="mt-6">
               <H2>Voter data not available for your district</H2>
               <Body2 className="mt-2 text-muted-foreground">
@@ -103,7 +117,11 @@ export default function ContactsPage() {
             </>
           )}
         </Paper>
-        <PersonOverlay />
+        {/* The overlay opens purely off the URL, and a district-gated personQuery
+            reports pending/idle, so neither its loading nor its error branch
+            fires — left mounted it drops a dataless sheet over the message
+            above. */}
+        {!voterDataUnavailable && <PersonOverlay />}
       </DashboardLayout>
       {campaign && (
         <ProUpgradeModal

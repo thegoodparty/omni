@@ -1,11 +1,12 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useClerk } from '@clerk/nextjs'
 import { useSearchParams } from 'next/navigation'
 import { ArrowRight } from 'lucide-react'
 import { Button, GoodPartyOrgLogoWordmark } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { WIN_ONBOARDING_PATH } from 'helpers/resolvePostAuthRedirectPath.util'
 
 /**
@@ -65,6 +66,24 @@ export default function WinWelcomeContent() {
   const redeemingRef = useRef(false)
 
   const ticket = searchParams?.get('__clerk_ticket') ?? null
+
+  // Top of the candidate ("win") onboarding funnel: the recipient clicked the
+  // magic link and landed on this redemption page. Landing-based firing is the
+  // most reliable signal (the redemption itself is button-gated to defeat email
+  // scanners), so fire once on mount — even if the ticket is missing/expired, a
+  // human still arrived here. Shares the `Onboarding - Magic Link Clicked` event
+  // with the serve flow; the `type: 'win'` property mirrors the server-side
+  // `Onboarding - Magic Link Sent` so the sent → clicked funnel can be segmented
+  // per flow in Amplitude. Without this, the win funnel only ever saw "sent".
+  const magicLinkClickedRef = useRef(false)
+  useEffect(() => {
+    if (magicLinkClickedRef.current) return
+    magicLinkClickedRef.current = true
+    trackEvent(EVENTS.Onboarding.MagicLinkClicked, {
+      hasTicket: !!ticket,
+      type: 'win',
+    })
+  }, [ticket])
 
   async function redeem() {
     if (!ticket) {

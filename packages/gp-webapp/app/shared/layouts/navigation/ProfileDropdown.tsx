@@ -1,12 +1,7 @@
 'use client'
 import Link from 'next/link'
-import {
-  FaChevronDown,
-  FaExternalLinkAlt,
-  FaToolbox,
-  FaUserCircle,
-  FaUserCog,
-} from 'react-icons/fa'
+import { FaChevronDown, FaExternalLinkAlt, FaUserCircle } from 'react-icons/fa'
+import { Settings } from 'lucide-react'
 import { memo, useEffect } from 'react'
 import { RiLogoutBoxFill } from 'react-icons/ri'
 import UserAvatar from '@shared/user/UserAvatar'
@@ -27,24 +22,16 @@ const links: NavLink[] = [
   {
     id: 'profile',
     label: 'Profile',
-    href: '/dashboard/campaign-details',
+    href: '/dashboard/profile',
     icon: <FaUserCircle />,
     onClick: () =>
       trackEvent(EVENTS.Navigation.Top.AvatarDropdown.ClickProfile),
   },
   {
-    id: 'settings',
-    label: 'Settings',
-    href: '/dashboard/profile',
-    icon: <FaToolbox />,
-    onClick: () =>
-      trackEvent(EVENTS.Navigation.Top.AvatarDropdown.ClickSettings),
-  },
-  {
     id: 'account',
-    label: 'Account',
+    label: 'Account Settings',
     href: '/dashboard/account',
-    icon: <FaUserCog />,
+    icon: <Settings size={16} />,
   },
 ]
 

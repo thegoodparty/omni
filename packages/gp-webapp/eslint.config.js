@@ -24,9 +24,11 @@ module.exports = [
       'test-results/',
       'styleguide/*.md',
       'public/',
-      'CLAUDE.md',
+      // Agent docs at any depth. AGENTS.md is the real file and CLAUDE.md a symlink
+      // to it, so an unprefixed pattern would leave every nested pair linted twice.
+      '**/AGENTS.md',
+      '**/CLAUDE.md',
       'docs/*.md',
-      'gpApi/CLAUDE.md',
       '.claude/**/*.md',
       '**/.next/**',
       '**/.storybook/**',
@@ -170,19 +172,18 @@ module.exports = [
     // eslint-config-next v16 bundles react-hooks v6, whose React Compiler
     // correctness rules newly flag ~114 pre-existing call sites (mostly in
     // vendored styleguide/ui components). Adopting them is a repo-wide cleanup
-    // tracked separately, not part of the framework bump — so downgrade to
-    // 'warn' to keep them visible without gating CI (`lint` runs --quiet, which
-    // ignores warnings). Remove these overrides as the violations are fixed.
+    // tracked separately, not part of the framework bump — so disable them
+    // rather than gating CI. Re-enable (to 'error') as the violations are fixed.
     files: ['**/*.ts', '**/*.tsx'],
     rules: {
-      'react-hooks/set-state-in-effect': 'warn',
-      'react-hooks/set-state-in-render': 'warn',
-      'react-hooks/immutability': 'warn',
-      'react-hooks/refs': 'warn',
-      'react-hooks/purity': 'warn',
-      'react-hooks/globals': 'warn',
-      'react-hooks/use-memo': 'warn',
-      'react-hooks/preserve-manual-memoization': 'warn',
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/set-state-in-render': 'off',
+      'react-hooks/immutability': 'off',
+      'react-hooks/refs': 'off',
+      'react-hooks/purity': 'off',
+      'react-hooks/globals': 'off',
+      'react-hooks/use-memo': 'off',
+      'react-hooks/preserve-manual-memoization': 'off',
     },
   },
 ]

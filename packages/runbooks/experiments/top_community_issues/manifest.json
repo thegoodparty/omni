@@ -1,10 +1,13 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "top_community_issues",
-  "version": 1,
-  "model": "opus",
+  "version": 8,
+  "model": "sonnet",
   "max_turns": 150,
   "timeout_seconds": 3000,
+  "runtime": {
+    "max_thinking_tokens": 0
+  },
   "scope": {
     "allowed_tables": [
       "goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq"
@@ -12,14 +15,21 @@
     "max_rows": 50000,
     "data_required_unless": {
       "field": "data_quality",
-      "values": ["insufficient_signal"]
+      "values": [
+        "insufficient_signal"
+      ]
     }
   },
   "input_schema": {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "type": "object",
     "additionalProperties": false,
-    "required": ["organization_slug", "state", "office", "district_descriptor"],
+    "required": [
+      "organization_slug",
+      "state",
+      "office",
+      "district_descriptor"
+    ],
     "properties": {
       "organization_slug": {
         "type": "string",
@@ -40,7 +50,25 @@
         "type": "string",
         "minLength": 1,
         "description": "Human-readable district description (e.g. 'District 5, Chicago, IL')."
+      },
+      "l2_district_type": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Optional. L2 voter-file column name for the office's district (e.g. 'City_Ward'). When present with l2_district_name, the Haystaq lean query is scoped to the district; when absent, it falls back to state scope."
+      },
+      "l2_district_name": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Optional. L2 district value to match (e.g. 'FAYETTEVILLE CITY WARD 2'). Paired with l2_district_type."
       }
+    },
+    "dependencies": {
+      "l2_district_type": [
+        "l2_district_name"
+      ],
+      "l2_district_name": [
+        "l2_district_type"
+      ]
     }
   },
   "output_schema": {
@@ -75,7 +103,7 @@
       },
       "issues": {
         "type": "array",
-        "maxItems": 10,
+        "maxItems": 5,
         "items": {
           "$ref": "#/definitions/IssueOutput"
         }
@@ -89,7 +117,11 @@
       },
       "data_quality": {
         "type": "string",
-        "enum": ["ok", "partial", "insufficient_signal"]
+        "enum": [
+          "ok",
+          "partial",
+          "insufficient_signal"
+        ]
       },
       "data_quality_reason": {
         "type": "string"
@@ -142,7 +174,11 @@
           },
           "priority": {
             "type": "string",
-            "enum": ["low", "medium", "high"]
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
           },
           "rank": {
             "type": "integer",
@@ -156,7 +192,10 @@
       "IssueDetail": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["sources", "overview"],
+        "required": [
+          "sources",
+          "overview"
+        ],
         "properties": {
           "sources": {
             "type": "array",
@@ -173,7 +212,9 @@
           "quotes": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["items"],
+            "required": [
+              "items"
+            ],
             "properties": {
               "items": {
                 "type": "array",
@@ -194,7 +235,10 @@
       "Subsection": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["summary", "source_ids"],
+        "required": [
+          "summary",
+          "source_ids"
+        ],
         "properties": {
           "summary": {
             "type": "string",
@@ -212,7 +256,10 @@
       "QuoteItem": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["text", "source_id"],
+        "required": [
+          "text",
+          "source_id"
+        ],
         "properties": {
           "text": {
             "type": "string",
@@ -248,17 +295,32 @@
           },
           "source_type": {
             "type": "string",
-            "enum": ["news", "government_website", "research", "poll"]
+            "enum": [
+              "news",
+              "government_website",
+              "research",
+              "poll",
+              "advocacy_org"
+            ]
           },
           "url": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "pattern": "^https?://"
           },
           "publisher": {
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "article_type": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "enum": [
               "reporting",
               "opinion",
@@ -269,7 +331,10 @@
             ]
           },
           "article_date": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "format": "date"
           },
           "retrieved_at": {

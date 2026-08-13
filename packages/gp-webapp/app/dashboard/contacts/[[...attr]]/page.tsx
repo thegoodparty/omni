@@ -1,6 +1,6 @@
 import pageMetaData from 'helpers/metadataHelper'
-import { ContactsTableProvider } from './hooks/ContactsTableProvider'
-import ContactsPage from './components/ContactsPage'
+import { ContactsTableProvider } from '../crm/ContactsTableProvider'
+import { ContactsPageGate } from '../crm/ContactsPageGate'
 import candidateAccess from '../../shared/candidateAccess'
 
 const meta = pageMetaData({
@@ -15,7 +15,7 @@ export default async function Page() {
   await candidateAccess()
   return (
     <ContactsTableProvider>
-      <ContactsPage />
+      <ContactsPageGate />
     </ContactsTableProvider>
   )
 }

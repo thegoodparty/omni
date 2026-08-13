@@ -1,6 +1,10 @@
 'use client'
 
+import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
+import DashboardLayout from '../shared/DashboardLayout'
+import { NAV_LABELS } from '../shared/navLabels'
 import CampaignManager from './campaignManager/CampaignManager'
+import CampaignManagerHome from '../campaign-manager/CampaignManagerHome'
 import { WebsiteSunsetModalController } from '../shared/WebsiteSunsetModalController'
 import type { TcrCompliance } from 'helpers/types'
 
@@ -15,6 +19,26 @@ export default function DashboardContent({
   tcrCompliance,
   sunsetEligible,
 }: DashboardContentProps): React.JSX.Element {
+  // trackExposure=false: this read only routes the home; the campaign-story
+  // page's FeatureFlagGuard is the experiment's treatment surface. Mirrors the
+  // legacy CampaignManager / DashboardMenu reads. When the flag is unresolved
+  // (anonymous / API blip) enabled is false, so we fall back to the legacy home.
+  const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
+
+  if (campaignStoryEnabled) {
+    return (
+      <DashboardLayout
+        pathname={pathname}
+        showAlert={false}
+        wrapperClassName="!p-0"
+        navHeader={{ icon: 'dashboard', label: NAV_LABELS.campaignManager }}
+      >
+        <WebsiteSunsetModalController eligible={sunsetEligible} />
+        <CampaignManagerHome tcrCompliance={tcrCompliance} />
+      </DashboardLayout>
+    )
+  }
+
   return (
     <>
       <WebsiteSunsetModalController eligible={sunsetEligible} />

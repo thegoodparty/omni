@@ -1,10 +1,13 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "meeting_briefing",
-  "version": 11,
-  "model": "opus",
+  "version": 16,
+  "model": "sonnet",
   "max_turns": 200,
-  "timeout_seconds": 3000,
+  "timeout_seconds": 3600,
+  "runtime": {
+    "max_thinking_tokens": 0
+  },
   "scope": {
     "allowed_tables": [
       "goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq"
@@ -576,8 +579,33 @@
                   "type": "string",
                   "minLength": 1
                 }
+              },
+              {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 5,
+                "items": {
+                  "$ref": "#/definitions/talking_point"
+                }
               }
             ]
+          }
+        }
+      },
+      "talking_point": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "why"],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The bullet itself — the ask, question, or framing to bring into the room."
+          },
+          "why": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response."
           }
         }
       },
@@ -639,7 +667,13 @@
       "recent_news_entry": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["headline", "publication", "article_type", "url"],
+        "required": [
+          "headline",
+          "publication",
+          "article_type",
+          "publication_date",
+          "url"
+        ],
         "properties": {
           "headline": {
             "type": "string",
@@ -660,8 +694,9 @@
             ]
           },
           "publication_date": {
-            "type": ["string", "null"],
-            "format": "date"
+            "type": "string",
+            "format": "date",
+            "description": "Required, non-nullable. Must be within 60 days of PARAMS.meetingDate (see instruction.md Step 11) — the qa/ gate rejects entries older than that or missing this field."
           },
           "url": {
             "type": "string",

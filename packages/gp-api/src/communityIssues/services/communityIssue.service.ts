@@ -1,9 +1,20 @@
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
 import { Injectable } from '@nestjs/common'
-import { ExperimentRun } from '../../generated/prisma'
+import {
+  CommunityIssueList,
+  CommunityIssuePriority,
+  ExperimentRun,
+  Prisma,
+} from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { EVENTS } from 'src/vendors/segment/segment.types'
+import { DashboardCardsService } from '@/dashboardCards/services/dashboardCards.service'
 import { validateCommunityIssuesArtifact } from '../communityIssueArtifact.validation'
-import { CommunityIssueUpsertService } from './communityIssueUpsert.service'
+import {
+  CommunityIssueUpsertService,
+  CommunityIssueUpsertSummary,
+} from './communityIssueUpsert.service'
 
 const COMMUNITY_ISSUE_EXPERIMENT_TYPES = new Set([
   'top_community_issues',
@@ -16,6 +27,33 @@ const parseJson = (raw: string): Record<string, unknown> =>
   // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
   JSON.parse(raw) as Record<string, unknown>
 
+// Cap on how many issues per list get flattened into the email event below.
+const MAX_EMAIL_ISSUES = 5
+
+type EmailIssueFields = {
+  title: string
+  summary: string
+  priority: CommunityIssuePriority
+}
+
+// Flatten a ranked issue list into indexed scalar props (topIssue1Title,
+// topIssue1Summary, topIssue1Priority, topIssue2Title, …) so a HubSpot email
+// workflow can read them — HubSpot can't index into an array. See the
+// instrument-analytics-event skill's emailable-events convention.
+const flattenIssuesForEmail = (
+  prefix: string,
+  issues: EmailIssueFields[],
+): Record<string, string> => {
+  const out: Record<string, string> = {}
+  issues.slice(0, MAX_EMAIL_ISSUES).forEach((issue, i) => {
+    const n = i + 1
+    out[`${prefix}${n}Title`] = issue.title
+    out[`${prefix}${n}Summary`] = issue.summary
+    out[`${prefix}${n}Priority`] = issue.priority
+  })
+  return out
+}
+
 @Injectable()
 export class CommunityIssueService extends createPrismaBase(
   MODELS.CommunityIssue,
@@ -23,6 +61,8 @@ export class CommunityIssueService extends createPrismaBase(
   constructor(
     private readonly s3: S3Service,
     private readonly upsert: CommunityIssueUpsertService,
+    private readonly analytics: AnalyticsService,
+    private readonly dashboardCards: DashboardCardsService,
   ) {
     super()
   }
@@ -58,9 +98,15 @@ export class CommunityIssueService extends createPrismaBase(
     if (!validation.ok) {
       this.logger.error(
         { runId: run.runId, reason: validation.reason },
-        'community-issue artifact failed validation',
+        'community-issue artifact envelope failed validation',
       )
       return
+    }
+    if (validation.dropped.length > 0) {
+      this.logger.warn(
+        { runId: run.runId, dropped: validation.dropped },
+        'community-issue artifact: dropped invalid issues, persisting the rest',
+      )
     }
     if (
       validation.artifact.organization_slug !== run.organizationSlug ||
@@ -77,6 +123,164 @@ export class CommunityIssueService extends createPrismaBase(
       )
       return
     }
-    await this.upsert.upsertFromArtifact(run, validation.artifact)
+    // A run whose issues ALL failed validation shouldn't wipe an org's feed via
+    // the upsert's archive-by-omission. But a genuinely empty result (the agent
+    // returned no issues and none were dropped) is a real "archive all" signal
+    // — e.g. trending routinely empties — so let that through to the upsert.
+    if (
+      validation.artifact.issues.length === 0 &&
+      validation.dropped.length > 0
+    ) {
+      this.logger.warn(
+        { runId: run.runId, dropped: validation.dropped.length },
+        'community-issue artifact: all issues failed validation — skipping upsert',
+      )
+      return
+    }
+    const summary = await this.upsert.upsertFromArtifact(
+      run,
+      validation.artifact,
+    )
+    if (!summary) return
+
+    await this.emitGenerationEvents(run, summary)
+    await this.syncCardsForCreatedIssues(run, summary)
+  }
+
+  // Turns each issue a non-initial run newly created into a Chief of Staff task
+  // card. Skips the list's first-ever generation (that is not "news"). Card
+  // writes are best-effort: a failure here must not throw out of the handler, or
+  // the SQS run-completed message would redeliver and the id-less issues would be
+  // re-created as duplicate rows on the already-committed upsert.
+  private async syncCardsForCreatedIssues(
+    run: ExperimentRun,
+    summary: CommunityIssueUpsertSummary,
+  ): Promise<void> {
+    if (summary.wasFirstGenerationForList) return
+    if (summary.createdIssues.length === 0) return
+
+    const office = await this.client.electedOffice.findFirst({
+      where: { organizationSlug: run.organizationSlug },
+      select: { id: true },
+    })
+    if (!office) {
+      this.logger.warn(
+        { runId: run.runId, organizationSlug: run.organizationSlug },
+        'community-issue run: no elected office; skipping task cards',
+      )
+      return
+    }
+
+    try {
+      for (const issue of summary.createdIssues) {
+        await this.dashboardCards.syncFromCommunityIssue(office.id, issue)
+      }
+    } catch (err) {
+      this.logger.error(
+        { runId: run.runId, organizationSlug: run.organizationSlug, err },
+        'community-issue run: failed to create task cards',
+      )
+    }
+  }
+
+  private async emitGenerationEvents(
+    run: ExperimentRun,
+    summary: CommunityIssueUpsertSummary,
+  ): Promise<void> {
+    const office = await this.client.electedOffice.findFirst({
+      where: { organizationSlug: run.organizationSlug },
+      select: { userId: true },
+    })
+    const userId = office?.userId
+    if (!userId) {
+      this.logger.warn(
+        { runId: run.runId, organizationSlug: run.organizationSlug },
+        'community-issue run: no elected office user; skipping analytics',
+      )
+      return
+    }
+
+    // Fires once per org, when the second of the two lists completes its
+    // first-ever generation — i.e. the org now has both lists populated.
+    // `otherListCount` counts all rows (live + archived) on purpose: it gates
+    // on "has the other list ever generated", which is monotonic, so this
+    // fires exactly once and never re-fires when a list later empties and
+    // repopulates (trending routinely empties). The non-empty guard below
+    // keeps us from emailing a list that currently has zero live issues.
+    if (summary.wasFirstGenerationForList) {
+      const otherList =
+        summary.list === CommunityIssueList.top_community
+          ? CommunityIssueList.trending
+          : CommunityIssueList.top_community
+      const otherListCount = await this.model.count({
+        where: { organizationSlug: run.organizationSlug, list: otherList },
+      })
+      if (otherListCount > 0) {
+        const [topIssues, trendingIssues] = await this.loadCurrentIssues(
+          run.organizationSlug,
+        )
+        if (topIssues.length > 0 && trendingIssues.length > 0) {
+          void this.analytics
+            .track(userId, EVENTS.CommunityIssues.InitialIssuesGenerated, {
+              topIssueCount: topIssues.length,
+              trendingIssueCount: trendingIssues.length,
+              ...flattenIssuesForEmail('topIssue', topIssues),
+              ...flattenIssuesForEmail('trendingIssue', trendingIssues),
+            })
+            .catch(() => undefined)
+        }
+      }
+      return
+    }
+
+    // Every later refresh gets a fresh snapshot event of the list that just
+    // refreshed — no diffing against the prior state, just "here's what the
+    // list looks like now". Both counts ride along on either event so a
+    // downstream consumer always has the full-picture context.
+    const [topIssues, trendingIssues] = await this.loadCurrentIssues(
+      run.organizationSlug,
+    )
+    if (summary.list === CommunityIssueList.top_community) {
+      void this.analytics
+        .track(userId, EVENTS.CommunityIssues.TopIssuesRefreshed, {
+          topIssueCount: topIssues.length,
+          trendingIssueCount: trendingIssues.length,
+          ...flattenIssuesForEmail('topIssue', topIssues),
+        })
+        .catch(() => undefined)
+    } else {
+      void this.analytics
+        .track(userId, EVENTS.CommunityIssues.TrendingIssuesRefreshed, {
+          topIssueCount: topIssues.length,
+          trendingIssueCount: trendingIssues.length,
+          ...flattenIssuesForEmail('trendingIssue', trendingIssues),
+        })
+        .catch(() => undefined)
+    }
+  }
+
+  private async loadCurrentIssues(
+    organizationSlug: string,
+  ): Promise<[EmailIssueFields[], EmailIssueFields[]]> {
+    return Promise.all([
+      this.model.findMany({
+        where: {
+          organizationSlug,
+          list: CommunityIssueList.top_community,
+          archivedAt: null,
+        },
+        select: { title: true, summary: true, priority: true },
+        orderBy: { rank: Prisma.SortOrder.asc },
+      }),
+      this.model.findMany({
+        where: {
+          organizationSlug,
+          list: CommunityIssueList.trending,
+          archivedAt: null,
+        },
+        select: { title: true, summary: true, priority: true },
+        orderBy: { rank: Prisma.SortOrder.asc },
+      }),
+    ])
   }
 }

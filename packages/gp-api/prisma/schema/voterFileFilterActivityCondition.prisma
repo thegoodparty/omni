@@ -1,0 +1,43 @@
+enum SupportStatusRollup {
+  supporter
+  non_supporter
+  unknown
+  // ENG-10833: additive additions to the manual-override vocabulary. The
+  // derived (interaction-based) rollup never produces these — only a manual
+  // ContactCurrentStatus override can set them.
+  undecided
+  refused
+}
+
+// Union of the locked per-channel outcome vocabularies (2026-07-16 revision).
+// Per-channel validity is enforced at the API boundary (Zod), not here.
+enum ActivityConditionAction {
+  responded // SMS
+  no_response // SMS
+  opted_out // SMS
+  answered // door knock, robocall
+  not_home // door knock
+  refused_to_engage // door knock
+  support_yes // door knock
+  support_unsure // door knock
+  support_no // door knock
+  voicemail_left // robocall
+  no_answer // robocall
+}
+
+model VoterFileFilterActivityCondition {
+  id                String                    @id @default(uuid(7))
+  createdAt         DateTime                  @default(now()) @map("created_at")
+  voterFileFilter   VoterFileFilter           @relation(fields: [voterFileFilterId], references: [id], onDelete: Cascade)
+  voterFileFilterId Int                       @map("voter_file_filter_id")
+  outreachType      OutreachType              @map("outreach_type")
+  // Deleting an outreach silently removes conditions naming it (Cascade).
+  // Deleting completed outreaches isn't a product surface today; if that
+  // changes, revisit toward Restrict (TDD decision, 2026-07-16).
+  outreach          Outreach?                 @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  outreachId        Int?                      @map("outreach_id") // null = any campaign of this channel
+  actions           ActivityConditionAction[] @default([]) // includes / "was one of": OR within; empty = membership only
+
+  @@index([voterFileFilterId])
+  @@map("voter_file_filter_activity_condition")
+}

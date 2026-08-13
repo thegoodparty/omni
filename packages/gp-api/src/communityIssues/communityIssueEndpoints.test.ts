@@ -166,6 +166,28 @@ describe('GET /v1/community-issues', () => {
       )
     },
   )
+
+  it('reports a stale non-terminal run as failed, not running', async () => {
+    await seedIssue()
+
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: eoOrgSlug,
+        experimentType: 'top_community_issues',
+        status: ExperimentRunStatus.RUNNING,
+        artifactBucket: 'bucket',
+        artifactKey: `key-${Date.now()}.json`,
+        createdAt: new Date('2020-01-01'),
+      },
+    })
+
+    const res = await service.client.get<{
+      refresh: { status: string; lastCompletedAt: string | null }
+    }>(`${BASE}?list=top_community`, eoHeaders())
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.refresh.status).toBe('failed')
+  })
 })
 
 describe('GET /v1/community-issues — archived priority', () => {
@@ -525,6 +547,149 @@ describe('POST /v1/community-issues/self-dispatch', () => {
 
     serveSpy.mockRestore()
     dispatchSpy.mockRestore()
+  })
+})
+
+describe('POST /v1/community-issues/seed', () => {
+  const detail = () => ({
+    sources: [
+      {
+        id: 's1',
+        name: 'City Herald',
+        retrieved_at: '2026-06-01',
+        retrieved_text_or_snapshot: 'snapshot',
+        source_type: 'news' as const,
+      },
+    ],
+    overview: { source_ids: ['s1'], summary: 'Overview summary text.' },
+  })
+
+  const seedBody = () => ({
+    issues: [
+      {
+        list: 'top_community' as const,
+        category: CommunityIssueCategory.housing_and_development,
+        priority: CommunityIssuePriority.high,
+        title: 'Housing affordability',
+        summary: 'Rents are rising.',
+        rank: 1,
+        detail: detail(),
+        relatedBriefing: {
+          meetingDate: '2026-07-01',
+          briefingItemId: 'item-housing',
+          content: 'Council discussed housing.',
+        },
+      },
+      {
+        list: 'top_community' as const,
+        category: CommunityIssueCategory.public_safety,
+        priority: CommunityIssuePriority.medium,
+        title: 'Street lighting',
+        summary: 'Dark intersections.',
+        rank: 2,
+        detail: detail(),
+      },
+      {
+        list: 'trending' as const,
+        category: CommunityIssueCategory.quality_of_life,
+        priority: CommunityIssuePriority.low,
+        title: 'Park cleanup',
+        summary: 'Litter in the park.',
+        rank: 1,
+        detail: detail(),
+      },
+    ],
+  })
+
+  it('seeds issues for the caller org, readable via the list + detail reads', async () => {
+    const seedRes = await service.client.post<{
+      issues: { id: string; list: string; rank: number | null; title: string }[]
+    }>(`${BASE}/seed`, seedBody(), eoHeaders())
+
+    expect(seedRes.status).toBe(HttpStatus.CREATED)
+    expect(seedRes.data.issues).toHaveLength(3)
+    expect(seedRes.data.issues.every((i) => i.id.length > 0)).toBe(true)
+
+    const top = await service.client.get<{
+      issues: { id: string; rank: number; title: string }[]
+      refresh: { status: string }
+    }>(`${BASE}?list=top_community`, eoHeaders())
+    expect(top.data.issues.map((i) => i.title)).toEqual([
+      'Housing affordability',
+      'Street lighting',
+    ])
+    expect(top.data.refresh.status).toBe('completed')
+
+    const trending = await service.client.get<{
+      issues: { title: string }[]
+    }>(`${BASE}?list=trending`, eoHeaders())
+    expect(trending.data.issues.map((i) => i.title)).toEqual(['Park cleanup'])
+
+    const housingId = seedRes.data.issues.find(
+      (i) => i.title === 'Housing affordability',
+    )!.id
+    const detailRes = await service.client.get<{
+      detail: { overview: { summary: string } } | null
+      relatedBriefings: { briefingItemId: string; meetingDate: string }[]
+    }>(`${BASE}/${housingId}`, eoHeaders())
+
+    expect(detailRes.data.detail?.overview.summary).toBe(
+      'Overview summary text.',
+    )
+    expect(detailRes.data.relatedBriefings).toHaveLength(1)
+    expect(detailRes.data.relatedBriefings[0]?.briefingItemId).toBe(
+      'item-housing',
+    )
+    expect(detailRes.data.relatedBriefings[0]?.meetingDate).toBe('2026-07-01')
+  })
+
+  it('returns 403 when OTEL_SERVICE_ENVIRONMENT is a customer env (prod)', async () => {
+    const prev = process.env.OTEL_SERVICE_ENVIRONMENT
+    process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
+    try {
+      const res = await service.client.post(
+        `${BASE}/seed`,
+        seedBody(),
+        eoHeaders(),
+      )
+      expect(res.status).toBe(HttpStatus.FORBIDDEN)
+    } finally {
+      if (prev === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
+      else process.env.OTEL_SERVICE_ENVIRONMENT = prev
+    }
+  })
+
+  it('returns 403 when OTEL_SERVICE_ENVIRONMENT is unknown (fails closed)', async () => {
+    const prev = process.env.OTEL_SERVICE_ENVIRONMENT
+    process.env.OTEL_SERVICE_ENVIRONMENT = 'staging'
+    try {
+      const res = await service.client.post(
+        `${BASE}/seed`,
+        seedBody(),
+        eoHeaders(),
+      )
+      expect(res.status).toBe(HttpStatus.FORBIDDEN)
+    } finally {
+      if (prev === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
+      else process.env.OTEL_SERVICE_ENVIRONMENT = prev
+    }
+  })
+
+  it('rejects more than 10 issues for one list', async () => {
+    const base = seedBody().issues[0]!
+    const res = await service.client.post(
+      `${BASE}/seed`,
+      {
+        issues: Array.from({ length: 11 }, (_, i) => ({
+          ...base,
+          relatedBriefing: undefined,
+          title: `Issue ${i + 1}`,
+          rank: i + 1,
+        })),
+      },
+      eoHeaders(),
+    )
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
   })
 })
 

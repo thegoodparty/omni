@@ -5,19 +5,22 @@ import TextField from '@shared/inputs/TextField'
 import { ModalFooter } from '@shared/ModalFooter'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import { noop } from '@shared/utils/noop'
+import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 
-const MAX_SMS_CHAR_COUNT = 1600
+export const MAX_SMS_CHAR_COUNT = P2P_SCRIPT_MAX_LENGTH
 
 interface CreateSmSScriptScreenProps {
   onNext?: (scriptText: string) => void
   onBack?: () => void
+  initialScriptText?: string
 }
 
 export const CreateSmSScriptScreen = ({
   onNext = noop,
   onBack = noop,
+  initialScriptText,
 }: CreateSmSScriptScreenProps): React.JSX.Element => {
-  const [scriptText, setScriptText] = useState('')
+  const [scriptText, setScriptText] = useState(initialScriptText ?? '')
   const overLimit = scriptText.length > MAX_SMS_CHAR_COUNT
 
   const handleOnNext = () => {

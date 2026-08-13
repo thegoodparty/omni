@@ -42,7 +42,6 @@ import { ValidateVanityPathSchema } from '../schemas/ValidateVanityPath.schema'
 import { WebsiteViewsService } from '../services/websiteViews.service'
 import { TrackWebsiteViewSchema } from '../schemas/TrackWebsiteView.schema'
 import { GetWebsiteViewsSchema } from '../schemas/GetWebsiteViews.schema'
-import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { PinoLogger } from 'nestjs-pino'
@@ -57,6 +56,11 @@ import {
 } from '../schemas/WebsiteResponse.schema'
 import { VerifyLiveResponseSchema } from '../schemas/VerifyLive.schema'
 import { serializeWebsiteWithDomain } from '../util/serializeWebsite.util'
+import {
+  isBioPublishable,
+  isGenericComplianceContent,
+  isGenuineIssue,
+} from '../util/genericContent.util'
 
 const PUBLISHABLE_DOMAIN_STATUSES: DomainStatus[] = [
   DomainStatus.submitted,
@@ -87,33 +91,21 @@ const WEBSITE_CONTENT_INCLUDES = {
 const isNonEmpty = (value: string | undefined | null) =>
   typeof value === 'string' && value.trim().length > 0
 
-type WebsiteIssueForPublish = {
-  title?: string | null
-  description?: string | null
-}
-
-const isIssueReadyToPublish = (
-  issue: WebsiteIssueForPublish,
-): issue is { title: string; description: string } =>
-  isNonEmpty(issue.title) && isNonEmpty(issue.description)
-
 const REQUIRED_PUBLISH_FIELDS: Array<{
   path: string
   check: (content: PrismaJson.WebsiteContent) => boolean
 }> = [
   { path: 'main.title', check: (c) => isNonEmpty(c.main?.title) },
-  { path: 'about.bio', check: (c) => isNonEmpty(c.about?.bio) },
+  { path: 'about.bio', check: (c) => isBioPublishable(c.about?.bio) },
   {
+    // Every issue must be genuine (real title+description, not the default),
+    // not just one — otherwise a mixed array publishes with a blank-description
+    // issue visible on the live site. Requires at least one issue.
     path: 'about.issues',
     check: (c) =>
       Array.isArray(c.about?.issues) &&
       c.about.issues.length > 0 &&
-      c.about.issues.every(
-        (issue) =>
-          typeof issue === 'object' &&
-          issue !== null &&
-          isIssueReadyToPublish(issue as WebsiteIssueForPublish),
-      ),
+      c.about.issues.every(isGenuineIssue),
   },
   { path: 'contact.email', check: (c) => isNonEmpty(c.contact?.email) },
 ]
@@ -154,7 +146,6 @@ export class WebsitesController {
     private readonly contacts: WebsiteContactsService,
     private readonly s3: S3Service,
     private readonly siteViews: WebsiteViewsService,
-    private readonly campaigns: CampaignsService,
     private readonly analytics: AnalyticsService,
     private readonly clerkEnricher: ClerkUserEnricherService,
     private readonly logger: PinoLogger,
@@ -326,6 +317,9 @@ export class WebsitesController {
       )
     }
 
+    // Captured before merge() below mutates currentContent in place.
+    const wasProfileIncomplete = isGenericComplianceContent(currentContent)
+
     const updatedContent: PrismaJson.WebsiteContent = merge(
       currentContent || {},
       body,
@@ -343,6 +337,12 @@ export class WebsitesController {
 
     const isFirstPublish =
       body.status === WebsiteStatus.published && !hasEverBeenPublished
+
+    // Transition-gated so each completion of the compliance candidate
+    // profile emits one event: ordinary edits to an already-complete
+    // profile stay silent.
+    const candidateProfileCompleted =
+      wasProfileIncomplete && !isGenericComplianceContent(updatedContent)
 
     const [logo, hero] = await Promise.all([
       logoFile ? this.uploadWebsiteImage(campaignId, logoFile) : null,
@@ -393,6 +393,20 @@ export class WebsitesController {
         this.logger.error(
           { e },
           `Failed to track website published event for user ${user.id}`,
+        )
+      }
+    }
+
+    if (candidateProfileCompleted) {
+      try {
+        await this.analytics.track(
+          user.id,
+          EVENTS.Outreach.ComplianceCandidateProfileSubmitted,
+        )
+      } catch (e) {
+        this.logger.error(
+          { e },
+          `Failed to track candidate profile submitted event for user ${user.id}`,
         )
       }
     }

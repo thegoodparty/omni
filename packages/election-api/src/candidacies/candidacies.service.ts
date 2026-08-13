@@ -13,6 +13,7 @@ export class CandidaciesService extends createPrismaBase(MODELS.Candidacy) {
     const {
       slug,
       raceSlug,
+      positionId,
       state,
       columns,
       includeStances,
@@ -20,10 +21,17 @@ export class CandidaciesService extends createPrismaBase(MODELS.Candidacy) {
       raceColumns,
     } = filterDto
 
+    // raceSlug and positionId both constrain the related Race; merge them into a
+    // single relation filter so they can be combined.
+    const raceWhere: Prisma.RaceWhereInput = {
+      ...(raceSlug && { slug: raceSlug }),
+      ...(positionId && { positionId }),
+    }
+
     const where: Prisma.CandidacyWhereInput = {
       ...(slug && { slug }),
       ...(state && { state }),
-      ...(raceSlug && { Race: { slug: raceSlug } }),
+      ...(Object.keys(raceWhere).length > 0 && { Race: raceWhere }),
     }
 
     const candidacySelectBase = columns

@@ -1,30 +1,47 @@
-import { BadRequestException, HttpException, Injectable } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  HttpException,
+  Injectable,
+} from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import { Readable } from 'stream'
-import { Campaign } from '../../../generated/prisma'
+import { Campaign, Organization } from '../../../generated/prisma'
 import { CampaignTcrComplianceService } from '../../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
-import { OrgDistrict } from '../../../organizations/organizations.types'
+import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
+import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import {
-  CHANNELS,
-  CustomFilter,
-  PURPOSES,
-} from '../../../shared/types/voter.types'
-import { VoterDatabaseService } from '../../../voters/services/voterDatabase.service'
-import { typeToQuery } from '../../../voters/voterFile/util/voterFile.util'
-import { VoterFileType } from '../../../voters/voterFile/voterFile.types'
+  ContactsFilterResolutionInput,
+  ContactsService,
+} from '@/contacts/services/contacts.service'
+import { csvEscape } from '@/shared/util/csv.util'
+import { OrganizationsService } from '../../../organizations/services/organizations.service'
 import { P2pPhoneListRequestSchema } from '../schemas/p2pPhoneListRequest.schema'
-import {
-  mapAudienceFieldsToCustomFilters,
-  P2P_CSV_COLUMN_MAPPINGS,
-} from '../utils/audienceMapping.util'
+import { PeerlyPhoneListCaptureService } from './peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
+import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+
+// Mirrors outreachMaterialization.service.ts's paging shape. Not shared as an
+// export — each contacts-pipeline consumer keeps its own copy (see that
+// file's SEGMENT_PAGE_SIZE for the sibling constant).
+const SEGMENT_PAGE_SIZE = 1000
+const MAX_PHONE_LIST_RECIPIENTS = 100_000
+const MAX_PHONE_LIST_PAGES =
+  Math.ceil(MAX_PHONE_LIST_RECIPIENTS / SEGMENT_PAGE_SIZE) + 1
+
+const CSV_HEADER_ROW = 'first_name,last_name,lead_phone,state,city,zip'
+
+type PhoneListRecipient = { personId: string; phone: string }
 
 @Injectable()
 export class P2pPhoneListUploadService {
   constructor(
-    private readonly voterDatabaseService: VoterDatabaseService,
+    private readonly contactsService: ContactsService,
+    private readonly organizationsService: OrganizationsService,
     private readonly peerlyPhoneListService: PeerlyPhoneListService,
+    private readonly peerlyPhoneListCapture: PeerlyPhoneListCaptureService,
     private readonly tcrComplianceService: CampaignTcrComplianceService,
+    private readonly voterFileFilterService: VoterFileFilterService,
+    private readonly contactInteractionTextService: ContactInteractionTextService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(P2pPhoneListUploadService.name)
@@ -33,9 +50,8 @@ export class P2pPhoneListUploadService {
   async uploadPhoneList(
     campaign: Campaign,
     request: P2pPhoneListRequestSchema,
-    district: OrgDistrict | null,
   ): Promise<{ token: string; listName: string }> {
-    const { name: listName, ...filterData } = request
+    const { name: listName, ...filterInput } = request
 
     const tcrCompliance = await this.tcrComplianceService.fetchByCampaignId(
       campaign.id,
@@ -47,14 +63,48 @@ export class P2pPhoneListUploadService {
       )
     }
 
-    const filters = this.transformRequestToFilters(filterData)
+    const organization = await this.organizationsService.findFirst({
+      where: { slug: campaign.organizationSlug },
+    })
+    if (!organization) {
+      throw new BadRequestException('Organization not found for campaign')
+    }
 
-    let csvBuffer: Buffer
+    // Texting is a Pro feature — PII exposure stays bounded by the Pro gate
+    // (isProAccess, enforced inside findContactsForFilter below).
+    // Product decision (Tomer, 2026-07-18): ENG-10741.
+
+    let resolvedFilterInput: ContactsFilterResolutionInput = filterInput
+    if (filterInput.voterFileFilterId) {
+      const filter =
+        await this.voterFileFilterService.findByIdAndOrganizationSlug(
+          filterInput.voterFileFilterId,
+          campaign.organizationSlug,
+        )
+      if (!filter) {
+        throw new BadRequestException('Voter file filter not found')
+      }
+      // The saved segment's persisted criteria are the base and explicit
+      // inline fields override — mirroring how getListDetail resolves a
+      // persisted filter. Without this the id would be captured while the
+      // list silently ran against the whole district.
+      resolvedFilterInput = { ...filter, ...filterInput }
+    }
+
+    const excludePersonIds = await this.resolveOptOutScrub(
+      campaign.organizationSlug,
+    )
+
+    let phoneList: {
+      csvBuffer: Buffer
+      recipients: PhoneListRecipient[]
+      excludedDuplicatePhoneCount: number
+    }
     try {
-      csvBuffer = await this.generatePhoneListCsvStream(
-        campaign,
-        district,
-        filters,
+      phoneList = await this.buildPhoneList(
+        resolvedFilterInput,
+        organization,
+        excludePersonIds,
       )
     } catch (error) {
       if (error instanceof HttpException) {
@@ -66,10 +116,17 @@ export class P2pPhoneListUploadService {
       }
       this.logger.error(
         { error },
-        `Failed to generate CSV buffer for campaign ${campaign.id}:`,
+        `Failed to generate voter data for phone list, campaign ${campaign.id}:`,
       )
       throw new BadRequestException(
         'Failed to generate voter data for phone list',
+      )
+    }
+    const { csvBuffer, recipients, excludedDuplicatePhoneCount } = phoneList
+    if (recipients.length === 0) {
+      throw new BadRequestException(
+        'No contacts matched the filter with a valid phone number and ' +
+          'complete address — narrow the filter or check your contact data.',
       )
     }
 
@@ -85,10 +142,31 @@ export class P2pPhoneListUploadService {
         { error },
         `Failed to upload phone list to Peerly for campaign ${campaign.id}:`,
       )
-      throw new BadRequestException(
+      throw new BadGatewayException(
         'Failed to upload phone list to Peerly platform',
       )
     }
+
+    // Capture rows are only written once Peerly confirms it has the list —
+    // both throws above happen before this line, so a list Peerly never
+    // received can never gain capture rows.
+    //
+    // The reported count is the candidate opt-out set size, not a
+    // post-composition truth: if this org's support-status "unknown"
+    // notIn resolution is itself large, ContactsService may drop the
+    // opt-out merge to stay under people-api's id-filter cap
+    // (excludePersonIdsFromResolution) — logged loudly there, but this
+    // count won't reflect it. Rare (both sets have to be near-cap at
+    // once) and acceptable for the observability this column exists for.
+    await this.peerlyPhoneListCapture.recordUpload({
+      organizationSlug: campaign.organizationSlug,
+      campaignId: campaign.id,
+      token,
+      voterFileFilterId: filterInput.voterFileFilterId ?? null,
+      recipients,
+      excludedOptedOutCount: excludePersonIds.size,
+      excludedDuplicatePhoneCount,
+    })
 
     this.logger.debug(
       `P2P phone list uploaded successfully for campaign ${campaign.id}, token: ${token}`,
@@ -97,102 +175,127 @@ export class P2pPhoneListUploadService {
     return { token, listName }
   }
 
-  private transformRequestToFilters(
-    filterData: Omit<P2pPhoneListRequestSchema, 'name'>,
-  ): CustomFilter[] {
-    return mapAudienceFieldsToCustomFilters(filterData)
+  private async buildPhoneList(
+    filterInput: ContactsFilterResolutionInput,
+    organization: Organization,
+    excludePersonIds: Set<string>,
+  ): Promise<{
+    csvBuffer: Buffer
+    recipients: PhoneListRecipient[]
+    excludedDuplicatePhoneCount: number
+  }> {
+    const recipients: PhoneListRecipient[] = []
+    const rows = [CSV_HEADER_ROW]
+    // Spans every page: two voters sharing a cell phone must dedupe even
+    // when people-api splits them across pages (ENG-10801). Keeping the
+    // first person per number is deterministic given people-api's stable
+    // ordering, and it fixes the inbound sweep's phone->person mapping,
+    // which is ambiguous when a phone maps to more than one capture row.
+    const seenPhones = new Set<string>()
+    let excludedDuplicatePhoneCount = 0
+
+    let page = 1
+    while (true) {
+      // Guard against a runaway loop; the recipient cap below is the real
+      // bound. One page past the cap is the most a valid list can need.
+      if (page > MAX_PHONE_LIST_PAGES) {
+        throw new BadRequestException(
+          `Pagination exceeded ${MAX_PHONE_LIST_PAGES} pages — aborting`,
+        )
+      }
+      const { people } = await this.contactsService.findContactsForFilter(
+        // SMS reachability belongs to the channel, not the shared filter
+        // resolution — force it here regardless of what the request asked.
+        { ...filterInput, hasCellPhone: true },
+        // Page off the rows returned, never a count: the count no longer
+        // bounds the audience, and skipCount avoids a full-scan COUNT per page.
+        { resultsPerPage: SEGMENT_PAGE_SIZE, page, skipCount: true },
+        organization,
+        excludePersonIds,
+      )
+
+      for (const person of people) {
+        // hasCellPhone: true is forced above; cellPhone is nullable on the
+        // Person contract regardless, so skip a row people-api can't
+        // guarantee a phone for rather than uploading an unusable CSV line.
+        if (!person.cellPhone) continue
+        // Peerly needs state, city, and zip for geo-targeting; null fields
+        // produce blank CSV cells it counts as malformed leads. The people
+        // response is a cast, not a parse, so address itself can be absent.
+        if (
+          !person.address ||
+          !person.address.state ||
+          !person.address.city ||
+          !person.address.zip
+        )
+          continue
+        if (seenPhones.has(person.cellPhone)) {
+          excludedDuplicatePhoneCount += 1
+          continue
+        }
+        seenPhones.add(person.cellPhone)
+        recipients.push({ personId: person.id, phone: person.cellPhone })
+        rows.push(
+          [
+            person.firstName,
+            person.lastName,
+            person.cellPhone,
+            person.address.state,
+            person.address.city,
+            person.address.zip,
+          ]
+            .map(csvEscape)
+            .join(','),
+        )
+      }
+
+      // The cap counts uploadable rows, not the raw filter match — people
+      // skipped above for a missing phone or address don't use up the
+      // budget. Checked per page so an oversized filter stops paging as
+      // soon as it exceeds the cap instead of resolving millions of rows.
+      if (recipients.length > MAX_PHONE_LIST_RECIPIENTS) {
+        throw new BadRequestException(
+          `This filter matches over the ${MAX_PHONE_LIST_RECIPIENTS} ` +
+            `phone-list limit — narrow the filter and try again.`,
+        )
+      }
+
+      // A short (or empty) page is the last one — replaces the old
+      // pagination.hasNextPage check, which came from the total count and
+      // truncated the send whenever that count was floored.
+      if (people.length < SEGMENT_PAGE_SIZE) break
+      page += 1
+    }
+
+    return {
+      csvBuffer: Buffer.from(rows.join('\n') + '\n', 'utf-8'),
+      recipients,
+      excludedDuplicatePhoneCount,
+    }
   }
 
-  private async generatePhoneListCsvStream(
-    campaign: Campaign,
-    district: OrgDistrict | null,
-    filters: CustomFilter[],
-  ): Promise<Buffer> {
-    const customFilters = {
-      filters,
-      channel: CHANNELS.TEXTING,
-      purpose: PURPOSES.GOTV,
-    }
-
-    const countQuery = typeToQuery(
-      this.logger,
-      VoterFileType.sms,
-      campaign,
-      district,
-      customFilters,
-      true, // count only
-      false,
-    )
-    let withFixColumns = false
-    try {
-      const sqlResponse = await this.voterDatabaseService.query<{
-        count: string
-      }>(countQuery)
-      const count = parseInt(String(sqlResponse.rows[0].count))
-      withFixColumns = count === 0
-      this.logger.debug({ count, withFixColumns }, 'P2P voter count check:')
-    } catch (error) {
-      if (
-        error != null &&
-        typeof error === 'object' &&
-        'code' in error &&
-        error.code === '42703'
-      ) {
-        // Column does not exist — fall back to fixColumns mode
-        withFixColumns = true
-        this.logger.debug(
-          { withFixColumns },
-          'P2P voter count query failed (column not found), falling back to fixColumns:',
-        )
-      } else {
-        throw error
-      }
-    }
-
-    const query = typeToQuery(
-      this.logger,
-      VoterFileType.sms,
-      campaign,
-      district,
-      customFilters,
-      false, // not count only
-      withFixColumns,
-      P2P_CSV_COLUMN_MAPPINGS,
-    )
-
-    this.logger.debug({ query }, 'Generated P2P phone list query:')
-
-    const stream = await this.voterDatabaseService.csvReadableStream(
-      query,
-      P2P_CSV_COLUMN_MAPPINGS,
-    )
-
-    if (!(stream instanceof Readable)) {
-      throw new Error(
-        'Expected Readable stream from csvReadableStream but received different type',
+  // ENG-10800: a person who opted out of a past text/p2p send in this org
+  // must not land on the next phone list — the inbound sweep records the
+  // opt-out but nothing consumed it at send time before this. The scrub is
+  // best-effort against people-api's id-filter cap: an org with more
+  // opt-outs than the cap must still be able to send, so a set that large
+  // skips the scrub (logged loudly) rather than 400ing the send.
+  private async resolveOptOutScrub(
+    organizationSlug: string,
+  ): Promise<Set<string>> {
+    const optedOutIds =
+      await this.contactInteractionTextService.findOptedOutPersonIds(
+        organizationSlug,
       )
+    if (optedOutIds.length === 0) return new Set()
+    if (optedOutIds.length > MAX_RESOLVED_ID_SET_SIZE) {
+      this.logger.warn(
+        { organizationSlug, optedOutCount: optedOutIds.length },
+        'Opt-out scrub set exceeds the people-api id-filter cap — skipping ' +
+          'the scrub for this phone-list build rather than blocking the send',
+      )
+      return new Set()
     }
-
-    // Collect the stream data into a buffer to ensure FormData can consume it properly
-    const chunks: Buffer[] = []
-
-    return new Promise((resolve, reject) => {
-      stream.on('data', (chunk: Buffer) => {
-        chunks.push(Buffer.from(chunk))
-      })
-
-      stream.on('end', () => {
-        const csvData = Buffer.concat(chunks)
-        this.logger.debug(`Collected ${csvData.length} bytes of CSV data`)
-
-        // Return the buffer directly instead of creating a stream
-        resolve(csvData)
-      })
-
-      stream.on('error', (error) => {
-        this.logger.error(error, 'Error collecting CSV stream data:')
-        reject(error)
-      })
-    })
+    return new Set(optedOutIds)
   }
 }

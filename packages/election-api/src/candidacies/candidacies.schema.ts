@@ -1,5 +1,5 @@
 import { createZodDto } from 'nestjs-zod'
-import { STATE_CODES } from 'src/shared/constants/states'
+import { STATE_CODES } from '@goodparty_org/nest-common'
 import { toUpper } from 'src/shared/util/strings.util'
 import { z } from 'zod'
 import { Prisma } from '../generated/prisma'
@@ -35,6 +35,10 @@ export const candidacyFilterSchema = z
       }, 'Invalid state code'),
     slug: z.string().optional(),
     raceSlug: z.string().optional(),
+    // Filter candidacies by the position they are running for. Candidacy has no
+    // direct positionId; it is resolved through the candidacy's Race
+    // (Race.positionId). Powers "Other Candidates for [Position]".
+    positionId: z.guid('positionId must be a valid UUID').optional(),
     includeStances: z.coerce.boolean().optional().default(false),
     includeRace: z.coerce.boolean().optional().default(false),
     columns: z

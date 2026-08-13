@@ -3,15 +3,15 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import ContactsTable from './ContactsTable'
-import { useContactsTable } from '../hooks/ContactsTableProvider'
-import { useShowContactProModal } from '../hooks/ContactProModal'
-import { makePerson } from './shared/test-fixtures'
+import { useContactsTable } from '../../crm/ContactsTableProvider'
+import { useShowContactProModal } from '../../crm/ContactProModal'
+import { makePerson } from '../../crm/shared/test-fixtures'
 
-vi.mock('../hooks/ContactsTableProvider', () => ({
+vi.mock('../../crm/ContactsTableProvider', () => ({
   useContactsTable: vi.fn(),
 }))
 
-vi.mock('../hooks/ContactProModal', () => ({
+vi.mock('../../crm/ContactProModal', () => ({
   useShowContactProModal: vi.fn(),
 }))
 
@@ -24,6 +24,7 @@ function setContext(overrides: Partial<ContextValue> = {}) {
   const ctx: ContextValue = {
     filteredContacts: [],
     currentlySelectedPersonId: null,
+    currentlySelectedListId: null,
     currentlySelectedPerson: {
       person: null,
       isLoadingPerson: false,
@@ -56,6 +57,8 @@ function setContext(overrides: Partial<ContextValue> = {}) {
     },
     isLoading: false,
     isVoterDataUnavailable: false,
+    isDistrictUnresolvable: false,
+    voterDataUnavailable: false,
     isCustomSegment: false,
     totalSegmentContacts: 0,
     canUseProFeatures: true,
@@ -67,6 +70,7 @@ function setContext(overrides: Partial<ContextValue> = {}) {
     goToPage: vi.fn(),
     setPageSize: vi.fn(),
     selectPerson: vi.fn(),
+    selectList: vi.fn(),
     selectSegment: vi.fn(),
     searchContacts: vi.fn(),
     refreshCustomSegments: vi.fn().mockResolvedValue(undefined),
@@ -161,18 +165,19 @@ describe('<ContactsTable>', () => {
     expect(selectPerson).not.toHaveBeenCalled()
   })
 
-  it('blurs sensitive cells for non-pro users', () => {
+  it('blurs every data cell for non-pro users', () => {
     setContext({
       filteredContacts: [makePerson()],
       canUseProFeatures: false,
     })
     const { container } = render(<ContactsTable />)
 
-    // Cell phone, landline, and address are wrapped in a blurred span for
-    // non-pro users. Exactly three fields blur per row — assert the exact
-    // count so accidentally blurring more cells fails the test.
+    // All six columns (name, gender, age, address, cell phone, landline)
+    // blur for non-pro users so the preview rows can't be mistaken for
+    // readable real data. Assert the exact count so dropping a blur fails
+    // the test.
     const blurredEls = container.querySelectorAll('.blur-\\[6px\\]')
-    expect(blurredEls).toHaveLength(3)
+    expect(blurredEls).toHaveLength(6)
   })
 
   it('does not blur sensitive cells for pro users', () => {

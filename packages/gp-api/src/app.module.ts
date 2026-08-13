@@ -12,6 +12,9 @@ import { CampaignPlanSharesModule } from '@/campaignPlanShares/campaignPlanShare
 import { CampaignsModule } from '@/campaigns/campaigns.module'
 import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { ContactEngagementModule } from '@/contactEngagement/contactEngagement.module'
+import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
+import { DoorKnockingModule } from './doorKnocking/doorKnocking.module'
+import { ContactNoteModule } from '@/contactNote/contactNote.module'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { ContentModule } from '@/content/content.module'
 import { CrmModule } from '@/crm/crmModule'
@@ -26,6 +29,7 @@ import { OutreachModule } from '@/outreach/outreach.module'
 import { VoterOutreachActivityModule } from '@/voterOutreachActivity/voterOutreachActivity.module'
 import { OnboardingModule } from '@/onboarding/onboarding.module'
 import { PaymentsModule } from '@/payments/payments.module'
+import { PeopleDbModule } from '@/peopleDb/peopleDb.module'
 import { MeetingsModule } from '@/meetings/meetings.module'
 import { DashboardCardsModule } from '@/dashboardCards/dashboardCards.module'
 import { AnnotationsModule } from '@/annotations/annotations.module'
@@ -33,6 +37,7 @@ import { ArtifactFeedbackModule } from '@/artifactFeedback/artifactFeedback.modu
 import { ArtifactReviewModule } from '@/artifactReview/artifactReview.module'
 import { PollsModule } from '@/polls/polls.module'
 import { PrioritiesModule } from '@/priorities/priorities.module'
+import { PersonProfilesModule } from '@/personProfiles/personProfiles.module'
 import { PrismaModule } from '@/prisma/prisma.module'
 import { QueueConsumerModule } from '@/queue/consumer/queueConsumer.module'
 import { ScheduledMessagingModule } from '@/scheduled-messaging/scheduled-messaging.module'
@@ -46,6 +51,9 @@ import { BraintrustModule } from '@/vendors/braintrust/braintrust.module'
 import { ContentfulModule } from '@/vendors/contentful/contentful.module'
 import { GeminiModule } from '@/vendors/google/gemini.module'
 import { CampaignStrategyModule } from '@/campaignStrategy/campaignStrategy.module'
+import { RaceOpponentModule } from '@/raceOpponent/raceOpponent.module'
+import { RecommendedListsModule } from '@/recommendedLists/recommendedLists.module'
+import { OrdinancesModule } from '@/ordinances/ordinances.module'
 import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
 import { EcanvasserIntegrationModule } from '@/vendors/ecanvasserIntegration/ecanvasserIntegration.module'
 import { PeerlyModule } from '@/vendors/peerly/peerly.module'
@@ -70,6 +78,8 @@ import { GeneralChatsModule } from '@/chats/general/general-chats.module'
     BraintrustModule,
     GeminiModule,
     CampaignStrategyModule,
+    RaceOpponentModule,
+    RecommendedListsModule,
     CampaignStoryModule,
     AnalyticsModule,
     UsersModule,
@@ -78,6 +88,7 @@ import { GeneralChatsModule } from '@/chats/general/general-chats.module'
     ContentModule,
     HealthModule,
     PrismaModule,
+    PeopleDbModule,
     ContentfulModule,
     CampaignsModule,
     ElectionsModule,
@@ -98,11 +109,16 @@ import { GeneralChatsModule } from '@/chats/general/general-chats.module'
     SegmentModule,
     WebsitesModule,
     CommunityIssuesModule,
+    OrdinancesModule,
     PeerlyModule,
     ContactsModule,
     ContactEngagementModule,
+    ContactInteractionModule,
+    ContactNoteModule,
+    DoorKnockingModule,
     PollsModule,
     PrioritiesModule,
+    PersonProfilesModule,
     CampaignPlanSharesModule,
     MeetingsModule,
     DashboardCardsModule,
@@ -130,10 +146,6 @@ import { GeneralChatsModule } from '@/chats/general/general-chats.module'
       useClass: SessionGuard,
     },
     // TODO: https://goodparty.clickup.com/t/90132012119/ENG-7349
-    {
-      provide: APP_INTERCEPTOR,
-      useClass: ImpersonationInterceptor,
-    },
     {
       provide: APP_INTERCEPTOR,
       useClass: ImpersonationInterceptor,

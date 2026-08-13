@@ -12,7 +12,6 @@ import {
   differenceInCalendarDays,
   differenceInMilliseconds,
   differenceInWeeks,
-  format,
   getDate,
   getDay,
   isAfter,
@@ -22,6 +21,7 @@ import {
   startOfWeek,
   subWeeks,
 } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import { Observable, Subscriber } from 'rxjs'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { isTestCampaign } from '@/users/util/users.util'
@@ -60,6 +60,7 @@ import { primaryDefaultTasks } from '../fixtures/defaultTasksForPrimary'
 import { CompleteTaskBodySchema } from '../schemas/completeTaskBody.schema'
 import { AiGenerationService } from './aiGeneration.service'
 import { CampaignsService } from '../../services/campaigns.service'
+import { CampaignTrackerTasksService } from '../../campaignTracker/services/campaignTrackerTasks.service'
 
 import { VOTER_GOALS_ADVISORY_LOCK_KEY } from '../../campaigns.consts'
 
@@ -79,6 +80,7 @@ export class CampaignTasksService extends createPrismaBase(
     private readonly slackService: SlackService,
     @Inject(forwardRef(() => CampaignsService))
     private readonly campaignsService: WrapperType<CampaignsService>,
+    private readonly trackerTasks: CampaignTrackerTasksService,
   ) {
     super()
   }
@@ -409,12 +411,35 @@ export class CampaignTasksService extends createPrismaBase(
         return
       }
 
-      const defaultTasksCount = await this.model.count({
-        where: { campaignId, isDefaultTask: true },
+      // Tracker-cohort campaigns have campaign_tracker_tasks and no legacy
+      // default tasks, so route them to the tracker's current-week message;
+      // legacy campaigns keep the plan-summary message. The notified-at stamp
+      // below is shared, so a campaign is announced once regardless of cohort.
+      const trackerTaskCount = await this.client.campaignTrackerTask.count({
+        where: { campaignId },
       })
-      if (defaultTasksCount === 0) return
-
-      await this.sendCampaignPlanSlackMessage(campaignId)
+      if (trackerTaskCount > 0) {
+        // Skip the stamp when nothing was sent (e.g. upgrade before the first
+        // generation), mirroring the legacy no-tasks guard below, so
+        // notifyTasksGenerated can announce the first week when it lands.
+        const notified = await this.trackerTasks.notifyProUpgrade(campaignId)
+        if (!notified) return
+      } else {
+        const defaultTasksCount = await this.model.count({
+          where: { campaignId, isDefaultTask: true },
+        })
+        // A campaign can upgrade (Stripe webhook) before any tasks exist: no
+        // tracker rows and no legacy defaults. This one-shot has no retry, so the
+        // CAS Pro-upgrade message is dropped; log it so the gap is observable.
+        if (defaultTasksCount === 0) {
+          this.logger.warn(
+            { campaignId },
+            'Pro upgrade with no tracker or default tasks; Slack notification skipped',
+          )
+          return
+        }
+        await this.sendCampaignPlanSlackMessage(campaignId)
+      }
 
       await this.campaignsService.patchCampaignDetails(campaignId, {
         proUpgradeSlackNotifiedAt: Date.now(),
@@ -458,8 +483,10 @@ export class CampaignTasksService extends createPrismaBase(
     )
 
     const taskLines = outreachTasks.map((task) => {
+      // Stored dates are UTC-midnight instants; format from UTC parts so the
+      // date the ClickUp automation parses never shifts with the process TZ.
       const dueDate = task.date
-        ? format(task.date, 'MMM d, yyyy')
+        ? formatInTimeZone(task.date, 'UTC', 'MMM d, yyyy')
         : 'No date set'
       return `- ${task.flowType!.toUpperCase()}: ${task.title} (Due: ${dueDate})`
     })

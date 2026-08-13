@@ -2,6 +2,12 @@ import { Injectable } from '@nestjs/common'
 import { OutreachType, Prisma } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 
+// DEPRECATED — replaced by the ContactInteraction* models and services
+// (src/contactInteraction/) per the CRM tech design:
+// https://app.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-98973
+// No new write paths may target this service. Segment-derived send-attribution
+// writes were retired in feature 5 (ENG-10731); the only writer left is the
+// deprecated eCanvasser door-knock attribution (recordActivityIdempotent).
 @Injectable()
 export class VoterOutreachActivityService extends createPrismaBase(
   MODELS.VoterOutreachActivity,
@@ -51,16 +57,6 @@ export class VoterOutreachActivityService extends createPrismaBase(
       select: { sourceId: true },
     })
     return new Set(rows.map((row) => row.sourceId).filter((id) => id !== null))
-  }
-
-  // Batch insert for the segment-derived write paths (epic task 15). Idempotent
-  // via the (outreachId, lalVoterId) unique constraint: skipDuplicates lets a
-  // re-launch/retry of the same Outreach re-emit the whole segment without
-  // double-tagging voters already recorded. Returns the count actually inserted.
-  recordSegmentActivities(
-    data: Prisma.VoterOutreachActivityUncheckedCreateInput[],
-  ) {
-    return this.model.createMany({ data, skipDuplicates: true })
   }
 
   // Person-timeline read: newest first, backed by the

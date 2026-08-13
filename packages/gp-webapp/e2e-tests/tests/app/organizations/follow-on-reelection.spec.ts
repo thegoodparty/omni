@@ -51,12 +51,14 @@ const getCampaignOrgSlugs = async (
     .filter((slug) => slug.startsWith('campaign-'))
 }
 
-// @dev-only: drives the full re-election follow-on through live async pipelines
-// (eligibility recompute, election-api term/electionDate derivation, multi-step
-// org-status settling). It is flaky/failing against the ephemeral per-PR preview
-// — already red on develop pre-dating this PR (commit ee2c423f3) — so it runs on
-// the warm post-merge develop e2e, not on PR runs.
-test('same-office re-election follow-on: derived date, active org, duplicate blocked @dev-only', async ({
+// The re-election follow-on derives its next election from election-api, which
+// a per-PR preview reaches (the shared dev election-api). That derivation now
+// resolves on dev: positions join to races by positionId (the unpopulated
+// Position.placeId path was dropped in election-api), so
+// getNextElectionForPosition returns a real date instead of null — the reason
+// this was previously red. Runs on PRs; the multi-step org-status settling is
+// absorbed by the eventually() polling below.
+test('same-office re-election follow-on: derived date, active org, duplicate blocked', async ({
   page,
 }) => {
   test.setTimeout(180_000)
@@ -104,18 +106,9 @@ test('same-office re-election follow-on: derived date, active org, duplicate blo
     { timeout: 15_000 },
   )
 
-  // 4: IntentStep names the held office and pre-selects "same office".
-  const intentHeading = page.getByRole('heading', {
-    level: 1,
-    name: /running for re-election in .+ or a new office/i,
-  })
-  await expect(intentHeading).toBeVisible({ timeout: 15_000 })
-  await expect(intentHeading).toContainText(electedOfficeOrg.name)
-  await expect(page.getByRole('radio', { name: /same office/i })).toBeChecked()
-  // Leaving the intent step fires POST /v1/campaigns/follow-on.
-  await clickContinue(page)
-
-  // welcome (follow-on copy).
+  // 4: no intent screen — the "Run for re-election" action is the intent, so we
+  // land straight on welcome (follow-on copy). Leaving welcome fires POST
+  // /v1/campaigns/follow-on (same-office creates immediately; picker skipped).
   await expect(
     page.getByRole('heading', { level: 1, name: /set up your new campaign/i }),
   ).toBeVisible({ timeout: 15_000 })
@@ -146,12 +139,6 @@ test('same-office re-election follow-on: derived date, active org, duplicate blo
       name: /what office are you running/i,
     }),
   ).toHaveCount(0)
-  await clickContinue(page)
-
-  // voter-demographics.
-  await expect(
-    page.getByRole('heading', { level: 1, name: /voter insights/i }),
-  ).toBeVisible({ timeout: 15_000 })
   await clickContinue(page)
 
   // 6: pledge -> launch -> dashboard.

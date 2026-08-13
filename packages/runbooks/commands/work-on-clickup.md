@@ -1,45 +1,94 @@
-<!-- v2 — 2026-05-04 -->
+<!-- v4 — 2026-07-18 -->
 # /work-on-clickup
 
-Pull a ClickUp task (typically one created by `/clickup-epic-create`), load its Epic-level plan if available, set up a focused working context, and start implementing. Designed to feel like "open a ticket and just go" — but with the safety nets of a clear scope confirmation, todo list seeded from acceptance criteria, and explicit verification before claiming done.
+Pull a ClickUp task (typically one created by `/clickup-epic-create`), load its Epic-level plan, set up a focused working context, then implement it yourself while two read-only subagents give it the review the implementer can't give itself: `gp-reviewer` (an independent senior review of the diff that **mirrors the `delegate-reviewer` bot's blocker bar** — across correctness, security, tests, conventions, ai-rules, cross-file, and thematic — so its blockers are the ones delegate would post and delegate passes on the first try) and, for UI work, `gp-ui-tester` (drives a real browser via the Playwright MCP). You implement and fix in your own context; the reviewers critique the cumulative diff in parallel; you loop on their blocking findings until the work converges or hits a small iteration cap. Same safety nets as before — scope confirmation, todo list seeded from acceptance criteria, AC walk before "done".
 
 <!-- BEGIN: resolve-runbooks-dir (keep in sync across commands/*.md) -->
-> **Where this runs:** All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to the runbooks repo root. When invoked from any directory, first resolve and `cd` into the repo:
+> **Where this runs:** Runbooks lives in the `omni` monorepo at `packages/runbooks`. All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to that package root. When invoked from any directory, first resolve and `cd` into it:
 >
 > 1. If `$RUNBOOKS_DIR` is set, use it.
-> 2. Else first that exists: `$HOME/Documents/gp/dev/runbooks`, `$HOME/code/runbooks`, `$HOME/runbooks`.
-> 3. Else ask the user where the runbooks repo is; suggest `export RUNBOOKS_DIR=<path>` in their shell profile.
+> 2. Else first that exists: `$HOME/Documents/gp/dev/omni/packages/runbooks`, `$HOME/code/omni/packages/runbooks`, `$HOME/omni/packages/runbooks`.
+> 3. Else ask the user where the omni repo is (the runbooks package is at `<omni>/packages/runbooks`); suggest `export RUNBOOKS_DIR=<omni>/packages/runbooks` in their shell profile.
 <!-- END: resolve-runbooks-dir -->
 
 ## Prerequisites
 
 **books/.env variables**: `$CLICKUP_PLANS_DIR`
 **scripts/.env variables**: `CLICKUP_API_KEY`
-**Tools**: `uv` (for Python scripts)
+**Tools**: `uv` (for Python scripts), `git` (for baseline + diff capture between review rounds)
+**Subagents**: `gp-reviewer`, `gp-ui-tester` — defined in this repo under `agents/` and installed into your Claude Code agents dir by `./install.sh` (it installs `agents/` alongside `commands/`). If you added these for the first time, **re-run `./install.sh` and restart the session** so the subagents resolve by name. Both degrade gracefully: if `gp-reviewer` isn't installed, do the review inline and note it; if `gp-ui-tester` isn't installed, fall back to manual UI steps. You (the orchestrator) always do the implementation yourself — there is no separate coder subagent.
+**MCP**: the Playwright MCP server must be connected for `gp-ui-tester` to verify UI tasks (its allowlist already names the `mcp__playwright__*` tools). If it isn't connected, UI verification falls back to "manual steps for the user to run", flagged in the report.
 
 Defaults if a `books/.env` value is unset: `$CLICKUP_PLANS_DIR=$HOME/.claude/plans`.
 
-**Never** echo, log, or write `CLICKUP_API_KEY` into any output file.
+**Knobs** (overridable in `$ARGUMENTS`, e.g. `abc123 --max-iter=1 --no-ui`):
+- `--max-iter=N` — review/fix loop cap. Default **2**.
+- `--no-loop` — one review round, no fix iterations (review findings are surfaced, not auto-looped). Good for trivial tasks.
+- `--no-ui` / `--ui` — force the UI tester off / on instead of auto-detecting.
+
+**Never** echo, log, or write `CLICKUP_API_KEY` into any output file. The reviewer findings files and diffs are written under `$CLICKUP_PLANS_DIR/` — keep secrets out of them.
+
+---
+
+## Architecture
+
+```
+            ┌──────────────────────────────────────────────┐
+            │   ORCHESTRATOR  (this command — main agent)   │
+            │   • implements the task (the ONLY writer)     │
+            │   • runs the touched tests + AC walk          │
+            │   • dispatches reviewers on the diff          │
+            │   • fixes blocking findings in its own context│
+            │   • gates on severity, enforces iteration cap │
+            └───────────────┬──────────────────────────────┘
+                            │  implement → capture cumulative diff
+                            ▼
+            ┌──────────── parallel fan-out (read-only) ────────────┐
+            ▼                                                       ▼
+   ┌──────────────────┐                              ┌──────────────────────┐
+   │   gp-reviewer    │  delegate-bar review of diff │     gp-ui-tester     │  (UI tasks only)
+   │   read-only      │  correctness/security/design │  read-only + PW MCP  │  drives the browser
+   └────────┬─────────┘  /conventions/tests          └──────────┬───────────┘  against the running app
+            │                                                    │
+            ▼                                                    ▼
+   findings-review.json                                   findings-ui.json
+            └──────────────────────┬─────────────────────────────┘
+                                   ▼
+                    orchestrator reads findings, fixes
+                    open blocker/major in-context, re-diffs
+                                   │
+            ┌──────── if open blocker/major & iter < cap ─────────┘
+            ▼  (else: converged / capped → Phase 4)
+```
+
+**Core invariants** — do not violate these even under time pressure:
+
+1. **One writer — you.** The orchestrator implements and is the only thing that edits source. The two subagents are read-only: if a reviewer wants a change, it files a finding with a `suggested_fix`; you make the edit.
+2. **Diff is the unit of review.** Each round you capture the **cumulative** `git diff` since the baseline and hand *that* to the reviewers — not "go read the repo." They may read surrounding files for context but anchor on the diff. (Cumulative, not incremental: nothing is committed mid-loop, and the reviewer/security pass needs whole-change context.)
+3. **Independent eyes are the point.** The value of the subagents is a fresh, skeptical read your own context can't give — don't pre-explain your reasoning to them or coach them toward "looks good." Give them the diff, the AC, and the conventions; let them judge.
+4. **Severity gates the loop.** Fix only `blocker`/`major` findings in the loop. `minor`/`nit` are logged to Notes, never looped on. **Environment gaps** (dev server won't start, Playwright MCP missing) route to manual verification — never loop-driving, since they aren't a code problem.
+5. **Cap and move on.** After `--max-iter` rounds with blockers still open, stop and surface them to the user — don't loop unbounded. The delegate-reviewer bot is still the hard merge gate at PR time; this loop front-loads what it can, it doesn't replace it.
+6. **Human owns the boundaries.** Scope is confirmed before the loop (Phase 2); ClickUp/plan writes happen after, with the user's say-so (Phase 4).
+
+---
 
 ## Steps
 
-User input may be passed as a ClickUp task ID, a full URL (`https://app.clickup.com/t/abc123`), or empty (will prompt). Treat that input as `$ARGUMENTS` below.
+User input may be a ClickUp task ID, a full URL (`https://app.clickup.com/t/abc123`), or empty (will prompt), plus optional knobs. Treat that input as `$ARGUMENTS`.
 
 ### Phase 1: Load the task
 
-1. **Parse the task ID** from `$ARGUMENTS`. Accept raw IDs (`abc123`) and full URLs (`https://app.clickup.com/t/abc123`). If missing, ask: "Which ClickUp task? (paste an ID or URL)".
+1. **Parse the task ID** from `$ARGUMENTS`. Accept raw IDs (`abc123`) and full URLs. Strip knob flags before parsing the ID. If the ID is missing, ask: "Which ClickUp task? (paste an ID or URL)".
 
 2. **Fetch the task** with markdown body and parent context:
    ```bash
    cd scripts/python && uv run clickup_api.py GET task/$TASK_ID include_markdown_description=true
    ```
-   Capture from the response: `name`, `status`, `priority`, `markdown_description`, `parent`, `list.id`, `assignees`, `tags`, `url`, `dependencies`.
+   Capture: `name`, `status`, `priority`, `markdown_description`, `parent`, `list.id`, `assignees`, `tags`, `url`, `dependencies`.
 
-3. **If `parent` is non-null**, this is a subtask of an Epic. Fetch the Epic too (same endpoint with the parent's ID) so the user gets a one-line "this task lives under '<epic title>'" context.
+3. **If `parent` is non-null**, fetch the Epic too (same endpoint, parent's ID) for a one-line "this lives under '<epic title>'" context.
 
-4. **Load the local plan**, if present, at `$CLICKUP_PLANS_DIR/<parent_id>-plan.md` (or `$CLICKUP_PLANS_DIR/<task_id>-plan.md` if the task is itself the Epic). The plan often has architecture notes and a dependency graph that aren't in the individual task ticket.
-
-   If no plan exists, that's fine — proceed without it, but mention to the user. The task itself should be self-contained per the Quality Bar.
+4. **Load the local plan**, if present, at `$CLICKUP_PLANS_DIR/<parent_id>-plan.md` (or `<task_id>-plan.md` if the task is itself the Epic). The plan often holds architecture notes and a dependency graph absent from the ticket. If none exists, proceed without it but say so.
 
 ### Phase 2: Orient
 
@@ -52,140 +101,150 @@ User input may be passed as a ClickUp task ID, a full URL (`https://app.clickup.
 
    Acceptance criteria:
      [ ] ...
-     [ ] ...
-
    Test plan:
-     - <one-line summary of unit/integration/manual>
-
+     - <one-line summary>
    Implementation snapshot:
-     Files to touch: <files listed in the task body>
+     Files to touch: <files from task body>
      Dependencies on other tasks: <ids if listed>
 
-   Plan loaded? <yes from $CLICKUP_PLANS_DIR/...-plan.md  |  no — proceeding from task body alone>
+   Plan loaded? <yes from ...-plan.md | no — task body alone>
    ```
+   Pull from `markdown_description` if it follows the standard format. If it predates `/clickup-epic-create`, summarize what *is* there and say "this ticket doesn't follow our standard sections — working from what's available."
 
-   Pull this directly from the task's `markdown_description` if it follows the standard format. If the task uses a different format (e.g., it predates `/clickup-epic-create`), summarize what *is* there and explicitly note "this ticket doesn't follow our standard sections — I'll work from what's available."
+6. **Verify the working repo.** Find the repo references in the plan/task body. Confirm it exists locally and that `pwd` matches; if not, offer to `cd` there before continuing. Don't edit files in the wrong place.
 
-6. **Verify the working repo.** Look for the design doc / repo references in the loaded plan or task body. If a repo path is named, confirm it exists locally:
-   ```bash
-   [ -d "<repo path>" ] && echo "Repo present" || echo "Missing — clone or cd to the right project first"
-   ```
-   If we're not in the right repo (`pwd` ≠ the named repo path), tell the user and offer to `cd` there before continuing. Don't start editing files in the wrong place.
-
-7. **Load repo conventions.** Before implementing, scan the working repo for project-level rules and load every one that exists:
-
+7. **Load repo conventions** — every one that exists, before any code:
    ```bash
    [ -d ".cursor/rules" ] && echo "Found .cursor/rules/" && ls .cursor/rules/
    [ -f ".cursorrules" ] && echo "Found .cursorrules"
-   [ -f "CLAUDE.md" ] && echo "Found CLAUDE.md"
-   [ -d "ai-rules" ] && echo "Found ai-rules/" && ls ai-rules/
+   [ -f "CLAUDE.md" ]    && echo "Found CLAUDE.md"
+   [ -d "ai-rules" ]     && echo "Found ai-rules/" && ls ai-rules/
    ```
+   Read each (recursively for the dirs). These bind your implementation *and* the reviewer — pass their paths into the reviewer invocation so it judges against the same rules you followed. If a convention conflicts with the task body, surface it and ask which wins. If none exist, say so.
 
-   Read each file or directory that exists (recursively for `.cursor/rules/` and `ai-rules/`) before writing code. These define style, tooling, naming, and architectural conventions specific to the repo — implementation must follow them. If a convention conflicts with the task body, surface the conflict to the user and ask which wins; don't silently pick one. If none of these exist, note that explicitly so the user knows you checked.
+8. **Check task dependencies.** Source of truth is the API response's `.dependencies[].depends_on` (frontmatter is stripped before POST, so the ClickUp body won't carry a `dependencies:` block). For each, fetch `.status.status`. If any isn't `closed`/`done`-type, warn the user — they may want to clear blockers first.
 
-8. **Check task dependencies.** Source of truth is the **API response's `.dependencies`** array (frontmatter is stripped before tasks are POSTed to ClickUp, so the body in ClickUp will not contain a `dependencies:` block). For each entry's `depends_on` ID, fetch its status:
-
+9. **Establish the baseline and confirm scope.** Diffs are only meaningful against a clean starting point, so capture a baseline ref before any edits:
    ```bash
-   # Pseudo-loop: for each dep_id in the task's .dependencies[].depends_on:
-   cd scripts/python && uv run clickup_api.py GET task/<dep_id>
-   # then read .status.status from the JSON
+   git rev-parse HEAD > "$CLICKUP_PLANS_DIR/<task_id>-baseline.txt"
+   git status --porcelain   # check for a dirty tree
    ```
+   If the tree is **dirty** with changes unrelated to this task, the cumulative diff will be polluted with them. Tell the user and offer to either stash the unrelated changes or run this command in a dedicated worktree/clean branch. If they accept proceeding anyway, note that the reviewer will see the pre-existing changes too. (A worktree per ticket is the clean default — `/work-on-epic` already does this.)
 
-   If any are not in a `closed` / `done`-type status, warn the user — they may want to do those first or accept that this task may be blocked partway through.
-
-9. **Confirm scope with the user** before doing any work. Present the brief plus four explicit options — don't ask an open-ended "anything to adjust?" — most users won't know which levers exist:
+   Then present the brief plus the menu — explicit options, not "anything to adjust?":
 
    > Going to:
    > - Implement: <one-line summary>
-   > - Touching: <list of files>
+   > - Touching: <files>
+   > - Reviewing with: gp-reviewer<, + gp-ui-tester (UI task)> (loop cap: <max-iter>)
    > - Verifying via: <test plan summary>
    >
    > How would you like to proceed?
-   > - **`go`** — implement the plan as written
-   > - **`plan`** — review or update the implementation approach first (we'll iterate before any code changes)
-   > - **`focus <part>`** — implement just one part of the task (e.g., `focus tests`, `focus migration`)
-   > - **`split`** — this task is too big; help me break it into smaller pieces (no ClickUp changes yet, just the breakdown)
+   > - **`go`** — implement, then run the review loop as scoped
+   > - **`plan`** — review/update the approach first (iterate before any code)
+   > - **`focus <part>`** — implement just one slice (e.g. `focus tests`, `focus migration`)
+   > - **`split`** — too big; help break it down (no ClickUp changes — just the breakdown)
 
-   Wait for an explicit choice. Don't proceed silently.
+   Wait for an explicit choice.
+   - **`go`** → Phase 3.
+   - **`plan`** → walk the implementation, edit the loaded plan in memory, re-confirm.
+   - **`focus <part>`** → restrict the AC slice; note the deferred remainder in the final report.
+   - **`split`** → propose a breakdown (titles + one-line scope each) and offer to feed it to `/clickup-epic-edit`. **Do not** create tickets here.
 
-   - **`go`** → continue to Phase 3.
-   - **`plan`** → walk the implementation details with the user, edit the loaded plan file in memory, then re-confirm.
-   - **`focus <part>`** → restrict the todo list to the named slice of AC. Note in the final report that the rest is deferred.
-   - **`split`** → produce a proposed breakdown (titles + one-line scope per piece) and offer to feed it into `/clickup-epic-edit` to add the new subtasks. **Do not** create tickets directly here — that's what the edit command is for.
+### Phase 3: Implement, then review-loop
 
-### Phase 3: Plan and implement
+10. **Decide whether the UI tester runs.** Auto-detect UI work from task tags, file paths (`gp-webapp`, `*.tsx/*.jsx`, `components/`, `pages/`, `app/`), or AC describing user-facing behavior. `--ui`/`--no-ui` overrides. `gp-reviewer` always runs (unless uninstalled → inline review). State the panel before starting.
 
-10. **Seed a todo list from the acceptance criteria.** Each AC checkbox becomes a todo. Add prep todos at the front (e.g., "scan files X, Y to confirm current pattern") and verification todos at the back (e.g., "run unit tests", "manual verification per task body"). Update todos as you go — never batch.
+11. **Implement the task** (you do this directly — there is no coder subagent). Seed a todo list from the AC (prep todos front, verification todos back) and keep it live as you go. If the dispatcher passed a **context pack** (recon findings, files-to-touch, a pattern file to imitate), trust it and start there instead of re-exploring the repo. Otherwise read the referenced files first and confirm the pattern the ticket says to follow actually exists. Implement the AC, nothing more — new ideas / nice-to-haves go to `Notes / Gotchas`, not into the code. If a ticket file path is wrong, fix it as you go and flag it. If the task body contradicts a loaded convention, or the implementation details are insufficient, **stop and surface it** rather than guessing. Run the fast/local tests for the code you touched and keep the actual output — don't claim passing tests you didn't run.
 
-11. **Follow the implementation details from the task body.** They were drafted to be enough; if they aren't, that's a real signal — surface the gap to the user rather than papering over it with guessing. Common moves:
-    - Read the referenced files first; confirm the pattern the ticket says to follow actually exists.
-    - If a file path in the ticket is wrong (renamed/moved/deleted), fix it as you go and mention this to the user — the ticket may need a small correction back in ClickUp.
-    - Adhere to the conventions loaded in step 7 (`.cursor/rules`, `CLAUDE.md`, `ai-rules/`). If the task body contradicts them, pause and ask the user which to follow.
-    - Stick to the scope. New ideas / nice-to-haves go in `Notes / Gotchas` for later, not into this PR.
+    **Verify discipline — batch, don't churn.** While iterating, run only the narrowest check that answers your current question: the single test file for the code you just changed, not the package suite; never whole-package lint/typecheck after individual edits. Run the package's full verify (lint + typecheck + tests) **exactly once**, after the implementation is complete and before capturing the diff for review — and once more only after a round of review fixes. Transcript analysis shows implementers re-running package-wide checks 50–80 times per ticket; that churn, not test duration, is the largest driver of per-ticket time and token spend. Batch related edits, then check.
 
-12. **Run the test plan as written.** If unit tests exist for the touched code, run only those for fast feedback during development; run the broader suite once you think you're done. Don't claim "tests pass" without seeing the actual command output.
+12. **Capture the cumulative diff** (always against the baseline — nothing is committed mid-loop):
+    ```bash
+    git --no-pager diff "$(cat "$CLICKUP_PLANS_DIR/<task_id>-baseline.txt")" \
+      > "$CLICKUP_PLANS_DIR/<task_id>-iter<N>.diff"
+    ```
+    If the diff is empty, you wrote nothing (or wrote outside the repo) — re-check `pwd` before dispatching the reviewer.
+
+13. **Fan out the reviewers — in parallel.** In a single message, dispatch `gp-reviewer` (and `gp-ui-tester` if UI). Each gets: the diff path, the AC, the convention paths, and its own `<task_id>-findings-<agent>.json` output path (under `$CLICKUP_PLANS_DIR/`). Each reads the diff (and surrounding files as needed), writes findings using the shared schema below, and returns a short summary (counts by severity + headline issues). Don't coach them toward approval — hand over the diff and let them judge.
+
+    Finding schema (one object per finding):
+    ```json
+    { "id": "review-1", "agent": "review|ui",
+      "severity": "blocker|major|minor|nit",
+      "location": "path/to/file.ts:42",
+      "summary": "one line", "detail": "why it matters / repro / exploit",
+      "suggested_fix": "concrete change", "status": "open", "iteration_found": <N> }
+    ```
+
+    `gp-ui-tester` additionally needs the app running. Before dispatching it, bring up the dev server in the background and pass the URL:
+    ```bash
+    # adapt per repo — read CLAUDE.md / package.json scripts for the dev command + port
+    (cd <repo> && <dev-server-cmd>) & echo $! > /tmp/<task_id>-server.pid
+    # health-check the URL, then pass BASE_URL=http://localhost:<port> to gp-ui-tester
+    ```
+    Tear the server down after it returns (`kill "$(cat /tmp/<task_id>-server.pid)"`), **even on failure**. If the server won't come up or Playwright MCP is unavailable, **skip** `gp-ui-tester` and record an **environment** gap with manual repro steps (not loop-driving — it isn't a code problem). Note it prominently in the report.
+
+14. **Read findings and gate.** Collect both findings files. Dedup overlaps (same `location`+`summary`; keep the highest severity). Then:
+    - **Open set** = findings with severity `blocker` or `major` (exclude environment gaps).
+    - If **open set is empty** → converged. Move `minor`/`nit`/environment items to the report's deferred/manual list and go to Phase 4.
+    - If **open set non-empty** and `iteration < max-iter` (and not `--no-loop`) → **fix them in your own context** (you have the full reasoning that produced the code — that's the point of being the coder). For each open finding, either fix it, or `wontfix` it with a concrete reason (e.g. "the suggested validation breaks AC #2"), or `defer` it as out of scope with a note. Then go back to step 12 (re-capture the diff and re-review). Stay inside the AC — downgrade a reviewer's nice-to-have to `minor` rather than expanding scope.
+    - If **iteration ≥ max-iter** (or `--no-loop`) with blockers/majors still open → **stop and surface**: print the open findings, summarize what's stuck and why (include your `wontfix` reasoning), and ask the user how to proceed (accept-with-risk and let the delegate bot gate it at PR time, fix together, split a follow-up). Don't keep looping.
 
 ### Phase 4: Verify and wrap
 
-13. **Walk the acceptance criteria** as a checklist before declaring done:
-    - For each `[ ]`, demonstrate it's met (test output, manual run, or the code change itself).
-    - If any AC can't be met as written, stop and ask the user — either revise the AC, split out a follow-up, or rethink the approach. Don't silently downgrade.
+15. **AC walk — the final gate** (yours, independent of the reviewer). For each `[ ]`, demonstrate it's met: test output, a manual run, or the diff itself. If any AC can't be met as written, stop and ask the user — revise the AC, split a follow-up, or rethink. Don't silently downgrade.
 
-14. **Offer to update ClickUp** with progress / completion. Don't update silently — the user may want to control timing / phrasing:
+16. **Log the deferred findings.** Write the `minor`/`nit`/`wontfix`/`deferred`/environment items into the task's **Notes / Gotchas** (and the plan's, if loaded) so they're not lost — these were intentionally not looped on, not forgotten.
 
+17. **Offer to update ClickUp** (never silently):
     > Want me to:
-    > - Post a comment summarizing the work? (recommended — links the PR / commit, lists what was done)
-    > - Move the task to status `<next status>`? (e.g., `in review`, `done`)
-    > - Tick any of the AC checkboxes in the description?
+    > - Post a comment summarizing the work? (links PR/commit, lists what was done, notes deferred findings)
+    > - Move the task to `<next status>`? (e.g. `in review`, `done`)
+    > - Tick AC checkboxes in the description?
 
-    Build payloads via `python3 -c '...'` writing to a temp `.json` file (comment text and status names contain user-supplied content; never template into a JSON literal):
-
+    Build payloads via `python3 -c '...'` into a temp `.json` (comment text + status names are user content — never template into a JSON literal):
     ```bash
-    # Comment:
     cd scripts/python && uv run clickup_api.py POST task/$TASK_ID/comment @/tmp/comment.json
-    # /tmp/comment.json: {"comment_text": "<text>", "notify_all": false}
-
-    # Status change:
-    cd scripts/python && uv run clickup_api.py PUT task/$TASK_ID @/tmp/status.json
-    # /tmp/status.json: {"status": "in review"}
+    cd scripts/python && uv run clickup_api.py PUT  task/$TASK_ID @/tmp/status.json
     ```
 
-15. **Offer to update the local Epic plan** — the plan is a living document, not a one-shot artifact. If a plan was loaded from `$CLICKUP_PLANS_DIR/...`, ask whether to refresh it now:
+18. **Offer to update the local Epic plan** (living document). If a plan was loaded: mark this task's AC done, note deviations honestly (did X instead of Y because Z), refresh Open Questions, bump `lastEdited:`. If no plan was loaded, skip.
 
-    > Want me to update `<plan path>` to reflect what we did?
-    > - Mark this task's AC as completed in the plan's task list
-    > - Note any deviations from the plan (we did X instead of Y because Z)
-    > - Update the **Open Questions** section (resolved → drop; new ones surfaced → add)
-    > - Bump `lastEdited:` in the frontmatter
-
-    If yes, edit the plan file directly. Keep deviations honest — if we worked around something, say so. The next person picking up an adjacent task in this Epic will read the plan first; bad info there poisons the whole flow.
-
-    If no plan was loaded (the task wasn't created via `/clickup-epic-create`), skip this step.
-
-16. **Final report.**
+19. **Final report.**
     - Files changed (one line each)
+    - Loop summary: rounds run, panel used (gp-reviewer; gp-ui-tester or "manual"), findings by severity (found / fixed / deferred)
     - Tests run + result
-    - AC status (✓ all met, or list the unmet ones)
-    - Conventions check: confirm adherence to the rules loaded in step 7 (`.cursor/rules` / `CLAUDE.md` / `ai-rules/`), or note "none found"
-    - ClickUp updates applied (if any)
-    - Plan file updates (if any)
-    - Suggested next step: "Open a PR?" / "Move on to task `<next id>` (next in dep graph)?" / "Run `/clickup-epic-edit` to update the Epic if scope shifted." — pick what's actually applicable, not all three.
+    - AC status (✓ all met, or list unmet)
+    - Conventions check: adherence to the rules loaded in step 7, or "none found"
+    - UI verification: Playwright result + key screenshots, or "manual steps required" if it fell back
+    - ClickUp updates applied / plan updates applied (if any)
+    - Findings files (`$CLICKUP_PLANS_DIR/<task_id>-findings-*.json`) for the audit trail
+    - Suggested next step — pick what's actually applicable: "Open a PR?" / "Next in dep graph: `<id>`?" / "`/clickup-epic-edit` if scope shifted."
 
 ## Important Notes
 
-- **Don't commit or push** unless the user explicitly asks. Many users prefer to commit themselves.
-- **Don't claim AC are met without verification.** Run the actual tests, do the actual manual check. Evidence before assertions.
-- **Don't expand scope** mid-implementation. If the task body is wrong or incomplete, tell the user and let them decide whether to expand the ticket or split a follow-up.
-- **Don't post to ClickUp silently** — always offer the option and let the user pick.
-- **Use `include_markdown_description=true`** when reading the task body via the API. The plain `description` returns HTML.
-- If the loaded task doesn't follow the standard `/clickup-epic-create` format, that's OK — work from what's there, but tell the user up front so they're not surprised when the brief looks thinner than usual.
+- **One writer — you.** If you find yourself wanting a reviewer to hand-edit a file, stop — the reviewers are read-only; you make every edit. They report; you act.
+- **Don't coach the reviewers.** Their value is independence. Hand them the diff, the AC, and the conventions — not a narrative arguing the code is fine.
+- **Evidence before assertions.** No "tests pass" / "AC met" without the actual command output or run.
+- **This front-loads, it doesn't replace.** The delegate-reviewer bot is still the hard merge gate. The loop catches what it can before the PR; it's fine to surface a stuck blocker to the user rather than spin.
+- **Don't loop on taste.** `minor`/`nit` go to Notes. Only `blocker`/`major` drive iterations.
+- **Don't commit or push** unless the user explicitly asks.
+- **Don't expand scope** mid-loop. A wrong/incomplete ticket is a signal to surface, not to silently grow the PR.
+- **Always tear down** the dev server and any background processes, even on failure.
+- **Use `include_markdown_description=true`** when reading the task body. Plain `description` returns HTML.
 
 ## Troubleshooting
 
 | Failure | Fix |
 |---------|-----|
-| `markdown_description` is empty but ClickUp shows content | The task body was created via UI rich text and never re-saved as markdown. Ask the user to copy it into the prompt manually. |
-| Dependencies fetch is slow on tasks with many deps | Acceptable cost — better than starting blind. If it's >10 deps, consider asking the user to confirm scope before fetching all of them. |
-| `parent` field links to a closed/archived Epic | The Epic was archived after subtasks were created. Treat the task as standalone but mention the dead-Epic state. |
-| Status name doesn't exist on the task's List | Status names are List-scoped. List the available statuses with `GET list/<list_id>` and pick the closest match before retrying. |
-| Comment POST 400s on long bodies | ClickUp comments have a soft length limit. Split the summary into two comments or trim it. |
+| `gp-reviewer` isn't installed | Do the review inline (you read your own diff against the AC + conventions with a skeptical eye), note "review: inline" in the report. To get the subagent: re-run `./install.sh` and restart the session. |
+| Reviewer returns vague prose instead of structured findings | Re-dispatch once with an explicit reminder of the schema + output path. If still malformed, treat its summary as a single `major` finding and address it. |
+| Loop won't converge (same blocker reappears each round) | Your fix is fighting a constraint you can't see. Stop at the cap, surface the specific finding + your `wontfix` reasoning. Usually means the AC or an upstream dependency is wrong. |
+| Playwright MCP unavailable / dev server won't start | Skip `gp-ui-tester`, record an **environment** gap with manual repro steps (not loop-driving), continue. Note it prominently in the report. |
+| `git diff` empty after implementing | You wrote nothing, or wrote outside the repo. Re-check `pwd` before dispatching the reviewer. |
+| Cumulative diff polluted with unrelated changes | The tree was dirty at baseline. Stash the unrelated work or restart in a clean worktree (step 9). |
+| `markdown_description` empty but ClickUp shows content | Body was created via UI rich text, never re-saved as markdown. Ask the user to paste it. |
+| `parent` links to a closed/archived Epic | Treat the task as standalone; mention the dead-Epic state. |
+| Status name doesn't exist on the List | Statuses are List-scoped. `GET list/<list_id>`, pick the closest, retry. |
+| Comment POST 400s on long bodies | Soft length limit — split into two comments or trim. |

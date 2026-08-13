@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import { type LlmMessage } from '../types/llmMessages.types'
 import { toModelMessages } from './messageConversion'
 
 describe('toModelMessages — tool message conversion', () => {
   it('uses the toolName from the preceding assistant tool_call', () => {
-    const messages: ChatCompletionMessageParam[] = [
+    const messages: LlmMessage[] = [
       {
         role: 'assistant',
         content: '',
@@ -25,10 +25,12 @@ describe('toModelMessages — tool message conversion', () => {
 
     const converted = toModelMessages(messages)
     const toolMsg = converted[1]
+    if (!toolMsg) throw new Error('expected message at index 1')
 
     expect(toolMsg.role).toBe('tool')
     if (toolMsg.role !== 'tool') return
     const part = toolMsg.content[0]
+    if (!part) throw new Error('expected content part')
     expect(part.type).toBe('tool-result')
     if (part.type !== 'tool-result') return
     expect(part.toolName).toBe('my_tool')
@@ -37,7 +39,7 @@ describe('toModelMessages — tool message conversion', () => {
   })
 
   it('threads toolName across multiple assistant tool_calls in the same turn', () => {
-    const messages: ChatCompletionMessageParam[] = [
+    const messages: LlmMessage[] = [
       {
         role: 'assistant',
         content: '',
@@ -62,12 +64,17 @@ describe('toModelMessages — tool message conversion', () => {
     const second = converted[1]
     const first = converted[2]
 
-    if (second.role !== 'tool' || first.role !== 'tool') {
+    if (!second || !first || second.role !== 'tool' || first.role !== 'tool') {
       throw new Error('expected tool messages')
     }
     const secondPart = second.content[0]
     const firstPart = first.content[0]
-    if (secondPart.type !== 'tool-result' || firstPart.type !== 'tool-result') {
+    if (
+      !secondPart ||
+      !firstPart ||
+      secondPart.type !== 'tool-result' ||
+      firstPart.type !== 'tool-result'
+    ) {
       throw new Error('expected tool-result parts')
     }
     expect(secondPart.toolName).toBe('second_tool')
@@ -75,7 +82,7 @@ describe('toModelMessages — tool message conversion', () => {
   })
 
   it('falls back to empty toolName when no preceding assistant tool_call matches', () => {
-    const messages: ChatCompletionMessageParam[] = [
+    const messages: LlmMessage[] = [
       {
         role: 'tool',
         tool_call_id: 'orphan',
@@ -85,14 +92,16 @@ describe('toModelMessages — tool message conversion', () => {
 
     const converted = toModelMessages(messages)
     const toolMsg = converted[0]
-    if (toolMsg.role !== 'tool') throw new Error('expected tool message')
+    if (!toolMsg || toolMsg.role !== 'tool')
+      throw new Error('expected tool message')
     const part = toolMsg.content[0]
-    if (part.type !== 'tool-result') throw new Error('expected tool-result')
+    if (!part || part.type !== 'tool-result')
+      throw new Error('expected tool-result')
     expect(part.toolName).toBe('')
   })
 
   it('handles array content on tool messages by joining text parts', () => {
-    const messages: ChatCompletionMessageParam[] = [
+    const messages: LlmMessage[] = [
       {
         role: 'assistant',
         content: '',
@@ -116,36 +125,98 @@ describe('toModelMessages — tool message conversion', () => {
 
     const converted = toModelMessages(messages)
     const toolMsg = converted[1]
-    if (toolMsg.role !== 'tool') throw new Error('expected tool message')
+    if (!toolMsg || toolMsg.role !== 'tool')
+      throw new Error('expected tool message')
     const part = toolMsg.content[0]
-    if (part.type !== 'tool-result') throw new Error('expected tool-result')
+    if (!part || part.type !== 'tool-result')
+      throw new Error('expected tool-result')
     expect(part.toolName).toBe('array_tool')
     expect(part.output).toEqual({ type: 'text', value: 'hello world' })
   })
+
+  it(
+    'round-trips assistant tool_calls + tool result into ' +
+      'ToolCallPart + ToolResultPart with correct toolName',
+    () => {
+      const messages: LlmMessage[] = [
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'call-rt',
+              type: 'function',
+              function: {
+                name: 'round_trip_tool',
+                arguments: '{"x":42}',
+              },
+            },
+          ],
+        },
+        {
+          role: 'tool',
+          tool_call_id: 'call-rt',
+          content: 'rt result',
+        },
+      ]
+
+      const converted = toModelMessages(messages)
+
+      const assistantMsg = converted[0]
+      if (!assistantMsg || assistantMsg.role !== 'assistant') {
+        throw new Error('expected assistant message')
+      }
+      const assistantParts = Array.isArray(assistantMsg.content)
+        ? assistantMsg.content
+        : []
+      const callPart = assistantParts.find((p) => p.type === 'tool-call')
+      if (!callPart || callPart.type !== 'tool-call') {
+        throw new Error('expected tool-call part')
+      }
+      expect(callPart.toolCallId).toBe('call-rt')
+      expect(callPart.toolName).toBe('round_trip_tool')
+      expect(callPart.input).toEqual({ x: 42 })
+
+      const toolMsg = converted[1]
+      if (!toolMsg || toolMsg.role !== 'tool')
+        throw new Error('expected tool message')
+      const resultPart = toolMsg.content[0]
+      if (!resultPart || resultPart.type !== 'tool-result') {
+        throw new Error('expected tool-result part')
+      }
+      expect(resultPart.toolCallId).toBe('call-rt')
+      expect(resultPart.toolName).toBe('round_trip_tool')
+      expect(resultPart.output).toEqual({ type: 'text', value: 'rt result' })
+    },
+  )
 })
 
 describe('toModelMessages — user content parts', () => {
-  it('drops non-text content parts (image_url, input_audio) when converting', () => {
-    const messages: ChatCompletionMessageParam[] = [
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: 'caption: ' },
-          {
-            type: 'image_url',
-            image_url: { url: 'https://example.com/x.png' },
-          },
-          { type: 'text', text: 'end' },
-        ],
-      },
-    ]
+  it(
+    'drops non-text content parts (image_url, input_audio) ' +
+      'when converting',
+    () => {
+      const messages: LlmMessage[] = [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'caption: ' },
+            {
+              type: 'image_url',
+              image_url: { url: 'https://example.com/x.png' },
+            },
+            { type: 'text', text: 'end' },
+          ],
+        },
+      ]
 
-    const converted = toModelMessages(messages)
-    const userMsg = converted[0]
-    if (userMsg.role !== 'user') throw new Error('expected user')
-    expect(userMsg.content).toEqual([
-      { type: 'text', text: 'caption: ' },
-      { type: 'text', text: 'end' },
-    ])
-  })
+      const converted = toModelMessages(messages)
+      const userMsg = converted[0]
+      if (!userMsg || userMsg.role !== 'user') throw new Error('expected user')
+      expect(userMsg.content).toEqual([
+        { type: 'text', text: 'caption: ' },
+        { type: 'text', text: 'end' },
+      ])
+    },
+  )
 })

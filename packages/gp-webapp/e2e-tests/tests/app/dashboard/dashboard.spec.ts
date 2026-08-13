@@ -29,17 +29,10 @@ test.describe('Dashboard Functionality', () => {
     await waitForDashboardReady(page)
     console.log('✅ Dashboard accessible')
 
-    await page.goto('/dashboard/campaign-assistant')
-    await WaitHelper.waitForPageReady(page)
-    await expect(
-      page.getByRole('heading', { name: 'AI Assistant' }),
-    ).toBeVisible({ timeout: 5000 })
-    console.log('✅ AI Assistant accessible')
-
     await page.goto('/dashboard/profile')
     await WaitHelper.waitForPageReady(page)
     await expect(
-      page.getByRole('heading', { name: 'Contact Information' }).first(),
+      page.getByRole('heading', { name: 'Office Details' }).first(),
     ).toBeVisible()
     console.log('✅ Profile accessible')
   })

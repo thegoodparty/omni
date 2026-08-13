@@ -31,6 +31,15 @@ vi.mock('../../actions', () => ({
   createImpersonationToken: vi.fn(),
 }))
 
+vi.mock('@/app/dashboard/campaigns/actions', () => ({
+  listCampaigns: vi.fn().mockResolvedValue({
+    data: [],
+    meta: { total: 0, offset: 0, limit: 0 },
+  }),
+  getCampaignComplianceState: vi.fn(),
+  resendCvPin: vi.fn(),
+}))
+
 const mockUsePathname = vi.fn()
 
 vi.mock('next/navigation', () => ({
@@ -43,7 +52,10 @@ const mockUser: User = {
   lastName: 'Doe',
   email: 'john@example.com',
   hasPassword: true,
+  createdAt: new Date('2024-01-01'),
   avatar: 'https://example.com/avatar.jpg',
+  zip: null,
+  phone: null,
 }
 
 function renderWithUser(user: User, props: { isEditMode?: boolean } = {}) {

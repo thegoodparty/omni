@@ -18,7 +18,10 @@ import { MeetingsModule } from 'src/meetings/meetings.module'
 import { AwsModule } from 'src/vendors/aws/aws.module'
 import { AnnotationsModule } from 'src/annotations/annotations.module'
 import { CampaignStrategyModule } from 'src/campaignStrategy/campaignStrategy.module'
+import { RaceOpponentModule } from 'src/raceOpponent/raceOpponent.module'
 import { CommunityIssuesModule } from 'src/communityIssues/communityIssues.module'
+import { OrdinancesModule } from 'src/ordinances/ordinances.module'
+import { RecommendedListsModule } from 'src/recommendedLists/recommendedLists.module'
 
 @Module({
   imports: [
@@ -46,7 +49,10 @@ import { CommunityIssuesModule } from 'src/communityIssues/communityIssues.modul
     MeetingsModule,
     AnnotationsModule,
     CampaignStrategyModule,
+    RaceOpponentModule,
     CommunityIssuesModule,
+    OrdinancesModule,
+    RecommendedListsModule,
   ],
   providers: [QueueConsumerService],
 })

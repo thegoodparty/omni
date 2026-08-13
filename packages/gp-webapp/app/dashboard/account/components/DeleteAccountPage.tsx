@@ -5,7 +5,8 @@ import { useClerk } from '@clerk/nextjs'
 import { useUser } from '@shared/hooks/useUser'
 import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
-import { buttonVariants } from 'styleguide/components/ui/button'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { buttonVariants } from '@styleguide/components/ui/button'
 import {
   Alert,
   AlertDescription,
@@ -18,7 +19,8 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
   Button,
-} from 'styleguide/components/ui'
+  Card,
+} from '@styleguide/components/ui'
 
 export default function DeleteAccountPage(): React.JSX.Element {
   const [user] = useUser()
@@ -29,6 +31,7 @@ export default function DeleteAccountPage(): React.JSX.Element {
 
   const handleDeleteConfirm = async () => {
     if (!user?.id) return
+    trackEvent(EVENTS.Settings.DeleteAccount.SubmitDelete)
     setLoading(true)
     setError(null)
 
@@ -55,24 +58,35 @@ export default function DeleteAccountPage(): React.JSX.Element {
   }
 
   return (
-    <div className="p-6 max-w-lg">
-      <h2 className="text-xl font-semibold mb-2">Delete Account</h2>
-      <p className="text-gray-600 mb-6">
-        Permanently delete your account and all associated campaign data.
-      </p>
-      <Button
-        variant="destructive"
-        className="px-4 py-2"
-        onClick={() => {
-          setError(null)
-          setModalOpen(true)
-        }}
-      >
+    <Card className="w-full max-w-[640px] gap-4 p-6">
+      <h2 className="m-0 text-xl font-semibold text-foreground">
         Delete Account
-      </Button>
+      </h2>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-0.5">
+          <p className="m-0 text-base font-medium text-foreground">
+            Permanently delete your account
+          </p>
+          <p className="m-0 text-sm text-muted-foreground">
+            This action is not reversible. All your campaign data will be
+            permanently deleted.
+          </p>
+        </div>
+        <Button
+          variant="destructive"
+          className="shrink-0"
+          onClick={() => {
+            trackEvent(EVENTS.Settings.DeleteAccount.ClickDelete)
+            setError(null)
+            setModalOpen(true)
+          }}
+        >
+          Delete Account
+        </Button>
+      </div>
 
       {error && (
-        <Alert variant="destructive" className="mt-4">
+        <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
@@ -92,7 +106,14 @@ export default function DeleteAccountPage(): React.JSX.Element {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel
+              disabled={loading}
+              onClick={() =>
+                trackEvent(EVENTS.Settings.DeleteAccount.CancelDelete)
+              }
+            >
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
               className={buttonVariants({ variant: 'destructive' })}
               onClick={handleDeleteConfirm}
@@ -103,6 +124,6 @@ export default function DeleteAccountPage(): React.JSX.Element {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </Card>
   )
 }

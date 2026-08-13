@@ -1,10 +1,17 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   getCookie,
   setCookie,
   deleteCookie,
   deleteCookies,
 } from './cookieHelper'
+
+const stubProtocol = (protocol: string) => {
+  Object.defineProperty(window, 'location', {
+    configurable: true,
+    value: { ...window.location, protocol },
+  })
+}
 
 const clearCookies = () => {
   document.cookie.split(';').forEach((c) => {
@@ -45,5 +52,36 @@ describe('cookieHelper', () => {
     deleteCookies()
     expect(getCookie('a')).toBe(false)
     expect(getCookie('b')).toBe(false)
+  })
+
+  describe('Secure flag', () => {
+    const originalLocation = window.location
+
+    afterEach(() => {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: originalLocation,
+      })
+    })
+
+    it('appends Secure when the page is https', () => {
+      stubProtocol('https:')
+      const setter = vi.spyOn(document, 'cookie', 'set')
+
+      setCookie('secureCookie', 'value')
+
+      expect(setter).toHaveBeenCalledWith(expect.stringContaining('; Secure'))
+    })
+
+    it('omits Secure when the page is http', () => {
+      stubProtocol('http:')
+      const setter = vi.spyOn(document, 'cookie', 'set')
+
+      setCookie('insecureCookie', 'value')
+
+      expect(setter).toHaveBeenCalledWith(
+        expect.not.stringContaining('; Secure'),
+      )
+    })
   })
 })

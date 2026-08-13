@@ -6,40 +6,19 @@ const visibleIds = (answers: Parameters<typeof getVisibleOnboardingSteps>[1]) =>
   getVisibleOnboardingSteps(FOLLOW_ON_STEPS, answers).map((step) => step.id)
 
 describe('followOnConfig', () => {
-  it('starts on the intent step', () => {
-    expect(firstFollowOnStepId).toBe('intent')
-  })
-
-  it('requires fromOrganizationSlug before same-office can continue', () => {
-    const intentStep = FOLLOW_ON_STEPS[0]
-    expect(intentStep.isValid?.({ answers: {} })).toBe(false)
-    // same-office with no held-office slug must not advance (would 400).
-    expect(
-      intentStep.isValid?.({ answers: { followOnIntent: 'same-office' } }),
-    ).toBe(false)
-    expect(
-      intentStep.isValid?.({
-        answers: {
-          followOnIntent: 'same-office',
-          fromOrganizationSlug: 'eo-1',
-        },
-      }),
-    ).toBe(true)
-    // new-office never needs a slug.
-    expect(
-      intentStep.isValid?.({ answers: { followOnIntent: 'new-office' } }),
-    ).toBe(true)
+  it('starts on the welcome step (no intent screen)', () => {
+    expect(firstFollowOnStepId).toBe('welcome')
   })
 
   it('skips the office picker (and manual entry) for same-office', () => {
     const ids = visibleIds({ followOnIntent: 'same-office' })
-    expect(ids).toContain('intent')
     expect(ids).not.toContain('office-selection')
     expect(ids).not.toContain('manual-office-entry')
-    // Inherited-position path still runs the projection + insights steps.
+    // Inherited-position path still runs the projection step.
     expect(ids).toContain('path-to-victory')
-    expect(ids).toContain('voter-demographics')
     expect(ids).toContain('pledge')
+    // The follow-on flow doesn't get the campaign-story step in this phase.
+    expect(ids).not.toContain('campaign-story')
   })
 
   it('includes the office picker for new-office', () => {

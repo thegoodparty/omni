@@ -1,0 +1,41 @@
+name: styleguide
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: styleguide-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  WORKSPACE: packages/styleguide
+
+jobs:
+  ci:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: styleguide
+
+      # styleguide has a strict tsconfig but no eslint config or lint/typecheck
+      # npm script, so there was no type gate in CI. Run tsc --noEmit directly
+      # against the package's tsconfig (mirrors election-api's Typecheck step).
+      # No Lint step: the package ships no eslint.config.* (see
+      # lint-staged.config.js), so there is nothing to lint here.
+      - name: Typecheck
+        working-directory: ${{ env.WORKSPACE }}
+        run: npx tsc --noEmit
+
+      - name: Test
+        run: npm run test -w ${{ env.WORKSPACE }}
