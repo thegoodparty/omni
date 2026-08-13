@@ -24,3 +24,16 @@ export const countPeople = (stops: DoorKnockingRoutePayload['stops']): number =>
       ),
     0,
   )
+
+// The three counts above are inventory — what the route contains, and what the
+// printed sheet lists row for row, flagged residents included (paper carries
+// their skip instruction rather than dropping them). Progress is a different
+// question: ADR 0007 doors are ones nobody should knock, so counting them would
+// hold a canvasser who correctly skipped every one of them below 100%. Every
+// reached-of-total on any surface counts these, and only these.
+export const knockableTargets = (stops: DoorKnockingRoutePayload['stops']) =>
+  stops.flatMap((stop) =>
+    stop.addresses.flatMap((address) =>
+      address.targets.filter((target) => !target.doNotKnock),
+    ),
+  )

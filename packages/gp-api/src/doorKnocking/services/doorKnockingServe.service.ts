@@ -138,9 +138,16 @@ export class DoorKnockingServeService extends createPrismaBase(
           displayAddress: stop.displayAddress,
           legSeconds: stop.legSeconds,
           legMeters: stop.legMeters,
+          // ADR 0007. Flagged residents are left out because `unknown` outranks
+          // every other status in the rollup, so one do-not-knock neighbor would
+          // report the whole stop as still-to-knock however much of the
+          // household had been logged. The webapp's rollup drops them for the
+          // same reason.
           knockStatus: rollupStopStatus(
             addresses.flatMap((address) =>
-              address.targets.map((target) => target.knockStatus),
+              address.targets
+                .filter((target) => !target.doNotKnock)
+                .map((target) => target.knockStatus),
             ),
           ),
           addresses,

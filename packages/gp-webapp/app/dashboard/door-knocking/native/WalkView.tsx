@@ -11,7 +11,7 @@ import {
 } from '@goodparty_org/contracts'
 import { ChevronDownIcon, ChevronRightIcon } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
-import { countDoors } from '../routeCounts'
+import { countDoors, knockableTargets } from '../routeCounts'
 import PersonSheet from './PersonSheet'
 import { formatDistance } from './routeFormat'
 import { routeQueryOptions } from './turfQueries'
@@ -97,17 +97,9 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
     () => (routeQuery.data?.stops ?? []).slice().sort((a, b) => a.seq - b.seq),
     [routeQuery.data],
   )
-  const allTargets = (stopList: RoutePayloadStop[]) =>
-    stopList.flatMap((stop) =>
-      stop.addresses.flatMap((address) => address.targets),
-    )
-  // ADR 0007. Every count in the progress card is over knockable doors only. A
-  // flagged door keeps `knockStatus: 'unknown'` — do-not-knock is a separate
-  // flag, not a knock status — so counting it would leave a canvasser who
-  // correctly skipped it short of 100%, and park it under the `unknown` chip as
-  // outstanding work. Its recorded history, if any, still lives in the CRM.
-  const knockableTargets = (stopList: RoutePayloadStop[]) =>
-    allTargets(stopList).filter((target) => !target.doNotKnock)
+  // Progress is over knockable doors only (see routeCounts). A flagged door
+  // would otherwise sit under the `unknown` chip as outstanding work; its
+  // recorded history, if any, still lives in the CRM.
   const targetCount = (stopList: RoutePayloadStop[]) =>
     knockableTargets(stopList).length
   const reachedCount = (stopList: RoutePayloadStop[]) =>

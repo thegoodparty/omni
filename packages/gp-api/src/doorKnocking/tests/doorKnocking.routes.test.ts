@@ -1729,6 +1729,46 @@ describe('door-knocking routes', () => {
       // in doorKnockingPeopleApi.service.test.ts. Spying here sees only what
       // this route handed the adapter, which is the value under test's input
       // rather than its output.
+
+      // `unknown` outranks every other status in the rollup, so a flagged
+      // resident would otherwise report their whole stop as still-to-knock —
+      // persons 1 and 2 share an address, which is what makes that reachable.
+      it('rolls a stop up from its knockable residents only', async () => {
+        const { turf } = await knockAndGetTurfAndTarget()
+        const shared = await service.prisma.doorKnockingStopTarget.findMany({
+          where: { addressKey: PIPED_KEY },
+          orderBy: { id: 'asc' },
+        })
+        expect(shared).toHaveLength(2)
+
+        expect(
+          (
+            await record({
+              stopTargetId: shared[0]!.id,
+              clientKey: CLIENT_KEY,
+              outcome: 'answered',
+              supportAnswer: 'supporter',
+            })
+          ).status,
+        ).toBe(201)
+        await setDoNotKnock({ stopTargetId: shared[1]!.id, value: 'active' })
+
+        const res = await service.client.get(
+          `/v1/door-knocking/turfs/${turf.id}/route`,
+          { ...orgHeaders(), validateStatus: () => true },
+        )
+
+        expect(res.status).toBe(200)
+        const stop = (
+          res.data.stops as Array<{
+            knockStatus: string
+            addresses: Array<{ addressKey: string }>
+          }>
+        ).find((candidate) =>
+          candidate.addresses.some((a) => a.addressKey === PIPED_KEY),
+        )
+        expect(stop?.knockStatus).toBe('supporter')
+      })
     })
   })
   describe('pack', () => {

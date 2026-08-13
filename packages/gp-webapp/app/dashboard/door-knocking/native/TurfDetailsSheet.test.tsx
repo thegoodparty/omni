@@ -131,6 +131,60 @@ describe('TurfDetailsSheet delete', () => {
     expect(screen.getByText('31m')).toBeInTheDocument()
   })
 
+  // ADR 0007. Progress counts knockable doors, so a canvasser who correctly
+  // skipped every flagged one still gets to 100% — and the number agrees with
+  // the walk view's own counter rather than diverging from it.
+  it('leaves flagged residents out of the progress stat', async () => {
+    const target = {
+      stopTargetId: 21,
+      personId: 'person-1',
+      name: 'Dorian Fen',
+      age: 31,
+      politicalParty: null,
+      cellPhone: null,
+      landline: null,
+      mayHaveMoved: false,
+    }
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: {
+        ...routePayload,
+        stops: [
+          {
+            id: 10,
+            seq: 1,
+            lat: 36.16,
+            lng: -86.78,
+            displayAddress: '105 Elm St',
+            legSeconds: 0,
+            legMeters: 0,
+            knockStatus: 'supporter',
+            addresses: [
+              {
+                addressKey: '105|elm|st',
+                address: '105 Elm St',
+                otherResidents: [],
+                targets: [
+                  { ...target, knockStatus: 'supporter', doNotKnock: false },
+                  {
+                    ...target,
+                    stopTargetId: 22,
+                    personId: 'person-2',
+                    knockStatus: 'unknown',
+                    doNotKnock: true,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      } satisfies DoorKnockingRoutePayload,
+    })
+    renderSheet({ prop: { locked: true } })
+
+    expect(await screen.findByText('1 of 1 · 100%')).toBeInTheDocument()
+  })
+
   it('deletes after confirmation and hands the turf back to the page', async () => {
     let deletedId: string | undefined
     // The route really answers 204, but the mocker's success channel is typed
