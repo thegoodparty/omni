@@ -92,6 +92,7 @@ describe('WalkSheet', () => {
               landline: null,
               knockStatus: 'unknown',
               mayHaveMoved: false,
+              doNotKnock: false,
             },
             {
               stopTargetId: 32,
@@ -103,6 +104,7 @@ describe('WalkSheet', () => {
               landline: null,
               knockStatus: 'unknown',
               mayHaveMoved: false,
+              doNotKnock: false,
             },
           ],
           otherResidents: [],
@@ -121,6 +123,7 @@ describe('WalkSheet', () => {
               landline: null,
               knockStatus: 'unknown',
               mayHaveMoved: false,
+              doNotKnock: false,
             },
           ],
           otherResidents: [],
