@@ -178,18 +178,26 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
   // Requests an AI draft for the given purpose/tone. On success it replaces
   // the draft; when that would clobber manually typed text, the click-time
   // text is snapshotted first so Undo can restore it — Undo never appears
-  // from tone-preset-only interaction. Custom purpose is fully manual: no
-  // call, ever.
+  // from tone-preset-only interaction. With currentDraft the call polishes
+  // that text in place (Improve with AI) instead of writing fresh, which is
+  // the one generated path allowed for the custom purpose — fresh custom
+  // drafts never call.
   const requestDraft = (
     nextPurpose: SocialPurpose | null,
     nextTone: SocialTone,
     priorDraft: string,
     priorManuallyEdited: boolean,
+    currentDraft?: string,
   ) => {
-    if (!nextPurpose || nextPurpose === 'custom') return
+    if (!nextPurpose) return
+    if (nextPurpose === 'custom' && currentDraft === undefined) return
     const requestId = ++draftRequestRef.current
     draftMutation.mutate(
-      { purpose: nextPurpose, tone: nextTone },
+      {
+        purpose: nextPurpose,
+        tone: nextTone,
+        ...(currentDraft === undefined ? {} : { currentDraft }),
+      },
       {
         onSuccess: (generated) => {
           if (requestId !== draftRequestRef.current) return
@@ -246,6 +254,11 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
     invalidateAssets()
     // Typing supersedes a failed draft call — clear the inline error.
     if (draftMutation.isError) resetDraftMutation()
+  }
+
+  const handleImprove = () => {
+    if (draft.trim().length === 0) return
+    requestDraft(purpose, tone, draft, manuallyEdited, draft)
   }
 
   const handleUndo = () => {
@@ -344,6 +357,8 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
           onRegenerate={() =>
             requestDraft(purpose, tone, draft, manuallyEdited)
           }
+          onImprove={handleImprove}
+          canImprove={manuallyEdited && draft.trim().length > 0}
           isDrafting={draftMutation.isPending}
           isDraftError={draftMutation.isError}
           canUndo={undoText !== null}

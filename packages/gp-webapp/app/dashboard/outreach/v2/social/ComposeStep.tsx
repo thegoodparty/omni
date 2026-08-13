@@ -15,8 +15,11 @@ import {
   HandHeartIcon,
   Loader2Icon,
   RefreshIcon,
+  SparklesIcon,
   ThumbsUpIcon,
 } from '@styleguide/components/ui/icons'
+import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
+import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import { ThinkingStream } from './ThinkingStream'
 import { Intro } from './Intro'
 
@@ -42,10 +45,17 @@ interface ComposeStepProps {
   draft: string
   onDraftChange: (draft: string) => void
   onRegenerate: () => void
+  // Polishes the user's own words in place — available for every purpose,
+  // including custom (the custom guard only blocks fresh generation).
+  onImprove: () => void
+  // Improve appears only once the user has typed/dictated something —
+  // never from tone-preset-only interaction (same precursor state as Undo).
+  canImprove: boolean
   isDrafting: boolean
   isDraftError: boolean
-  // Undo appears only once a generated draft (Regenerate / tone switch) has
-  // replaced manually typed text — never from tone-preset-only interaction.
+  // Undo appears only once a generated draft (Regenerate / tone switch /
+  // Improve) has replaced manually typed text — never from tone-preset-only
+  // interaction.
   canUndo: boolean
   onUndo: () => void
   isCustomPurpose: boolean
@@ -57,92 +67,132 @@ export const ComposeStep = ({
   draft,
   onDraftChange,
   onRegenerate,
+  onImprove,
+  canImprove,
   isDrafting,
   isDraftError,
   canUndo,
   onUndo,
   isCustomPurpose,
-}: ComposeStepProps) => (
-  <div className="space-y-6">
-    <Intro
-      title="What do you want to say?"
-      body="Confirm the message. We'll adapt this draft to each platform's voice and length in the next steps."
-    />
+}: ComposeStepProps) => {
+  const dictation = useDictationAppend({
+    analyticsLabel: 'outreach-social-compose',
+    value: draft,
+    onChange: onDraftChange,
+  })
 
-    <FilterPillGroup
-      type="single"
-      value={tone}
-      onValueChange={(value) => value && onToneChange(value as SocialTone)}
-    >
-      {SOCIAL_TONE_VALUES.map((t) => (
-        <FilterPill key={t} value={t} className="gap-1.5">
-          {TONE_ICONS[t]}
-          {TONE_LABELS[t]}
-        </FilterPill>
-      ))}
-    </FilterPillGroup>
+  return (
+    <div className="space-y-6">
+      <Intro
+        title="What do you want to say?"
+        body="Confirm the message. We'll adapt this draft to each platform's voice and length in the next steps."
+      />
 
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">Your draft message</p>
-        <div className="flex items-center gap-2">
-          {canUndo && (
-            <Button
-              type="button"
-              variant="link"
-              size="small"
-              className="h-auto px-0"
-              onClick={onUndo}
-            >
-              Undo
-            </Button>
-          )}
-          {!isCustomPurpose && (
-            <Button
-              type="button"
-              variant="link"
-              size="small"
-              className="h-auto gap-1.5 px-0 no-underline"
-              disabled={isDrafting}
-              onClick={onRegenerate}
-            >
-              {isDrafting ? (
-                <Loader2Icon className="size-4 animate-spin" />
-              ) : (
-                <RefreshIcon className="size-4" />
-              )}
-              Regenerate
-            </Button>
-          )}
+      <FilterPillGroup
+        type="single"
+        value={tone}
+        onValueChange={(value) => value && onToneChange(value as SocialTone)}
+      >
+        {SOCIAL_TONE_VALUES.map((t) => (
+          <FilterPill key={t} value={t} className="gap-1.5">
+            {TONE_ICONS[t]}
+            {TONE_LABELS[t]}
+          </FilterPill>
+        ))}
+      </FilterPillGroup>
+
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">Your draft message</p>
+          <div className="flex items-center gap-2">
+            {canUndo && (
+              <Button
+                type="button"
+                variant="link"
+                size="small"
+                className="h-auto px-0"
+                onClick={onUndo}
+              >
+                Undo
+              </Button>
+            )}
+            {!isCustomPurpose && (
+              <Button
+                type="button"
+                variant="link"
+                size="small"
+                className="h-auto gap-1.5 px-0 no-underline"
+                disabled={isDrafting}
+                onClick={onRegenerate}
+              >
+                {isDrafting ? (
+                  <Loader2Icon className="size-4 animate-spin" />
+                ) : (
+                  <RefreshIcon className="size-4" />
+                )}
+                Regenerate
+              </Button>
+            )}
+          </div>
         </div>
+
+        {isDraftError && (
+          <Card className="items-start gap-3 border-destructive p-4">
+            <p className="text-sm text-foreground">
+              We couldn&apos;t draft your message just now. Try again, or write
+              your own below.
+            </p>
+            <Button
+              type="button"
+              size="small"
+              onClick={isCustomPurpose ? onImprove : onRegenerate}
+            >
+              Try again
+            </Button>
+          </Card>
+        )}
+
+        {isDrafting && !draft.trim() ? (
+          <ThinkingStream />
+        ) : (
+          <Card className="gap-3 p-4">
+            <Textarea
+              value={draft}
+              onChange={(e) => onDraftChange(e.target.value)}
+              placeholder="Write your message…"
+              aria-label="Draft message"
+              maxLength={2000}
+              className="min-h-[140px] resize-none border-0 p-0 focus-visible:ring-0 [field-sizing:content]"
+            />
+            <div className="flex w-full items-center gap-2">
+              {canImprove && (
+                <Button
+                  type="button"
+                  variant="link"
+                  size="small"
+                  className="h-auto gap-1.5 px-0 no-underline"
+                  disabled={isDrafting}
+                  onClick={onImprove}
+                >
+                  {isDrafting ? (
+                    <Loader2Icon className="size-4 animate-spin" />
+                  ) : (
+                    <SparklesIcon className="size-4" />
+                  )}
+                  Improve with AI
+                </Button>
+              )}
+              <DictationMicButton
+                dictation={dictation}
+                idleLabel="Dictate message"
+                recordingLabel="Stop dictation"
+                disabled={isDrafting}
+                className="static ml-auto shrink-0"
+              />
+            </div>
+          </Card>
+        )}
       </div>
-
-      {isDraftError && (
-        <Card className="items-start gap-3 border-destructive p-4">
-          <p className="text-sm text-foreground">
-            We couldn&apos;t draft your message just now. Try again, or write
-            your own below.
-          </p>
-          <Button type="button" size="small" onClick={onRegenerate}>
-            Try again
-          </Button>
-        </Card>
-      )}
-
-      {isDrafting && !draft.trim() ? (
-        <ThinkingStream />
-      ) : (
-        <Card className="p-4">
-          <Textarea
-            value={draft}
-            onChange={(e) => onDraftChange(e.target.value)}
-            placeholder="Write your message…"
-            aria-label="Draft message"
-            maxLength={2000}
-            className="min-h-[140px] resize-none border-0 p-0 focus-visible:ring-0 [field-sizing:content]"
-          />
-        </Card>
-      )}
     </div>
-  </div>
-)
+  )
+}

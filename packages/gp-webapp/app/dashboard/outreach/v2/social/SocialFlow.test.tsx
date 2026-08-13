@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -9,6 +9,7 @@ import type {
   SocialDraftRequest,
   SocialGenerateRequest,
 } from '@goodparty_org/contracts'
+import type { UseDictationAppendInput } from 'app/dashboard/shared/dictation/useDictationAppend'
 import { SocialFlow } from './SocialFlow'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -20,6 +21,32 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({ successSnackbar: vi.fn(), errorSnackbar: vi.fn() }),
 }))
+
+// Capture the compose step's dictation wiring so tests can feed transcript
+// appends through the same onChange path the real append hook uses.
+let dictationInput: UseDictationAppendInput | null = null
+vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
+  useDictationAppend: (input: UseDictationAppendInput) => {
+    dictationInput = input
+    return {
+      status: 'idle' as const,
+      error: null,
+      partialTranscript: '',
+      active: false,
+      busy: false,
+      start: vi.fn(),
+      stop: vi.fn(),
+      toggle: vi.fn(),
+    }
+  },
+}))
+
+const dictate = (chunk: string) => {
+  const input = dictationInput as UseDictationAppendInput | null
+  if (!input) throw new Error('dictation not mounted')
+  const sep = input.value.length > 0 && !input.value.endsWith(' ') ? ' ' : ''
+  act(() => input.onChange(input.value + sep + chunk))
+}
 
 const assetFor = (platform: SocialAssetPlatform): SocialAsset => ({
   platform,
@@ -34,8 +61,10 @@ const assetFor = (platform: SocialAssetPlatform): SocialAsset => ({
       : null,
 })
 
-const draftFor = ({ purpose, tone }: SocialDraftRequest) =>
-  `AI draft (${tone}) for ${purpose}`
+const draftFor = ({ purpose, tone, currentDraft }: SocialDraftRequest) =>
+  currentDraft === undefined
+    ? `AI draft (${tone}) for ${purpose}`
+    : `Improved (${tone}): ${currentDraft}`
 
 const mockDraft = () => {
   const calls: SocialDraftRequest[] = []
@@ -123,6 +152,7 @@ const advanceToPlatforms = async () => {
 describe('SocialFlow', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    dictationInput = null
   })
 
   it('progresses purpose → compose → platforms → share, generates, saves, and shows success', async () => {
@@ -355,5 +385,189 @@ describe('SocialFlow', () => {
       screen.queryByText(/couldn't draft your message/),
     ).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+  })
+
+  it('shows Improve with AI only after manual typing; improving replaces with Undo + tone memory', async () => {
+    const draftCalls = mockDraft()
+    openFlow()
+    await user.click(screen.getByText('Introduce myself'))
+    await awaitComposeDraft(
+      draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
+    )
+
+    // AI-only text (purpose pick / tone presets) never offers Improve.
+    expect(
+      screen.queryByRole('button', { name: /Improve with AI/ }),
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole('radio', { name: /Direct/ }))
+    await waitFor(() =>
+      expect(screen.getByLabelText('Draft message')).toHaveValue(
+        draftFor({ purpose: 'introduce_myself', tone: 'direct' }),
+      ),
+    )
+    expect(
+      screen.queryByRole('button', { name: /Improve with AI/ }),
+    ).not.toBeInTheDocument()
+
+    const textarea = screen.getByLabelText('Draft message')
+    await user.clear(textarea)
+    await user.type(textarea, 'My own words')
+    await user.click(
+      await screen.findByRole('button', { name: /Improve with AI/ }),
+    )
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Draft message')).toHaveValue(
+        'Improved (direct): My own words',
+      ),
+    )
+    expect(draftCalls[2]).toEqual({
+      purpose: 'introduce_myself',
+      tone: 'direct',
+      currentDraft: 'My own words',
+    })
+
+    // The polished result is generated text: Improve retreats until the
+    // user edits again.
+    expect(
+      screen.queryByRole('button', { name: /Improve with AI/ }),
+    ).not.toBeInTheDocument()
+
+    // The polish fed the current tone's memory: leaving and returning
+    // restores it without another call.
+    await user.click(screen.getByRole('radio', { name: /Warm/ }))
+    expect(screen.getByLabelText('Draft message')).toHaveValue(
+      draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
+    )
+    await user.click(screen.getByRole('radio', { name: /Direct/ }))
+    expect(screen.getByLabelText('Draft message')).toHaveValue(
+      'Improved (direct): My own words',
+    )
+    expect(draftCalls).toHaveLength(3)
+
+    // Undo still holds the pre-improve manual words.
+    await user.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(screen.getByLabelText('Draft message')).toHaveValue('My own words')
+    expect(
+      screen.getByRole('button', { name: /Improve with AI/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('treats dictation as manual input: clears errors, shows Improve, and improves the dictated text', async () => {
+    api.mock('POST /v1/outreach/social/draft', { status: 500, data: {} })
+    openFlow()
+    await user.click(screen.getByText('Introduce myself'))
+    expect(
+      await screen.findByText(/couldn't draft your message/),
+    ).toBeInTheDocument()
+
+    expect(dictationInput?.analyticsLabel).toBe('outreach-social-compose')
+    expect(
+      screen.getByRole('button', { name: 'Dictate message' }),
+    ).toBeInTheDocument()
+
+    // A dictated chunk lands like typing: error cleared, Improve available.
+    dictate('Spoken opener')
+    expect(
+      screen.queryByText(/couldn't draft your message/),
+    ).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Draft message')).toHaveValue('Spoken opener')
+
+    const draftCalls = mockDraft()
+    await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
+    await waitFor(() =>
+      expect(screen.getByLabelText('Draft message')).toHaveValue(
+        'Improved (warm): Spoken opener',
+      ),
+    )
+    expect(draftCalls).toEqual([
+      {
+        purpose: 'introduce_myself',
+        tone: 'warm',
+        currentDraft: 'Spoken opener',
+      },
+    ])
+  })
+
+  it('feeds dictated text into per-tone memory on switch-away', async () => {
+    const draftCalls = mockDraft()
+    openFlow()
+    await user.click(screen.getByText('Introduce myself'))
+    await awaitComposeDraft(
+      draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
+    )
+
+    dictate('Also spoken')
+    const dictated = `${draftFor({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+    })} Also spoken`
+    expect(screen.getByLabelText('Draft message')).toHaveValue(dictated)
+
+    // Dictated words are manual: the generated direct draft snapshots Undo.
+    await user.click(screen.getByRole('radio', { name: /Direct/ }))
+    await waitFor(() =>
+      expect(screen.getByLabelText('Draft message')).toHaveValue(
+        draftFor({ purpose: 'introduce_myself', tone: 'direct' }),
+      ),
+    )
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('radio', { name: /Warm/ }))
+    expect(screen.getByLabelText('Draft message')).toHaveValue(dictated)
+    expect(draftCalls).toHaveLength(2)
+  })
+
+  it('allows Improve with AI for the custom purpose, with Undo', async () => {
+    const draftCalls = mockDraft()
+    openFlow()
+    await user.click(screen.getByText('Write my own message'))
+    await screen.findAllByText('What do you want to say?')
+
+    await user.type(screen.getByLabelText('Draft message'), 'Entirely my words')
+    expect(draftCalls).toHaveLength(0)
+
+    await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
+    await waitFor(() =>
+      expect(screen.getByLabelText('Draft message')).toHaveValue(
+        'Improved (warm): Entirely my words',
+      ),
+    )
+    expect(draftCalls).toEqual([
+      { purpose: 'custom', tone: 'warm', currentDraft: 'Entirely my words' },
+    ])
+
+    // Regenerate stays hidden for custom; Undo restores the manual text.
+    expect(
+      screen.queryByRole('button', { name: /Regenerate/ }),
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(screen.getByLabelText('Draft message')).toHaveValue(
+      'Entirely my words',
+    )
+  })
+
+  it('retries a failed custom-purpose improve through the error card', async () => {
+    api.mock('POST /v1/outreach/social/draft', { status: 500, data: {} })
+    openFlow()
+    await user.click(screen.getByText('Write my own message'))
+    await screen.findAllByText('What do you want to say?')
+
+    await user.type(screen.getByLabelText('Draft message'), 'Rough words')
+    await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
+    expect(
+      await screen.findByText(/couldn't draft your message/),
+    ).toBeInTheDocument()
+
+    const draftCalls = mockDraft()
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() =>
+      expect(screen.getByLabelText('Draft message')).toHaveValue(
+        'Improved (warm): Rough words',
+      ),
+    )
+    expect(draftCalls).toEqual([
+      { purpose: 'custom', tone: 'warm', currentDraft: 'Rough words' },
+    ])
   })
 })

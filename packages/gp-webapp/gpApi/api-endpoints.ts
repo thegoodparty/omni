@@ -258,6 +258,8 @@ export type APIEndpoints = {
 
   // Synchronous, stateless: one structured LLM call writes the compose-step
   // draft from purpose + tone (candidate name/office come from the session).
+  // With currentDraft it polishes that text in place instead (Improve with
+  // AI) — the only generated path allowed for the custom purpose.
   // 502 on model failure — the UI shows a retry, never a canned fallback.
   'POST /v1/outreach/social/draft': {
     Request: SocialDraftRequest
