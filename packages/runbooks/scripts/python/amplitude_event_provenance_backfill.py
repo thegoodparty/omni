@@ -4,7 +4,7 @@ Walks the omni git history over the instrumentation paths and writes one provena
 Amplitude ``event_type`` to a CSV committed in this repo
 (``instrumentation_data/amplitude_event_provenance.csv``), plus a sidecar JSON watermark
 (``..._state.json``) recording the last processed commit SHA. With no watermark it does a full
-backfill; with one it walks ``git log <lastSHA>..origin/develop``, updates the events that
+backfill; with one it walks ``git log <lastSHA>..origin/main``, updates the events that
 changed, carries the rest forward, onboards any universe events absent from the CSV via a
 full-history pickaxe walk, and advances the watermark.
 
@@ -14,7 +14,7 @@ the one Databricks read), and WRITES the CSV + JSON into this repo. It never wri
 
 Extraction note: ``trackEvent(...)`` in omni is called with *constant references*, so we anchor
 on the authoritative event universe and match those literals against added/removed diff lines in
-a single ``git log -p`` pass. Deploy-ref anchored (``origin/develop``, fetched first). PR
+a single ``git log -p`` pass. Deploy-ref anchored (``origin/main``, fetched first). PR
 attribution is pure git via the merge-commit ancestry walk.
 
 Usage::
@@ -67,10 +67,11 @@ ANALYTICS_HELPER_PATH = "packages/gp-webapp/helpers/analyticsHelper.ts"
 # keeping an 8-month margin before real instrumentation. None walks full history.
 DEFAULT_SINCE = "2024-06-01"
 
-# Deployed default branch we attribute against. Provenance must reflect what shipped, so
-# the walk, the HEAD-presence grep, and the merge-walk all target this ref (fetched first),
-# not whatever branch the local omni checkout happens to be on.
-DEPLOY_REF = "origin/develop"
+# Deployed default branch we attribute against (single-trunk: main deploys dev on push
+# and prod by automated promotion of the same commits). Provenance must reflect what
+# shipped, so the walk, the HEAD-presence grep, and the merge-walk all target this ref
+# (fetched first), not whatever branch the local omni checkout happens to be on.
+DEPLOY_REF = "origin/main"
 
 DATABRICKS_CATALOG = "goodparty_data_catalog"
 # Event universe: the Amplitude Govern taxonomy (~434 events, all is_active). Read through the
@@ -656,7 +657,7 @@ def build_git_log_argv(
 ) -> list[str]:
     """argv for a ``git log -p`` pass over the instrumentation paths.
 
-    ``ref`` (e.g. ``origin/develop``) bounds the walk to a revision; placed before the ``--``
+    ``ref`` (e.g. ``origin/main``) bounds the walk to a revision; placed before the ``--``
     so git reads it as a rev, not a path. None walks HEAD (current checkout). ``pickaxe`` adds
     ``-S<literal>`` so the walk streams only the commits that changed that literal's occurrence
     count -- far cheaper than the full diff stream, and the count-change semantics match our
@@ -848,10 +849,10 @@ def git_commit_count(root: str, since: str | None, paths: Sequence[str], ref: st
 
 
 def git_fetch(root: str, ref: str) -> None:
-    """Update the deploy ref from its remote (``origin/develop`` -> ``git fetch origin develop``).
+    """Update the deploy ref from its remote (``origin/main`` -> ``git fetch origin main``).
 
     Aborts on a non-zero exit (network outage, missing remote, bad credentials) rather than
-    silently walking — and watermarking — stale local ``origin/develop`` state.
+    silently walking — and watermarking — stale local ``origin/main`` state.
     """
     remote, _, branch = ref.partition("/")
     argv = ["git", "-C", root, "fetch", "--quiet", remote]

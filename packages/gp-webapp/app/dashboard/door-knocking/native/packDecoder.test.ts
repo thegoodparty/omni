@@ -127,7 +127,6 @@ describe('runFilter + polygonStats', () => {
 
   it('counts stops and voters inside a drawn ring', () => {
     const pack = decodePack(buildFixture())
-    const all = runFilter(pack, new Map())
 
     // Ring around dot 0 only.
     const ring: Array<[number, number]> = [
@@ -137,9 +136,99 @@ describe('runFilter + polygonStats', () => {
       [-87.655, 41.905],
       [-87.655, 41.895],
     ]
-    expect(polygonStats(pack, all.matchedPerDot, ring)).toEqual({
+    expect(polygonStats(pack, new Map(), ring)).toMatchObject({
       stops: 1,
       people: 3,
+    })
+  })
+})
+
+describe('polygonStats', () => {
+  // Fixture geography: dot 0 at (-87.65, 41.9) carries households 0 and 1
+  // (persons 0-2), dot 1 at (-87.66, 41.91) carries household 2 (person 3).
+  const dotZeroRing: Array<[number, number]> = [
+    [-87.655, 41.895],
+    [-87.645, 41.895],
+    [-87.645, 41.905],
+    [-87.655, 41.905],
+    [-87.655, 41.895],
+  ]
+  const wholeDistrictRing: Array<[number, number]> = [
+    [-87.67, 41.89],
+    [-87.64, 41.89],
+    [-87.64, 41.92],
+    [-87.67, 41.92],
+    [-87.67, 41.89],
+  ]
+
+  // The draw step reports households and doors side by side at the moment of
+  // commitment, so they have to share a denominator. This is the regression
+  // that shipped: the count came off a district-wide runFilter, which the
+  // create flow never narrowed to the polygon.
+  it('reports households inside the ring, not across the district', () => {
+    const pack = decodePack(buildFixture())
+
+    const district = runFilter(pack, new Map())
+    expect(district.households).toBe(3)
+
+    // Households 0 and 1 sit at dot 0; household 2 is outside the ring.
+    expect(polygonStats(pack, new Map(), dotZeroRing).households).toBe(2)
+  })
+
+  // Same audience, same ring: the number the draw step shows must be the one
+  // runFilter would report for that audience, only restricted to the polygon.
+  it('counts a household only when one of its people survives the filter', () => {
+    const pack = decodePack(buildFixture())
+    const demsOnly: DimSelections = new Map([['party', new Set([1])]])
+
+    const stats = polygonStats(pack, demsOnly, dotZeroRing)
+
+    // Only person 0 is Democratic, and they live in household 0 — so the
+    // Republican's household 1 at the same dot must not be counted. That is
+    // stricter than maskToPolygon's dot-granular rollup, which returns 2 here.
+    expect(stats).toMatchObject({ stops: 1, people: 1, households: 1 })
+    expect(
+      maskToPolygon(pack, runFilter(pack, demsOnly), dotZeroRing).households,
+    ).toBe(2)
+  })
+
+  it('breaks the ring down by party, biggest bucket first', () => {
+    const pack = decodePack(buildFixture())
+
+    const stats = polygonStats(pack, new Map(), wholeDistrictRing)
+
+    // Persons 2 and 3 are Unknown, person 0 Democratic, person 1 Republican.
+    expect(stats.partyMix).toEqual([
+      { label: 'Unknown', people: 2 },
+      { label: 'Democratic', people: 1 },
+      { label: 'Republican', people: 1 },
+    ])
+  })
+
+  it('drops party buckets the filter excluded rather than showing them at zero', () => {
+    const pack = decodePack(buildFixture())
+    const demsOnly: DimSelections = new Map([['party', new Set([1])]])
+
+    expect(polygonStats(pack, demsOnly, wholeDistrictRing).partyMix).toEqual([
+      { label: 'Democratic', people: 1 },
+    ])
+  })
+
+  it('returns an empty turf when the ring encloses no dot', () => {
+    const pack = decodePack(buildFixture())
+
+    const elsewhere: Array<[number, number]> = [
+      [-87.7, 41.8],
+      [-87.69, 41.8],
+      [-87.69, 41.81],
+      [-87.7, 41.81],
+      [-87.7, 41.8],
+    ]
+    expect(polygonStats(pack, new Map(), elsewhere)).toEqual({
+      stops: 0,
+      people: 0,
+      households: 0,
+      partyMix: [],
     })
   })
 })

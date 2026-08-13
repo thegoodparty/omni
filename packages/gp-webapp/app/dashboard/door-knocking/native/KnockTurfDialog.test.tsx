@@ -3,7 +3,14 @@ import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import KnockTurfDialog from './KnockTurfDialog'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('helpers/analyticsHelper')>()
+  return { ...actual, trackEvent: vi.fn() }
+})
 
 const turf: DoorKnockingTurf = {
   id: 3,
@@ -29,6 +36,7 @@ const turf: DoorKnockingTurf = {
 describe('KnockTurfDialog', () => {
   beforeEach(() => {
     testQueryClient.clear()
+    vi.mocked(trackEvent).mockClear()
   })
 
   it('posts the chosen mode and loop and hands off to the route', async () => {
@@ -69,6 +77,44 @@ describe('KnockTurfDialog', () => {
 
     await waitFor(() => expect(onRouteReady).toHaveBeenCalledWith(3))
     expect(posted).toEqual([{ id: '3', mode: 'drive', loop: false }])
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.RouteBuilt, {
+      turfId: 3,
+      mode: 'drive',
+      loop: false,
+      stopCount: 40,
+      created: true,
+    })
+  })
+
+  // A 429 (daily routing budget) and a 502 (vendor down) are different
+  // problems, and the status is the only thing that tells them apart.
+  it('reports the status a failed route build came back with', async () => {
+    api.mock('POST /v1/door-knocking/turfs/:id/knock', {
+      status: 429,
+      data: { message: 'out of stops' },
+    })
+
+    render(
+      <KnockTurfDialog
+        turf={turf}
+        open={true}
+        onOpenChange={vi.fn()}
+        onRouteReady={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.DoorKnocking.RouteBuildFailed,
+        { turfId: 3, mode: 'walk', loop: true, status: 429 },
+      ),
+    )
+    expect(
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(([name]) => name === EVENTS.DoorKnocking.RouteBuilt),
+    ).toHaveLength(0)
   })
 
   const buildAndReadError = async () => {

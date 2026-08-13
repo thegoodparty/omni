@@ -12,6 +12,7 @@ import {
 import { ChevronDownIcon, ChevronRightIcon } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import PersonSheet from './PersonSheet'
+import { formatDistance } from './routeFormat'
 import { routeQueryOptions } from './turfQueries'
 import {
   rollupStatuses,
@@ -130,6 +131,17 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
       {routeQuery.data && (
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
           <div className="flex items-center justify-end gap-2 text-xs">
+            {/* The offline story for v1: a canvasser walking out of signal
+                takes paper. A plain link to a server-rendered page, so it
+                opens and prints without this bundle. */}
+            <a
+              href={`/dashboard/door-knocking/print/${turfId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-full border border-border px-3 py-1.5 font-medium underline-offset-2 hover:bg-muted/50 hover:underline"
+            >
+              Print list
+            </a>
             <span className="rounded-full border border-border px-3 py-1.5 font-medium">
               {routeQuery.data.route.mode === 'walk' ? 'Walking' : 'Driving'}
             </span>
@@ -188,7 +200,8 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
               <h3 className="text-sm font-semibold">Stops</h3>
               <span className="text-sm tabular-nums text-muted-foreground">
                 {routeQuery.data.route.stopCount} doors ·{' '}
-                {formatDuration(routeQuery.data.route.totalSeconds)}
+                {formatDuration(routeQuery.data.route.totalSeconds)} ·{' '}
+                {formatDistance(routeQuery.data.route.totalMeters)}
               </span>
             </div>
             <ol className="divide-y divide-border">

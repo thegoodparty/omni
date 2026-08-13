@@ -11,31 +11,27 @@ import {
 } from '@goodparty_org/contracts'
 import { Button, Textarea, ToggleGroup, ToggleGroupItem } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useDictationAppend } from 'app/dashboard/briefings/shared/useDictationAppend'
+import { DictationMicButton } from 'app/dashboard/briefings/shared/DictationMicButton'
+import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
+import {
+  OUTCOME_OPTIONS,
+  OUTCOME_QUESTION,
+  SUPPORT_OPTIONS,
+  SUPPORT_QUESTION,
+  WILL_VOTE_OPTIONS,
+  WILL_VOTE_QUESTION,
+} from './knockQuestions'
 
 // Compact cousin of the CRM wizard's pill toggles (crm/shared/constants.ts)
 // — same selected-state convention, sized for the walk view's dense form.
+// Matches the contract's ceiling (DoorKnockingInteraction.schema.ts) so an
+// over-long note is trimmed in the field rather than 400'd on save.
+const NOTE_MAX_LENGTH = 2_000
+
 const PILL_ITEM_CLASSNAME =
   'rounded-full border border-components-input-border bg-transparent px-3 py-1 text-xs font-normal text-foreground data-[state=on]:border-tertiary-dark data-[state=on]:bg-tertiary-dark data-[state=on]:text-tertiary-foreground data-[state=on]:hover:bg-tertiary-dark/90'
-
-const OUTCOME_OPTIONS: Array<[DoorKnockOutcome, string]> = [
-  ['answered', 'Answered'],
-  ['not_home', 'Not home'],
-  ['inaccessible', 'Inaccessible'],
-  ['refused_to_engage', 'Refused to engage'],
-  ['not_a_voter', 'Not a voter'],
-]
-
-const SUPPORT_OPTIONS: Array<[SupportAnswer, string]> = [
-  ['supporter', 'Yes'],
-  ['unsure', 'Unsure'],
-  ['non_supporter', 'No'],
-]
-
-const WILL_VOTE_OPTIONS: Array<[WillVoteAnswer, string]> = [
-  ['yes', 'Yes'],
-  ['unsure', 'Unsure'],
-  ['no', 'No'],
-]
 
 interface RecordKnockFormProps {
   target: RoutePayloadTarget
@@ -89,6 +85,17 @@ export default function RecordKnockForm({
   >()
   const [willVote, setWillVote] = useState<WillVoteAnswer | undefined>()
   const [note, setNote] = useState('')
+  // Dictation is the point of the notes field in the field: nobody types a
+  // paragraph one-handed on a doorstep in the rain. The shared hook already
+  // reports under EVENTS.Dictation with this label — the transcript itself
+  // never leaves the textarea.
+  const dictation = useDictationAppend({
+    analyticsLabel: 'door_knocking_note',
+    value: note,
+    // The textarea's maxLength only constrains typing; a long dictation
+    // appends straight past it, so the same ceiling is enforced here.
+    onChange: (next) => setNote(next.slice(0, NOTE_MAX_LENGTH)),
+  })
 
   const record = useMutation({
     mutationFn: () => {
@@ -104,6 +111,16 @@ export default function RecordKnockForm({
       }).then((res) => res.data)
     },
     onSuccess: (data) => {
+      const answered = outcome === 'answered'
+      trackEvent(EVENTS.DoorKnocking.DoorLogged, {
+        outcome,
+        knockStatus: data.knockStatus,
+        // Whether a note was written, never what it said — notes are about
+        // named voters and don't belong in an analytics payload.
+        hasNote: note.trim().length > 0,
+        ...(answered && supportAnswer ? { supportAnswer } : {}),
+        ...(answered && willVote ? { willVote } : {}),
+      })
       onRecorded(data.personId, data.knockStatus)
     },
   })
@@ -111,7 +128,7 @@ export default function RecordKnockForm({
   return (
     <div className="flex flex-col gap-3 rounded-md border border-border p-3">
       <ChoiceRow
-        label="Did they answer?"
+        label={OUTCOME_QUESTION}
         options={OUTCOME_OPTIONS}
         value={outcome}
         onChange={(value) => {
@@ -125,26 +142,36 @@ export default function RecordKnockForm({
       {outcome === 'answered' && (
         <>
           <ChoiceRow
-            label="Do they support you?"
+            label={SUPPORT_QUESTION}
             options={SUPPORT_OPTIONS}
             value={supportAnswer}
             onChange={setSupportAnswer}
           />
           <ChoiceRow
-            label="Will they vote?"
+            label={WILL_VOTE_QUESTION}
             options={WILL_VOTE_OPTIONS}
             value={willVote}
             onChange={setWillVote}
           />
         </>
       )}
-      <Textarea
-        value={note}
-        maxLength={2000}
-        placeholder="Notes (optional)"
-        rows={2}
-        onChange={(e) => setNote(e.target.value)}
-      />
+      <div className="relative">
+        <Textarea
+          value={note}
+          maxLength={NOTE_MAX_LENGTH}
+          placeholder="Notes (optional)"
+          rows={2}
+          className="pr-12"
+          onChange={(e) => setNote(e.target.value)}
+        />
+        <DictationMicButton
+          dictation={dictation}
+          idleLabel="Dictate note"
+          recordingLabel="Stop dictation"
+          disabled={record.isPending}
+        />
+      </div>
+      <DictationFeedback dictation={dictation} />
       {record.isError && (
         <p className="text-sm text-destructive">
           Saving failed — your answers are still here, try again.

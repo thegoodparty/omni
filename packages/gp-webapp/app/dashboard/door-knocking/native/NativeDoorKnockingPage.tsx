@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -30,6 +30,7 @@ import KnockTurfDialog from './KnockTurfDialog'
 import TurfDetailsSheet from './TurfDetailsSheet'
 import TurfList from './TurfList'
 import WalkView from './WalkView'
+import { useWalkSession } from './useWalkSession'
 import {
   rollupStatuses,
   STATUS_DOT_COLORS,
@@ -65,9 +66,8 @@ export default function NativeDoorKnockingPage({
     ...voterPackQueryOptions,
     enabled: !isUnresolvable,
   })
-  // Set while a walk records knocks; leaving the walk then refetches the
-  // pack so the landing dots pick up the new statuses.
-  const packDirtyRef = useRef(false)
+  // Owns the walk turf as well as the funnel events for the session.
+  const walk = useWalkSession()
   const turfsQuery = useQuery({
     ...turfsQueryOptions,
     enabled: !isUnresolvable,
@@ -94,10 +94,7 @@ export default function NativeDoorKnockingPage({
   const savedListsQuery = useQuery(savedListsQueryOptions)
   const [knockTurf, setKnockTurf] = useState<DoorKnockingTurf | null>(null)
   const [detailsTurf, setDetailsTurf] = useState<DoorKnockingTurf | null>(null)
-  const [walkTurf, setWalkTurf] = useState<{
-    id: number
-    name: string
-  } | null>(null)
+  const walkTurf = walk.turf
 
   // The filter draft narrows the preview only while the create flow is open;
   // the landing map always shows the whole district.
@@ -168,31 +165,25 @@ export default function NativeDoorKnockingPage({
     }
     return result
   }, [packQuery.data, selections, flowStep, selectedTurf])
-  // Unfiltered pass for turf-details area stats (doors/voters in polygon).
-  const fullResult = useMemo(
-    () =>
-      packQuery.data && detailsTurf
-        ? runFilter(packQuery.data, new Map())
-        : null,
-    [packQuery.data, detailsTurf],
-  )
+  // Unfiltered (empty selections) area stats for turf details: doors/voters
+  // inside the saved polygon, regardless of the list's own filters.
   const detailsAreaStats = useMemo(
     () =>
-      packQuery.data && fullResult && detailsTurf
+      packQuery.data && detailsTurf
         ? polygonStats(
             packQuery.data,
-            fullResult.matchedPerDot,
+            new Map(),
             (detailsTurf.geoPoly.coordinates[0] ?? []) as [number, number][],
           )
         : null,
-    [packQuery.data, fullResult, detailsTurf],
+    [packQuery.data, detailsTurf],
   )
   const turfStats = useMemo(
     () =>
-      packQuery.data && filterResult && ring
-        ? polygonStats(packQuery.data, filterResult.matchedPerDot, ring)
+      packQuery.data && ring
+        ? polygonStats(packQuery.data, selections, ring)
         : null,
-    [packQuery.data, filterResult, ring],
+    [packQuery.data, selections, ring],
   )
   // Landing-rail status chips: person-level counts over the whole district.
   const statusCounts = useMemo(() => {
@@ -235,6 +226,19 @@ export default function NativeDoorKnockingPage({
     [walkTurf, walkRouteQuery.data],
   )
 
+  // Leaving the walk is the only way out of it. Doors logged along the way
+  // mean the landing map's dots are stale.
+  const endWalk = () => {
+    const doorsLogged = walk.end({
+      stopCount: walkRouteQuery.data?.route.stopCount ?? 0,
+    })
+    if (doorsLogged > 0) {
+      void queryClient.invalidateQueries({
+        queryKey: voterPackQueryOptions.queryKey,
+      })
+    }
+  }
+
   const changeFlowStep = (next: CreateFlowStep) => {
     if (next === 'draw' && flowStep === 'filters') {
       setStartDrawToken((token) => token + 1)
@@ -269,14 +273,7 @@ export default function NativeDoorKnockingPage({
 
   const rightRail = () => {
     if (walkTurf) {
-      return (
-        <WalkView
-          turfId={walkTurf.id}
-          onKnockRecorded={() => {
-            packDirtyRef.current = true
-          }}
-        />
-      )
+      return <WalkView turfId={walkTurf.id} onKnockRecorded={walk.recordDoor} />
     }
     // The create flow renders as a full-width overlay, not a rail.
     if (flowStep) return null
@@ -298,7 +295,8 @@ export default function NativeDoorKnockingPage({
           onKnockTurf={(turf) => {
             // Knock is idempotent: a knocked turf opens its existing route,
             // an unknocked one confirms mode/loop and builds it.
-            if (turf.locked) setWalkTurf({ id: turf.id, name: turf.name })
+            if (turf.locked)
+              walk.start({ id: turf.id, name: turf.name }, 'existingRoute')
             else setKnockTurf(turf)
           }}
         />
@@ -371,18 +369,7 @@ export default function NativeDoorKnockingPage({
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
             {walkTurf && (
-              <IconButton
-                aria-label="Back to the map"
-                onClick={() => {
-                  setWalkTurf(null)
-                  if (packDirtyRef.current) {
-                    packDirtyRef.current = false
-                    void queryClient.invalidateQueries({
-                      queryKey: voterPackQueryOptions.queryKey,
-                    })
-                  }
-                }}
-              >
+              <IconButton aria-label="Back to the map" onClick={endWalk}>
                 <ArrowLeftIcon size={18} />
               </IconButton>
             )}
@@ -481,7 +468,7 @@ export default function NativeDoorKnockingPage({
               onFiltersChange={setFilters}
               onStepChange={changeFlowStep}
               onClose={closeFlow}
-              matchingHouseholds={filterResult?.households ?? 0}
+              districtHouseholds={filterResult?.households ?? 0}
               ring={ring}
               turfStats={turfStats}
               onSaved={handleSaved}
@@ -524,7 +511,7 @@ export default function NativeDoorKnockingPage({
           }}
           onRouteReady={(turfId) => {
             setKnockTurf(null)
-            setWalkTurf({ id: turfId, name: knockTurf.name })
+            walk.start({ id: turfId, name: knockTurf.name }, 'newRoute')
           }}
         />
       )}

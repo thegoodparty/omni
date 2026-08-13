@@ -17,6 +17,7 @@ import {
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 const KNOCK_ERROR_FALLBACK =
   'Route building failed — nothing was saved. Try again in a moment.'
@@ -56,10 +57,31 @@ export default function KnockTurfDialog({
         mode,
         loop,
       }).then((res) => res.data),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      trackEvent(EVENTS.DoorKnocking.RouteBuilt, {
+        turfId: turf.id,
+        mode,
+        loop,
+        stopCount: data.route.stopCount,
+        // False when the turf was already knocked (by a teammate, or in
+        // another tab) and gp-api returned the frozen route instead of
+        // building one. No vendor call, no new route — worth telling apart.
+        created: data.created,
+      })
       void queryClient.invalidateQueries({ queryKey: ['door-knocking-turfs'] })
       onOpenChange(false)
       onRouteReady(turf.id)
+    },
+    onError: (error) => {
+      trackEvent(EVENTS.DoorKnocking.RouteBuildFailed, {
+        turfId: turf.id,
+        mode,
+        loop,
+        // Separates the failures the candidate can act on (400 empty turf or
+        // over the stop cap, 429 daily routing budget) from the vendor being
+        // down (502) — different problems with very different fixes.
+        status: error instanceof FetchError ? error.status : undefined,
+      })
     },
   })
 

@@ -7,7 +7,14 @@ import {
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import TurfDetailsSheet from './TurfDetailsSheet'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('helpers/analyticsHelper')>()
+  return { ...actual, trackEvent: vi.fn() }
+})
 
 // The test renderer wraps only QueryClientProvider, and useSnackbar throws
 // outside its provider.
@@ -88,6 +95,7 @@ describe('TurfDetailsSheet delete', () => {
     testQueryClient.clear()
     successSnackbar.mockClear()
     errorSnackbar.mockClear()
+    vi.mocked(trackEvent).mockClear()
   })
 
   // gp-api's assertNotLocked 409s on a knocked turf, so offering the button
@@ -142,6 +150,9 @@ describe('TurfDetailsSheet delete', () => {
     await waitFor(() => expect(deletedId).toBe('1'))
     expect(onDeleted).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }))
     expect(successSnackbar).toHaveBeenCalled()
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.ListDeleted, {
+      turfId: 1,
+    })
   })
 
   // A 409 means someone knocked it mid-sheet, which is permanent. Leaving the
@@ -166,6 +177,8 @@ describe('TurfDetailsSheet delete', () => {
       expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull(),
     )
     expect(onDeleted).not.toHaveBeenCalled()
+    // Nothing was deleted, so nothing to report.
+    expect(trackEvent).not.toHaveBeenCalled()
   })
 
   // Unlike a 409, a transient failure is worth another attempt, so the dialog

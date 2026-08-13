@@ -16,6 +16,8 @@ import { NEXT_PUBLIC_GEOAPIFY_TILES_KEY } from 'appEnv'
 import { STATUS_RGB } from './statusPresentation'
 import { DecodedPack } from './packDecoder'
 import { FilterResult } from './filterEngine'
+import LiveLocationControl from './LiveLocationControl'
+import { LiveLocationFix, useLiveLocation } from './useLiveLocation'
 
 // Dots and legend chips share one palette (statusPresentation.ts) so they
 // cannot disagree; indexes match DOOR_KNOCK_STATUSES order (the status
@@ -26,6 +28,13 @@ const UNMATCHED_COLOR: [number, number, number, number] = [190, 195, 200, 60]
 // The demo's action blue for the in-progress boundary.
 const DRAW_BLUE: [number, number, number, number] = [19, 81, 216, 255]
 const DRAW_BLUE_FILL: [number, number, number, number] = [19, 81, 216, 40]
+// "You are here": the same action blue, muted when the fix is too coarse to
+// trust, so a bad fix reads as a guess rather than a claim.
+const LOCATION_BLUE: [number, number, number, number] = [19, 81, 216, 255]
+const LOCATION_BLUE_APPROX: [number, number, number, number] = [
+  19, 81, 216, 120,
+]
+const LOCATION_HALO: [number, number, number, number] = [19, 81, 216, 38]
 
 export type PolygonRing = Array<[number, number]>
 
@@ -139,6 +148,10 @@ export default function VoterMapCanvas({
   onPolygonChangeRef.current = onPolygonChange
   const onDrawPointCountRef = useRef(onDrawPointCount)
   onDrawPointCountRef.current = onDrawPointCount
+  // Opt-in: nothing is watched until the canvasser asks to be shown.
+  const [locationEnabled, setLocationEnabled] = useState(false)
+  const location = useLiveLocation(locationEnabled)
+  const locationFix = location.fix
 
   useEffect(() => {
     if (!containerRef.current || !hasTilesKey) return
@@ -402,6 +415,42 @@ export default function VoterMapCanvas({
           fontWeight: 700,
           pickable: false,
         }),
+        // The canvasser's own position, drawn last so it stays readable on
+        // top of the route it is being compared against.
+        new ScatterplotLayer<LiveLocationFix>({
+          id: 'live-location-accuracy',
+          data: locationFix ? [locationFix] : [],
+          getPosition: (fix) => [fix.lng, fix.lat],
+          // Real metres, so the halo means something on the street. Capped
+          // in pixels because a fallback wifi/IP fix can be kilometres wide
+          // and would otherwise wash out the whole viewport.
+          radiusUnits: 'meters',
+          getRadius: (fix) => fix.accuracyMeters,
+          radiusMaxPixels: 140,
+          getFillColor: LOCATION_HALO,
+          stroked: false,
+          pickable: false,
+          updateTriggers: { getPosition: locationFix, getRadius: locationFix },
+        }),
+        new ScatterplotLayer<LiveLocationFix>({
+          id: 'live-location-dot',
+          data: locationFix ? [locationFix] : [],
+          getPosition: (fix) => [fix.lng, fix.lat],
+          getFillColor: location.approximate
+            ? LOCATION_BLUE_APPROX
+            : LOCATION_BLUE,
+          getLineColor: [255, 255, 255, 255],
+          stroked: true,
+          lineWidthMinPixels: 2.5,
+          radiusMinPixels: 7,
+          radiusMaxPixels: 9,
+          getRadius: 8,
+          pickable: false,
+          updateTriggers: {
+            getPosition: locationFix,
+            getFillColor: location.approximate,
+          },
+        }),
       ],
     })
   }, [
@@ -412,7 +461,26 @@ export default function VoterMapCanvas({
     routeLoop,
     routeGeometry,
     drawPoints,
+    locationFix,
+    location.approximate,
   ])
+
+  // One recenter per time the canvasser turns location on: they asked where
+  // they are, so show them — but only on that first fix, so the camera is
+  // never yanked away from the route mid-walk as fixes keep arriving.
+  const recenteredRef = useRef(false)
+  useEffect(() => {
+    if (!locationEnabled) {
+      recenteredRef.current = false
+      return
+    }
+    if (!locationFix || recenteredRef.current || !mapRef.current) return
+    recenteredRef.current = true
+    mapRef.current.easeTo({
+      center: [locationFix.lng, locationFix.lat],
+      duration: 600,
+    })
+  }, [locationEnabled, locationFix])
 
   useEffect(() => {
     if (!focusTurf || !mapRef.current) return
@@ -505,5 +573,14 @@ export default function VoterMapCanvas({
     )
   }
 
-  return <div ref={containerRef} className="h-full w-full" />
+  return (
+    <div className="relative h-full w-full">
+      <div ref={containerRef} className="h-full w-full" />
+      <LiveLocationControl
+        location={location}
+        enabled={locationEnabled}
+        onToggle={setLocationEnabled}
+      />
+    </div>
+  )
 }

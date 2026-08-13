@@ -32,7 +32,9 @@ import {
   ProfileClaimRequestResponseSchema,
 } from '../schemas/public/ProfileClaimRequest.schema'
 import { PersonProfilesService } from '../services/person-profiles.service'
+import { CrmPersonProfilesService } from '../services/crm-person-profiles.service'
 import { VoterDensityProxyService } from '../services/voter-density-proxy.service'
+import { ProfileClaimRequestSource } from '../../generated/prisma'
 import {
   GetVoterDensityDto,
   VoterDensityResponse,
@@ -91,6 +93,7 @@ function buildRemovedResponse(personId: string): PublicPersonProfileResponse {
 export class PublicPersonProfilesController {
   constructor(
     private readonly personProfilesService: PersonProfilesService,
+    private readonly crmPersonProfiles: CrmPersonProfilesService,
     private readonly voterDensityProxy: VoterDensityProxyService,
   ) {}
 
@@ -211,6 +214,14 @@ export class PublicPersonProfilesController {
   // gymnastics beyond validation. Because it's an unauthenticated write, a
   // per-IP rate-limit guard (mirroring the briefings-share stopgap) keeps a
   // scripted caller from flooding the leads table until edge/WAF limits land.
+  //
+  // A `notify` submission (a VISITOR nudging this person, as opposed to the
+  // person claiming their own page) also refreshes the candidate's HubSpot
+  // `candidate_profile_requests` count. That runs detached and after the row is
+  // committed: the visitor's submission is already durable and successful by
+  // then, so a HubSpot or warehouse outage can only cost the CRM number a
+  // refresh — which the next submission repairs, since the write is a computed
+  // total rather than an increment.
   @Post('claim-request')
   @HttpCode(HttpStatus.CREATED)
   @ResponseSchema(ProfileClaimRequestResponseSchema)
@@ -218,6 +229,21 @@ export class PublicPersonProfilesController {
   async createClaimRequest(
     @Body() dto: CreateProfileClaimRequestDto,
   ): Promise<ProfileClaimRequestResponse> {
-    return this.personProfilesService.createClaimRequest(dto)
+    const claimRequest =
+      await this.personProfilesService.createClaimRequest(dto)
+
+    if (dto.source === ProfileClaimRequestSource.notify) {
+      // `syncClaimRequestCount` already swallows its own failures, but settle
+      // BOTH outcomes explicitly rather than `void`-ing the promise: an
+      // unhandled rejection here would take the process down, and a bare
+      // `void p` (or `p.finally()`) leaves one unhandled if that guarantee ever
+      // regresses.
+      const settle = (): void => undefined
+      this.crmPersonProfiles
+        .syncClaimRequestCount(dto.personId)
+        .then(settle, settle)
+    }
+
+    return claimRequest
   }
 }

@@ -35,6 +35,10 @@ export const ASSISTANT_BUBBLE =
   '[&_strong]:!inline [&_strong]:font-semibold [&_em]:!inline [&_em]:italic ' +
   '[&_a]:!inline [&_a]:underline [&_code]:!inline [&_code]:rounded ' +
   '[&_code]:bg-foreground/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs ' +
+  '[&_pre]:!block [&_pre]:overflow-x-auto [&_pre]:rounded-md ' +
+  '[&_pre]:bg-foreground/10 [&_pre]:p-3 [&_pre]:my-1 [&_pre_code]:!block ' +
+  '[&_pre_code]:!bg-transparent [&_pre_code]:!px-0 [&_pre_code]:!py-0 ' +
+  '[&_pre_code]:!rounded-none ' +
   '[&_li]:!list-item [&_li]:my-0 [&_ul]:!block [&_ul]:list-disc [&_ul]:pl-5 ' +
   '[&_ul]:space-y-1 [&_ol]:!block [&_ol]:list-decimal [&_ol]:pl-5 ' +
   '[&_ol]:space-y-1 [&_h1]:!block [&_h1]:text-base [&_h1]:font-semibold ' +
@@ -70,6 +74,40 @@ export function AssistantRow({
   )
 }
 
+// CommonMark turns any line indented 4+ spaces into a code block, so model
+// output that leaks leading indentation renders prose as a grey code box.
+// Strip that indentation outside fenced (```) blocks before rendering.
+// Trade-off: deeply nested list items (indented 4+ spaces) also flatten to a
+// single level — acceptable for chat prose, where stray code boxes are worse.
+const normalizeMarkdown = (md: string): string => {
+  let inFence = false
+  return md
+    .split('\n')
+    .map((line) => {
+      if (/^\s*(`{3,}|~{3,})/.test(line)) {
+        inFence = !inFence
+        return line
+      }
+      return inFence ? line : line.replace(/^ {4,}/, '')
+    })
+    .join('\n')
+}
+
+// The markdown core with no chrome: normalized source + the shared plugins.
+// Use inside a caller's own bubble (a turn that also renders tool pills in the
+// same bubble); AssistantMarkdown wraps this in the standard bubble.
+export function ChatMarkdown({
+  children,
+}: {
+  children: string
+}): React.JSX.Element {
+  return (
+    <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>
+      {normalizeMarkdown(children)}
+    </ReactMarkdown>
+  )
+}
+
 export function AssistantMarkdown({
   children,
 }: {
@@ -77,7 +115,7 @@ export function AssistantMarkdown({
 }): React.JSX.Element {
   return (
     <div className={ASSISTANT_BUBBLE}>
-      <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{children}</ReactMarkdown>
+      <ChatMarkdown>{children}</ChatMarkdown>
     </div>
   )
 }

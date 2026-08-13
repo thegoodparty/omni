@@ -7,6 +7,7 @@ import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { Button, IconButton, Trash2Icon, XMarkIcon } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ConfirmDeleteDialog } from 'app/dashboard/shared/ConfirmDeleteDialog'
 import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
 import { LANGUAGE_KEY_TO_CODE } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
@@ -88,6 +89,7 @@ export default function TurfDetailsSheet({
       await queryClient.invalidateQueries({
         queryKey: turfsQueryOptions.queryKey,
       })
+      trackEvent(EVENTS.DoorKnocking.ListDeleted, { turfId: turf.id })
       successSnackbar('List deleted')
       setConfirmOpen(false)
       onDeleted(turf)
@@ -193,8 +195,11 @@ export default function TurfDetailsSheet({
               Overview
             </h3>
             <div className="grid grid-cols-2 gap-3">
+              {/* Both branches are stop counts — the frozen route's, or the
+                  dots in the polygon before one exists. Several households
+                  can share a stop, so this is doors, and says so. */}
               <Stat
-                label="Households"
+                label="Doors"
                 value={(
                   route?.route.stopCount ??
                   areaStats?.stops ??
