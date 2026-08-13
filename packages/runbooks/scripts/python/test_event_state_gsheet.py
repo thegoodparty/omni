@@ -237,3 +237,43 @@ def test_write_meta_sheet_default_tab_is_META_TAB():
     svc = _FakeService()
     gs.write_meta_sheet({"refreshed_at": "x"}, service=svc, spreadsheet_id="s")
     assert svc.log[0][1]["range"] == f"{gs.META_TAB}!A1"
+
+
+QUESTION_ROWS = [
+    {"question": "Are people exporting voter files?", "state": "partially_answerable",
+     "asked_by": "nate@goodparty.org", "question_ref": "86ak1111",
+     "behaviors": ["voter_file_exported"], "events": ["Voter Data - List Exported"],
+     "gaps": ["DownloadStep.tsx"], "caveats": []},
+    {"question": "Are people creating lists?", "state": "answerable", "asked_by": "",
+     "question_ref": "", "behaviors": ["voter_file_created"],
+     "events": ["Voter Data - List Created"], "gaps": [],
+     "caveats": ["one list per abandoned attempt (DATA-2308)"]},
+]
+
+
+def test_build_question_values_header_then_rows():
+    matrix = gs.build_question_values(QUESTION_ROWS)
+    assert matrix[0] == gs.QUESTIONS_COLUMNS
+    assert len(matrix) == 3
+    assert all(isinstance(cell, str) for row in matrix for cell in row)
+
+
+def test_build_question_values_joins_list_cells():
+    matrix = gs.build_question_values(QUESTION_ROWS)
+    gaps_idx = gs.QUESTIONS_COLUMNS.index("uninstrumented_surfaces")
+    assert matrix[1][gaps_idx] == "DownloadStep.tsx"
+    caveat_idx = gs.QUESTIONS_COLUMNS.index("caveats")
+    assert matrix[2][caveat_idx] == "one list per abandoned attempt (DATA-2308)"
+
+
+def test_build_question_values_blank_for_missing_keys():
+    matrix = gs.build_question_values([{"question": "Q"}])
+    assert matrix[1][gs.QUESTIONS_COLUMNS.index("state")] == ""
+
+
+def test_write_questions_sheet_updates_then_clears():
+    svc = _FakeService()
+    n = gs.write_questions_sheet(QUESTION_ROWS, service=svc, spreadsheet_id="s1")
+    assert n == 2
+    assert [k for k, _ in svc.log] == ["update", "clear"]
+    assert svc.log[0][1]["range"] == f"{gs.QUESTIONS_TAB}!A1"

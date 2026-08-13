@@ -152,6 +152,65 @@ def write_meta_sheet(
     return len(values) - 1
 
 
+QUESTIONS_TAB = "questions"
+QUESTIONS_COLUMNS = [
+    "question", "state", "asked_by", "behaviors", "answering_events",
+    "uninstrumented_surfaces", "caveats", "clickup_task",
+]
+_QUESTION_COL_KEY = {
+    "answering_events": "events",
+    "uninstrumented_surfaces": "gaps",
+    "clickup_task": "question_ref",
+}
+
+
+def build_question_values(rows: list[dict]) -> list[list[str]]:
+    """QUESTIONS_COLUMNS header + one row per question. List cells render as a comma list so
+    the tab is readable without a formula. answering_events is regenerated from live coverage
+    every run, which is what makes supersession maintain itself instead of rotting."""
+    matrix: list[list[str]] = [list(QUESTIONS_COLUMNS)]
+    for row in rows:
+        line = []
+        for col in QUESTIONS_COLUMNS:
+            val = row.get(_QUESTION_COL_KEY.get(col, col))
+            if isinstance(val, (list, tuple)):
+                val = ", ".join(str(v) for v in val)
+            line.append("" if val is None else str(val))
+        matrix.append(line)
+    return matrix
+
+
+def write_questions_sheet(
+    rows: list[dict], *, service: Any, spreadsheet_id: str, tab: str = QUESTIONS_TAB
+) -> int:
+    """Full-overwrite `tab`; returns the data-row count. Same write-then-clear order as
+    write_sheet so a failed update never leaves an empty tab."""
+    values = build_question_values(rows)
+    sheets = service.spreadsheets()
+    sheets.values().update(
+        spreadsheetId=spreadsheet_id, range=f"{tab}!A1",
+        valueInputOption="RAW", body={"values": values},
+    ).execute()
+    sheets.values().clear(
+        spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ"
+    ).execute()
+    return len(values) - 1
+
+
+def question_rows_for_refresh() -> list[dict]:
+    """Shared by the refresh-questions command and the ClickUp write-back, so both report the
+    same state from one Databricks read. assemble()'s rows already carry event_type and
+    status, which is everything coverage reads; re-running reconcile would be a second round
+    trip for the same answer."""
+    import analytics_event_health as aeh
+    import behavior_questions as bqs
+    import behavior_registry as brg
+
+    result = esa.assemble(date.today())
+    by_type = {r["event_type"]: r for r in result["rows"]}
+    return bqs.question_rows(brg.load_behaviors(aeh.WATCHLIST), by_type)
+
+
 def write_sheet(rows: list[dict], *, service: Any, spreadsheet_id: str, tab: str = SHEET_TAB) -> int:
     """Full-overwrite `tab` with the assembled rows. Returns the data row count (excl. header).
     `service` is a googleapiclient Sheets resource (injected in tests).
@@ -232,7 +291,7 @@ def get_sheets_service(token_path: Path = TOKEN_PATH, client_secrets_file: str |
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Write the event-state table to a Google Sheet.")
-    parser.add_argument("command", choices=["refresh", "refresh-gaps"])
+    parser.add_argument("command", choices=["refresh", "refresh-gaps", "refresh-questions"])
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -261,6 +320,22 @@ def main(argv: list[str] | None = None) -> int:
         "key on the raw event_type (as fired in code), not the Govern display name",
     )
     args = parser.parse_args(argv)
+
+    if args.command == "refresh-questions":
+        rows = question_rows_for_refresh()
+        if args.dry_run:
+            values = build_question_values(rows)
+            print(f"{len(values)} rows x {len(values[0])} cols (incl. header); "
+                  f"{len(rows)} questions")
+            return 0
+        if not args.spreadsheet_id:
+            print("--spreadsheet-id or GP_EVENT_STATE_SHEET_ID required for a live write",
+                  file=sys.stderr)
+            return 2
+        service = get_sheets_service(client_secrets_file=args.client_secrets)
+        count = write_questions_sheet(rows, service=service, spreadsheet_id=args.spreadsheet_id)
+        print(f"wrote {count} questions to sheet {args.spreadsheet_id} (tab {QUESTIONS_TAB})")
+        return 0
 
     if args.command == "refresh-gaps":
         state = load_gaps_state(Path(args.state))
