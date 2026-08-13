@@ -11,6 +11,15 @@ import {
 import { Prisma, ElectionCode as EC } from '../generated/prisma'
 import { NotFoundException } from '@nestjs/common'
 
+// District types that exist as rows but must not be offered as something a
+// campaign can be bound to. Proposed_District holds the vendor's proposed maps
+// for an upcoming election; which states may use one is a per-state policy call
+// (some proposed maps were never adopted, and one was struck down in court), so
+// until that gate exists upstream nothing should be able to select one by hand.
+// Discovery only — getDistricts still resolves these by id so routing can use
+// them once gated.
+const UNBINDABLE_DISTRICT_TYPES = ['Proposed_District'] as const
+
 export class DistrictsService extends createPrismaBase(MODELS.District) {
   constructor() {
     super()
@@ -108,7 +117,16 @@ export class DistrictsService extends createPrismaBase(MODELS.District) {
     field: K,
   ) {
     const turnoutWhere = this.buildTurnoutWhere(dto)
-    const where = this.buildDistrictWhere(dto, turnoutWhere)
+
+    // AND rather than spread: a caller that asks for the hidden type by name
+    // must still get nothing back, so the exclusion cannot be overwritten by
+    // the dto's own L2DistrictType filter.
+    const where: Prisma.DistrictWhereInput = {
+      AND: [
+        this.buildDistrictWhere(dto, turnoutWhere),
+        { L2DistrictType: { notIn: [...UNBINDABLE_DISTRICT_TYPES] } },
+      ],
+    }
 
     return await this.model.findMany({
       where,
