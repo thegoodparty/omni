@@ -104,7 +104,15 @@ export class DoorKnockingKnockService extends createPrismaBase(
             id: turfId,
             voterFileFilter: { organizationSlug: organization.slug },
           },
-          include: { voterFileFilter: true },
+          // activityConditions is a relation, so it has to be pulled in
+          // explicitly — without it the resolution below sees a list with no
+          // conditions and knocks the unfiltered roster.
+          // activityConditions is a relation, so it has to be pulled in
+          // explicitly — without it the resolution below sees a list with no
+          // conditions and knocks the unfiltered roster.
+          include: {
+            voterFileFilter: { include: { activityConditions: true } },
+          },
         })
         if (!turf) {
           throw new NotFoundException('Turf not found')

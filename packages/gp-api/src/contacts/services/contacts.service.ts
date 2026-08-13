@@ -478,9 +478,13 @@ export class ContactsService {
   // silently drops activity conditions, support status, contacts-made, and
   // voter-likelihood overrides, so a list previewed in Contacts and the same
   // list knocked would target different people.
+  // Takes the resolution input shape, not a bare `Partial<VoterFileFilter>`:
+  // activityConditions is a relation, so a caller that loads the row without
+  // including it type-checks fine and silently resolves as if the list had no
+  // conditions at all.
   async resolveSavedFilterForQuery(
     organization: Organization,
-    filter: Partial<VoterFileFilter>,
+    filter: ContactsFilterResolutionInput,
   ): Promise<{
     filters: FilterObject
     empty: boolean

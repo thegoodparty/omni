@@ -4,6 +4,7 @@ import {
   GeoJsonPolygon,
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
+import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { DoorKnockingPeopleApiService } from '../services/doorKnockingPeopleApi.service'
 import {
   Campaign,
@@ -540,6 +541,61 @@ describe('door-knocking routes', () => {
       // supporter logged above.
       const lastCall = vi.mocked(peopleApi.evaluate).mock.calls.at(-1)
       expect(lastCall?.[0].filters?.id).toEqual({ notIn: [priorContact] })
+    })
+
+    // supportStatus is a column on the filter row; activityConditions is a
+    // relation, so it only reaches resolution if the knock's turf read
+    // explicitly includes it. Loading the filter without that include still
+    // type-checks and still resolves — as a list with no conditions at all —
+    // so this asserts the outgoing id set, not merely that a knock succeeded.
+    it("resolves the list's activity conditions, which live on a relation", async () => {
+      const responded = '000000bb-1111-1111-1111-111111111111'
+      const noResponse = '000000cc-1111-1111-1111-111111111111'
+      const outreach = await service.prisma.outreach.create({
+        data: {
+          campaignId: campaign.id,
+          organizationSlug: orgSlug,
+          outreachType: OutreachType.text,
+          status: OutreachStatus.completed,
+        },
+      })
+      const texts = service.app.get(ContactInteractionTextService)
+      await texts.create({
+        organizationSlug: orgSlug,
+        personId: noResponse,
+        occurredAt: new Date(),
+        outreachId: outreach.id,
+      })
+      await texts.create({
+        organizationSlug: orgSlug,
+        personId: responded,
+        occurredAt: new Date(),
+        outreachId: outreach.id,
+        respondedAt: new Date(),
+      })
+      await service.prisma.voterFileFilter.update({
+        where: { id: filter.id },
+        data: {
+          activityConditions: {
+            create: [
+              {
+                outreachType: OutreachType.text,
+                outreachId: outreach.id,
+                actions: ['responded'],
+              },
+            ],
+          },
+        },
+      })
+      const turf = await createTurf()
+      stubVendors()
+      const peopleApi = service.app.get(DoorKnockingPeopleApiService)
+
+      const res = await knock(turf.id)
+
+      expect(res.status).toBe(201)
+      const lastCall = vi.mocked(peopleApi.evaluate).mock.calls.at(-1)
+      expect(lastCall?.[0].filters?.id).toEqual({ in: [responded] })
     })
 
     it('rejects a knock whose list resolves to nobody without calling the vendor', async () => {

@@ -84,7 +84,10 @@ interactive transaction:
    knock spent real money the budget never saw and handed the same allowance
    out again. A failed ledger write is logged and swallowed: it must not turn
    billed work into a failed knock. `route.credits` still records what that
-   individual route cost; the ledger is what the budget reads.
+   individual route cost; the ledger is what the budget reads. The ledger was
+   backfilled from the pre-existing routes when it was introduced
+   (`20260813170000_backfill_...`) — starting it empty would have let every
+   knock already billed inside the rolling window spend its allowance twice.
 8. Atomically create route + stops + stop targets + the Outreach envelope
    row (skip envelope if the org has no campaign; status `in_progress`,
    never `pending` — payment flows gate on it). The per-target activity
