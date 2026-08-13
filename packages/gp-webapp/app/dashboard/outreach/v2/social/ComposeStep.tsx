@@ -5,8 +5,10 @@ import { SOCIAL_TONE_VALUES, type SocialTone } from '@goodparty_org/contracts'
 import {
   Button,
   Card,
+  cn,
   FilterPill,
   FilterPillGroup,
+  IconButton,
   Textarea,
 } from '@styleguide'
 import {
@@ -14,11 +16,12 @@ import {
   ClockIcon,
   HandHeartIcon,
   Loader2Icon,
+  MicIcon,
   RefreshIcon,
   SparklesIcon,
+  SquareIcon,
   ThumbsUpIcon,
 } from '@styleguide/components/ui/icons'
-import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import { ThinkingStream } from './ThinkingStream'
 import { Intro } from './Intro'
@@ -80,6 +83,7 @@ export const ComposeStep = ({
     value: draft,
     onChange: onDraftChange,
   })
+  const isRecording = dictation.status === 'recording'
 
   return (
     <div className="space-y-6">
@@ -105,17 +109,6 @@ export const ComposeStep = ({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">Your draft message</p>
           <div className="flex items-center gap-2">
-            {canUndo && (
-              <Button
-                type="button"
-                variant="link"
-                size="small"
-                className="h-auto px-0"
-                onClick={onUndo}
-              >
-                Undo
-              </Button>
-            )}
             {!isCustomPurpose && (
               <Button
                 type="button"
@@ -164,33 +157,67 @@ export const ComposeStep = ({
               maxLength={2000}
               className="min-h-[140px] resize-none border-0 p-0 focus-visible:ring-0 [field-sizing:content]"
             />
-            <div className="flex w-full items-center gap-2">
-              {canImprove && (
+            <div className="border-border -mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t p-2">
+              {canUndo && (
                 <Button
                   type="button"
                   variant="link"
                   size="small"
-                  className="h-auto gap-1.5 px-0 no-underline"
+                  className="h-auto px-2 no-underline"
+                  onClick={onUndo}
+                >
+                  Undo
+                </Button>
+              )}
+              {canImprove && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="small"
+                  className="text-muted-foreground"
                   disabled={isDrafting}
                   onClick={onImprove}
                 >
                   {isDrafting ? (
-                    <Loader2Icon className="size-4 animate-spin" />
+                    <>
+                      <Loader2Icon className="size-4 animate-spin" />
+                      Improving…
+                    </>
                   ) : (
-                    <SparklesIcon className="size-4" />
+                    <>
+                      <SparklesIcon className="size-4" />
+                      Improve with AI
+                    </>
                   )}
-                  Improve with AI
                 </Button>
               )}
-              <DictationMicButton
-                dictation={dictation}
-                idleLabel="Dictate message"
-                recordingLabel="Stop dictation"
-                disabled={isDrafting}
-                className="static ml-auto shrink-0"
-              />
+              <IconButton
+                type="button"
+                variant={isRecording ? 'destructive' : 'ghost'}
+                size="small"
+                aria-label={isRecording ? 'Stop dictation' : 'Dictate message'}
+                disabled={isDrafting || dictation.status === 'stopping'}
+                onClick={() => {
+                  void dictation.toggle()
+                }}
+                className={cn(!isRecording && 'text-muted-foreground')}
+              >
+                {dictation.busy && !isRecording ? (
+                  <Loader2Icon className="size-4 animate-spin" aria-hidden />
+                ) : isRecording ? (
+                  <SquareIcon className="size-4 fill-current" aria-hidden />
+                ) : (
+                  <MicIcon className="size-5" aria-hidden />
+                )}
+              </IconButton>
             </div>
           </Card>
+        )}
+        {dictation.status === 'error' && dictation.error !== null && (
+          <p className="text-xs text-destructive">
+            Dictation didn&apos;t start: {dictation.error}. Check your
+            microphone permission and try again.
+          </p>
         )}
       </div>
     </div>
