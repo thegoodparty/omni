@@ -1,7 +1,7 @@
 import { ContactInteractionDoorKnockService } from '@/contactInteraction/services/contactInteractionDoorKnock.service'
 import { ContactInteractionRobocallService } from '@/contactInteraction/services/contactInteractionRobocall.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
-import { ContactNoteService } from '@/contactNote/services/contactNote.service'
+import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { PollIndividualMessageService } from '@/polls/services/pollIndividualMessage.service'
 import { VoterOutreachActivityService } from '@/voterOutreachActivity/services/voterOutreachActivity.service'
 import { Injectable } from '@nestjs/common'
@@ -12,6 +12,7 @@ import {
   Prisma,
 } from '../generated/prisma'
 import { compareDesc, isValid, parseISO } from 'date-fns'
+import { resolveContactStatusLabel } from '@goodparty_org/contracts'
 import { IndividualActivityInput } from './contactEngagement.schema'
 import {
   ConstituentActivity,
@@ -21,10 +22,10 @@ import {
   DoorKnockConstituentActivity,
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
-  NoteConstituentActivity,
   OutreachConstituentActivity,
   PollConstituentActivity,
   RobocallConstituentActivity,
+  StatusChangeConstituentActivity,
   TextConstituentActivity,
 } from './contactEngagement.types'
 
@@ -39,13 +40,12 @@ const activityId = (activity: ConstituentActivity): string => {
   switch (activity.type) {
     case ConstituentActivityType.POLL_INTERACTIONS:
       return activity.data.pollId
-    case ConstituentActivityType.NOTE:
-      return activity.data.noteId
     case ConstituentActivityType.OUTREACH:
       return String(activity.data.activityId)
     case ConstituentActivityType.DOOR_KNOCK:
     case ConstituentActivityType.TEXT:
     case ConstituentActivityType.ROBOCALL:
+    case ConstituentActivityType.STATUS_CHANGE:
       return activity.data.activityId
   }
 }
@@ -64,7 +64,7 @@ export class ContactEngagementService {
     private readonly contactInteractionDoorKnock: ContactInteractionDoorKnockService,
     private readonly contactInteractionText: ContactInteractionTextService,
     private readonly contactInteractionRobocall: ContactInteractionRobocallService,
-    private readonly contactNote: ContactNoteService,
+    private readonly contactStatus: ContactStatusService,
   ) {}
 
   async getIndividualActivities(
@@ -95,7 +95,9 @@ export class ContactEngagementService {
       { occurredAt: Prisma.SortOrder.desc },
       { id: Prisma.SortOrder.desc },
     ]
-    const noteOrderBy = [
+    // ContactStatusEvent has no occurredAt (the event time is its own
+    // createdAt, the append-only write time) — its own order/window key.
+    const statusOrderBy = [
       { createdAt: Prisma.SortOrder.desc },
       { id: Prisma.SortOrder.desc },
     ]
@@ -125,7 +127,7 @@ export class ContactEngagementService {
       return [...before, ...atCursor]
     }
 
-    const [doorKnocks, texts, robocalls, notes] = await Promise.all([
+    const [doorKnocks, texts, robocalls] = await Promise.all([
       fetchWindow(
         (windowTake) =>
           this.contactInteractionDoorKnock.findMany({
@@ -183,25 +185,6 @@ export class ContactEngagementService {
               })
           : null,
       ),
-      fetchWindow(
-        (windowTake) =>
-          this.contactNote.findMany({
-            where: {
-              organizationSlug,
-              personId,
-              ...(cursorDate ? { createdAt: { lt: cursorDate } } : {}),
-            },
-            orderBy: noteOrderBy,
-            take: windowTake,
-          }),
-        cursorDate
-          ? () =>
-              this.contactNote.findMany({
-                where: { organizationSlug, personId, createdAt: cursorDate },
-                orderBy: noteOrderBy,
-              })
-          : null,
-      ),
     ])
 
     // Poll interactions only exist in the Serve (elected office) context.
@@ -236,6 +219,33 @@ export class ContactEngagementService {
               : null,
           )
         : []
+
+    // Status-change history is Win-only (contacts.service.ts's status-update
+    // endpoint rejects the write for elected-office organizations, so a
+    // Serve org can never have a ContactStatusEvent row) — gated the same
+    // way the legacy outreach rows are gated on Win-ness, not on lalVoterId
+    // being present (status changes don't need the sunset param).
+    const statusChangeEvents = !electedOfficeId
+      ? await fetchWindow(
+          (windowTake) =>
+            this.contactStatus.findEventsForFeed({
+              where: {
+                organizationSlug,
+                personId,
+                ...(cursorDate ? { createdAt: { lt: cursorDate } } : {}),
+              },
+              orderBy: statusOrderBy,
+              take: windowTake,
+            }),
+          cursorDate
+            ? () =>
+                this.contactStatus.findEventsForFeed({
+                  where: { organizationSlug, personId, createdAt: cursorDate },
+                  orderBy: statusOrderBy,
+                })
+            : null,
+        )
+      : []
 
     const doorKnockActivities: DoorKnockConstituentActivity[] = doorKnocks.map(
       (activity) => ({
@@ -279,17 +289,6 @@ export class ContactEngagementService {
       }),
     )
 
-    const noteActivities: NoteConstituentActivity[] = notes.map((note) => ({
-      type: ConstituentActivityType.NOTE,
-      date: note.createdAt.toISOString(),
-      data: {
-        noteId: note.id,
-        body: note.body,
-        createdAt: note.createdAt.toISOString(),
-        updatedAt: note.updatedAt.toISOString(),
-      },
-    }))
-
     const outreachConstituentActivities: OutreachConstituentActivity[] =
       outreachActivities.map((activity) => ({
         type: ConstituentActivityType.OUTREACH,
@@ -301,13 +300,35 @@ export class ContactEngagementService {
         },
       }))
 
+    const statusChangeActivities: StatusChangeConstituentActivity[] =
+      statusChangeEvents.map((event) => ({
+        type: ConstituentActivityType.STATUS_CHANGE,
+        date: event.createdAt.toISOString(),
+        data: {
+          activityId: event.id,
+          field: event.field,
+          fromLabel:
+            event.fromValue === null
+              ? null
+              : resolveContactStatusLabel(event.field, event.fromValue),
+          toLabel: resolveContactStatusLabel(event.field, event.toValue),
+          actorName: event.actor
+            ? [event.actor.firstName, event.actor.lastName]
+                .filter(Boolean)
+                .join(' ') || null
+            : null,
+          actorUserId: event.actorUserId,
+          source: event.source,
+        },
+      }))
+
     const allActivities: ConstituentActivity[] = [
       ...pollActivities,
       ...outreachConstituentActivities,
       ...doorKnockActivities,
       ...textActivities,
       ...robocallActivities,
-      ...noteActivities,
+      ...statusChangeActivities,
     ]
     // date desc, then type/id as an explicit tiebreak — same-day Win outreach
     // attributions (occurredAt from a date-only picker) can be byte-identical,

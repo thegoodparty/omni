@@ -16,9 +16,11 @@ import {
   Trash2Icon,
   UserIcon,
 } from '@styleguide'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { dateUsHelper } from 'helpers/dateHelper'
 import type { SegmentResponse } from '../shared/contacts-types'
 import { useContactsTable } from '../ContactsTableProvider'
+import { useShowContactProModal } from '../ContactProModal'
 import { useDuplicateList } from './useDuplicateList'
 import { useListRowDetail } from './useListRowDetail'
 import RenameListDialog from './RenameListDialog'
@@ -36,14 +38,25 @@ interface ListCardProps {
 // selectList navigation — not a router.push — so the index stays mounted
 // underneath.
 export default function ListCard({ segment }: ListCardProps) {
-  const { selectList, isWinContext, isWinContextReady } = useContactsTable()
-  const { peopleCount, lastOutreach, isLoading, isError } = useListRowDetail(
-    segment.id,
-  )
+  const { selectList, isWinContext, isWinContextReady, canUseProFeatures } =
+    useContactsTable()
+  const showProUpgradeModal = useShowContactProModal()
+  const { peopleCount, lastOutreach, isLoading, isError, isGated } =
+    useListRowDetail(segment.id, canUseProFeatures)
   const duplicateMutation = useDuplicateList()
   const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const isLocked = Boolean(segment.firstUsedForOutreachAt)
+
+  // Mirrors AllContactsCard's gate — getListDetail is pro-gated, so a non-pro
+  // click would open a sheet that just 400s.
+  const handleDetailsClick = () => {
+    if (!canUseProFeatures) {
+      showProUpgradeModal(true)
+      return
+    }
+    selectList(segment.id)
+  }
 
   return (
     <Card className="w-full gap-2 rounded-2xl p-4 shadow-xs">
@@ -101,30 +114,40 @@ export default function ListCard({ segment }: ListCardProps) {
       </div>
 
       <p className="text-[13px] text-muted-foreground">
-        {isLoading
-          ? 'Loading…'
-          : isError
-            ? 'Outreach history unavailable'
-            : lastOutreach?.date
-              ? `Last outreach ${dateUsHelper(lastOutreach.date)}`
-              : 'No outreach yet'}
+        {isGated
+          ? 'Upgrade to Pro to see outreach history'
+          : isLoading
+            ? 'Loading…'
+            : isError
+              ? 'Outreach history unavailable'
+              : lastOutreach?.date
+                ? `Last outreach ${dateUsHelper(lastOutreach.date)}`
+                : 'No outreach yet'}
       </p>
 
       <div className="mt-1 flex items-center justify-between gap-2">
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
-          <UserIcon className="size-3.5" aria-hidden />
-          {isLoading
-            ? '—'
-            : isError
-              ? 'Unavailable'
-              : (peopleCount?.toLocaleString() ?? '—')}
+          {isGated ? (
+            <LockIcon className="size-3.5" aria-hidden />
+          ) : (
+            <UserIcon className="size-3.5" aria-hidden />
+          )}
+          {isGated
+            ? 'Pro'
+            : isLoading
+              ? '—'
+              : isError
+                ? 'Unavailable'
+                : peopleCount !== undefined
+                  ? peopleCount.toLocaleString()
+                  : '—'}
         </span>
         <div className="flex items-center gap-2">
           <Button
             variant="ghost"
             size="small"
             className="h-8 px-3 text-xs text-primary hover:bg-primary/5"
-            onClick={() => selectList(segment.id)}
+            onClick={handleDetailsClick}
           >
             Details
           </Button>
@@ -133,7 +156,15 @@ export default function ListCard({ segment }: ListCardProps) {
               the button at a Serve user while the mode resolves. */}
           {isWinContextReady && isWinContext && (
             <Button size="small" className="h-8 px-3.5 text-xs" asChild>
-              <Link href={`/dashboard/outreach?listId=${segment.id}`}>
+              <Link
+                href={`/dashboard/outreach?listId=${segment.id}`}
+                onClick={() =>
+                  trackEvent(EVENTS.VoterData.SendOutreachClicked, {
+                    listId: segment.id,
+                    surface: 'listCard',
+                  })
+                }
+              >
                 Send outreach
               </Link>
             </Button>

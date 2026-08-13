@@ -34,12 +34,19 @@ import { useP2pUxEnabled } from 'app/dashboard/components/tasks/flows/hooks/P2pU
 import { PhoneListInput } from 'helpers/createP2pPhoneList'
 import { AUTO_VOTER_FILTER_NAME_PATTERN } from 'app/dashboard/components/tasks/flows/util/flowHandlers.util'
 import { fetchListDetail } from 'app/dashboard/contacts/crm/lists/useListRowDetail'
+import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
+import type { ListDetailReachability } from 'app/dashboard/contacts/crm/shared/contacts-types'
+import { REACHABILITY_CHANNELS } from 'app/dashboard/contacts/crm/shared/reachabilityChannels'
 
 const TEXT_PRICE = 0.035
 const CALL_PRICE = 0.04
 const CALL_W_VOICEMAIL_PRICE = 0.055
 
 const NEW_FROM_FILTERS = '__new__'
+
+// ENG-10799: the reachability leaves a saved-list outreach flow can map to
+// (excludes 'polls' — no flow here sends polls, which mirrors sms 1:1 anyway).
+type ReachabilityCountKey = keyof Omit<ListDetailReachability, 'polls'>
 
 interface SavedList {
   id: number
@@ -62,6 +69,14 @@ const isAudienceFilterKey = (
 
 type VoterFileFilterResult = PhoneListInput & { id?: number }
 
+// ENG-10767: how the audience was chosen, carried as a property on the
+// audience-step Next and Voter Outreach - Campaign Completed events so the
+// CRM list → outreach funnel is attributable end to end. 'deepLink' means
+// the CRM "Send outreach" link's preselected list was still the selection at
+// advance time; a manual dropdown pick (even of the same list) is
+// 'savedList'; no saved list means the checkbox-built audience.
+export type AudienceSource = 'savedList' | 'deepLink' | 'customFilters'
+
 interface AudienceStepProps {
   onChangeCallback: (
     keyOrData:
@@ -70,6 +85,8 @@ interface AudienceStepProps {
           voterFileFilter?: VoterFileFilterResult
           phoneListToken: string | null | undefined
           savedListId?: number
+          audienceSource: AudienceSource
+          audienceListId: number | null
         },
     value?: AudienceFiltersState | number,
   ) => void
@@ -102,8 +119,16 @@ export default function AudienceStep({
   const [campaign] = useCampaign()
   const { p2pUxEnabled } = useP2pUxEnabled()
   const [count, setCount] = useState(0)
+  // ENG-10808: the saved list's raw membership (demographics.people),
+  // tracked alongside the channel-eligible `count` so the audience step can
+  // show a "7,032 people in this list · 1,607 reachable by robocall"
+  // breakdown instead of just the eligible number — a user who came in
+  // expecting to text/call their whole list needs to see why they're
+  // quoted a smaller number. Only ever set on the saved-list branch.
+  const [listSize, setListSize] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [countError, setCountError] = useState<CountVoterFileError | null>(null)
+  const { isUnresolvable } = useDistrictResolution()
   // Tracks the latest count request so out-of-order responses can be dropped.
   // See useEffect below.
   const countRequestIdRef = useRef(0)
@@ -120,20 +145,50 @@ export default function AudienceStep({
   const isRobocallType =
     type === LEGACY_TASK_TYPES.telemarketing || type === TASK_TYPES.robocall
   const isPhoneBankingType = type === TASK_TYPES.phoneBanking
-  // ENG-10764/10765: robocall and phone banking get the same saved-list
-  // selector as text. Door knocking (being rewritten) stays checkbox-only, so
-  // this is a named-types union, not type-agnostic.
+  const isDoorKnockingType = type === TASK_TYPES.doorKnocking
+  // ENG-10764/10765/10784: robocall, phone banking, and door knocking all get
+  // the same saved-list selector as text.
   const showsSavedListSelector =
-    isTextType || isRobocallType || isPhoneBankingType
-  // Robocall and phone banking both have no live checkbox-driven count for a
-  // saved list, so both fetch the list's refreshed people count instead of
-  // leaving the estimate blank. Text deliberately leaves count at 0 (the
-  // phone-list build owns its real count later).
-  const fetchesSavedListCount = isRobocallType || isPhoneBankingType
+    isTextType || isRobocallType || isPhoneBankingType || isDoorKnockingType
+  // ENG-10799: a saved list's raw membership (demographics.people) is not
+  // what a channel can actually reach — e.g. a 7,032-person list with 1,607
+  // landline holders must price/report as a 1,607-person robocall, not
+  // 7,032. Every saved-list flow now reads its own reachability leaf
+  // instead: robocall's landline count, phone banking/door knocking's
+  // reachable count, and text's SMS-eligible count (previously left at 0
+  // here on the theory that the later phone-list build owns the real
+  // number — but the estimate, cost preview, and persisted voterCount all
+  // need the eligible count up front too, same as the other three flows).
+  const reachabilityKey: ReachabilityCountKey | null = isRobocallType
+    ? 'robocall'
+    : isPhoneBankingType
+      ? 'phoneBanking'
+      : isDoorKnockingType
+        ? 'doorKnocking'
+        : isTextType
+          ? 'sms'
+          : null
+  const fetchesSavedListCount = reachabilityKey !== null
+  // ENG-10808: reuses the list-detail sheet's canonical channel labels
+  // (`ReachabilityGrid`'s source) so the breakdown sentence can't drift
+  // from "Text"/"Robocall"/"Phone banking"/"Door knocking" elsewhere in the
+  // CRM — lowercased to read as a mid-sentence noun phrase.
+  const reachabilityChannelLabel = reachabilityKey
+    ? (REACHABILITY_CHANNELS.find(
+        (channel) => channel.key === reachabilityKey,
+      )?.label.toLowerCase() ?? null)
+    : null
 
   const [savedLists, setSavedLists] = useState<SavedList[]>([])
   // Empty string = "build a new audience from the checkboxes" (the default).
   const [selectedListId, setSelectedListId] = useState('')
+  // ENG-10767: whether the current saved-list selection came from the CRM
+  // deep link's preselect or a manual dropdown pick — a user who manually
+  // re-picks (or switches away from) the deep-linked list is reporting their
+  // own choice, not the link's.
+  const [selectionSource, setSelectionSource] = useState<
+    'manual' | 'deepLink' | null
+  >(null)
 
   const selectedList = useMemo(
     () =>
@@ -143,9 +198,13 @@ export default function AudienceStep({
     [selectedListId, savedLists],
   )
 
-  const handleSelectList = useCallback((value: string) => {
-    setSelectedListId(value === NEW_FROM_FILTERS ? '' : value)
-  }, [])
+  const handleSelectList = useCallback(
+    (value: string, source: 'manual' | 'deepLink' = 'manual') => {
+      setSelectedListId(value === NEW_FROM_FILTERS ? '' : value)
+      setSelectionSource(value === NEW_FROM_FILTERS ? null : source)
+    },
+    [],
+  )
 
   // ENG-10763: applies the CRM "Send outreach" list link's preselectedListId
   // whenever a NEW id arrives that hasn't been applied yet (tracked by value,
@@ -177,7 +236,7 @@ export default function AudienceStep({
             lastAppliedPreselectListIdRef.current = preselectedListId
             // Reuse the exact same code path a manual dropdown pick takes —
             // no separate "preselected" state to keep in sync.
-            handleSelectList(match.id.toString())
+            handleSelectList(match.id.toString(), 'deepLink')
           }
         }
       })
@@ -240,12 +299,24 @@ export default function AudienceStep({
     onChangeCallback({
       voterFileFilter,
       phoneListToken,
-      // ENG-10765: DownloadStep needs to tell a saved list (segment export)
-      // apart from a throwaway checkbox-built filter (both carry an `id`),
-      // so phone banking always reports the current selection — present but
-      // undefined when the user switches back to "build a new audience" —
-      // so a stale selection from an earlier Next press can't linger.
-      ...(isPhoneBankingType ? { savedListId: selectedList?.id } : {}),
+      // ENG-10767: reported on every advance (not just when a list is
+      // selected) so a Back-then-switch to custom filters overwrites the
+      // earlier value instead of leaving a stale saved-list attribution.
+      audienceSource: selectedList
+        ? selectionSource === 'deepLink'
+          ? 'deepLink'
+          : 'savedList'
+        : 'customFilters',
+      audienceListId: selectedList?.id ?? null,
+      // ENG-10765/10784: DownloadStep needs to tell a saved list (segment
+      // export) apart from a throwaway checkbox-built filter (both carry an
+      // `id`), so phone banking and door knocking always report the current
+      // selection — present but undefined when the user switches back to
+      // "build a new audience" — so a stale selection from an earlier Next
+      // press can't linger.
+      ...(isPhoneBankingType || isDoorKnockingType
+        ? { savedListId: selectedList?.id }
+        : {}),
     })
     nextCallback()
   }
@@ -256,31 +327,66 @@ export default function AudienceStep({
     // support, so the network call still completes — we just ignore it.
     const requestId = ++countRequestIdRef.current
 
+    // Both count paths below resolve a district server-side, so without one they
+    // can only 400. Surfaced through the existing unpriceable-audience channel
+    // with the message this file already carries for exactly this condition.
+    if (isUnresolvable) {
+      setCountError({
+        ok: false,
+        message: MISSING_L2_DISTRICT_DATA_DEFAULT_MESSAGE,
+      })
+      setCount(0)
+      setListSize(null)
+      setLoading(false)
+      onChangeCallback('voterCount', 0)
+      return
+    }
+
     // A selected saved list drives the audience server-side from its persisted
     // fields; the checkbox-based live count doesn't apply to it.
     if (selectedList) {
-      if (!fetchesSavedListCount) {
+      if (!reachabilityKey) {
         setCountError(null)
         setCount(0)
+        setListSize(null)
         setLoading(false)
         onChangeCallback('voterCount', 0)
         return
       }
 
-      // Robocall's cost preview (CALL_PRICE / CALL_W_VOICEMAIL_PRICE) needs a
-      // real count even for a saved list; phone banking has no cost preview
-      // but still needs the real voters-selected number and the zero-member
-      // Next guard on its download path. Both fetch the list's refreshed
-      // people count instead of leaving the estimate blank. Shares the fetch
-      // with the CRM lists index (see fetchListDetail) instead of a second
-      // hand-rolled call.
+      // ENG-10799: pull the channel-eligible count off the list's
+      // reachability leaf (robocall's landline count, phone
+      // banking/door knocking's reachable count, text's SMS-eligible
+      // count) instead of demographics.people, the raw list size — that's
+      // the number that drives the voters-selected display, the robocall
+      // cost preview, and the zero-member Next guard on every flow's
+      // download path. Shares the fetch with the CRM lists index (see
+      // fetchListDetail) instead of a second hand-rolled call.
       setCountError(null)
       setLoading(true)
       fetchListDetail(selectedList.id)
         .then((data) => {
           if (requestId !== countRequestIdRef.current) return
-          setCount(data.demographics.people)
-          onChangeCallback('voterCount', data.demographics.people)
+          const eligibleCount = data.reachability[reachabilityKey]
+          // ENG-10806: a null leaf means that channel's aggregate call
+          // failed server-side — same unpriceable-audience treatment as
+          // the catch below, not a silent $0.00. Also clears listSize
+          // (ENG-10808) so the breakdown line can't render off a stale
+          // list size paired with no eligible count.
+          if (eligibleCount === null) {
+            setCountError({ ok: false, message: GENERIC_COUNT_ERROR_MESSAGE })
+            setCount(0)
+            setListSize(null)
+            onChangeCallback('voterCount', 0)
+            return
+          }
+          setCount(eligibleCount)
+          // ENG-10808: the same response's demographics.people is the raw
+          // list size — kept alongside the eligible count purely for the
+          // breakdown sentence below (never sent to onChangeCallback; the
+          // persisted voterCount stays the channel-eligible number).
+          setListSize(data.demographics.people)
+          onChangeCallback('voterCount', eligibleCount)
         })
         .catch(() => {
           if (requestId !== countRequestIdRef.current) return
@@ -289,6 +395,7 @@ export default function AudienceStep({
           // against an uncounted (possibly large) saved list.
           setCountError({ ok: false, message: GENERIC_COUNT_ERROR_MESSAGE })
           setCount(0)
+          setListSize(null)
           onChangeCallback('voterCount', 0)
         })
         .finally(() => {
@@ -352,8 +459,9 @@ export default function AudienceStep({
     type,
     hasValues,
     selectedList,
-    fetchesSavedListCount,
+    reachabilityKey,
     onChangeCallback,
+    isUnresolvable,
   ])
 
   const handleChangeAudience = (newState: AudienceFiltersState) => {
@@ -389,17 +497,16 @@ export default function AudienceStep({
       : countError.message || GENERIC_COUNT_ERROR_MESSAGE
     : null
   const hasCountError = !!countError
-  // The zero-count guard only applies where a real count exists: robocall and
-  // phone banking fetch the saved list's count; the text saved-list branch
-  // deliberately leaves count at 0 (the phone-list build owns its real count
-  // later).
+  // The zero-count guard applies to every saved-list flow now that all four
+  // (robocall, phone banking, door knocking, text) fetch a real
+  // channel-eligible count (ENG-10799) instead of leaving one of them at 0.
   const isNextDisabled = selectedList
     ? loading || hasCountError || (fetchesSavedListCount && count === 0)
     : !hasValues || loading || hasCountError || (hasValues && count === 0)
 
-  // Shared by the checkbox-built audience and (robocall/phone banking only)
-  // the saved-list branch, which fetches a real count instead of leaving this
-  // blank — see the count useEffect above.
+  // Shared by the checkbox-built audience and the saved-list branch (every
+  // channel now fetches its own channel-eligible count — ENG-10799 — see the
+  // count useEffect above).
   const votersAndCostSummary = (
     <div className="p-4 text-sm">
       Voters selected:
@@ -410,7 +517,7 @@ export default function AudienceStep({
             className="inline-block align-middle animate-spin"
           />
         ) : (
-          numberFormatter(count)
+          count.toLocaleString()
         )}
       </span>
       {price && (
@@ -479,6 +586,20 @@ export default function AudienceStep({
             {fetchesSavedListCount && (
               <>
                 {votersAndCostSummary}
+                {/* ENG-10808: only worth a second line when the channel
+                excludes someone — if the whole list is reachable, "Voters
+                selected" above already says the one number that matters. */}
+                {!loading &&
+                  !hasCountError &&
+                  listSize !== null &&
+                  listSize !== count && (
+                    <div className="px-4 -mt-2 pb-2 text-sm text-muted-foreground text-left">
+                      {listSize.toLocaleString()} people in this list
+                      <span className="mx-1">·</span>
+                      {count.toLocaleString()} reachable by{' '}
+                      {reachabilityChannelLabel}
+                    </div>
+                  )}
                 {inlineCountErrorMessage ? (
                   <Alert variant="destructive" className="mb-4 text-left">
                     <MdError />

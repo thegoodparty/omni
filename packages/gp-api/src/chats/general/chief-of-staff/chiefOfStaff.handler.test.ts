@@ -584,4 +584,58 @@ describe('ChiefOfStaffHandler', () => {
       expect(handler.buildSystemPrompt(ctx)).not.toContain('crud_saved_filters')
     })
   })
+
+  describe('finalizeAssistantText (professional-advice backstop)', () => {
+    it('appends the disclaimer to an eval-style legal-advice answer', () => {
+      const handler = new ChiefOfStaffHandler(
+        store,
+        context,
+        buildBriefings(),
+        port,
+        [],
+      )
+      // The CoS eval failure that shipped with no disclaimer: a statute
+      // citation, a colleague's criminal exposure, and a complaint-filing
+      // path. Nothing appended a disclaimer before this change; the backstop
+      // does now.
+      const answer =
+        'Under RCW 42.30.120 the vote is void. A colleague who knew and ' +
+        'voted anyway could face criminal liability, and a resident can ' +
+        'file a complaint with the county prosecutor.'
+      const appended = handler.finalizeAssistantText(answer)
+      expect(appended?.startsWith('\n\n')).toBe(true)
+      expect(appended).toContain('qualified professional')
+    })
+
+    it('leaves an ordinary office answer untouched', () => {
+      const handler = new ChiefOfStaffHandler(
+        store,
+        context,
+        buildBriefings(),
+        port,
+        [],
+      )
+      expect(
+        handler.finalizeAssistantText(
+          'Turnout in your district was about 65% last cycle.',
+        ),
+      ).toBeNull()
+    })
+
+    it("does not double the model's own disclaimer", () => {
+      const handler = new ChiefOfStaffHandler(
+        store,
+        context,
+        buildBriefings(),
+        port,
+        [],
+      )
+      expect(
+        handler.finalizeAssistantText(
+          'RCW 42.30 applies. This is not a substitute for professional ' +
+            'advice; check with your city attorney.',
+        ),
+      ).toBeNull()
+    })
+  })
 })

@@ -5,6 +5,7 @@ import {
   useContext,
   useCallback,
   useMemo,
+  useRef,
   ReactNode,
 } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
@@ -34,6 +35,7 @@ import { isCustomSegment, findCustomSegment } from './shared/segments.util'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { useOrganization } from '@shared/organization-picker'
+import { useDistrictResolution } from '../../shared/useDistrictResolution'
 import { useWinVoterContext } from '../../shared/useWinVoterContext'
 
 const CONTACTS_BASE_PATH = '/dashboard/contacts'
@@ -112,6 +114,8 @@ interface ContactsTableState {
   pagination: ListContactsResponse['pagination'] | null
   isLoading: boolean
   isVoterDataUnavailable: boolean
+  isDistrictUnresolvable: boolean
+  voterDataUnavailable: boolean
   isCustomSegment: boolean
   totalSegmentContacts: number
   canUseProFeatures: boolean
@@ -204,6 +208,8 @@ export const ContactsTableProvider = ({
 
   const segments = defaultSegments
 
+  const { isUnresolvable: isDistrictUnresolvable } = useDistrictResolution()
+
   const canUseProFeatures = useMemo(() => {
     return !!campaign?.isPro || !!electedOffice
   }, [campaign, electedOffice])
@@ -244,15 +250,18 @@ export const ContactsTableProvider = ({
     [pathname],
   )
 
-  const contactsQuery = useQuery(
-    contactTableQueryOptions({
+  const contactsQuery = useQuery({
+    ...contactTableQueryOptions({
       orgSlug,
       page: currentPage,
       resultsPerPage: pageSize,
       segment: currentSegment,
       search: searchTerm,
     }),
-  )
+    // Gated on the proactive predicate only. Gating on the union would let this
+    // query's own error disable the query that produced it.
+    enabled: !isDistrictUnresolvable,
+  })
 
   // Prefetch the next page, but only once we know there is one. Without this
   // guard the prefetch fires a second /v1/contacts request on every view —
@@ -266,7 +275,8 @@ export const ContactsTableProvider = ({
       segment: currentSegment,
       search: searchTerm,
     }),
-    enabled: !!contactsQuery.data?.pagination?.hasNextPage,
+    enabled:
+      !isDistrictUnresolvable && !!contactsQuery.data?.pagination?.hasNextPage,
   })
 
   const personQuery = useQuery({
@@ -275,7 +285,9 @@ export const ContactsTableProvider = ({
       clientRequest('GET /v1/contacts/:id', {
         id: currentlySelectedPersonId!,
       }).then((res) => res.data),
-    enabled: Boolean(currentlySelectedPersonId),
+    // findPerson resolves a district server-side, and the person path is
+    // deep-linkable, so this has to be gated independently of the page's branch.
+    enabled: !isDistrictUnresolvable && Boolean(currentlySelectedPersonId),
   })
 
   const issuesInfiniteQuery = useInfiniteQuery({
@@ -422,6 +434,15 @@ export const ContactsTableProvider = ({
     [customSegmentsQuery.data],
   )
 
+  // selectSegment reads the saved list's stored search, but callers reach it
+  // right after `await refreshCustomSegments()` — before React has re-rendered
+  // with the refetched list. A value closed over by useCallback is the
+  // pre-refresh array there, so a just-created list isn't found and its search
+  // is cleared instead of applied (ENG-10518). Keep the latest list in a ref,
+  // written both on render and synchronously by the refresh itself.
+  const customSegmentsRef = useRef<SegmentResponse[]>([])
+  customSegmentsRef.current = customSegments
+
   const isCustomSegmentValue = useMemo(() => {
     return isCustomSegment(customSegments, currentSegment)
   }, [customSegments, currentSegment])
@@ -443,6 +464,11 @@ export const ContactsTableProvider = ({
       VOTER_DATA_UNAVAILABLE_ERROR_CODE
     )
   }, [contactsQuery.error])
+
+  // The reactive branch still carries assertVoterDataEligibility (the
+  // federal/state voter-file rule), which needs campaign, district, and
+  // ballotLevel together and so can't be predicted client-side.
+  const voterDataUnavailable = isDistrictUnresolvable || isVoterDataUnavailable
 
   const updateURL = useCallback(
     (updates: Record<string, string | number | null | undefined>) => {
@@ -475,7 +501,10 @@ export const ContactsTableProvider = ({
   // this callback (and therefore the context value) churn on every render.
   const refetchCustomSegments = customSegmentsQuery.refetch
   const refreshCustomSegments = useCallback(async () => {
-    await refetchCustomSegments()
+    const { data } = await refetchCustomSegments()
+    // Publish before returning: callers select the just-created list on the very
+    // next line, ahead of the re-render that would refresh the ref.
+    if (data) customSegmentsRef.current = data
     queryClient.invalidateQueries({ queryKey: ['contacts'] })
   }, [refetchCustomSegments, queryClient])
 
@@ -556,10 +585,13 @@ export const ContactsTableProvider = ({
       // it must reproduce the searched-down view, so re-apply (or clear) the
       // query param alongside the segment. Built-in/default segments and lists
       // saved without a search clear it (ENG-10518).
-      const savedSearch = findCustomSegment(customSegments, segment)?.search
+      const savedSearch = findCustomSegment(
+        customSegmentsRef.current,
+        segment,
+      )?.search
       updateURL({ segment, page: 1, query: savedSearch ?? null })
     },
-    [updateURL, customSegments],
+    [updateURL],
   )
 
   const searchContactsAction = useCallback(
@@ -593,6 +625,8 @@ export const ContactsTableProvider = ({
       pagination,
       isLoading,
       isVoterDataUnavailable,
+      isDistrictUnresolvable,
+      voterDataUnavailable,
       isCustomSegment: isCustomSegmentValue,
       totalSegmentContacts,
       canUseProFeatures,
@@ -622,6 +656,8 @@ export const ContactsTableProvider = ({
       pagination,
       isLoading,
       isVoterDataUnavailable,
+      isDistrictUnresolvable,
+      voterDataUnavailable,
       isCustomSegmentValue,
       totalSegmentContacts,
       canUseProFeatures,

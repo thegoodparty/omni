@@ -3,14 +3,18 @@ import * as aws from '@pulumi/aws'
 import { sortBy } from 'lodash'
 
 export interface ServiceConfig {
-  environment: 'dev' | 'qa' | 'prod'
+  environment: 'dev' | 'prod'
   stage: string
 
   imageUri: string
 
   vpcId: string
   securityGroupIds: string[]
+  // Public subnets host the internet-facing ALB. Fargate tasks run in the
+  // private subnets and reach the internet via NAT, so they no longer need
+  // public IPs.
   publicSubnetIds: string[]
+  privateSubnetIds: string[]
 
   hostedZoneId: string
   domain: string
@@ -41,6 +45,7 @@ export function createService({
   vpcId,
   securityGroupIds,
   publicSubnetIds,
+  privateSubnetIds,
   hostedZoneId,
   domain,
   certificateArn,
@@ -51,7 +56,7 @@ export function createService({
   const isProd = environment === 'prod'
   const serviceName = `election-api-${stage}`
 
-  const select = <T>(values: Record<'dev' | 'qa' | 'prod', T>): T =>
+  const select = <T>(values: Record<'dev' | 'prod', T>): T =>
     values[environment]
 
   const cluster = new aws.ecs.Cluster('ecsCluster', {
@@ -62,7 +67,6 @@ export function createService({
   const albSecurityGroup = new aws.ec2.SecurityGroup('albSecurityGroup', {
     name: select({
       dev: 'election-api-developLoadBalancerSecurityGroup-e4893c5',
-      qa: 'election-api-qaLoadBalancerSecurityGroup-c78a1aa',
       prod: 'election-api-masterLoadBalancerSecurityGroup-80ea98d',
     }),
     description: 'Managed by SST',
@@ -96,7 +100,6 @@ export function createService({
   const loadBalancer = new aws.lb.LoadBalancer('loadBalancer', {
     name: select({
       dev: 'electionapideve-xrhtdsta',
-      qa: 'electionapiqaLo-thcbahvn',
       prod: 'electionapimast-hhnbxfdh',
     }),
     internal: false,
@@ -110,7 +113,6 @@ export function createService({
   const targetGroup = new aws.lb.TargetGroup('targetGroup', {
     name: select({
       dev: 'HTTP20250407183025279100000002',
-      qa: 'HTTP20250422004715613800000002',
       prod: 'HTTP20250422010840834800000002',
     }),
     port: 80,
@@ -152,7 +154,6 @@ export function createService({
   const executionRole = new aws.iam.Role('executionRole', {
     name: select({
       dev: 'election-develop-electionapidevelopExecutionRole-badzffuf',
-      qa: 'election-qa-electionapiqaExecutionRole-vemkvkek',
       prod: 'election-master-electionapimasterExecutionRole-rrbnxccf',
     }),
     assumeRolePolicy: JSON.stringify({
@@ -195,7 +196,6 @@ export function createService({
   const taskRole = new aws.iam.Role('taskRole', {
     name: select({
       dev: 'election-develop-electionapidevelopTaskRole-mubedrbn',
-      qa: 'election-qa-electionapiqaTaskRole-hovhdtaf',
       prod: 'election-master-electionapimasterTaskRole-odxmbean',
     }),
     assumeRolePolicy: JSON.stringify({
@@ -287,9 +287,9 @@ export function createService({
     desiredCount: isProd ? 2 : 1,
     capacityProviderStrategies: [{ capacityProvider: 'FARGATE', weight: 1 }],
     networkConfiguration: {
-      subnets: publicSubnetIds,
+      subnets: privateSubnetIds,
       securityGroups: securityGroupIds,
-      assignPublicIp: true,
+      assignPublicIp: false,
     },
     loadBalancers: [
       {

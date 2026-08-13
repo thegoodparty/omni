@@ -2,9 +2,8 @@ name: candidate-sites
 
 on:
   pull_request:
-    branches-ignore: [qa, master]
   push:
-    branches: [develop, qa, master]
+    branches: [main]
 
 permissions:
   contents: read
@@ -36,15 +35,24 @@ jobs:
       - name: Format check
         run: npm run format -w ${{ env.WORKSPACE }}
 
+      # Type gate was missing: the package has a tsconfig but no typecheck was
+      # run in CI (Build smoke has `eslint.ignoreDuringBuilds` and Next does not
+      # hard-fail the build on type errors here). Generate Next's route types
+      # first, then tsc --noEmit (mirrors gp-webapp's Typecheck app step).
+      - name: Next typegen
+        working-directory: ${{ env.WORKSPACE }}
+        run: npx next typegen
+
+      - name: Typecheck
+        working-directory: ${{ env.WORKSPACE }}
+        run: npx tsc --noEmit
+
       - name: Build smoke
         run: npm run build -w ${{ env.WORKSPACE }}
 
   deploy:
     name: Deploy
-    if: >-
-      github.event_name == 'pull_request'
-      || (github.event_name == 'push'
-          && contains(fromJSON('["develop", "qa", "master"]'), github.ref_name))
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     outputs:
       url: ${{ steps.vercel.outputs.url }}
@@ -57,10 +65,10 @@ jobs:
         with:
           app: candidate-sites
 
-      # candidate-sites has no stable dev/qa domain (production fronts the
-      # per-candidate custom domains), so develop/qa deploy to the preview
-      # target with branch-scoped env vars and surface the generated URL;
-      # master deploys to production.
+      # candidate-sites has no stable dev domain (production fronts the
+      # per-candidate custom domains), so main deploys to the preview target
+      # with branch-scoped env vars and surfaces the generated URL; production
+      # is handled by the release train (release.yml).
       - name: Resolve deploy target
         id: ctx
         shell: bash
@@ -69,14 +77,9 @@ jobs:
             echo "target=preview" >> "$GITHUB_OUTPUT"
           else
             case "${{ github.ref_name }}" in
-              develop)
+              main)
                 echo "target=preview" >> "$GITHUB_OUTPUT"
-                echo "branch=develop" >> "$GITHUB_OUTPUT" ;;
-              qa)
-                echo "target=preview" >> "$GITHUB_OUTPUT"
-                echo "branch=qa" >> "$GITHUB_OUTPUT" ;;
-              master)
-                echo "target=production" >> "$GITHUB_OUTPUT" ;;
+                echo "branch=main" >> "$GITHUB_OUTPUT" ;;
             esac
           fi
 

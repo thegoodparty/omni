@@ -41,6 +41,17 @@ model TcrCompliance {
   campaign       Campaign             @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   campaignId     Int                  @unique @map("campaign_id")
 
+  // Structured filing address, set when the candidate entered their address
+  // manually instead of picking a Google suggestion (Places never suggests
+  // PO Boxes, which election filings commonly use). When line1 is set, the
+  // Peerly submissions read these components instead of resolving
+  // campaign.placeId, and postalAddress carries the composed string.
+  filingAddressLine1 String? @map("filing_address_line1")
+  filingAddressLine2 String? @map("filing_address_line2")
+  filingCity         String? @map("filing_city")
+  filingState        String? @map("filing_state")
+  filingZip          String? @map("filing_zip")
+
   peerlyIdentityId              String?   @unique @map("peerly_identity_id")
   peerlyRegistrationLink        String?   @map("peerly_registration_link")
   peerlyIdentityProfileLink     String?   @map("peerly_identity_profile_link")
@@ -66,6 +77,30 @@ model TcrCompliance {
   pinDeliveryMethod      String?   @map("pin_delivery_method")
   pinDeliveryDestination String?   @map("pin_delivery_destination")
   pinSentDetectedAt      DateTime? @map("pin_sent_detected_at")
+
+  // Marks a row created by the admin "treat as 10DLC approved (internal
+  // testing)" checkbox: status is 'approved' with no Peerly identity, so UI
+  // gates pass but real P2P sends stay blocked. Internal accounts only.
+  internalTestingApprovedAt DateTime? @map("internal_testing_approved_at")
+
+  // Raw string mirrors of the live Peerly CampaignVerify status (`retrieve_cv`)
+  // and identity profile status (`getProfile`), stamped by the nightly poll
+  // (ENG-10793). Not Prisma enums — vendor values must degrade gracefully, same
+  // reasoning as pinDeliveryMethod. The `*ChangedAt` columns advance only when
+  // the observed value differs from what's stored, so they measure "how long
+  // in this state" for the stuck-registration checks (ENG-10792).
+  peerlyCvStatus               String?   @map("peerly_cv_status")
+  peerlyCvStatusChangedAt      DateTime? @map("peerly_cv_status_changed_at")
+  peerlyProfileStatus          String?   @map("peerly_profile_status")
+  peerlyProfileStatusChangedAt DateTime? @map("peerly_profile_status_changed_at")
+
+  // Once-only claims for escalating a Peerly-side stall into the shared
+  // vendor Slack Connect channel (ENG-10796): CV stuck IN_REVIEW >3 business
+  // days (case 2) and profile stuck waiting_to_finalize >3 business days
+  // (case 3b). Cleared when the nightly poll observes the record leaving
+  // that state, so a later re-stall escalates again as a new incident.
+  cvInReviewEscalatedAt      DateTime? @map("cv_in_review_escalated_at")
+  finalizeStalledEscalatedAt DateTime? @map("finalize_stalled_escalated_at")
 
   @@map("tcr_compliance")
 }

@@ -26,14 +26,23 @@ def test_event_state_sql_reads_mart_analytics_catalog():
     assert "dbt." not in esa.EVENT_STATE_SQL
 
 
-def test_columns_are_the_eighteen_in_order():
+def test_columns_are_the_twentyone_in_order():
     assert esa.COLUMNS == [
-        "event", "status", "declared_intent", "intent_date", "supersession",
+        "event", "event_type", "status", "declared_intent", "intent_date", "supersession",
         "family", "first_seen_date",
         "last_seen_date", "event_count_30d", "event_count", "description", "tags",
         "instrumented_pr", "instrumented_date", "instrumented_author_email",
-        "retired_pr", "retired_date", "retired_author_email",
+        "retired_pr", "retired_date", "retired_author_email", "watchlist_status", "okr",
     ]
+
+
+def test_event_type_carries_the_ingested_name_when_display_name_diverges():
+    records = [_record("session_start", "active")]
+    catalog = {"session_start": {"govern_display_name": "[Amplitude] Start Session"}}
+    rows = esa.build_rows(records, catalog, {})
+
+    assert rows[0]["event"] == "[Amplitude] Start Session"
+    assert rows[0]["event_type"] == "session_start"
 
 
 def test_build_rows_projects_and_orders_by_last_code_change_desc():
@@ -348,3 +357,49 @@ def test_assemble_override_injects_event_absent_from_catalog_and_csv(tmp_path):
     assert brand_new["event_count_30d"] == 0
     assert brand_new["event_count"] == 0
     assert brand_new["family"] == ""
+
+
+def test_assembled_rows_carry_watchlist_status(monkeypatch, tmp_path):
+    mon = tmp_path / "mon.yaml"
+    mon.write_text(
+        "watched_families: [win_onboarding]\n"
+        'events:\n  - {event: "Sign Up Clicked", product: win, family: win_onboarding}\n'
+        "dismissed: []\n"
+    )
+    monkeypatch.setattr(esa.aeh, "WATCHLIST", mon)
+
+    # Empty code axis keeps this hermetic — assemble()'s code_csv=None path otherwise falls
+    # through to the real committed provenance CSV, which may not exist in the test env.
+    code_csv = tmp_path / "code.csv"
+    code_csv.write_text("event_type\n")
+
+    def fake_query(sql):
+        return pd.DataFrame([
+            {"event_type": "Sign Up Clicked", "govern_display_name": "Sign Up Clicked",
+             "family": "win_onboarding", "first_seen_date": "2024-01-01",
+             "last_seen_date": "2026-08-01", "event_count": 100, "event_count_30d": 5,
+             "govern_description": "", "govern_tags": None},
+        ])
+
+    out = esa.assemble(date(2026, 8, 3), run_query=fake_query, code_csv=code_csv)
+    assert "watchlist_status" in esa.COLUMNS
+    assert out["rows"][0]["watchlist_status"] == "tracked"
+
+
+def test_build_rows_carries_okr_column():
+    records = [{
+        "event_type": "Dashboard - Candidate Dashboard Viewed", "status": "active",
+        "family": "win_dashboard", "event_count_30d": 5, "gpmeta": None,
+        "watchlist_status": "tracked", "okr": "Active Candidates",
+    }]
+    rows = esa.build_rows(records, catalog_by_type={}, code_map={})
+    assert esa.COLUMNS[-1] == "okr"
+    assert rows[0]["okr"] == "Active Candidates"
+
+
+def test_build_rows_okr_blank_when_unset():
+    records = [{
+        "event_type": "Sign Up Clicked", "status": "active", "family": "win_onboarding",
+        "event_count_30d": 5, "gpmeta": None, "watchlist_status": "—",
+    }]
+    assert esa.build_rows(records, catalog_by_type={}, code_map={})[0]["okr"] == ""

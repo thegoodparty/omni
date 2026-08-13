@@ -74,6 +74,7 @@ const userDefaults = {
   metaData: null,
   passwordResetToken: null,
   clerkId: null,
+  personId: null,
 }
 
 const mockUser: User = {
@@ -615,6 +616,50 @@ describe('CampaignsController', () => {
           canDownloadFederal: true,
         }),
       ).rejects.toThrow(ForbiddenException)
+    })
+
+    it('throws ForbiddenException when a non-admin clears canDownloadFederal', async () => {
+      vi.spyOn(campaignsService, 'updateJsonFields').mockResolvedValue(
+        mockCampaign,
+      )
+
+      await expect(
+        controller.update(mockUser, mockCampaign, {
+          canDownloadFederal: false,
+        }),
+      ).rejects.toThrow(ForbiddenException)
+
+      expect(campaignsService.updateJsonFields).not.toHaveBeenCalled()
+    })
+
+    it('allows a non-admin to update other fields', async () => {
+      vi.spyOn(campaignsService, 'updateJsonFields').mockResolvedValue(
+        mockCampaign,
+      )
+
+      await controller.update(mockUser, mockCampaign, {
+        data: { foo: 'bar' },
+      })
+
+      expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
+        mockCampaign.id,
+        { data: { foo: 'bar' } },
+      )
+    })
+
+    it('allows admin to clear canDownloadFederal', async () => {
+      vi.spyOn(campaignsService, 'updateJsonFields').mockResolvedValue(
+        mockCampaign,
+      )
+
+      await controller.update(mockAdminUser, mockCampaign, {
+        canDownloadFederal: false,
+      })
+
+      expect(campaignsService.updateJsonFields).toHaveBeenCalledWith(
+        mockCampaign.id,
+        { canDownloadFederal: false },
+      )
     })
 
     it('allows admin to set canDownloadFederal', async () => {

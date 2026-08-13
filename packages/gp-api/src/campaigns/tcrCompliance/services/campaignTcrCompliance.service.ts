@@ -27,7 +27,7 @@ import {
   QueueType,
   TcrComplianceStatusCheckMessage,
 } from '../../../queue/queue.types'
-import { getUserFullName } from '../../../users/util/users.util'
+import { getUserFullName, isInternalUser } from '../../../users/util/users.util'
 import {
   BrandApprovalResult,
   PeerlyCvVerificationStatus,
@@ -40,7 +40,10 @@ import {
   PEERLY_USECASE,
 } from '../../../vendors/peerly/services/peerly.const'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
-import { WebsitesService } from '../../../websites/services/websites.service'
+import {
+  WebsitesService,
+  wouldBePublishableAfterFallbacks,
+} from '../../../websites/services/websites.service'
 import {
   CreateAgenticTcrCompliancePayload,
   CreateTcrCompliancePayload,
@@ -49,7 +52,11 @@ import { CampaignsService } from '../../services/campaigns.service'
 import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import { ComplianceStateService } from './complianceState.service'
 import { submitToPeerlyFilingSchema } from '../schemas/submitToPeerlyDto.schema'
-import { FEC_COMMITTEE_ID_PATTERN } from '../schemas/tcrComplianceBase.schema'
+import {
+  FEC_COMMITTEE_ID_PATTERN,
+  formatManualFilingAddress,
+  ManualFilingAddress,
+} from '../schemas/tcrComplianceBase.schema'
 import {
   ComplianceStage,
   MIN_BIO_LENGTH,
@@ -66,6 +73,7 @@ import {
   PeerlyBillingException,
   PEERLY_NO_PAYMENT_METHOD_MESSAGE,
 } from '../../../vendors/peerly/utils/peerlyBillingError.util'
+import { PeerlyCvRejectionException } from '../../../vendors/peerly/utils/peerlyCvRejection.util'
 
 // `parseInt(x) || default` (not `x ? parseInt(x) : default`) so a non-numeric
 // env value yields NaN and falls back to the default rather than reaching
@@ -110,7 +118,25 @@ export const PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES = 6 * 60
 
 const YYYY_MM_DD = /^\d{4}-\d{2}-\d{2}$/
 
+const manualFilingAddressColumns = (
+  manualAddress: ManualFilingAddress | undefined,
+) =>
+  manualAddress
+    ? {
+        filingAddressLine1: manualAddress.addressLine1,
+        filingAddressLine2: manualAddress.addressLine2 ?? null,
+        filingCity: manualAddress.city,
+        filingState: manualAddress.state,
+        filingZip: manualAddress.zip,
+      }
+    : {}
+
 const NON_PROD_BYPASS_CV_TOKEN = 'non-prod-bypass-cv-token'
+
+// Filler for the NOT NULL business columns on an internal-testing approval
+// row — the row never reaches Peerly (no identity is ever minted for it), so
+// these values are display-only.
+const INTERNAL_TESTING_PLACEHOLDER = 'internal-testing'
 
 type PeerlySubmissionResult = {
   peerlyIdentityId: string
@@ -151,7 +177,12 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         campaign: { isPro: true },
       },
       include: {
-        campaign: { include: { user: true } },
+        campaign: {
+          include: {
+            user: true,
+            campaignPositions: { include: { topIssue: true } },
+          },
+        },
       },
     })
 
@@ -159,21 +190,55 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       return
     }
 
-    this.logger.warn(
-      { count: stranded.length, cutoff: cutoff.toISOString() },
-      `[TCR Compliance] Sweeping ${stranded.length} stranded agentic kickoff(s)`,
-    )
-
+    // Split deferred records (profile can't pass the publish gate — see
+    // claimAndEnqueueKickoff) from genuinely stranded ones. Deferred records
+    // are skipped every cycle at no cost; the moment the candidate completes
+    // their profile the next sweep dispatches automatically, which is the
+    // deferral loop's self-heal path.
+    const dispatchable: {
+      record: (typeof stranded)[number]
+      clerkUserId: string
+    }[] = []
     for (const record of stranded) {
-      const clerkUserId = record.campaign?.user?.clerkId
-      if (!clerkUserId) {
+      const user = record.campaign?.user
+      if (!user?.clerkId) {
         this.logger.error(
           { tcrComplianceId: record.id, campaignId: record.campaignId },
           '[TCR Compliance] Stranded agentic record has no Clerk user; skipping',
         )
         continue
       }
+      let content: PrismaJson.WebsiteContent | null
+      try {
+        content = await this.websitesService.getContentForCampaign(
+          record.campaignId,
+        )
+      } catch (err) {
+        // Isolate per record (matching the other sweeps): one record's fetch
+        // failure must not abandon the rest of this tick's candidates.
+        this.logger.error(
+          { err, tcrComplianceId: record.id, campaignId: record.campaignId },
+          '[TCR Compliance] Failed to fetch website content for stranded ' +
+            'record; skipping',
+        )
+        continue
+      }
+      if (!wouldBePublishableAfterFallbacks(content, user, record.campaign)) {
+        continue
+      }
+      dispatchable.push({ record, clerkUserId: user.clerkId })
+    }
 
+    if (!dispatchable.length) {
+      return
+    }
+
+    this.logger.warn(
+      { count: dispatchable.length, cutoff: cutoff.toISOString() },
+      `[TCR Compliance] Sweeping ${dispatchable.length} stranded agentic kickoff(s)`,
+    )
+
+    for (const { record, clerkUserId } of dispatchable) {
       try {
         await this.queueService.sendMessage(
           {
@@ -390,11 +455,56 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       return
     }
 
-    const { pinDelivery } =
+    const { status: cvStatus, pinDelivery } =
       await this.peerlyIdentityService.retrieveCampaignVerifyDetails(
         peerlyIdentityId,
         campaign,
       )
+
+    // A CV that flipped to REJECTED or WITHDRAWN after submission never gets
+    // a PIN, so without this the record would sit in the sweep set forever
+    // (TcrComplianceStatus has no withdrawn value; rejected is the terminal
+    // mapping and keeps the record retryable via createAgentic). Persist via
+    // an atomic transition claim so the rejection event fires once; the DB
+    // write is the source of truth and the event is best-effort — a lost
+    // event still surfaces via the nightly 10DLC report's rejected section.
+    if (
+      cvStatus === PeerlyCvVerificationStatus.REJECTED ||
+      cvStatus === PeerlyCvVerificationStatus.WITHDRAWN
+    ) {
+      const rejectedClaim = await this.model.updateMany({
+        where: {
+          id: tcrCompliance.id,
+          status: { not: TcrComplianceStatus.rejected },
+        },
+        data: { status: TcrComplianceStatus.rejected },
+      })
+      if (rejectedClaim.count > 0) {
+        void this.analytics
+          .track(campaign.user.id, EVENTS.Outreach.ComplianceRejected, {
+            rejection_source: 'cv_status_check',
+            peerly_identity_id: peerlyIdentityId,
+            ...(campaign.data.hubspotId
+              ? { company_hubspot_id: campaign.data.hubspotId }
+              : {}),
+          })
+          .catch(() => undefined)
+      }
+      return
+    }
+
+    // Peerly echoes back the verification_method/filing_email we ourselves
+    // send in submit_cv from day one, so their presence does not mean a PIN
+    // went out. Only APPROVED (PIN issued) and VERIFIED (PIN consumed) prove
+    // delivery; REQUESTED/IN_REVIEW stay in the sweep set for a later pass
+    // (ENG-10785 — false "PIN Sent" nudges for in-review CVs).
+    if (
+      cvStatus !== PeerlyCvVerificationStatus.APPROVED &&
+      cvStatus !== PeerlyCvVerificationStatus.VERIFIED
+    ) {
+      return
+    }
+
     // No method yet = PIN not sent (or an unrecognized channel we don't
     // surface) — leave the record for a later sweep.
     if (!pinDelivery) {
@@ -520,6 +630,83 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     })
   }
 
+  // Admin-granted "treat as 10DLC approved" for internal accounts: status is
+  // approved so every UI gate passes, but no Peerly identity ever exists, so
+  // the P2P send gate (requirePeerlyIdentityId) keeps real sends blocked.
+  async grantInternalTestingApproval(user: User, campaign: Campaign) {
+    if (!isInternalUser({ email: user.email })) {
+      throw new BadRequestException(
+        'Internal testing approval is limited to internal GoodParty accounts',
+      )
+    }
+
+    const existing = await this.fetchByCampaignId(campaign.id)
+    if (existing?.internalTestingApprovedAt) {
+      return existing
+    }
+    if (existing) {
+      throw new ConflictException(
+        'Campaign already has a real TCR compliance record',
+      )
+    }
+
+    try {
+      return await this.model.create({
+        data: {
+          campaignId: campaign.id,
+          status: TcrComplianceStatus.approved,
+          internalTestingApprovedAt: new Date(),
+          ein: INTERNAL_TESTING_PLACEHOLDER,
+          postalAddress: INTERNAL_TESTING_PLACEHOLDER,
+          committeeName: INTERNAL_TESTING_PLACEHOLDER,
+          websiteDomain: INTERNAL_TESTING_PLACEHOLDER,
+          filingUrl: INTERNAL_TESTING_PLACEHOLDER,
+          phone: INTERNAL_TESTING_PLACEHOLDER,
+          email: user.email,
+          officeLevel: OfficeLevel.local,
+        },
+      })
+    } catch (err) {
+      // Concurrent grants can both pass the pre-check; the loser's create
+      // hits the campaignId unique constraint. Resolve the race the same way
+      // the pre-check would have: idempotent for a marker row, 409 for a
+      // real compliance record that landed in between.
+      if (isPrismaError(err, 'P2002')) {
+        const raced = await this.fetchByCampaignId(campaign.id)
+        if (raced?.internalTestingApprovedAt) {
+          return raced
+        }
+        if (raced) {
+          throw new ConflictException(
+            'Campaign already has a real TCR compliance record',
+          )
+        }
+        // Row vanished between the P2002 and this re-read (concurrent
+        // revoke deleted the racing winner's row); surface a clean error.
+        throw new ConflictException(
+          'Internal testing approval was concurrently granted and ' +
+            'revoked; please retry',
+        )
+      }
+      throw err
+    }
+  }
+
+  async revokeInternalTestingApproval(campaignId: number) {
+    const existing = await this.fetchByCampaignId(campaignId)
+    if (!existing) {
+      return
+    }
+    if (!existing.internalTestingApprovedAt) {
+      throw new ConflictException(
+        'Campaign has a real TCR compliance record; refusing to delete it',
+      )
+    }
+    // deleteMany so a concurrent revoke that already removed the row no-ops
+    // instead of throwing P2025 — revoke is idempotent.
+    await this.model.deleteMany({ where: { id: existing.id } })
+  }
+
   // TODO: Refactor this flow to persist the Peerly Identity ID and other
   //  relevant data in the TCR Compliance record as we go, and then use that to
   //  determine flow progress instead of calling Peerly for everything.
@@ -552,9 +739,13 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       domain.name,
     )
 
+    const { manualAddress, ...persistablePayload } = tcrComplianceCreatePayload
     const newTcrCompliance = {
-      ...tcrComplianceCreatePayload,
-      postalAddress: campaign.formattedAddress!,
+      ...persistablePayload,
+      postalAddress: manualAddress
+        ? formatManualFilingAddress(manualAddress)
+        : campaign.formattedAddress!,
+      ...manualFilingAddressColumns(manualAddress),
       campaignId: campaign.id,
       peerlyIdentityId: peerlyResult.peerlyIdentityId,
       peerlyIdentityProfileLink: peerlyResult.peerlyIdentityProfileLink,
@@ -594,19 +785,22 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       officeLevel,
       fecCommitteeId,
       committeeType,
+      manualAddress,
     } = tcrComplianceCreatePayload
 
-    // Peerly's identity/brand calls resolve the candidate's postal address from
+    // Peerly's identity/brand calls resolve the candidate's postal address
+    // from a manually entered structured address or, failing that, from
     // campaign.placeId via Google Places (peerlyIdentity.service
-    // getAddressByPlaceId). Without a placeId that lookup 502s, which the
+    // getAddressByPlaceId). With neither, that lookup 502s, which the
     // compliance agent treats as transient and retries forever (campaign
     // 325553). A 10DLC brand can't be registered without an address, so fail
     // fast with a non-recoverable 4xx that names the real cause instead.
-    if (!campaign.placeId?.trim()) {
+    if (!manualAddress && !campaign.placeId?.trim()) {
       throw new BadRequestException(
         'Cannot submit TCR registration to Peerly: the campaign has no ' +
-          'address on file (placeId missing). The candidate must add their ' +
-          'address before TCR registration can proceed.',
+          'address on file (no placeId and no manually entered address). ' +
+          'The candidate must add their address before TCR registration ' +
+          'can proceed.',
       )
     }
 
@@ -767,6 +961,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
             officeLevel,
             fecCommitteeId: fecCommitteeId ?? null,
             committeeType: committeeType,
+            ...manualFilingAddressColumns(manualAddress),
           },
           user,
           campaign,
@@ -945,6 +1140,22 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       fecCommitteeId,
       committeeType: existing.committeeType,
       websiteDomain: hostname,
+      // A record created from a manual address entry carries its structured
+      // components; passing them through makes the Peerly submits read them
+      // instead of resolving campaign.placeId.
+      manualAddress:
+        existing.filingAddressLine1 &&
+        existing.filingCity &&
+        existing.filingState &&
+        existing.filingZip
+          ? {
+              addressLine1: existing.filingAddressLine1,
+              addressLine2: existing.filingAddressLine2 ?? undefined,
+              city: existing.filingCity,
+              state: existing.filingState,
+              zip: existing.filingZip,
+            }
+          : undefined,
     }
 
     let peerlyResult: PeerlySubmissionResult
@@ -961,13 +1172,15 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       // could release the claim while leaving peerlyBillingBlockedAt unset — the
       // next resume would then find no cooldown, bypass the guard, and re-storm
       // Peerly, which is exactly what the hold prevents.
+      let rejectedStamped = false
       try {
+        let ownedClaim = false
         await this.client.$transaction(async (tx) => {
           // Roll back only this caller's claim by matching the exact timestamp
           // we wrote. A TTL re-claimant (caller B, after our call exceeded TTL)
           // will have a different timestamp, so its in-flight claim isn't
           // disturbed.
-          await tx.tcrCompliance.updateMany({
+          const released = await tx.tcrCompliance.updateMany({
             where: {
               id: existing.id,
               peerlyIdentityId: null,
@@ -975,13 +1188,28 @@ export class CampaignTcrComplianceService extends createPrismaBase(
             },
             data: { peerlySubmissionStartedAt: null },
           })
+          // released.count === 0 means a TTL re-claimant owns the record now;
+          // only the claim owner may stamp rejected (and fire the event),
+          // otherwise both callers would emit for the same rejection.
+          ownedClaim = released.count > 0
           if (error instanceof PeerlyBillingException) {
             await tx.tcrCompliance.update({
               where: { id: existing.id },
               data: { peerlyBillingBlockedAt: new Date() },
             })
           }
+          if (error instanceof PeerlyCvRejectionException && ownedClaim) {
+            // A CV data rejection re-fails deterministically until the
+            // candidate corrects their filing details, and createAgentic
+            // treats `rejected` as retryable (delete + recreate), so this is
+            // the designed lifecycle state — not a dead end.
+            await tx.tcrCompliance.update({
+              where: { id: existing.id },
+              data: { status: TcrComplianceStatus.rejected },
+            })
+          }
         })
+        rejectedStamped = ownedClaim
       } catch (rollbackErr) {
         // If the rollback/stamp transaction itself fails, the claim TTL will
         // release the held claim later. Log and fall through so the original
@@ -992,6 +1220,20 @@ export class CampaignTcrComplianceService extends createPrismaBase(
             'TTL will recover',
         )
       }
+      // Only fire once the rejected stamp actually committed: if the rollback
+      // transaction failed, the record stays non-rejected and the
+      // deterministic retry would fire this event a second time.
+      if (error instanceof PeerlyCvRejectionException && rejectedStamped) {
+        void this.analytics
+          .track(user.id, EVENTS.Outreach.ComplianceRejected, {
+            rejection_source: 'cv_submit',
+            rejection_reason: error.message,
+            ...(campaign.data.hubspotId
+              ? { company_hubspot_id: campaign.data.hubspotId }
+              : {}),
+          })
+          .catch(() => undefined)
+      }
       throw error
     }
 
@@ -1000,9 +1242,13 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       data: {
         // Every Peerly field was already sourced from this record; only the
         // canonical website host, postal address, and the Peerly result need
-        // persisting back.
+        // persisting back. A manual-address record keeps its composed postal
+        // address — campaign.formattedAddress may hold an unrelated address
+        // from another flow.
         websiteDomain: hostname,
-        postalAddress: campaign.formattedAddress ?? existing.postalAddress,
+        postalAddress: existing.filingAddressLine1
+          ? existing.postalAddress
+          : (campaign.formattedAddress ?? existing.postalAddress),
         peerlyIdentityId: peerlyResult.peerlyIdentityId,
         peerlyIdentityProfileLink: peerlyResult.peerlyIdentityProfileLink,
         peerly10DLCBrandSubmissionKey:
@@ -1078,6 +1324,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       websiteDomain,
       placeId,
       formattedAddress,
+      manualAddress,
       ...rest
     } = payload
 
@@ -1085,6 +1332,10 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     try {
       record = await this.client.$transaction(
         async (tx) => {
+          // Manual entry leaves campaign.placeId/formattedAddress untouched:
+          // they may carry an address from another flow (e.g. onboarding)
+          // that other features read, and the compliance address lives on
+          // the TcrCompliance columns in that case.
           const updatedCampaign = await this.campaignsService.updateJsonFields(
             campaign.id,
             {
@@ -1116,7 +1367,10 @@ export class CampaignTcrComplianceService extends createPrismaBase(
               ein,
               committeeName,
               websiteDomain: websiteDomain ?? '',
-              postalAddress: updatedCampaign.formattedAddress ?? '',
+              postalAddress: manualAddress
+                ? formatManualFilingAddress(manualAddress)
+                : (updatedCampaign.formattedAddress ?? ''),
+              ...manualFilingAddressColumns(manualAddress),
               campaignId: campaign.id,
             },
           })
@@ -1219,6 +1473,61 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     record: TcrCompliance,
     clerkUserId: string,
   ) {
+    // Dispatch gate: a run kicked off for a profile that can't pass the
+    // publish gate fails terminally at publish_website (profile_incomplete),
+    // burning a paid run and stranding the record (nothing retries once
+    // kickoffSentAt is stamped). Returning here without claiming leaves
+    // kickoffSentAt null — the deferral mechanism: the record stays in the
+    // stranded-kickoff sweep's candidate set and dispatches automatically
+    // once the candidate authors a genuine bio + policy issue.
+    let publishable: boolean
+    try {
+      const campaign = await this.campaignsService.findUnique({
+        where: { id: record.campaignId },
+        include: {
+          user: true,
+          campaignPositions: { include: { topIssue: true } },
+        },
+      })
+      if (!campaign?.user) {
+        this.logger.error(
+          { campaignId: record.campaignId, tcrComplianceId: record.id },
+          '[TCR Compliance] Cannot enqueue agentic kickoff: campaign or ' +
+            'its user is missing',
+        )
+        return
+      }
+      const content = await this.websitesService.getContentForCampaign(
+        record.campaignId,
+      )
+      publishable = wouldBePublishableAfterFallbacks(
+        content,
+        campaign.user,
+        campaign,
+      )
+    } catch (err) {
+      // A transient fetch failure must not propagate: createAgentic's catch
+      // would mark the record `error`, which removes it from the sweep's
+      // `submitted` candidate set — stranding it with kickoffSentAt null.
+      // Returning without claiming leaves it deferred; the sweep re-evaluates
+      // the gate next cycle.
+      this.logger.error(
+        { err, campaignId: record.campaignId, tcrComplianceId: record.id },
+        '[TCR Compliance] Failed to evaluate the kickoff dispatch gate; ' +
+          'leaving kickoffSentAt null so the stranded-kickoff sweep retries',
+      )
+      return
+    }
+    if (!publishable) {
+      this.logger.info(
+        { campaignId: record.campaignId, tcrComplianceId: record.id },
+        '[TCR Compliance] Deferring agentic kickoff: candidate profile ' +
+          'incomplete (no genuine bio/policy issue); the stranded-kickoff ' +
+          'sweep dispatches once the profile is completed',
+      )
+      return
+    }
+
     // Claim before the send so concurrent callers can't both enqueue. Only the
     // caller that flips kickoffSentAt from null wins the claim.
     const claimTimestamp = new Date()
@@ -1315,17 +1624,20 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       return
     }
 
-    // Peerly TCR submission resolves the postal address from campaign.placeId
-    // (peerlyIdentity.service getAddressByPlaceId). Without it the run publishes
-    // a site, reaches website_verified_live, then can't submit — and the agent
-    // reports `partial`, so the resume sweep re-dispatches a full paid run every
-    // few minutes until it gives up (~$10 burned per stuck candidate). Reject at
-    // kickoff so the candidate is told to add their address instead of looping.
-    if (!campaign.placeId?.trim()) {
+    // Peerly TCR submission resolves the postal address from the record's
+    // manual filing-address columns or from campaign.placeId
+    // (peerlyIdentity.service resolveFilingAddress). With neither, the run
+    // publishes a site, reaches website_verified_live, then can't submit —
+    // and the agent reports `partial`, so the resume sweep re-dispatches a
+    // full paid run every few minutes until it gives up (~$10 burned per
+    // stuck candidate). Reject at kickoff so the candidate is told to add
+    // their address instead of looping.
+    if (!campaign.placeId?.trim() && !record.filingAddressLine1) {
       this.logger.error(
         { campaignId, tcrComplianceId },
         '[TCR Compliance] Cannot dispatch compliance_setup: ' +
-          'campaign.placeId is missing; Peerly requires a postal address',
+          'campaign.placeId is missing and the record has no manual ' +
+          'filing address; Peerly requires a postal address',
       )
       await this.model.updateMany({
         where: { id: tcrComplianceId, agenticRunId: null },
@@ -1344,6 +1656,43 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       campaign.user,
       campaign,
     )
+
+    // Defense-in-depth behind the producer-side gate in
+    // claimAndEnqueueKickoff: messages enqueued before that gate shipped (or
+    // by a path that skips it) can still arrive for a profile the fallbacks
+    // above couldn't complete — they never invent a bio or an issue. Without
+    // this re-check the run dispatches and fails terminally at
+    // publish_website (profile_incomplete). Roll the kickoff claim back to
+    // null instead so the record re-enters the deferral loop and the
+    // stranded-kickoff sweep dispatches once the profile is completed. The
+    // rollback is scoped to the claim timestamp this message was enqueued
+    // under (and to no run having been dispatched) so a newer claim isn't
+    // cleared. First-pass records only (`agenticRunId` null): a record with
+    // a prior run must fall through to the FAILED/SUPERSEDED retake logic
+    // below — deferring it here would no-op the rollback (its agenticRunId
+    // is set) and strand it with kickoffSentAt stamped, invisible to the
+    // sweep.
+    if (!record.agenticRunId) {
+      const persistedContent =
+        await this.websitesService.getContentForCampaign(campaignId)
+      if (isGenericComplianceContent(persistedContent)) {
+        this.logger.info(
+          { campaignId, tcrComplianceId },
+          '[TCR Compliance] Deferring dispatch at kickoff: candidate ' +
+            'profile incomplete after publish fallbacks; kickoff claim ' +
+            'rolled back',
+        )
+        await this.model.updateMany({
+          where: {
+            id: tcrComplianceId,
+            agenticRunId: null,
+            kickoffSentAt: record.kickoffSentAt,
+          },
+          data: { kickoffSentAt: null },
+        })
+        return
+      }
+    }
 
     // Atomic claim before dispatchRun to prevent duplicate dispatches under
     // at-least-once SQS delivery (consumer crashes, redelivery, concurrent

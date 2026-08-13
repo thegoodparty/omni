@@ -73,8 +73,8 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
   })
 })
 
-describe('getDashboardMenuItems: Campaign Story sidebar item removed', () => {
-  it('does not render a Campaign Story sidebar item even when the story flag is on', () => {
+describe('getDashboardMenuItems: "Your story" sidebar item', () => {
+  it('renders "Your story" just above the tracker when the story flag is on', () => {
     const items = getDashboardMenuItems(
       false, // serveAccessEnabled
       false, // isElectedOffice
@@ -84,9 +84,25 @@ describe('getDashboardMenuItems: Campaign Story sidebar item removed', () => {
       false, // communityIssuesEnabled
       false, // ordinancesEnabled
     )
+    const storyIdx = items.findIndex((i) => i.id === 'campaign-story-dashboard')
     const planIdx = items.findIndex((i) => i.id === 'campaign-plan-dashboard')
 
-    expect(planIdx).toBeGreaterThanOrEqual(0)
+    expect(storyIdx).toBeGreaterThanOrEqual(0)
+    expect(items[storyIdx]?.label).toBe('Your story')
+    // It sits directly above the Campaign Plan tab.
+    expect(planIdx).toBe(storyIdx + 1)
+  })
+
+  it('omits "Your story" when the story flag is off', () => {
+    const items = getDashboardMenuItems(
+      false, // serveAccessEnabled
+      false, // isElectedOffice
+      false, // isElectedOfficeLoading
+      true, // campaignStrategyExists
+      false, // campaignStoryEnabled
+      false, // communityIssuesEnabled
+      false, // ordinancesEnabled
+    )
     expect(
       items.find((i) => i.id === 'campaign-story-dashboard'),
     ).toBeUndefined()
@@ -94,10 +110,10 @@ describe('getDashboardMenuItems: Campaign Story sidebar item removed', () => {
 })
 
 describe('getDashboardMenuItems — Campaign Plan tab label', () => {
-  it('labels the item "Campaign Tracker" when campaignStoryEnabled is true', () => {
+  it('labels the item "Campaign Plan" when campaignStoryEnabled is true', () => {
     const items = links({ campaignStoryEnabled: true })
     const planItem = items.find((i) => i.id === 'campaign-plan-dashboard')
-    expect(planItem?.label).toBe('Campaign Tracker')
+    expect(planItem?.label).toBe('Campaign Plan')
   })
 
   it('labels the item "Campaign Plan" when campaignStoryEnabled is false', () => {

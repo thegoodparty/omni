@@ -106,7 +106,7 @@ const FUSE_OPTIONS: IFuseOptions<Race> = {
 const fetchRaces = async (zip: string): Promise<Race[]> => {
   const resp = await clientFetch<Race[]>(
     apiRoutes.elections.racesByYear,
-    { zipcode: zip },
+    { zipcode: zip, timeframe: 'future' },
     { revalidate: 3600 },
   )
   if (!resp.ok) {
@@ -114,7 +114,11 @@ const fetchRaces = async (zip: string): Promise<Race[]> => {
       `racesByYear returned ${resp.status} ${resp.statusText}`.trim(),
     )
   }
-  return Array.isArray(resp.data) ? resp.data : []
+  // A candidate runs in the general, so collapse each position's races down to
+  // its general election — the payload now also carries primaries and runoffs.
+  return Array.isArray(resp.data)
+    ? resp.data.filter((race) => !race.isPrimary && !race.isRunoff)
+    : []
 }
 
 const formatElectionDate = (date?: string): string => {
@@ -180,12 +184,13 @@ const toSelectedOffice = (race: Race): SelectedOffice => {
   }
 }
 
-// Composite (brPositionId, electionDay) row key — both fields exist on the
-// lean RaceListItem and the hydrated RaceFull, so the key stays stable
-// across the optimistic→hydrated transition. partisanType is intentionally
-// NOT included: the lean schema doesn't carry it, so adding it would make
-// selectedRowKey (which picks up partisanType after hydration) diverge
-// from rowKey on the lean list and drop the radio's highlight.
+// Composite (brPositionId, electionDay) key used ONLY to restore the highlight
+// from a persisted `selected` on mount — both fields exist on the lean
+// RaceListItem and on a persisted SelectedOffice, so it survives the
+// optimistic→hydrated transition. It is deliberately NOT the row's React key or
+// radio value: election-api can return several Race rows sharing this pair (a
+// stale + fresh BallotReady PositionElection), so it is not unique. Rows key off
+// the unique `race.id` instead; this only picks which row a restore highlights.
 const rowKey = (race: Race): string =>
   `${race.brPositionId ?? race.position?.id ?? ''}|${
     race.election?.electionDay ?? ''
@@ -227,6 +232,12 @@ export const OfficeSelectionStep = ({
   const [submittedZip, setSubmittedZip] = useState<string | undefined>(zip)
   const [nameFilter, setNameFilter] = useState('')
   const [activeFilter, setActiveFilter] = useState<string>('')
+  // Which lean row is highlighted, tracked by its unique `race.id`. Kept local
+  // (not derived from `selected`) because `selected.raceId` flips from the lean
+  // row id to the BallotReady race hash after hydration, and because duplicate
+  // rows share (brPositionId, electionDay) so `selected` alone can't say which
+  // one was clicked.
+  const [selectedRaceId, setSelectedRaceId] = useState<string>('')
   const { errorSnackbar } = useSnackbar()
 
   const canSearch = isZipValid(zipInput)
@@ -246,6 +257,18 @@ export const OfficeSelectionStep = ({
   }, [query.error, submittedZip])
 
   const races = useMemo(() => query.data ?? [], [query.data])
+
+  // Restore the highlight from a persisted/external selection (page reload,
+  // returning candidate). Additive only — it never clears; every deselect path
+  // resets `selectedRaceId` explicitly. Duplicates share (brPositionId,
+  // electionDay), so on restore the first matching row wins.
+  useEffect(() => {
+    if (!selected || selectedRaceId) return
+    const match = races.find(
+      (race) => rowKey(race) === selectedRowKey(selected),
+    )
+    if (match) setSelectedRaceId(match.id)
+  }, [selected, selectedRaceId, races])
 
   const categoryCounts = useMemo(() => {
     const counts = new Map<string, number>()
@@ -297,6 +320,7 @@ export const OfficeSelectionStep = ({
     setSubmittedZip(cleaned)
     setActiveFilter('')
     setNameFilter('')
+    setSelectedRaceId('')
     hydratedRacesRef.current.clear()
     pendingHydrationRaceIdRef.current = null
     onZipChange(cleaned)
@@ -343,8 +367,9 @@ export const OfficeSelectionStep = ({
   }
 
   const handleSelectRace = async (race: Race) => {
-    if (selectedRowKey(selected) === rowKey(race)) {
+    if (selectedRaceId === race.id) {
       pendingHydrationRaceIdRef.current = null
+      setSelectedRaceId('')
       onSelect(undefined)
       onHydratingChange?.(false)
       return
@@ -354,6 +379,7 @@ export const OfficeSelectionStep = ({
     const cached = hydratedRacesRef.current.get(race.id)
     if (cached) {
       pendingHydrationRaceIdRef.current = null
+      setSelectedRaceId(race.id)
       onSelect(toSelectedOffice(cached))
       onHydratingChange?.(false)
       return
@@ -361,6 +387,7 @@ export const OfficeSelectionStep = ({
 
     // Optimistic select so the radio reflects the click immediately.
     pendingHydrationRaceIdRef.current = race.id
+    setSelectedRaceId(race.id)
     onSelect(toSelectedOffice(race))
     onHydratingChange?.(true)
     const zipAtClick = submittedZip
@@ -382,6 +409,7 @@ export const OfficeSelectionStep = ({
       hydratedRacesRef.current.set(race.id, hydrated)
       onSelect(toSelectedOffice(hydrated))
     } else {
+      setSelectedRaceId('')
       onSelect(undefined)
     }
     onHydratingChange?.(false)
@@ -446,6 +474,7 @@ export const OfficeSelectionStep = ({
                 onValueChange={(value) => {
                   setActiveFilter(value)
                   pendingHydrationRaceIdRef.current = null
+                  setSelectedRaceId('')
                   onSelect(undefined)
                   onHydratingChange?.(false)
                 }}
@@ -472,9 +501,9 @@ export const OfficeSelectionStep = ({
               <RadioGroup
                 aria-label="Available offices"
                 className="flex flex-col"
-                value={selectedRowKey(selected)}
-                onValueChange={(key) => {
-                  const race = races.find((r) => rowKey(r) === key)
+                value={selectedRaceId}
+                onValueChange={(id) => {
+                  const race = races.find((r) => r.id === id)
                   if (race) void handleSelectRace(race)
                 }}
               >
@@ -503,12 +532,11 @@ export const OfficeSelectionStep = ({
                       {yearRaces.map((race) => {
                         const positionName = race.position?.name ?? 'Office'
                         const cityLabel = race.city ? ` — ${race.city}` : ''
-                        const key = rowKey(race)
                         return (
                           <RadioCardItem
-                            key={key}
-                            value={key}
-                            id={`race-${key}`}
+                            key={race.id}
+                            value={race.id}
+                            id={`race-${race.id}`}
                             title={`${positionName}${cityLabel}`}
                             description={formatElectionDate(
                               race.election?.electionDay,

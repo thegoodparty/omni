@@ -17,14 +17,15 @@ export type ListDetailDemographics = z.infer<
 >
 
 export const ListDetailReachabilitySchema = z.object({
-  sms: z.number().int().min(0),
-  robocall: z.number().int().min(0),
-  phoneBanking: z.number().int().min(0),
-  doorKnocking: z.number().int().min(0),
-  // No eligibility data source exists for either channel (TDD open
-  // question) — always null so the UI renders "unavailable", never 0.
-  email: z.null(),
-  metaAds: z.null(),
+  // ENG-10806: each channel comes from its own people-api aggregates call —
+  // null means that specific call failed, degrading only that tile instead
+  // of the whole route (see contacts.service.ts's fetchListDetailAggregates).
+  sms: z.number().int().min(0).nullable(),
+  robocall: z.number().int().min(0).nullable(),
+  phoneBanking: z.number().int().min(0).nullable(),
+  doorKnocking: z.number().int().min(0).nullable(),
+  // Polls are delivered by text, so reachability mirrors sms 1:1.
+  polls: z.number().int().min(0).nullable(),
 })
 export type ListDetailReachability = z.infer<
   typeof ListDetailReachabilitySchema
@@ -36,6 +37,9 @@ export const ListDetailOutreachHistoryEntrySchema = z.object({
   outreachType: OutreachTypeSchema,
   status: OutreachStatusSchema.nullable(),
   date: zDate().nullable(),
+  // ENG-10776: a legacy row can have a null `date` — the webapp falls back
+  // to this to render a real timestamp instead of "—".
+  createdAt: zDate(),
 })
 export type ListDetailOutreachHistoryEntry = z.infer<
   typeof ListDetailOutreachHistoryEntrySchema

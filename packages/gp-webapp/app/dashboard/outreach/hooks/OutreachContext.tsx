@@ -36,6 +36,8 @@ export interface Outreach {
   identityId?: string | null
   didState?: string | null
   title?: string | null
+  billableTextCount?: number | null
+  textCount?: number | null
 }
 
 type OutreachContextValue = [Outreach[], (outreaches: Outreach[]) => void]

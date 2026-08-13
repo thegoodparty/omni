@@ -2,17 +2,21 @@ name: gp-api
 
 on:
   pull_request:
-    branches-ignore: [qa, master]
   push:
-    branches: [develop, qa, master]
+    branches: [main]
 
 permissions:
   contents: read
   id-token: write
   pull-requests: write
 
+# Scoped per-PR only. On main this resolves to github.run_id — unique per run,
+# so pushes never serialize here: lint/typecheck/test share no state across
+# commits, and a shared group made every merge wait a full CI cycle for the
+# previous one before it even checked out. Deploys are still serialized, by the
+# deploy job's own gp-api-deploy-<ref> group.
 concurrency:
-  group: gp-api-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: gp-api-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: false
 
 env:
@@ -99,7 +103,7 @@ jobs:
       - name: Test
         run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/2
 
-  # Empty aggregation gate. The develop branch ruleset requires a status check
+  # Empty aggregation gate. The main branch ruleset requires a status check
   # named exactly "Validate"; this job preserves that name while the real work
   # fans out across the checks + sharded test jobs. It is green iff all of its
   # needs succeeded, so it gates merge on Checks plus every Test shard.
@@ -109,99 +113,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: echo "checks + all test shards passed"
-
-  deploy:
-    name: Deploy
-    needs: validate
-    if: >-
-      github.event_name == 'push'
-      && contains(fromJSON('["develop", "qa", "master"]'), github.ref_name)
-    runs-on: ubuntu-latest
-    concurrency:
-      group: gp-api-deploy-${{ github.ref_name }}
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: gp-api
-          workspace: ${{ env.WORKSPACE }}
-          build-contracts: 'true'
-          build-nest-common: 'true'
-          prisma-generate-script: generate:prisma:gp-api
-          route-types: 'true'
-
-      - name: Determine deployment context
-        id: ctx
-        run: |
-          case "${{ github.ref_name }}" in
-            develop) echo "environment=dev" >> "$GITHUB_OUTPUT" ;;
-            qa) echo "environment=qa" >> "$GITHUB_OUTPUT" ;;
-            master) echo "environment=prod" >> "$GITHUB_OUTPUT" ;;
-          esac
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
-
-      # ECR tags are immutable, so a re-run of this job after a successful
-      # push would fail trying to overwrite the tag. Same SHA means same
-      # source; reuse the existing image and skip the build.
-      - name: Check for existing image
-        id: ecr-image
-        run: |
-          if aws ecr describe-images --repository-name gp-api \
-            --image-ids imageTag=${{ github.sha }} >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Build application
-        if: steps.ecr-image.outputs.exists != 'true'
-        run: npm run build -w ${{ env.WORKSPACE }}
-
-      - name: Set up Docker Buildx
-        if: steps.ecr-image.outputs.exists != 'true'
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and push Docker image
-        if: steps.ecr-image.outputs.exists != 'true'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: packages/gp-api/deploy/Dockerfile
-          push: true
-          tags: ${{ env.IMAGE_URI }}
-          build-args: |
-            GIT_SHA=${{ github.sha }}
-          cache-from: type=gha,scope=gp-api
-          cache-to: type=gha,mode=max,scope=gp-api
-
-      - name: Deploy (Pulumi)
-        id: pulumi
-        uses: ./.github/actions/pulumi-deploy
-        with:
-          working-directory: ${{ env.WORKSPACE }}
-          command: |
-            npm run infra deploy ${{ steps.ctx.outputs.environment }}
-            cd deploy
-            SERVICE_URL=$(pulumi stack output serviceUrl 2>/dev/null || echo "")
-            echo "service_url=${SERVICE_URL}" >> "$GITHUB_OUTPUT"
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-
-      - name: Add deploy summary
-        if: steps.pulumi.outputs.service_url != ''
-        run: echo "gp-api ${{ steps.ctx.outputs.environment }} deployed to ${{ steps.pulumi.outputs.service_url }}" >> "$GITHUB_STEP_SUMMARY"
 
   # Intentionally no needs: validate — the preview deploy runs in parallel with
   # validation so the webapp e2e (which waits on this job) starts sooner. A

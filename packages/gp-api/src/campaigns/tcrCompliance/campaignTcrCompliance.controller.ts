@@ -105,6 +105,38 @@ export class CampaignTcrComplianceController {
     await this.tcrComplianceService.resendCampaignVerifyPin(campaign)
   }
 
+  // Admin "treat as 10DLC approved (internal testing)" checkbox. Creates an
+  // approved TcrCompliance row with no Peerly identity for an internal
+  // (@goodparty.org / @test.goodparty.org) account, so UI gates pass while
+  // real P2P sends stay blocked. Refuses (409) when real compliance exists.
+  @Post('admin/:campaignId/internal-testing-approval')
+  @UseGuards(AdminOrM2MGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async grantInternalTestingApproval(
+    @Param('campaignId', ParseIntPipe) campaignId: number,
+  ) {
+    const campaign = await this.campaignsService.findUniqueOrThrow({
+      where: { id: campaignId },
+    })
+    const user = await this.userService.findByCampaign(campaign)
+    if (!user) {
+      throw new NotFoundException('User not found for this campaign')
+    }
+    await this.tcrComplianceService.grantInternalTestingApproval(user, campaign)
+  }
+
+  @Delete('admin/:campaignId/internal-testing-approval')
+  @UseGuards(AdminOrM2MGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async revokeInternalTestingApproval(
+    @Param('campaignId', ParseIntPipe) campaignId: number,
+  ) {
+    await this.campaignsService.findUniqueOrThrow({
+      where: { id: campaignId },
+    })
+    await this.tcrComplianceService.revokeInternalTestingApproval(campaignId)
+  }
+
   @Post('submit-to-peerly')
   @UseCampaign()
   @HttpCode(HttpStatus.OK)

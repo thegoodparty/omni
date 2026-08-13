@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Campaign Plan Generator</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .container {
+        background-color: white;
+        padding: 30px;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      h1 {
+        color: #2c3e50;
+        text-align: center;
+        margin-bottom: 30px;
+      }
+      .form-group {
+        margin-bottom: 20px;
+      }
+      label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+        color: #34495e;
+      }
+      input[type="text"],
+      input[type="date"],
+      input[type="number"],
+      select,
+      textarea {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        font-size: 16px;
+        box-sizing: border-box;
+      }
+      textarea {
+        height: 100px;
+        resize: vertical;
+      }
+      select {
+        height: 45px;
+      }
+      .form-row {
+        display: flex;
+        gap: 20px;
+      }
+      .form-row .form-group {
+        flex: 1;
+      }
+      .submit-btn {
+        background-color: #3498db;
+        color: white;
+        padding: 15px 30px;
+        border: none;
+        border-radius: 5px;
+        font-size: 18px;
+        cursor: pointer;
+        width: 100%;
+        margin-top: 20px;
+      }
+      .submit-btn:hover {
+        background-color: #2980b9;
+      }
+      .submit-btn:disabled {
+        background-color: #bdc3c7;
+        cursor: not-allowed;
+      }
+      .help-text {
+        font-size: 14px;
+        color: #7f8c8d;
+        margin-top: 5px;
+      }
+      .section-title {
+        font-size: 20px;
+        color: #2c3e50;
+        margin-top: 30px;
+        margin-bottom: 15px;
+        border-bottom: 2px solid #3498db;
+        padding-bottom: 5px;
+      }
+
+      /* Progress tracking styles */
+      .progress-container {
+        display: none;
+        margin-top: 30px;
+        padding: 20px;
+        background-color: #f8f9fa;
+        border-radius: 10px;
+        border: 1px solid #dee2e6;
+      }
+      .progress-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+      }
+      .progress-title {
+        font-size: 18px;
+        font-weight: bold;
+        color: #2c3e50;
+      }
+      .progress-percentage {
+        font-size: 16px;
+        color: #3498db;
+        font-weight: bold;
+      }
+      .progress-bar {
+        width: 100%;
+        height: 25px;
+        background-color: #e9ecef;
+        border-radius: 15px;
+        overflow: hidden;
+        margin-bottom: 15px;
+        position: relative;
+      }
+      .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #3498db, #2ecc71);
+        transition: width 0.3s ease;
+        border-radius: 15px;
+      }
+      .progress-message {
+        font-size: 14px;
+        color: #495057;
+        margin-bottom: 15px;
+        min-height: 20px;
+      }
+      .log-container {
+        max-height: 200px;
+        overflow-y: auto;
+        background-color: #2c3e50;
+        color: #ecf0f1;
+        padding: 15px;
+        border-radius: 5px;
+        font-family: "Courier New", monospace;
+        font-size: 13px;
+        line-height: 1.4;
+      }
+      .log-entry {
+        margin-bottom: 5px;
+        padding: 2px 0;
+        border-bottom: 1px solid #34495e;
+      }
+      .log-entry:last-child {
+        border-bottom: none;
+      }
+      .download-container {
+        display: none;
+        margin-top: 20px;
+        padding: 20px;
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        border: 2px solid #27ae60;
+      }
+      .download-title {
+        text-align: center;
+        font-size: 18px;
+        font-weight: bold;
+        color: #27ae60;
+        margin-bottom: 15px;
+      }
+      .download-buttons {
+        display: flex;
+        gap: 15px;
+        margin-bottom: 15px;
+      }
+      .download-btn {
+        background-color: #27ae60;
+        color: white;
+        padding: 15px 25px;
+        border: none;
+        border-radius: 5px;
+        font-size: 16px;
+        cursor: pointer;
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+      }
+      .download-btn:hover {
+        background-color: #219a52;
+      }
+      .download-btn-json {
+        background-color: #3498db;
+      }
+      .download-btn-json:hover {
+        background-color: #2980b9;
+      }
+      .download-info {
+        text-align: center;
+        font-size: 14px;
+        color: #7f8c8d;
+        margin-top: 10px;
+      }
+      .error-message {
+        background-color: #e74c3c;
+        color: white;
+        padding: 15px;
+        border-radius: 5px;
+        margin-top: 15px;
+        display: none;
+      }
+
+      /* Loading animations */
+      .loading-dots {
+        display: inline-block;
+        position: relative;
+        width: 80px;
+        height: 20px;
+      }
+      .loading-dots div {
+        position: absolute;
+        top: 8px;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #3498db;
+        animation: loading-dots 1.2s linear infinite;
+      }
+      .loading-dots div:nth-child(1) {
+        left: 8px;
+        animation-delay: 0s;
+      }
+      .loading-dots div:nth-child(2) {
+        left: 32px;
+        animation-delay: -0.4s;
+      }
+      .loading-dots div:nth-child(3) {
+        left: 56px;
+        animation-delay: -0.8s;
+      }
+      @keyframes loading-dots {
+        0%,
+        80%,
+        100% {
+          transform: scale(0);
+        }
+        40% {
+          transform: scale(1);
+        }
+      }
+
+      /* Status indicators */
+      .status-starting {
+        color: #f39c12;
+      }
+      .status-processing {
+        color: #3498db;
+      }
+      .status-completed {
+        color: #27ae60;
+      }
+      .status-error {
+        color: #e74c3c;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Campaign Plan Generator</h1>
+      <p style="text-align: center; color: #7f8c8d; margin-bottom: 30px">
+        Generate a comprehensive campaign plan by filling out the form below.
+        The system will create both PDF and JSON formats with strategic
+        recommendations, available for download for 24 hours.
+      </p>
+
+      <form id="campaignForm">
+        <div class="section-title">Candidate Information</div>
+
+        <div class="form-group">
+          <label for="candidate_name">Candidate Name *</label>
+          <input
+            type="text"
+            id="candidate_name"
+            name="candidate_name"
+            required
+          />
+          <div class="help-text">
+            Full name of the candidate (e.g., "John Smith")
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="office_and_jurisdiction">Office and Jurisdiction *</label>
+          <input
+            type="text"
+            id="office_and_jurisdiction"
+            name="office_and_jurisdiction"
+            required
+          />
+          <div class="help-text">
+            e.g., "School Board, At-Large, Chicopee, MA" or "City Council,
+            District 3, Boston, MA"
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="race_type">Race Type *</label>
+            <select id="race_type" name="race_type" required>
+              <option value="">Select Race Type</option>
+              <option value="Partisan">Partisan</option>
+              <option value="Nonpartisan">Nonpartisan</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="incumbent_status">Incumbent Status *</label>
+            <select id="incumbent_status" name="incumbent_status" required>
+              <option value="">Select Status</option>
+              <option value="Elected">Elected Incumbent</option>
+              <option value="Appointed">Appointed Incumbent</option>
+              <option value="N/A">Not Applicable (Not Incumbent)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="section-title">Election Dates</div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="election_date">Election Date *</label>
+            <input
+              type="date"
+              id="election_date"
+              name="election_date"
+              required
+            />
+            <div class="help-text">General election date</div>
+          </div>
+
+          <div class="form-group">
+            <label for="primary_date">Primary Date (if applicable)</label>
+            <input type="date" id="primary_date" name="primary_date" />
+            <div class="help-text">Leave blank if no primary election</div>
+          </div>
+        </div>
+
+        <div class="section-title">Race Details</div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="seats_available">Seats Available *</label>
+            <input
+              type="number"
+              id="seats_available"
+              name="seats_available"
+              min="1"
+              required
+            />
+            <div class="help-text">Number of seats up for election</div>
+          </div>
+
+          <div class="form-group">
+            <label for="number_of_opponents">Number of Opponents *</label>
+            <input
+              type="number"
+              id="number_of_opponents"
+              name="number_of_opponents"
+              min="0"
+              required
+            />
+            <div class="help-text">Number of other candidates in the race</div>
+          </div>
+        </div>
+
+        <div class="section-title">Voter Information</div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="win_number">Win Number *</label>
+            <input
+              type="number"
+              id="win_number"
+              name="win_number"
+              min="1"
+              required
+            />
+            <div class="help-text">Estimated number of votes needed to win</div>
+          </div>
+
+          <div class="form-group">
+            <label for="total_likely_voters">Total Likely Voters *</label>
+            <input
+              type="number"
+              id="total_likely_voters"
+              name="total_likely_voters"
+              min="0"
+              required
+            />
+            <div class="help-text">
+              Total number of likely voters in the jurisdiction
+            </div>
+          </div>
+        </div>
+
+        <div class="section-title">Contact Information</div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="available_cell_phones">Available Cell Phones *</label>
+            <input
+              type="number"
+              id="available_cell_phones"
+              name="available_cell_phones"
+              min="0"
+              required
+            />
+            <div class="help-text">Number of cell phone contacts available</div>
+          </div>
+
+          <div class="form-group">
+            <label for="available_landlines">Available Landlines *</label>
+            <input
+              type="number"
+              id="available_landlines"
+              name="available_landlines"
+              min="0"
+              required
+            />
+            <div class="help-text">Number of landline contacts available</div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="additional_race_context">Additional Race Context</label>
+          <textarea
+            id="additional_race_context"
+            name="additional_race_context"
+            placeholder="Optional: Include any additional context about race themes, district dynamics, turnout trends, key issues, etc."
+          ></textarea>
+        </div>
+
+        <button type="submit" class="submit-btn" id="submitBtn">
+          Generate Campaign Plan (PDF + JSON)
+        </button>
+      </form>
+
+      <!-- Progress tracking container -->
+      <div class="progress-container" id="progressContainer">
+        <div class="progress-header">
+          <div class="progress-title">Generating Campaign Plan</div>
+          <div class="progress-percentage" id="progressPercentage">0%</div>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="progress-message" id="progressMessage">
+          Initializing...
+          <div class="loading-dots">
+            <div></div>
+            <div></div>
+            <div></div>
+          </div>
+        </div>
+        <div class="log-container" id="logContainer">
+          <div class="log-entry">
+            System initialized. Waiting for generation to start...
+          </div>
+        </div>
+        <div class="download-container" id="downloadContainer">
+          <div class="download-title">✅ Campaign Plan Ready!</div>
+          <div class="download-buttons">
+            <button class="download-btn" id="downloadPdfBtn">
+              📄 Download PDF
+            </button>
+            <button class="download-btn download-btn-json" id="downloadJsonBtn">
+              📊 Download JSON
+            </button>
+          </div>
+          <div class="download-info" id="downloadInfo">
+            Files are available for download until <span id="expirationTime">calculating...</span>
+            <br><small id="timeRemaining" style="color: #95a5a6;"></small>
+          </div>
+        </div>
+        <div class="error-message" id="errorMessage"></div>
+      </div>
+    </div>
+
+    <script>
+      let currentSessionId = null;
+      let eventSource = null;
+      let expirationDate = null;
+      let countdownInterval = null;
+
+      function showError(message) {
+        const errorDiv = document.getElementById("errorMessage");
+        if (errorDiv) {
+          errorDiv.textContent = message;
+          errorDiv.style.display = "block";
+        } else {
+          console.error("Error message element not found:", message);
+          alert("Error: " + message);
+        }
+
+        // Hide progress elements
+        const progressMessage = document.getElementById("progressMessage");
+        const progressBar = document.getElementById("progressBar");
+        if (progressMessage) progressMessage.style.display = "none";
+        if (progressBar) progressBar.style.display = "none";
+
+        // Reset form
+        setTimeout(() => {
+          resetForm();
+        }, 5000);
+      }
+
+      function resetForm() {
+        document.getElementById("progressContainer").style.display = "none";
+        document.getElementById("submitBtn").disabled = false;
+        document.getElementById("submitBtn").textContent =
+          "Generate Campaign Plan (PDF + JSON)";
+
+        // Close event source if open
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+
+        currentSessionId = null;
+        
+        // Clear countdown timer
+        if (countdownInterval) {
+          clearInterval(countdownInterval);
+          countdownInterval = null;
+        }
+        expirationDate = null;
+      }
+      
+      function updateCountdown() {
+        const timeRemainingEl = document.getElementById("timeRemaining");
+        if (!expirationDate || !timeRemainingEl) return;
+        
+        const now = new Date();
+        const timeLeft = expirationDate - now;
+        
+        if (timeLeft <= 0) {
+          timeRemainingEl.textContent = "Files have expired";
+          timeRemainingEl.style.color = "#e74c3c";
+          if (countdownInterval) {
+            clearInterval(countdownInterval);
+            countdownInterval = null;
+          }
+          return;
+        }
+        
+        const hours = Math.floor(timeLeft / (1000 * 60 * 60));
+        const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+        
+        if (hours > 0) {
+          timeRemainingEl.textContent = `(${hours} hours ${minutes} minutes remaining)`;
+        } else {
+          timeRemainingEl.textContent = `(${minutes} minutes remaining)`;
+        }
+        
+        // Change color as time gets low
+        if (hours < 1) {
+          timeRemainingEl.style.color = "#f39c12"; // Orange for < 1 hour
+        }
+        if (minutes < 30 && hours === 0) {
+          timeRemainingEl.style.color = "#e74c3c"; // Red for < 30 minutes
+        }
+      }
+
+      function updateProgress(data) {
+        const progressFill = document.getElementById("progressFill");
+        const progressPercentage =
+          document.getElementById("progressPercentage");
+        const progressMessage = document.getElementById("progressMessage");
+        const logContainer = document.getElementById("logContainer");
+        const downloadContainer = document.getElementById("downloadContainer");
+        const downloadPdfBtn = document.getElementById("downloadPdfBtn");
+        const downloadJsonBtn = document.getElementById("downloadJsonBtn");
+        const expirationTime = document.getElementById("expirationTime");
+        const errorDiv = document.getElementById("errorMessage");
+
+        // Update progress bar
+        progressFill.style.width = data.progress + "%";
+        progressPercentage.textContent = data.progress + "%";
+
+        // Update message with status styling
+        progressMessage.innerHTML = `
+          <span class="status-${data.status}">${data.message}</span>
+          ${
+            data.status === "processing"
+              ? '<div class="loading-dots"><div></div><div></div><div></div></div>'
+              : ""
+          }
+        `;
+
+        // Update logs
+        if (data.logs && data.logs.length > 0) {
+          logContainer.innerHTML = data.logs
+            .map((log) => `<div class="log-entry">${log}</div>`)
+            .join("");
+
+          // Auto-scroll to bottom
+          logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        // Handle completion
+        if (data.status === "completed") {
+          progressMessage.innerHTML =
+            '<span class="status-completed">✓ ' + data.message + "</span>";
+          
+          // Show download container with appropriate buttons
+          downloadContainer.style.display = "block";
+          
+          // Update expiration time
+          if (data.expires_at_formatted) {
+            expirationTime.textContent = data.expires_at_formatted;
+          } else if (data.expires_at) {
+            // Fallback: format the ISO timestamp
+            const expDate = new Date(data.expires_at);
+            expirationTime.textContent = expDate.toLocaleString('en-US', {
+              weekday: 'long',
+              year: 'numeric', 
+              month: 'long', 
+              day: 'numeric',
+              hour: 'numeric', 
+              minute: '2-digit',
+              hour12: true
+            });
+          } else {
+            expirationTime.textContent = "24 hours from completion";
+          }
+          
+          // Start countdown timer if we have expiration data
+          if (data.expires_at) {
+            expirationDate = new Date(data.expires_at);
+            updateCountdown(); // Initial update
+            countdownInterval = setInterval(updateCountdown, 60000); // Update every minute
+          }
+          
+          // Setup download buttons based on available files
+          if (data.download_links && data.download_links.pdf) {
+            downloadPdfBtn.onclick = () => downloadFile("pdf");
+            downloadPdfBtn.style.display = "flex";
+          } else {
+            downloadPdfBtn.style.display = "none";
+          }
+          
+          if (data.download_links && data.download_links.json) {
+            downloadJsonBtn.onclick = () => downloadFile("json");
+            downloadJsonBtn.style.display = "flex";
+          } else {
+            downloadJsonBtn.style.display = "none";
+          }
+
+          // Close event source
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+        }
+
+        // Handle error
+        if (data.status === "error") {
+          showError(data.message);
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+        }
+      }
+
+      function startProgressTracking(sessionId) {
+        currentSessionId = sessionId;
+
+        // Show progress container
+        document.getElementById("progressContainer").style.display = "block";
+
+        // Start Server-Sent Events
+        eventSource = new EventSource(`/progress-stream/${sessionId}`);
+
+        eventSource.onmessage = function (event) {
+          const data = JSON.parse(event.data);
+          updateProgress(data);
+        };
+
+        eventSource.onerror = function (event) {
+          console.error("EventSource error:", event);
+          showError("Connection to server lost. Please try again.");
+        };
+      }
+
+      async function downloadFile(format) {
+        if (!currentSessionId) {
+          showError("No session found for download");
+          return;
+        }
+
+        try {
+          const url = format === "pdf" 
+            ? `/download-pdf/${currentSessionId}` 
+            : `/download-json/${currentSessionId}`;
+          
+          const response = await fetch(url);
+
+          if (response.ok) {
+            let filename = `campaign_plan.${format}`;
+            
+            if (format === "pdf") {
+              // Handle PDF download (binary)
+              const blob = await response.blob();
+              const blobUrl = window.URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = blobUrl;
+
+              // Get filename from response headers
+              const contentDisposition = response.headers.get("Content-Disposition");
+              if (contentDisposition) {
+                const matches = contentDisposition.match(/filename=([^;]+)/);
+                if (matches && matches[1]) {
+                  filename = matches[1].replace(/['"]/g, "");
+                }
+              }
+
+              a.download = filename;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              window.URL.revokeObjectURL(blobUrl);
+            } else {
+              // Handle JSON download
+              const jsonData = await response.json();
+              const jsonBlob = new Blob([JSON.stringify(jsonData, null, 2)], {
+                type: "application/json"
+              });
+              const blobUrl = window.URL.createObjectURL(jsonBlob);
+              const a = document.createElement("a");
+              a.href = blobUrl;
+              a.download = filename;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              window.URL.revokeObjectURL(blobUrl);
+            }
+
+            // Show success message
+            const successMsg = document.createElement("div");
+            successMsg.style.cssText = `
+              position: fixed;
+              top: 20px;
+              right: 20px;
+              background: #2ecc71;
+              color: white;
+              padding: 15px 20px;
+              border-radius: 5px;
+              box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+              z-index: 1000;
+              font-weight: bold;
+            `;
+            successMsg.textContent = `✓ ${format.toUpperCase()} downloaded successfully!`;
+            document.body.appendChild(successMsg);
+
+            setTimeout(() => {
+              if (successMsg.parentNode) {
+                successMsg.parentNode.removeChild(successMsg);
+              }
+            }, 3000);
+          } else {
+            const errorData = await response.json();
+            showError(errorData.detail || `Failed to download ${format.toUpperCase()}`);
+          }
+        } catch (error) {
+          console.error("Download error:", error);
+          showError(`Network error during ${format.toUpperCase()} download. Please try again.`);
+        }
+      }
+
+      async function submitForm(formData) {
+        try {
+          const response = await fetch("/start-campaign-plan-generation", {
+            method: "POST",
+            body: formData,
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            startProgressTracking(data.session_id);
+          } else {
+            const errorData = await response.json();
+            showError(errorData.detail || "Failed to start generation");
+          }
+        } catch (error) {
+          console.error("Error:", error);
+          showError("Network error. Please try again.");
+        }
+      }
+
+      document
+        .getElementById("campaignForm")
+        .addEventListener("submit", function (e) {
+          e.preventDefault();
+
+          // Disable submit button
+          document.getElementById("submitBtn").disabled = true;
+          document.getElementById("submitBtn").textContent =
+            "Starting Generation...";
+
+          // Validate dates
+          const electionDate = document.getElementById("election_date").value;
+          const primaryDate = document.getElementById("primary_date").value;
+
+          if (primaryDate && primaryDate >= electionDate) {
+            alert("Primary date must be before election date");
+            resetForm();
+            return;
+          }
+
+          // Validate win number vs total voters
+          const winNumber = parseInt(
+            document.getElementById("win_number").value
+          );
+          const totalVoters = parseInt(
+            document.getElementById("total_likely_voters").value
+          );
+
+          if (winNumber > totalVoters) {
+            alert("Win number cannot be greater than total likely voters");
+            resetForm();
+            return;
+          }
+
+          // Submit form
+          const formData = new FormData(this);
+          submitForm(formData);
+        });
+
+      // Set minimum date to today
+      const today = new Date().toISOString().split("T")[0];
+      document.getElementById("election_date").min = today;
+      document.getElementById("primary_date").min = today;
+
+      // Cleanup event source and countdown on page unload
+      window.addEventListener("beforeunload", function () {
+        if (eventSource) {
+          eventSource.close();
+        }
+        if (countdownInterval) {
+          clearInterval(countdownInterval);
+        }
+      });
+    </script>
+  </body>
+</html>

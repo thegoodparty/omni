@@ -8,7 +8,7 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useContactsDownload } from '../shared/useContactsDownload'
-import { LOCKED_LIST_MESSAGE } from '../shared/constants'
+import { ALL_SEGMENTS, LOCKED_LIST_MESSAGE } from '../shared/constants'
 import ListDetailSheet from './ListDetailSheet'
 
 vi.mock('@shared/organization-picker', () => ({
@@ -94,6 +94,12 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
   } as ContextValue)
 }
 
+// ENG-10767: the sheet now fires Segment Viewed on open, so assertions about
+// other events filter by event name instead of counting every trackEvent
+// call.
+const eventCalls = (event: string) =>
+  vi.mocked(trackEvent).mock.calls.filter(([name]) => name === event)
+
 const emptyDetailResponse = {
   demographics: { people: 100, avgAge: 42, avgIncome: 65000 },
   reachability: {
@@ -101,8 +107,7 @@ const emptyDetailResponse = {
     robocall: 100,
     phoneBanking: 100,
     doorKnocking: 100,
-    email: null,
-    metaAds: null,
+    polls: 100,
   },
   outreachHistory: [],
 }
@@ -163,6 +168,7 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
             outreachType: 'text',
             status: 'completed',
             date: new Date('2026-06-22T00:00:00.000Z'),
+            createdAt: new Date('2026-06-22T00:00:00.000Z'),
           },
         ],
       },
@@ -181,6 +187,73 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
       screen.getByRole('columnheader', { name: 'Channel' }),
     ).toBeInTheDocument()
     expect(screen.queryByText('No outreach yet.')).not.toBeInTheDocument()
+  })
+
+  it('renders channel nouns and a name fallback for an unnamed robocall (ENG-10769)', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'Males 50+' }],
+    })
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        ...emptyDetailResponse,
+        outreachHistory: [
+          {
+            id: 9,
+            name: null,
+            outreachType: 'robocall',
+            status: 'pending',
+            date: new Date('2026-07-27T00:00:00.000Z'),
+            createdAt: new Date('2026-07-27T00:00:00.000Z'),
+          },
+        ],
+      },
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    // Name falls back to channel + date, never the activity-feed verb.
+    expect(
+      await screen.findByText('Robocall — Jul 27, 2026'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Called')).not.toBeInTheDocument()
+    // Channel chip + Last-method tile + reachability tile all say "Robocall".
+    expect(screen.getAllByText('Robocall').length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('falls back to createdAt for a null-date, null-name legacy row and keeps both tiles consistent (ENG-10776)', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'Legacy list' }],
+    })
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        ...emptyDetailResponse,
+        outreachHistory: [
+          {
+            id: 27523,
+            name: null,
+            outreachType: 'p2p',
+            status: 'pending',
+            date: null,
+            createdAt: new Date('2025-09-19T00:00:00.000Z'),
+          },
+        ],
+      },
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    // The row never renders the bare "— / — / <channel>" phantom state —
+    // date and name both fall back to createdAt.
+    expect(await screen.findByText('Text — Sep 19, 2025')).toBeInTheDocument()
+    // Last outreach and Last method must describe the same row: the date
+    // tile (formatted createdAt) and the method tile (channel noun) both
+    // render, so the tiles can never disagree.
+    expect(screen.getAllByText('Sep 19, 2025').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText('Text').length).toBeGreaterThanOrEqual(2)
   })
 
   it('shows the empty outreach sentence when there are no rows', async () => {
@@ -210,7 +283,7 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Phone banking')).toBeInTheDocument()
     expect(screen.getByText('Door knocking')).toBeInTheDocument()
-    expect(screen.getByText('Meta ads')).toBeInTheDocument()
+    expect(screen.getByText('Polls')).toBeInTheDocument()
   })
 
   it('reads "Constituent list details" in Serve mode', async () => {
@@ -252,6 +325,113 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     expect(
       await screen.findByRole('heading', { name: 'Voter list details' }),
     ).toBeInTheDocument()
+  })
+})
+
+// ENG-10778: the universe row ("All voters"/"All constituents") opens this
+// same sheet with no segment behind it — demographics + reachability only,
+// none of the list-only affordances.
+describe('ListDetailSheet — universe mode (ENG-10778)', () => {
+  beforeEach(() => {
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+  })
+
+  it('requests list-detail with no segment and renders demographics + reachability', async () => {
+    let capturedQuery: Record<string, unknown> | undefined
+    api.mock('GET /v1/contacts/list-detail', ({ query }) => {
+      capturedQuery = query
+      return {
+        status: 200,
+        data: {
+          ...emptyDetailResponse,
+          demographics: { people: 85696, avgAge: 47, avgIncome: 61000 },
+        },
+      }
+    })
+
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    expect(await screen.findByText('85,696')).toBeInTheDocument()
+    expect(screen.getByText('47')).toBeInTheDocument()
+    expect(screen.getByText('$61,000')).toBeInTheDocument()
+    expect(screen.getByText('Phone banking')).toBeInTheDocument()
+    // No segment id on the wire for the universe request.
+    expect(capturedQuery).not.toHaveProperty('segment')
+  })
+
+  it('reads the mode-aware universe title in the sheet header', async () => {
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'All voters' }),
+    ).toBeInTheDocument()
+  })
+
+  it('reads "All constituents" in Serve mode', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'All constituents' }),
+    ).toBeInTheDocument()
+  })
+
+  it('renders without any list-only affordance: no kebab, no outreach history, no Send outreach', async () => {
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    await screen.findByText('District demographics')
+    expect(
+      screen.queryByRole('button', { name: 'More actions' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Rename list' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Outreach history' }),
+    ).not.toBeInTheDocument()
+    // ENG-10809: the universe row's own card carries Send outreach — the
+    // sheet footer must never duplicate it, unlike the saved-list branch.
+    expect(
+      screen.queryByRole('link', { name: 'Send outreach' }),
+    ).not.toBeInTheDocument()
+  })
+
+  // ENG-10809: the "All voters"/"All constituents" sheet lost its footer
+  // entirely when ENG-10778 added universe mode, even though the API has
+  // always supported a full-district download via an omitted segment.
+  it('renders the Download button and downloads the full district with no segment', async () => {
+    const user = userEvent.setup()
+
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Download list' }),
+    )
+
+    expect(downloadFn).toHaveBeenCalledWith(
+      ALL_SEGMENTS,
+      { context: 'win' },
+      expect.any(Function),
+    )
+  })
+
+  it('shows the lock icon instead of the download icon for a non-Pro user', async () => {
+    setContext({ canUseProFeatures: false })
+
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    const downloadButton = await screen.findByRole('button', {
+      name: 'Download list',
+    })
+    expect(downloadButton.querySelector('.lucide-lock')).toBeInTheDocument()
+  })
+
+  it('does not fire Segment Viewed for the universe (there is no segment)', async () => {
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    await screen.findByText('District demographics')
+    expect(eventCalls(EVENTS.Contacts.SegmentViewed)).toHaveLength(0)
   })
 })
 
@@ -622,6 +802,159 @@ describe('ListDetailSheet — not-found and error states', () => {
   })
 })
 
+// ENG-10767: sheet-open parity with the legacy Segment Viewed, the funnel
+// entry click, and the rename/delete/duplicate management events.
+describe('ListDetailSheet — ENG-10767 viewed + management analytics', () => {
+  const unlockedSegment = { id: 42, name: 'GOTV text list' }
+
+  it('fires Segment Viewed once when the sheet opens and the segment resolves, and again on reopen', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [unlockedSegment],
+    })
+
+    const { rerender } = render(
+      <ListDetailSheet listId="42" onClose={vi.fn()} />,
+    )
+
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.SegmentViewed)).toHaveLength(1),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.SegmentViewed, {
+      segment: 'GOTV text list',
+      type: 'custom',
+      context: 'win',
+    })
+
+    // Close and reopen the same list — a fresh open is a fresh view.
+    rerender(<ListDetailSheet listId={null} onClose={vi.fn()} />)
+    rerender(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.SegmentViewed)).toHaveLength(2),
+    )
+  })
+
+  it('does not fire Segment Viewed for an unknown list id', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [unlockedSegment],
+    })
+
+    render(<ListDetailSheet listId="9999" onClose={vi.fn()} />)
+
+    expect(await screen.findByText(/couldn't be found/i)).toBeInTheDocument()
+    expect(eventCalls(EVENTS.Contacts.SegmentViewed)).toHaveLength(0)
+  })
+
+  it('fires Send Outreach Clicked with surface listDetail + listId from the footer link', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [unlockedSegment],
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    await user.click(await screen.findByRole('link', { name: 'Send outreach' }))
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.VoterData.SendOutreachClicked,
+      { listId: 42, surface: 'listDetail' },
+    )
+  })
+
+  it('fires Segment Updated with action rename on a successful rename only', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [unlockedSegment],
+    })
+    api.mock('PUT /v1/voters/voter-file/filter/:id', {
+      status: 500,
+      data: { message: 'server exploded' },
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+    await user.click(await screen.findByRole('button', { name: 'Rename list' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await vi.waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith('Failed to rename list'),
+    )
+    // A failed rename must not report a rename.
+    expect(eventCalls(EVENTS.Contacts.SegmentUpdated)).toHaveLength(0)
+
+    api.mock('PUT /v1/voters/voter-file/filter/:id', {
+      status: 200,
+      data: { id: 42, name: 'New Name' },
+    })
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.SegmentUpdated)).toHaveLength(1),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.SegmentUpdated, {
+      action: 'rename',
+      context: 'win',
+    })
+  })
+
+  it('fires Segment Deleted on a successful delete (Serve context)', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [unlockedSegment],
+    })
+    api.mock('DELETE /v1/voters/voter-file/filter/:id', {
+      status: 200,
+      data: {},
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+    await user.click(await screen.findByTestId('list-detail-delete-trigger'))
+    const alertDialog = await screen.findByRole('alertdialog')
+    await user.click(
+      within(alertDialog).getByRole('button', { name: 'Delete' }),
+    )
+
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.SegmentDeleted)).toHaveLength(1),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.SegmentDeleted, {
+      context: 'serve',
+    })
+  })
+
+  it('fires Segment Created with source duplicate on a successful duplicate', async () => {
+    const lockedSegment = {
+      id: 42,
+      name: 'GOTV text list',
+      firstUsedForOutreachAt: '2026-01-01T00:00:00.000Z',
+    }
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [lockedSegment],
+    })
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 77, name: 'GOTV text list (copy)' },
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+    await user.click(
+      await screen.findByRole('button', { name: 'Duplicate to edit' }),
+    )
+
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.SegmentCreated)).toHaveLength(1),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.SegmentCreated, {
+      source: 'duplicate',
+      context: 'win',
+    })
+  })
+})
+
 describe('ListDetailSheet — ENG-10709 List Exported analytics', () => {
   const unlockedSegment = { id: 42, name: 'GOTV text list' }
 
@@ -654,11 +987,11 @@ describe('ListDetailSheet — ENG-10709 List Exported analytics', () => {
       { context: 'win' },
       expect.any(Function),
     )
-    expect(trackEvent).not.toHaveBeenCalled()
+    expect(eventCalls(EVENTS.VoterData.ListExported)).toHaveLength(0)
 
     confirm?.()
 
-    expect(trackEvent).toHaveBeenCalledTimes(1)
+    expect(eventCalls(EVENTS.VoterData.ListExported)).toHaveLength(1)
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.VoterData.ListExported, {
       listSize: 100,
     })
@@ -679,7 +1012,7 @@ describe('ListDetailSheet — ENG-10709 List Exported analytics', () => {
     )
     confirm?.()
 
-    expect(trackEvent).toHaveBeenCalledTimes(1)
+    expect(eventCalls(EVENTS.ConstituentData.ListExported)).toHaveLength(1)
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ConstituentData.ListExported,
       { listSize: 100 },
@@ -706,7 +1039,7 @@ describe('ListDetailSheet — ENG-10709 List Exported analytics', () => {
     )
     confirm?.()
 
-    expect(trackEvent).not.toHaveBeenCalled()
+    expect(eventCalls(EVENTS.VoterData.ListExported)).toHaveLength(0)
   })
 
   it('never fires when the download hook never confirms (fallback/failure path)', async () => {
@@ -722,7 +1055,7 @@ describe('ListDetailSheet — ENG-10709 List Exported analytics', () => {
       await screen.findByRole('button', { name: 'Download list' }),
     )
 
-    expect(trackEvent).not.toHaveBeenCalled()
+    expect(eventCalls(EVENTS.VoterData.ListExported)).toHaveLength(0)
   })
 
   it('does not fire twice for two separate downloads that both confirm', async () => {
@@ -742,6 +1075,58 @@ describe('ListDetailSheet — ENG-10709 List Exported analytics', () => {
 
     confirms.forEach((confirm) => confirm())
 
-    expect(trackEvent).toHaveBeenCalledTimes(2)
+    expect(eventCalls(EVENTS.VoterData.ListExported)).toHaveLength(2)
+  })
+})
+
+// getListDetail is pro-gated and district-gated server-side. The sheet already
+// rendered a non-pro branch but fetched regardless, so a direct hit on
+// /dashboard/contacts/lists/<id> 400d.
+//
+// A "no request fired" assertion must not use waitFor: the callback succeeds on
+// its first synchronous check at t=0, before the query could have fired, so the
+// test passes whether or not the gate exists. Instead every case below waits the
+// SAME macrotask and the enabled case proves that wait is long enough for the
+// request to land.
+describe('ListDetailSheet — request gating', () => {
+  const mockDetailWithSpy = () => {
+    const onRequest = vi.fn()
+    api.mock('GET /v1/contacts/list-detail', () => {
+      onRequest()
+      return { status: 200, data: emptyDetailResponse }
+    })
+    return onRequest
+  }
+
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  it('fires the request for a pro user with a resolvable district', async () => {
+    const onRequest = mockDetailWithSpy()
+    setContext({ canUseProFeatures: true, voterDataUnavailable: false })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+    await flush()
+
+    expect(onRequest).toHaveBeenCalled()
+  })
+
+  it('fires no request for a non-pro user reaching the URL directly', async () => {
+    const onRequest = mockDetailWithSpy()
+    setContext({ canUseProFeatures: false })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+    await flush()
+
+    expect(onRequest).not.toHaveBeenCalled()
+  })
+
+  it('fires no request when the org has no resolvable district', async () => {
+    const onRequest = mockDetailWithSpy()
+    setContext({ canUseProFeatures: true, voterDataUnavailable: true })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+    await flush()
+
+    expect(onRequest).not.toHaveBeenCalled()
   })
 })

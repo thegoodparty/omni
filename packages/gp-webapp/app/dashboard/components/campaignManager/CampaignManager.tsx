@@ -1,10 +1,12 @@
 'use client'
 
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
+import { NAV_LABELS } from 'app/dashboard/shared/navLabels'
 import HeaderSection from './HeaderSection'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import ProgressSection from './ProgressSection'
 import ProUpgradeBanner from './ProUpgradeBanner'
+import TextingSetupBanner from './TextingSetupBanner'
 import ProUpgrade3ComplianceCard from './ProUpgrade3ComplianceCard'
 import { VoterContactsProvider } from '@shared/hooks/VoterContactsProvider'
 import { CampaignUpdateHistoryProvider } from '@shared/hooks/CampaignUpdateHistoryProvider'
@@ -54,6 +56,7 @@ export default function CampaignManager({
       pathname={pathname}
       campaign={campaign}
       wrapperClassName="!p-0"
+      navHeader={{ icon: 'dashboard', label: NAV_LABELS.campaignManager }}
     >
       <VoterContactsProvider>
         <CampaignUpdateHistoryProvider>
@@ -64,6 +67,7 @@ export default function CampaignManager({
               <>
                 <HeaderSection />
                 <ProUpgradeBanner />
+                <TextingSetupBanner tcrCompliance={tcrCompliance} />
                 <ProUpgrade3ComplianceCard />
                 <ProgressSection />
                 {!storyReady ? null : storyEnabled ? (

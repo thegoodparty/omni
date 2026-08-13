@@ -103,4 +103,59 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     // Pushes segmentation over flat district-wide averages.
     expect(prompt).toContain('segment by the demographics you have')
   })
+
+  it('instructs against over-refusing borderline in-scope requests', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain("Do it, don't decline it.")
+    expect(prompt).toContain('answer what you can — never decline outright')
+  })
+
+  it('states averages as averages, never as shares of constituents', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ['query_constituent_data', 'describe_constituent_data'],
+    })
+    expect(prompt).toContain('never "N% of constituents believe X."')
+  })
+
+  it('requires surfacing unknown groups instead of dropping them', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ['query_constituent_data', 'describe_constituent_data'],
+    })
+    expect(prompt).toContain(
+      'exclude unknowns rather than counting them as zero',
+    )
+  })
+
+  it('always includes the professional advice disclaimer rules', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [],
+    })
+    expect(prompt).toContain('PROFESSIONAL ADVICE')
+    expect(prompt).toContain('a substitute for professional counsel')
+  })
+
+  it('scopes the disclaimer to answers without restating the decline rule', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [],
+    })
+    expect(prompt).toContain(
+      'Never attach it to a message that declines or redirects a request',
+    )
+  })
+
+  it('routes platform tasks to support instead of the decline line', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain('platform tasks you cannot do from chat')
+    expect(prompt).toContain('GoodParty support')
+  })
 })

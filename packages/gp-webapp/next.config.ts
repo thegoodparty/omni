@@ -10,7 +10,6 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       'assets.goodparty.org',
       'assets-dev.goodparty.org',
-      'assets-qa.goodparty.org',
       'images.ctfassets.net',
       'maps.googleapis.com',
       'assets.civicengine.com',
@@ -38,7 +37,7 @@ const nextConfig: NextConfig = {
       // Fail loudly at config load instead of silently proxying the public
       // PDF share endpoint to a same-host 404. Every other rewrite below is
       // independent of `apiBase`, so we list them either way and only gate
-      // the briefings proxy on its presence.
+      // the API proxies on its presence.
       // eslint-disable-next-line no-console
       console.error(
         'next.config: NEXT_PUBLIC_API_BASE is not set — /api/v1/briefings/:uuid will not be proxied to gp-api.',
@@ -58,11 +57,13 @@ const nextConfig: NextConfig = {
         destination: '/api/robots',
       },
       // Public PDF share link for meeting briefings. Proxies to gp-api so the
-      // shareable URL lives on the marketing domain (e.g.
-      // `goodparty.org/api/v1/briefings/{uuid}`) instead of leaking the API
-      // subdomain into mailto:/sms: payloads. Skipped when `apiBase` is
-      // unset so we don't register a rewrite to `/v1/briefings/:uuid` on the
-      // marketing host (which would 404 invisibly).
+      // shareable URL lives on this app's own origin (e.g.
+      // `app.goodparty.org/api/v1/briefings/{uuid}`) instead of leaking the
+      // API subdomain into mailto:/sms: payloads. Note the marketing origin
+      // (`goodparty.org`) is a different deployment that never serves this
+      // rewrite, so the share URL must never be built from it. Skipped when
+      // `apiBase` is unset so we don't register a rewrite to
+      // `/v1/briefings/:uuid` that would 404 invisibly.
       ...(apiBase
         ? [
             {

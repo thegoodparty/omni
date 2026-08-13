@@ -2,16 +2,20 @@ name: election-api
 
 on:
   pull_request:
-    branches-ignore: [qa, master]
   push:
-    branches: [develop, qa, master]
+    branches: [main]
 
 permissions:
   contents: read
   id-token: write
 
+# Scoped per-PR only. On main this resolves to github.run_id — unique per run,
+# so pushes never serialize here: validate shares no state across commits, and a
+# shared group made every merge wait a full CI cycle for the previous one before
+# it even checked out. Deploys are still serialized, by the deploy job's own
+# election-api-deploy-<ref> group.
 concurrency:
-  group: election-api-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: election-api-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: false
 
 env:
@@ -56,73 +60,3 @@ jobs:
 
       - name: Test
         run: npm run test -w ${{ env.WORKSPACE }}
-
-  deploy:
-    name: Deploy
-    needs: validate
-    if: >-
-      github.event_name == 'push'
-      && contains(fromJSON('["develop", "qa", "master"]'), github.ref_name)
-    runs-on: ubuntu-latest
-    concurrency:
-      group: election-api-deploy-${{ github.ref_name }}
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: election-api
-          workspace: ${{ env.WORKSPACE }}
-          build-contracts: 'true'
-          build-nest-common: 'true'
-          prisma-generate-script: generate:prisma:election-api
-
-      - name: Determine deployment context
-        id: ctx
-        run: |
-          case "${{ github.ref_name }}" in
-            develop) echo "environment=dev" >> "$GITHUB_OUTPUT" ;;
-            qa) echo "environment=qa" >> "$GITHUB_OUTPUT" ;;
-            master) echo "environment=prod" >> "$GITHUB_OUTPUT" ;;
-          esac
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v5
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
-
-      # ECR tags are immutable, so a re-run of this job after a successful
-      # push would fail trying to overwrite the tag. Same SHA means same
-      # source; reuse the existing image and skip the build.
-      - name: Check for existing image
-        id: ecr-image
-        run: |
-          if aws ecr describe-images --repository-name election-api \
-            --image-ids imageTag=${{ github.sha }} >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Build application
-        if: steps.ecr-image.outputs.exists != 'true'
-        run: npm run build -w ${{ env.WORKSPACE }}
-
-      - name: Build and push Docker image
-        if: steps.ecr-image.outputs.exists != 'true'
-        run: |
-          docker build -t "${IMAGE_URI}" -f packages/election-api/deploy/Dockerfile .
-          docker push "${IMAGE_URI}"
-
-      - name: Deploy (Pulumi)
-        uses: ./.github/actions/pulumi-deploy
-        with:
-          working-directory: ${{ env.WORKSPACE }}/deploy
-          command: ./deploy.sh ${{ steps.ctx.outputs.environment }}

@@ -1,10 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
+import type { Website } from 'helpers/types'
 import { EVENTS } from 'helpers/analyticsHelper'
+import { MIN_BIO_LENGTH } from 'app/dashboard/profile/texting-compliance/candidate-profile/candidateProfile.utils'
 import ElectionFiling, { getInitialFormState } from './ElectionFiling'
 
 type Campaign = Parameters<typeof getInitialFormState>[0]
+
+// jsdom does not implement scrollTo; the invalid-profile submit path calls it.
+window.scrollTo = vi.fn()
 
 const mockTrackEvent = vi.fn()
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -40,21 +46,106 @@ vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({ errorSnackbar: vi.fn(), successSnackbar: vi.fn() }),
 }))
 
-// Stub the heavy registration form — this test only verifies the funnel view
-// event fires when the step renders, not the form's behavior. Both the default
-// export and the named `validateRegistrationForm` (used at module load) must be
-// provided or the import of ElectionFiling throws.
+vi.mock('app/shared/utils/RichEditor', async () => ({
+  default: (await import('helpers/test-utils/RichEditorMock')).RichEditorMock,
+}))
+
+const { getUserWebsite, saveAboutFields } = vi.hoisted(() => ({
+  getUserWebsite: vi.fn(),
+  saveAboutFields: vi.fn(),
+}))
+vi.mock('app/dashboard/website/util/website.util', () => ({
+  USER_WEBSITE_QUERY_KEY: ['user-website'],
+  getUserWebsite,
+  saveAboutFields,
+}))
+
+const { submitTcrCompliance } = vi.hoisted(() => ({
+  submitTcrCompliance: vi.fn(),
+}))
+vi.mock(
+  'app/dashboard/profile/texting-compliance/util/registrationFormData.util',
+  () => ({
+    submitTcrCompliance,
+    toRegistrationFormData: (data: Record<string, unknown>) => data,
+  }),
+)
+
+// Stub the heavy registration form — these tests verify ElectionFiling's
+// orchestration (profile section gating + submit sequencing), not the form's
+// internals. The stub mirrors the real form's composition contract: it
+// renders `topSection`, lists `extraErrors` (label and message in separate
+// nodes so tests can match the message text), and its submit trigger runs
+// `onValidateExtra` before `onSubmit`, exactly like the real submit handler.
+// Both the default export and the named `validateRegistrationForm` (used at
+// module load) must be provided or the import of ElectionFiling throws.
 vi.mock(
   'app/dashboard/profile/texting-compliance/register/components/TextingComplianceRegistrationForm',
   () => ({
-    default: () => <div data-testid="registration-form" />,
+    default: ({
+      onSubmit,
+      loading,
+      topSection,
+      onValidateExtra,
+      extraErrors = [],
+    }: {
+      onSubmit: (formData: Record<string, unknown>) => void
+      loading: boolean
+      topSection?: React.ReactNode
+      onValidateExtra?: () => boolean
+      extraErrors?: { label: string; message: string }[]
+    }) => (
+      <div>
+        <ul data-testid="extra-errors">
+          {extraErrors.map(({ label, message }) => (
+            <li key={label}>
+              <span>{label}</span>
+              <span>{message}</span>
+            </li>
+          ))}
+        </ul>
+        {topSection}
+        <button
+          data-testid="filing-submit"
+          disabled={loading}
+          onClick={() => {
+            const extraValid = onValidateExtra ? onValidateExtra() : true
+            if (!extraValid) return
+            onSubmit({ email: 'filed@example.com' })
+          }}
+        >
+          Submit filing
+        </button>
+      </div>
+    ),
     validateRegistrationForm: () => ({}),
   }),
 )
 
+const websiteWith = (bio: string, issueCount: number): Website =>
+  ({
+    content: {
+      about: {
+        bio,
+        issues: Array.from({ length: issueCount }, (_, i) => ({
+          title: `Priority ${i + 1}`,
+          description: 'y'.repeat(MIN_BIO_LENGTH),
+        })),
+      },
+    },
+  }) as unknown as Website
+
+const PROFILE_HEADING = 'Tell voters about yourself'
+
+const fillBio = async (): Promise<void> => {
+  const editor = await screen.findByTestId('rich-editor')
+  fireEvent.change(editor, { target: { value: 'a'.repeat(MIN_BIO_LENGTH) } })
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   mockUseUser.mockReturnValue(readyUser)
+  getUserWebsite.mockResolvedValue(null)
 })
 
 describe('ElectionFiling — funnel view event (ENG-10294)', () => {
@@ -79,6 +170,103 @@ describe('ElectionFiling — funnel view event (ENG-10294)', () => {
     expect(mockTrackEvent).not.toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Compliance.FilingDetailsViewed,
     )
+  })
+})
+
+describe('ElectionFiling — inline candidate profile collection (ENG-10857)', () => {
+  it('renders the profile section when the website profile is incomplete', async () => {
+    getUserWebsite.mockResolvedValue(websiteWith('', 0))
+    render(<ElectionFiling />)
+
+    expect(await screen.findByText(PROFILE_HEADING)).toBeInTheDocument()
+    expect(await screen.findByTestId('rich-editor')).toBeInTheDocument()
+  })
+
+  it('renders no profile section when the profile is already complete', async () => {
+    getUserWebsite.mockResolvedValue(websiteWith('a'.repeat(MIN_BIO_LENGTH), 1))
+    render(<ElectionFiling />)
+
+    await screen.findByTestId('filing-submit')
+    expect(screen.queryByText(PROFILE_HEADING)).not.toBeInTheDocument()
+  })
+
+  it('submits only the filing when the profile is complete', async () => {
+    const user = userEvent.setup()
+    getUserWebsite.mockResolvedValue(websiteWith('a'.repeat(MIN_BIO_LENGTH), 1))
+    submitTcrCompliance.mockResolvedValue(undefined)
+    render(<ElectionFiling />)
+
+    await user.click(await screen.findByTestId('filing-submit'))
+
+    await waitFor(() => expect(submitTcrCompliance).toHaveBeenCalledTimes(1))
+    expect(saveAboutFields).not.toHaveBeenCalled()
+  })
+
+  it('blocks the filing submit and surfaces errors when the profile is invalid', async () => {
+    const user = userEvent.setup()
+    getUserWebsite.mockResolvedValue(websiteWith('', 0))
+    render(<ElectionFiling />)
+
+    // Wait for the editor to mount (profile seeded) before submitting.
+    await screen.findByTestId('rich-editor')
+    await user.click(screen.getByTestId('filing-submit'))
+
+    expect(await screen.findByText('Please add your bio')).toBeInTheDocument()
+    expect(
+      screen.getByText('Please add at least one policy priority'),
+    ).toBeInTheDocument()
+    expect(saveAboutFields).not.toHaveBeenCalled()
+    expect(submitTcrCompliance).not.toHaveBeenCalled()
+  })
+
+  it('persists the profile before submitting the filing', async () => {
+    const user = userEvent.setup()
+    // Incomplete only because the bio is missing — the saved issue is genuine,
+    // so filling the bio is all the candidate needs to do.
+    getUserWebsite.mockResolvedValue(websiteWith('', 1))
+    const callLog: string[] = []
+    saveAboutFields.mockImplementation(async () => {
+      callLog.push('profile-save-called')
+      await Promise.resolve()
+      callLog.push('profile-save-resolved')
+      return true
+    })
+    submitTcrCompliance.mockImplementation(async () => {
+      callLog.push('filing-submit-called')
+    })
+    render(<ElectionFiling />)
+
+    await fillBio()
+    await user.click(screen.getByTestId('filing-submit'))
+
+    await waitFor(() => expect(submitTcrCompliance).toHaveBeenCalledTimes(1))
+    // Order is load-bearing: createAgentic dispatches the compliance agent
+    // inline for already-Pro campaigns, so the profile PUT must have resolved
+    // before the filing POST fires or the run still burns.
+    expect(callLog).toEqual([
+      'profile-save-called',
+      'profile-save-resolved',
+      'filing-submit-called',
+    ])
+    expect(saveAboutFields).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bio: 'a'.repeat(MIN_BIO_LENGTH),
+        issues: [expect.objectContaining({ title: 'Priority 1' })],
+      }),
+    )
+  })
+
+  it('does not submit the filing when the profile save fails', async () => {
+    const user = userEvent.setup()
+    getUserWebsite.mockResolvedValue(websiteWith('', 1))
+    saveAboutFields.mockResolvedValue(false)
+    render(<ElectionFiling />)
+
+    await fillBio()
+    await user.click(screen.getByTestId('filing-submit'))
+
+    await waitFor(() => expect(saveAboutFields).toHaveBeenCalledTimes(1))
+    expect(submitTcrCompliance).not.toHaveBeenCalled()
   })
 })
 

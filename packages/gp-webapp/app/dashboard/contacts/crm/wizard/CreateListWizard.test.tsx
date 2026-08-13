@@ -39,6 +39,7 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
     isWinContextReady: true,
     refreshCustomSegments,
     selectList,
+    customSegments: [],
     ...overrides,
   } as ContextValue)
 }
@@ -48,6 +49,26 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
 // just the option's own label text (no more sibling-text lookup needed).
 const pillForOption = (label: string): HTMLElement =>
   screen.getByRole('button', { name: label })
+
+// ENG-10769: canSubmit gates Save on the settled live count (useListWizardCount
+// reports a pending debounce as isStale), so Save only enables once the count
+// for the current selection has settled and then stays enabled — no trailing
+// refetch re-disables it mid-click, so a plain wait-for-enabled-then-click is
+// race-free. 10s, not waitFor's 1s default: toggling several pills restarts
+// the 600ms debounce each time and CI runners pushed the resolve past 1s.
+const clickSaveList = async (
+  user: ReturnType<typeof userEvent.setup>,
+): Promise<void> => {
+  const save = screen.getByRole('button', { name: 'Save list' })
+  await vi.waitFor(() => expect(save).toBeEnabled(), { timeout: 10_000 })
+  await user.click(save)
+}
+
+// ENG-10767: stage Viewed/Completed events fire alongside the outcome
+// events, so assertions filter by event name instead of counting every
+// trackEvent call.
+const eventCalls = (event: string) =>
+  vi.mocked(trackEvent).mock.calls.filter(([name]) => name === event)
 
 beforeEach(() => {
   api.reset()
@@ -75,7 +96,7 @@ describe('CreateListWizard — step navigation', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     expect(next).toBeEnabled()
@@ -87,7 +108,7 @@ describe('CreateListWizard — step navigation', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -97,7 +118,7 @@ describe('CreateListWizard — step navigation', () => {
     await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     ).toBeInTheDocument()
   })
@@ -108,7 +129,7 @@ describe('CreateListWizard — step navigation', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -119,7 +140,7 @@ describe('CreateListWizard — step navigation', () => {
     await user.click(screen.getByRole('button', { name: 'Back' }))
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using outreach activity/i,
+        name: /build a list from previous campaign activity/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -134,12 +155,12 @@ describe('CreateListWizard — step navigation', () => {
     expect(screen.getByText('Step 1 of 3')).toBeInTheDocument()
     expect(
       screen.getByRole('radio', {
-        name: /build my list using outreach activity/i,
+        name: /build a list from previous campaign activity/i,
       }),
     ).toBeInTheDocument()
     expect(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     ).toBeInTheDocument()
   })
@@ -155,7 +176,7 @@ describe('CreateListWizard — step navigation', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Step 1 of 2')).toBeInTheDocument()
     expect(
-      screen.queryByRole('radio', { name: /outreach activity/i }),
+      screen.queryByRole('radio', { name: /previous campaign activity/i }),
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Back' }),
@@ -168,8 +189,11 @@ describe('CreateListWizard — step navigation', () => {
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(pillForOption('Female'))
+    // 86ajrth65: the CTA is disabled/loading (spinner, no number) until the
+    // count settles, so the click must wait for the settled label — the
+    // default MSW count mock (250).
     await user.click(
-      await screen.findByRole('button', { name: /build your list/i }),
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
 
     expect(
@@ -190,7 +214,7 @@ describe('CreateListWizard — step navigation', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using outreach activity/i,
+        name: /build a list from previous campaign activity/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -199,7 +223,10 @@ describe('CreateListWizard — step navigation', () => {
     expect(cta).toBeDisabled()
 
     await user.click(screen.getByRole('radio', { name: 'Text' }))
-    expect(cta).toBeEnabled()
+    // 86ajrth65: selecting a channel starts the (now-enabled) count query,
+    // which is itself loading/disabled until it settles — wait for that
+    // rather than asserting synchronously.
+    await vi.waitFor(() => expect(cta).toBeEnabled(), { timeout: 10_000 })
   })
 
   it('resets all state when reopened after being cancelled', async () => {
@@ -211,7 +238,7 @@ describe('CreateListWizard — step navigation', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -221,7 +248,7 @@ describe('CreateListWizard — step navigation', () => {
 
     expect(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     ).toBeInTheDocument()
   })
@@ -241,7 +268,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -250,11 +277,13 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     await user.click(pillForOption('Democrat'))
     await user.click(pillForOption('Supporter'))
 
+    // 86ajrth65: wait for the CTA's settled label — it's disabled/loading
+    // until the count resolves.
     await user.click(
-      await screen.findByRole('button', { name: /build your list/i }),
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
     await user.type(screen.getByLabelText(/list name/i), 'Likely Dem women')
-    await user.click(screen.getByRole('button', { name: 'Save list' }))
+    await clickSaveList(user)
 
     await vi.waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({
@@ -270,6 +299,72 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
+  it('does not persist a voterCount on create', async () => {
+    const user = userEvent.setup()
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 102, name: 'Counted list' } }
+    })
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build a list using voter demographics and data/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
+
+    await user.click(
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
+    )
+    await user.type(screen.getByLabelText(/list name/i), 'Counted list')
+    await clickSaveList(user)
+
+    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    expect(sentBody).toMatchObject({ name: 'Counted list' })
+    // The stored voterCount was retired — the outreach send count is the
+    // authoritative number now, so the wizard never persists a filter count.
+    expect(sentBody).not.toHaveProperty('voterCount')
+  })
+
+  it('keeps the build CTA (and so the whole flow) blocked while the live count never resolves (ENG-10769/86ajrth65)', async () => {
+    const user = userEvent.setup()
+    // A count that never settles: pre-86ajrth65, this test reached the name
+    // step (the CTA stayed clickable while loading) to prove Save itself
+    // gated on the unresolved count — the exact voterCount-omission bug
+    // ENG-10769 fixes. 86ajrth65 moved that same guard a step earlier: the
+    // CTA's own `loading={isCounting}` state now blocks progress until the
+    // count settles, so the old race (reach the name step, then Save, with
+    // an unresolved count) can no longer happen — the flow can't leave this
+    // step at all.
+    api.mock(
+      'POST /v1/contacts/count',
+      () => new Promise<never>(() => undefined),
+    )
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build a list using voter demographics and data/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
+
+    const cta = await screen.findByRole('button', { name: 'Build your list' })
+    await vi.waitFor(() => expect(cta).toHaveAttribute('data-loading', 'true'))
+    expect(cta).toBeDisabled()
+
+    // Programmatic activation must not advance either — the guard isn't
+    // just the disabled prop.
+    fireEvent.click(cta)
+    expect(screen.queryByLabelText(/list name/i)).not.toBeInTheDocument()
+  })
+
   it('hides the Political Party section for an elected official', async () => {
     setContext({ isElectedOfficial: true })
     const user = userEvent.setup()
@@ -277,7 +372,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -299,7 +394,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -326,11 +421,12 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     // UI — a fresh selection re-enables the build (ENG-10751 blocks an
     // all-cleared submit), and the earlier Female toggle stays cleared.
     await user.click(pillForOption('Democrat'))
+    // 86ajrth65: wait for the settled label — disabled/loading until then.
     await user.click(
-      await screen.findByRole('button', { name: /build your list/i }),
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
     await user.type(screen.getByLabelText(/list name/i), 'Cleared list')
-    await user.click(screen.getByRole('button', { name: 'Save list' }))
+    await clickSaveList(user)
 
     await vi.waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({
@@ -352,7 +448,7 @@ describe('CreateListWizard — activity branch payload assembly', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using outreach activity/i,
+        name: /build a list from previous campaign activity/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -390,7 +486,7 @@ describe('CreateListWizard — activity branch payload assembly', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using outreach activity/i,
+        name: /build a list from previous campaign activity/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -411,11 +507,17 @@ describe('CreateListWizard — activity branch payload assembly', () => {
     await user.click(screen.getByRole('button', { name: 'Filter on activity' }))
     await user.click(screen.getByText('Support: Yes'))
 
-    const cta = screen.getByRole('button', { name: /build your list/i })
+    // 86ajrth65: the CTA is disabled/loading until the count settles —
+    // wait for the settled label before asserting/clicking.
+    const cta = await screen.findByRole(
+      'button',
+      { name: /build your list \(250\)/i },
+      { timeout: 10_000 },
+    )
     expect(cta).toBeEnabled()
     await user.click(cta)
     await user.type(screen.getByLabelText(/list name/i), 'Text + door knock')
-    await user.click(screen.getByRole('button', { name: 'Save list' }))
+    await clickSaveList(user)
 
     await vi.waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({
@@ -440,7 +542,7 @@ describe('CreateListWizard — running total + CTA', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -467,21 +569,36 @@ describe('CreateListWizard — running total + CTA', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(pillForOption('Female'))
-    await user.click(
-      await screen.findByRole('button', { name: 'Build your list' }),
-    )
+
+    // 86ajrth65 + isCounting isError fix: a count that terminally errors on
+    // its very first fetch must NOT leave the CTA stuck in the loading
+    // state forever — once the query settles into its error, the CTA
+    // re-enables with the bare (no-number) label, same as any other
+    // settled state. Locks in the regression this ticket's isCounting fix
+    // closed.
+    const cta = await screen.findByRole('button', { name: 'Build your list' })
+    await vi.waitFor(() => expect(cta).toHaveAttribute('data-loading', 'false'))
+    expect(cta).toBeEnabled()
+
+    await user.click(cta)
 
     expect(await screen.findByText(/too many people/i)).toBeInTheDocument()
     // The build button must still be usable once named — the cap is
     // guidance, not a hard submit-block (the create endpoint doesn't
     // resolve/cap at save time).
     await user.type(screen.getByLabelText(/list name/i), 'Huge list')
-    expect(screen.getByRole('button', { name: 'Save list' })).toBeEnabled()
+    // Save enables once the count settles — even on a cap error, which just
+    // omits voterCount (the count is a nice-to-have, not a submit-block). The
+    // stale seed count can surface the cap message a beat before the debounce
+    // settles, so wait for the gate to open rather than reading it synchronously.
+    await vi.waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Save list' })).toBeEnabled(),
+    )
   })
 })
 
@@ -492,7 +609,7 @@ describe('CreateListWizard — ENG-10751 zero-filter build block', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -515,7 +632,7 @@ describe('CreateListWizard — ENG-10751 zero-filter build block', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -526,7 +643,9 @@ describe('CreateListWizard — ENG-10751 zero-filter build block', () => {
     expect(cta).toBeDisabled()
 
     await user.click(pillForOption('Female'))
-    expect(cta).toBeEnabled()
+    // 86ajrth65: selecting a pill restarts the debounce, so the CTA is
+    // loading/disabled again until the count resettles for the new payload.
+    await vi.waitFor(() => expect(cta).toBeEnabled(), { timeout: 10_000 })
 
     await user.click(screen.getByRole('button', { name: 'Clear filters' }))
     expect(cta).toBeDisabled()
@@ -543,7 +662,7 @@ describe('CreateListWizard — ENG-10751 zero-filter build block', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -553,6 +672,75 @@ describe('CreateListWizard — ENG-10751 zero-filter build block', () => {
       name: /build your list \(118,099\)/i,
     })
     expect(cta).toBeDisabled()
+  })
+})
+
+describe('CreateListWizard — ENG-10781 zero-match build block', () => {
+  it('disables the build CTA once a valid selection resolves to zero matches', async () => {
+    api.mock('POST /v1/contacts/count', { status: 200, data: { count: 0 } })
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build a list using voter demographics and data/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
+
+    // 10s: the same debounce-tolerant wait clickSaveList uses — toggling the
+    // pill restarts the 600ms debounce before this zero count can land.
+    const cta = await screen.findByRole(
+      'button',
+      { name: /build your list \(0\)/i },
+      { timeout: 10_000 },
+    )
+    await vi.waitFor(() => expect(cta).toBeDisabled(), { timeout: 10_000 })
+
+    // Programmatic activation must not advance either (mirrors the
+    // ENG-10751 zero-selection guard directly above).
+    fireEvent.click(cta)
+    expect(screen.queryByLabelText(/list name/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Filters' })).toBeInTheDocument()
+  })
+
+  it('re-enables the build CTA once the selection matches people', async () => {
+    api.mock('POST /v1/contacts/count', ({ body }) => {
+      const payload = body as Record<string, unknown>
+      return {
+        status: 200,
+        data: { count: payload.partyDemocrat ? 42 : 0 },
+      }
+    })
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build a list using voter demographics and data/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
+
+    const zeroCta = await screen.findByRole(
+      'button',
+      { name: /build your list \(0\)/i },
+      { timeout: 10_000 },
+    )
+    await vi.waitFor(() => expect(zeroCta).toBeDisabled(), { timeout: 10_000 })
+
+    await user.click(pillForOption('Democrat'))
+
+    const matchedCta = await screen.findByRole(
+      'button',
+      { name: /build your list \(42\)/i },
+      { timeout: 10_000 },
+    )
+    await vi.waitFor(() => expect(matchedCta).toBeEnabled(), {
+      timeout: 10_000,
+    })
   })
 })
 
@@ -569,20 +757,24 @@ describe('CreateListWizard — error handling', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(pillForOption('Female'))
+    // 86ajrth65: wait for the settled label — disabled/loading until then.
     await user.click(
-      await screen.findByRole('button', { name: /build your list/i }),
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
     await user.type(screen.getByLabelText(/list name/i), 'Broken list')
-    await user.click(screen.getByRole('button', { name: 'Save list' }))
+    await clickSaveList(user)
 
     await vi.waitFor(() => expect(errorSnackbar).toHaveBeenCalled())
     expect(onOpenChange).not.toHaveBeenCalledWith(false)
-    expect(trackEvent).not.toHaveBeenCalled()
+    // Stage Viewed/Completed events fired on the way in (ENG-10767), but a
+    // failed create must emit neither the outcome nor the funnel completion.
+    expect(eventCalls(EVENTS.VoterData.ListCreated)).toHaveLength(0)
+    expect(eventCalls(EVENTS.Contacts.ListWizard.NameCompleted)).toHaveLength(0)
   })
 })
 
@@ -598,7 +790,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -609,13 +801,16 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     await user.click(pillForOption('Democrat'))
     await user.click(pillForOption('Supporter'))
 
+    // 86ajrth65: wait for the settled label — disabled/loading until then.
     await user.click(
-      await screen.findByRole('button', { name: /build your list/i }),
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
     await user.type(screen.getByLabelText(/list name/i), 'Likely Dem women')
-    await user.click(screen.getByRole('button', { name: 'Save list' }))
+    await clickSaveList(user)
 
-    await vi.waitFor(() => expect(trackEvent).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.VoterData.ListCreated)).toHaveLength(1),
+    )
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.VoterData.ListCreated, {
       variableCount: 3,
       hasParty: true,
@@ -637,21 +832,24 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     // filters step directly.
     await user.click(pillForOption('Female'))
 
+    // 86ajrth65: wait for the settled label — disabled/loading until then.
     await user.click(
-      await screen.findByRole('button', { name: /build your list/i }),
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
     await user.type(
       screen.getByLabelText(/list name/i),
       'Reachable constituents',
     )
-    await user.click(screen.getByRole('button', { name: 'Save list' }))
+    await clickSaveList(user)
 
-    await vi.waitFor(() => expect(trackEvent).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.ConstituentData.ListCreated)).toHaveLength(1),
+    )
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ConstituentData.ListCreated,
       { variableCount: 1 },
     )
-    const [, properties] = vi.mocked(trackEvent).mock.calls[0]!
+    const [, properties] = eventCalls(EVENTS.ConstituentData.ListCreated)[0]!
     expect(properties).not.toHaveProperty('hasParty')
 
     await vi.waitFor(() => expect(sentBody).not.toBeNull())
@@ -685,7 +883,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using outreach activity/i,
+        name: /build a list from previous campaign activity/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -695,11 +893,20 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     await user.click(screen.getByRole('button', { name: 'Filter on activity' }))
     await user.click(screen.getByText('No Response'))
 
-    await user.click(screen.getByRole('button', { name: /build your list/i }))
+    // 86ajrth65: wait for the settled label — disabled/loading until then.
+    await user.click(
+      await screen.findByRole(
+        'button',
+        { name: /build your list \(250\)/i },
+        { timeout: 10_000 },
+      ),
+    )
     await user.type(screen.getByLabelText(/list name/i), 'Texted GOTV blast')
-    await user.click(screen.getByRole('button', { name: 'Save list' }))
+    await clickSaveList(user)
 
-    await vi.waitFor(() => expect(trackEvent).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.VoterData.ActivityListCreated)).toHaveLength(1),
+    )
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.VoterData.ActivityListCreated,
       { sourceCampaign: 'GOTV blast', actionFilter: ['no_response'] },
@@ -729,7 +936,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using outreach activity/i,
+        name: /build a list from previous campaign activity/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -749,11 +956,20 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     await user.click(screen.getByRole('button', { name: 'Filter on activity' }))
     await user.click(screen.getByText('Support: Yes'))
 
-    await user.click(screen.getByRole('button', { name: /build your list/i }))
+    // 86ajrth65: wait for the settled label — disabled/loading until then.
+    await user.click(
+      await screen.findByRole(
+        'button',
+        { name: /build your list \(250\)/i },
+        { timeout: 10_000 },
+      ),
+    )
     await user.type(screen.getByLabelText(/list name/i), 'Text + door knock')
-    await user.click(screen.getByRole('button', { name: 'Save list' }))
+    await clickSaveList(user)
 
-    await vi.waitFor(() => expect(trackEvent).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.VoterData.ActivityListCreated)).toHaveLength(1),
+    )
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.VoterData.ActivityListCreated,
       {
@@ -763,18 +979,164 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     )
   })
 
-  it('never fires analytics on wizard abandon (closed via X before completing)', async () => {
+  it('never fires outcome analytics on wizard abandon (closed via X before completing)', async () => {
     const user = userEvent.setup()
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Close' }))
 
-    expect(trackEvent).not.toHaveBeenCalled()
+    // Stage Viewed events legitimately fired (ENG-10767); the outcome and
+    // funnel-completion events must not.
+    expect(eventCalls(EVENTS.VoterData.ListCreated)).toHaveLength(0)
+    expect(eventCalls(EVENTS.VoterData.ActivityListCreated)).toHaveLength(0)
+    expect(eventCalls(EVENTS.Contacts.ListWizard.NameCompleted)).toHaveLength(0)
+  })
+})
+
+describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
+  it('fires Method Viewed on open, Method Completed + Conditions Viewed on advance (Win)', async () => {
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.ListWizard.MethodViewed)).toHaveLength(
+        1,
+      ),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.ListWizard.MethodViewed,
+      { context: 'win' },
+    )
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build a list using voter demographics and data/i,
+      }),
+    )
+    // Picking a branch re-renders the branch stage — the Viewed must not
+    // re-fire on that unrelated re-render.
+    expect(eventCalls(EVENTS.Contacts.ListWizard.MethodViewed)).toHaveLength(1)
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.ListWizard.MethodCompleted,
+      { context: 'win', branch: 'voterFile' },
+    )
+    await vi.waitFor(() =>
+      expect(
+        eventCalls(EVENTS.Contacts.ListWizard.ConditionsViewed),
+      ).toHaveLength(1),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.ListWizard.ConditionsViewed,
+      { context: 'win', branch: 'voterFile' },
+    )
+  })
+
+  it('re-fires the stage Viewed when navigating Back into an already-visited stage', async () => {
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build a list using voter demographics and data/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.ListWizard.MethodViewed)).toHaveLength(
+        2,
+      ),
+    )
+  })
+
+  it('fires the Conditions Completed on advance to name, and Name Completed alongside List Created on save', async () => {
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 101, name: 'Funnel list' },
+    })
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build a list using voter demographics and data/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
+    // 86ajrth65: wait for the settled label — disabled/loading until then.
+    await user.click(
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
+    )
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.ListWizard.ConditionsCompleted,
+      { context: 'win', branch: 'voterFile' },
+    )
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.ListWizard.NameViewed)).toHaveLength(1),
+    )
+
+    await user.type(screen.getByLabelText(/list name/i), 'Funnel list')
+    await clickSaveList(user)
+
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.ListWizard.NameCompleted)).toHaveLength(
+        1,
+      ),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.ListWizard.NameCompleted,
+      { context: 'win', branch: 'voterFile' },
+    )
+    // The funnel completion and the outcome are separate events by design.
+    expect(eventCalls(EVENTS.VoterData.ListCreated)).toHaveLength(1)
+  })
+
+  it('fires a fresh Method Viewed when the wizard is reopened on the same stage', async () => {
+    const onOpenChange = vi.fn()
+    const { rerender } = render(
+      <CreateListWizard open onOpenChange={onOpenChange} />,
+    )
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.ListWizard.MethodViewed)).toHaveLength(
+        1,
+      ),
+    )
+
+    rerender(<CreateListWizard open={false} onOpenChange={onOpenChange} />)
+    rerender(<CreateListWizard open onOpenChange={onOpenChange} />)
+
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.ListWizard.MethodViewed)).toHaveLength(
+        2,
+      ),
+    )
+  })
+
+  it('opens Serve on Conditions Viewed with branch voterFile and never fires the Method stage', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await vi.waitFor(() =>
+      expect(
+        eventCalls(EVENTS.Contacts.ListWizard.ConditionsViewed),
+      ).toHaveLength(1),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.ListWizard.ConditionsViewed,
+      { context: 'serve', branch: 'voterFile' },
+    )
+    expect(eventCalls(EVENTS.Contacts.ListWizard.MethodViewed)).toHaveLength(0)
   })
 })
 
@@ -799,16 +1161,17 @@ describe('CreateListWizard — dismissed mid-mutation (vaul swipe-close path)', 
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(pillForOption('Female'))
+    // 86ajrth65: wait for the settled label — disabled/loading until then.
     await user.click(
-      await screen.findByRole('button', { name: /build your list/i }),
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
     await user.type(screen.getByLabelText(/list name/i), 'Mid-mutation list')
-    await user.click(screen.getByRole('button', { name: 'Save list' }))
+    await clickSaveList(user)
 
     // Dismiss the drawer WHILE the create is still pending. A vaul swipe
     // and this X-close both funnel through the same controlled
@@ -824,7 +1187,9 @@ describe('CreateListWizard — dismissed mid-mutation (vaul swipe-close path)', 
     // The create DID happen server-side — onSuccess must still run exactly
     // once: the analytics event, the navigation, and the success snackbar
     // all fire despite the drawer no longer being visible.
-    await vi.waitFor(() => expect(trackEvent).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.VoterData.ListCreated)).toHaveLength(1),
+    )
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.VoterData.ListCreated, {
       variableCount: 1,
       hasParty: false,
@@ -832,5 +1197,57 @@ describe('CreateListWizard — dismissed mid-mutation (vaul swipe-close path)', 
     await vi.waitFor(() => expect(selectList).toHaveBeenCalledWith(555))
     expect(selectList).toHaveBeenCalledTimes(1)
     expect(successSnackbar).toHaveBeenCalledTimes(1)
+  })
+})
+
+// The voter-file count fires on every pill toggle (deliberately, ENG-10751), so
+// one session on an org with no resolvable district produced 54 of the 107
+// district 400s on its own.
+describe('CreateListWizard — district gating', () => {
+  const openVoterFileStep = async (
+    user: ReturnType<typeof userEvent.setup>,
+  ) => {
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build a list using voter demographics and data/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
+  }
+
+  it('fires the count when a district resolves', async () => {
+    const onCount = vi.fn()
+    api.mock('POST /v1/contacts/count', () => {
+      onCount()
+      return { status: 200, data: { count: 250 } }
+    })
+    setContext({ voterDataUnavailable: false })
+    const user = userEvent.setup()
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+    await openVoterFileStep(user)
+
+    await vi.waitFor(() => expect(onCount).toHaveBeenCalled(), {
+      timeout: 3000,
+    })
+  })
+
+  // Waits well past the hook's 600ms debounce; the control above proves the
+  // request lands inside that window when the gate is open.
+  it('fires no count when the district is unresolvable', async () => {
+    const onCount = vi.fn()
+    api.mock('POST /v1/contacts/count', () => {
+      onCount()
+      return { status: 200, data: { count: 250 } }
+    })
+    setContext({ voterDataUnavailable: true })
+    const user = userEvent.setup()
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+    await openVoterFileStep(user)
+    await new Promise((resolve) => setTimeout(resolve, 900))
+
+    expect(onCount).not.toHaveBeenCalled()
   })
 })

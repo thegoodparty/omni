@@ -7,10 +7,10 @@ import type {
   ConstituentActivityEvent,
   DoorKnockConstituentActivity,
   GetIndividualActivitiesResponse,
-  NoteConstituentActivity,
   OutreachConstituentActivity,
   PollConstituentActivity,
   RobocallConstituentActivity,
+  StatusChangeConstituentActivity,
   TextConstituentActivity,
 } from '@goodparty_org/contracts'
 
@@ -31,10 +31,10 @@ export type {
   ConstituentActivityEvent,
   DoorKnockConstituentActivity,
   GetIndividualActivitiesResponse,
-  NoteConstituentActivity,
   OutreachConstituentActivity,
   PollConstituentActivity,
   RobocallConstituentActivity,
+  StatusChangeConstituentActivity,
   TextConstituentActivity,
 }
 

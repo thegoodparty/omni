@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import {
+  ContactStatusFieldSchema,
+  ContactStatusSourceSchema,
   DoorKnockOutcomeSchema,
   OutreachTypeSchema,
   SupportAnswerSchema,
@@ -8,9 +10,11 @@ import {
 
 // The unified per-person activity feed (CRM TDD feature 3, ENG-10695): a
 // discriminated union over Serve poll interactions, the sunset-compatibility
-// Win legacy outreach rows, and the ContactInteraction*/ContactNote channels.
-// Produced by gp-api (GET /v1/contact-engagement/:id/activities) and consumed
-// by gp-webapp — living here keeps the two from drifting.
+// Win legacy outreach rows, and the ContactInteraction* channels. Notes are
+// deliberately excluded (ENG-10780) — they live only in the dedicated Notes
+// section, not the feed. Produced by gp-api
+// (GET /v1/contact-engagement/:id/activities) and consumed by gp-webapp —
+// living here keeps the two from drifting.
 
 export const ConstituentActivityTypeSchema = z.enum([
   'POLL_INTERACTIONS',
@@ -18,7 +22,7 @@ export const ConstituentActivityTypeSchema = z.enum([
   'DOOR_KNOCK',
   'TEXT',
   'ROBOCALL',
-  'NOTE',
+  'STATUS_CHANGE',
 ])
 export type ConstituentActivityType = z.infer<
   typeof ConstituentActivityTypeSchema
@@ -120,18 +124,29 @@ export type RobocallConstituentActivity = z.infer<
   typeof RobocallConstituentActivitySchema
 >
 
-export const NoteConstituentActivitySchema = z.object({
-  type: z.literal(ConstituentActivityTypeSchema.enum.NOTE),
+// A contact-status-field override change (ENG-10835), Win-only — Serve orgs
+// can never write a ContactStatusEvent row (contacts.service.ts rejects the
+// PATCH for elected-office organizations), so this variant never appears in a
+// Serve feed. fromLabel/toLabel are the resolved display text (never the raw
+// enum value — see resolveContactStatusLabel in ContactStatus.schema),
+// fromLabel null for the never-seen-before edge (no prior override row).
+// actorName is the writer's display name, null for a future non-manual
+// source (door_knock/phone_banking) that isn't user-attributed.
+export const StatusChangeConstituentActivitySchema = z.object({
+  type: z.literal(ConstituentActivityTypeSchema.enum.STATUS_CHANGE),
   date: z.string(),
   data: z.object({
-    noteId: z.string(),
-    body: z.string(),
-    createdAt: z.string(),
-    updatedAt: z.string(),
+    activityId: z.string(),
+    field: ContactStatusFieldSchema,
+    fromLabel: z.string().nullable(),
+    toLabel: z.string(),
+    actorName: z.string().nullable(),
+    actorUserId: z.number().nullable(),
+    source: ContactStatusSourceSchema,
   }),
 })
-export type NoteConstituentActivity = z.infer<
-  typeof NoteConstituentActivitySchema
+export type StatusChangeConstituentActivity = z.infer<
+  typeof StatusChangeConstituentActivitySchema
 >
 
 export const ConstituentActivitySchema = z.discriminatedUnion('type', [
@@ -140,7 +155,7 @@ export const ConstituentActivitySchema = z.discriminatedUnion('type', [
   DoorKnockConstituentActivitySchema,
   TextConstituentActivitySchema,
   RobocallConstituentActivitySchema,
-  NoteConstituentActivitySchema,
+  StatusChangeConstituentActivitySchema,
 ])
 export type ConstituentActivity = z.infer<typeof ConstituentActivitySchema>
 

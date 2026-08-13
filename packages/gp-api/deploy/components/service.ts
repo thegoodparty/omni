@@ -3,14 +3,18 @@ import * as aws from '@pulumi/aws'
 import { sortBy } from 'es-toolkit'
 
 export interface ServiceConfig {
-  environment: 'preview' | 'dev' | 'qa' | 'prod'
+  environment: 'preview' | 'dev' | 'prod'
   stage: string
 
   imageUri: string
 
   vpcId: string
   securityGroupIds: string[]
+  // Public subnets host the internet-facing ALB. Fargate tasks run in the
+  // private subnets and reach the internet via NAT, so they no longer need
+  // public IPs.
   publicSubnetIds: string[]
+  privateSubnetIds: string[]
 
   hostedZoneId: string
   domain: string
@@ -42,6 +46,7 @@ export function createService({
   vpcId,
   securityGroupIds,
   publicSubnetIds,
+  privateSubnetIds,
   hostedZoneId,
   domain,
   certificateArn,
@@ -53,7 +58,7 @@ export function createService({
   const isProd = environment === 'prod'
   const serviceName = `gp-api-${stage}`
 
-  const select = <T>(values: Record<'preview' | 'dev' | 'qa' | 'prod', T>): T =>
+  const select = <T>(values: Record<'preview' | 'dev' | 'prod', T>): T =>
     values[environment]
 
   const clusterName = `gp-${stage}-fargateCluster`
@@ -70,7 +75,6 @@ export function createService({
     name: select({
       preview: `gp-api-preview-${stage}-sg`,
       dev: 'gp-api-developLoadBalancerSecurityGroup-5ba8676',
-      qa: 'gp-api-qaLoadBalancerSecurityGroup-623a91f',
       prod: 'gp-api-masterLoadBalancerSecurityGroup-c8b2676',
     }),
     // This is false now, but these names are immutable :sob:
@@ -106,7 +110,6 @@ export function createService({
     name: select({
       preview: `gpapi-${stage}`,
       dev: 'develop-gpapidevelopLoad',
-      qa: 'g-qa-gpapiqaLoadBalancer',
       prod: 'master-gpapimasterLoadBa',
     }),
     internal: false,
@@ -131,7 +134,13 @@ export function createService({
     deregistrationDelay: isProd ? 120 : 15,
     healthCheck: {
       path: '/v1/health',
-      interval: 60,
+      // `deploymentMinimumHealthyPercent: 100` keeps the old task serving until
+      // the new one is healthy, so `interval * healthyThreshold` is on the
+      // critical path of every deploy. At 60s that alone was two of the five
+      // minutes Pulumi waits for the service to stabilize, and preview deploys
+      // failed the wait by seconds. Non-prod trades probe volume for a 30s
+      // handover; prod keeps 60s.
+      interval: isProd ? 60 : 15,
       timeout: 5,
       healthyThreshold: 2,
       unhealthyThreshold: 3,
@@ -292,9 +301,9 @@ export function createService({
       desiredCount: isProd ? 2 : 1,
       capacityProviderStrategies: [{ capacityProvider: 'FARGATE', weight: 1 }],
       networkConfiguration: {
-        subnets: publicSubnetIds,
+        subnets: privateSubnetIds,
         securityGroups: securityGroupIds,
-        assignPublicIp: true,
+        assignPublicIp: false,
       },
       loadBalancers: [
         {
@@ -303,7 +312,10 @@ export function createService({
           containerPort: 80,
         },
       ],
-      healthCheckGracePeriodSeconds: 120,
+      // Must exceed the slowest boot, or the faster non-prod probe interval
+      // starts failing tasks mid-startup. Preview containers are the slow case:
+      // ensure-database, `prisma migrate deploy`, seed, then ~45s of Nest boot.
+      healthCheckGracePeriodSeconds: 300,
       deploymentCircuitBreaker: {
         enable: true,
         rollback: false,
@@ -321,13 +333,24 @@ export function createService({
       enableEcsManagedTags: true,
       waitForSteadyState: true,
     },
-    { customTimeouts: { create: '5m', update: '5m' } },
+    // Headroom, not a gate: a real crash-on-boot is caught by the deployment
+    // circuit breaker, so the only thing a tight wait buys is a red deploy on a
+    // service that stabilizes seconds later.
+    { customTimeouts: { create: '10m', update: '10m' } },
   )
+
+  // Preview stacks are ephemeral and their per-PR DNS records routinely drift
+  // out of Pulumi state (e.g. a stack whose state was cleared while the record
+  // lingered in Route53), which makes a redeploy fail with "record already
+  // exists". Adopt/overwrite the existing record for preview so a drifted
+  // record self-heals; keep the fail-if-exists default for dev/prod.
+  const allowOverwrite = environment === 'preview'
 
   new aws.route53.Record('dnsARecord', {
     zoneId: hostedZoneId,
     name: domain,
     type: 'A',
+    allowOverwrite,
     aliases: [
       {
         name: loadBalancer.dnsName,
@@ -340,6 +363,7 @@ export function createService({
     zoneId: hostedZoneId,
     name: domain,
     type: 'AAAA',
+    allowOverwrite,
     aliases: [
       {
         name: loadBalancer.dnsName,

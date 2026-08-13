@@ -34,6 +34,10 @@ const INCOME_UNKNOWN_LABEL =
   INCOME_FIELD?.options.find((option) => option.key === 'incomeUnknown')
     ?.label ?? 'Unknown'
 
+const CONTACTS_MADE_FIELD = filterSections
+  .flatMap((section) => section.fields)
+  .find((field) => field.key === 'contacts_made')
+
 const isTrue = (value: unknown): value is true => value === true
 
 // The Lovable summary reads as one plain sentence ("Age 18-25 or 35-50,
@@ -60,9 +64,19 @@ export const buildFilterSummary = (
 
   for (const section of filterSections) {
     for (const field of section.fields) {
-      // Political party doesn't apply to an elected official's constituent
-      // file — same exclusion VoterFileStep.tsx applies at creation time.
-      if (isElectedOfficial && field.key === 'political_party') continue
+      // Political party and voter likelihood don't apply to an elected
+      // official's constituent file — same exclusions VoterFileStep.tsx
+      // applies at creation time.
+      if (
+        isElectedOfficial &&
+        (field.key === 'political_party' || field.key === 'voter_likely')
+      )
+        continue
+      // Contacts Made gets its own "with N or M prior contacts made" clause
+      // (ENG-10839, matching the product-specified wording) instead of the
+      // generic "{Label} {value}" phrasing every other boolean-group field
+      // uses — same skip-and-handle-separately pattern as language/income.
+      if (field.key === 'contacts_made') continue
       if (field.key === 'language' || field.key === 'income_ranges') continue
 
       // Lists saved before ENG-10752 carry the retired age keys; without
@@ -100,6 +114,21 @@ export const buildFilterSummary = (
       ...(incomeUnknown ? [INCOME_UNKNOWN_LABEL] : []),
     ]
     clauses.push(`Income ranges include ${labels.join(' or ')}`)
+  }
+
+  // Win-only (ENG-10839): an eo- org's segment never has these fields set
+  // (VoterFileStep hides the section, and the server rejects the filter),
+  // but the isElectedOfficial gate is kept explicit for symmetry with the
+  // political_party skip above.
+  if (!isElectedOfficial) {
+    const matched = (CONTACTS_MADE_FIELD?.options ?? []).filter((option) =>
+      isTrue(segment[option.key]),
+    )
+    if (matched.length > 0) {
+      clauses.push(
+        `with ${matched.map((option) => option.label).join(' or ')} prior contacts made`,
+      )
+    }
   }
 
   const supportStatus = Array.isArray(segment.supportStatus)

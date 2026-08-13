@@ -4,7 +4,7 @@ import {
   Injectable,
 } from '@nestjs/common'
 import { ChatConversation, ChatScope } from '../../../generated/prisma'
-import type { LlmTool } from '@/llm/services/llm.service'
+import type { LlmStreamUsage, LlmTool } from '@/llm/services/llm.service'
 import {
   ChatAnchorSchema,
   type OrdinanceFlowStep,
@@ -25,6 +25,8 @@ import { OrdinanceFlowToolsService } from './services/ordinanceFlowTools.service
 import { OrdinanceFlowFetchService } from './services/ordinanceFlowFetch.service'
 import { OrdinanceFlowSearchService } from './services/ordinanceFlowSearch.service'
 import {
+  buildAcceptDraftChangesTool,
+  buildApplyDraftEditTool,
   buildAskClarifyQuestionTool,
   buildBraveSearchTool,
   buildFetchUrlTool,
@@ -159,6 +161,7 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
     return {
       ...ctx,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
+      officeLevel: resolved.level,
     }
   }
 
@@ -171,6 +174,24 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
 
   buildTools(ctx: OrdinanceFlowContext): Record<string, LlmTool> {
     return this.assembleTools(ctx)
+  }
+
+  // Meter each turn's tokens onto the ordinance record (a full-draft total sums
+  // these with the quality loop's own tokens). The runtime only calls this on a
+  // clean finish and swallows a throw, so metering never affects the reply.
+  async onTurnUsage(
+    ctx: OrdinanceFlowContext,
+    usage: LlmStreamUsage,
+    model: string,
+  ): Promise<void> {
+    await this.tools.recordFlowUsage({
+      ordinanceId: ctx.ordinanceId,
+      electedOfficeId: ctx.electedOfficeId,
+      step: ctx.step,
+      model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+    })
   }
 
   private assembleTools(ctx: OrdinanceFlowContext): Record<string, LlmTool> {
@@ -187,6 +208,9 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
       read_ordinance: buildReadOrdinanceTool(deps),
       get_code_source: buildGetCodeSourceTool(deps),
       save_note: buildSaveNoteTool(deps),
+      // On every step: current-law uses it for primary research, and any step
+      // can fetch a source the user pastes to correct that step's finding.
+      fetch_url: buildFetchUrlTool(deps),
     }
 
     // Web search runs through Anthropic's native tool (the scope is Claude-only)
@@ -209,9 +233,9 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
     }
 
     // Current-law research reads the live code and persists its findings, then
-    // presents the summary and legislative-history widgets.
+    // presents the summary and legislative-history widgets. (fetch_url is a
+    // base tool now, shared with the source-correction path on every step.)
     if (ctx.step === 'current_law') {
-      tools.fetch_url = buildFetchUrlTool(deps)
       tools.save_existing_law = buildSaveExistingLawTool(deps)
       tools.present_current_law_summary = buildPresentCurrentLawSummaryTool()
       tools.present_legislative_history = buildPresentLegislativeHistoryTool()
@@ -236,6 +260,14 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
       // one) — so even that question rides the widget and persists as a
       // clarify answer instead of a prose interview the record never sees.
       tools.ask_clarify_question = buildAskClarifyQuestionTool()
+    }
+
+    // The post-draft review chat can apply a specific requested edit to the
+    // draft in place as tracked-change redline, and (for a new ordinance)
+    // accept those changes into clean final text — both reviewed in the editor.
+    if (ctx.step === 'review') {
+      tools.apply_draft_edit = buildApplyDraftEditTool(deps)
+      tools.accept_draft_changes = buildAcceptDraftChangesTool(deps)
     }
 
     // A numbered flow step can offer a button to advance. The terminal draft

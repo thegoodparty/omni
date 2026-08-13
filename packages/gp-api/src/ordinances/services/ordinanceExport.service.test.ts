@@ -69,6 +69,11 @@ describe('OrdinanceExportService', () => {
     // Title + body land in the document.
     expect(xml).toContain('Draft amendment to Chapter 34')
     expect(xml).toContain('Canopy goal')
+    // The review disclaimer opens the appendix (not legal advice / attorney
+    // review / verify against source).
+    expect(xml).toContain('Review before you rely on this.')
+    expect(xml).toContain('not legal advice')
+    expect(xml).toContain('have a licensed attorney review it')
     // The attorney reference section: sources + quality checks.
     expect(xml).toContain('Sources')
     expect(xml).toContain('Or. Rev. Stat. § 227.215')
@@ -80,6 +85,27 @@ describe('OrdinanceExportService', () => {
     expect(xml).toContain('PASS')
     expect(xml).toContain('DCFCE7')
     expect(xml).toContain('w:val="clear"')
+  })
+
+  it('renders amendment redline as Word tracked changes (ins/del)', async () => {
+    const amendment = record({
+      draftBody:
+        'Section 1. {-Use of AI-}{+AI Disclosure+} required.\n\n(a) Kept.',
+    })
+    const xml = await docxText((await service.render(amendment, 'docx')).buffer)
+    // Native Word revisions an attorney can accept or reject.
+    expect(xml).toContain('<w:ins')
+    expect(xml).toContain('<w:del')
+    expect(xml).toContain('AI Disclosure')
+    expect(xml).toContain('Use of AI')
+    expect(xml).toContain('Kept.')
+  })
+
+  it('renders an amendment redline PDF without throwing', async () => {
+    const amendment = record({ draftBody: 'Section 1. {-old-}{+new+} text.' })
+    const result = await service.render(amendment, 'pdf')
+    expect(result.buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-')
+    expect(result.buffer.length).toBeGreaterThan(500)
   })
 
   it('formats the tally summary with singular/plural checks', () => {

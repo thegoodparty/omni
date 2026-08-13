@@ -36,6 +36,12 @@ interface Props {
   chat: AssistantChatBinding
   title: string
   subtitle: string
+  /**
+   * ENG-10767: called once per composer follow-up send. The initial bar
+   * submit is tracked by the caller (CrmAssistant), not here — the drawer
+   * only sees it as a request prop.
+   */
+  onMessageSent?: () => void
 }
 
 // The conversation surface: a right-side drawer streaming through the shared
@@ -50,6 +56,7 @@ export default function AssistantDrawer({
   chat,
   title,
   subtitle,
+  onMessageSent,
 }: Props): React.JSX.Element {
   return (
     <Drawer direction="right" open={open} onOpenChange={onOpenChange}>
@@ -72,6 +79,7 @@ export default function AssistantDrawer({
             key={requestKey}
             request={request}
             chat={chat}
+            onMessageSent={onMessageSent}
           />
         )}
       </DrawerContent>
@@ -82,9 +90,11 @@ export default function AssistantDrawer({
 function AssistantConversation({
   request,
   chat,
+  onMessageSent,
 }: {
   request: AssistantRequest
   chat: AssistantChatBinding
+  onMessageSent?: () => void
 }): React.JSX.Element {
   const queryClient = useQueryClient()
   const orgSlug = useOrganization()?.slug
@@ -216,7 +226,12 @@ function AssistantConversation({
           onSubmit={() => {
             if (!conversationId) return
             const text = composer
+            // Mirror send()'s own empty-message guard: Enter on an empty
+            // composer bypasses the send button's disabled state, and a
+            // no-op send must not count as a message sent (ENG-10767).
+            if (!text.trim()) return
             setComposer('')
+            onMessageSent?.()
             void send(conversationId, text)
           }}
           disabled={sending || phase !== 'ready'}

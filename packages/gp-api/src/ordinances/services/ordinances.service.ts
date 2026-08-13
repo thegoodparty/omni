@@ -44,6 +44,7 @@ import {
 } from './ordinanceQualityReport.service'
 import { OrdinanceQualityLoopService } from './ordinanceQualityLoop.service'
 import { type OrdinanceQualityLoopStartReason } from './ordinanceQualityLoop.types'
+import { estimateCostUsd } from './ordinanceCost.util'
 
 const SERVE_ORDINANCES_FLAG = 'serve-ordinances'
 
@@ -419,15 +420,34 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     claimedAt: Date,
   ): Promise<void> {
     try {
-      const { report } = await this.qualityReports.generate(record, userId)
-      await this.model.updateMany({
+      const { report, inputTokens, outputTokens, model } =
+        await this.qualityReports.generate(record, userId)
+      const done = await this.model.updateMany({
         where: { id: record.id, qualityRunStartedAt: claimedAt },
         data: {
           qualityReport: report,
           qualityRunStatus: 'done',
           qualityRunError: null,
+          qcInputTokens: { increment: inputTokens },
+          qcOutputTokens: { increment: outputTokens },
         },
       })
+      // Only log spend that was actually persisted — a lost claim (a newer run
+      // reclaimed the record) matches zero rows and its tokens don't count.
+      if (done.count > 0) {
+        this.logger.info(
+          {
+            ordinanceId: record.id,
+            model,
+            inputTokens,
+            outputTokens,
+            qcCostUsd: Number(
+              estimateCostUsd(model, inputTokens, outputTokens).toFixed(4),
+            ),
+          },
+          'ordinance manual QC usage',
+        )
+      }
     } catch (err) {
       this.logger.error(
         { ordinanceId: record.id, error: err },

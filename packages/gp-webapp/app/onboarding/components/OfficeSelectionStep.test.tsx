@@ -1,5 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { OfficeSelectionStep } from './OfficeSelectionStep'
 import { clientFetch } from 'gpApi/clientFetch'
@@ -367,5 +373,115 @@ describe('OfficeSelectionStep', () => {
 
     expect(mayorRadio).toBeChecked()
     expect(councilRadio).not.toBeChecked()
+  })
+})
+
+// Regression: election-api returns duplicate Race rows for a single position on
+// the same election date (a stale + fresh BallotReady PositionElection, only one
+// disabled upstream). They differ ONLY by `race.id`. The picker must key rows by
+// that unique id so both display, the role pills still filter, and selecting one
+// duplicate highlights exactly that row. Real example: zip 28806, Asheville.
+describe('OfficeSelectionStep — duplicate races on the same date (zip 28806)', () => {
+  const duplicatedRace = (id: string, brPositionId: string, name: string) => ({
+    id,
+    brPositionId,
+    position: { id: brPositionId, name, level: 'City', state: 'NC' },
+    election: { id: 'elec-general', electionDay: '2026-11-03', state: 'NC' },
+    filingPeriods: [{ startOn: '2026-01-01', endOn: '2026-06-01' }],
+    city: 'Asheville',
+    isPrimary: false,
+    isRunoff: false,
+  })
+
+  // Two Mayor rows share (brPositionId, electionDay); they differ only by id.
+  const RACES_28806 = [
+    duplicatedRace('race-council', 'br-council', 'Asheville City Council'),
+    duplicatedRace('race-mayor-a', 'br-mayor', 'Asheville City Mayor'),
+    duplicatedRace('race-mayor-b', 'br-mayor', 'Asheville City Mayor'),
+    duplicatedRace('race-sheriff', 'br-sheriff', 'Buncombe County Sheriff'),
+  ]
+
+  // The office list is a RadioGroup labelled "Available offices"; the filter
+  // pills are a SEPARATE radiogroup. Scope office queries to the list so the
+  // "Mayor (1)"/"Sheriff (1)" pills aren't mistaken for office rows.
+  const officeList = () =>
+    within(screen.getByRole('radiogroup', { name: /available offices/i }))
+
+  const searchZip = () => {
+    fireEvent.change(screen.getByLabelText(/zip code/i), {
+      target: { value: '28806' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /search/i }))
+  }
+
+  beforeEach(() => {
+    mockClientFetch.mockResolvedValue({
+      data: RACES_28806,
+      ok: true,
+    } as unknown as Awaited<ReturnType<typeof clientFetch>>)
+  })
+
+  it('renders both duplicate rows for the same office and date', async () => {
+    renderStep()
+    searchZip()
+    await screen.findByRole('radio', {
+      name: /Asheville City Council/i,
+    })
+    expect(
+      officeList().getAllByRole('radio', { name: /Asheville City Mayor/i }),
+    ).toHaveLength(2)
+    expect(officeList().getAllByRole('radio')).toHaveLength(4)
+  })
+
+  it('filters the office list down when a role pill is selected', async () => {
+    renderStep()
+    searchZip()
+    await screen.findByRole('radio', {
+      name: /Asheville City Council/i,
+    })
+
+    fireEvent.click(
+      screen.getByRole('radio', { name: /^City Council \(\s*1\s*\)/i }),
+    )
+
+    await waitFor(() => {
+      expect(officeList().getAllByRole('radio')).toHaveLength(1)
+    })
+    expect(
+      officeList().getByRole('radio', { name: /Asheville City Council/i }),
+    ).toBeInTheDocument()
+    expect(
+      officeList().queryByRole('radio', { name: /Mayor/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('highlights only the clicked duplicate row, not its twin', async () => {
+    mockClientRequest.mockResolvedValueOnce({
+      data: {
+        id: 'race-server-hash',
+        brPositionId: 'br-mayor',
+        position: { id: 'br-mayor', name: 'Asheville City Mayor' },
+        election: { id: 'elec-general', electionDay: '2026-11-03' },
+      },
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+    } as unknown as Awaited<ReturnType<typeof clientRequest>>)
+
+    renderStep()
+    searchZip()
+    await screen.findByRole('radio', {
+      name: /Asheville City Council/i,
+    })
+
+    const mayorRows = officeList().getAllByRole('radio', {
+      name: /Asheville City Mayor/i,
+    })
+    expect(mayorRows).toHaveLength(2)
+    const [firstMayor, secondMayor] = mayorRows as [HTMLElement, HTMLElement]
+    fireEvent.click(firstMayor)
+
+    await waitFor(() => expect(firstMayor).toBeChecked())
+    expect(secondMayor).not.toBeChecked()
   })
 })

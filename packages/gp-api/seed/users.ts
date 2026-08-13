@@ -12,9 +12,13 @@ const NUM_USERS = 20
 
 const ADMIN_STRIPE_CUSTOMER_ID = 'cus_RWKP2JnywRA590'
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@test.local'
+// Clerk rejects `.local` addresses (422 form_param_format_invalid), which left
+// every seeded environment without a Clerk-backed admin or candidate to log in
+// as. `example.com` is IANA-reserved, so it validates without being routable,
+// and unlike `@test.goodparty.org` it is not swept by `deleteTestUsers`.
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@example.com'
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'testPassword123'
-const CANDIDATE_EMAIL = process.env.CANDIDATE_EMAIL || 'candidate@test.local'
+const CANDIDATE_EMAIL = process.env.CANDIDATE_EMAIL || 'candidate@example.com'
 const CANDIDATE_PASSWORD = process.env.CANDIDATE_PASSWORD || 'testPassword123'
 
 const ADMIN_FIRST_NAME = 'Test'
@@ -120,19 +124,27 @@ export const ensureClerkUser = async (
       clerkErrors[0]?.code === 'form_identifier_exists'
 
     if (isDuplicate) {
-      const existing = await clerkThrottle(() =>
-        clerk.users.getUserList({
-          emailAddress: [email],
-        }),
-      )
+      // Every preview shares one Clerk dev instance, so a first-boot seed
+      // reliably rides its rate limit. This lookup used to be the one Clerk
+      // call outside a catch: a 429 escaped it, rejected the enclosing pmap,
+      // and killed the whole seed before campaigns were ever created.
+      try {
+        const existing = await clerkThrottle(() =>
+          clerk.users.getUserList({
+            emailAddress: [email],
+          }),
+        )
 
-      const clerkUser = existing.data[0]
-      if (clerkUser) {
-        await prisma.user.update({
-          where: { id: localUserId },
-          data: { clerkId: clerkUser.id },
-        })
-        console.log(`  [CLERK] Linked ${email} → ${clerkUser.id}`)
+        const clerkUser = existing.data[0]
+        if (clerkUser) {
+          await prisma.user.update({
+            where: { id: localUserId },
+            data: { clerkId: clerkUser.id },
+          })
+          console.log(`  [CLERK] Linked ${email} → ${clerkUser.id}`)
+        }
+      } catch (lookupError) {
+        console.error(`  [CLERK] Failed to link ${email}:`, lookupError)
       }
     } else {
       console.error(`  [CLERK] Failed to sync ${email}:`, error)

@@ -5,9 +5,11 @@ import { PinoLogger } from 'nestjs-pino'
 import { of, throwError } from 'rxjs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { ElectionApiTokenService } from '@/vendors/clerk/services/electionApiToken.service'
 import { ElectedOfficeSupportApiService } from './electedOfficeSupportApi.service'
 
 const OFFICE = 'a0000000-0000-0000-0000-000000000001'
+const AUTH_HEADER = { Authorization: 'Bearer mt_test' }
 const ROW = {
   electedOfficeId: OFFICE,
   supportConstituents: 2893,
@@ -26,6 +28,10 @@ describe('ElectedOfficeSupportApiService', () => {
         ElectedOfficeSupportApiService,
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: HttpService, useValue: { get: mockHttpGet } },
+        {
+          provide: ElectionApiTokenService,
+          useValue: { authHeader: vi.fn().mockResolvedValue(AUTH_HEADER) },
+        },
       ],
     }).compile()
     service = module.get<ElectedOfficeSupportApiService>(
@@ -45,7 +51,7 @@ describe('ElectedOfficeSupportApiService', () => {
 
     expect(mockHttpGet).toHaveBeenCalledWith(
       'http://test-election-api/v1/elected-office-support',
-      { params: { electedOfficeId: OFFICE } },
+      { params: { electedOfficeId: OFFICE }, headers: AUTH_HEADER },
     )
     expect(result).toEqual(ROW)
   })

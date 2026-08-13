@@ -4,7 +4,6 @@ import { APP_ROOT, resolveAppRoot } from './appEnvironment.util'
 
 const LOCAL_URL = 'http://localhost:4000'
 const DEV_WEBAPP_URL = 'https://dev.goodparty.org'
-const QA_WEBAPP_URL = 'https://qa.goodparty.org'
 // In prod WEBAPP_ROOT_URL is the marketing origin (app routes 404 there).
 const PROD_MARKETING_URL = 'https://goodparty.org'
 // Canonical prod app origin APP_ROOT must resolve to.
@@ -39,13 +38,6 @@ describe('resolveAppRoot', () => {
         isProdDeploy: false,
       }),
     ).toBe(DEV_WEBAPP_URL)
-    expect(
-      resolveAppRoot({
-        appRootUrl: undefined,
-        webappRootUrl: QA_WEBAPP_URL,
-        isProdDeploy: false,
-      }),
-    ).toBe(QA_WEBAPP_URL)
   })
 
   it('keeps the prod app origin on prod deploys, NOT WEBAPP_ROOT_URL (the marketing origin)', () => {

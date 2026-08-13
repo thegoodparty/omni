@@ -6,11 +6,11 @@ name: Dependabot merge
 #
 # Merges use a GitHub App token instead of GITHUB_TOKEN because pushes made
 # with GITHUB_TOKEN never trigger other workflows — the deploy workflows on
-# develop would not run for the merge commit.
+# main would not run for the merge commit.
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: '*/30 * * * *'
   workflow_dispatch: {}
 
 concurrency:
@@ -40,13 +40,25 @@ jobs:
           set -euo pipefail
           cutoff="$(date -u -d '24 hours ago' '+%Y-%m-%dT%H:%M:%SZ')"
 
-          gh pr list --repo "$REPO" --author 'app/dependabot' --state open --base develop \
+          gh pr list --repo "$REPO" --author 'app/dependabot' --state open --base main \
             --json number,headRefName,reviewDecision,mergeable,statusCheckRollup,commits \
             > prs.json
 
           jq -c '.[] | {number, headRefName, reviewDecision, mergeable}' prs.json
 
-          eligible="$(jq -r --arg cutoff "$cutoff" '
+          # "SKIPPED == pass" hardening: the old gate accepted SKIPPED/NEUTRAL
+          # for ANY check, so a required validation check that got skipped on a
+          # Dependabot PR was silently treated as passing and the PR merged
+          # without ever being validated. Instead, require the real, runnable
+          # validation context ("Validate" — lint/typecheck/test/build +
+          # dependency-review, none of which need deploy secrets) to actually be
+          # present and to have every instance conclude SUCCESS. Deploy/E2E are
+          # deliberately NOT gated here: they depend on a full-stack deploy that
+          # can't run for Dependabot PRs (no secrets), so they always skip/fail
+          # and are not a meaningful signal for a dependency bump. See the PR
+          # body for the branch-protection (ruleset) change this pairs with.
+          required_contexts='["Validate"]'
+          eligible="$(jq -r --arg cutoff "$cutoff" --argjson required "$required_contexts" '
             .[]
             | select(.headRefName | startswith("dependabot/"))
             | select(.reviewDecision == "APPROVED")
@@ -56,7 +68,15 @@ jobs:
             | select([.commits[].authors[].login] | all(. == "dependabot[bot]"))
             | select(([.commits[].committedDate] | max) <= $cutoff)
             | select((.statusCheckRollup | length) > 0)
-            | select([.statusCheckRollup[] | .conclusion // .state] | all(IN("SUCCESS", "SKIPPED", "NEUTRAL")))
+            | . as $pr
+            | select(
+                $required
+                | all(
+                    . as $ctx
+                    | [$pr.statusCheckRollup[] | select((.name // .context) == $ctx) | (.conclusion // .state)] as $results
+                    | ($results | length) > 0 and ($results | all(. == "SUCCESS"))
+                  )
+              )
             | .number
           ' prs.json)"
 

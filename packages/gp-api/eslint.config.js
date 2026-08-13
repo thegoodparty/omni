@@ -182,12 +182,28 @@ module.exports = defineConfig([
       '@typescript-eslint/naming-convention': 'off',
     },
   },
-  globalIgnores(['**/generated/', '**/dist/']),
+  // `deploy/` (Pulumi IaC) is excluded from tsconfig.json and from the `lint`
+  // script's glob, so type-aware ESLint can't resolve it to a project and
+  // errors out. Ignore it here so the pre-commit hook (which lints staged files
+  // per package) stays consistent with the rest of the toolchain; Prettier
+  // still formats these files via lint-staged.
+  globalIgnores(['**/generated/', '**/dist/', 'deploy/']),
   {
     files: ['scripts/**/*.ts'],
     languageOptions: {
       parserOptions: {
         project: 'tsconfig.scripts.json',
+      },
+    },
+  },
+  {
+    // deploy/ (Pulumi IaC) isn't in the default tsconfig.json project, so
+    // typed linting there needs its own project — mirrors the scripts/ case.
+    // Without this, lint-staged fails on any staged deploy/*.ts file.
+    files: ['deploy/**/*.ts'],
+    languageOptions: {
+      parserOptions: {
+        project: 'tsconfig.deploy.json',
       },
     },
   },

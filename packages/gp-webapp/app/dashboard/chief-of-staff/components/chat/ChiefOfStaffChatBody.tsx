@@ -9,29 +9,31 @@ import {
   type RefObject,
 } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import {
   Badge,
   Button,
   IconButton,
-  Input,
   Loader2Icon,
   MicIcon,
   SquareIcon,
+  Textarea,
 } from '@styleguide'
 import { SparklesIcon } from '@styleguide/components/ui/icons'
 import {
   ASSISTANT_BUBBLE,
   AssistantMarkdown,
+  ChatMarkdown,
   ToolPillRow,
 } from '../../../shared/agent-chat/chatUI'
 import { useDictationAppend } from '../../../briefings/shared/useDictationAppend'
 import { reportErrorToSentry } from '@shared/sentry'
 import { chiefOfStaffChatApi } from '../../data/chat-api'
 import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
+import {
+  friendlyError,
+  newClientMessageId,
+} from '../../../shared/agent-chat/chatHelpers'
 import type {
-  ChatErrorCode,
   ChatMessageDto,
   ChatMessageSegment,
   ChatStreamEvent,
@@ -83,13 +85,26 @@ interface Props {
    */
   showSuggestionsWithGreeting?: boolean
   /**
+   * Short quick-prompt pills shown below the suggestions (above the composer),
+   * each sending its own text as a visible message. Distinct from `suggestions`
+   * (the larger action cards). Omit for CoS / Community Issues.
+   */
+  quickPrompts?: string[]
+  /** Composer placeholder. Defaults to the generic "How can I help?". */
+  composerPlaceholder?: string
+  /**
    * One-shot kickoff: send this message once on open through the normal stream
    * path but WITHOUT an optimistic user bubble (the server hides it / returns
    * a canned reply). Consumed once per mount.
    */
   pendingKickoff?: string
   /** Ref to the composer input, so a caller's suggestion can focus it. */
-  composerRef?: RefObject<HTMLInputElement | null>
+  composerRef?: RefObject<HTMLTextAreaElement | null>
+  /**
+   * Fine-print line under the composer, e.g. "<Agent> can make mistakes. Check
+   * important details." Omit to render nothing.
+   */
+  disclaimer?: string
   /**
    * Message contents to drop from a reloaded transcript before it renders.
    * Hides persisted sentinel turns (e.g. the story-kickoff sentinel) that
@@ -166,26 +181,6 @@ type ErrorState = {
   kind: 'init' | 'stream'
 }
 
-const FRIENDLY_ERROR_COPY: Record<ChatErrorCode, string> = {
-  rate_limited: 'Too many requests. Try again in a moment.',
-  upstream_unavailable: 'Chat is temporarily unavailable. Try again.',
-  aborted: '',
-  conversation_not_found:
-    'This chat is no longer available. Try starting a new one.',
-  internal: 'Something went wrong. Try again.',
-}
-
-function friendlyErrorMessage(code: ChatErrorCode): string {
-  return FRIENDLY_ERROR_COPY[code] ?? 'Something went wrong. Try again.'
-}
-
-function newClientMessageId(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID()
-  }
-  return `cmid_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`
-}
-
 // A tool_call event carries the tool's input as `args` (unknown). Pull the
 // `action` field when present so the status label can reflect what the tool is
 // doing (e.g. reading vs saving priorities).
@@ -247,8 +242,11 @@ export default function ChiefOfStaffChatBody({
   defaultIntro = COS_INTRO_MESSAGES,
   suggestions,
   showSuggestionsWithGreeting = false,
+  quickPrompts,
+  composerPlaceholder = 'How can I help?',
   pendingKickoff,
   composerRef,
+  disclaimer,
   hiddenMessageContents = NO_HIDDEN_CONTENTS,
 }: Props): React.JSX.Element {
   const queryClient = useQueryClient()
@@ -292,6 +290,16 @@ export default function ChiefOfStaffChatBody({
   const creatingRef = useRef(false)
   const sendingRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  // Local handle on the composer input (merged with the optional caller ref) so
+  // a completed turn can return focus to it — see the refocus effect below.
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const assignComposerRef = useCallback(
+    (node: HTMLTextAreaElement | null) => {
+      composerInputRef.current = node
+      if (composerRef) composerRef.current = node
+    },
+    [composerRef],
+  )
   const revealedRef = useRef(0)
   const liveTextTotalRef = useRef(0)
   // Set while a finished reply's reveal is still draining; invoking it commits
@@ -706,7 +714,7 @@ export default function ChiefOfStaffChatBody({
             setStreaming(null)
           } else {
             setError({
-              message: friendlyErrorMessage(errored.code),
+              message: friendlyError(errored.code),
               retryable: errored.retryable,
               lastUserContent: content,
               lastClientMessageId: clientMessageId,
@@ -934,6 +942,18 @@ export default function ChiefOfStaffChatBody({
   }, [error, executeUserTurn, loadExisting])
 
   const busy = sending || creating
+  // The composer is disabled while a turn runs (busy), which blurs it. When the
+  // turn finishes and the input re-enables, return focus so the candidate can
+  // keep chatting without clicking back in. Gated on active !== false so a
+  // background turn on a closed surface can't steal focus.
+  const prevBusyRef = useRef(busy)
+  useEffect(() => {
+    const wasBusy = prevBusyRef.current
+    prevBusyRef.current = busy
+    if (wasBusy && !busy && active !== false) {
+      composerInputRef.current?.focus()
+    }
+  }, [busy, active])
   const showIntro =
     (opener !== undefined || isFirstChat) &&
     history.length === 0 &&
@@ -941,12 +961,45 @@ export default function ChiefOfStaffChatBody({
     !playback &&
     !error
 
+  // The starter suggestions + quick prompts show on an empty transcript, or
+  // alongside a seeded greeting when the caller opts in.
+  const showStarters =
+    ((history.length === 0 && !playback) ||
+      (showSuggestionsWithGreeting && isPristineGreeting)) &&
+    streaming === null &&
+    !error
+  // Suggestions carrying a description render as full-width cards (Campaign
+  // Manager); description-less ones stay pills (Chief of Staff / Community
+  // Issues).
+  const suggestionsAsCards = effectiveSuggestions.some((s) =>
+    Boolean(s.description),
+  )
+
   return (
     // vaul disables text selection on the drawer (user-select:none on fine
-    // pointers) and treats pointer-drags as drawer-drags. select-text restores
-    // selection and data-vaul-no-drag stops a select-drag from moving the
-    // sheet, so users can highlight and copy chat text.
-    <div className="flex min-h-0 flex-1 flex-col select-text" data-vaul-no-drag>
+    // pointers) and, on pointerdown, pointer-captures the target — which cancels
+    // any native drag-selection that spans more than one element (so you can
+    // highlight within one paragraph but not across the whole message).
+    // select-text restores the CSS; releasing the capture restores the drag
+    // (data-vaul-no-drag only blocks vaul's drag, not its capture). The release
+    // is queued because vaul sets the capture from its own handler on an
+    // ancestor, which runs after this one. Do NOT stop propagation instead:
+    // Radix dismisses popovers from a document-level pointerdown listener, so
+    // that would strand ChatHistoryPopover open on any click in here.
+    <div
+      className="flex min-h-0 flex-1 flex-col select-text"
+      data-vaul-no-drag
+      onPointerDown={(e) => {
+        const target = e.target
+        if (!(target instanceof Element)) return
+        const { pointerId } = e
+        queueMicrotask(() => {
+          if (target.hasPointerCapture(pointerId)) {
+            target.releasePointerCapture(pointerId)
+          }
+        })
+      }}
+    >
       <div
         ref={scrollRef}
         className={
@@ -980,17 +1033,18 @@ export default function ChiefOfStaffChatBody({
             <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
               <SparklesIcon className="size-3.5" aria-hidden />
             </span>
-            <div className={ASSISTANT_BUBBLE}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
-            </div>
+            <AssistantMarkdown>{text}</AssistantMarkdown>
           </div>
         ))}
 
         {history.map((item) =>
           item.kind === 'user' ? (
+            // whitespace-pre-wrap keeps the line breaks the composer now
+            // accepts (Shift+Enter); HTML would otherwise collapse them into
+            // one run of text.
             <div
               key={item.id}
-              className="self-end rounded-2xl bg-primary px-3 py-2 text-sm text-primary-foreground"
+              className="max-w-full self-end rounded-2xl bg-primary px-3 py-2 text-sm break-words whitespace-pre-wrap text-primary-foreground"
             >
               {item.content}
             </div>
@@ -1021,9 +1075,7 @@ export default function ChiefOfStaffChatBody({
                   {item.toolsUsed && item.toolsUsed.length > 0 && (
                     <ToolPillRow labels={item.toolsUsed.map(toolDisplayName)} />
                   )}
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {item.content}
-                  </ReactMarkdown>
+                  <ChatMarkdown>{item.content}</ChatMarkdown>
                 </div>
               )}
             </div>
@@ -1079,12 +1131,33 @@ export default function ChiefOfStaffChatBody({
         )}
       </div>
 
-      {((history.length === 0 && !playback) ||
-        (showSuggestionsWithGreeting && isPristineGreeting)) &&
-        streaming === null &&
-        !error && (
-          <div className="mx-auto flex w-full max-w-3xl flex-wrap gap-2 px-3 pb-1 pt-2">
-            {effectiveSuggestions.map((s) => (
+      {showStarters && (
+        <div
+          className={
+            suggestionsAsCards
+              ? 'mx-auto flex w-full max-w-[608px] flex-col gap-2 px-3 pb-1 pt-2'
+              : 'mx-auto flex w-full max-w-[608px] flex-wrap gap-2 px-3 pb-1 pt-2'
+          }
+        >
+          {effectiveSuggestions.map((s) =>
+            suggestionsAsCards ? (
+              <button
+                key={s.label}
+                type="button"
+                disabled={busy}
+                onClick={() => onSuggestionClick(s)}
+                className="w-full rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-grayscale-50 disabled:pointer-events-none disabled:opacity-50"
+              >
+                <span className="block text-sm font-semibold text-foreground">
+                  {s.label}
+                </span>
+                {s.description && (
+                  <span className="mt-0.5 block text-sm text-muted-foreground">
+                    {s.description}
+                  </span>
+                )}
+              </button>
+            ) : (
               <Badge
                 key={s.label}
                 asChild
@@ -1097,25 +1170,42 @@ export default function ChiefOfStaffChatBody({
                   disabled={busy}
                   onClick={() => onSuggestionClick(s)}
                 >
-                  {s.description ? (
-                    <span className="flex flex-col items-start gap-0.5 text-left">
-                      <span>{s.label}</span>
-                      <span className="text-xs font-normal text-muted-foreground">
-                        {s.description}
-                      </span>
-                    </span>
-                  ) : (
-                    s.label
-                  )}
+                  {s.label}
+                </button>
+              </Badge>
+            ),
+          )}
+        </div>
+      )}
+
+      <div className="border-t border-border px-3 py-3">
+        {quickPrompts && quickPrompts.length > 0 && showStarters && (
+          <div className="mx-auto mb-3 flex w-full max-w-[608px] flex-wrap gap-2">
+            {quickPrompts.map((prompt) => (
+              <Badge
+                key={prompt}
+                asChild
+                variant="soft"
+                shape="pill"
+                className="h-auto border-border bg-grayscale-50 px-3 py-1.5 disabled:pointer-events-none disabled:opacity-50"
+              >
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void sendContent(prompt)}
+                >
+                  {prompt}
                 </button>
               </Badge>
             ))}
           </div>
         )}
-
-      <div className="border-t border-border px-3 py-3">
-        <div className="relative mx-auto w-full max-w-[608px] rounded-full bg-gradient-to-r from-red-500 to-blue-500 p-px">
-          <div className="flex h-12 w-full items-center gap-1 rounded-full bg-card pl-1.5 pr-1.5">
+        {/* rounded-3xl (24px) reads as a pill at the one-line min height and
+            stays a sane rounded rectangle once the composer grows, which
+            rounded-full would not. items-end keeps the buttons on the last line
+            of a multiline draft. */}
+        <div className="relative mx-auto w-full max-w-[608px] rounded-3xl bg-gradient-to-r from-red-500 to-blue-500 p-px">
+          <div className="flex min-h-12 w-full items-end gap-1 rounded-3xl bg-card py-1 pl-1.5 pr-1.5">
             {onSelectConversation && (
               <ChatHistoryPopover
                 onSelect={onSelectConversation}
@@ -1123,20 +1213,30 @@ export default function ChiefOfStaffChatBody({
                 historyKey={historyKey}
               />
             )}
-            <Input
-              ref={composerRef}
+            <Textarea
+              ref={assignComposerRef}
+              autoGrow
+              maxRows={6}
+              rows={1}
               value={composer}
               onChange={(e) => setComposer(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                // isComposing: don't send on the Enter that commits an IME
+                // candidate (CJK and other composed input) — it would fire a
+                // half-composed message and swallow the confirmation.
+                if (
+                  e.key === 'Enter' &&
+                  !e.shiftKey &&
+                  !e.nativeEvent.isComposing
+                ) {
                   e.preventDefault()
                   void onSend()
                 }
               }}
-              placeholder="How can I help?"
+              placeholder={composerPlaceholder}
               disabled={busy}
               aria-label="Ask a question"
-              className="h-9 flex-1 border-0 bg-transparent px-2 text-[15px] shadow-none focus-visible:border-0 focus-visible:ring-0"
+              className="flex-1 border-0 bg-transparent px-2 py-2.5 text-[15px] leading-snug shadow-none focus-visible:border-0 focus-visible:ring-0"
             />
             <IconButton
               type="button"
@@ -1175,6 +1275,11 @@ export default function ChiefOfStaffChatBody({
             </IconButton>
           </div>
         </div>
+        {disclaimer && (
+          <p className="mx-auto mt-2 w-full max-w-[608px] text-center text-[11px] text-muted-foreground">
+            {disclaimer}
+          </p>
+        )}
       </div>
     </div>
   )

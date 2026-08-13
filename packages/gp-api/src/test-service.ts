@@ -19,8 +19,18 @@ import {
   TEMPLATE_LOCK_KEY,
   startTestPostgres,
 } from './test-postgres'
+import { ClerkUserEnricherService } from './vendors/clerk/services/clerk-user-enricher.service'
+import { ElectionApiTokenService } from './vendors/clerk/services/electionApiToken.service'
 
 export const TEST_CLERK_ID = 'user_test_123'
+
+/**
+ * What ClerkUserEnricherService resolves to when Clerk cannot be reached: the
+ * DB identity fields stand, but a locally stored avatar is never served as if
+ * it were Clerk's.
+ */
+const dropClerkAvatar = <T extends object>(user: T): T =>
+  'avatar' in user ? { ...user, avatar: null } : user
 
 export type TestServiceContext = {
   /** A client targeting the test service. */
@@ -126,6 +136,33 @@ export const useTestService = (): TestServiceContext => {
         }
         return { externalUserId: sub }
       },
+    )
+
+    // election-api calls now require a Clerk M2M token (ElectionApiTokenService).
+    // Route tests don't set GP_API_MACHINE_SECRET and stub the election-api HTTP
+    // calls anyway, so stub the token — otherwise authHeader() throws and every
+    // election-api-backed endpoint (e.g. district resolution behind contacts
+    // count) returns a 502.
+    const electionApiTokenService = app.get(ElectionApiTokenService)
+    vi.spyOn(electionApiTokenService, 'authHeader').mockResolvedValue({
+      Authorization: 'Bearer test-election-api-token',
+    })
+
+    // SessionGuard enriches the request user through Clerk on every
+    // authenticated call, so unstubbed this is a live round trip to
+    // api.clerk.com per request. It can only ever 401, since .env.test carries
+    // a placeholder CLERK_SECRET_KEY. The guard and enrichUser/enrichUsers
+    // absorb that 401 by keeping the DB fields and dropping the avatar, so
+    // resolve to that outcome directly instead. The enricher's own behavior
+    // stays covered by clerk-user-enricher.service.test.ts, which mocks the
+    // Clerk client rather than the service.
+    const enricher = app.get(ClerkUserEnricherService)
+    vi.spyOn(enricher, 'fetchClerkFields').mockResolvedValue(null)
+    vi.spyOn(enricher, 'enrichUser').mockImplementation((user) =>
+      Promise.resolve(dropClerkAvatar(user)),
+    )
+    vi.spyOn(enricher, 'enrichUsers').mockImplementation((users) =>
+      Promise.resolve(users.map(dropClerkAvatar)),
     )
 
     // Start the application on a random available port

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { format, parseISO } from 'date-fns'
-import { Button } from '@styleguide'
+import ManagerPromptCard from './ManagerPromptCard'
 import {
   CalendarDaysIcon,
   CalendarIcon,
@@ -20,6 +20,7 @@ import {
 } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import TaskCard from '../chief-of-staff/components/TaskCard'
 import PersonalizeStoryCard from './PersonalizeStoryCard'
+import StoryReadyCard from './StoryReadyCard'
 import {
   type ComposeFlowType,
   useOutreachComposeFlow,
@@ -87,12 +88,15 @@ interface Props {
   // card or the footer chat box), not on the story flow.
   showMeetCard: boolean
   onMeetManager: () => void
+  // Dismisses the meet card without opening the manager (the card's ⋮ Skip).
+  onSkipMeet: () => void
   onPersonalize: () => void
 }
 
 export default function CampaignManagerTasks({
   showMeetCard,
   onMeetManager,
+  onSkipMeet,
   onPersonalize,
 }: Props): React.JSX.Element {
   const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
@@ -126,21 +130,19 @@ export default function CampaignManagerTasks({
   return (
     <section className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-4 py-6">
       {showMeetCard && (
-        <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5">
-          <div className="flex flex-col gap-1">
-            <h1 className="text-xl font-semibold">Your campaign manager</h1>
-            <p className="text-sm text-muted-foreground">
-              The two or three things that matter most this week, and a manager
-              to help you decide what to do next.
-            </p>
-          </div>
-          <Button className="self-start" onClick={onMeetManager}>
-            Meet your campaign manager
-          </Button>
-        </div>
+        <ManagerPromptCard
+          title="Meet your virtual Campaign Manager"
+          description="Introducing your Campaign Manager. Get a quick tour for how it can help."
+          ctaLabel="Meet your Campaign Manager"
+          onCta={onMeetManager}
+          onSkip={onSkipMeet}
+        />
       )}
 
+      {/* Mutually exclusive: PersonalizeStoryCard shows while the story is
+          incomplete, StoryReadyCard once it's complete. */}
       <PersonalizeStoryCard onPersonalize={onPersonalize} />
+      <StoryReadyCard />
 
       <div className="flex flex-col gap-3">
         <h2 className="text-sm font-semibold text-muted-foreground">

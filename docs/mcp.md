@@ -32,6 +32,20 @@ metrics, and traces.
 - `sentry`, `clickup`, and `amplitude` are remote HTTP servers and use OAuth, so they
   need no token in env — authorize them on first use via `/mcp`.
 
+## Plugins
+
+Some tooling arrives as a Claude Code **plugin** rather than a raw MCP server entry.
+Plugins are enabled project-wide in `.claude/settings.json` under `enabledPlugins`,
+so anyone opening omni gets them without installing anything by hand.
+
+| Plugin                          | What it adds                                                                                                             |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `slack@claude-plugins-official` | Slack MCP tools (search, read channels/threads, post, canvases) plus Slack-authoring skills and digest/standup commands. |
+
+`claude-plugins-official` is a built-in marketplace, so no `extraKnownMarketplaces`
+entry is needed. The Slack server is OAuth-based — authorize the GoodParty workspace
+on first use via `/mcp`; nothing is committed.
+
 ## Design docs in ClickUp
 
 Our engineering design docs live in ClickUp, and the ClickUp MCP can read them.
@@ -39,8 +53,12 @@ Entry point:
 
 https://goodparty.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-81493
 
-Most design docs are subdocs of a larger "Eng Docs" doc; you may need to open the
-parent to find a linked subdoc.
+That link is the "Technical Design Docs" page, one top-level section of a larger
+"Eng Docs" doc, which is now organized into sections (Technical Design Docs, How We
+Build, Incident Docs, Serve Docs, Win Docs, Misc Docs). Most design docs are subpages
+under one of those sections, so you may need to open the parent to find a linked one.
+The "Eng Docs" _folder_ also holds a few standalone docs alongside the Eng Docs doc,
+so a linked doc can be a sibling of that doc rather than a subpage of it.
 
 **ClickUp is read-only by default.** Don't run a mutating ClickUp tool (create/update/
 delete) without explicit user permission.

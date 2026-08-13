@@ -2,10 +2,11 @@ import * as grafana from '@pulumiverse/grafana'
 import { Alert, SlackGroup } from './alerting/alerts.types'
 import { GLOBAL_ALERTS } from './alerts'
 import { controllerAlerts } from './alerting/controller-alerts'
+import { personProfilesDashboardConfigJson } from './personProfilesDashboard'
 import { CONTROLLER_NAMES } from '../../src/generated/route-types'
 
 export interface GrafanaConfig {
-  environment: 'dev' | 'qa' | 'prod'
+  environment: 'dev' | 'prod'
   domain: string
 }
 
@@ -150,6 +151,16 @@ export const createGrafanaResources = async ({
           },
         },
       ],
+    }),
+  })
+
+  // Public /people profiles feature dashboard (custom OTel metrics).
+  new grafana.oss.Dashboard('people-profiles-dashboard', {
+    folder: folder.uid,
+    overwrite: true,
+    configJson: personProfilesDashboardConfigJson({
+      environment,
+      promDatasourceUid: PROM_DATASOURCE_UID,
     }),
   })
 

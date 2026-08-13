@@ -38,6 +38,7 @@ const baseCtx = (): OrdinanceFlowContext => ({
   step: 'clarify',
   organizationSlug: ORG,
   officeTitle: 'City Council Member',
+  officeLevel: null,
   // The context service fills this from the verified code record (or leaves
   // it null); loadContext overrides it with the district resolver when that
   // resolves (see the jurisdiction tests below).
@@ -45,6 +46,7 @@ const baseCtx = (): OrdinanceFlowContext => ({
   seedType: 'new',
   issueSlug: null,
   goalText: 'Reduce late-night construction noise',
+  sourceLink: null,
   clarifyAnswers: [],
   authority: null,
   comparables: null,
@@ -249,6 +251,7 @@ describe('OrdinanceFlowHandler', () => {
     const names = Object.keys(handler.buildTools(baseCtx())).sort()
     expect(names).toEqual([
       'ask_clarify_question',
+      'fetch_url',
       'get_code_source',
       'offer_next_step',
       'read_ordinance',
@@ -297,12 +300,33 @@ describe('OrdinanceFlowHandler', () => {
     ).not.toContain('brave_search')
   })
 
+  it('gives fetch_url to every step so a user source can be read anywhere', () => {
+    const handler = build()
+    // intro included on purpose: it has no finding of its own, but it still
+    // gets fetch_url + save_note so a source pasted here is read and carried
+    // forward for later steps (the source-correction rule's earlier-step path).
+    for (const step of [
+      'intro',
+      'clarify',
+      'authority',
+      'current_law',
+      'comparables',
+      'draft',
+      'review',
+    ] as const) {
+      const names = Object.keys(handler.buildTools({ ...baseCtx(), step }))
+      expect(names).toContain('fetch_url')
+      expect(names).toContain('save_note')
+    }
+  })
+
   it('offers the authority finding tool on the authority step', () => {
     const handler = build()
     const names = Object.keys(
       handler.buildTools({ ...baseCtx(), step: 'authority' }),
     ).sort()
     expect(names).toEqual([
+      'fetch_url',
       'get_code_source',
       'offer_next_step',
       'present_authority_finding',
@@ -318,6 +342,7 @@ describe('OrdinanceFlowHandler', () => {
       handler.buildTools({ ...baseCtx(), step: 'comparables' }),
     ).sort()
     expect(names).toEqual([
+      'fetch_url',
       'get_code_source',
       'offer_next_step',
       'present_comparables',
@@ -327,12 +352,15 @@ describe('OrdinanceFlowHandler', () => {
     ])
   })
 
-  it('builds the review tool set: base tools only, no present_draft or offer_next_step', () => {
+  it('builds the review tool set: base tools plus the draft-edit tools, no present_draft or offer_next_step', () => {
     const handler = build()
     const names = Object.keys(
       handler.buildTools({ ...baseCtx(), step: 'review' }),
     ).sort()
     expect(names).toEqual([
+      'accept_draft_changes',
+      'apply_draft_edit',
+      'fetch_url',
       'get_code_source',
       'read_ordinance',
       'save_note',
@@ -340,6 +368,21 @@ describe('OrdinanceFlowHandler', () => {
     ])
     expect(names).not.toContain('present_draft')
     expect(names).not.toContain('offer_next_step')
+  })
+
+  it('gates the draft-edit tools to the review step', () => {
+    const handler = build()
+    for (const step of [
+      'clarify',
+      'authority',
+      'current_law',
+      'comparables',
+      'draft',
+    ] as const) {
+      const names = Object.keys(handler.buildTools({ ...baseCtx(), step }))
+      expect(names).not.toContain('apply_draft_edit')
+      expect(names).not.toContain('accept_draft_changes')
+    }
   })
 
   it('gates present_* tools to their own step', () => {
@@ -361,7 +404,9 @@ describe('OrdinanceFlowHandler', () => {
     )
     expect(names).not.toContain('ask_clarify_question')
     expect(names).not.toContain('save_answer')
-    expect(names).not.toContain('fetch_url')
+    // fetch_url is a base tool now (source-correction on every step); only
+    // save_existing_law stays scoped to the current_law step.
+    expect(names).toContain('fetch_url')
     expect(names).not.toContain('save_existing_law')
     expect(names).toContain('read_ordinance')
     expect(names).toContain('offer_next_step')
@@ -374,6 +419,7 @@ describe('OrdinanceFlowHandler', () => {
     ).sort()
     expect(names).toEqual([
       'ask_clarify_question',
+      'fetch_url',
       'get_code_source',
       'present_draft',
       'read_ordinance',
@@ -420,5 +466,26 @@ describe('OrdinanceFlowHandler', () => {
     const resolveByOrgSlug = vi.fn(() => Promise.resolve(null))
     const ctx = await build({ resolveByOrgSlug }).loadContext('c1', USER_ID)
     expect(ctx.jurisdiction).toBe('Hendersonville, NC')
+  })
+
+  // The position's level is what tells the prompt a state house member is
+  // drafting a bill, not a municipal ordinance — it must survive loadContext.
+  it('fills officeLevel from the district resolver position level', async () => {
+    const resolveByOrgSlug = vi.fn(() =>
+      Promise.resolve({
+        l2DistrictName: 'State House District 12',
+        state: 'NC',
+        level: 'STATE',
+      }),
+    )
+    const ctx = await build({ resolveByOrgSlug }).loadContext('c1', USER_ID)
+    expect(ctx.officeLevel).toBe('STATE')
+    expect(ctx.jurisdiction).toBe('State House District 12, NC')
+  })
+
+  it('leaves officeLevel null when the resolver finds nothing', async () => {
+    const resolveByOrgSlug = vi.fn(() => Promise.resolve(null))
+    const ctx = await build({ resolveByOrgSlug }).loadContext('c1', USER_ID)
+    expect(ctx.officeLevel).toBeNull()
   })
 })

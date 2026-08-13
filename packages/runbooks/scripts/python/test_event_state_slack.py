@@ -1,3 +1,5 @@
+import json
+
 import event_state_slack as slk
 
 
@@ -276,6 +278,58 @@ def test_gap_thread_blocks_omits_absent_link_label():
     assert "Set disposition" not in text
 
 
+def _gap_with_new(run_date="2026-08-03"):
+    return {
+        "status": "ok", "run_date": run_date, "new_count": 1,
+        "new_gaps": [{"rank": 1, "id": "a", "surface_type": "route",
+                      "rubric_rule": "flow", "dashboard_question": "q",
+                      "location": "app/x/page.tsx"}],
+        "browse_url": "https://sheet", "feedback_url": "https://gh",
+    }
+
+
+def test_thread_shows_triage_invocation_when_new_gaps():
+    quiet = {"new": ["X"], "escalated": [], "resolved": [], "still_open": []}
+    result = {"run_date": "2026-08-03", "flagged": [], "proposals": [],
+              "status_counts": {}, "total_events": 0}
+    _, thread = slk.build_digest_blocks(result, quiet, {}, set(), gap=_gap_with_new())
+    assert "/triage-instrumentation-gaps 2026-08-03" in json.dumps(thread)
+
+
+def test_thread_shows_triage_invocation_on_proposals_only_run():
+    # DATA-2152's entry point must render whenever EITHER triage queue has work.
+    # The first live run (2026-08-05) had 112 proposals and zero new gaps, and the
+    # line vanished with the gaps block — this is the regression test for that.
+    changes = {"new": ["X"], "escalated": [], "resolved": [], "still_open": []}
+    result = {"run_date": "2026-08-05", "flagged": [],
+              "proposals": [{"event_type": "E", "family": "serve"}],
+              "status_counts": {}, "total_events": 1}
+    no_new_gap = {"status": "ok", "run_date": "2026-08-05", "new_count": 0, "new_gaps": []}
+    # legacy layout
+    _, thread = slk.build_digest_blocks(result, changes, {}, set(), gap=no_new_gap)
+    assert "/triage-instrumentation-gaps 2026-08-05" in json.dumps(thread)
+    # tiered layout
+    triage = {"status": "ok", "items": [
+        {"id": "X", "event_type": "X", "tier": "fyi", "rules_tier": "fyi",
+         "headline": "h", "action": "", "okr": None, "change": "new",
+         "prior_status": None, "status": "dormant", "instrumented_pr": None}]}
+    _, thread = slk.build_digest_blocks(result, changes, {}, set(), gap=no_new_gap,
+                                        triage=triage)
+    assert "/triage-instrumentation-gaps 2026-08-05" in json.dumps(thread)
+    # proposals but no gap payload at all (monitor-only local run)
+    _, thread = slk.build_digest_blocks(result, changes, {}, set(), gap=None)
+    assert "/triage-instrumentation-gaps 2026-08-05" in json.dumps(thread)
+
+
+def test_thread_omits_triage_invocation_when_no_queue_work():
+    changes = {"new": ["X"], "escalated": [], "resolved": [], "still_open": []}
+    result = {"run_date": "2026-08-05", "flagged": [], "proposals": [],
+              "status_counts": {}, "total_events": 1}
+    no_new_gap = {"status": "ok", "run_date": "2026-08-05", "new_count": 0, "new_gaps": []}
+    _, thread = slk.build_digest_blocks(result, changes, {}, set(), gap=no_new_gap)
+    assert "/triage-instrumentation-gaps" not in json.dumps(thread)
+
+
 def test_should_post_true_on_gap_news_even_if_health_quiet():
     quiet_changes = {"new": [], "escalated": [], "resolved": [], "still_open": ["x"]}
     assert slk.should_post({"flagged": []}, quiet_changes, None, {"new_count": 1}) is True
@@ -443,3 +497,189 @@ def test_main_notify_metadata_is_nonfatal_on_slack_error(monkeypatch, capsys):
     rc = slk.main(["notify-metadata", "--event", "X", "--change", "created", "--status", "active"])
     assert rc == 0
     assert "failed" in capsys.readouterr().err.lower()
+
+
+# --- tiered digest (DATA-2174) -------------------------------------------------
+
+
+def _triage(items, status="ok"):
+    return {"status": status, "items": items}
+
+
+def _titem(event, tier, *, headline="h", action="", okr=None, change="new",
+           prior_status=None, status="dormant", pr=None):
+    return {"id": event, "event_type": event, "tier": tier, "rules_tier": tier,
+            "headline": headline, "action": action, "okr": okr, "change": change,
+            "prior_status": prior_status, "status": status, "instrumented_pr": pr}
+
+
+def _tiered_result(**kw):
+    base = {"run_date": "2026-08-04", "flagged": [], "proposals": [],
+            "status_counts": {"active": 300}, "total_events": 300}
+    base.update(kw)
+    return base
+
+
+NOCHG = {"new": [], "escalated": [], "resolved": [], "still_open": []}
+
+
+def test_should_post_true_on_red_open_alone():
+    assert slk.should_post(_tiered_result(), NOCHG, set(), None, red_open=True)
+    assert not slk.should_post(_tiered_result(), NOCHG, set(), None, red_open=False)
+
+
+def test_tiered_parent_orders_red_yellow_fyi():
+    triage = _triage([
+        _titem("OkrEvent", "red", headline="went quiet", action="check PR #1124",
+               okr="Active Candidates"),
+        _titem("WatchEvent", "yellow", headline="newly dormant"),
+        _titem("PlainEvent", "fyi"),
+    ])
+    changes = {"new": ["OkrEvent", "WatchEvent", "PlainEvent"], "escalated": [],
+               "resolved": [], "still_open": []}
+    parent, thread = slk.build_digest_blocks(
+        _tiered_result(), changes, {}, set(), gap=None, triage=triage)
+    text = _flatten_text(parent)
+    assert "🔴 Needs action (1)" in text
+    assert "OKR: Active Candidates" in text
+    assert "went quiet" in text and "→ check PR #1124" in text
+    assert "🟡 Worth watching (1)" in text
+    assert text.index("🔴") < text.index("🟡") < text.index("ℹ️")
+    assert "1 informational change" in text
+    # fyi detail lives in the thread, not the parent
+    assert "PlainEvent" not in text
+    assert "PlainEvent" in _flatten_text(thread)
+
+
+def test_tiered_parent_mentions_only_when_red(monkeypatch):
+    monkeypatch.delenv("SLACK_EVENT_ALERT_MENTION", raising=False)
+    red = _triage([_titem("E", "red", okr="Signups")])
+    changes = {"new": ["E"], "escalated": [], "resolved": [], "still_open": []}
+    parent, _ = slk.build_digest_blocks(_tiered_result(), changes, {}, set(), triage=red)
+    assert "<!here>" in _flatten_text(parent)
+
+    yellow = _triage([_titem("E", "yellow")])
+    parent, _ = slk.build_digest_blocks(_tiered_result(), changes, {}, set(), triage=yellow)
+    assert "<!here>" not in _flatten_text(parent)
+
+
+def test_tiered_parent_mention_env_override(monkeypatch):
+    monkeypatch.setenv("SLACK_EVENT_ALERT_MENTION", "<!subteam^S123>")
+    red = _triage([_titem("E", "red", okr="Signups")])
+    changes = {"new": ["E"], "escalated": [], "resolved": [], "still_open": []}
+    parent, _ = slk.build_digest_blocks(_tiered_result(), changes, {}, set(), triage=red)
+    text = _flatten_text(parent)
+    assert "<!subteam^S123>" in text and "<!here>" not in text
+
+
+def test_tiered_yellow_caps_with_overflow():
+    items = [_titem(f"E{i}", "yellow") for i in range(12)]
+    changes = {"new": [i["id"] for i in items], "escalated": [], "resolved": [],
+               "still_open": []}
+    parent, _ = slk.build_digest_blocks(
+        _tiered_result(), changes, {}, set(), triage=_triage(items))
+    text = _flatten_text(parent)
+    assert "🟡 Worth watching (12)" in text and "…and 2 more" in text
+
+
+def test_tiered_triage_failure_shows_fallback_note():
+    triage = _triage([_titem("E", "yellow")], status="failed: api down")
+    changes = {"new": ["E"], "escalated": [], "resolved": [], "still_open": []}
+    parent, _ = slk.build_digest_blocks(_tiered_result(), changes, {}, set(), triage=triage)
+    assert "triage judgment unavailable" in _flatten_text(parent)
+
+
+def test_tiered_yellow_section_chunks_under_slack_text_cap():
+    items = [_titem(f"Very Long Yellow Event Name Number {i:02d} With Extra Padding", "yellow",
+                    headline="h" * 200) for i in range(12)]
+    changes = {"new": [i["id"] for i in items], "escalated": [], "resolved": [],
+               "still_open": []}
+    parent, _ = slk.build_digest_blocks(
+        _tiered_result(), changes, {}, set(), triage=_triage(items))
+    yellow_sections = [b for b in parent
+                       if b["type"] == "section" and "🟡" in b["text"]["text"]]
+    text = _flatten_text(parent)
+    assert "🟡 Worth watching (12)" in text and "…and 2 more" in text
+    all_yellow = [b for b in parent if b["type"] == "section"
+                  and ("🟡" in b["text"]["text"] or "Yellow Event Name" in b["text"]["text"])]
+    assert len(all_yellow) > 1
+    assert all(len(b["text"]["text"]) <= 3000 for b in all_yellow)
+    assert len(yellow_sections) == 1
+
+
+def test_thread_groups_new_events_by_pr_numeric_order():
+    triage = _triage([
+        _titem("A", "fyi", pr="https://github.com/thegoodparty/omni/pull/99"),
+        _titem("B", "fyi", pr="https://github.com/thegoodparty/omni/pull/1124"),
+        _titem("C", "fyi", pr=None),
+    ])
+    changes = {"new": ["A", "B", "C"], "escalated": [], "resolved": [], "still_open": []}
+    _, thread = slk.build_digest_blocks(_tiered_result(), changes, {}, set(), triage=triage)
+    text = _flatten_text(thread)
+    assert text.index("PR #1124") < text.index("PR #99")
+    assert text.index("PR #99") < text.index("newly flagged")
+
+
+def test_thread_groups_new_events_by_pr():
+    triage = _triage([
+        _titem("A", "fyi", pr="https://github.com/thegoodparty/omni/pull/1049"),
+        _titem("B", "fyi", pr="https://github.com/thegoodparty/omni/pull/1049"),
+        _titem("C", "fyi", pr=None),
+    ])
+    changes = {"new": ["A", "B", "C"], "escalated": [], "resolved": [], "still_open": []}
+    _, thread = slk.build_digest_blocks(_tiered_result(), changes, {}, set(), triage=triage)
+    text = _flatten_text(thread)
+    assert "<https://github.com/thegoodparty/omni/pull/1049|PR #1049> — 2 new events" in text
+    assert "`C`" in text
+
+
+def test_tiered_red_section_chunks_and_stays_under_slack_text_cap():
+    # 12 red items would render one giant section without chunking; Slack caps a section's
+    # text at 3000 chars, and chat.postMessage rejects the whole payload if any block
+    # exceeds it — silently dropping the digest on a mass-breakage run.
+    items = [_titem(f"Red{i}", "red", headline=f"broke at ts {i}" * 10, okr="OKR")
+             for i in range(12)]
+    changes = {"new": [i["id"] for i in items], "escalated": [], "resolved": [],
+               "still_open": []}
+    parent, _ = slk.build_digest_blocks(
+        _tiered_result(), changes, {}, set(), triage=_triage(items))
+    text = _flatten_text(parent)
+    assert "🔴 Needs action (12)" in text
+    red_sections = [
+        b for b in parent
+        if b["type"] == "section" and any(f"Red{i}" in b["text"]["text"] for i in range(12))
+    ]
+    assert len(red_sections) > 1
+    assert all(len(b["text"]["text"]) <= 3000 for b in red_sections)
+    for item in items:
+        assert item["id"] in text
+
+
+def test_fyi_thread_lines_capped_with_overflow():
+    fyi = [_titem(f"E{i}", "fyi", change="escalated", pr=None) for i in range(20)]
+    lines = slk._fyi_thread_lines(fyi)
+    assert len(lines) == slk.TRANSITION_CAP + 1
+    assert lines[-1] == "…and 5 more (see the sheet)"
+    joined = "\n".join(lines[:-1])
+    assert "E0" in joined and "E14" in joined
+    assert "E19" not in joined
+
+
+def test_post_digest_posts_on_quiet_run_with_open_red_item():
+    # otherwise-quiet run (no changes, no anomalies, no gap news) but triage carries a red
+    # item -> the red-persistence override must still post.
+    tx = _FakeTransport()
+    red_triage = _triage([_titem("RedEvt", "red", okr="Signups")])
+    ts = slk.post_digest(_tiered_result(), NOCHG, {}, token="xoxb-t", channel="C0BECEK0603",
+                         transport=tx, prior_anomalous=set(), gap=None, triage=red_triage)
+    assert ts == "1111.1"
+    assert len(tx.calls) == 2
+
+
+def test_legacy_layout_unchanged_when_triage_none():
+    result = _tiered_result()
+    changes = {"new": ["X"], "escalated": [], "resolved": [], "still_open": []}
+    legacy = slk.build_digest_blocks(result, changes, {}, set(), gap=None)
+    explicit = slk.build_digest_blocks(result, changes, {}, set(), gap=None, triage=None)
+    assert legacy == explicit
+    assert "Needs action" not in _flatten_text(legacy[0])

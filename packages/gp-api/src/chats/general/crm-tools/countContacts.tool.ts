@@ -35,17 +35,14 @@ export const buildCountContactsTool = (deps: {
   description:
     'Count the contacts matching a filter, using the same filter shape and ' +
     'rules as the saved-list builder. Input fields must come from ' +
-    'describe_filter_dimensions — call it first. Returns { count } only, ' +
-    'never individual records. Returns a structured error instead of a ' +
-    'count when the organization cannot run the filter (e.g. a Win campaign ' +
-    'without Pro, or a political-party filter on an elected-office ' +
-    'organization).',
+    'describe_filter_dimensions — call it first. Returns { count }, never ' +
+    'individual records. Returns a structured error instead of a count when ' +
+    'the organization cannot run the filter (e.g. a Win campaign without ' +
+    'Pro, or a political-party filter on an elected-office organization).',
   inputSchema: voterFilterBaseSchema,
   execute: async (input): Promise<CountContactsOutput> => {
     try {
-      return {
-        count: await deps.contacts.countContacts(input, deps.organization),
-      }
+      return await deps.contacts.countContacts(input, deps.organization)
     } catch (error) {
       if (error instanceof BadRequestException) {
         return toToolError(error)

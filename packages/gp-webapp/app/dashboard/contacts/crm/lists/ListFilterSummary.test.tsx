@@ -44,6 +44,23 @@ describe('buildFilterSummary — demographic-only filters', () => {
     expect(summary).not.toContain('Political party')
   })
 
+  it('excludes voter likelihood for an elected official', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ audienceSuperVoters: true }),
+      true,
+    )
+    expect(summary).not.toContain('Super')
+    expect(summary).not.toContain('Voter likelihood')
+  })
+
+  it('includes voter likelihood for a Win (non-elected-official) list', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ audienceSuperVoters: true }),
+      false,
+    )
+    expect(summary).toBe('Voter likelihood Super.')
+  })
+
   it('includes political party for a Win (non-elected-official) list', () => {
     const summary = buildFilterSummary(
       baseSegment({ partyDemocrat: true }),
@@ -73,12 +90,58 @@ describe('buildFilterSummary — demographic-only filters', () => {
     expect(summary).toBe('Support status Supporter or Support Unknown.')
   })
 
+  // ENG-10837: undecided/refused extend the shared vocabulary (override-only
+  // values), matching the profile's 5-value support status.
+  it('renders the undecided and refused support status values', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ supportStatus: ['undecided', 'refused'] }),
+      false,
+    )
+    expect(summary).toBe('Support status Undecided or Refused.')
+  })
+
   it('renders the saved search term', () => {
     const summary = buildFilterSummary(
       baseSegment({ search: 'Main Street' }),
       false,
     )
     expect(summary).toBe('matching search "Main Street".')
+  })
+})
+
+// ENG-10839: Contacts Made gets its own "with N or M prior contacts made"
+// clause rather than the generic "{Label} {value}" phrasing, and is Win-only.
+describe('buildFilterSummary — contacts-made filter', () => {
+  it('renders a single selected bucket', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ contactsMade2: true }),
+      false,
+    )
+    expect(summary).toBe('with 2 prior contacts made.')
+  })
+
+  it('renders a mixed "0 + a bucket" selection', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ contactsMade0: true, contactsMade3: true }),
+      false,
+    )
+    expect(summary).toBe('with 0 or 3 prior contacts made.')
+  })
+
+  it('renders the 5+ bucket label', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ contactsMade5Plus: true }),
+      false,
+    )
+    expect(summary).toBe('with 5+ prior contacts made.')
+  })
+
+  it('excludes contacts made for an elected official (Win-only)', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ contactsMade2: true }),
+      true,
+    )
+    expect(summary).not.toContain('contacts made')
   })
 })
 

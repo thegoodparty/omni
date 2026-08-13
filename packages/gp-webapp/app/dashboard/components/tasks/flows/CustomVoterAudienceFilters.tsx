@@ -4,7 +4,7 @@ import Body2 from '@shared/typography/Body2'
 import Overline from '@shared/typography/Overline'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 
-import { useEffect, useState, ChangeEvent } from 'react'
+import { useState, ChangeEvent } from 'react'
 
 interface FieldOption {
   key: AudienceFilterKey
@@ -18,7 +18,7 @@ interface FieldGroup {
 
 const fields: FieldGroup[] = [
   {
-    label: 'AUDIENCE',
+    label: 'Voter Likelihood',
     options: [
       { key: 'audience_superVoters', label: 'Super Voters (75% +)' },
       { key: 'audience_likelyVoters', label: 'Likely Voters (50%-75%)' },
@@ -27,7 +27,7 @@ const fields: FieldGroup[] = [
         label: 'Unreliable Voters (25%-50%)',
       },
       { key: 'audience_unlikelyVoters', label: 'Unlikely Voters (0%-25%)' },
-      { key: 'audience_firstTimeVoters', label: 'First Time Voters' },
+      { key: 'audience_unknown', label: 'Unknown' },
     ],
   },
   {
@@ -36,6 +36,7 @@ const fields: FieldGroup[] = [
       { key: 'party_independent', label: 'Independent / Non-Partisan' },
       { key: 'party_democrat', label: 'Democrat' },
       { key: 'party_republican', label: 'Republican' },
+      { key: 'party_other', label: 'Other' },
     ],
   },
   {
@@ -62,10 +63,11 @@ export type AudienceFilterKey =
   | 'audience_likelyVoters'
   | 'audience_unreliableVoters'
   | 'audience_unlikelyVoters'
-  | 'audience_firstTimeVoters'
+  | 'audience_unknown'
   | 'party_independent'
   | 'party_democrat'
   | 'party_republican'
+  | 'party_other'
   | 'age_18_25'
   | 'age_25_35'
   | 'age_35_50'
@@ -85,10 +87,11 @@ export interface AudienceFiltersState {
   audience_likelyVoters?: boolean
   audience_unreliableVoters?: boolean
   audience_unlikelyVoters?: boolean
-  audience_firstTimeVoters?: boolean
+  audience_unknown?: boolean
   party_independent?: boolean
   party_democrat?: boolean
   party_republican?: boolean
+  party_other?: boolean
   age_18_25?: boolean
   age_25_35?: boolean
   age_35_50?: boolean
@@ -102,53 +105,6 @@ export interface AudienceFiltersState {
   gender_female?: boolean
   gender_unknown?: boolean
   audience_request?: string | boolean
-}
-
-type PurposeKey = 'GOTV' | 'Persuasion' | 'Voter ID'
-
-type PurposeToFiltersMap = {
-  GOTV: AudienceFiltersState
-  Persuasion: AudienceFiltersState
-  'Voter ID': AudienceFiltersState
-}
-
-const purposeToFilters: PurposeToFiltersMap = {
-  GOTV: {
-    audience_likelyVoters: true,
-    audience_unreliableVoters: true,
-    audience_firstTimeVoters: true,
-    party_independent: true,
-    age_18_25: true,
-    age_25_35: true,
-    age_35_50: true,
-    audience_request: '',
-  },
-  Persuasion: {
-    audience_likelyVoters: true,
-    audience_superVoters: true,
-    audience_firstTimeVoters: true,
-    party_independent: true,
-    age_18_25: true,
-    age_25_35: true,
-    age_35_50: true,
-    audience_request: '',
-  },
-  'Voter ID': {
-    audience_superVoters: true,
-    audience_likelyVoters: true,
-    audience_unreliableVoters: true,
-    audience_unlikelyVoters: true,
-    audience_firstTimeVoters: true,
-    party_independent: true,
-    age_18_25: true,
-    age_25_35: true,
-    age_35_50: true,
-    audience_request: '',
-  },
-}
-
-const isPurposeKey = (value: string): value is PurposeKey => {
-  return value === 'GOTV' || value === 'Persuasion' || value === 'Voter ID'
 }
 
 export const TRACKING_KEYS = {
@@ -195,14 +151,9 @@ const TRACKING_EVENT_MAP: TrackingEventMapType = {
   },
 }
 
-interface PrevStepValues {
-  purpose?: string
-}
-
 interface CustomVoterAudienceFiltersProps {
   audience?: AudienceFiltersState | null
   showAudienceRequest?: boolean
-  prevStepValues?: PrevStepValues
   onChangeCallback?: (newState: AudienceFiltersState) => void
   readOnly?: boolean
   trackingKey?: string
@@ -211,7 +162,6 @@ interface CustomVoterAudienceFiltersProps {
 const CustomVoterAudienceFilters = ({
   audience,
   showAudienceRequest,
-  prevStepValues,
   onChangeCallback,
   readOnly = false,
   trackingKey,
@@ -221,26 +171,17 @@ const CustomVoterAudienceFilters = ({
     audience_likelyVoters: false,
     audience_unreliableVoters: false,
     audience_unlikelyVoters: false,
-    audience_firstTimeVoters: false,
+    audience_unknown: false,
     party_independent: false,
     party_democrat: false,
     party_republican: false,
+    party_other: false,
     age_18_25: false,
     age_25_35: false,
     age_35_50: false,
     audience_request: '',
     ...audience,
   })
-
-  const { purpose } = prevStepValues || {}
-
-  useEffect(() => {
-    if (purpose && isPurposeKey(purpose)) {
-      const newState = purposeToFilters[purpose]
-      setState(newState)
-      onChangeCallback?.(newState)
-    }
-  }, [purpose])
 
   const handleChangeAudience = (option: string, val: boolean | string) => {
     if (readOnly) return

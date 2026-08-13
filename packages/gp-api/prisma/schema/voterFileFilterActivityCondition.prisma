@@ -2,6 +2,11 @@ enum SupportStatusRollup {
   supporter
   non_supporter
   unknown
+  // ENG-10833: additive additions to the manual-override vocabulary. The
+  // derived (interaction-based) rollup never produces these — only a manual
+  // ContactCurrentStatus override can set them.
+  undecided
+  refused
 }
 
 // Union of the locked per-channel outcome vocabularies (2026-07-16 revision).

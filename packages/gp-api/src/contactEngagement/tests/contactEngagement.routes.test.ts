@@ -32,7 +32,7 @@ describe('ContactEngagement routes', () => {
   })
 
   describe('GET /contact-engagement/:id/activities (campaign context - Win)', () => {
-    it('unions door knocks, texts, robocalls, notes, and legacy outreach rows when lalVoterId is given, newest first', async () => {
+    it('unions door knocks, texts, robocalls, and legacy outreach rows when lalVoterId is given, newest first, excluding notes', async () => {
       const personId = 'person-win-1'
 
       await service.prisma.contactInteractionRobocall.create({
@@ -64,6 +64,8 @@ describe('ContactEngagement routes', () => {
           manual: false,
         },
       })
+      // A note write for the same person must not surface in the feed
+      // (ENG-10780: notes live only in the dedicated Notes section).
       await service.prisma.contactNote.create({
         data: {
           organizationSlug: campaignOrgSlug,
@@ -93,20 +95,16 @@ describe('ContactEngagement routes', () => {
       expect(result.status).toBe(200)
       expect(result.data.results.map((r: { type: string }) => r.type)).toEqual([
         ConstituentActivityType.OUTREACH,
-        ConstituentActivityType.NOTE,
         ConstituentActivityType.TEXT,
         ConstituentActivityType.DOOR_KNOCK,
         ConstituentActivityType.ROBOCALL,
       ])
 
-      const [outreach, note, text, doorKnock, robocall] = result.data.results
+      const [outreach, text, doorKnock, robocall] = result.data.results
 
       expect(outreach.data).toMatchObject({
         outreachType: OutreachType.text,
         attributionSource: VoterOutreachAttributionSource.segmentDerived,
-      })
-      expect(note.data).toMatchObject({
-        body: 'Follow up before the primary',
       })
       expect(text.data).toMatchObject({
         respondedAt: '2026-01-06T11:00:00.000Z',
@@ -190,6 +188,8 @@ describe('ContactEngagement routes', () => {
           manual: false,
         },
       })
+      // A note write for the same person must not surface in the feed
+      // (ENG-10780: notes live only in the dedicated Notes section).
       await service.prisma.contactNote.create({
         data: {
           organizationSlug: campaignOrgSlug,
@@ -232,10 +232,9 @@ describe('ContactEngagement routes', () => {
         pages += 1
       } while (after && pages < 10)
 
-      expect(pages).toBe(3)
+      expect(pages).toBe(2)
       expect(seenTypes).toEqual([
         ConstituentActivityType.OUTREACH,
-        ConstituentActivityType.NOTE,
         ConstituentActivityType.TEXT,
         ConstituentActivityType.DOOR_KNOCK,
         ConstituentActivityType.ROBOCALL,
@@ -515,6 +514,235 @@ describe('ContactEngagement routes', () => {
     })
   })
 
+  describe('STATUS_CHANGE entries (ENG-10835)', () => {
+    it('unions status-change events into the Win feed, newest first, with resolved labels and actor name', async () => {
+      const personId = 'person-win-status'
+
+      await service.prisma.contactStatusEvent.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          field: 'voter_likelihood',
+          fromValue: null,
+          toValue: 'likely',
+          source: 'manual',
+          actorUserId: service.user.id,
+          createdAt: new Date('2026-01-01T10:00:00Z'),
+        },
+      })
+      await service.prisma.contactStatusEvent.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          field: 'support_status',
+          fromValue: 'unknown',
+          toValue: 'supporter',
+          source: 'manual',
+          actorUserId: service.user.id,
+          createdAt: new Date('2026-01-02T10:00:00Z'),
+        },
+      })
+      await service.prisma.contactInteractionDoorKnock.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-03T10:00:00Z'),
+          outcome: DoorKnockOutcome.answered,
+          manual: true,
+        },
+      })
+
+      const result = await service.client.get(
+        `/v1/contact-engagement/${personId}/activities`,
+        { headers: { 'x-organization-slug': campaignOrgSlug } },
+      )
+
+      expect(result.status).toBe(200)
+      expect(result.data.results.map((r: { type: string }) => r.type)).toEqual([
+        ConstituentActivityType.DOOR_KNOCK,
+        ConstituentActivityType.STATUS_CHANGE,
+        ConstituentActivityType.STATUS_CHANGE,
+      ])
+
+      const [, supportChange, likelihoodChange] = result.data.results
+      expect(supportChange.data).toMatchObject({
+        field: 'support_status',
+        fromLabel: 'Support unknown',
+        toLabel: 'Supporter',
+        actorName: 'Johnny Goodparty',
+        actorUserId: service.user.id,
+        source: 'manual',
+      })
+      expect(likelihoodChange.data).toMatchObject({
+        field: 'voter_likelihood',
+        fromLabel: null,
+        toLabel: 'Likely',
+        actorName: 'Johnny Goodparty',
+        actorUserId: service.user.id,
+        source: 'manual',
+      })
+    })
+
+    // ENG-10841: a door-knock-sourced event carries no actorUserId (the
+    // canvass answer isn't attributed to a staff user) — the feed already
+    // renders a null actor as `actorName: null` for any source, so this just
+    // pins the door_knock shape rather than re-testing that renderer.
+    it('renders a door-knock-sourced event with source door_knock and no actor name', async () => {
+      const personId = 'person-win-status-door-knock'
+
+      await service.prisma.contactStatusEvent.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          field: 'voter_likelihood',
+          fromValue: null,
+          toValue: 'likely',
+          source: 'door_knock',
+          actorUserId: null,
+          sourceId: 'client-key-1',
+          createdAt: new Date('2026-01-01T10:00:00Z'),
+        },
+      })
+
+      const result = await service.client.get(
+        `/v1/contact-engagement/${personId}/activities`,
+        { headers: { 'x-organization-slug': campaignOrgSlug } },
+      )
+
+      expect(result.status).toBe(200)
+      expect(result.data.results).toHaveLength(1)
+      expect(result.data.results[0].data).toMatchObject({
+        field: 'voter_likelihood',
+        fromLabel: null,
+        toLabel: 'Likely',
+        actorName: null,
+        actorUserId: null,
+        source: 'door_knock',
+      })
+    })
+
+    it('interleaves STATUS_CHANGE with other entry types across a paginated cursor walk', async () => {
+      const personId = 'person-win-status-cursor'
+
+      await service.prisma.contactStatusEvent.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          field: 'voter_likelihood',
+          fromValue: null,
+          toValue: 'likely',
+          source: 'manual',
+          actorUserId: service.user.id,
+          createdAt: new Date('2026-01-01T10:00:00Z'),
+        },
+      })
+      await service.prisma.contactInteractionDoorKnock.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-02T10:00:00Z'),
+          outcome: DoorKnockOutcome.answered,
+          manual: true,
+        },
+      })
+      await service.prisma.contactStatusEvent.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          field: 'support_status',
+          fromValue: 'unknown',
+          toValue: 'supporter',
+          source: 'manual',
+          actorUserId: service.user.id,
+          createdAt: new Date('2026-01-03T10:00:00Z'),
+        },
+      })
+      await service.prisma.contactInteractionText.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-04T10:00:00Z'),
+          manual: false,
+        },
+      })
+
+      const seen: { type: string; activityId: string }[] = []
+      let after: string | undefined
+      let pages = 0
+
+      do {
+        const page = await service.client.get(
+          `/v1/contact-engagement/${personId}/activities`,
+          {
+            params: { take: 2, ...(after ? { after } : {}) },
+            headers: { 'x-organization-slug': campaignOrgSlug },
+          },
+        )
+        expect(page.status).toBe(200)
+        seen.push(
+          ...page.data.results.map(
+            (r: { type: string; data: { activityId: string } }) => ({
+              type: r.type,
+              activityId: r.data.activityId,
+            }),
+          ),
+        )
+        after = page.data.nextCursor ?? undefined
+        pages += 1
+      } while (after && pages < 10)
+
+      expect(pages).toBe(2)
+      expect(seen.map((s) => s.type)).toEqual([
+        ConstituentActivityType.TEXT,
+        ConstituentActivityType.STATUS_CHANGE,
+        ConstituentActivityType.DOOR_KNOCK,
+        ConstituentActivityType.STATUS_CHANGE,
+      ])
+      // No duplicates and nothing dropped across the page boundary.
+      expect(seen).toHaveLength(4)
+      expect(new Set(seen.map((s) => `${s.type}:${s.activityId}`)).size).toBe(4)
+    }, 10000)
+
+    it('never returns STATUS_CHANGE entries for a Serve (elected office) feed, even if a row exists', async () => {
+      // contacts.service.ts's status-update endpoint already rejects this
+      // write for elected-office organizations, so this row can't be
+      // produced through the app in practice — seeded directly to prove the
+      // FEED itself gates STATUS_CHANGE on Win-ness too, not only relying on
+      // there being no real-world way to create one for Serve.
+      const eoOrgSlug = `eo-status-${Date.now()}`
+      await service.prisma.organization.create({
+        data: { slug: eoOrgSlug, ownerId: service.user.id },
+      })
+      await service.prisma.electedOffice.create({
+        data: {
+          userId: service.user.id,
+          campaignId: campaign.id,
+          organizationSlug: eoOrgSlug,
+        },
+      })
+      const personId = 'person-serve-status'
+      await service.prisma.contactStatusEvent.create({
+        data: {
+          organizationSlug: eoOrgSlug,
+          personId,
+          field: 'voter_likelihood',
+          fromValue: null,
+          toValue: 'likely',
+          source: 'manual',
+          actorUserId: service.user.id,
+        },
+      })
+
+      const result = await service.client.get(
+        `/v1/contact-engagement/${personId}/activities`,
+        { headers: { 'x-organization-slug': eoOrgSlug } },
+      )
+
+      expect(result.status).toBe(200)
+      expect(result.data.results).toEqual([])
+    })
+  })
+
   describe('GET /contact-engagement/:id/activities (elected office context - Serve)', () => {
     it('returns poll interactions for the elected office, unchanged', async () => {
       const eoOrgSlug = `eo-${Date.now()}`
@@ -561,7 +789,7 @@ describe('ContactEngagement routes', () => {
       })
     })
 
-    it('unions poll interactions with door knocks, texts, robocalls, and notes, newest first', async () => {
+    it('unions poll interactions with door knocks, texts, and robocalls, newest first, excluding notes', async () => {
       const eoOrgSlug = `eo-union-${Date.now()}`
       await service.prisma.organization.create({
         data: { slug: eoOrgSlug, ownerId: service.user.id },
@@ -594,6 +822,8 @@ describe('ContactEngagement routes', () => {
           sentAt: new Date('2026-01-08T10:00:00Z'),
         },
       })
+      // A note write for the same person must not surface in the feed
+      // (ENG-10780: notes live only in the dedicated Notes section).
       await service.prisma.contactNote.create({
         data: {
           organizationSlug: eoOrgSlug,
@@ -637,7 +867,6 @@ describe('ContactEngagement routes', () => {
       expect(result.status).toBe(200)
       expect(result.data.results.map((r: { type: string }) => r.type)).toEqual([
         ConstituentActivityType.POLL_INTERACTIONS,
-        ConstituentActivityType.NOTE,
         ConstituentActivityType.TEXT,
         ConstituentActivityType.DOOR_KNOCK,
         ConstituentActivityType.ROBOCALL,

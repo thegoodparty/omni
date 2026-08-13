@@ -1,7 +1,6 @@
 import {
-  SupportStatusRollupSchema,
   type ActivityConditionAction,
-  type SupportStatusRollup,
+  SupportStatusRollupSchema,
 } from '@goodparty_org/contracts'
 import {
   ACTIVITY_CONDITION_CHANNEL_ACTIONS,
@@ -9,6 +8,7 @@ import {
 } from '@/shared/schemas/activityCondition.schema'
 import {
   AUDIENCE_VOTER_STATUS_VALUES,
+  CONTACTS_MADE_BUCKET_FIELDS,
   INCOME_RANGE_MAPPING,
   LANGUAGE_CODE_TO_LABEL,
 } from './utils/voterFileFilter.utils'
@@ -89,10 +89,19 @@ const ACTIVITY_ACTION_LABELS: Record<ActivityConditionAction, string> = {
   no_answer: 'No Answer',
 }
 
-const SUPPORT_STATUS_LABELS: Record<SupportStatusRollup, string> = {
+// All five values (ENG-10837): `undecided`/`refused` (ENG-10833) exist only
+// as manual overrides, but SupportStatusService.personIdsByEffectiveStatus
+// now resolves overrides alongside derivation, so advertising them here no
+// longer risks a filter that silently matches zero people.
+const SUPPORT_STATUS_LABELS: Record<
+  (typeof SupportStatusRollupSchema.options)[number],
+  string
+> = {
   supporter: 'Supporter',
   non_supporter: 'Non-supporter',
   unknown: 'Support Unknown',
+  undecided: 'Undecided',
+  refused: 'Refused',
 }
 
 // The exhaustive ACTIVITY_CHANNEL_LABELS record breaks the build when a new
@@ -136,8 +145,21 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
       { key: 'partyDemocrat', label: 'Democrat' },
       { key: 'partyIndependent', label: 'Independent' },
       { key: 'partyRepublican', label: 'Republican' },
-      { key: 'partyUnknown', label: 'Unknown' },
+      { key: 'partyOther', label: 'Other' },
     ],
+  },
+  {
+    // Every logged interaction row across text/robocall/door-knock,
+    // regardless of outcome (ENG-10839) — campaign activity, so Win-only
+    // like party.
+    key: 'contactsMade',
+    label: 'Prior Contacts Made',
+    kind: 'boolean-group',
+    modes: 'win',
+    values: CONTACTS_MADE_BUCKET_FIELDS.map(({ field, bucket }) => ({
+      key: field,
+      label: bucket === 5 ? '5+' : String(bucket),
+    })),
   },
   {
     key: 'age',

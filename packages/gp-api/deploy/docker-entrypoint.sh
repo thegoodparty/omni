@@ -6,7 +6,7 @@ set -e
 # exec it directly and skip the app-start flow.
 # ENTRYPOINT is exec-form with no CMD and the service task definition sets no
 # command, so normal startup (no args) is unaffected. Must run before the env
-# guards below — those tasks intentionally do not set DB_NAME / VOTER_DB_*.
+# guards below — those tasks intentionally do not set DB_NAME.
 if [ "$#" -gt 0 ]; then
   exec "$@"
 fi
@@ -16,27 +16,18 @@ if [ -z "$DB_HOST" ] || [ -z "$DB_PASSWORD" ] || [ -z "$DB_USER" ] || [ -z "$DB_
   exit 1
 fi
 
-if [ -z "$VOTER_DB_HOST" ] || [ -z "$VOTER_DB_PASSWORD" ] || [ -z "$VOTER_DB_USER" ] || [ -z "$VOTER_DB_NAME" ]; then
-  echo "One or more required VOTER_DB environment variables are not set"
-  exit 1
-fi
-
 # Preview shares one Aurora Serverless v2 instance across all PR stacks. Each
 # preview container opens two pools against it: Prisma (connection_limit below)
 # and PollResponsesDownloadService's pg.Pool (max 5). At 5 each that is ~10
 # connections per preview, so ~10 concurrent previews fit under the
 # ~100-connection ceiling of a 0.5-ACU instance; Aurora auto-scales above that
-# and the connections alarm fires at 80. Dev/qa/prod get the standard 20.
+# and the connections alarm fires at 80. Dev/prod get the standard 20.
 if [ "$IS_PREVIEW" = "true" ]; then
   DB_CONN_LIMIT=5
 else
   DB_CONN_LIMIT=20
 fi
 export DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@$DB_HOST:5432/$DB_NAME?connection_limit=$DB_CONN_LIMIT"
-# VOTER_DATASTORE is read by a raw pg.Pool, which ignores the Prisma
-# connection_limit param, so its preview cap lives on the pool's max in
-# voterDatabase.service.ts rather than on this URL.
-export VOTER_DATASTORE="postgresql://$VOTER_DB_USER:$VOTER_DB_PASSWORD@$VOTER_DB_HOST:5432/$VOTER_DB_NAME"
 
 # Per-PR preview: create the database (empty) if it does not already exist.
 # Must run before prisma migrate deploy because $DB_NAME may not exist yet on

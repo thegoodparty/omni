@@ -29,10 +29,21 @@ interface Props {
   suggestions?: ChatSuggestion[]
   /** Show the chips alongside a seeded greeting, not only on empty. */
   showSuggestionsWithGreeting?: boolean
+  /** Quick-prompt pills threaded to the body (below the suggestions). */
+  quickPrompts?: string[]
+  /** Composer placeholder threaded to the body. */
+  composerPlaceholder?: string
   /** One-shot kickoff message sent hidden on open. */
   pendingKickoff?: string
   /** Ref to the body's composer input, so a suggestion can focus it. */
-  composerRef?: RefObject<HTMLInputElement | null>
+  composerRef?: RefObject<HTMLTextAreaElement | null>
+  /**
+   * Fine-print line under the composer. Defaults to "<title> can make
+   * mistakes. Check important details.", so every surface carries one and a new
+   * mount gets it for free. Override only when the agent's display name differs
+   * from `title` (e.g. the manager's title is sentence-cased).
+   */
+  disclaimer?: string
   /** Message contents to hide from a reloaded transcript (e.g. sentinels). */
   hiddenMessageContents?: string[]
 }
@@ -56,8 +67,11 @@ export default function ChiefOfStaffChatSurface({
   defaultIntro,
   suggestions,
   showSuggestionsWithGreeting,
+  quickPrompts,
+  composerPlaceholder,
   pendingKickoff,
   composerRef,
+  disclaimer = `${title} can make mistakes. Check important details.`,
   hiddenMessageContents,
 }: Props): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -101,8 +115,11 @@ export default function ChiefOfStaffChatSurface({
           defaultIntro={defaultIntro}
           suggestions={suggestions}
           showSuggestionsWithGreeting={showSuggestionsWithGreeting}
+          quickPrompts={quickPrompts}
+          composerPlaceholder={composerPlaceholder}
           pendingKickoff={pendingKickoff}
           composerRef={composerRef}
+          disclaimer={disclaimer}
           hiddenMessageContents={hiddenMessageContents}
           bodyClassName="mx-auto flex min-h-0 w-full max-w-[608px] flex-1 flex-col gap-3 overflow-y-auto px-4 py-3"
         />

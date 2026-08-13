@@ -356,6 +356,7 @@ def propose_watchlist_additions(
     watchlist_events: Iterable[str],
     today: date,
     window_days: int = PROPOSAL_WINDOW_DAYS,
+    dismissed_events: Iterable[str] = (),
 ) -> list[dict]:
     """Self-healing watchlist: events worth adding to the curated list.
 
@@ -372,6 +373,7 @@ def propose_watchlist_additions(
     """
     watched_families = set(watched_families)
     watchlist_events = set(watchlist_events)
+    dismissed_events = set(dismissed_events)
     cutoff = today - timedelta(days=window_days)
     out: list[dict] = []
     for row in catalog:
@@ -379,6 +381,8 @@ def propose_watchlist_additions(
         family = row["family"]
         if family not in watched_families or event_type in watchlist_events:
             continue
+        if event_type in dismissed_events:
+            continue  # human dismissed this proposal — never re-propose it (DATA-2152)
         if is_system(family, event_type):
             continue
         if int(row.get("event_count_30d") or 0) <= 0:
@@ -400,12 +404,16 @@ def reconcile(
     today: date,
     watchlist_events: Iterable[str] = (),
     watched_families: Iterable[str] = (),
+    dismissed_events: Iterable[str] = (),
+    okr_by_event: Mapping[str, str] | None = None,
 ) -> dict:
     """Reconcile the three axes into per-event records, status counts, a ranked flag list,
     and the self-healing watchlist proposal queue."""
     current_monday = today - timedelta(days=today.weekday())
     series = weekly_series(weekly_rows, current_monday)
     watchlist_events = set(watchlist_events)
+    dismissed_events = set(dismissed_events)
+    okr_by_event = dict(okr_by_event or {})
     seen_in_catalog = {row["event_type"] for row in catalog}
     records: list[dict] = []
 
@@ -440,6 +448,7 @@ def reconcile(
                 "status": status,
                 "elevated": is_elevated(family, event_type, description, on_watchlist=on_watchlist),
                 "on_watchlist": on_watchlist,
+                "okr": okr_by_event.get(event_type),
                 "event_count_30d": cnt30,
                 "last_seen_date": last_seen,
                 "anomaly": anomaly,
@@ -462,6 +471,7 @@ def reconcile(
                     "status": "instrumented_never_observed",
                     "elevated": is_elevated(None, event_type, None),
                     "on_watchlist": event_type in watchlist_events,
+                    "okr": okr_by_event.get(event_type),
                     "event_count_30d": 0,
                     "last_seen_date": None,
                     "anomaly": None,
@@ -498,7 +508,25 @@ def reconcile(
         "other_missing_count": sum(1 for r in scored if not r["has_description"] and not r["elevated"]),
     }
 
-    proposals = propose_watchlist_additions(catalog, code, watched_families, watchlist_events, today)
+    proposals = propose_watchlist_additions(
+        catalog, code, watched_families, watchlist_events, today,
+        dismissed_events=dismissed_events,
+    )
+
+    # Stamp each record with the watchlist axis's verdict (DATA-2152): tracked (already
+    # curated) beats dismissed (human rejected) beats proposed (self-healing candidate);
+    # everything else is untouched by the watchlist.
+    proposed_types = {p["event_type"] for p in proposals}
+    for record in records:
+        et = record["event_type"]
+        if record["on_watchlist"]:
+            record["watchlist_status"] = "tracked"
+        elif et in dismissed_events:
+            record["watchlist_status"] = "dismissed"
+        elif et in proposed_types:
+            record["watchlist_status"] = "proposed"
+        else:
+            record["watchlist_status"] = "—"
 
     return {
         "run_date": today,
@@ -671,14 +699,27 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
 # --- IO + CLI -----------------------------------------------------------------
 
 
-def load_watchlist(path: Path = WATCHLIST) -> tuple[list[str], list[str]]:
-    """Read ``monitored_events.yaml`` -> ``(watched_families, watchlist_event_names)``."""
+def load_watchlist(
+    path: Path = WATCHLIST,
+) -> tuple[list[str], list[str], list[str], dict[str, str]]:
+    """Read ``monitored_events.yaml`` -> ``(watched_families, watchlist_event_names,
+    dismissed_event_names, okr_by_event)``. ``dismissed`` are proposals a human rejected
+    (DATA-2152); the proposal queue skips them permanently. ``okr_by_event`` (DATA-2174)
+    maps watchlist events to the OKR metric(s) anchored on them — the digest's top-tier
+    signal; list values render as one comma-joined display string."""
     if not path.exists():
-        return [], []
+        return [], [], [], {}
     doc = yaml.safe_load(path.read_text()) or {}
     families = doc.get("watched_families", []) or []
-    events = [row["event"] for row in (doc.get("events", []) or []) if row.get("event")]
-    return families, events
+    rows = [row for row in (doc.get("events", []) or []) if row.get("event")]
+    events = [row["event"] for row in rows]
+    dismissed = [row["event"] for row in (doc.get("dismissed", []) or []) if row.get("event")]
+    okr_by_event = {
+        row["event"]: (", ".join(str(v) for v in row["okr"])
+                       if isinstance(row["okr"], list) else str(row["okr"]))
+        for row in rows if row.get("okr")
+    }
+    return families, events, dismissed, okr_by_event
 
 
 def load_code_axis(csv_path: Path = CODE_CSV) -> dict[str, dict]:
@@ -747,8 +788,13 @@ def run_monitor(
     catalog = fetch_catalog(run_query)
     weekly = fetch_weekly(run_query)
     code = load_code_axis(csv_path)
-    watched_families, watchlist_events = load_watchlist(watchlist_path)
-    result = reconcile(catalog, weekly, code, today, watchlist_events, watched_families)
+    watched_families, watchlist_events, dismissed_events, okr_by_event = load_watchlist(
+        watchlist_path
+    )
+    result = reconcile(
+        catalog, weekly, code, today, watchlist_events, watched_families,
+        dismissed_events=dismissed_events, okr_by_event=okr_by_event,
+    )
     changes = diff_flagged(result["flagged"], load_prior_state(state_path))
     return result, changes
 
@@ -768,6 +814,33 @@ def prepend_log(log_path: Path, section: str) -> None:
         log_path.write_text(existing[: match.start()] + section + "\n" + existing[match.start() :])
     else:
         log_path.write_text(existing + ("\n" if existing else "") + section)
+
+
+def build_slack_triage(
+    result: Mapping[str, Any],
+    changes: Mapping[str, list[str]],
+    state_path: Path | None,
+    gap: dict | None,
+) -> dict | None:
+    """Assemble + judge the digest triage (DATA-2174). None when the quiet gate would
+    suppress the post anyway. Judged first, gated second, so the gate's red_open reads
+    final tiers and can never suppress a judge-promoted red; quiet runs still skip the
+    API call because their item list is empty (run_triage's no-items early return).
+    Judge failure inside run_triage degrades to the rules tier, never raises."""
+    import digest_triage as dt
+    import event_state_slack as slk
+
+    prior_anomalous = load_prior_anomalous(state_path)
+    items = dt.build_items(
+        result, changes,
+        prior_state=load_prior_state(state_path),
+        prior_anomalous=prior_anomalous,
+    )
+    triage = dt.run_triage(items, api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    red_open = any(i.get("tier") == "red" for i in triage.get("items") or [])
+    if not slk.should_post(result, changes, prior_anomalous, gap, red_open=red_open):
+        return None
+    return triage
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -853,8 +926,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 prior_state = load_prior_state(args.state)
                 prior_anomalous = load_prior_anomalous(args.state)
+                triage = build_slack_triage(result, changes, args.state, gap)
                 ts = slk.post_digest(result, changes, prior_state, token=token, channel=channel,
-                                     prior_anomalous=prior_anomalous, gap=gap)
+                                     prior_anomalous=prior_anomalous, gap=gap, triage=triage)
                 print(f"slack: posted digest (ts {ts})" if ts else "slack: quiet (no change)", file=sys.stderr)
             except Exception as exc:  # noqa: BLE001 — never let Slack fail the monitor
                 print(f"slack: post failed ({exc}); monitor run unaffected.", file=sys.stderr)

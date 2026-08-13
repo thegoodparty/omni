@@ -74,16 +74,18 @@ test.describe('Win Contacts', () => {
     ).toBeVisible({ timeout: 10_000 })
     await expect(wizard.getByText('Step 1 of 3')).toBeVisible()
     await expect(
-      wizard.getByText('Build my list using outreach activity.'),
+      wizard.getByText('Build a list from previous campaign activity'),
     ).toBeVisible()
     await expect(
-      wizard.getByText('Build my list using the voter file.'),
+      wizard.getByText('Build a list using voter demographics and data'),
     ).toBeVisible()
 
     // Continue is disabled until a branch is chosen.
     const continueButton = wizard.getByRole('button', { name: 'Continue' })
     await expect(continueButton).toBeDisabled()
-    await wizard.getByText('Build my list using the voter file.').click()
+    await wizard
+      .getByText('Build a list using voter demographics and data')
+      .click()
     await expect(continueButton).toBeEnabled()
     await continueButton.click()
 
@@ -93,6 +95,11 @@ test.describe('Win Contacts', () => {
       wizard.getByText('Build a voter list', { exact: true }),
     ).toBeVisible({ timeout: 10_000 })
     await expect(wizardPillGroup(wizard, 'Political Party')).toBeVisible({
+      timeout: 10_000,
+    })
+    // Voter Likelihood is Win-only the same way; the Serve spec asserts its
+    // absence, so this is the paired positive.
+    await expect(wizardPillGroup(wizard, 'Voter Likelihood')).toBeVisible({
       timeout: 10_000,
     })
 

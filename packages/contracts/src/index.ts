@@ -23,6 +23,9 @@ export {
   type DoorKnockOutcome,
   DOOR_KNOCK_OUTCOME_VALUES,
   DoorKnockOutcomeSchema,
+  type WillVoteAnswer,
+  WILL_VOTE_ANSWER_VALUES,
+  WillVoteAnswerSchema,
   type VoterOutreachAttributionSource,
   VOTER_OUTREACH_ATTRIBUTION_SOURCE_VALUES,
   VoterOutreachAttributionSourceSchema,
@@ -78,9 +81,26 @@ export {
   PeopleListResponseSchema,
   type PeopleListResponse,
   HOUSEHOLD_KEY_RESIDENCE_COLUMNS,
+  DOOR_KNOCKING_UNIT_KEY_COLUMNS,
   SupportStatusRollupSchema,
   type SupportStatusRollup,
 } from './people/Person.schema'
+
+export {
+  VoterLikelihoodSchema,
+  type VoterLikelihood,
+  ContactStatusFieldSchema,
+  type ContactStatusField,
+  ContactStatusSourceSchema,
+  type ContactStatusSource,
+  UpdateContactStatusInputSchema,
+  type UpdateContactStatusInput,
+  ContactStatusesSchema,
+  type ContactStatuses,
+  VOTER_LIKELIHOOD_LABELS,
+  SUPPORT_STATUS_ROLLUP_LABELS,
+  resolveContactStatusLabel,
+} from './people/ContactStatus.schema'
 
 export {
   ContactNoteSchema,
@@ -108,8 +128,8 @@ export {
   type TextConstituentActivity,
   RobocallConstituentActivitySchema,
   type RobocallConstituentActivity,
-  NoteConstituentActivitySchema,
-  type NoteConstituentActivity,
+  StatusChangeConstituentActivitySchema,
+  type StatusChangeConstituentActivity,
   ConstituentActivitySchema,
   type ConstituentActivity,
   GetIndividualActivitiesResponseSchema,
@@ -133,6 +153,11 @@ export {
   ListDetailContactsResponseSchema,
   type ListDetailContactsResponse,
 } from './people/ListDetailContacts.schema'
+
+export {
+  PeopleAggregatesResponseSchema,
+  type PeopleAggregatesResponse,
+} from './people/PeopleAggregates.schema'
 
 export { EmailSchema } from './shared/Email.schema'
 export { PhoneSchema } from './shared/Phone.schema'
@@ -317,6 +342,12 @@ export {
 } from './campaigns/CampaignTaskCatalog.schema'
 
 export { CAMPAIGN_TASK_CATALOG } from './campaigns/CampaignTaskCatalog.data'
+
+export {
+  VOTER_CONTACT_SCHEDULE,
+  voterContactSendOffsetDays,
+  type VoterContactSend,
+} from './campaigns/VoterContactSchedule.data'
 
 export {
   CampaignWithPositionNameSchema,
@@ -525,6 +556,8 @@ export {
 
 export * from './artifactReview'
 
+export * from './recommendedLists'
+
 export * from './raceOpponent'
 
 export * from './experiments'
@@ -653,19 +686,32 @@ export {
 } from './communityIssues/CommunityIssueDispatch.schema'
 
 export * from './ordinances/Ordinance.schema'
+export * from './ordinances/redline'
 
 export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
 
 export {
+  INCOME_RANGE_MAPPING,
+  type IncomeRange,
   PEOPLE_FILTER_VALUE_ENUMS,
   createEnumFilterSchema,
   createIdFilterSchema,
   createNumericFilterSchema,
   PeopleFiltersSchema,
   type PeopleFilters,
+  IdOverridesSchema,
+  type IdOverrides,
 } from './people/PeopleFilters.schema'
+
+export {
+  MAX_OVERLAP_SAVED_FILTER_SETS,
+  PeopleOverlapCountRequestSchema,
+  type PeopleOverlapCountRequest,
+  PeopleOverlapCountResponseSchema,
+  type PeopleOverlapCountResponse,
+} from './people/PeopleOverlapCount.schema'
 
 export {
   DoorKnockingEvaluateRequestSchema,
@@ -699,3 +745,45 @@ export {
   DoorKnockingPackManifestSchema,
   type DoorKnockingPackManifest,
 } from './doorKnocking/DoorKnockingPack.schema'
+
+export {
+  GeoJsonPolygonSchema,
+  type GeoJsonPolygon,
+  CreateDoorKnockingTurfSchema,
+  type CreateDoorKnockingTurf,
+  UpdateDoorKnockingTurfSchema,
+  type UpdateDoorKnockingTurf,
+  DoorKnockingTurfSchema,
+  type DoorKnockingTurf,
+  DoorKnockingKnockRequestSchema,
+  type DoorKnockingKnockRequest,
+  DoorKnockingRouteHeaderSchema,
+  type DoorKnockingRouteHeader,
+  DoorKnockingKnockResponseSchema,
+  type DoorKnockingKnockResponse,
+  DoorKnockingModeSchema,
+  type DoorKnockingMode,
+} from './doorKnocking/DoorKnockingTurf.schema'
+
+export {
+  DOOR_KNOCK_STATUSES,
+  DoorKnockStatusSchema,
+  type DoorKnockStatus,
+  RoutePayloadTargetSchema,
+  type RoutePayloadTarget,
+  RoutePayloadAddressSchema,
+  type RoutePayloadAddress,
+  RoutePayloadStopSchema,
+  type RoutePayloadStop,
+  DoorKnockingRoutePayloadSchema,
+  type DoorKnockingRoutePayload,
+  RoutePathGeometrySchema,
+  type RoutePathGeometry,
+} from './doorKnocking/DoorKnockingRoutePayload.schema'
+
+export {
+  RecordDoorKnockInteractionSchema,
+  type RecordDoorKnockInteraction,
+  RecordDoorKnockInteractionResponseSchema,
+  type RecordDoorKnockInteractionResponse,
+} from './doorKnocking/DoorKnockingInteraction.schema'

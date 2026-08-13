@@ -136,7 +136,7 @@ describe('GET /v1/contacts authz', () => {
     })
     const countContacts = vi
       .spyOn(service.app.get(ContactsService), 'countContacts')
-      .mockResolvedValue(742)
+      .mockResolvedValue({ count: 742 })
 
     const result = await service.client.post(
       '/v1/contacts/count',
@@ -165,8 +165,7 @@ describe('GET /v1/contacts authz', () => {
         robocall: 60,
         phoneBanking: 60,
         doorKnocking: 30,
-        email: null,
-        metaAds: null,
+        polls: 60,
       },
       outreachHistory: [],
     }
@@ -183,6 +182,44 @@ describe('GET /v1/contacts authz', () => {
     expect(result.data).toEqual(payload)
     expect(getListDetail).toHaveBeenCalledWith(
       expect.objectContaining({ segment: 42 }),
+      expect.objectContaining({ slug: WIN_SLUG }),
+    )
+  })
+
+  it('accepts a segment-less list-detail request for the universe row (ENG-10778)', async () => {
+    await seedOrgWithCampaign({
+      slug: WIN_SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    const payload: Awaited<ReturnType<ContactsService['getListDetail']>> = {
+      demographics: { people: 85696, avgAge: 47, avgIncome: 61000 },
+      reachability: {
+        sms: 60000,
+        robocall: 60000,
+        phoneBanking: 45000,
+        doorKnocking: 30000,
+        polls: 60000,
+      },
+      outreachHistory: [],
+    }
+    const getListDetail = vi
+      .spyOn(service.app.get(ContactsService), 'getListDetail')
+      .mockResolvedValue(payload)
+
+    const result = await service.client.get('/v1/contacts/list-detail', {
+      headers: { [ORG_SLUG_HEADER]: WIN_SLUG },
+    })
+
+    // Response validates against ListDetailContactsResponseSchema (the
+    // global ZodResponseInterceptor would 500 otherwise).
+    expect(result.status).toBe(200)
+    expect(result.data).toEqual(payload)
+    // No `segment` key at all — a bare `{}`, not `{ segment: undefined }`
+    // (Zod's `.optional()` on a missing query param omits the key).
+    expect(getListDetail.mock.calls[0]?.[0]).not.toHaveProperty('segment')
+    expect(getListDetail).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({ slug: WIN_SLUG }),
     )
   })

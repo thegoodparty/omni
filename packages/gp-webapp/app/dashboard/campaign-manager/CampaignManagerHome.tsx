@@ -1,247 +1,51 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { useQueryClient } from '@tanstack/react-query'
-import {
-  CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
-  CAMPAIGN_MANAGER_START_STORY_SENTINEL,
-} from '@goodparty_org/contracts'
 import { VoterContactsProvider } from '@shared/hooks/VoterContactsProvider'
 import { CampaignUpdateHistoryProvider } from '@shared/hooks/CampaignUpdateHistoryProvider'
-import { reportErrorToSentry } from '@shared/sentry'
 import CampaignManagerTasks from './CampaignManagerTasks'
 import ProUpgradeBanner from '../components/campaignManager/ProUpgradeBanner'
+import TextingSetupBanner from '../components/campaignManager/TextingSetupBanner'
 import ProgressSection from '../components/campaignManager/ProgressSection'
-import FooterChatBar from '../chief-of-staff/components/chat/FooterChatBar'
-import ChiefOfStaffChatSurface from '../chief-of-staff/components/chat/ChiefOfStaffChatSurface'
-import type { ChatSuggestion } from '../chief-of-staff/components/chat/ChiefOfStaffChatBody'
-import {
-  CAMPAIGN_MANAGER_HISTORY_KEY,
-  buildCampaignManagerIntro,
-  campaignManagerChatApi,
-} from './campaignManagerChat'
-
-interface Props {
-  firstName?: string
-}
-
-// The first-run "meet your campaign manager" card is dismissed once the
-// candidate opens the manager in its GENERAL mode (the meet card itself or the
-// footer chat box, which both land on the same manager greeting), persisted so
-// it stays dismissed across reloads. It is deliberately NOT dismissed by the
-// story flow (the story card / personalize deep link): that opens the same
-// conversation but into the story intake, which is not "meeting the manager".
-const MEET_CARD_DISMISSED_KEY = 'campaign-manager-meet-dismissed'
+import { useCampaignManagerChat } from './CampaignManagerChatProvider'
+import type { TcrCompliance } from 'helpers/types'
 
 /**
- * The Campaign Manager dashboard home for the campaign-story cohort: the top
- * tracker tasks, a persistent chat bar, and a "meet your campaign manager"
- * entry that opens the shared chat surface bound to the campaign_assistant
- * scope. The shared surface/body/footer default to Chief of Staff; here they
- * are passed the Campaign Manager client, history key, and label.
+ * The Campaign Manager dashboard home for the campaign-story cohort: the Pro
+ * banner, the progress section, the first-run "meet your campaign manager"
+ * card, and the top tracker tasks.
  *
- * The manager runs as a single ongoing conversation: opening it resumes the
- * candidate's existing thread (or creates one on first open), so it always
- * continues where they left off. The server seeds the resume-aware greeting as
- * the conversation's first message; until the candidate replies, the chat body
- * types that seeded greeting in on open (no separate client opener).
+ * The persistent footer chat bar and the chat surface are NOT rendered here —
+ * they live in the always-present dock (CampaignManagerChatProvider, mounted in
+ * DashboardLayout) so the manager is reachable from every page. This home reads
+ * the dock's controls from context: the meet card opens the manager (dismissing
+ * itself), and the personalize card launches the story-intake flow.
  */
 export default function CampaignManagerHome({
-  firstName,
-}: Props): React.JSX.Element {
-  const queryClient = useQueryClient()
-  const router = useRouter()
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
-  const [chatOpen, setChatOpen] = useState(false)
-  const [conversationId, setConversationId] = useState<string | null>(null)
-  // One-shot hidden kickoff sent once the resolved conversation loads (see
-  // ChiefOfStaffChatBody's pendingKickoff effect). Cleared on close so a later
-  // plain reopen (e.g. the meet card) never replays it.
-  const [pendingKickoff, setPendingKickoff] = useState<string | undefined>(
-    undefined,
-  )
-  const composerRef = useRef<HTMLInputElement | null>(null)
-  const personalizeDeepLinkFiredRef = useRef(false)
-
-  // Default to showing the card (the common case: a new candidate who has not
-  // dismissed it) so it renders immediately with no pop-in. The effect flips it
-  // to dismissed only when the persisted key is present. A dismissed candidate
-  // may see it for a single post-hydration frame (imperceptible), which is the
-  // right trade: localStorage is unreadable during SSR, so a synchronous
-  // initializer would either mismatch hydration or pop the card in for everyone.
-  const [meetDismissed, setMeetDismissed] = useState(false)
-  useEffect(() => {
-    try {
-      if (window.localStorage.getItem(MEET_CARD_DISMISSED_KEY) === '1') {
-        setMeetDismissed(true)
-      }
-    } catch {
-      // Storage disabled: leave meetDismissed false so the card shows.
-    }
-  }, [])
-  const dismissMeetCard = useCallback(() => {
-    try {
-      window.localStorage.setItem(MEET_CARD_DISMISSED_KEY, '1')
-    } catch {
-      // Storage disabled (private mode): the card reappears next load, which is
-      // acceptable for a first-run nudge.
-    }
-    setMeetDismissed(true)
-  }, [])
-
-  // Entering via the story flow (the story card / personalize deep link) sets
-  // pendingKickoff before the conversation opens. On that entry the kickoff
-  // streams the story-intake greeting, so the server-seeded general greeting
-  // ("Hi <name>, I'm your Campaign Manager.") would show ABOVE it — the double
-  // greeting in the screenshot. Hide the exact seeded string on that entry only,
-  // so it shows just the story flow (fresh open AND resume). The general "meet"/
-  // footer entry (pendingKickoff undefined) keeps the greeting + starter chips.
-  // The string mirrors gp-api's buildCampaignManagerGreeting (buildCampaign
-  // ManagerIntro is its hand-synced client twin).
-  const hiddenMessageContents = useMemo(() => {
-    const base = [
-      CAMPAIGN_MANAGER_START_STORY_SENTINEL,
-      CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
-    ]
-    return pendingKickoff === CAMPAIGN_MANAGER_START_STORY_SENTINEL
-      ? [...base, buildCampaignManagerIntro(firstName).join('\n\n')]
-      : base
-  }, [pendingKickoff, firstName])
-
-  const suggestions: ChatSuggestion[] = [
-    {
-      label: 'Personalize your campaign',
-      description:
-        "Tell me about why you're running, and we'll help you draft your " +
-        'voter outreach plan.',
-      kickoff: CAMPAIGN_MANAGER_START_STORY_SENTINEL,
-    },
-    {
-      label: 'Learn more about the product',
-      description: 'Get a quick tour of the product and its features.',
-      kickoff: CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
-    },
-    {
-      label: 'Ask me about something else',
-      description: 'Type any question in the box below.',
-      onSelect: () => composerRef.current?.focus(),
-    },
-  ]
-
-  // Resume-or-create the ongoing manager conversation, then open it by id so
-  // the surface loads its transcript (starting with the seeded greeting).
-  // Resolve before opening so the drawer opens straight into the conversation
-  // rather than flashing an empty state.
-  const openManager = useCallback(async () => {
-    try {
-      const { conversationId: id } =
-        await campaignManagerChatApi.createConversation()
-      setConversationId(id)
-      // A conversation now exists, so refresh history so the footer picker
-      // shows it. (The first-run "meet" card is dismissed only by clicking it,
-      // not by a conversation existing, so it is unaffected here.)
-      void queryClient.invalidateQueries({
-        queryKey: CAMPAIGN_MANAGER_HISTORY_KEY,
-      })
-    } catch (err) {
-      reportErrorToSentry(err, {
-        surface: 'campaign-manager-chat',
-        phase: 'init',
-      })
-      // Fall back to a fresh chat (deferred create on first send).
-      setConversationId(null)
-    }
-    setChatOpen(true)
-  }, [queryClient])
-
-  const openConversation = useCallback((id: string) => {
-    setConversationId(id)
-    setChatOpen(true)
-  }, [])
-
-  // Opens the manager and queues the hidden story-intake sentinel so it fires
-  // once the resolved conversation loads. Shared by the story card, the
-  // personalize deep link, and (indirectly) both plan-tab gate links.
-  const startStory = useCallback(() => {
-    setPendingKickoff(CAMPAIGN_MANAGER_START_STORY_SENTINEL)
-    void openManager()
-  }, [openManager])
-
-  // Deep link: the plan-tab story gate links to `/dashboard?personalize=1` so
-  // "Open"/"Edit in campaign manager" starts the same story flow as the
-  // manager home's own card. Ref-guarded so it only ever fires once per
-  // mount; clears the param via replace so a refresh doesn't refire it.
-  useEffect(() => {
-    if (personalizeDeepLinkFiredRef.current) return
-    if (searchParams?.get('personalize') !== '1') return
-    // pathname is only null under the pages/ router compat typing; this
-    // component only ever renders under the app router, where it's a string.
-    if (!pathname) return
-    personalizeDeepLinkFiredRef.current = true
-    startStory()
-    router.replace(pathname)
-  }, [searchParams, router, pathname, startStory])
+  tcrCompliance,
+}: {
+  tcrCompliance: TcrCompliance | null
+}): React.JSX.Element {
+  const chat = useCampaignManagerChat()
 
   return (
-    <div className="flex min-h-screen flex-col bg-muted pb-20 lg:pb-12">
-      <div className="pb-40">
-        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-6">
-          <ProUpgradeBanner />
-          <VoterContactsProvider>
-            <CampaignUpdateHistoryProvider>
-              <ProgressSection />
-            </CampaignUpdateHistoryProvider>
-          </VoterContactsProvider>
-        </div>
-        {/* onMeetManager is a general open, so it dismisses the meet card.
-            onPersonalize opens the manager and auto-launches the story-intake
-            chat flow (the hidden story sentinel) without dismissing the meet
-            card, same as the deep link the plan-tab gate links use. */}
-        <CampaignManagerTasks
-          showMeetCard={!meetDismissed}
-          onMeetManager={() => {
-            dismissMeetCard()
-            void openManager()
-          }}
-          onPersonalize={startStory}
-        />
+    <div className="flex min-h-screen flex-col bg-muted">
+      <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-6">
+        <ProUpgradeBanner />
+        <TextingSetupBanner tcrCompliance={tcrCompliance} />
+        <VoterContactsProvider>
+          <CampaignUpdateHistoryProvider>
+            <ProgressSection />
+          </CampaignUpdateHistoryProvider>
+        </VoterContactsProvider>
       </div>
-      <FooterChatBar
-        firstName={firstName}
-        onOpen={() => {
-          dismissMeetCard()
-          void openManager()
-        }}
-        onOpenConversation={(id) => {
-          dismissMeetCard()
-          openConversation(id)
-        }}
-        chatApi={campaignManagerChatApi}
-        historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
-        openLabel="Open campaign manager chat"
-      />
-      <ChiefOfStaffChatSurface
-        open={chatOpen}
-        onOpenChange={(next) => {
-          setChatOpen(next)
-          // Clear the one-shot kickoff on close: a later plain reopen (the
-          // meet card, the footer bar) must never replay the story sentinel.
-          if (!next) setPendingKickoff(undefined)
-        }}
-        initialConversationId={conversationId}
-        title="Campaign manager"
-        subtitle="Always on, focused on your week"
-        chatApi={campaignManagerChatApi}
-        analyticsLabel="campaign-manager-chat"
-        historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
-        defaultIntro={buildCampaignManagerIntro(firstName)}
-        suggestions={suggestions}
-        showSuggestionsWithGreeting
-        pendingKickoff={pendingKickoff}
-        composerRef={composerRef}
-        hiddenMessageContents={hiddenMessageContents}
+      {/* onMeetManager is a general open, so it dismisses the meet card.
+          onPersonalize launches the story-intake chat flow without dismissing
+          the meet card, same as the deep link the plan-tab gate links use. */}
+      <CampaignManagerTasks
+        showMeetCard={!chat?.meetDismissed}
+        onMeetManager={() => chat?.openManager()}
+        onSkipMeet={() => chat?.dismissMeetCard()}
+        onPersonalize={() => chat?.startStory()}
       />
     </div>
   )

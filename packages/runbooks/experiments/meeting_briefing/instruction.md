@@ -149,10 +149,11 @@ Concise. Priority items get full depth across all sections. Non-priority items g
 - The broker auto-injects `WHERE Residence_Addresses_State = '<state>'` into every query that touches `int__l2_nationwide_uniform_w_haystaq`. **DO NOT add a state clause yourself.** Adding one returns HTTP 422 `ScopeViolation: scope_predicate_override`. The only WHERE clauses your L2 query needs are the L2 district column (when `l2DistrictType` is set) and `Voters_Active = 'A'`. Do NOT add a `Residence_Addresses_City` clause — there is no city in PARAMS and the broker does not auto-inject one; scope is state-wide unless an L2 district narrows it.
 - **`Voters_Active` is a STRING.** Use `Voters_Active = 'A'`. `Voters_Active = 1` matches zero rows.
 - **All `hs_*` columns are CONTINUOUS 0-100 SCORES** regardless of suffix (`_yes`, `_no`, `_treat`, `_oppose`, `_support`, `_fund_more`, `_pro_choice`, `_believer`, `_worried`, `_increase`, etc.). Threshold with `>= 50` (moderate) or `>= 70` (strong). Using `= 1` because the name "looks binary" inverts your rankings — you will get all top issues at <5%.
+- **Scores are within-state percentile ranks (mean ~50).** A `mean_score` near 50 means "typical for the state" — NOT a 50/50 opinion split and NOT absolute issue support; the informative signal is the deviation from 50 (61.8 is a real lean toward, 39.7 a real lean away). A score is not a percentage of supporters, an observed survey answer, or a comparison across states, and a sub-50 mean is a lean away from the stance, not an opposition count. Never present a score as "X% of constituents support Y". Exception: `hs_new_home_buyer`/`hs_any_home_buyer` are propensity models baselined at ~60, not survey-stance percentile ranks — they are excluded from the Step 6 catalog; never select or cite them as constituent sentiment.
 - **Conditional counts use `SUM(CASE WHEN ... THEN 1 ELSE 0 END)`.** Postgres `COUNT(*) FILTER (WHERE ...)` is a syntax error in Databricks.
 - **`GROUP BY` queries are silently truncated at `scope.max_rows`.** The broker injects/clamps `LIMIT max_rows` on every query. If your `GROUP BY <high-cardinality-column>` produces more groups than the cap, the broker returns the first N groups in unspecified order — there is NO truncation signal in the response. **Always add `ORDER BY count DESC LIMIT N` to GROUP BY queries.**
 - **Use named placeholders** when parameterizing: `cursor.execute("... WHERE col = :foo", {"foo": value})`. Positional `?` raises a SQL error.
-- **Named placeholders bind VALUES, not IDENTIFIERS.** Column names, table names, and the L2 district column all have to be string-interpolated into the SQL (e.g. f-string). Whitelist-validate any identifier before interpolating it (`assert col in ALLOWED_COLS`) — the broker scope check enforces table allowlisting but doesn't validate ad-hoc column names you f-string in.
+- **Named placeholders bind VALUES, not IDENTIFIERS.** Column names, table names, and the L2 district column all have to be string-interpolated into the SQL (e.g. f-string). Whitelist-validate any identifier before interpolating it (`assert col in ALLOWED_COLS`, where `ALLOWED_COLS` is the set of column names in the Step 6 inline catalog tables — the excluded home-buyer pair is not in it) — the broker scope check enforces table allowlisting but doesn't validate ad-hoc column names you f-string in.
 - **Every query must reference an allowed table.** Bare `SELECT 1` (no FROM) is rejected.
 - **The L2 district column name is the VALUE of `PARAMS.l2DistrictType`** (e.g. `City_Ward`, `City_Council_Commissioner_District`). The value to match is `PARAMS.l2DistrictName`. Backtick-quote the column: `` `City_Council_Commissioner_District` = '25' ``.
 
@@ -528,7 +529,7 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 
 #### Inline Haystaq catalog (L2-verified)
 
-**housing** — Housing affordability, gentrification views, homeownership status
+**housing** — Housing affordability, gentrification views
 
 | Column                               | Meaning                                            |
 | ------------------------------------ | -------------------------------------------------- |
@@ -536,8 +537,8 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 | `hs_affordable_housing_gov_no_role`  | opposes government role in affordable housing      |
 | `hs_gentrification_support`          | supports gentrification                            |
 | `hs_gentrification_oppose`           | opposes gentrification                             |
-| `hs_new_home_buyer`                  | recently bought a home                             |
-| `hs_any_home_buyer`                  | has ever bought a home                             |
+
+`hs_new_home_buyer`/`hs_any_home_buyer` are deliberately excluded: ~60-baseline propensity models (recently/ever bought a home), not polarized sentiment — never select or cite them as constituent sentiment (see the score rule in CRITICAL RULES).
 
 **taxes** — Tax cuts, gas tax, social security tax, minimum wage, fiscal ideology
 
@@ -695,6 +696,7 @@ Collect the picked columns across every priority item that found a topic match. 
 ```sql
 -- Whitelist-validate each picked column before interpolation (ASCII-only):
 --   re.fullmatch(r"hs_[a-z0-9_]{1,60}", col)
+--   and col in ALLOWED_COLS (the Step 6 inline-catalog column set)
 -- Then assemble the column list dynamically.
 -- District scope:
 SELECT
@@ -1065,13 +1067,13 @@ For each featured/queued item where Step 6/6b picked a column from the inline ca
 
 Fields:
 
-- `summary` — short plain-English prose using the direction (from the column's `meaning`) and the `mean_score`, attributed to GoodParty.org's data. Always label as a modeled estimate. Never name the underlying column or data source (see "Constituent-data framing" in CRITICAL RULES). Example: `"GoodParty.org's data shows a modeled lean toward supporting gun control: 62.4 on a 0-100 scale."`
+- `summary` — short plain-English prose using the direction (from the column's `meaning`) and the `mean_score`, attributed to GoodParty.org's data. Always label as a modeled estimate. Frame the number as a lean relative to the ~50 state-typical anchor (see the score rule in CRITICAL RULES), never as a percentage of constituents who support the position. Never name the underlying column or data source (see "Constituent-data framing" in CRITICAL RULES). Example: `"GoodParty.org's data shows a modeled lean toward supporting gun control: 62.4 on a 0-100 scale, where about 50 is typical for the state."`
 - `detail` — one plain-English sentence describing what the modeled estimate measures, attributed to GoodParty.org's constituent data, not a survey result. Do NOT name the `hs_*` column, "Haystaq", "L2", or any table/source. Example: `"A modeled estimate, from GoodParty.org's constituent data, of how strongly residents in this district lean toward supporting gun control."`
 - `mean_score` — the `AVG(...)` result from Step 8 (float, 0–100). District scope when `l2DistrictType` was set and confirmed in Step 7; state scope otherwise.
 - `score_direction` — the column's `meaning` line from the inline catalog (e.g. for `hs_gun_control_support` use `"supports gun control"`).
 - `voter_count` — the `COUNT(*) AS voter_count` from Step 8 (district or state scope, matching `mean_score`).
 - `haystaq_column` — the picked column name from the inline catalog (e.g. `hs_gun_control_support`).
-- `haystaq_status` — `"ok"` when the Step 8 query returned a non-null mean; `"no_match"` when no defensible topic match (Step 6/6b returned null for this item) **or** when `l2DistrictType` was set but the value did not resolve in Step 7 (fell back to state scope); `"no_column"` defensively when the picked column wasn't queryable (shouldn't occur with the L2-verified catalog). The `"city_mismatch"` enum value is retained in the output schema for backward compatibility but is **deprecated** — do not emit it.
+- `haystaq_status` — `"ok"` when the Step 8 query returned a non-null mean; `"no_match"` when no defensible topic match (Step 6/6b returned null for this item) **or** when `l2DistrictType` was set but the value did not resolve in Step 7 (fell back to state scope); `"no_column"` when the picked column wasn't queryable or returned a NULL mean — a NULL `AVG` means the column has no coverage in this scope (~106 `hs_*` columns exist only in a 12- or 39-state vendor vintage and are null elsewhere); that is missing data, not an error — null the item's `constituent_sentiment` rather than re-querying or coercing to 0. The `"city_mismatch"` enum value is retained in the output schema for backward compatibility but is **deprecated** — do not emit it.
 - `district_note` — **deprecated**, always set to `null`. With city scope removed there is no within-jurisdiction baseline to compare district against.
 - `source_ids` — array of `id` values from the top-level `sources[]` list that back this section. For `haystaq_status: "ok"`, reference the Haystaq source entry you compiled in Step 14. Required-but-may-be-empty: emit `[]` only when no source defensibly backs the section (e.g. `haystaq_status` other than `"ok"`); do not fabricate citations. The UI renders these as inline source pills below the section.
 
@@ -1226,7 +1228,7 @@ Validator-passing JSON can still be garbage. Before declaring success, walk this
 - **Every Haystaq score reported in `display.constituent_sentiment`** must trace to a column in the Step 6 inline catalog and a row in the Step 8 batched L2 query.
 - **`district_note` is always `null`** — deprecated since city scope was removed.
 - **When `l2DistrictType` is set, `voter_count` should reflect the district, not the whole state** → if it looks state-sized, the L2 district WHERE clause matched zero rows and you silently fell back to state scope. Fix: re-confirm `l2DistrictType` and `l2DistrictName` came verbatim from PARAMS_JSON and were discovered via the L2 value-format check; set `haystaq_status: "no_match"` if the value genuinely doesn't resolve.
-- **All sentiment percentages <5%** → you used `= 1` instead of treating `hs_*` as 0-100 scores. Re-do the distribution check.
+- **All sentiment `mean_score`s below 5** → you used `= 1` instead of treating `hs_*` as 0-100 scores. Re-do the distribution check. (A NULL `mean_score` is a different case: the column has no coverage in this state — vendor vintage — not an error; null the section with `haystaq_status: "no_column"` per Step 16, never coerce it to 0.)
 - **News URL doesn't load or doesn't mention the issue** → don't trust search snippets blindly; this is a required step, not a spot-check afterthought — every `news`/`government_website` source must clear the `http.head` liveness check plus a topicality read of the fetched body (Step 14) before it is cited anywhere.
 - **`recent_news` entry missing `publication_date` or older than 60 days before `meetingDate`** → the schema requires the field and the QA gate rejects stale entries; drop the entry and set `display.recent_news: null` if nothing else qualifies (Step 11).
 - **`run_metadata.discovered_agenda_location` is the parent page, not a deep link.** If it points at one specific packet PDF or one MetaViewer link, swap it for the platform calendar, the city's meetings index, or whatever page LISTS this body's meetings. A future run can drill into the parent page; it cannot navigate up from a deep link.
@@ -1238,6 +1240,7 @@ Validator-passing JSON can still be garbage. Before declaring success, walk this
 | Broker logs `ScopeViolation: scope_predicate_override`                        | Agent added `WHERE Residence_Addresses_State = ?` or `WHERE Residence_Addresses_City = ?` on the L2 table                       | Remove the state clause (broker auto-injects state); never add a city clause (city is not in PARAMS, broker does not auto-inject one)      |
 | Broker 422 on `/databricks/query` repeatedly                                  | Positional `?`, Postgres `FILTER`, `Voters_Active = 1`, or unauthorized table                                                   | Use named placeholders, `SUM(CASE WHEN ...)`, `Voters_Active = 'A'`; check `allowed_tables`                                                |
 | Top sentiment scores all 0-5%                                                 | Treated `hs_*` as binary (`= 1`) instead of 0-100 score                                                                         | Use `AVG(CAST(\`{col}\` AS DOUBLE))`and threshold with`>= 50`                                                                              |
+| `mean_score` comes back NULL for a picked column                              | Column has no coverage in this state (~106 `hs_*` columns exist only in a 12- or 39-state vendor vintage)                       | Not an error: null the item's `constituent_sentiment` with `haystaq_status: "no_column"` (Step 16); never coerce to 0 or re-query          |
 | `total_active_voters` looks like the whole state when `l2DistrictType` is set | L2 district value didn't resolve in Step 7; agent silently fell back to state scope                                             | Verify the district via the L2 value-format discovery query in Step 6b/7; set `haystaq_status: "no_match"` if it genuinely doesn't resolve |
 | Runner: `No artifact files found in /workspace/output`                        | Agent ran out of turns or never wrote the file                                                                                  | Tighten the instruction; remove unnecessary discovery steps; check max_turns                                                               |
 | `contract_violation` callback after agent claimed success                     | The runner's schema validator caught a missing/wrong-typed field the agent didn't notice                                        | Run `python3 /workspace/validate_output.py` (schema-only shim) to catch shape errors BEFORE declaring success                              |

@@ -41,7 +41,7 @@ export default function BranchStep({
       <RadioCardItem
         id="list-wizard-branch-activity"
         value="activity"
-        title="Build my list using outreach activity."
+        title="Build a list from previous campaign activity"
         description={labels.wizardActivityBranchDescription}
         className={branchCardClassName}
         titleClassName="font-semibold"

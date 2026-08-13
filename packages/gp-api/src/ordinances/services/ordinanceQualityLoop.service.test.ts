@@ -542,6 +542,9 @@ describe('handleStep qc', () => {
       }),
       degradedCheckIds: [],
       tokens: 111,
+      inputTokens: 100,
+      outputTokens: 11,
+      model: 'claude-sonnet-4-6',
     }))
 
     const result = await loop.handleStep(qcMessage(ordinance, runId))
@@ -587,6 +590,9 @@ describe('handleStep qc', () => {
       }),
       degradedCheckIds: [],
       tokens: 111,
+      inputTokens: 100,
+      outputTokens: 11,
+      model: 'claude-sonnet-4-6',
     }))
 
     const result = await loop.handleStep(qcMessage(ordinance, runId))
@@ -620,6 +626,9 @@ describe('handleStep qc', () => {
         }),
         degradedCheckIds: [],
         tokens: 111,
+        inputTokens: 100,
+        outputTokens: 11,
+        model: 'claude-sonnet-4-6',
       }
     })
 
@@ -650,6 +659,9 @@ describe('handleStep qc', () => {
         }),
         degradedCheckIds: [],
         tokens: 111,
+        inputTokens: 100,
+        outputTokens: 11,
+        model: 'claude-sonnet-4-6',
       }
     })
 
@@ -797,6 +809,9 @@ describe('handleStep qc', () => {
       }),
       degradedCheckIds: ['clarity'],
       tokens: 40,
+      inputTokens: 30,
+      outputTokens: 10,
+      model: 'claude-sonnet-4-6',
     }))
 
     const first = await loop.handleStep(qcMessage(ordinance, runId))
@@ -807,6 +822,8 @@ describe('handleStep qc', () => {
       OrdinanceQualityLoopStatus.running,
     )
     expect(afterFirst.qualityReport).toBeNull()
+    expect(afterFirst.loopInputTokens).toBe(30)
+    expect(afterFirst.loopOutputTokens).toBe(10)
     const rows = await iterationRows(ordinance.id)
     expect(rows).toHaveLength(1)
     expect(firstOrThrow(rows).qcAttempts).toBe(1)
@@ -839,6 +856,10 @@ describe('handleStep qc', () => {
       OrdinanceQualityLoopStatus.failed,
     )
     expect(afterSecond.qualityReport).toBeNull()
+    // Both degraded attempts' spend is on the record, including the terminal
+    // one that fails the loop.
+    expect(afterSecond.loopInputTokens).toBe(60)
+    expect(afterSecond.loopOutputTokens).toBe(20)
     expect(sendMessageMock).toHaveBeenCalledTimes(1)
   })
 
@@ -899,6 +920,9 @@ describe('handleStep qc', () => {
       }),
       degradedCheckIds: [],
       tokens: 111,
+      inputTokens: 100,
+      outputTokens: 11,
+      model: 'claude-sonnet-4-6',
     }))
 
     const result = await loop.handleStep(
@@ -951,6 +975,9 @@ describe('handleStep qc', () => {
       }),
       degradedCheckIds: [],
       tokens: 111,
+      inputTokens: 100,
+      outputTokens: 11,
+      model: 'claude-sonnet-4-6',
     }))
 
     const result = await loop.handleStep(
@@ -960,6 +987,29 @@ describe('handleStep qc', () => {
     expect(result).toBe(true)
     const updated = await reload(ordinance.id)
     expect(updated.qualityLoopStatus).toBe(OrdinanceQualityLoopStatus.failed)
+  })
+
+  it('accumulates the QC step token split on the record loop columns', async () => {
+    const runId = randomUUID()
+    const ordinance = await seedRunningLoop(runId, { qualityLoopIteration: 0 })
+    generateMock.mockImplementation(async (record: Ordinance) => ({
+      report: buildReport(qualityReportInputHash(record)),
+      degradedCheckIds: [],
+      tokens: 111,
+      inputTokens: 100,
+      outputTokens: 11,
+      model: 'claude-sonnet-4-6',
+    }))
+
+    const result = await loop.handleStep(
+      qcMessage(ordinance, runId, { iteration: 0 }),
+    )
+
+    expect(result).toBe(true)
+    const updated = await reload(ordinance.id)
+    // The loop's own per-draft rollup, distinct from the manual qc_* columns.
+    expect(updated.loopInputTokens).toBe(100)
+    expect(updated.loopOutputTokens).toBe(11)
   })
 
   it('restores the draftSources snapshot alongside the best iteration', async () => {
@@ -993,6 +1043,9 @@ describe('handleStep qc', () => {
       }),
       degradedCheckIds: [],
       tokens: 111,
+      inputTokens: 100,
+      outputTokens: 11,
+      model: 'claude-sonnet-4-6',
     }))
 
     const result = await loop.handleStep(
@@ -1035,6 +1088,9 @@ describe('handleStep qc', () => {
       }),
       degradedCheckIds: [],
       tokens: 111,
+      inputTokens: 100,
+      outputTokens: 11,
+      model: 'claude-sonnet-4-6',
     }))
 
     const result = await loop.handleStep(
@@ -1077,6 +1133,9 @@ describe('handleStep qc', () => {
       }),
       degradedCheckIds: [],
       tokens: 111,
+      inputTokens: 100,
+      outputTokens: 11,
+      model: 'claude-sonnet-4-6',
     }))
 
     const result = await loop.handleStep(
@@ -1126,6 +1185,9 @@ describe('handleStep qc', () => {
       }),
       degradedCheckIds: [],
       tokens: 111,
+      inputTokens: 100,
+      outputTokens: 11,
+      model: 'claude-sonnet-4-6',
     }))
 
     const result = await loop.handleStep(
@@ -1369,6 +1431,9 @@ describe('handleStep revise', () => {
     revisions: [{ checkId: 'clarity', note: 'Tightened definitions' }],
     sourcesToAdd: [{ id: 'cmp-1', title: 'Austin STR ordinance' }],
     tokens: 20,
+    inputTokens: 16,
+    outputTokens: 4,
+    model: 'claude-sonnet-4-6',
   }
 
   it('applies the revision, bumps the frontier, and enqueues the next qc', async () => {
@@ -1386,6 +1451,9 @@ describe('handleStep revise', () => {
     expect(updated.draftTitle).toBe('Revised title')
     expect(updated.draftBody).toBe(REVISED_BODY)
     expect(updated.qualityLoopIteration).toBe(1)
+    // The revise step's token split lands on the record loop columns too.
+    expect(updated.loopInputTokens).toBe(16)
+    expect(updated.loopOutputTokens).toBe(4)
     expect(updated.draftSources).toEqual([
       { id: 'cmp-1', title: 'Austin STR ordinance' },
     ])

@@ -1,0 +1,31 @@
+name: agents-md
+
+# AGENTS.md is the single source of truth for agent context docs; each CLAUDE.md is
+# a symlink pointing at its sibling AGENTS.md. This guards that invariant so the two
+# never drift back into separate copies.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agents-md-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check AGENTS.md symlinks
+    runs-on: ubuntu-latest
+    steps:
+      # The check script lives in the ai-rules submodule, so it must be checked out.
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+          persist-credentials: false
+
+      - name: Verify AGENTS.md is the source of truth
+        run: bash ai-rules/scripts/agents-md-sync.sh --check

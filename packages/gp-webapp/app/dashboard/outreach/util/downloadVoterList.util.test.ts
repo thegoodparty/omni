@@ -1,10 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { getCookie, deleteCookie } from 'helpers/cookieHelper'
 
-const voterFileDownloadMock = vi.fn()
-vi.mock('helpers/voterFileDownload', () => ({
-  voterFileDownload: (...args: unknown[]) => voterFileDownloadMock(...args),
-}))
 vi.mock('helpers/cookieHelper', () => ({
   getCookie: vi.fn(),
   deleteCookie: vi.fn(),
@@ -16,13 +12,51 @@ const mockedGetCookie = vi.mocked(getCookie)
 const mockedDeleteCookie = vi.mocked(deleteCookie)
 
 describe('downloadVoterList', () => {
+  let clickSpy: ReturnType<typeof vi.spyOn>
+  let capturedHref: string
+  let capturedDownloadAttr: string | null
+
   beforeEach(() => {
-    voterFileDownloadMock.mockReset()
-    voterFileDownloadMock.mockResolvedValue(undefined)
+    vi.useFakeTimers()
+    capturedHref = ''
+    capturedDownloadAttr = null
+    mockedGetCookie.mockReturnValue(false)
+    mockedDeleteCookie.mockClear()
+    clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        capturedHref = this.href
+        capturedDownloadAttr = this.getAttribute('download')
+      })
   })
 
+  afterEach(() => {
+    clickSpy.mockRestore()
+    vi.useRealTimers()
+  })
+
+  // Resolve the cookie handshake so a download promise settles (both branches
+  // await it — see awaitDownloadStarted).
+  const confirmDownload = async () => {
+    mockedGetCookie.mockReturnValue('fresh-token')
+    await vi.advanceTimersByTimeAsync(250)
+  }
+
+  // The checkbox branch now streams via a top-level navigation to the
+  // voter-file endpoint (ENG: statewide exports OOM/time out when buffered),
+  // mirroring the GET /voters/voter-file request voterFileDownload used to
+  // build (type + customFilters JSON) — so assert on the anchor's URL.
+  const parseCheckboxRequest = () => {
+    const url = new URL(capturedHref)
+    return {
+      pathname: url.pathname,
+      type: url.searchParams.get('type'),
+      customFilters: JSON.parse(url.searchParams.get('customFilters') ?? '{}'),
+    }
+  }
+
   it('applies AudienceState (underscore) filters from task flows', async () => {
-    await downloadVoterList({
+    const downloadPromise = downloadVoterList({
       voterFileFilter: {
         audience_superVoters: true,
         audience_likelyVoters: false,
@@ -33,13 +67,19 @@ describe('downloadVoterList', () => {
       outreachType: 'doorKnocking',
     })
 
-    expect(voterFileDownloadMock).toHaveBeenCalledWith('doorKnocking', {
+    const req = parseCheckboxRequest()
+    expect(req.pathname).toBe('/api/v1/voters/voter-file')
+    expect(req.type).toBe('doorKnocking')
+    expect(req.customFilters).toEqual({
       filters: ['audience_superVoters', 'party_democrat', 'gender_female'],
     })
+
+    await confirmDownload()
+    await downloadPromise
   })
 
   it('applies AudienceState with only age/gender keys (no audience_/party_ sentinel)', async () => {
-    await downloadVoterList({
+    const downloadPromise = downloadVoterList({
       voterFileFilter: {
         age_18_25: true,
         gender_female: true,
@@ -47,13 +87,16 @@ describe('downloadVoterList', () => {
       outreachType: 'doorKnocking',
     })
 
-    expect(voterFileDownloadMock).toHaveBeenCalledWith('doorKnocking', {
+    expect(parseCheckboxRequest().customFilters).toEqual({
       filters: ['age_18_25', 'gender_female'],
     })
+
+    await confirmDownload()
+    await downloadPromise
   })
 
   it('applies VoterFileFilters (camelCase) filters from outreach actions', async () => {
-    await downloadVoterList({
+    const downloadPromise = downloadVoterList({
       voterFileFilter: {
         audienceSuperVoters: true,
         partyRepublican: true,
@@ -62,24 +105,32 @@ describe('downloadVoterList', () => {
       outreachType: 'phoneBanking',
     })
 
-    expect(voterFileDownloadMock).toHaveBeenCalledWith('phoneBanking', {
+    const req = parseCheckboxRequest()
+    expect(req.type).toBe('phoneBanking')
+    expect(req.customFilters).toEqual({
       filters: ['audience_superVoters', 'party_republican', 'gender_unknown'],
     })
+
+    await confirmDownload()
+    await downloadPromise
   })
 
   it('sends no filters when none are selected', async () => {
-    await downloadVoterList({
+    const downloadPromise = downloadVoterList({
       voterFileFilter: {},
       outreachType: 'doorKnocking',
     })
 
-    expect(voterFileDownloadMock).toHaveBeenCalledWith('doorKnocking', {
-      filters: [],
-    })
+    expect(parseCheckboxRequest().customFilters).toEqual({ filters: [] })
+
+    await confirmDownload()
+    await downloadPromise
   })
 
-  it('surfaces an error via the snackbar when the download fails', async () => {
-    voterFileDownloadMock.mockRejectedValue(new Error('download failed'))
+  it('surfaces an error via the snackbar when building the download throws', async () => {
+    clickSpy.mockImplementationOnce(() => {
+      throw new Error('download failed')
+    })
     const errorSnackbar = vi.fn()
     const setLoading = vi.fn()
 
@@ -97,8 +148,8 @@ describe('downloadVoterList', () => {
     expect(setLoading).toHaveBeenLastCalledWith(false)
   })
 
-  // ENG-10765: phone banking's saved-list branch downloads via the segment
-  // export (GET /v1/contacts/download?segment=<id>) instead of the checkbox
+  // ENG-10765: the saved-list branch downloads via the segment export
+  // (GET /v1/contacts/download?segment=<id>) instead of the checkbox
   // voter-file endpoint, so the CSV reflects the list's current membership.
   // The cookie handshake below mirrors useContactsDownload's — a delegate
   // finding on the first pass of this branch caught setLoading(false) firing
@@ -106,29 +157,6 @@ describe('downloadVoterList', () => {
   // disabled guard cleared in the same JS task (a slow-server double click
   // could fire a duplicate download).
   describe('saved-list branch (segment export)', () => {
-    let clickSpy: ReturnType<typeof vi.spyOn>
-    let capturedHref: string
-    let capturedDownloadAttr: string | null
-
-    beforeEach(() => {
-      vi.useFakeTimers()
-      capturedHref = ''
-      capturedDownloadAttr = null
-      mockedGetCookie.mockReturnValue(false)
-      mockedDeleteCookie.mockClear()
-      clickSpy = vi
-        .spyOn(HTMLAnchorElement.prototype, 'click')
-        .mockImplementation(function (this: HTMLAnchorElement) {
-          capturedHref = this.href
-          capturedDownloadAttr = this.getAttribute('download')
-        })
-    })
-
-    afterEach(() => {
-      clickSpy.mockRestore()
-      vi.useRealTimers()
-    })
-
     it('hits the segment download with the saved list id and skips the checkbox path entirely', async () => {
       const downloadPromise = downloadVoterList({
         savedListId: 42,
@@ -137,12 +165,10 @@ describe('downloadVoterList', () => {
       })
 
       expect(capturedHref).toContain('/api/v1/contacts/download?segment=42')
+      expect(capturedHref).not.toContain('/api/v1/voters/voter-file')
       expect(capturedDownloadAttr).toMatch(/^contacts_.*\.csv$/)
-      expect(voterFileDownloadMock).not.toHaveBeenCalled()
 
-      // Confirm via the cookie handshake so the promise settles.
-      mockedGetCookie.mockReturnValue('fresh-token')
-      await vi.advanceTimersByTimeAsync(250)
+      await confirmDownload()
       await downloadPromise
     })
 
@@ -185,16 +211,35 @@ describe('downloadVoterList', () => {
       expect(setLoading).toHaveBeenLastCalledWith(false)
     })
 
+    // ENG-10784: door knocking's saved-list branch behaves identically to
+    // phone banking's — the branch is keyed on savedListId presence, not
+    // outreachType.
+    it('hits the segment download for door knocking with a saved list selected', async () => {
+      const downloadPromise = downloadVoterList({
+        savedListId: 42,
+        outreachType: 'doorKnocking',
+      })
+
+      expect(capturedHref).toContain('/api/v1/contacts/download?segment=42')
+      expect(capturedDownloadAttr).toMatch(/^contacts_.*\.csv$/)
+
+      await confirmDownload()
+      await downloadPromise
+    })
+
     it('takes the checkbox path when savedListId is not provided', async () => {
-      await downloadVoterList({
+      const downloadPromise = downloadVoterList({
         outreachType: 'phoneBanking',
         voterFileFilter: { audience_superVoters: true },
       })
 
-      expect(voterFileDownloadMock).toHaveBeenCalledWith('phoneBanking', {
-        filters: ['audience_superVoters'],
-      })
-      expect(clickSpy).not.toHaveBeenCalled()
+      const req = parseCheckboxRequest()
+      expect(req.pathname).toBe('/api/v1/voters/voter-file')
+      expect(capturedHref).not.toContain('/api/v1/contacts/download')
+      expect(req.customFilters).toEqual({ filters: ['audience_superVoters'] })
+
+      await confirmDownload()
+      await downloadPromise
     })
   })
 })

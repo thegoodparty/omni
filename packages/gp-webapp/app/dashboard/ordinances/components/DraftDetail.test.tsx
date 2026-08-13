@@ -3,10 +3,12 @@ import { render } from 'helpers/test-utils/render'
 import { screen, fireEvent, act, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { router } from 'helpers/test-utils/router-mocking'
+import { EVENTS } from 'helpers/analyticsHelper'
 import type { Ordinance } from '@goodparty_org/contracts'
 import DraftDetail from './DraftDetail'
 
 const mocks = vi.hoisted(() => ({
+  trackEvent: vi.fn(),
   updateOrdinance: vi.fn(),
   startQualityReport: vi.fn(),
   fetchQualityRun: vi.fn(),
@@ -15,13 +17,36 @@ const mocks = vi.hoisted(() => ({
   fetchOrdinanceBySlug: vi.fn(),
   cancelQualityLoop: vi.fn(),
   fetchQualityIterations: vi.fn(),
+  createOrdinanceBugReport: vi.fn(),
+  successSnackbar: vi.fn(),
   draftChatProps: {
     current: null as {
       seedText?: string
       seedNonce?: number
       autoDictate?: boolean
+      onTurnComplete?: () => void
     } | null,
   },
+}))
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('helpers/analyticsHelper')>()
+  return {
+    ...actual,
+    trackEvent: (...args: unknown[]) => {
+      mocks.trackEvent(...args)
+      return Promise.resolve()
+    },
+  }
+})
+
+vi.mock('@shared/utils/Snackbar', () => ({
+  useSnackbar: () => ({
+    successSnackbar: mocks.successSnackbar,
+    errorSnackbar: vi.fn(),
+    displaySnackbar: vi.fn(),
+  }),
 }))
 
 vi.mock('../data/ordinances-api', () => ({
@@ -33,6 +58,7 @@ vi.mock('../data/ordinances-api', () => ({
   fetchOrdinanceBySlug: mocks.fetchOrdinanceBySlug,
   cancelQualityLoop: mocks.cancelQualityLoop,
   fetchQualityIterations: mocks.fetchQualityIterations,
+  createOrdinanceBugReport: mocks.createOrdinanceBugReport,
 }))
 
 // Stub the chat so the selection-toolbar tests can assert what the drawer
@@ -42,10 +68,47 @@ vi.mock('./DraftChat', () => ({
     seedText?: string
     seedNonce?: number
     autoDictate?: boolean
+    onTurnComplete?: () => void
   }) => {
     mocks.draftChatProps.current = props
     return null
   },
+}))
+
+// Stand in for the TipTap body editor with an uncontrolled contentEditable that
+// mirrors it: same role/name, lock via `editable`, and reporting innerText on
+// input. These tests exercise DraftDetail's save orchestration, not TipTap; the
+// real editor's rendering is covered by RedlineEditor.test.tsx. Seed once per
+// mount (a reseed remounts via `key`) so a re-render never wipes typed text.
+vi.mock('./redline/RedlineEditor', () => ({
+  RedlineEditor: ({
+    value,
+    onChange,
+    editable = true,
+    ariaLabel,
+  }: {
+    value: string
+    onChange?: (markup: string) => void
+    editable?: boolean
+    suggesting?: boolean
+    ariaLabel?: string
+  }) => (
+    <div
+      role="textbox"
+      aria-multiline="true"
+      aria-label={ariaLabel}
+      contentEditable={editable}
+      aria-readonly={editable ? undefined : 'true'}
+      suppressContentEditableWarning
+      ref={(el) => {
+        if (el && el.dataset.seeded !== '1') {
+          el.innerText = value
+          el.dataset.seeded = '1'
+        }
+      }}
+      onInput={(e) => onChange?.((e.currentTarget as HTMLElement).innerText)}
+    />
+  ),
 }))
 
 const AUTOSAVE_DELAY_MS = 800
@@ -261,6 +324,9 @@ describe('DraftDetail selection toolbar', () => {
   beforeEach(() => {
     mocks.updateOrdinance.mockReset()
     mocks.updateOrdinance.mockResolvedValue(makeOrdinance())
+    mocks.createOrdinanceBugReport.mockReset()
+    mocks.createOrdinanceBugReport.mockResolvedValue(undefined)
+    mocks.successSnackbar.mockReset()
     mocks.draftChatProps.current = null
   })
   afterEach(() => {
@@ -317,16 +383,95 @@ describe('DraftDetail selection toolbar', () => {
     expect(mocks.draftChatProps.current?.autoDictate).toBe(false)
   })
 
-  it('"Flag a bug" seeds the chat with the problem template', () => {
+  it('"Flag a bug" opens the report sheet and submits a bug report, not the chat', async () => {
+    const user = userEvent.setup()
     render(<DraftDetail ordinance={makeOrdinance()} />)
 
     selectPassage('a 30-day retention limit')
     fireEvent.click(screen.getByRole('button', { name: /flag a bug/i }))
 
-    expect(mocks.draftChatProps.current?.seedText).toBe(
-      'I think there\'s a problem with this passage: "a 30-day retention limit"\n\n',
+    // The report sheet opens (its own composer), and the chat is untouched.
+    const description = await screen.findByPlaceholderText(
+      'Describe the problem…',
     )
-    expect(mocks.draftChatProps.current?.seedNonce ?? 0).toBeGreaterThan(0)
+    expect(mocks.draftChatProps.current).toBeNull()
+
+    await user.type(description, 'The retention window is wrong.')
+    await user.click(screen.getByRole('button', { name: 'Submit' }))
+
+    await waitFor(() => {
+      expect(mocks.createOrdinanceBugReport).toHaveBeenCalledWith(
+        'public-safety-cameras',
+        {
+          description: 'The retention window is wrong.',
+          excerpt: 'a 30-day retention limit',
+        },
+      )
+    })
+    expect(mocks.successSnackbar).toHaveBeenCalledWith(
+      'Thanks — your bug report was submitted',
+    )
+  })
+})
+
+// Real timers: refreshDraftAfterChat is an async refetch + reseed with no
+// debounce, so awaiting it inside act() is enough.
+describe('DraftDetail chat-applied edits', () => {
+  it('reseeds the editor with a chat-applied redline after a turn completes', async () => {
+    mocks.fetchOrdinanceBySlug.mockResolvedValue(
+      makeOrdinance({ draftBody: 'The fee is {-$50-}{+$75+}.' }),
+    )
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({ draftBody: 'The fee is $50.' })}
+      />,
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Ask about this draft' }),
+    )
+    expect(mocks.draftChatProps.current?.onTurnComplete).toBeTypeOf('function')
+
+    await act(async () => {
+      await mocks.draftChatProps.current?.onTurnComplete?.()
+    })
+
+    // The chat drawer is open, so the editor behind it is aria-hidden; it has
+    // still been reseeded with the applied redline. (The "Accept all changes"
+    // header button stays hidden while the drawer is open by design, so it is
+    // not asserted here — its visibility is covered without the drawer in
+    // DraftDetail.qualityLoop.test.tsx.)
+    const body = screen.getByRole('textbox', {
+      name: 'Ordinance draft body',
+      hidden: true,
+    })
+    expect(body.innerText).toContain('{-$50-}{+$75+}')
+  })
+
+  it('leaves the editor untouched when the turn changed nothing', async () => {
+    mocks.fetchOrdinanceBySlug.mockResolvedValue(
+      makeOrdinance({ draftBody: 'The fee is $50.' }),
+    )
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({ draftBody: 'The fee is $50.' })}
+      />,
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Ask about this draft' }),
+    )
+    await act(async () => {
+      await mocks.draftChatProps.current?.onTurnComplete?.()
+    })
+
+    // No divergence from the server, so nothing is reseeded or persisted.
+    expect(mocks.updateOrdinance).not.toHaveBeenCalled()
+    const body = screen.getByRole('textbox', {
+      name: 'Ordinance draft body',
+      hidden: true,
+    })
+    expect(body.innerText).toBe('The fee is $50.')
   })
 })
 
@@ -611,5 +756,136 @@ describe('DraftDetail header actions', () => {
 
     expect(await screen.findByText(/could not delete the draft/i)).toBeVisible()
     expect(router.push).not.toHaveBeenCalled()
+  })
+})
+
+describe('DraftDetail analytics', () => {
+  beforeEach(() => {
+    mocks.trackEvent.mockReset()
+    mocks.updateOrdinance.mockReset()
+    mocks.updateOrdinance.mockResolvedValue(makeOrdinance())
+    mocks.deleteOrdinance.mockReset()
+    mocks.deleteOrdinance.mockResolvedValue(undefined)
+    mocks.downloadOrdinanceExport.mockReset()
+    mocks.downloadOrdinanceExport.mockResolvedValue(undefined)
+    router.push?.mockReset?.()
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('fires Draft Details Viewed with the draft id on mount', async () => {
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    await waitFor(() =>
+      expect(mocks.trackEvent).toHaveBeenCalledWith(
+        EVENTS.Ordinances.DraftDetailsViewed,
+        { draftId: 'ord-1' },
+      ),
+    )
+  })
+
+  it.each([
+    [/download as pdf/i, 'pdf'],
+    [/download as word/i, 'word'],
+  ])(
+    'fires Draft Details Downloaded with type %s after a successful export',
+    async (menuItem, type) => {
+      const user = userEvent.setup()
+      render(<DraftDetail ordinance={makeOrdinance()} />)
+
+      await user.click(screen.getByRole('button', { name: /download draft/i }))
+      await user.click(screen.getByRole('menuitem', { name: menuItem }))
+
+      await waitFor(() =>
+        expect(mocks.trackEvent).toHaveBeenCalledWith(
+          EVENTS.Ordinances.DraftDetailsDownloaded,
+          { draftId: 'ord-1', type },
+        ),
+      )
+    },
+  )
+
+  it('does not fire Downloaded when the export fails', async () => {
+    const user = userEvent.setup()
+    mocks.downloadOrdinanceExport.mockRejectedValue(new Error('nope'))
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    await user.click(screen.getByRole('button', { name: /download draft/i }))
+    await user.click(screen.getByRole('menuitem', { name: /download as pdf/i }))
+
+    expect(await screen.findByText(/could not export the draft/i)).toBeVisible()
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Ordinances.DraftDetailsDownloaded,
+      expect.anything(),
+    )
+  })
+
+  it('fires Draft Details Status Updated after a successful change', async () => {
+    const user = userEvent.setup()
+    render(<DraftDetail ordinance={makeOrdinance({ status: 'draft' })} />)
+
+    await user.click(
+      screen.getByRole('button', { name: /change draft status/i }),
+    )
+    await user.click(screen.getByRole('menuitem', { name: /in review/i }))
+
+    await waitFor(() =>
+      expect(mocks.trackEvent).toHaveBeenCalledWith(
+        EVENTS.Ordinances.DraftDetailsStatusUpdated,
+        { draftId: 'ord-1', status: 'in_review' },
+      ),
+    )
+  })
+
+  it('does not fire Status Updated when the change fails', async () => {
+    const user = userEvent.setup()
+    mocks.updateOrdinance.mockRejectedValue(new Error('nope'))
+    render(<DraftDetail ordinance={makeOrdinance({ status: 'proposed' })} />)
+
+    const trigger = screen.getByRole('button', { name: /change draft status/i })
+    await user.click(trigger)
+    await user.click(screen.getByRole('menuitem', { name: /in review/i }))
+
+    await waitFor(() => expect(trigger).toHaveTextContent(/proposed/i))
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Ordinances.DraftDetailsStatusUpdated,
+      expect.anything(),
+    )
+  })
+
+  it('fires Draft Details Deleted after a confirmed delete', async () => {
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /delete draft/i }))
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: /delete draft/i }),
+    )
+
+    await waitFor(() =>
+      expect(mocks.trackEvent).toHaveBeenCalledWith(
+        EVENTS.Ordinances.DraftDetailsDeleted,
+        { draftId: 'ord-1' },
+      ),
+    )
+    expect(router.push).toHaveBeenCalledWith('/dashboard/ordinances')
+  })
+
+  it('does not fire Deleted when the delete fails', async () => {
+    mocks.deleteOrdinance.mockRejectedValue(new Error('nope'))
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /delete draft/i }))
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: /delete draft/i }),
+    )
+
+    expect(await screen.findByText(/could not delete the draft/i)).toBeVisible()
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Ordinances.DraftDetailsDeleted,
+      expect.anything(),
+    )
   })
 })

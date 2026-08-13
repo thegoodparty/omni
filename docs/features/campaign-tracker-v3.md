@@ -401,10 +401,35 @@ candidates, all mirroring the legacy campaign-plan message format:
   campaigns keep the plan-summary message. The existing `proUpgradeSlackNotifiedAt`
   stamp is shared, so a campaign is announced once regardless of cohort.
 
+- **Outreach schedule, once per campaign** (`postOutreachScheduleOnce`): after
+  the week post on both triggers above, the full deterministic text/robocall
+  schedule is posted in the legacy `AI Campaign Plan Created` format with
+  `(Due: MMM d, yyyy)` dates. The ops-owned Zapier automation that creates the
+  ClickUp voter-contact tasks filters the channel on exactly that message
+  shape (it ignores the Mon-Sun week posts), so this is the message that
+  actually feeds ClickUp for tracker-cohort candidates. One-shot via a
+  `campaignStrategy.outreachSlackPostedAt` claim (released on a failed send so
+  the next trigger retries). Skipped when no outreach rows exist (lost
+  primary).
+
 All are best-effort (a Slack failure is logged, never fails the caller) and
-Pro-gated. The legacy `notifySlackOnProUpgrade` / `notifySlackDefaultTasksCreated`
+Pro-gated. Dates in every CAS post are formatted from UTC parts
+(`formatInTimeZone(..., 'UTC', ...)`) — stored task dates are UTC-midnight
+instants, and a process west of UTC would otherwise render them a calendar day
+early. The legacy `notifySlackOnProUpgrade` / `notifySlackDefaultTasksCreated`
 plan-summary path stays for the legacy cohort until the legacy-Slack cleanup task
 retires it.
+
+### Outreach send timing is shared with the plan document
+
+The 7 sends' offsets live in `VOTER_CONTACT_SCHEDULE`
+(`@goodparty_org/contracts`, `VoterContactSchedule.data.ts`): intro text E-56,
+intro robocall E-49, persuasion text E-35, persuasion robocall E-28, early-vote
+text E-14, reminder robocall E-1, reminder text on election day. The catalog's
+outreach `timing` entries and the plan document's Voter Contact Plan section
+(gp-webapp `planContent.ts`) both derive from it, so the plan doc, the tracker
+week view, and the ClickUp feed always show the same dates. Change the cadence
+there, nowhere else.
 
 ## How this diverged from the original TDD
 

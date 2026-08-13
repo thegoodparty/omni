@@ -21,7 +21,14 @@ const UTM_KEYS = [
   'utm_term',
 ] as const
 
-const CLID_SUFFIX = 'clid'
+const CLID_KEYS = [
+  'fbclid',
+  'gclid',
+  'ttclid',
+  'msclkid',
+  'twclid',
+  'li_fat_id',
+] as const
 
 export const EVENTS = {
   CampaignStory: {
@@ -160,7 +167,6 @@ export const EVENTS = {
     },
     Dashboard: {
       ClickDashboard: 'Navigation - Dashboard: Click Dashboard',
-      ClickAIAssistant: 'Navigation - Dashboard: Click AI Assistant',
       ClickVoterData: 'Navigation - Dashboard: Click Voter Data',
       ClickDoorKnocking: 'Navigation - Dashboard: Click Door Knocking',
       ClickContentBuilder: 'Navigation - Dashboard: Click Content Builder',
@@ -187,7 +193,10 @@ export const EVENTS = {
   Dashboard: {
     CampaignPlan: {
       GenerationCompleted: 'Dashboard - Campaign Plan Generation Completed',
+      // The legacy dashboard task checklist (story-off cohort only). The
+      // campaign tracker that replaced it fires CampaignTrackerViewed below.
       Viewed: 'Dashboard - Campaign Plan Viewed',
+      CampaignTrackerViewed: 'Campaign Plan - Campaign Tracker Viewed',
       WeekNavigated: 'Dashboard - Campaign Plan Week Navigated',
       TaskCTAClicked: 'Dashboard - Campaign Plan Task CTA Clicked',
       TaskStatusUpdated: 'Dashboard - Campaign Task Status Updated',
@@ -320,21 +329,6 @@ export const EVENTS = {
       ClickDelete: 'Dashboard - Campaign Action History: Click Delete',
     },
   },
-  AIAssistant: {
-    ClickNewChat: 'AI Assistant: Click new chat',
-    ClickViewChatHistory: 'AI Assistant: Click view chat history',
-    AskQuestion: 'AI Assistant: Ask a question',
-    ChatHistory: {
-      ClickMenu: 'AI Assistant - Chat History: Click menu',
-      ClickDelete: 'AI Assistant - Chat History: Click delete',
-    },
-    Chat: {
-      ClickThumbsUp: 'AI Assistant - Chat: Click thumbs up',
-      ClickThumbsDown: 'AI Assistant - Chat: Click thumbs down',
-      ClickRegenerate: 'AI Assistant - Chat: Click regenerate',
-      ClickCopy: 'AI Assistant - Chat: Click copy',
-    },
-  },
   ProUpgrade: {
     ClickExit: 'Pro Upgrade: Click exit top nav',
     Banner: {
@@ -360,6 +354,9 @@ export const EVENTS = {
     Compliance: {
       BannerViewed: 'Pro Upgrade - Banner Viewed',
       BannerGetPro: 'Pro Upgrade - Banner: Click Get Pro',
+      TextingSetupBannerViewed: 'Pro Upgrade - Texting Setup Banner Viewed',
+      TextingSetupBannerStart:
+        'Pro Upgrade - Texting Setup Banner: Click Start',
       LockedItemClicked: 'Pro Upgrade - Locked Item: Click',
       ValuePropViewed: 'Pro Upgrade - Value Prop Viewed',
       ValuePropGetPro: 'Pro Upgrade - Value Prop: Click Get Pro',
@@ -398,6 +395,36 @@ export const EVENTS = {
     SegmentUpdated: 'Contacts - Segment Updated',
     SegmentViewed: 'Contacts - Segment Viewed',
     OutreachTimelineViewed: 'Contacts - Outreach Timeline Viewed',
+    // Fires once per page entry when the org has no resolvable district, so the
+    // page can only offer the support handoff. 437 active campaigns are in that
+    // state; this measures how many actually land here, which is what would
+    // justify building self-serve remediation.
+    VoterDataUnavailable: 'Contacts - Voter Data Unavailable',
+    // ENG-10767: the CRM contacts assistant (crm/assistant/). Opened fires
+    // once per drawer open with { context, source: 'message' | 'history' }
+    // (a bar submit opens with a message; a history pick opens a past
+    // conversation); MessageSent fires per user send ({ context }) — the
+    // initial bar submit and every composer follow-up — so open-to-send
+    // drop-off is visible.
+    AssistantChatOpened: 'Contacts - Assistant Chat Opened',
+    AssistantMessageSent: 'Contacts - Assistant Message Sent',
+    // ENG-10767: per-stage funnel for the URL-stable create-list wizard
+    // (crm/wizard/CreateListWizard.tsx) — RouteTracker page views can't see
+    // its stages. Viewed fires on every stage entry (including Back
+    // re-entry); Completed fires on advance (Name Completed on a successful
+    // create, alongside the List Created outcome event — funnel completion
+    // and outcome answer different questions). All carry { context }; the
+    // conditions/name stages add { branch: 'voterFile' | 'activity' }.
+    // Serve's 2-step wizard never fires the Method stage (no branch
+    // chooser, ENG-10750).
+    ListWizard: {
+      MethodViewed: 'Contacts - List Wizard Method Viewed',
+      MethodCompleted: 'Contacts - List Wizard Method Completed',
+      ConditionsViewed: 'Contacts - List Wizard Conditions Viewed',
+      ConditionsCompleted: 'Contacts - List Wizard Conditions Completed',
+      NameViewed: 'Contacts - List Wizard Name Viewed',
+      NameCompleted: 'Contacts - List Wizard Name Completed',
+    },
   },
   // ENG-10688: the CRM brief specs the typeahead search events as
   // product-specific by nav surface — "Voter Data" (Win) vs "Constituent
@@ -435,6 +462,20 @@ export const EVENTS = {
     ListCreated: 'Voter Data - List Created',
     ActivityListCreated: 'Voter Data - Activity List Created',
     ListExported: 'Voter Data - List Exported',
+    // ENG-10767: entry point of the CRM list → outreach funnel. Fires on
+    // every "Send outreach" click in the CRM with
+    // { surface: 'listCard' | 'listDetail' | 'universeRow' } plus { listId }
+    // for the two saved-list surfaces (the universe row links bare). Joins to
+    // the outreach wizard's audienceSource: 'deepLink' property on the
+    // audience-step Next and Voter Outreach - Campaign Completed events.
+    // Win-only by construction (ENG-10749 hides the button for Serve), so
+    // there is no ConstituentData variant.
+    SendOutreachClicked: 'Voter Data - Send Outreach Clicked',
+    // ENG-10836: the person-record status row (Voter Likelihood / Support
+    // Status dropdowns). Fires once per confirmed-successful change with
+    // { field, from, to } — never on a failed PATCH. Win-only surface (Opt In
+    // Status is read-only, no event), so there is no ConstituentData variant.
+    ContactStatusChanged: 'Voter Data - Contact Status Changed',
     ClickNeedHelp: 'Voter Data: Click Need Help',
     NeedHelp: {
       Exit: 'Voter Data - Need Help: Exit modal',
@@ -607,8 +648,6 @@ export const EVENTS = {
     ReadAloudStopped: 'Briefing Assistant - Read Aloud Stopped',
     ReadAloudCompleted: 'Briefing Assistant - Read Aloud Completed',
     ReadAloudFailed: 'Briefing Assistant - Read Aloud Failed',
-    DictationStarted: 'Briefing Assistant - Dictation Started',
-    DictationFailed: 'Briefing Assistant - Dictation Failed',
     ShareDrawerOpened: 'Briefing Assistant - Share Drawer Opened',
     ShareCompleted: 'Briefing Assistant - Share Completed',
     AttachmentClicked: 'Briefing Assistant - Attachment Clicked',
@@ -616,6 +655,13 @@ export const EVENTS = {
     AgendaSubmissionFailed: 'Briefing Assistant - Agenda Submission Failed',
     SourcesExpanded: 'Briefing Assistant - Sources Expanded',
     TocItemClicked: 'Briefing Assistant - TOC Item Clicked',
+  },
+  // Speech-to-text dictation. Shared capability used across features (briefings,
+  // onboarding story steps, etc.), so the events are not namespaced to any one.
+  // The firing `label` prop identifies the surface (e.g. onboarding_story_why).
+  Dictation: {
+    Started: 'Dictation - Started',
+    Failed: 'Dictation - Failed',
   },
   // V2 onboarding flow that ends in the generated campaign plan. All new
   // events (no reuse of legacy Onboarding/Dashboard events) so V2 funnels
@@ -660,9 +706,14 @@ export const EVENTS = {
     VotesNeededFailed: 'Onboarding V2 - Votes Needed Failed',
     OfficeNextClicked: 'Onboarding V2 - Office Next Clicked',
     PledgeSubmitClicked: 'Onboarding V2 - Pledge Submit Clicked',
-    CampaignStoryViewed: 'Onboarding V2 - Campaign Story Viewed',
-    CampaignStoryCompleted: 'Onboarding V2 - Campaign Story Completed',
-    CampaignStorySkipped: 'Onboarding V2 - Campaign Story Skipped',
+    WhyAreYouRunningViewed: 'Onboarding V2 - Why Are You Running Viewed',
+    WhyAreYouRunningCompleted: 'Onboarding V2 - Why Are You Running Completed',
+    BackgroundViewed: "Onboarding V2 - What's Your Background Viewed",
+    BackgroundCompleted: "Onboarding V2 - What's Your Background Completed",
+    IssuesViewed: 'Onboarding V2 - What Issues Do You Want To Solve Viewed',
+    IssuesCompleted:
+      'Onboarding V2 - What Issues Do You Want To Solve Completed',
+    OnboardingSkipped: 'Onboarding V2 - Onboarding Skipped',
   },
   CommunityIssues: {
     ListViewed: 'Community Issues - List Viewed',
@@ -670,6 +721,46 @@ export const EVENTS = {
     PrioritizeClicked: 'Community Issues - Prioritize Clicked',
     AskAIStarted: 'Community Issues - Ask AI Started',
     RunPollClicked: 'Community Issues - Run Poll Clicked',
+  },
+  Ordinances: {
+    ClarifyViewed: 'Ordinances - Clarify Viewed',
+    ClarifyCompleted: 'Ordinances - Clarify Completed',
+    AuthorityViewed: 'Ordinances - Authority Viewed',
+    AuthorityCompleted: 'Ordinances - Authority Completed',
+    CurrentLawViewed: 'Ordinances - Current Law Viewed',
+    CurrentLawCompleted: 'Ordinances - Current Law Completed',
+    HowOthersSolvedItViewed: 'Ordinances - How Others Solved It Viewed',
+    HowOthersSolvedItCompleted: 'Ordinances - How Others Solved It Completed',
+    DraftCreationViewed: 'Ordinances - Draft Creation Viewed',
+    DraftCreationCompleted: 'Ordinances - Draft Creation Completed',
+    DraftDetailsViewed: 'Ordinances - Draft Details Viewed',
+    DraftDetailsDownloaded: 'Ordinances - Draft Details Downloaded',
+    DraftDetailsStatusUpdated: 'Ordinances - Draft Details Status Updated',
+    DraftDetailsDeleted: 'Ordinances - Draft Details Deleted',
+  },
+  // ENG-10626: the native door-knocking surface (voter map, turf cutting,
+  // routed walk). Distinct from Dashboard.VoterContact.DoorKnocking above,
+  // which belongs to the legacy eCanvasser/script surface — different funnel,
+  // don't merge them.
+  //
+  // The walk is the session: Started when the walk view opens, then exactly
+  // one of Completed (left having logged at least one door) or Abandoned
+  // (left having logged none). RouteBuildFailed is the funnel's only real
+  // failure, since building a route is the one step that calls a paid vendor.
+  //
+  // Session Completed also fires the canonical
+  // Dashboard.VoterContact.CampaignCompleted with medium 'doorKnocking' —
+  // that's the event the door-knocking activation metric counts, and the
+  // manual "log progress" modal already feeds it the same way.
+  DoorKnocking: {
+    ListCreated: 'Door Knocking - List Created',
+    ListDeleted: 'Door Knocking - List Deleted',
+    RouteBuilt: 'Door Knocking - Route Built',
+    RouteBuildFailed: 'Door Knocking - Route Build Failed',
+    SessionStarted: 'Door Knocking - Session Started',
+    SessionCompleted: 'Door Knocking - Session Completed',
+    SessionAbandoned: 'Door Knocking - Session Abandoned',
+    DoorLogged: 'Door Knocking - Door Logged',
   },
 } as const
 
@@ -687,11 +778,20 @@ export const extractClids = (
   const clids: Record<string, string> = {}
 
   for (const [key, value] of searchParams.entries()) {
-    if (key.toLowerCase().endsWith('clid')) {
+    if ((CLID_KEYS as readonly string[]).includes(key.toLowerCase()) && value) {
       clids[key] = value
     }
   }
   return clids
+}
+
+// Raw, unhashed Meta click cookies for Segment's Facebook Conversions API
+// destination (server-side CAPI has no cookie access). Do not reconstruct or
+// re-timestamp `_fbc` when the cookie is already present.
+export const getMetaClickIds = (): { fbc?: string; fbp?: string } => {
+  const fbc = cookie.get('_fbc')
+  const fbp = cookie.get('_fbp')
+  return { ...(fbc ? { fbc } : {}), ...(fbp ? { fbp } : {}) }
 }
 
 interface TrackRegistrationParams {
@@ -708,6 +808,13 @@ export const trackRegistrationCompleted = async ({
   signUpMethod = 'email',
 }: TrackRegistrationParams): Promise<void> => {
   const signUpDate = new Date().toISOString()
+  const metaClickIds = getMetaClickIds()
+  const clids = getPersistedClids()
+  const fbclid = clids.fbclid_last ?? clids.fbclid_first ?? undefined
+  const attributionTraits = {
+    ...metaClickIds,
+    ...(fbclid ? { fbclid } : {}),
+  }
 
   try {
     const analyticsInstance = await analytics
@@ -716,20 +823,22 @@ export const trackRegistrationCompleted = async ({
         await analyticsInstance.ready()
       }
       const hutk = cookie.get('hubspotutk')
-      analyticsInstance.identify(userId, {
+      await analyticsInstance.identify(userId, {
         signUpDate,
         signUpMethod,
         ...(email ? { email } : {}),
         ...(hutk ? { hutk } : {}),
+        ...attributionTraits,
       })
     }
   } catch (error) {
     console.error('Error identifying user for registration:', error)
   }
 
-  trackEvent(EVENTS.Onboarding.RegistrationCompleted, {
+  await trackEvent(EVENTS.Onboarding.RegistrationCompleted, {
     signUpDate,
     signUpMethod,
+    ...attributionTraits,
   })
 }
 
@@ -758,8 +867,9 @@ export const persistClidsOnce = (): void => {
 
   const params = new URLSearchParams(window.location.search)
 
-  for (const [key, value] of params.entries()) {
-    if (!key.toLowerCase().endsWith(CLID_SUFFIX) || !value) continue
+  for (const key of CLID_KEYS) {
+    const value = params.get(key)
+    if (!value) continue
 
     const firstKey = `${key}_first`
     const lastKey = `${key}_last`
@@ -807,15 +917,12 @@ export const getPersistedClids = (): Record<string, string | null> => {
   const clids: Record<string, string | null> = {}
 
   try {
-    for (let i = 0; i < window.sessionStorage.length; i++) {
-      const key = window.sessionStorage.key(i)
-      if (
-        key &&
-        (key.toLowerCase().endsWith(`${CLID_SUFFIX}_first`) ||
-          key.toLowerCase().endsWith(`${CLID_SUFFIX}_last`))
-      ) {
-        clids[key] = window.sessionStorage.getItem(key)
-      }
+    for (const key of CLID_KEYS) {
+      const first = window.sessionStorage.getItem(`${key}_first`)
+      const last = window.sessionStorage.getItem(`${key}_last`)
+
+      if (first) clids[`${key}_first`] = first
+      if (last) clids[`${key}_last`] = last
     }
   } catch {
     return {}

@@ -14,6 +14,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useOrganization } from '@shared/organization-picker'
 import { numberFormatter } from 'helpers/numberHelper'
 import filterSections from '../configs/filters.config'
+import { getContactsLabels } from '../../../../shared/contactsLabels'
 import { FiEdit } from 'react-icons/fi'
 import { clientRequest } from 'gpApi/typed-request'
 import { type SegmentResponse } from '../../../crm/shared/contacts-types'
@@ -132,6 +133,8 @@ export default function Filters({
   // own persisted search untouched.
   const createSearch = mode === SHEET_MODES.CREATE ? searchTerm.trim() : ''
 
+  const labels = getContactsLabels(isWinContext)
+
   // Org-scoped like every other contacts query (ENG-10511) so a count can't
   // leak across orgs when the active org changes outside the picker.
   const orgSlug = useOrganization()?.slug
@@ -188,12 +191,21 @@ export default function Filters({
       isElectedOfficial
         ? filterSections.map((section) => ({
             ...section,
+            // filters.config.ts stays untouched (the legacy page below renders
+            // it byte-identically), so the Serve-facing title swap happens here.
+            title:
+              section.title === 'Voter Demographics'
+                ? labels.demographicsSectionTitle
+                : section.title,
             fields: section.fields.filter(
-              (field) => field.key !== 'political_party',
+              (field) =>
+                field.key !== 'political_party' &&
+                field.key !== 'contacts_made' &&
+                field.key !== 'voter_likely',
             ),
           }))
         : filterSections,
-    [isElectedOfficial],
+    [isElectedOfficial, labels.demographicsSectionTitle],
   )
 
   useEffect(() => {

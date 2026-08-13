@@ -2,7 +2,6 @@
 
 import { Input, Label } from '@styleguide'
 import Body2 from '@shared/typography/Body2'
-import { numberFormatter } from 'helpers/numberHelper'
 import { MAX_SEGMENT_NAME_LENGTH } from '../shared/segments.util'
 
 interface NameStepProps {
@@ -35,7 +34,7 @@ export default function NameStep({
     : isCounting
       ? 'Counting…'
       : count !== undefined
-        ? `${numberFormatter(count)} ${peopleNoun} match. Give this list a name so you can find it later.`
+        ? `${count.toLocaleString()} ${peopleNoun} match. Give this list a name so you can find it later.`
         : null
 
   const trimmedName = name.trim()

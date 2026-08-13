@@ -1,7 +1,7 @@
 import * as aws from '@pulumi/aws'
 
 export interface MeetingPipelineBucketConfig {
-  environment: 'qa' | 'prod'
+  environment: 'prod'
 }
 
 /**
@@ -13,7 +13,7 @@ export interface MeetingPipelineBucketConfig {
  *
  * The dev bucket (`meeting-pipeline-dev`) was created out-of-band well
  * before this file existed; Pulumi does NOT own it. This component creates
- * the qa/prod buckets so the existing select() in deploy/index.ts has
+ * the prod bucket so the existing select() in deploy/index.ts has
  * something real to point at in those environments. When the larger
  * meeting-pipeline Terraform stack eventually lands in gp-ai-projects,
  * those buckets can be `terraform import`'d into that module's state and
@@ -39,19 +39,16 @@ export function createMeetingPipelineBucket({
     restrictPublicBuckets: true,
   })
 
-  new aws.s3.BucketServerSideEncryptionConfigurationV2(
-    'meeting-pipeline-sse',
-    {
-      bucket: bucket.id,
-      rules: [
-        {
-          applyServerSideEncryptionByDefault: {
-            sseAlgorithm: 'AES256',
-          },
+  new aws.s3.BucketServerSideEncryptionConfigurationV2('meeting-pipeline-sse', {
+    bucket: bucket.id,
+    rules: [
+      {
+        applyServerSideEncryptionByDefault: {
+          sseAlgorithm: 'AES256',
         },
-      ],
-    },
-  )
+      },
+    ],
+  })
 
   return { bucket }
 }

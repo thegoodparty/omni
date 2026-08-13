@@ -16,7 +16,7 @@ const issuesDir = (): string =>
   path.resolve(process.cwd(), '../../.local-issues')
 
 export const GET = async (): Promise<NextResponse> => {
-  // Dev-only. Never ships behavior to Vercel dev/qa/prod.
+  // Dev-only. Never ships behavior to Vercel dev/prod.
   if (process.env.NODE_ENV !== 'development') {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }

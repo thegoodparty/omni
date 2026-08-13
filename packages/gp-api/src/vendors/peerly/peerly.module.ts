@@ -3,6 +3,7 @@ import { forwardRef, Module } from '@nestjs/common'
 import { JwtModule } from '@nestjs/jwt'
 import { AiModule } from 'src/ai/ai.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
+import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { VotersModule } from '@/voters/voters.module'
 import { OrganizationsModule } from 'src/organizations/organizations.module'
@@ -32,6 +33,7 @@ import { PeerlyScheduleService } from './services/peerlySchedule.service'
     GoogleModule,
     OrganizationsModule,
     SlackModule,
+    ContactInteractionModule,
     forwardRef(() => CampaignsModule),
     forwardRef(() => OutreachModule),
     forwardRef(() => ContactsModule),

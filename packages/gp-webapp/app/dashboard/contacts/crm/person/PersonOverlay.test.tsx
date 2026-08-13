@@ -54,6 +54,28 @@ vi.mock('./NotesSection', () => ({
   ),
 }))
 
+// StatusRow has its own suite (StatusRow.test.tsx) covering its self-gating,
+// the two dropdowns, the opt-in pill, mutations, and analytics. Here it would
+// otherwise call the real useOrganization()/useCrmEnabled() hooks — this file
+// only asserts PersonOverlay mounts it (or doesn't) with the right props.
+vi.mock('./StatusRow', () => ({
+  __esModule: true,
+  default: ({
+    person,
+    hidePoliticalParty,
+  }: {
+    person: { id: string }
+    hidePoliticalParty: boolean
+  }) => (
+    <div
+      data-testid="status-row-stub"
+      data-hide-political-party={String(hidePoliticalParty)}
+    >
+      {person.id}
+    </div>
+  ),
+}))
+
 const mockedUseContactsTable = vi.mocked(useContactsTable)
 const mockedUseFlagOn = vi.mocked(useFlagOn)
 const mockedUseCrmEnabled = vi.mocked(useCrmEnabled)
@@ -109,6 +131,8 @@ function setContext({
     pagination: null,
     isLoading: false,
     isVoterDataUnavailable: false,
+    isDistrictUnresolvable: false,
+    voterDataUnavailable: false,
     isCustomSegment: false,
     totalSegmentContacts: 0,
     canUseProFeatures: true,
@@ -343,22 +367,12 @@ describe('<PersonOverlay>', () => {
   })
 
   it('does not crash on ENG-10695 entry types the pre-CRM renderer does not know (skips them, keeps rendering known rows)', () => {
-    // The unified feed (ENG-10695) can return DOOR_KNOCK/TEXT/ROBOCALL/NOTE
+    // The unified feed (ENG-10695) can return DOOR_KNOCK/TEXT/ROBOCALL
     // entries in the same page as OUTREACH/POLL_INTERACTIONS rows. Rendering
     // them is task 07's job; this only proves the switch has a safe default
     // instead of falling through to the poll branch and crashing on
     // activity.data.pollId.
     const activities: ConstituentActivity[] = [
-      {
-        type: 'NOTE',
-        date: '2026-05-12T00:00:00.000Z',
-        data: {
-          noteId: 'note_1',
-          body: 'Follow up next week',
-          createdAt: '2026-05-12T00:00:00.000Z',
-          updatedAt: '2026-05-12T00:00:00.000Z',
-        },
-      },
       {
         type: 'DOOR_KNOCK',
         date: '2026-05-11T00:00:00.000Z',
@@ -439,21 +453,11 @@ describe('<PersonOverlay>', () => {
   })
 
   it('shows the empty state (not a blank feed) and does not fire Outreach Timeline Viewed when a page has only ENG-10695 entry types', () => {
-    // A page containing only DOOR_KNOCK/TEXT/ROBOCALL/NOTE rows has nothing
+    // A page containing only DOOR_KNOCK/TEXT/ROBOCALL rows has nothing
     // this renderer can draw (task 07 widens it) — it must read as "Data not
     // available", not as a real, contentless feed, and must not count as a
     // seen outreach timeline for the adoption event.
     const activities: ConstituentActivity[] = [
-      {
-        type: 'NOTE',
-        date: '2026-05-12T00:00:00.000Z',
-        data: {
-          noteId: 'note_1',
-          body: 'Follow up next week',
-          createdAt: '2026-05-12T00:00:00.000Z',
-          updatedAt: '2026-05-12T00:00:00.000Z',
-        },
-      },
       {
         type: 'DOOR_KNOCK',
         date: '2026-05-11T00:00:00.000Z',
@@ -488,13 +492,14 @@ describe('<PersonOverlay>', () => {
     // empty state must not swallow the pagination affordance and strand them.
     const activities: ConstituentActivity[] = [
       {
-        type: 'NOTE',
+        type: 'DOOR_KNOCK',
         date: '2026-05-12T00:00:00.000Z',
         data: {
-          noteId: 'note_1',
-          body: 'Follow up next week',
-          createdAt: '2026-05-12T00:00:00.000Z',
-          updatedAt: '2026-05-12T00:00:00.000Z',
+          activityId: 'dk_1',
+          outcome: 'answered',
+          supportAnswer: 'supporter',
+          note: null,
+          manual: true,
         },
       },
     ]
@@ -771,9 +776,12 @@ describe('<PersonOverlay>', () => {
     expect(activitiesFetchNextPage).toHaveBeenCalledTimes(1)
   })
 
-  describe('ENG-10698 support status', () => {
+  describe('ENG-10698 support status (Serve)', () => {
+    // ENG-10836 removed this Field for Win (replaced by the StatusRow
+    // dropdown, mocked below) — these assertions now only apply to Serve,
+    // which keeps the pre-ENG-10836 read-only rendering untouched.
     it('hides Support Status when the CRM flag is off', () => {
-      setContext()
+      setContext({ isElectedOfficial: true })
 
       render(<PersonOverlay />)
 
@@ -785,10 +793,11 @@ describe('<PersonOverlay>', () => {
       ['non_supporter', 'Non-supporter'],
       ['unknown', 'Support unknown'],
     ] as const)(
-      'shows Support Status "%s" as "%s" when the CRM flag is on',
+      'shows Support Status "%s" as "%s" for Serve when the CRM flag is on',
       (rollup, label) => {
         mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
         setContext({
+          isElectedOfficial: true,
           selectedPerson: { person: makePerson({ supportStatus: rollup }) },
         })
 
@@ -802,65 +811,52 @@ describe('<PersonOverlay>', () => {
     it('shows "Support unknown" when supportStatus is absent from the response', () => {
       mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
       // makePerson() doesn't set supportStatus (undefined by default).
-      setContext({ selectedPerson: { person: makePerson() } })
+      setContext({
+        isElectedOfficial: true,
+        selectedPerson: { person: makePerson() },
+      })
 
       render(<PersonOverlay />)
 
       expect(screen.getByText('Support unknown')).toBeInTheDocument()
     })
+
+    it('hides the Support Status Field for Win — the status row replaces it (ENG-10836)', () => {
+      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
+      setContext({
+        isElectedOfficial: false,
+        selectedPerson: { person: makePerson({ supportStatus: 'supporter' }) },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.queryByText('Support Status')).not.toBeInTheDocument()
+    })
   })
 
-  describe('ENG-10732 opted in/out chip', () => {
-    it('hides the chip when the CRM flag is off', () => {
-      setContext()
+  describe('ENG-10836 status row', () => {
+    // StatusRow is mocked above (own suite: StatusRow.test.tsx) — this only
+    // asserts PersonOverlay mounts it unconditionally (it self-gates) with
+    // the right person and hidePoliticalParty.
+    it('mounts the status row for the currently selected person', () => {
+      setContext({ isElectedOfficial: false, selectedPersonId: 'p_1' })
 
       render(<PersonOverlay />)
 
-      expect(screen.queryByText('Opted In')).not.toBeInTheDocument()
-      expect(screen.queryByText('Opted Out')).not.toBeInTheDocument()
+      const stub = screen.getByTestId('status-row-stub')
+      expect(stub).toHaveTextContent('p_1')
+      expect(stub).toHaveAttribute('data-hide-political-party', 'false')
     })
 
-    it('shows "Opted In" when the CRM flag is on and optedOutAt is null', () => {
-      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
-      setContext({
-        isElectedOfficial: false,
-        selectedPerson: { person: makePerson({ optedOutAt: null }) },
-      })
+    it('passes hidePoliticalParty=true for Serve (elected official) records', () => {
+      setContext({ isElectedOfficial: true })
 
       render(<PersonOverlay />)
 
-      expect(screen.getByText('Opted In')).toBeInTheDocument()
-      expect(screen.queryByText('Opted Out')).not.toBeInTheDocument()
-    })
-
-    it('shows "Opted Out" when a text interaction carries optedOutAt', () => {
-      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
-      setContext({
-        isElectedOfficial: false,
-        selectedPerson: {
-          person: makePerson({ optedOutAt: '2026-07-10T12:00:00.000Z' }),
-        },
-      })
-
-      render(<PersonOverlay />)
-
-      expect(screen.getByText('Opted Out')).toBeInTheDocument()
-      expect(screen.queryByText('Opted In')).not.toBeInTheDocument()
-    })
-
-    it('renders no chip for Serve (elected official) records even when opted out', () => {
-      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
-      setContext({
-        isElectedOfficial: true,
-        selectedPerson: {
-          person: makePerson({ optedOutAt: '2026-07-10T12:00:00.000Z' }),
-        },
-      })
-
-      render(<PersonOverlay />)
-
-      expect(screen.queryByText('Opted In')).not.toBeInTheDocument()
-      expect(screen.queryByText('Opted Out')).not.toBeInTheDocument()
+      expect(screen.getByTestId('status-row-stub')).toHaveAttribute(
+        'data-hide-political-party',
+        'true',
+      )
     })
   })
 
@@ -958,19 +954,9 @@ describe('<PersonOverlay>', () => {
           outreachId: null,
         },
       },
-      {
-        type: 'NOTE',
-        date: '2026-05-12T00:00:00.000Z',
-        data: {
-          noteId: 'note_1',
-          body: 'Follow up next week',
-          createdAt: '2026-05-12T00:00:00.000Z',
-          updatedAt: '2026-05-12T00:00:00.000Z',
-        },
-      },
     ]
 
-    it('renders DOOR_KNOCK/TEXT/ROBOCALL/NOTE entries (with a manual badge and note body) when the CRM flag is on', () => {
+    it('renders DOOR_KNOCK/TEXT/ROBOCALL entries (with a manual badge) when the CRM flag is on', () => {
       mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
       setContext({
         isElectedOfficial: false,
@@ -986,7 +972,6 @@ describe('<PersonOverlay>', () => {
       expect(screen.getByText('Left a flyer')).toBeInTheDocument()
       expect(screen.getByText('Text')).toBeInTheDocument()
       expect(screen.getByText('Robocall')).toBeInTheDocument()
-      expect(screen.getByText('Follow up next week')).toBeInTheDocument()
       // Manual badge only on the hand-logged door knock, not the
       // system-recorded text/robocall rows.
       expect(screen.getAllByText('Manual')).toHaveLength(1)
@@ -1008,27 +993,95 @@ describe('<PersonOverlay>', () => {
       expect(
         screen.queryByText(/door knock: answered/i),
       ).not.toBeInTheDocument()
-      expect(screen.queryByText('Follow up next week')).not.toBeInTheDocument()
+      expect(screen.queryByText('Left a flyer')).not.toBeInTheDocument()
     })
 
     it('shows real feed content (not the empty state) for a CRM-on page containing only new entry types, and does not fire Outreach Timeline Viewed', () => {
       mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
-      const noteOnly: ConstituentActivity[] = [newTypeActivities[3]!]
+      const doorKnockOnly: ConstituentActivity[] = [newTypeActivities[0]!]
       setContext({
         isElectedOfficial: false,
         isWinContext: true,
         selectedPersonId: 'p_42',
-        selectedPerson: { activities: noteOnly },
+        selectedPerson: { activities: doorKnockOnly },
       })
 
       render(<PersonOverlay />)
 
       expect(screen.queryByText('Data not available.')).not.toBeInTheDocument()
-      expect(screen.getByText('Follow up next week')).toBeInTheDocument()
+      expect(screen.getByText('Left a flyer')).toBeInTheDocument()
       expect(trackEvent).not.toHaveBeenCalledWith(
         EVENTS.Contacts.OutreachTimelineViewed,
         expect.anything(),
       )
+    })
+  })
+
+  describe('ENG-10835 STATUS_CHANGE entries', () => {
+    const statusChangeActivities: ConstituentActivity[] = [
+      {
+        type: 'STATUS_CHANGE',
+        date: '2026-07-20T10:00:00.000Z',
+        data: {
+          activityId: 'sce_1',
+          field: 'support_status',
+          fromLabel: 'Support unknown',
+          toLabel: 'Supporter',
+          actorName: 'Jane Staffer',
+          actorUserId: 7,
+          source: 'manual',
+        },
+      },
+    ]
+
+    it('renders a STATUS_CHANGE entry in the Win context when the CRM flag is on', () => {
+      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
+      setContext({
+        isElectedOfficial: false,
+        isWinContext: true,
+        selectedPersonId: 'p_42',
+        selectedPerson: { activities: statusChangeActivities },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getByText('Support Status updated')).toBeInTheDocument()
+      expect(
+        screen.getByText(
+          "Jane Staffer changed Support Status from 'Support unknown' to 'Supporter'",
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('never renders a STATUS_CHANGE entry outside the Win context, even if the feed returned one', () => {
+      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
+      setContext({
+        isElectedOfficial: true,
+        isWinContext: false,
+        selectedPersonId: 'p_42',
+        selectedPerson: { activities: statusChangeActivities },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(
+        screen.queryByText('Support Status updated'),
+      ).not.toBeInTheDocument()
+    })
+
+    it('does not render STATUS_CHANGE entries when the CRM flag is off', () => {
+      setContext({
+        isElectedOfficial: false,
+        isWinContext: true,
+        selectedPersonId: 'p_42',
+        selectedPerson: { activities: statusChangeActivities },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(
+        screen.queryByText('Support Status updated'),
+      ).not.toBeInTheDocument()
     })
   })
 })

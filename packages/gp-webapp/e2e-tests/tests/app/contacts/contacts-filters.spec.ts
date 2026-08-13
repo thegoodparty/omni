@@ -15,6 +15,7 @@ import {
   selectWizardPill,
   statTileValue,
   wizardBuildButton,
+  wizardPillGroup,
   type ContactsApiPerson,
 } from 'src/helpers/crm-contacts-e2e'
 import { setupElectedOfficeUser } from 'src/helpers/organizations'
@@ -226,7 +227,7 @@ test('contacts filters: demographics', async ({ page }) => {
   })
 })
 
-test('contacts filters: contact methods and voting', async ({ page }) => {
+test('contacts filters: contact methods', async ({ page }) => {
   test.setTimeout(TEST_TIMEOUT)
   const client = await setUpCrmContacts(page)
   const { wizard, unfiltered } = await openWizard(page)
@@ -246,11 +247,8 @@ test('contacts filters: contact methods and voting', async ({ page }) => {
     })
   })
 
-  await test.step('Filter: Voter Likelihood', async () => {
-    await probeCount(page, wizard, unfiltered, [
-      ['Voter Likelihood', 'Unlikely'],
-    ])
-    await probeCount(page, wizard, unfiltered, [['Voter Likelihood', 'Likely']])
+  await test.step('Voter Likelihood is absent for Serve', async () => {
+    await expect(wizardPillGroup(wizard, 'Voter Likelihood')).toHaveCount(0)
   })
 
   await test.step('Filter: Business Owner', async () => {
@@ -380,11 +378,11 @@ test('contacts filters: ethnicity and multi-filter combos', async ({
     expect(comboCount).toBeLessThanOrEqual(femaleCount)
   })
 
-  await test.step('Combo: Male, Likely/Super Voters, Homeowner, Higher Education', async () => {
+  await test.step('Combo: Male, Married, Homeowner, Higher Education', async () => {
     const comboCount = await probeCount(page, wizard, unfiltered, [
       ['Gender', 'Male'],
-      ['Voter Likelihood', 'Likely'],
-      ['Voter Likelihood', 'Super'],
+      ['Marital Status', 'Married'],
+      ['Marital Status', 'Likely Married'],
       ['Homeowner', 'Yes'],
       ['Level of Education', 'College Degree'],
       ['Level of Education', 'Graduate Degree'],

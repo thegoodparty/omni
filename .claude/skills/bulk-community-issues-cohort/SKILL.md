@@ -9,7 +9,7 @@ description: Use when manually dispatching a cohort of community-issue agent job
 >
 > 1. **PR #246** (the Community Issue feature, `community-issues-pr2` branch) is **merged and deployed to prod**.
 > 2. The `top_community_issues` and `trending_issues` **runbooks are published to S3** in the PMF engine's runbook bucket.
-> 3. The `POST /v1/community-issues/dispatch` endpoint is **live in prod with the serve-ICP gate present** — confirmed by the Prerequisites checks below (bad-token probe returns 401/403 not 404, and the gate commit is in master and deployed).
+> 3. The `POST /v1/community-issues/dispatch` endpoint is **live in prod with the serve-ICP gate present** — confirmed by the Prerequisites checks below (bad-token probe returns 401/403 not 404, and the gate commit is on main and promoted to prod).
 >
 > Note: this dispatch path is **not** gated by a feature flag or by `MEETINGS_AUTOMATION_ENABLED` — it is an `AdminOrM2MGuard` (M2M) endpoint. `MEETINGS_AUTOMATION_ENABLED` gates only the daily crons / signup hook, and `serve-community-issues-v1` gates only the webapp nav item — so there is no flag to "enable" for a manual cohort.
 >
@@ -37,16 +37,16 @@ an explicit go before the real dispatch.
 - AWS access via SSO profile `gp-admin` (run `aws --profile gp-admin sts get-caller-identity` to confirm; if it fails, the human runs `aws sso login --profile gp-admin`).
 - PR #246 merged and deployed to prod, **with the serve-ICP gate enforced**. Verify all three:
   1. **Route deployed** (no creds needed): `curl -s -o /dev/null -w "%{http_code}" -X POST https://gp-api.goodparty.org/v1/community-issues/dispatch -H "authorization: Bearer __bad__"` returns 401/403 (route exists), not 404 (not deployed).
-  2. **ICP gate is in master**: `cd packages/gp-api && git log master --oneline -S isServeIcp -- src/communityIssues/services/communityIssueDispatch.service.ts` must show a commit. Abort if empty — a build before the gate would dispatch (and charge for) non-ICP orgs.
+  2. **ICP gate is on main**: `cd packages/gp-api && git log main --oneline -S isServeIcp -- src/communityIssues/services/communityIssueDispatch.service.ts` must show a commit. Abort if empty — a build before the gate would dispatch (and charge for) non-ICP orgs.
   3. **Prod is deployed at or past that commit** — confirm the deployed image SHA (ECS task definition tag / deploy log) is at or after the gate commit. Abort if behind.
-- This repo's `packages/gp-api` on `develop` or `master` (the analysis tsx scripts will run here).
+- This repo's `packages/gp-api` on `main` (the analysis tsx scripts will run here).
 - The daily cron dispatches (`dispatchWeeklyTrendingIssues`, `dispatchMonthlyTopIssues`) are guarded by `MEETINGS_AUTOMATION_ENABLED=true`. Confirm no concurrent cron is running; a time window cleanly identifies your cohort.
 
 ## Secrets and where they live (you gather these, do not ask the human to set env)
 
 - Prod DB password + prod Clerk keys: AWS Secrets Manager secret `GP_API_PROD`.
 - Prod DB host: `gp-api-db-prod.cluster-cmb1uukjsfbe.us-west-2.rds.amazonaws.com`, db `gpdb`, user `gpuser`. Reachable directly (no tunnel).
-- The M2M **caller** secret `GP_PROD_MACHINE_SECRET` is gp-admin's, NOT gp-api's. It lives in the `gp-admin-web` Vercel project (`prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT`, production target). Pull it via the Vercel API using `VERCEL_TOKEN` + `VERCEL_TEAM_ID` from `GP_API_PROD`. Minting with gp-api's own `GP_WEBAPP_MACHINE_SECRET` fails with 401.
+- The M2M **caller** secret `GP_PROD_MACHINE_SECRET` is gp-admin's, NOT gp-api's. It lives in the `gp-admin-web` Vercel project (`prj_ZT7POAebSPy3jFf2u0xKIUZTQpcT`, production target). Pull it via the Vercel API using `VERCEL_TOKEN` + `VERCEL_TEAM_ID` from `GP_API_PROD`. Minting with gp-api's own `GP_API_MACHINE_SECRET` fails with 401.
 - Community-issue artifacts land in S3 bucket `gp-agent-artifacts-prod`, keys `top_community_issues/<runId>/artifact.json` and `trending_issues/<runId>/artifact.json`.
 
 ### Gotchas

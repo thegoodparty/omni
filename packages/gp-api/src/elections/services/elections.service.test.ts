@@ -1,5 +1,6 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { SlackService } from '@/vendors/slack/services/slack.service'
+import { ElectionApiTokenService } from '@/vendors/clerk/services/electionApiToken.service'
 import { HttpService } from '@nestjs/axios'
 import { NotFoundException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
@@ -8,6 +9,8 @@ import { of, throwError } from 'rxjs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PositionWithOptionalDistrict } from '../types/elections.types'
 import { ElectionsService } from './elections.service'
+
+const AUTH_HEADER = { Authorization: 'Bearer mt_test' }
 
 const makePosition = (
   turnoutValue: number | null,
@@ -39,14 +42,24 @@ const makePosition = (
   },
 })
 
+// Minimal AxiosError-shaped object so `isAxiosError(error)` returns true and
+// the service can read `error.response.status` / `.data.message`.
+const makeAxiosError = (status: number, message: string) => ({
+  isAxiosError: true,
+  message: `Request failed with status code ${status}`,
+  response: { status, data: { message } },
+})
+
 describe('ElectionsService', () => {
   let service: ElectionsService
   let mockHttpGet: ReturnType<typeof vi.fn>
+  let mockFormattedMessage: ReturnType<typeof vi.fn>
 
   beforeEach(async () => {
     process.env.ELECTION_API_URL = 'http://test-election-api'
 
     mockHttpGet = vi.fn()
+    mockFormattedMessage = vi.fn().mockResolvedValue(undefined)
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -59,10 +72,14 @@ describe('ElectionsService', () => {
         {
           provide: SlackService,
           useValue: {
-            formattedMessage: vi.fn().mockResolvedValue(undefined),
+            formattedMessage: mockFormattedMessage,
             errorMessage: vi.fn().mockResolvedValue(undefined),
             message: vi.fn().mockResolvedValue(undefined),
           },
+        },
+        {
+          provide: ElectionApiTokenService,
+          useValue: { authHeader: vi.fn().mockResolvedValue(AUTH_HEADER) },
         },
       ],
     }).compile()
@@ -108,7 +125,7 @@ describe('ElectionsService', () => {
       expect(voterContactGoal).toBe(2505)
       expect(mockHttpGet).toHaveBeenCalledWith(
         expect.stringContaining('positions/by-ballotready-id/br-pos-1'),
-        expect.anything(),
+        expect.objectContaining({ headers: AUTH_HEADER }),
       )
     })
 
@@ -125,7 +142,7 @@ describe('ElectionsService', () => {
       expect(voterContactGoal).toBe(2505)
       expect(mockHttpGet).toHaveBeenCalledWith(
         expect.stringContaining('positions/pos-1'),
-        expect.anything(),
+        expect.objectContaining({ headers: AUTH_HEADER }),
       )
     })
 
@@ -171,6 +188,46 @@ describe('ElectionsService', () => {
           'No position and/or associated district was found',
         ),
       )
+    })
+
+    it('does not page botDev when the district match simply misses (no district)', async () => {
+      const positionNoDistrict: PositionWithOptionalDistrict = {
+        id: 'pos-1',
+        brPositionId: 'br-pos-1',
+        brDatabaseId: 'br-db-1',
+        state: 'TX',
+        name: 'State House 005',
+      }
+      mockHttpGet.mockReturnValue(of({ data: positionNoDistrict, status: 200 }))
+
+      await expect(
+        service.getPositionMatchedRaceTargetDetails(brIdParams),
+      ).rejects.toBeInstanceOf(NotFoundException)
+      expect(mockFormattedMessage).not.toHaveBeenCalled()
+    })
+
+    it('maps an election-api 404 to NotFoundException without paging botDev', async () => {
+      mockHttpGet.mockReturnValue(
+        throwError(() => makeAxiosError(404, 'Position not found for id=x')),
+      )
+
+      await expect(
+        service.getPositionMatchedRaceTargetDetails(brIdParams),
+      ).rejects.toBeInstanceOf(NotFoundException)
+      expect(mockFormattedMessage).not.toHaveBeenCalled()
+    })
+
+    it('pages botDev and surfaces a 502 when election-api errors (genuine bug)', async () => {
+      mockHttpGet.mockReturnValue(
+        throwError(() =>
+          makeAxiosError(500, 'The column Position.place_id does not exist'),
+        ),
+      )
+
+      await expect(
+        service.getPositionMatchedRaceTargetDetails(brIdParams),
+      ).rejects.toMatchObject({ status: 502 })
+      expect(mockFormattedMessage).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -286,10 +343,12 @@ describe('ElectionsService', () => {
   describe('searchPositions', () => {
     it('searchPositions calls /v1/positions/search with the right params and parses the response', async () => {
       const sampleRow = {
-        id: 'ztp-1',
+        id: 'race-1',
         brPositionId: 'br-pos-1',
         position: { name: 'Mayor', level: 'City', state: 'CA' },
         election: { electionDay: '2026-11-03' },
+        isPrimary: false,
+        isRunoff: false,
         city: 'Beverly Hills',
         district: null,
       }
@@ -298,8 +357,7 @@ describe('ElectionsService', () => {
       const result = await service.searchPositions({
         zip: '90210',
         displayOfficeLevels: ['City'],
-        electionDateFrom: '2026-01-01',
-        electionDateTo: '2027-12-31',
+        timeframe: 'future',
       })
 
       expect(result).toEqual([sampleRow])
@@ -309,8 +367,7 @@ describe('ElectionsService', () => {
           params: {
             zip: '90210',
             displayOfficeLevels: ['City'],
-            electionDateFrom: '2026-01-01',
-            electionDateTo: '2027-12-31',
+            timeframe: 'future',
           },
         }),
       )
@@ -472,6 +529,42 @@ describe('ElectionsService', () => {
     })
   })
 
+  describe('getPersonIdByGpApiUserId', () => {
+    it('returns the linked person id and passes the numeric user id as text', async () => {
+      mockHttpGet.mockReturnValue(
+        of({ data: [{ id: 'person-uuid-1' }], status: 200 }),
+      )
+
+      const result = await service.getPersonIdByGpApiUserId(12345)
+
+      expect(result).toBe('person-uuid-1')
+      expect(mockHttpGet).toHaveBeenCalledWith(
+        expect.stringContaining('/v1/persons'),
+        expect.objectContaining({
+          params: { gpApiUserId: '12345', columns: 'id' },
+        }),
+      )
+    })
+
+    it('returns null when no person is linked to the user', async () => {
+      mockHttpGet.mockReturnValue(of({ data: [], status: 200 }))
+
+      const result = await service.getPersonIdByGpApiUserId(999)
+
+      expect(result).toBeNull()
+    })
+
+    it('returns null (swallows) when election-api fails', async () => {
+      mockHttpGet.mockImplementation(() => {
+        throw new Error('boom')
+      })
+
+      const result = await service.getPersonIdByGpApiUserId(42)
+
+      expect(result).toBeNull()
+    })
+  })
+
   describe('buildRaceTargetDetails with districtId', () => {
     it('returns metrics when election-api returns valid turnout via districtId', async () => {
       mockHttpGet.mockReturnValue(
@@ -548,6 +641,46 @@ describe('ElectionsService', () => {
           params: { districtId: 'district-uuid', electionDate: '2024-11-05' },
         }),
       )
+    })
+
+    it('does not page botDev when turnout is simply missing (no-match)', async () => {
+      mockHttpGet.mockReturnValue(of({ data: null, status: 200 }))
+
+      const result = await service.buildRaceTargetDetails({
+        districtId: 'district-uuid',
+        electionDate: '2024-11-05',
+      })
+
+      expect(result).toBeNull()
+      expect(mockFormattedMessage).not.toHaveBeenCalled()
+    })
+
+    it('does not page botDev on an election-api 404 (no-match)', async () => {
+      mockHttpGet.mockReturnValue(
+        throwError(() => makeAxiosError(404, 'No projectedTurnout found')),
+      )
+
+      const result = await service.buildRaceTargetDetails({
+        districtId: 'district-uuid',
+        electionDate: '2024-11-05',
+      })
+
+      expect(result).toBeNull()
+      expect(mockFormattedMessage).not.toHaveBeenCalled()
+    })
+
+    it('pages botDev when election-api errors (genuine bug)', async () => {
+      mockHttpGet.mockReturnValue(
+        throwError(() => makeAxiosError(500, 'internal error')),
+      )
+
+      const result = await service.buildRaceTargetDetails({
+        districtId: 'district-uuid',
+        electionDate: '2024-11-05',
+      })
+
+      expect(result).toBeNull()
+      expect(mockFormattedMessage).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -798,6 +931,7 @@ describe('ElectionsService', () => {
       expect(mockHttpPost).toHaveBeenCalledWith(
         expect.stringContaining('campaign-strategy-context'),
         { brHashId: 'Z2lk-hash' },
+        { headers: AUTH_HEADER },
       )
     })
 

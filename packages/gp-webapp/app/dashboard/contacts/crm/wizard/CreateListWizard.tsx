@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Button, DrawerTitle, Stepper } from '@styleguide'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { numberFormatter } from 'helpers/numberHelper'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useContactsTable } from '../ContactsTableProvider'
@@ -28,8 +27,19 @@ import ActivityStep, {
 } from './ActivityStep'
 import NameStep from './NameStep'
 import { useListWizardCount } from './useListWizardCount'
+import { useListWizardOverlapCount } from './useListWizardOverlapCount'
+import OverlapBar from './OverlapBar'
 
 type WizardStepName = 'branch' | 'conditions' | 'name'
+
+// ENG-10767: per-stage funnel events (see the ListWizard registry comment in
+// analyticsHelper.ts) — this wizard is URL-stable, so RouteTracker page views
+// can't see its stages.
+const STAGE_VIEWED_EVENTS: Record<WizardStepName, string> = {
+  branch: EVENTS.Contacts.ListWizard.MethodViewed,
+  conditions: EVENTS.Contacts.ListWizard.ConditionsViewed,
+  name: EVENTS.Contacts.ListWizard.NameViewed,
+}
 
 interface CreateListWizardProps {
   open: boolean
@@ -52,6 +62,8 @@ export default function CreateListWizard({
     isWinContextReady,
     refreshCustomSegments,
     selectList,
+    customSegments,
+    voterDataUnavailable,
   } = useContactsTable()
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -80,6 +92,11 @@ export default function CreateListWizard({
     : 'voterFile'
   const stepName: WizardStepName = steps[stepIndex] ?? 'conditions'
 
+  // ENG-10767: bumps once per wizard open, from the reset effect below, so
+  // the stage-Viewed effect can't fire on the stale pre-reset stage a
+  // reopened wizard renders for one commit (stepIndex resets asynchronously).
+  const [openSession, setOpenSession] = useState(0)
+
   // Fresh wizard state every time it opens — a cancelled-then-reopened
   // wizard must not resume a half-built prior list.
   useEffect(() => {
@@ -90,7 +107,26 @@ export default function CreateListWizard({
     setSupportStatus([])
     setActivityConditions([blankActivityCondition()])
     setName('')
+    setOpenSession((session) => session + 1)
   }, [open])
+
+  // ENG-10767: stage Viewed fires on every stage entry — including Back
+  // re-entry — keyed on the open session + active-stage identifier ONLY
+  // (instrument-analytics-event skill rule), never on unrelated re-renders
+  // (e.g. picking a branch card re-renders with the same stepName). The
+  // openSession guard skips the mount run and any pre-reset stale stage; the
+  // page's create button is disabled until isWinContextReady, so the context
+  // is settled whenever the wizard is open.
+  useEffect(() => {
+    if (openSession === 0) return
+    trackEvent(STAGE_VIEWED_EVENTS[stepName], {
+      context: isWinContext ? 'win' : 'serve',
+      ...(stepName !== 'branch' && activeBranch
+        ? { branch: activeBranch }
+        : {}),
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openSession, stepName])
 
   // Multi-step flow: reset scroll to the top of the sheet's own scrollable
   // body (not window) on every step change (app/dashboard/CLAUDE.md
@@ -130,16 +166,82 @@ export default function CreateListWizard({
   // unfiltered and the cached total would render on the build button. The
   // voter-file count deliberately fires with zero selections (ENG-10751):
   // the disabled build button still shows the live unfiltered total.
-  const { count, isLoading, isCapError, errorMessage } = useListWizardCount(
+  const { count, isLoading, isStale, isError, isCapError, errorMessage } =
+    useListWizardCount(
+      backendPayload,
+      // The voter-file count fires on every pill toggle, so an org with no
+      // resolvable district produced one 400 per keystroke-debounced change.
+      !voterDataUnavailable &&
+        (activeBranch === 'voterFile' ||
+          (activeBranch === 'activity' && isConditionsStepValid)),
+    )
+
+  // ENG-10781: a selection that RESOLVES to zero matches must not advance —
+  // it can't build anything. Gated on !isLoading && !isStale so a payload
+  // still in-flight/debouncing (buildLabel below already hides the number in
+  // that window) can't flash the CTA disabled-then-enabled as the trailing
+  // count lands; only a settled zero counts. !isError because a failed
+  // refetch retains the previous cached count (possibly 0) with
+  // isLoading/isStale both false — an errored count is unknown, not zero.
+  const isZeroMatch = !isLoading && !isStale && !isError && count === 0
+
+  // ENG-10840: the overlap strip only ever fires on a REAL selection (unlike
+  // the live count above, which deliberately also fires unfiltered to show
+  // the disabled CTA's full-universe total) — "no selection = no strip" is
+  // one of the AC's hard gates, so isConditionsStepValid alone (not the
+  // voter-file branch's always-on rule) decides whether it's enabled.
+  const hasSavedLists = customSegments.length > 0
+  const {
+    count: overlapCount,
+    isLoading: isOverlapLoading,
+    isStale: isOverlapStale,
+    isError: isOverlapError,
+  } = useListWizardOverlapCount(
     backendPayload,
-    activeBranch === 'voterFile' ||
-      (activeBranch === 'activity' && isConditionsStepValid),
+    !voterDataUnavailable && isConditionsStepValid && hasSavedLists,
   )
 
+  // Render only once every input has settled: the live count backs the
+  // percent's denominator, so an in-flight/errored live count can't produce
+  // a stale or nonsensical percent. A failed overlap request (isOverlapError)
+  // hides the strip entirely rather than surfacing an error — it's a passive
+  // affordance, never something that blocks the CTA.
+  const overlapBarProps =
+    stepName === 'conditions' &&
+    isConditionsStepValid &&
+    hasSavedLists &&
+    !isOverlapLoading &&
+    !isOverlapStale &&
+    !isOverlapError &&
+    overlapCount !== undefined &&
+    !isLoading &&
+    !isStale &&
+    !isError &&
+    count !== undefined
+      ? {
+          overlapCount,
+          liveCount: count,
+        }
+      : null
+
   const handleNext = () => {
-    if (stepName === 'branch' && branch) setStepIndex(stepIndex + 1)
-    else if (stepName === 'conditions' && isConditionsStepValid)
+    if (stepName === 'branch' && branch) {
+      trackEvent(EVENTS.Contacts.ListWizard.MethodCompleted, {
+        context: isWinContext ? 'win' : 'serve',
+        branch,
+      })
       setStepIndex(stepIndex + 1)
+    } else if (
+      stepName === 'conditions' &&
+      isConditionsStepValid &&
+      !isZeroMatch
+    ) {
+      trackEvent(EVENTS.Contacts.ListWizard.ConditionsCompleted, {
+        context: isWinContext ? 'win' : 'serve',
+        ...(activeBranch ? { branch: activeBranch } : {}),
+      })
+      setStepIndex(stepIndex + 1)
+    }
   }
 
   const handleBack = () => {
@@ -159,6 +261,14 @@ export default function CreateListWizard({
       // product-specific events in this surface, so a not-yet-settled mode
       // can't emit the wrong variant.
       if (isWinContextReady) {
+        // ENG-10767: the name stage's funnel completion — fires alongside
+        // the List Created outcome events below (skill rule: a final stage
+        // that both completes the funnel and produces the outcome fires
+        // both; they answer different questions).
+        trackEvent(EVENTS.Contacts.ListWizard.NameCompleted, {
+          context: isWinContext ? 'win' : 'serve',
+          ...(activeBranch ? { branch: activeBranch } : {}),
+        })
         if (activeBranch === 'voterFile') {
           const variableCount =
             countSelectedFilterCategories(demographicFilters) +
@@ -224,11 +334,25 @@ export default function CreateListWizard({
   })
 
   const trimmedName = name.trim()
-  const canSubmit = trimmedName.length > 0 && !createMutation.isPending
+  // !isLoading && !isStale: a save that races the debounced count would omit
+  // voterCount and let the server default it to 0 — the exact display bug
+  // ENG-10769 fixes. isStale also blocks the window where a payload change is
+  // still awaiting the debounce, so Save can't enable on a superseded count
+  // and then re-disable when the trailing refetch lands (that flicker let a
+  // click slip through onto a disabled button under load). A failed count
+  // still submits once settled (count stays a nice-to-have).
+  const canSubmit =
+    trimmedName.length > 0 &&
+    !createMutation.isPending &&
+    !isLoading &&
+    !isStale
 
   const handleSubmit = () => {
     if (!canSubmit) return
-    createMutation.mutate({ name: trimmedName, ...backendPayload })
+    createMutation.mutate({
+      name: trimmedName,
+      ...backendPayload,
+    })
   }
 
   const peopleNoun = isWinContext ? 'voters' : 'constituents'
@@ -246,10 +370,23 @@ export default function CreateListWizard({
         ? 'Name your list'
         : labels.wizardVoterFileStepTitle
 
+  // The label hides the number whenever there's no trustworthy CURRENT
+  // count — mid-fetch, still debouncing, or never resolved (including a
+  // terminal error, since we can't format undefined either way).
+  // isLoading/isStale always hide it regardless of isError: a refetch of a
+  // previously-errored query can have isFetching and isError both true at
+  // once, and that's still a real in-flight fetch.
   const buildLabel =
-    isLoading || count === undefined
+    isLoading || isStale || count === undefined
       ? 'Build your list'
-      : `Build your list (${numberFormatter(count)})`
+      : `Build your list (${count.toLocaleString()})`
+  // isZeroMatch above excludes isError because a failed refetch's count is
+  // unknown, not a real value — the same discipline applies here: without
+  // `&& !isError`, a query that errors on its very first fetch (no prior
+  // successful count) leaves `count` undefined forever, so the CTA would be
+  // stuck showing the loading spinner permanently instead of settling into
+  // the errored "Build your list" guidance state.
+  const isCounting = isLoading || isStale || (count === undefined && !isError)
 
   return (
     <CrmSheet
@@ -257,6 +394,11 @@ export default function CreateListWizard({
       onOpenChange={onOpenChange}
       onBack={stepIndex > 0 ? handleBack : undefined}
       bodyRef={bodyRef}
+      banner={
+        stepName === 'conditions' && overlapBarProps ? (
+          <OverlapBar {...overlapBarProps} peopleNoun={peopleNoun} />
+        ) : undefined
+      }
       header={
         <>
           <DrawerTitle className="text-base font-semibold">
@@ -286,7 +428,8 @@ export default function CreateListWizard({
               type="button"
               className="w-full text-sm"
               onClick={handleNext}
-              disabled={!isConditionsStepValid}
+              disabled={!isConditionsStepValid || isZeroMatch}
+              loading={isCounting}
             >
               {buildLabel}
             </Button>
@@ -332,7 +475,10 @@ export default function CreateListWizard({
           name={name}
           onNameChange={setName}
           count={count}
-          isCounting={isLoading}
+          // isStale too: while a filter change is still debouncing the count
+          // is stale for the current selection and Save is gated off, so the
+          // sentence must read "Counting…" rather than assert a stale total.
+          isCounting={isLoading || isStale}
           isCapError={isCapError}
           countErrorMessage={errorMessage}
           peopleNoun={peopleNoun}

@@ -10,11 +10,15 @@ import { PositionsModule } from './positions/positions.module'
 import { VoterIssuesModule } from './voterIssues/voterIssues.module'
 import { ZipToPositionModule } from './zipToPosition/zipToPosition.module'
 import { ElectedOfficeSupportModule } from './electedOfficeSupport/electedOfficeSupport.module'
+import { PersonsModule } from './persons/persons.module'
+import { OfficeHoldersModule } from './officeHolders/officeHolders.module'
 import { loggerModule } from './observability/logging/logger-module'
+import { AuthenticationModule } from './authentication/authentication.module'
 
 @Module({
   imports: [
     loggerModule,
+    AuthenticationModule,
     RacesModule,
     PlacesModule,
     HealthModule,
@@ -26,6 +30,8 @@ import { loggerModule } from './observability/logging/logger-module'
     VoterIssuesModule,
     ZipToPositionModule,
     ElectedOfficeSupportModule,
+    PersonsModule,
+    OfficeHoldersModule,
   ],
 })
 export class AppModule {}

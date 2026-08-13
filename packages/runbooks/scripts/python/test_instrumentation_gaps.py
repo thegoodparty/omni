@@ -914,3 +914,122 @@ def test_main_load_seed_missing_file_is_graceful(tmp_path, capsys):
     assert json.loads(state.read_text()) == prior  # untouched
     err = capsys.readouterr().err
     assert str(missing) in err
+
+
+def test_main_load_seed_and_load_review_are_mutually_exclusive(tmp_path, capsys):
+    seed = tmp_path / "seed.md"
+    seed.write_text("# seed\n")
+    review = tmp_path / "review.md"
+    review.write_text("# review\n")
+
+    rc = ig.main(["--load-seed", str(seed), "--load-review", str(review)])
+
+    assert rc == 1
+    assert "mutually exclusive" in capsys.readouterr().err
+
+
+def test_new_this_run_filters_by_disposition_and_first_seen():
+    state = {
+        "a": {"id": "a", "disposition": "new", "first_seen": "2026-08-03", "rank": 2},
+        "b": {"id": "b", "disposition": "new", "first_seen": "2026-07-27", "rank": 1},
+        "c": {"id": "c", "disposition": "dismissed", "first_seen": "2026-08-03", "rank": 0},
+        "d": {"id": "d", "disposition": "new", "first_seen": "2026-08-03", "rank": 1},
+    }
+    out = ig.new_this_run(state, "2026-08-03")
+    assert [e["id"] for e in out] == ["d", "a"]  # rank asc, then id; b (old) and c (dismissed) excluded
+
+
+def test_weekly_review_artifact_round_trips(tmp_path):
+    state = {
+        "a": {"id": "a", "disposition": "new", "first_seen": "2026-08-03", "rank": 1,
+              "surface_type": "route", "location": "app/x/page.tsx", "rubric_rule": "flow",
+              "dashboard_question": "q", "judge_reason": "jr"},
+        "old": {"id": "old", "disposition": "new", "first_seen": "2026-07-01", "rank": 1},
+    }
+    art = ig.render_review_artifact(state, "2026-08-03")
+    assert "## a" in art and "## old" not in art  # only this run's batch
+    filled = art.replace("- disposition:", "- disposition: dismissed", 1) \
+                .replace("- reason:", "- reason: not a funnel step", 1)
+    parsed = ig.parse_seed_artifact(filled)
+    new_state, applied = ig.apply_seed_dispositions(state, parsed, date(2026, 8, 3))
+    assert applied == 1
+    assert new_state["a"]["disposition"] == "dismissed"
+    assert new_state["a"]["reason"] == "not a funnel step"
+
+
+def test_cli_list_new_outputs_this_run(tmp_path, capsys):
+    state_path = tmp_path / "gaps.json"
+    state_path.write_text(json.dumps({
+        "a": {"id": "a", "disposition": "new", "first_seen": "2026-08-03", "rank": 1},
+        "old": {"id": "old", "disposition": "new", "first_seen": "2026-07-01", "rank": 1},
+    }))
+    rc = ig.main(["--state", str(state_path), "--today", "2026-08-03", "--list-new"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert [e["id"] for e in payload] == ["a"]
+
+
+def test_cli_list_new_skips_on_corrupt_state(tmp_path, capsys):
+    state_path = tmp_path / "gaps.json"
+    state_path.write_text("{ not valid json")
+    before = state_path.read_text()
+
+    rc = ig.main(["--state", str(state_path), "--today", "2026-08-03", "--list-new"])
+
+    assert rc == 0
+    assert state_path.read_text() == before
+    err = capsys.readouterr().err
+    assert "unreadable" in err or "corrupt" in err.lower()
+
+
+def test_cli_review_artifact_writes_this_run_batch(tmp_path):
+    state_path = tmp_path / "gaps.json"
+    state_path.write_text(json.dumps({
+        "a": {"id": "a", "disposition": "new", "first_seen": "2026-08-03", "rank": 1,
+              "surface_type": "route", "location": "app/x/page.tsx"},
+        "old": {"id": "old", "disposition": "new", "first_seen": "2026-07-01", "rank": 1},
+    }))
+    out = tmp_path / "review.md"
+
+    rc = ig.main(["--state", str(state_path), "--today", "2026-08-03",
+                  "--review-artifact", str(out)])
+
+    assert rc == 0
+    text = out.read_text()
+    assert "## a" in text and "## old" not in text        # only this run's batch
+    assert "- disposition:" in text                        # fillable review artifact
+
+
+def test_cli_review_artifact_and_load_seed_are_mutually_exclusive(tmp_path, capsys):
+    out = tmp_path / "review.md"
+    seed = tmp_path / "seed.md"
+    seed.write_text("# seed\n")
+
+    rc = ig.main(["--review-artifact", str(out), "--load-seed", str(seed)])
+
+    assert rc == 1                                         # caught before the early return
+    assert "mutually exclusive" in capsys.readouterr().err
+    assert not out.exists()                                # no artifact written
+
+
+def test_stamp_gap_and_is_actioned():
+    state = {"a": {"id": "a", "disposition": "accepted"}}
+    ig.stamp_gap(state, "a", ticket_url="https://clickup.com/t/DATA-9999", actioned_at="2026-08-03")
+    assert state["a"]["ticket_url"].endswith("DATA-9999")
+    assert state["a"]["actioned_at"] == "2026-08-03"
+    assert ig.is_actioned(state["a"]) is True
+    assert ig.is_actioned({"id": "b", "disposition": "accepted"}) is False
+
+
+def test_merge_preserves_ticket_stamp():
+    prior = {"a": {"id": "a", "surface_type": "route", "location": "app/x/page.tsx",
+                   "disposition": "accepted", "reason": "", "first_seen": "2026-08-03",
+                   "last_seen": "2026-08-03", "ticket_url": "https://clickup.com/t/DATA-1",
+                   "actioned_at": "2026-08-03", "rank": 1}}
+    verdicts = {"a": {"is_gap": True, "rubric_rule": "flow", "dashboard_question": "q",
+                      "reason": "still a gap", "rank": 1}}
+    cand = {"a": {"id": "a", "surface_type": "route", "location": "app/x/page.tsx"}}
+    out = ig.merge_judged_state(prior, verdicts, cand, date(2026, 8, 10))
+    assert out["a"]["ticket_url"].endswith("DATA-1")
+    assert out["a"]["actioned_at"] == "2026-08-03"
+    assert out["a"]["disposition"] == "accepted"

@@ -3,6 +3,7 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import ListsIndex from './ListsIndex'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useListRowDetail } from './useListRowDetail'
@@ -10,6 +11,10 @@ import { useDuplicateList } from './useDuplicateList'
 
 vi.mock('../ContactsTableProvider', () => ({
   useContactsTable: vi.fn(),
+}))
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
 }))
 vi.mock('./useListRowDetail', () => ({
   useListRowDetail: vi.fn(),
@@ -46,6 +51,7 @@ const setContext = (
     customSegments: [],
     isWinContext: true,
     isWinContextReady: true,
+    canUseProFeatures: true,
     selectList,
     ...overrides,
   } as unknown as ReturnType<typeof useContactsTable>)
@@ -74,6 +80,7 @@ beforeEach(() => {
     lastOutreach: undefined,
     isLoading: false,
     isError: false,
+    isGated: false,
   })
   mockedUseDuplicateList.mockReturnValue({
     mutate: vi.fn(),
@@ -104,18 +111,16 @@ describe('ListsIndex — empty state', () => {
 })
 
 describe('ListsIndex — the "All voters" universe row', () => {
-  it('renders the universe row first with the district total and no Details action', async () => {
+  it('renders the universe row first with the district total and a Details action', async () => {
     setContext({ customSegments: [] })
 
     render(<ListsIndex />)
 
     expect(screen.getByText('All voters')).toBeInTheDocument()
     expect(await screen.findByText('85,696')).toBeInTheDocument()
-    // No saved-segment id exists for the unfiltered universe, so the row
-    // offers Send outreach only.
-    expect(
-      screen.queryByRole('button', { name: 'Details' }),
-    ).not.toBeInTheDocument()
+    // ENG-10778 reverses the earlier deviation — the universe row now opens
+    // a detail view like any saved list.
+    expect(screen.getByRole('button', { name: 'Details' })).toBeInTheDocument()
   })
 
   it('reads "All constituents" in Serve mode', () => {
@@ -124,6 +129,31 @@ describe('ListsIndex — the "All voters" universe row', () => {
     render(<ListsIndex />)
 
     expect(screen.getByText('All constituents')).toBeInTheDocument()
+  })
+})
+
+// ENG-10778: the universe row's Details CTA.
+describe('ListsIndex — universe row Details', () => {
+  it('selects the universe sentinel (shallow sheet navigation) when Details is clicked', async () => {
+    setContext({ customSegments: [] })
+    const user = userEvent.setup()
+
+    render(<ListsIndex />)
+
+    await user.click(screen.getByRole('button', { name: 'Details' }))
+
+    expect(selectList).toHaveBeenCalledWith('all')
+  })
+
+  it('does not open the sheet for a non-pro user (upsell gate instead)', async () => {
+    setContext({ customSegments: [], canUseProFeatures: false })
+    const user = userEvent.setup()
+
+    render(<ListsIndex />)
+
+    await user.click(screen.getByRole('button', { name: 'Details' }))
+
+    expect(selectList).not.toHaveBeenCalled()
   })
 })
 
@@ -169,7 +199,9 @@ describe('ListsIndex — ENG-10749 Send outreach is Win-only', () => {
     expect(
       screen.queryByRole('link', { name: 'Send outreach' }),
     ).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Details' })).toBeInTheDocument()
+    // The universe row and the list card both carry a Details CTA now
+    // (ENG-10778).
+    expect(screen.getAllByRole('button', { name: 'Details' })).toHaveLength(2)
     expect(
       screen.getByRole('button', { name: 'List options' }),
     ).toBeInTheDocument()
@@ -190,6 +222,31 @@ describe('ListsIndex — ENG-10749 Send outreach is Win-only', () => {
   })
 })
 
+// ENG-10767: the CRM list → outreach funnel entry event.
+describe('ListsIndex — Send Outreach Clicked analytics', () => {
+  it('fires with surface universeRow (no listId) from the universe row and surface listCard + listId from a card', async () => {
+    setContext({ customSegments: [{ id: 42, name: 'GOTV text list' }] })
+    const user = userEvent.setup()
+
+    render(<ListsIndex />)
+
+    const outreachLinks = screen.getAllByRole('link', {
+      name: 'Send outreach',
+    })
+    await user.click(outreachLinks[0]!)
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.VoterData.SendOutreachClicked,
+      { surface: 'universeRow' },
+    )
+
+    await user.click(outreachLinks[1]!)
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.VoterData.SendOutreachClicked,
+      { listId: 42, surface: 'listCard' },
+    )
+  })
+})
+
 describe('ListsIndex — Details opens the detail sheet', () => {
   it('selects the list (shallow sheet navigation) when Details is clicked', async () => {
     setContext({
@@ -199,7 +256,9 @@ describe('ListsIndex — Details opens the detail sheet', () => {
 
     render(<ListsIndex />)
 
-    await user.click(screen.getAllByRole('button', { name: 'Details' })[0]!)
+    // Index 0 is the universe row's own Details button (ENG-10778); the
+    // list card's is index 1.
+    await user.click(screen.getAllByRole('button', { name: 'Details' })[1]!)
 
     expect(selectList).toHaveBeenCalledWith(42)
   })
@@ -243,6 +302,23 @@ describe('ListsIndex — card options menu', () => {
   })
 })
 
+describe('ListsIndex — count affordance', () => {
+  it('renders the people count', () => {
+    mockedUseListRowDetail.mockReturnValue({
+      peopleCount: 10000,
+      lastOutreach: undefined,
+      isLoading: false,
+      isError: false,
+      isGated: false,
+    })
+    setContext({ customSegments: [{ id: 47, name: 'Exactly 10k list' }] })
+
+    render(<ListsIndex />)
+
+    expect(screen.getByText('10,000')).toBeInTheDocument()
+  })
+})
+
 describe('ListsIndex — outreach subtitle', () => {
   it('shows "No outreach yet" when the list has never been used for outreach', () => {
     mockedUseListRowDetail.mockReturnValue({
@@ -250,6 +326,7 @@ describe('ListsIndex — outreach subtitle', () => {
       lastOutreach: undefined,
       isLoading: false,
       isError: false,
+      isGated: false,
     })
     setContext({ customSegments: [{ id: 44, name: 'Fresh list' }] })
 
@@ -267,14 +344,96 @@ describe('ListsIndex — outreach subtitle', () => {
         outreachType: 'text',
         status: 'completed',
         date: new Date('2026-06-22T00:00:00.000Z'),
+        createdAt: new Date('2026-06-22T00:00:00.000Z'),
       },
       isLoading: false,
       isError: false,
+      isGated: false,
     })
     setContext({ customSegments: [{ id: 45, name: 'Texted list' }] })
 
     render(<ListsIndex />)
 
     expect(screen.getByText(/^Last outreach /)).toBeInTheDocument()
+  })
+})
+
+// GET /v1/contacts/list-detail is pro-gated server-side, but the row fetched it
+// on mount with no gate, so a non-pro user 400d on page load without touching
+// anything. That was the whole [contacts] GET /v1/contacts/list-detail alert.
+describe('ListsIndex — pro gating on saved-list rows', () => {
+  it('does not enable the row detail fetch for a non-pro user', () => {
+    setContext({
+      customSegments: [{ id: 42, name: 'My list' }],
+      canUseProFeatures: false,
+    })
+
+    render(<ListsIndex />)
+
+    expect(mockedUseListRowDetail).toHaveBeenCalledWith(42, false)
+  })
+
+  it('enables the row detail fetch for a pro user', () => {
+    setContext({
+      customSegments: [{ id: 42, name: 'My list' }],
+      canUseProFeatures: true,
+    })
+
+    render(<ListsIndex />)
+
+    expect(mockedUseListRowDetail).toHaveBeenCalledWith(42, true)
+  })
+
+  it('does not open the sheet when a non-pro user clicks a row Details', async () => {
+    setContext({
+      customSegments: [{ id: 42, name: 'My list' }],
+      canUseProFeatures: false,
+    })
+    const user = userEvent.setup()
+
+    render(<ListsIndex />)
+
+    // Two Details buttons render: the universe row first, then the saved list.
+    const detailsButtons = screen.getAllByRole('button', { name: 'Details' })
+    await user.click(detailsButtons[1]!)
+
+    expect(selectList).not.toHaveBeenCalled()
+  })
+
+  it('opens the sheet when a pro user clicks a row Details', async () => {
+    setContext({
+      customSegments: [{ id: 42, name: 'My list' }],
+      canUseProFeatures: true,
+    })
+    const user = userEvent.setup()
+
+    render(<ListsIndex />)
+
+    const detailsButtons = screen.getAllByRole('button', { name: 'Details' })
+    await user.click(detailsButtons[1]!)
+
+    expect(selectList).toHaveBeenCalledWith(42)
+  })
+
+  it('shows the Pro lock affordance instead of a bare dash when gated', () => {
+    mockedUseListRowDetail.mockReturnValue({
+      peopleCount: undefined,
+      lastOutreach: undefined,
+      isLoading: false,
+      isError: false,
+      isGated: true,
+    })
+    setContext({
+      customSegments: [{ id: 42, name: 'My list' }],
+      canUseProFeatures: false,
+    })
+
+    render(<ListsIndex />)
+
+    expect(screen.getByText('Pro')).toBeInTheDocument()
+    expect(
+      screen.getByText('Upgrade to Pro to see outreach history'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Unavailable')).not.toBeInTheDocument()
   })
 })

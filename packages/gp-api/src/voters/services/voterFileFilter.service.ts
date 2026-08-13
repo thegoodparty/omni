@@ -160,6 +160,30 @@ export class VoterFileFilterService extends createPrismaBase(
     })
   }
 
+  // Most-recently-saved lists first, capped at `limit` — the overlap-count
+  // union (ENG-10840) uses this to find the org's freshest lists once it
+  // exceeds MAX_OVERLAP_SAVED_FILTER_SETS, rather than every saved list ever
+  // created.
+  findRecentByOrganizationSlug(
+    organizationSlug: string,
+    limit: number,
+  ): Promise<VoterFileFilterWithConditions[]> {
+    return this.model.findMany({
+      where: { organizationSlug },
+      orderBy: { createdAt: Prisma.SortOrder.desc },
+      take: limit,
+      include: ACTIVITY_CONDITIONS_INCLUDE,
+    })
+  }
+
+  // The org's real total, for the overlap-count truncation log (ENG-10840) —
+  // findRecentByOrganizationSlug's `take` caps what it returns, so its result
+  // length alone can't tell a genuinely-truncated org apart from one sitting
+  // exactly at the fetch limit.
+  countByOrganizationSlug(organizationSlug: string): Promise<number> {
+    return this.model.count({ where: { organizationSlug } })
+  }
+
   findByIdAndOrganizationSlug(
     id: number,
     organizationSlug: string,
@@ -234,10 +258,11 @@ export class VoterFileFilterService extends createPrismaBase(
       audienceLikelyVoters,
       audienceUnreliableVoters,
       audienceUnlikelyVoters,
-      audienceFirstTimeVoters,
+      audienceUnknown,
       partyIndependent,
       partyDemocrat,
       partyRepublican,
+      partyOther,
       age18_25,
       age25_35,
       age35_50,
@@ -269,8 +294,8 @@ export class VoterFileFilterService extends createPrismaBase(
       ...(audienceUnlikelyVoters === true
         ? { audience_unlikelyVoters: audienceUnlikelyVoters }
         : {}),
-      ...(audienceFirstTimeVoters === true
-        ? { audience_firstTimeVoters: audienceFirstTimeVoters }
+      ...(audienceUnknown === true
+        ? { audience_unknown: audienceUnknown }
         : {}),
       ...(partyIndependent === true
         ? { party_independent: partyIndependent }
@@ -279,6 +304,7 @@ export class VoterFileFilterService extends createPrismaBase(
       ...(partyRepublican === true
         ? { party_republican: partyRepublican }
         : {}),
+      ...(partyOther === true ? { party_other: partyOther } : {}),
       ...(age18_25 === true ? { age_18_25: age18_25 } : {}),
       ...(age25_35 === true ? { age_25_35: age25_35 } : {}),
       ...(age35_50 === true ? { age_35_50: age35_50 } : {}),
@@ -306,16 +332,37 @@ export class VoterFileFilterService extends createPrismaBase(
   // above) rather than pulling in OutreachModule, which already imports
   // ContactsModule (forwardRef) — a back-edge here would create a genuine
   // module cycle.
+  //
+  // ENG-10776: legacy `doorKnocking` rows are excluded — the door-knock tool
+  // never materializes into this CRM surface (see src/contacts/CLAUDE.md),
+  // so a leftover legacy row here is always a stray hand-logged draft, never
+  // a real send. `nativeDoorKnocking` stays: those rows are deliberately
+  // surfaced in the unified outreach list. Postgres `ORDER BY date DESC`
+  // defaults to NULLS FIRST, which would put a null-date legacy row above
+  // every real send — `NullsOrder.last` plus a `createdAt` tiebreaker makes
+  // the order deterministic for the remaining legacy rows.
   findOutreachesByVoterFileFilterId(voterFileFilterId: number) {
     return this._prisma.outreach.findMany({
-      where: { voterFileFilterId },
-      orderBy: { date: 'desc' },
+      where: {
+        voterFileFilterId,
+        outreachType: { not: OutreachType.doorKnocking },
+      },
+      orderBy: [
+        {
+          date: {
+            sort: Prisma.SortOrder.desc,
+            nulls: Prisma.NullsOrder.last,
+          },
+        },
+        { createdAt: Prisma.SortOrder.desc },
+      ],
       select: {
         id: true,
         name: true,
         outreachType: true,
         status: true,
         date: true,
+        createdAt: true,
       },
     })
   }

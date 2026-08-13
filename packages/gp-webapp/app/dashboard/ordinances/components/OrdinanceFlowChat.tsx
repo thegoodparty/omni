@@ -28,6 +28,7 @@ import { segmentsTextLength } from '../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../briefings/shared/useDictationAppend'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { buildOrdinanceAnchor } from '../data/anchor'
 import { ordinanceFlowChatApi } from '../data/chat-api'
 import { fetchOrdinanceBySlug, saveClarifyAnswer } from '../data/ordinances-api'
@@ -40,6 +41,7 @@ import {
 import ClarifyQuestionWidget from './ClarifyQuestionWidget'
 import OrdinanceStepper from './OrdinanceStepper'
 import {
+  DRAFT_TOOL,
   TurnBlocks,
   isStepWidgetTool,
   liveTurnBlocks,
@@ -50,6 +52,23 @@ import {
 
 const CLARIFY_TOOL = 'ask_clarify_question'
 const OFFER_TOOL = 'offer_next_step'
+
+const STEP_VIEWED_EVENTS: Partial<Record<OrdinanceFlowStep, string>> = {
+  clarify: EVENTS.Ordinances.ClarifyViewed,
+  authority: EVENTS.Ordinances.AuthorityViewed,
+  current_law: EVENTS.Ordinances.CurrentLawViewed,
+  comparables: EVENTS.Ordinances.HowOthersSolvedItViewed,
+  draft: EVENTS.Ordinances.DraftCreationViewed,
+}
+
+// The draft step is absent on purpose: its completion is the draft finishing
+// in chat (the present_draft tool call), not the advance click.
+const STEP_COMPLETED_EVENTS: Partial<Record<OrdinanceFlowStep, string>> = {
+  clarify: EVENTS.Ordinances.ClarifyCompleted,
+  authority: EVENTS.Ordinances.AuthorityCompleted,
+  current_law: EVENTS.Ordinances.CurrentLawCompleted,
+  comparables: EVENTS.Ordinances.HowOthersSolvedItCompleted,
+}
 
 // User-meaningful "working" actions shown as shimmer pills. Bookkeeping tools
 // (ask_clarify_question renders as the widget; save_note/save_synthesis are
@@ -145,6 +164,9 @@ export default function OrdinanceFlowChat({
   const stepValue = isOrdinanceStep(step) ? step : null
 
   const [phase, setPhase] = useState<Phase>(stepValue ? 'loading' : 'error')
+  // Bumped by the error page's "Try again" to re-run init after a transient
+  // load failure, so the error state isn't a dead end.
+  const [retryNonce, setRetryNonce] = useState(0)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [ordinanceTitle, setOrdinanceTitle] = useState<string | null>(null)
   const [answers, setAnswers] = useState<Record<string, string>>({})
@@ -222,6 +244,12 @@ export default function OrdinanceFlowChat({
         if (isStepWidgetTool(event.toolName)) {
           const widget = parseStepWidget(event.toolName, event.args)
           if (widget) {
+            // Live tool call only — a reloaded transcript re-renders the same
+            // widget from its persisted segment without passing through here,
+            // so the event fires exactly once per created draft.
+            if (event.toolName === DRAFT_TOOL) {
+              void trackEvent(EVENTS.Ordinances.DraftCreationCompleted)
+            }
             // Record the text length streamed so far so the card renders inline
             // at that seam — the lead-in above it, later prose below it.
             setLiveWidgets((prev) => [
@@ -253,8 +281,11 @@ export default function OrdinanceFlowChat({
 
   const nextStep = stepValue ? nextOrdinanceStep(stepValue) : null
   const goToNextStep = useCallback(() => {
-    if (nextStep) router.push(`/dashboard/ordinances/solve/${slug}/${nextStep}`)
-  }, [router, slug, nextStep])
+    if (!nextStep) return
+    const completed = stepValue ? STEP_COMPLETED_EVENTS[stepValue] : undefined
+    if (completed) void trackEvent(completed)
+    router.push(`/dashboard/ordinances/solve/${slug}/${nextStep}`)
+  }, [router, slug, nextStep, stepValue])
 
   const answerClarify = useCallback(
     (questionId: string, question: string, answer: string): void => {
@@ -312,6 +343,11 @@ export default function OrdinanceFlowChat({
   }, [send])
 
   useEffect(() => {
+    const viewed = stepValue ? STEP_VIEWED_EVENTS[stepValue] : undefined
+    if (viewed) void trackEvent(viewed)
+  }, [slug, stepValue])
+
+  useEffect(() => {
     if (!stepValue) return
     let cancelled = false
     const init = async (): Promise<void> => {
@@ -346,7 +382,7 @@ export default function OrdinanceFlowChat({
     return () => {
       cancelled = true
     }
-  }, [slug, stepValue])
+  }, [slug, stepValue, retryNonce])
 
   const { scrollRef, onScroll } = usePinnedAutoScroll([
     messages,
@@ -384,11 +420,41 @@ export default function OrdinanceFlowChat({
   }
 
   if (phase === 'error' || !stepValue) {
+    // Two different failures shared one misleading "check the link" message. A
+    // missing/invalid step segment IS a bad link; a load/create failure with a
+    // valid step is usually transient and shouldn't be a dead end, so offer a
+    // retry instead of blaming a link the user may never have entered.
+    const badLink = !stepValue
     return (
       <div className="flex h-[calc(100dvh-4rem)] w-full flex-col bg-background lg:h-dvh">
-        <div className="mx-auto flex h-full w-full max-w-3xl flex-1 flex-col items-center justify-center p-6 text-center text-tertiary">
-          We couldn&apos;t open this ordinance step. Check the link and try
-          again.
+        <div className="mx-auto flex h-full w-full max-w-3xl flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
+          <p className="text-tertiary">
+            {badLink
+              ? "This link doesn't point to a valid ordinance step."
+              : "We couldn't load this step. This is usually a temporary hiccup."}
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {badLink ? null : (
+              <Button
+                type="button"
+                onClick={() => {
+                  setPhase('loading')
+                  setRetryNonce((n) => n + 1)
+                }}
+                className="rounded-full"
+              >
+                Try again
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant={badLink ? undefined : 'outline'}
+              onClick={() => router.push('/dashboard/ordinances')}
+              className="rounded-full"
+            >
+              Back to ordinances
+            </Button>
+          </div>
         </div>
       </div>
     )
