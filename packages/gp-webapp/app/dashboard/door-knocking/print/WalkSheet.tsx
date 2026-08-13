@@ -15,6 +15,7 @@ import {
 } from '../native/knockQuestions'
 import { STATUS_LABELS } from '../native/statusPresentation'
 import { formatDistance } from '../native/routeFormat'
+import { countDoors, countPeople } from '../routeCounts'
 
 const formatDuration = (seconds: number): string => {
   const minutes = Math.round(seconds / 60)
@@ -62,9 +63,6 @@ const QuestionRow = ({ children }: { children: React.ReactNode }) => (
     {children}
   </div>
 )
-
-const targetsOf = (stop: RoutePayloadStop): RoutePayloadTarget[] =>
-  stop.addresses.flatMap((address) => address.targets)
 
 const TargetBlock = ({ target }: { target: RoutePayloadTarget }) => {
   const detail = describeTarget(target)
@@ -171,7 +169,10 @@ interface WalkSheetProps {
 // hydration wait.
 export default function WalkSheet({ turfName, payload }: WalkSheetProps) {
   const stops = payload.stops.slice().sort((a, b) => a.seq - b.seq)
-  const doorCount = stops.reduce((sum, stop) => sum + targetsOf(stop).length, 0)
+  // Doors, not people: this used to sum targets, so a sheet for the same route
+  // the app called "40 doors" printed a larger number in its own header.
+  const doorCount = countDoors(stops)
+  const personCount = countPeople(stops)
 
   return (
     <div className="mx-auto max-w-3xl bg-white p-6 text-black print:max-w-none print:p-0">
@@ -189,7 +190,7 @@ export default function WalkSheet({ turfName, payload }: WalkSheetProps) {
       <header className="mb-3 border-b-2 border-black pb-2">
         <h1 className="text-lg font-bold">{turfName}</h1>
         <p className="text-xs">
-          {stops.length} stops · {doorCount} doors ·{' '}
+          {stops.length} stops · {doorCount} doors · {personCount} people ·{' '}
           {payload.route.mode === 'walk' ? 'Walking' : 'Driving'}
           {payload.route.loop ? ' loop' : ''} ·{' '}
           {formatDuration(payload.route.totalSeconds)} ·{' '}

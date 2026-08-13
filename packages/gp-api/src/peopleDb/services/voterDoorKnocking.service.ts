@@ -95,6 +95,8 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
       districtId: effectiveDistrictId,
       filters: dto.filters,
       extraConditions: [ROOFTOP_ONLY, buildBboxSql(dto.bbox)],
+      idOverrides: dto.idOverrides,
+      contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
     })
 
     // maxPeople is a guard, not pagination: over the cap the whole request

@@ -7,13 +7,19 @@ import {
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import {
+  ContactStatusField,
   DoorKnockingStopTarget,
   Organization,
   Prisma,
 } from '../../generated/prisma'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
-import { deriveKnockStatus, rollupStopStatus } from '../utils/knockStatus.util'
+import {
+  deriveKnockStatus,
+  overrideToKnockStatus,
+  rollupStopStatus,
+} from '../utils/knockStatus.util'
 
 const ROUTE_INCLUDE = {
   stops: {
@@ -51,6 +57,7 @@ export class DoorKnockingServeService extends createPrismaBase(
   constructor(
     private readonly peopleApi: DoorKnockingPeopleApiService,
     private readonly contacts: ContactsService,
+    private readonly contactStatus: ContactStatusService,
   ) {
     super()
   }
@@ -192,31 +199,64 @@ export class DoorKnockingServeService extends createPrismaBase(
     })
   }
 
-  // Latest interaction per person, org-wide — served by the CRM table's
-  // (organizationSlug, personId, occurredAt) index; rows per person are
-  // bounded by real knock history, so the reduce stays cheap.
+  // Effective status per person, org-wide: a manual override wins, otherwise
+  // the interaction history derives one. Both halves follow
+  // SupportStatusService's rules so a person reads the same at the door as in
+  // Contacts — the two used to disagree, and a candidate looking at one while
+  // holding the other has no way to tell which is lying.
+  //
+  // Served by the CRM table's (organizationSlug, personId, occurredAt) index;
+  // rows per person are bounded by real knock history, so the reduce stays
+  // cheap.
   private async latestKnockStatuses(
     organizationSlug: string,
     personIds: string[],
   ): Promise<Map<string, DoorKnockStatus>> {
-    const interactions = await this.client.contactInteractionDoorKnock.findMany(
-      {
+    const [interactions, overrides] = await Promise.all([
+      this.client.contactInteractionDoorKnock.findMany({
         where: { organizationSlug, personId: { in: personIds } },
         orderBy: [
           { occurredAt: Prisma.SortOrder.desc },
           { id: Prisma.SortOrder.desc },
         ],
         select: { personId: true, outcome: true, supportAnswer: true },
-      },
-    )
+      }),
+      this.contactStatus.currentStatusForPeople(
+        organizationSlug,
+        ContactStatusField.support_status,
+        personIds,
+      ),
+    ])
+
+    // Rows arrive newest-first, so the first row per person is the latest and
+    // the first answer-bearing one is the latest answer. Preferring the answer
+    // mirrors derivedStatusSql's `(support_answer IS NOT NULL) DESC` ordering:
+    // a later "not home" is a failed re-attempt, not a retraction of the
+    // support they already told us about.
+    const latest = new Map<string, (typeof interactions)[number]>()
+    const latestAnswered = new Map<string, (typeof interactions)[number]>()
+    for (const interaction of interactions) {
+      if (!latest.has(interaction.personId)) {
+        latest.set(interaction.personId, interaction)
+      }
+      if (
+        interaction.supportAnswer !== null &&
+        !latestAnswered.has(interaction.personId)
+      ) {
+        latestAnswered.set(interaction.personId, interaction)
+      }
+    }
 
     const statusByPersonId = new Map<string, DoorKnockStatus>()
-    for (const interaction of interactions) {
-      if (!statusByPersonId.has(interaction.personId)) {
-        statusByPersonId.set(
-          interaction.personId,
-          deriveKnockStatus(interaction),
-        )
+    for (const personId of new Set(personIds)) {
+      const overridden = overrideToKnockStatus(overrides.get(personId))
+      if (overridden) {
+        statusByPersonId.set(personId, overridden)
+        continue
+      }
+      const interaction = latestAnswered.get(personId) ?? latest.get(personId)
+      if (interaction) {
+        statusByPersonId.set(personId, deriveKnockStatus(interaction))
       }
     }
     return statusByPersonId
