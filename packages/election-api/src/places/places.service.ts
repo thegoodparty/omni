@@ -137,10 +137,10 @@ export class PlacesService extends createPrismaBase(MODELS.Place) {
       WHERE    p."mtfcc" <> 'G4000'
       GROUP BY p.id
       HAVING   COUNT(r.id) > ${minRaces}
-      ORDER BY race_count DESC;
+      ORDER BY race_count DESC
+      LIMIT    ${count};
     `
-    const topPlaces = places.slice(0, count)
-    return topPlaces
+    return places
   }
 
   private buildRaceInclude(
