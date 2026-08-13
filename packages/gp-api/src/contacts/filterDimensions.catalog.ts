@@ -38,7 +38,11 @@ export type FilterDimensionProvenance = 'observed' | 'modeled' | 'derived'
 // describeFilterDimensions.tool.ts (reaching both the Win and Serve handlers)
 // and by the Chief of Staff prompt's CRM_TOOLS_RULES — never restated.
 // Deliberately uses neither "voter" nor "constituent": Win and Serve mandate
-// opposite nouns for the people this data describes.
+// opposite nouns for the people this data describes. The last bullet's
+// "Unknown is reportable, never drop it" rule parallels the null-handling
+// rule in llm/tools/hsScoreSemantics.ts — same idea applied to a categorical
+// filter value instead of a SQL NULL, not merged because the mechanics
+// differ, but keep both in mind if either changes.
 export const FILTER_DIMENSION_PROVENANCE_RULES = `DIMENSION PROVENANCE (every dimension carries a \`provenance\` field — misreading it produces false claims):
   - "observed": a recorded fact on the file — a registration record, a contact detail on file, or an interaction this organization logged. Report these plainly, as facts about the file.
   - "modeled": an ESTIMATE about the person from a vendor or in-house model, or a sparse third-party data match — NOT something they told anyone. The underlying value often literally reads "Likely"/"Probable"/"Estimated"/"Inferred"; that qualifier is stripped from the label you see, so the field carries it instead.

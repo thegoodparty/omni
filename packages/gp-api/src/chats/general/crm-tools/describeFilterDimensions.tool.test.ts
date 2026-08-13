@@ -11,6 +11,11 @@ import {
 
 const ORGANIZATION = { slug: 'eo-council' } as Organization
 
+const isDescribeFilterDimensionsOutput = (
+  value: unknown,
+): value is DescribeFilterDimensionsOutput =>
+  typeof value === 'object' && value !== null && 'dimensions' in value
+
 describe('buildDescribeFilterDimensionsTool', () => {
   it('returns the catalog for the server-bound organization', async () => {
     const serveDimensions = FILTER_DIMENSIONS.filter((d) => d.modes !== 'win')
@@ -53,11 +58,14 @@ describe('buildDescribeFilterDimensionsTool', () => {
       contacts: { getFilterDimensions },
       organization: ORGANIZATION,
     })
-    const result = (await tool.execute({})) as DescribeFilterDimensionsOutput
+    const result = await tool.execute({})
+    if (!isDescribeFilterDimensionsOutput(result)) {
+      throw new Error('expected a dimensions payload')
+    }
     expect(result.dimensions.length).toBeGreaterThan(0)
-    expect(
-      result.dimensions.every((d) => typeof d.provenance === 'string'),
-    ).toBe(true)
+    expect(new Set(result.dimensions.map((d) => d.provenance))).toEqual(
+      new Set(['observed', 'modeled', 'derived']),
+    )
   })
 
   // Win and Serve mandate opposite nouns for this data ("voters" vs
