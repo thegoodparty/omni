@@ -20,7 +20,7 @@ interface Props {
   onOpenChange: (open: boolean) => void
   /** When set, open directly into this conversation (from footer history popover). */
   initialConversationId?: string | null
-  /** Custom renderer for assistant message content. Defaults to ReactMarkdown. */
+  /** Override for assistant message content (structured widgets). See AiChatBody. */
   messageRenderer?: (content: string) => React.ReactNode
   /** Portal target for the drawer. Defaults to document.body. */
   container?: HTMLElement | null

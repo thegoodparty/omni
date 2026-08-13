@@ -277,6 +277,7 @@ export function ChatComposer({
   placeholder = 'Ask me any questions about this...',
   inputRef,
   dictation,
+  leadingSlot,
 }: {
   value: string
   onChange: (value: string) => void
@@ -285,6 +286,9 @@ export function ChatComposer({
   placeholder?: string
   inputRef?: Ref<HTMLTextAreaElement>
   dictation?: UseDictationAppendResult
+  // Rendered at the pill's leading edge, before the input (e.g. a
+  // conversation-history popover). Omit for the plain composer.
+  leadingSlot?: ReactNode
 }): React.JSX.Element {
   // A textarea keeps Enter for newlines, so submit is wired by hand: Enter
   // sends, Shift+Enter inserts a break, and the Enter that commits an IME
@@ -306,6 +310,7 @@ export function ChatComposer({
   }
   const controls = (
     <>
+      {leadingSlot}
       <Textarea
         ref={inputRef}
         autoGrow
