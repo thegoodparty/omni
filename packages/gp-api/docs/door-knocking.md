@@ -55,19 +55,37 @@ interactive transaction:
    concurrent knocks per turf; auto-releases on commit/rollback/crash.
 2. Existence probe (`SELECT id` only). Found → return the route,
    `created: false`, no vendor call.
-3. Evaluate the turf fresh via `src/peopleDb/` (filter flags + bbox; exact
-   point-in-polygon ray-cast in-process — see "Interim geo" below), dedupe
-   to unique lat/lng stops, re-check the 150-stop cap.
-4. Check the daily waypoint budget (`waypointQuota.util.ts`): 500 stops per
-   organization per rolling 24 hours, counted off the frozen stop rows
-   themselves. Over budget → 429 and no vendor call. The turf lock doesn't
-   serialize across turfs, so simultaneous knocks in one org can overshoot
-   by up to a route; that's deliberate — see the util.
-5. One Geoapify Route Planner call (coords + opaque job ids only — no PII
+3. Resolve the turf's saved `VoterFileFilter` through
+   `ContactsService.resolveSavedFilterForQuery` — the same three steps the CRM
+   read path runs (convert → party gate → Voter Likelihood overrides, plus
+   activity-condition/support-status and contacts-made id resolution).
+   `convertVoterFileFilterToFilters` alone silently drops
+   `activityConditions`, `supportStatus`, `contactsMade*` and the
+   voter-likelihood overrides, so a list previewed in Contacts used to knock a
+   different audience than it displayed. A filter resolving to nobody → 400,
+   no people-db round trip.
+4. Evaluate the turf fresh via `src/peopleDb/` (resolved filters + the
+   `idOverrides`/`contactsMadeIdOverrides` clauses that travel beside them +
+   bbox; exact point-in-polygon ray-cast in-process — see "Interim geo"
+   below), dedupe to unique lat/lng stops, re-check the 150-stop cap.
+5. Check the daily waypoint budget (`waypointQuota.util.ts`): 500 stops per
+   organization per rolling 24 hours, summed from the
+   `door_knocking_route_planner_spend` ledger. Over budget → 429 and no vendor
+   call. The turf lock doesn't serialize across turfs, so simultaneous knocks
+   in one org can overshoot by up to a route; that's deliberate — see the util.
+6. One Geoapify Route Planner call (coords + opaque job ids only — no PII
    leaves; loop → start=end anchor at the first stop by address order;
    open → end-only anchor at the farthest-from-centroid stop; both
    deterministic, never random).
-6. Atomically create route + stops + stop targets + the Outreach envelope
+7. Record the spend (`recordWaypointSpend`) immediately, on the plain client
+   and NOT the transaction. The vendor has been paid by this point, so the
+   ledger row has to commit whether or not the freeze below it succeeds —
+   reading spend off the frozen stop rows instead meant every rolled-back
+   knock spent real money the budget never saw and handed the same allowance
+   out again. A failed ledger write is logged and swallowed: it must not turn
+   billed work into a failed knock. `route.credits` still records what that
+   individual route cost; the ledger is what the budget reads.
+8. Atomically create route + stops + stop targets + the Outreach envelope
    row (skip envelope if the org has no campaign; status `in_progress`,
    never `pending` — payment flows gate on it). The per-target activity
    event is still deferred, as noted above.
@@ -77,16 +95,25 @@ Geoapify is down, knock fails visibly — no fallback engine in v1.
 
 Non-negotiable tests: (a) two concurrent knocks → exactly one Geoapify
 call, loser returns `created: false`; (b) crash-mid-freeze → zero rows;
-(c) interaction replay with the same `clientKey` → one row.
+(c) interaction replay with the same `clientKey` → one row; (d) a knock that
+rolls back after the vendor call still leaves its spend in the ledger; (e) a
+saved list's exclusions shrink the stop set.
 
 ## Serving
 
 `GET /v1/door-knocking/turfs/:id/route`. Every read of a route (later
 opens, walk start) = frozen route + live enrichment: residents-by-address from people-db (only units
 containing a target; targets get live age/party; otherResidents are
-name-only) + each stop's knock status derived from
-`contact_interaction_door_knock` (org-wide, latest row per person —
-prior-route and prior-campaign contact is deliberately visible). The route
+name-only) + each stop's **effective** knock status (org-wide; prior-route and
+prior-campaign contact is deliberately visible). Effective means the CRM's rule,
+`override ?? derived`: a manual `support_status` override in
+`contact_current_status` wins, otherwise the latest ANSWER-bearing
+`contact_interaction_door_knock` row wins — matching
+`SupportStatusService.derivedStatusSql`, so a later "not home" reads as a failed
+re-attempt rather than a retraction of support already given. Pure
+last-write-wins made the door and Contacts disagree about the same person, and
+made a hand correction invisible at the door. `undecided` has no map member and
+reads as unknown (still worth knocking). The route
 payload ships `stopTargetId` per target (the interaction write key), no
 `navigate` block (phone builds deep links from lat/lng + a per-route
 locale), and is snapshotted offline on the phone.
@@ -112,6 +139,28 @@ columns) and gp-api ray-casts the exact polygon in process. Every touch
 point is tagged `TODO(geom-index)`; when the `geom` column + GiST index
 land, `ST_Contains` replaces bbox+ray-cast inside the people-db query with **no
 contract change**.
+
+## "Don't knock the people who refused" is not expressible yet
+
+Worth stating outright, because the pieces look like they add up and they don't.
+`ActivityConditionAction` includes `refused_to_engage`, so a saved list appears
+able to say "skip anyone who refused". It can't: `activityConditionSchema`
+carries no negation (`outreachType`, `outreachId`, `actions` only) and
+`ActivityConditionResolutionService` intersects condition matches into an `in`
+set. A door-knocking condition on `refused_to_engage` therefore selects **only**
+the people who refused — the exact opposite of the intent.
+
+The one lever that excludes is `supportStatus`, whose `unknown` member resolves
+to a `notIn` complement. But `SupportStatusRollup.refused` is override-only
+(`DERIVED_SUPPORT_STATUS_VALUES` excludes it, and `SUPPORT_ANSWER_ROLLUP` maps
+support answers, while refusal is an _outcome_), so a door-knock refusal never
+lands in that bucket and the complement never excludes them.
+
+So: resolving the filter correctly (step 3 above) is necessary but not
+sufficient. `contactsMade0` covers the common intent — "only doors I haven't
+been to" — and is now offered in the create flow because evaluate finally
+applies it. Suppressing refusals specifically needs the do-not-knock field,
+which is a separate instruction from an observed refusal and gets its own ADR.
 
 ## Scope guardrails (v1)
 

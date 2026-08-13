@@ -36,6 +36,8 @@ const baseProps = {
   ring: OPEN_RING,
   turfStats: { stops: 14, people: 22, households: 9, partyMix: [] },
   onSaved: vi.fn(),
+  isElectedOfficial: false,
+  unpreviewableKeys: [],
 }
 
 describe('CreateListFlow', () => {
@@ -185,8 +187,10 @@ describe('CreateListFlow', () => {
         turfStats={turfStats(151, 140)}
       />,
     )
+    // The cap is on stops (the router's unit), but the button counts doors —
+    // 151 stops holding 140 doors is over the cap and says so.
     expect(
-      screen.getByRole('button', { name: /Continue \(151 doors\)/ }),
+      screen.getByRole('button', { name: /Continue \(140 doors\)/ }),
     ).toBeDisabled()
     expect(screen.getByText(/Over the 150-stop limit/)).toBeInTheDocument()
 
@@ -199,7 +203,7 @@ describe('CreateListFlow', () => {
       />,
     )
     expect(
-      screen.getByRole('button', { name: /Continue \(14 doors\)/ }),
+      screen.getByRole('button', { name: /Continue \(9 doors\)/ }),
     ).toBeEnabled()
   })
 
@@ -216,11 +220,23 @@ describe('CreateListFlow', () => {
       />,
     )
 
-    expect(screen.getByText(/61/)).toBeInTheDocument()
+    // 61 households inside the ring are 61 doors across 84 stops, holding 168
+    // people — every figure in-polygon, none of them the district's 12,000.
+    // The counts sit in their own spans, so this matches the paragraph's whole
+    // text rather than a single node.
+    expect(
+      screen.getByText(
+        (_, element) =>
+          element?.tagName === 'P' &&
+          /61 doors · 84 stops · 168 people/.test(element.textContent ?? ''),
+      ),
+    ).toBeInTheDocument()
     expect(screen.queryByText(/12,000/)).toBeNull()
   })
 
-  it('estimates the walk before the route exists', () => {
+  // The estimate is denominated in doors, not the stops the router plans, so a
+  // block of flats reads as the several doors it actually is.
+  it('estimates the walk from doors, before the route exists', () => {
     const { rerender } = render(
       <CreateListFlow
         {...baseProps}
@@ -228,8 +244,10 @@ describe('CreateListFlow', () => {
         turfStats={turfStats(90, 70)}
       />,
     )
-    // 90 doors at 45 an hour.
-    expect(screen.getByText(/About 2 hr 0 min of knocking/)).toBeInTheDocument()
+    // 70 doors at 45 an hour.
+    expect(
+      screen.getByText(/About 1 hr 33 min of knocking/),
+    ).toBeInTheDocument()
 
     rerender(
       <CreateListFlow
@@ -238,7 +256,7 @@ describe('CreateListFlow', () => {
         turfStats={turfStats(15, 12)}
       />,
     )
-    expect(screen.getByText(/About 20 min of knocking/)).toBeInTheDocument()
+    expect(screen.getByText(/About 16 min of knocking/)).toBeInTheDocument()
   })
 
   // Soft warning informs; only the 150 cap blocks.
@@ -263,7 +281,7 @@ describe('CreateListFlow', () => {
       screen.getByText(/Over 100 stops is a long evening/),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: /Continue \(101 doors\)/ }),
+      screen.getByRole('button', { name: /Continue \(80 doors\)/ }),
     ).toBeEnabled()
 
     // Past the hard cap only the blocking message stands.
@@ -357,12 +375,12 @@ describe('CreateListFlow', () => {
   // Labels are sourced from the config, not hardcoded: 'Contacts Made' was
   // renamed to 'Prior Contacts Made' days after this test landed, which would
   // have made a literal assertion pass while the group still rendered.
-  it('omits the contacts-made group, which evaluate would ignore', () => {
-    const fieldLabel = (key: string) =>
-      filterSections
-        .flatMap((section) => section.fields)
-        .find((field) => field.key === key)?.label
+  const fieldLabel = (key: string) =>
+    filterSections
+      .flatMap((section) => section.fields)
+      .find((field) => field.key === key)?.label
 
+  it('offers the contacts-made group to a campaign', () => {
     const contactsMadeLabel = fieldLabel('contacts_made')
     const partyLabel = fieldLabel('political_party')
     expect(contactsMadeLabel).toBeTruthy()
@@ -370,7 +388,48 @@ describe('CreateListFlow', () => {
 
     render(<CreateListFlow {...baseProps} step="filters" />)
 
-    expect(screen.queryByLabelText(contactsMadeLabel as string)).toBeNull()
+    expect(screen.getByLabelText(contactsMadeLabel as string)).toBeTruthy()
     expect(screen.getByLabelText(partyLabel as string)).toBeTruthy()
+  })
+
+  // The pack has no 65+ bucket, so that pill leaves the shaded preview
+  // unnarrowed while the saved list still applies it — a candidate drawing
+  // against the wider shape has no way to know unless we say so.
+  it('discloses filters the map preview cannot narrow by', () => {
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} step="draw" unpreviewableKeys={[]} />,
+    )
+    expect(screen.queryByText(/can’t shade by/)).toBeNull()
+
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        unpreviewableKeys={['age65Plus']}
+      />,
+    )
+    const label = filterSections
+      .flatMap((section) => section.fields)
+      .flatMap((field) => field.options)
+      .find((option) => option.key === 'age65Plus')?.label
+    expect(label).toBeTruthy()
+    expect(
+      screen.getByText(
+        (_, element) =>
+          element?.tagName === 'P' &&
+          new RegExp(`can’t shade by ${label}`).test(element.textContent ?? ''),
+      ),
+    ).toBeInTheDocument()
+  })
+
+  // gp-api 400s a contacts-made selection from an elected-office org
+  // (assertNoContactsMadeFilterForElectedOffice), so offering it would only
+  // ever surface as a failed knock.
+  it('hides the contacts-made group from an elected official', () => {
+    const contactsMadeLabel = fieldLabel('contacts_made')
+
+    render(<CreateListFlow {...baseProps} step="filters" isElectedOfficial />)
+
+    expect(screen.queryByLabelText(contactsMadeLabel as string)).toBeNull()
   })
 })
