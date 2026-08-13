@@ -14,10 +14,7 @@ import {
   ElectionLevel,
   CampaignTier,
 } from '@goodparty_org/sdk'
-import {
-  combinedCampaignSchema,
-  type CombinedCampaignFormData,
-} from '../schema'
+import { type CombinedCampaignFormData } from '../schema'
 import { UNSAVED_CHANGES_MESSAGE } from '../constants'
 import { useNavigationGuard } from 'next-navigation-guard'
 
@@ -606,14 +603,21 @@ describe('CampaignForm', () => {
       })
     })
 
-    it('does not call onSave when safeParse fails', async () => {
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-      renderForm()
+    // Stored campaigns can hold values the current schema rejects (a website
+    // saved without a scheme, an enum since dropped from the catalog). Those
+    // are not the admin's doing, so they must not block an unrelated edit —
+    // that is what left the status-flag toggles unsaveable.
+    it('saves an unrelated edit when untouched stored data is invalid', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      onSave.mockResolvedValue(undefined)
+      renderForm({
+        details: { ...mockCampaign.details, website: 'example.com' },
+      } as unknown as Partial<CampaignWithLiveContext>)
       const user = userEvent.setup()
 
-      const nameInput = screen.getByDisplayValue('Test Campaign')
-      await user.clear(nameInput)
-      await user.type(nameInput, 'Updated')
+      await user.click(
+        screen.getByRole('switch', { name: 'Can Download Federal' })
+      )
 
       await waitFor(() => {
         expect(
@@ -621,18 +625,33 @@ describe('CampaignForm', () => {
         ).toBeEnabled()
       })
 
-      const failedResult = combinedCampaignSchema.safeParse(null)
-      vi.spyOn(combinedCampaignSchema, 'safeParse').mockReturnValueOnce(
-        failedResult
-      )
-
       await user.click(screen.getByRole('button', { name: /save changes/i }))
 
-      expect(consoleSpy).toHaveBeenCalled()
+      expect(onSave).toHaveBeenCalledOnce()
+      expect(onSave.mock.calls[0][0].canDownloadFederal).toBe(true)
+      expect(warnSpy).toHaveBeenCalled()
+
+      warnSpy.mockRestore()
+    })
+
+    it('does not call onSave when a field the admin edited is invalid', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      renderForm()
+      const user = userEvent.setup()
+
+      const websiteInput = screen.getByDisplayValue('https://example.com')
+      await user.clear(websiteInput)
+      await user.type(websiteInput, 'not-a-url')
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeDisabled()
+      })
+
       expect(onSave).not.toHaveBeenCalled()
 
       consoleSpy.mockRestore()
-      vi.mocked(combinedCampaignSchema.safeParse).mockRestore()
     })
   })
 

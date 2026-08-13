@@ -49,6 +49,34 @@ import {
 
 type FieldPath = Path<CombinedCampaignFormData>
 
+type NestedRecord = Record<string, unknown>
+
+/**
+ * True when a field the admin actually edited is invalid.
+ *
+ * Campaign rows predate the current form schema, so a stored value can be
+ * invalid through no action of the admin's — a website saved without a scheme,
+ * an enum the catalog no longer lists. Gating Save on whole-form validity let
+ * any such value block every unrelated edit, which is how a status-flag toggle
+ * ended up unsaveable. Restricting the gate to dirty fields keeps the admin's
+ * own bad input from being saved while leaving legacy data to be corrected
+ * deliberately rather than as a toll on unrelated work.
+ */
+function hasErrorInEditedFields(
+  errors: NestedRecord | undefined,
+  dirtyFields: NestedRecord | undefined
+): boolean {
+  if (!errors || !dirtyFields) return false
+
+  return Object.entries(dirtyFields).some(([key, dirty]) => {
+    const error = errors[key]
+    if (!error || !dirty) return false
+    // A leaf is `true` when dirty; a group is an object mirroring the shape.
+    if (dirty === true) return true
+    return hasErrorInEditedFields(error as NestedRecord, dirty as NestedRecord)
+  })
+}
+
 type StatusFlagKey =
   | 'isActive'
   | 'isVerified'
@@ -181,7 +209,7 @@ export function CampaignForm({
     getValues,
     reset,
     trigger,
-    formState: { errors, isDirty, isValid },
+    formState: { errors, isDirty, dirtyFields },
   } = useForm<CombinedCampaignFormData>({
     mode: FORM_MODE.ON_CHANGE,
     resolver: zodResolver(combinedCampaignSchema),
@@ -241,13 +269,27 @@ export function CampaignForm({
     confirm: () => window.confirm(UNSAVED_CHANGES_MESSAGE),
   })
 
+  const hasBlockingError = hasErrorInEditedFields(
+    errors as NestedRecord,
+    dirtyFields as NestedRecord
+  )
+
   async function handleSubmit() {
     const formData = getValues()
-    const result = combinedCampaignSchema.safeParse(formData)
 
-    if (!result.success) {
-      console.error('Validation errors:', result.error)
+    if (hasBlockingError) {
+      console.error('Validation errors:', errors)
       return
+    }
+
+    const result = combinedCampaignSchema.safeParse(formData)
+    if (!result.success) {
+      // Untouched stored fields are out of the admin's control, so they are
+      // logged and sent back as-is rather than blocking the edit at hand.
+      console.warn('Saving campaign with pre-existing invalid fields:', {
+        campaignId: initialData.id,
+        issues: result.error.issues,
+      })
     }
 
     try {
@@ -582,7 +624,7 @@ export function CampaignForm({
       <FormActions
         onCancel={onCancel}
         onSubmit={handleSubmit}
-        isValid={isValid}
+        isValid={!hasBlockingError}
         isDirty={isDirty}
         isSaving={isSaving}
       />
