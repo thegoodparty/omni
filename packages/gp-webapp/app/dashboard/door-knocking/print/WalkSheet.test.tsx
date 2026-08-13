@@ -27,6 +27,8 @@ const stop = (overrides: Partial<RoutePayloadStop> = {}): RoutePayloadStop => ({
           name: 'Dorian Fen',
           age: 31,
           politicalParty: 'Independent',
+          cellPhone: '(312) 555-0101',
+          landline: null,
           knockStatus: 'unknown',
           mayHaveMoved: false,
         },
@@ -85,6 +87,8 @@ describe('WalkSheet', () => {
               name: 'Ada One',
               age: 40,
               politicalParty: 'Democratic',
+              cellPhone: null,
+              landline: null,
               knockStatus: 'unknown',
               mayHaveMoved: false,
             },
@@ -94,6 +98,8 @@ describe('WalkSheet', () => {
               name: 'Bo Two',
               age: 42,
               politicalParty: 'Democratic',
+              cellPhone: null,
+              landline: null,
               knockStatus: 'unknown',
               mayHaveMoved: false,
             },
@@ -110,6 +116,8 @@ describe('WalkSheet', () => {
               name: 'Cy Three',
               age: 44,
               politicalParty: 'Republican',
+              cellPhone: null,
+              landline: null,
               knockStatus: 'unknown',
               mayHaveMoved: false,
             },
@@ -162,6 +170,18 @@ describe('WalkSheet', () => {
     expect(within(person).getByText('Notes')).toBeInTheDocument()
   })
 
+  // Phones are on the route payload for the app's person sheet, but paper
+  // leaves the building and is not access-controlled once it does. The sheet
+  // omits them deliberately — this asserts the omission rather than trusting it,
+  // since the fixture above carries a cell number.
+  it('never prints a phone number', () => {
+    renderSheet([stop()])
+
+    expect(screen.queryByText(/555-0101/)).toBeNull()
+    expect(screen.queryByText(/Cell phone/i)).toBeNull()
+    expect(screen.queryByText(/Landline/i)).toBeNull()
+  })
+
   // A door already logged in the app must not come back as a blank form —
   // that's how a knock gets repeated, or an answer overwritten on transcription.
   it('prints the recorded answer instead of blank boxes', () => {
@@ -178,6 +198,8 @@ describe('WalkSheet', () => {
                 name: 'Marisol Vega',
                 age: 44,
                 politicalParty: 'Democratic',
+                cellPhone: '(312) 555-0102',
+                landline: '(312) 555-0103',
                 knockStatus: 'supporter',
                 mayHaveMoved: false,
               },
@@ -213,6 +235,8 @@ describe('WalkSheet', () => {
                 name: 'Priya Raman',
                 age: 29,
                 politicalParty: null,
+                cellPhone: null,
+                landline: null,
                 knockStatus: 'unknown',
                 mayHaveMoved: false,
               },
@@ -229,6 +253,8 @@ describe('WalkSheet', () => {
                 name: 'Walter Boone',
                 age: 68,
                 politicalParty: 'Republican',
+                cellPhone: null,
+                landline: null,
                 knockStatus: 'unknown',
                 mayHaveMoved: false,
               },
@@ -263,6 +289,8 @@ describe('WalkSheet', () => {
                 name: 'Dorian Fen',
                 age: null,
                 politicalParty: null,
+                cellPhone: null,
+                landline: null,
                 knockStatus: 'unknown',
                 mayHaveMoved: true,
               },

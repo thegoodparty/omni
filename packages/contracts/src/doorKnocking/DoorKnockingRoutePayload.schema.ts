@@ -29,6 +29,12 @@ export const RoutePayloadTargetSchema = z.object({
   politicalParty: z
     .enum(['Independent', 'Democratic', 'Republican', 'Other'])
     .nullable(),
+  // For the door that doesn't answer. Live-only, like age and party: a
+  // mayHaveMoved target has no live row, so it carries no number rather than a
+  // number belonging to whoever lives there now. Screen only — the printed
+  // walk sheet deliberately omits these, since paper leaves the building.
+  cellPhone: z.string().nullable(),
+  landline: z.string().nullable(),
   knockStatus: DoorKnockStatusSchema,
   mayHaveMoved: z.boolean(),
 })

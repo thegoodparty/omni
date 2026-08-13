@@ -861,6 +861,8 @@ describe('door-knocking routes', () => {
               lastName: 'Current',
               age: 51,
               politicalParty: 'Democratic',
+              cellPhone: '(615) 555-0142',
+              landline: '(615) 555-0199',
             },
             {
               personId: PERSON_2,
@@ -868,6 +870,8 @@ describe('door-knocking routes', () => {
               lastName: 'Here',
               age: 48,
               politicalParty: null,
+              cellPhone: null,
+              landline: null,
             },
           ],
           otherResidents: [
@@ -883,6 +887,8 @@ describe('door-knocking routes', () => {
               lastName: 'Vega',
               age: 34,
               politicalParty: 'Independent',
+              cellPhone: null,
+              landline: null,
             },
           ],
           otherResidents: [],
@@ -931,6 +937,8 @@ describe('door-knocking routes', () => {
         name: 'Liv Current',
         age: 51,
         politicalParty: 'Democratic',
+        cellPhone: '(615) 555-0142',
+        landline: '(615) 555-0199',
         mayHaveMoved: false,
       })
       expect(dedupedAddress?.otherResidents).toEqual([{ name: 'Teo Vega' }])
@@ -957,6 +965,11 @@ describe('door-knocking routes', () => {
         name: 'Voter Number4',
         age: null,
         politicalParty: null,
+        // Phones come from the live row, which is exactly what a mover has
+        // none of — so the canvasser never gets a number that now belongs to
+        // whoever lives there instead.
+        cellPhone: null,
+        landline: null,
         mayHaveMoved: true,
       })
     })

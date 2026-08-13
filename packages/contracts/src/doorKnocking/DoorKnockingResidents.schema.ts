@@ -29,6 +29,11 @@ export const DoorKnockingResidentTargetSchema = z.object({
   politicalParty: z
     .enum(['Independent', 'Democratic', 'Republican', 'Other'])
     .nullable(),
+  // Same two columns the voter-file download already hands candidates as
+  // "Cell Phone" and "Landline", behind the same district access check. Live
+  // like age and party, so a person who moved carries no number.
+  cellPhone: z.string().nullable(),
+  landline: z.string().nullable(),
 })
 
 export type DoorKnockingResidentTarget = z.infer<
