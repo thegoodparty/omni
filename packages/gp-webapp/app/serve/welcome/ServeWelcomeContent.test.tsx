@@ -26,6 +26,13 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
 }))
 
+// Stub the gp-api client so the redemption "mark redeemed" ping doesn't hit the
+// network; assert it fires after a successful redemption.
+const mockClientRequest = vi.fn()
+vi.mock('gpApi/typed-request', () => ({
+  clientRequest: (...args: unknown[]) => mockClientRequest(...args),
+}))
+
 // Stub Segment fan-out; keep the real EVENTS map so the asserted event name
 // stays in lockstep with the registry.
 vi.mock('helpers/analyticsHelper', async (importActual) => {
@@ -66,6 +73,7 @@ describe('ServeWelcomeContent', () => {
       status: 'complete',
       createdSessionId: 'sess-1',
     })
+    mockClientRequest.mockResolvedValue({ ok: true, data: { ok: true } })
     // The component navigates via window.location.href; stub it so jsdom does
     // not attempt a real navigation.
     Object.defineProperty(window, 'location', {
@@ -99,6 +107,43 @@ describe('ServeWelcomeContent', () => {
       ticket: mockSearchParams.get('__clerk_ticket'),
     })
     expect(window.location.href).toBe(POST_AUTH)
+  })
+
+  it('pings gp-api to mark the link redeemed after activating the session', async () => {
+    render(<ServeWelcomeContent />)
+
+    fireEvent.click(continueButton())
+
+    await waitFor(() =>
+      expect(mockSetActive).toHaveBeenCalledWith({ session: 'sess-1' }),
+    )
+    expect(mockClientRequest).toHaveBeenCalledWith(
+      'POST /v1/elected-office/magic-link/redeemed',
+      {},
+      { keepalive: true },
+    )
+    // The redeemed ping is best-effort and must not block the redirect.
+    expect(window.location.href).toBe(POST_AUTH)
+  })
+
+  it('still redirects when the redeemed ping rejects (best-effort)', async () => {
+    mockClientRequest.mockRejectedValue(new Error('network'))
+
+    render(<ServeWelcomeContent />)
+    fireEvent.click(continueButton())
+
+    await waitFor(() => expect(window.location.href).toBe(POST_AUTH))
+  })
+
+  it('does NOT ping gp-api when redemption is skipped (already the ticket user)', async () => {
+    mockUser = { id: 'user_same' }
+    mockSearchParams = ticketFor('user_same')
+
+    render(<ServeWelcomeContent />)
+    fireEvent.click(continueButton())
+
+    await waitFor(() => expect(window.location.href).toBe(POST_AUTH))
+    expect(mockClientRequest).not.toHaveBeenCalled()
   })
 
   it('signs out a different active session (without navigating) before redeeming on click', async () => {

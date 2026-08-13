@@ -57,6 +57,9 @@ const userDefaults = {
   metaData: null,
   passwordResetToken: null,
   clerkId: null,
+  smsConsentAt: null,
+  smsConsentSource: null,
+  smsOptedOutAt: null,
 }
 
 const mockUser: User = {
@@ -129,6 +132,10 @@ describe('CampaignsController', () => {
   let analyticsService: AnalyticsService
   let filingInstructionsService: FilingInstructionsService
   let eligibilityService: EligibilityService
+  let magicLinkService: {
+    markRedeemed: ReturnType<typeof vi.fn>
+    markOnboardingCompleted: ReturnType<typeof vi.fn>
+  }
 
   beforeEach(() => {
     const campaignsServiceMock: Partial<CampaignsService> = {
@@ -187,6 +194,11 @@ describe('CampaignsController', () => {
     }
     eligibilityService = eligibilityServiceMock as EligibilityService
 
+    magicLinkService = {
+      markRedeemed: vi.fn().mockResolvedValue(undefined),
+      markOnboardingCompleted: vi.fn().mockResolvedValue(undefined),
+    }
+
     controller = new CampaignsController(
       campaignsService,
       planVersionsService,
@@ -195,6 +207,7 @@ describe('CampaignsController', () => {
       analyticsService,
       filingInstructionsService,
       eligibilityService,
+      magicLinkService as never,
       createMockLogger(),
     )
   })
@@ -919,6 +932,25 @@ describe('CampaignsController', () => {
       expect(result).toBe(true)
     })
 
+    it('mirrors Win onboarding completion onto the magic-link lifecycle on launch', async () => {
+      vi.spyOn(campaignsService, 'launch').mockResolvedValue(true)
+
+      await controller.launch(mockCampaign)
+
+      expect(magicLinkService.markOnboardingCompleted).toHaveBeenCalledWith(
+        mockCampaign.userId,
+      )
+    })
+
+    it('does not fail launch when the lifecycle mirror throws', async () => {
+      vi.spyOn(campaignsService, 'launch').mockResolvedValue(true)
+      magicLinkService.markOnboardingCompleted.mockRejectedValueOnce(
+        new Error('db down'),
+      )
+
+      await expect(controller.launch(mockCampaign)).resolves.toBe(true)
+    })
+
     it('logs, sends Slack message, and re-throws on error', async () => {
       const error = new Error('Launch failed')
       vi.spyOn(campaignsService, 'launch').mockRejectedValue(error)
@@ -932,6 +964,24 @@ describe('CampaignsController', () => {
         message: 'Error at campaign launch',
         error,
       })
+      // The link is only "onboarded" on a successful launch.
+      expect(magicLinkService.markOnboardingCompleted).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('markMagicLinkRedeemed', () => {
+    it('marks the calling lead\u2019s link redeemed', async () => {
+      const result = await controller.markMagicLinkRedeemed(mockUser)
+
+      expect(magicLinkService.markRedeemed).toHaveBeenCalledWith(mockUser.id)
+      expect(result).toEqual({ ok: true })
+    })
+
+    it('rejects an unauthenticated (M2M, no user) caller', async () => {
+      await expect(
+        controller.markMagicLinkRedeemed(undefined as never),
+      ).rejects.toThrow()
+      expect(magicLinkService.markRedeemed).not.toHaveBeenCalled()
     })
   })
 

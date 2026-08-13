@@ -1,5 +1,6 @@
 import { IncomingRequest } from '@/authentication/authentication.types'
 import { M2MOnly } from '@/authentication/guards/M2MOnly.guard'
+import { MagicLinkService } from '@/magicLink/magicLink.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import {
   BadRequestException,
@@ -53,6 +54,7 @@ export class ElectedOfficeController {
     private readonly electedOfficeService: ElectedOfficeService,
     private readonly organizationsService: OrganizationsService,
     private readonly supportEstimateService: SupportEstimateService,
+    private readonly magicLinkService: MagicLinkService,
   ) {}
 
   private toApi(record: Prisma.ElectedOfficeGetPayload<object>) {
@@ -87,6 +89,21 @@ export class ElectedOfficeController {
         orderBy: { termStartDate: 'asc' },
       })
     return offices.map((office) => this.toApi(office))
+  }
+
+  // Called by the /serve/welcome redemption page once the lead has activated
+  // their own session via the magic-link ticket. Marks the link redeemed (once)
+  // so the sales card reflects it. Session-authed: the global SessionGuard
+  // populates request.user, and an M2M token (no user) is rejected here — the
+  // caller is always the just-signed-in lead.
+  @Post('magic-link/redeemed')
+  @HttpCode(HttpStatus.OK)
+  async markMagicLinkRedeemed(@ReqUser() user: User) {
+    if (!user) {
+      throw new UnauthorizedException()
+    }
+    await this.magicLinkService.markRedeemed(user.id)
+    return { ok: true }
   }
 
   @UseElectedOffice()
@@ -182,6 +199,16 @@ export class ElectedOfficeController {
       campaignId,
       orgData,
     })
+
+    // A net-new lead can complete serve onboarding in a single create (term
+    // dates + onboardingCompletedAt in one POST). Mirror that to the magic-link
+    // lifecycle so the sales card shows "onboarded". Idempotent + best-effort.
+    if (eoFields.onboardingCompletedAt != null) {
+      await this.magicLinkService
+        .markOnboardingCompleted(user.id)
+        .catch(() => undefined)
+    }
+
     return this.toApi(created)
   }
 
@@ -326,6 +353,19 @@ export class ElectedOfficeController {
       where: { id },
       data,
     })
+
+    // Most serve-onboarding completions land here (PUT with onboardingCompletedAt
+    // after the office/term are filled). Mirror the first null→set transition to
+    // the magic-link lifecycle for the sales card. Idempotent + best-effort.
+    if (
+      body.onboardingCompletedAt != null &&
+      existing.onboardingCompletedAt == null
+    ) {
+      await this.magicLinkService
+        .markOnboardingCompleted(existing.userId)
+        .catch(() => undefined)
+    }
+
     return this.toApi(updated)
   }
 

@@ -32,6 +32,9 @@ const mockUser: User = {
   metaData: null,
   passwordResetToken: null,
   clerkId: null,
+  smsConsentAt: null,
+  smsConsentSource: null,
+  smsOptedOutAt: null,
 }
 
 const mockCampaign = { id: 111, slug: 'cmp' } as unknown as Campaign

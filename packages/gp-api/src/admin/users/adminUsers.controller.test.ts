@@ -26,6 +26,9 @@ const mockUser: User = {
   metaData: null,
   passwordResetToken: null,
   clerkId: 'user_admin_clerk_id',
+  smsConsentAt: null,
+  smsConsentSource: null,
+  smsOptedOutAt: null,
 }
 
 const mockTargetUser: User = {

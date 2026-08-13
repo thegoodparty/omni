@@ -1,4 +1,5 @@
 import { M2MOnly } from '@/authentication/guards/M2MOnly.guard'
+import { MagicLinkService } from '@/magicLink/magicLink.service'
 import { McpTool } from '@/mcp/decorators/McpTool.decorator'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
@@ -27,6 +28,7 @@ import {
   Post,
   Put,
   Query,
+  UnauthorizedException,
   UseGuards,
   UseInterceptors,
   UsePipes,
@@ -74,6 +76,7 @@ export class CampaignsController {
     private readonly analytics: AnalyticsService,
     private readonly filingInstructions: FilingInstructionsService,
     private readonly eligibility: EligibilityService,
+    private readonly magicLink: MagicLinkService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(CampaignsController.name)
@@ -259,32 +262,42 @@ export class CampaignsController {
       )
     }
 
-    if (
-      typeof slug === 'string' &&
-      campaign?.slug !== slug &&
-      userHasRole(user, [UserRole.admin, UserRole.sales])
-    ) {
-      campaign = await this.campaigns.findFirstOrThrow({
-        where: { slug },
-      })
+    if (typeof slug === 'string' && campaign?.slug !== slug) {
+      if (userHasRole(user, [UserRole.admin, UserRole.sales])) {
+        campaign = await this.campaigns.findFirstOrThrow({
+          where: { slug },
+        })
 
-      if (body?.details) {
-        const { pledged } = body.details
+        if (body?.details) {
+          const { pledged } = body.details
 
-        if (pledged) {
-          await this.analytics.identify(campaign.userId, { pledged })
+          if (pledged) {
+            await this.analytics.identify(campaign.userId, { pledged })
+          }
+
+          // Office / election date / party are per-campaign facts. Pinning them
+          // to the user identity overwrites a prior campaign's values when the
+          // user runs again, so they ride the org-scoped group() instead.
+          await this.analytics.group(
+            campaign.userId,
+            campaign.organizationSlug,
+            toCampaignGroupTraits(body.details),
+          )
         }
-
-        // Office / election date / party are per-campaign facts. Pinning them
-        // to the user identity overwrites a prior campaign's values when the
-        // user runs again, so they ride the org-scoped group() instead.
-        await this.analytics.group(
-          campaign.userId,
-          campaign.organizationSlug,
-          toCampaignGroupTraits(body.details),
-        )
+      } else {
+        // Owner updating their own campaign by explicit slug. Scoped to the
+        // caller's userId so it can only ever touch their own campaign. This
+        // decouples the write from the X-Organization-Slug header, which
+        // resolves to the wrong org (and 404s via the guard) when the user's
+        // active org is their elected-office org rather than their campaign
+        // org — e.g. answering the post-election "did you win?" gate.
+        campaign = await this.campaigns.findFirstOrThrow({
+          where: { slug, userId: user.id },
+        })
       }
-    } else if (!campaign) throw new NotFoundException('Campaign not found')
+    }
+
+    if (!campaign) throw new NotFoundException('Campaign not found')
 
     this.logger.debug({ campaign, ...{ slug, body } }, 'Updating campaign')
 
@@ -345,12 +358,38 @@ export class CampaignsController {
     )
   }
 
+  // Pinged by the /win/welcome redemption page once the candidate lead
+  // activates their own session via the magic-link ticket, so gp-api marks the
+  // link redeemed and the Win sales card reflects it. Session-authed (the
+  // just-signed-in lead, who has no campaign yet); an M2M token (no user) is
+  // rejected. markRedeemed is keyed on the user's MagicLink row, so it is
+  // kind-agnostic and idempotent.
+  @Post('magic-link/redeemed')
+  @HttpCode(HttpStatus.OK)
+  async markMagicLinkRedeemed(@ReqUser() user: User) {
+    if (!user) {
+      throw new UnauthorizedException()
+    }
+    await this.magicLink.markRedeemed(user.id)
+    return { ok: true }
+  }
+
   @Post('launch')
   @UseCampaign()
   @HttpCode(HttpStatus.OK)
   async launch(@ReqCampaign() campaign: Campaign) {
     try {
       const launchResult = await this.campaigns.launch(campaign)
+
+      // Campaign launch is the candidate's "finished Win onboarding" milestone
+      // (the analog of an ElectedOffice's onboardingCompletedAt). Mirror it onto
+      // the magic-link lifecycle so the Win sales card shows "onboarded".
+      // Idempotent + best-effort, and a no-op for organic launches with no
+      // sales-initiated magic link.
+      await this.magicLink
+        .markOnboardingCompleted(campaign.userId)
+        .catch(() => undefined)
+
       return launchResult
     } catch (e) {
       this.logger.error({ e }, 'Error at campaign launch')

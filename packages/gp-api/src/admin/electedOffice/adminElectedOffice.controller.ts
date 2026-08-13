@@ -6,6 +6,12 @@ import {
   selectPreferredOfficeHolder,
 } from '@/elections/services/ballotReady.service'
 import { ElectionsService } from '@/elections/services/elections.service'
+import { MagicLinkService } from '@/magicLink/magicLink.service'
+import {
+  MagicLinkDeliveryService,
+  SMS_NO_ACTIVE_LINK_ERROR,
+} from '@/magicLink/magicLinkDelivery.service'
+import { computeMagicLinkStatus } from '@/magicLink/util/magicLinkStatus.util'
 import { APP_ROOT } from '@/shared/util/appEnvironment.util'
 import { parseIsoDateAsUTC, toDateOnlyString } from '@/shared/util/date.util'
 import { UsersService } from '@/users/services/users.service'
@@ -14,9 +20,11 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Post,
+  Query,
   UseGuards,
   UsePipes,
 } from '@nestjs/common'
@@ -24,7 +32,9 @@ import { PinoLogger } from 'nestjs-pino'
 import { ZodValidationPipe } from 'nestjs-zod'
 import {
   CreateMagicLinkDto,
+  GetMagicLinkDto,
   MAGIC_LINK_NAME_REQUIRED_ERROR,
+  SendMagicLinkSmsDto,
 } from './schemas/magicLink.schema'
 
 type ElectedOfficePrefill = {
@@ -45,6 +55,8 @@ export class AdminElectedOfficeController {
     private readonly ballotReadyService: BallotReadyService,
     private readonly elections: ElectionsService,
     private readonly analytics: AnalyticsService,
+    private readonly magicLink: MagicLinkService,
+    private readonly magicLinkDelivery: MagicLinkDeliveryService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(AdminElectedOfficeController.name)
@@ -58,7 +70,7 @@ export class AdminElectedOfficeController {
   @Post('magic-link')
   @HttpCode(HttpStatus.OK)
   async createMagicLink(@Body() body: CreateMagicLinkDto) {
-    const { email, personId } = body
+    const { email, personId, phone, smsConsent, consentSource } = body
     // Trim before validating so a name of only whitespace is treated as blank.
     const firstName = body.firstName.trim()
     const lastName = body.lastName.trim()
@@ -66,11 +78,12 @@ export class AdminElectedOfficeController {
       throw new BadRequestException(MAGIC_LINK_NAME_REQUIRED_ERROR)
     }
 
-    const { user, token } = await this.usersService.provisionMagicLinkUser({
-      email,
-      firstName,
-      lastName,
-    })
+    const { user, token, expiresAt } =
+      await this.usersService.provisionMagicLinkUser({
+        email,
+        firstName,
+        lastName,
+      })
 
     const prefill = personId
       ? await this.prefillFromBallotReady(user.id, personId)
@@ -89,11 +102,33 @@ export class AdminElectedOfficeController {
       token,
     )}`
 
+    // Persist the link's lifecycle (source of truth) and mirror "sent" onto the
+    // HubSpot contact so the sales card shows persistent state. Best-effort —
+    // never fail link creation on state tracking.
+    await this.magicLink
+      .recordSent({ userId: user.id, email, url, expiresAt })
+      .catch((err: unknown) => {
+        this.logger.warn({ err }, 'Failed to record magic-link sent state')
+      })
+
+    // Text it in the same call when the rep supplied a phone — they clicked one
+    // button. Best-effort like the email path: a delivery failure comes back as
+    // `smsError` and the rep still has a copyable link.
+    const delivery = phone
+      ? await this.magicLinkDelivery.textActiveLink({
+          userId: user.id,
+          phone,
+          smsConsent,
+          consentSource,
+        })
+      : undefined
+
     this.logger.info(
       {
         userId: user.id,
         hasPersonId: Boolean(personId),
         prefilledElectedOfficeId: prefill?.electedOfficeId,
+        smsSent: delivery?.smsSent,
       },
       'Created EO magic link',
     )
@@ -113,7 +148,46 @@ export class AdminElectedOfficeController {
     // Return only the ticketed URL — the raw Clerk sign-in token is already
     // embedded in `url` as __clerk_ticket, and no caller reads a separate
     // `token`. Omitting it keeps the credential out of extra logs/proxies.
-    return { url, userId: user.id, prefill }
+    return { url, userId: user.id, prefill, ...delivery }
+  }
+
+  /**
+   * Texts the lead's *current* active link, for when the rep emailed it and the
+   * lead says it never arrived. Deliberately does not mint a new link: doing so
+   * would rotate the slug and kill the link already sitting in their inbox.
+   */
+  @Post('magic-link/sms')
+  @HttpCode(HttpStatus.OK)
+  async sendMagicLinkSms(@Body() body: SendMagicLinkSmsDto) {
+    const link = await this.magicLink.getByEmail(body.email)
+    if (!link) {
+      return { smsSent: false, smsError: SMS_NO_ACTIVE_LINK_ERROR }
+    }
+    return this.magicLinkDelivery.textActiveLink({
+      userId: link.userId,
+      phone: body.phone,
+      smsConsent: body.smsConsent,
+      consentSource: body.consentSource,
+    })
+  }
+
+  /**
+   * On-demand lookup of a lead's current redemption URL for the sales card's
+   * "copy link" action. The URL is intentionally NOT mirrored to HubSpot (it
+   * carries a live sign-in ticket), so the card fetches it here through the
+   * serverless function (M2M). Only returns the URL while the link is still
+   * redeemable (`sent`); a redeemed/expired/completed link returns `url: null`
+   * so a consumed or dead token is never handed back out.
+   */
+  @Get('magic-link')
+  @HttpCode(HttpStatus.OK)
+  async getMagicLink(@Query() query: GetMagicLinkDto) {
+    const link = await this.magicLink.getByEmail(query.email)
+    if (!link) {
+      return { url: null, status: null }
+    }
+    const status = computeMagicLinkStatus(link)
+    return { url: status === 'sent' ? link.url : null, status }
   }
 
   private async prefillFromBallotReady(

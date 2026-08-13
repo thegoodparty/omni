@@ -8,6 +8,7 @@ import { AgentExperimentsModule } from 'src/agentExperiments/agentExperiments.mo
 import { ArtifactReviewModule } from 'src/artifactReview/artifactReview.module'
 import { ElectedOfficeModule } from 'src/electedOffice/electedOffice.module'
 import { ElectionsModule } from 'src/elections/elections.module'
+import { MagicLinkModule } from 'src/magicLink/magicLink.module'
 import { AdminCampaignsController } from './campaigns/adminCampaigns.controller'
 import { AdminCampaignMagicLinkController } from './campaigns/adminCampaignMagicLink.controller'
 import { AdminCampaignsService } from './campaigns/adminCampaigns.service'
@@ -29,6 +30,7 @@ import { AdminBriefingsService } from './briefings/services/adminBriefings.servi
     ArtifactReviewModule,
     ElectedOfficeModule,
     ElectionsModule,
+    MagicLinkModule,
   ],
   controllers: [
     AdminCampaignsController,

@@ -5,6 +5,7 @@ import { useClerk } from '@clerk/nextjs'
 import { useSearchParams } from 'next/navigation'
 import { ArrowRight } from 'lucide-react'
 import { Button, GoodPartyOrgLogoWordmark } from '@styleguide'
+import { clientRequest } from 'gpApi/typed-request'
 import { WIN_ONBOARDING_PATH } from 'helpers/resolvePostAuthRedirectPath.util'
 
 /**
@@ -116,6 +117,17 @@ export default function WinWelcomeContent() {
       }
 
       await setActive({ session: result.createdSessionId })
+
+      // Tell gp-api the link was redeemed so the Win sales HubSpot card reflects
+      // it. Best-effort and non-blocking: `keepalive` lets the request outlive
+      // the navigation below, and any failure is swallowed (the redemption
+      // itself already succeeded). Fires here, after setActive, so the request
+      // carries the lead's freshly-activated session.
+      void clientRequest(
+        'POST /v1/campaigns/magic-link/redeemed',
+        {},
+        { keepalive: true },
+      ).catch(() => undefined)
 
       window.location.href = POST_AUTH_REDIRECT
     } catch (err) {

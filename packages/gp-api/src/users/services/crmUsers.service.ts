@@ -4,8 +4,9 @@ import {
   Inject,
   Injectable,
 } from '@nestjs/common'
-import { Campaign, User } from '../../generated/prisma'
+import { Campaign, MagicLinkKind, User } from '../../generated/prisma'
 import { UsersService } from './users.service'
+import { buildMagicLinkContactProperties } from '../../magicLink/util/magicLinkStatus.util'
 import { CampaignsService } from '../../campaigns/services/campaigns.service'
 import { getMidnightForDate } from '../../shared/util/date.util'
 import { HubspotService } from '../../crm/hubspot.service'
@@ -151,6 +152,43 @@ export class CrmUsersService {
         'could not find contact by email. user has never filled a form!',
       )
     }
+  }
+
+  /**
+   * Mirrors a magic-link record's derived lifecycle status onto the lead's
+   * HubSpot contact (custom `*_magic_link_*` properties the sales App Card
+   * reads). Resolves the contact id by email (the contact always exists — the
+   * card is rendered on that contact record), caching it on the record via the
+   * returned id. Returns the resolved contact id, or undefined if it couldn't
+   * be resolved or HubSpot isn't configured.
+   */
+  async syncMagicLinkContactProperties(record: {
+    email: string
+    crmContactId: string | null
+    kind: MagicLinkKind
+    url: string
+    sentAt: Date
+    expiresAt: Date
+    redeemedAt: Date | null
+    onboardingCompletedAt: Date | null
+  }): Promise<string | undefined> {
+    if (!this.hubspot.isConfigured) {
+      return undefined
+    }
+    const contactId =
+      record.crmContactId ?? (await this.findCrmContactIdByEmail(record.email))
+    if (!contactId) {
+      this.logger.warn(
+        { email: record.email },
+        'Could not resolve HubSpot contact to mirror magic-link state',
+      )
+      return undefined
+    }
+    const properties = buildMagicLinkContactProperties(record)
+    await this.hubspot.client.crm.contacts.basicApi.update(contactId, {
+      properties,
+    })
+    return contactId
   }
 
   async trackUserUpdate(userId: number) {
