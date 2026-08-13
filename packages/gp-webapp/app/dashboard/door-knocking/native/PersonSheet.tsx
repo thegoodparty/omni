@@ -31,8 +31,26 @@ interface PersonSheetProps {
 }
 
 // The demo's person sheet: a right panel on desktop, a bottom sheet on
-// small screens. Talking points are deferred (needs the AI service); the
-// route payload carries no phones, so those read Unknown like the demo.
+// small screens. Talking points are deferred (needs the AI service).
+//
+// Phones are live-only and screen-only. The route payload carries them for a
+// target that still has a live row, which is the same rule mayHaveMoved is
+// derived from — so a mover shows no number rather than one belonging to
+// whoever lives there now. They are deliberately absent from the printed walk
+// sheet, which leaves the building.
+const digitsOnly = (phone: string): string => phone.replace(/\D/g, '')
+
+const PhoneRow = ({ label, phone }: { label: string; phone: string }) => (
+  <div>
+    <p className="text-xs text-muted-foreground">{label}</p>
+    {/* Tappable: the point of a number at the door is calling it from the
+        phone already in the canvasser's hand. */}
+    <a className="underline" href={`tel:${digitsOnly(phone)}`}>
+      {phone}
+    </a>
+  </div>
+)
+
 export default function PersonSheet({
   stop,
   initialTargetId,
@@ -113,6 +131,22 @@ export default function PersonSheet({
                 <p className="text-xs text-muted-foreground">Address</p>
                 <p>{stop.displayAddress}</p>
               </div>
+              {target.cellPhone && (
+                <PhoneRow label="Cell phone" phone={target.cellPhone} />
+              )}
+              {target.landline && (
+                <PhoneRow label="Landline" phone={target.landline} />
+              )}
+              {/* Only meaningful for someone we still have a live row for: a
+                  mover has no number because the row is gone, not because the
+                  file lacks one, and the moved warning below says so. */}
+              {!target.cellPhone &&
+                !target.landline &&
+                !target.mayHaveMoved && (
+                  <p className="text-xs text-muted-foreground">
+                    No phone number on file.
+                  </p>
+                )}
               <a
                 className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-muted"
                 href={`https://maps.google.com/?q=${stop.lat},${stop.lng}`}

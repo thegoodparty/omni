@@ -177,6 +177,10 @@ export class DoorKnockingServeService extends createPrismaBase(
             name: composeName(livePerson) ?? target.name,
             age: livePerson?.age ?? null,
             politicalParty: livePerson?.politicalParty ?? null,
+            // Live-only, so a mover carries no number: livePerson is what
+            // mayHaveMoved is derived from.
+            cellPhone: livePerson?.cellPhone ?? null,
+            landline: livePerson?.landline ?? null,
             knockStatus: statusByPersonId.get(target.personId) ?? 'unknown',
             mayHaveMoved: !livePerson,
           }

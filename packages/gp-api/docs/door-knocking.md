@@ -120,3 +120,25 @@ identity (candidate-only), voter removal (`not_a_voter` is stored, not
 acted on), sharable URLs, tagging, arbitrary questions, UI turf-splitting
 (the schema already supports N turfs). Feature flag: `native-door-knocking`
 gates all FE surfaces; backend lands dark.
+
+## Phones at the door
+
+The residents join returns `cellPhone` / `landline` for **targets only** —
+`VoterTelephones_CellPhoneFormatted` and `_LandlineFormatted`, the same two
+columns the voter-file download already hands candidates as "Cell Phone" and
+"Landline" behind the same district access check, so surfacing them here is not
+new disclosure. `otherResidents` stays name-only: a non-target resident is
+household context for the conversation, not someone the candidate asked to
+contact.
+
+They are live-only, which falls out of the join rather than being enforced
+separately: `mayHaveMoved` is `!livePerson`, so a mover has no live row and
+therefore no number — never one belonging to whoever lives there now. Blank and
+NULL are not used consistently in the voter file, so both are normalized to
+null.
+
+The webapp renders them in `PersonSheet` and **not** on the printed walk sheet;
+paper leaves the building and stops being access-controlled when it does.
+
+Voter **email** is absent data, not a decision: there is no email column on the
+`Voter` model and no field on the `Person` contract.
