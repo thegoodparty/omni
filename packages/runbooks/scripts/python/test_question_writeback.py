@@ -19,11 +19,14 @@ class _FakeResponse:
     status_code = 200
     content = b"{}"
 
+    def __init__(self, payload=None):
+        self._payload = payload if payload is not None else {}
+
     def raise_for_status(self):
         return None
 
     def json(self):
-        return {}
+        return self._payload
 
 
 def _recorder(log):
@@ -31,6 +34,25 @@ def _recorder(log):
         log.append((method, url, kwargs.get("json")))
         return _FakeResponse()
     return fake
+
+
+def _responder(payload):
+    def fake(method, url, **kwargs):
+        return _FakeResponse(payload)
+    return fake
+
+
+def _task(task_id, field):
+    return {"id": task_id, "custom_fields": [field]}
+
+
+_TYPE_CONFIG = {
+    "options": [
+        {"id": "opt-a", "name": "answerable", "orderindex": 0},
+        {"id": "opt-p", "name": "partially answerable", "orderindex": 1},
+        {"id": "opt-n", "name": "not answerable", "orderindex": 2},
+    ]
+}
 
 
 def test_rows_without_a_task_ref_are_skipped():
@@ -75,6 +97,66 @@ def test_last_checked_is_sent_as_epoch_milliseconds():
     assert date_payload["value"] == int(
         __import__("datetime").datetime(2026, 8, 13).timestamp() * 1000
     )
+
+
+def test_dropdown_uuid_value_is_resolved_through_type_config():
+    payload = {"tasks": [
+        _task("86ak1111", {
+            "name": "Answer state", "type_config": _TYPE_CONFIG, "value": "opt-a",
+        }),
+        _task("86ak2222", {
+            "name": "Answer state", "type_config": _TYPE_CONFIG, "value": "opt-n",
+        }),
+    ]}
+    assert qw.fetch_current_state("k", "L", requester=_responder(payload)) == {
+        "86ak1111": "answerable", "86ak2222": "not_answerable",
+    }
+
+
+def test_dropdown_orderindex_value_is_resolved_through_type_config():
+    payload = {"tasks": [
+        _task("86ak3333", {
+            "name": "Answer state", "type_config": _TYPE_CONFIG, "value": 1,
+        }),
+    ]}
+    assert qw.fetch_current_state("k", "L", requester=_responder(payload)) == {
+        "86ak3333": "partially_answerable",
+    }
+
+
+def test_a_bare_label_value_is_still_accepted():
+    payload = {"tasks": [
+        _task("86ak4444", {"name": "Answer state", "value": "answerable"}),
+    ]}
+    assert qw.fetch_current_state("k", "L", requester=_responder(payload)) == {
+        "86ak4444": "answerable",
+    }
+
+
+def test_rows_sharing_a_task_ref_write_once_with_the_worst_state():
+    log = []
+    rows = [
+        {"question": "Q-bad", "state": "not_answerable", "question_ref": "86ak1111"},
+        {"question": "Q-good", "state": "answerable", "question_ref": "86ak1111"},
+    ]
+    n = qw.write_answer_state(
+        "k", rows, state_field_id="f-state", checked_field_id="f-date",
+        option_ids=OPTIONS, today=TODAY, current={}, requester=_recorder(log),
+    )
+    assert n == 1
+    assert len(log) == 2
+    state_payloads = [body for _, url, body in log if "f-state" in url]
+    assert state_payloads == [{"value": "opt-n"}]
+
+
+def test_changed_rows_dedupes_so_the_dry_run_count_matches_what_gets_written():
+    rows = [
+        {"question": "Q-good", "state": "answerable", "question_ref": "86ak1111"},
+        {"question": "Q-bad", "state": "not_answerable", "question_ref": "86ak1111"},
+    ]
+    deduped = qw.changed_rows(rows, {})
+    assert len(deduped) == 1
+    assert deduped[0]["state"] == "not_answerable"
 
 
 def test_unknown_state_label_raises_rather_than_writing_a_wrong_value():

@@ -21,22 +21,52 @@ STATE_LABELS = {
     "not_answerable": "not answerable",
 }
 
+# Worst first. An unknown state sorts worst of all so it survives the dedupe and reaches
+# write_answer_state, which is where it is meant to raise.
+_SEVERITY = {"not_answerable": 0, "partially_answerable": 1, "answerable": 2}
 
-def changed_rows(rows: list[dict], current: dict[str, str]) -> list[dict]:
-    """Rows with a task to write to, whose state differs from what the task already says."""
-    out = []
+
+def _worst_by_ref(rows: list[dict]) -> list[dict]:
+    """One row per task, worst state winning. A behavior contributes a row for its own question
+    and for every question it `answers:`, so several rows can carry the same question_ref; writing
+    them all would post to one task N times and leave whichever row happened to be last showing on
+    it."""
+    out: dict[str, dict] = {}
     for row in rows:
         ref = row.get("question_ref")
         if not ref:
             continue
-        if current.get(ref) == row.get("state"):
-            continue
-        out.append(row)
-    return out
+        kept = out.get(ref)
+        if kept is None or _SEVERITY.get(row.get("state"), -1) < _SEVERITY.get(
+            kept.get("state"), -1
+        ):
+            out[ref] = row
+    return list(out.values())
+
+
+def changed_rows(rows: list[dict], current: dict[str, str]) -> list[dict]:
+    """One row per task to write to, whose state differs from what the task already says."""
+    return [r for r in _worst_by_ref(rows) if current.get(r["question_ref"]) != r.get("state")]
 
 
 def _epoch_ms(day: date) -> int:
     return int(datetime(day.year, day.month, day.day).timestamp() * 1000)
+
+
+def _option_label(field: dict) -> str:
+    """The display name behind a drop_down custom field's value. ClickUp returns the value as the
+    chosen option's uuid (or its orderindex) and keeps the names in type_config.options, so a field
+    this module wrote never reads back as a label unless we resolve it here."""
+    value = field.get("value")
+    if value is None:
+        return ""
+    target = str(value)
+    for option in (field.get("type_config") or {}).get("options") or []:
+        if target in (str(option.get("id")), str(option.get("orderindex"))):
+            return str(option.get("name", ""))
+    if isinstance(value, dict):
+        return str(value.get("name", ""))
+    return target
 
 
 def fetch_current_state(
@@ -53,12 +83,7 @@ def fetch_current_state(
         for field in task.get("custom_fields") or []:
             if field.get("name") != state_field_name:
                 continue
-            value = field.get("value")
-            label = ""
-            if isinstance(value, dict):
-                label = str(value.get("name", ""))
-            elif value is not None:
-                label = str(value)
+            label = _option_label(field)
             if label in label_to_key:
                 out[str(task.get("id"))] = label_to_key[label]
     return out
