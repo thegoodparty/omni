@@ -172,3 +172,24 @@ identity (candidate-only), voter removal (`not_a_voter` is stored, not
 acted on), sharable URLs, tagging, arbitrary questions, UI turf-splitting
 (the schema already supports N turfs). Feature flag: `native-door-knocking`
 gates all FE surfaces; backend lands dark.
+
+## Access and eligibility
+
+Two products live at `/dashboard/door-knocking`. `DoorKnockingPageGate` picks
+between them: the native voter map when `native-door-knocking` is on, the
+legacy eCanvasser dashboard when it is off or unsettled. The sidebar entry in
+`DashboardMenu` mirrors that same branch, so the link and the landing page
+always agree — flag on requires a resolvable district (every pack and turf read
+resolves one server-side and 400s without it), flag off requires an eCanvasser
+integration record, which is the only thing the legacy dashboard can render.
+
+**Pre-GA: there is no Pro or subscription check on this feature.** Not on the
+page, not on any route in `src/doorKnocking/`. Access is the flag plus
+`candidateAccess()`, which only establishes that the caller is a candidate.
+That is deliberate for a flag-gated pilot — the allowlist _is_ the entitlement,
+and the waypoint quota caps vendor spend per org either way. It is wrong for
+GA, because the flag would come off for everyone at once and the routing spend
+is real money per knock. Deciding where that gate belongs (route guard vs.
+page-level upgrade view, and whether a non-Pro candidate sees a locked preview
+the way Know Your Opponent does) is a prerequisite for turning the flag on
+broadly, not a follow-up to it.
