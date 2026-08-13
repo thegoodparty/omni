@@ -20,6 +20,8 @@ const target = (
   name: 'Dorian Fen',
   age: 31,
   politicalParty: null,
+  cellPhone: null,
+  landline: null,
   knockStatus: 'unknown',
   mayHaveMoved: false,
   doNotKnock: false,

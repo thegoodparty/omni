@@ -240,6 +240,8 @@ describe('WalkSheet', () => {
                 name: 'Dorian Fen',
                 age: 31,
                 politicalParty: 'Independent',
+                cellPhone: null,
+                landline: null,
                 // Previously knocked, and flagged since: the instruction wins
                 // over what was logged at the door before.
                 knockStatus: 'supporter',

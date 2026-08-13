@@ -23,6 +23,7 @@ const target = (
   landline: null,
   knockStatus: 'unknown',
   mayHaveMoved: false,
+  doNotKnock: false,
   ...overrides,
 })
 
@@ -53,6 +54,7 @@ const renderSheet = (targets: RoutePayloadTarget[]) =>
       statusFor={(candidate) => candidate.knockStatus}
       clientKeyFor={() => 'key'}
       onRecorded={vi.fn()}
+      onDoNotKnockChanged={vi.fn()}
       onClose={vi.fn()}
     />,
   )
