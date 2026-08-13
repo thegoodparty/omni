@@ -163,7 +163,7 @@ export const ComposeStep = ({
                   type="button"
                   variant="link"
                   size="small"
-                  className="h-auto px-2 no-underline"
+                  className="h-auto px-2"
                   onClick={onUndo}
                 >
                   Undo
