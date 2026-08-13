@@ -100,6 +100,15 @@ export default function NativeDoorKnockingPage({
   const [selectedTurf, setSelectedTurf] = useState<DoorKnockingTurf | null>(
     null,
   )
+  // Renaming from the details sheet only invalidates the turfs query, and
+  // `selectedTurf` is the snapshot captured when the row was clicked — read the
+  // heading's name off the live row or the rail would keep showing the old one
+  // after the sheet closes. Same rule TurfDetailsSheet's `liveTurf` follows:
+  // the query for anything editable, the snapshot for identity and geometry.
+  const selectedTurfName = selectedTurf
+    ? (turfsQuery.data?.find((candidate) => candidate.id === selectedTurf.id)
+        ?.name ?? selectedTurf.name)
+    : null
   const savedListsQuery = useQuery(savedListsQueryOptions)
   const [knockTurf, setKnockTurf] = useState<DoorKnockingTurf | null>(null)
   const [detailsTurf, setDetailsTurf] = useState<DoorKnockingTurf | null>(null)
@@ -322,7 +331,7 @@ export default function NativeDoorKnockingPage({
         <section className="flex flex-col gap-2">
           <div>
             <h2 className="text-sm font-semibold">
-              {selectedTurf ? selectedTurf.name : 'District voters'}
+              {selectedTurfName ?? 'District voters'}
             </h2>
             {filterResult && (
               <p className="text-xs text-muted-foreground">
