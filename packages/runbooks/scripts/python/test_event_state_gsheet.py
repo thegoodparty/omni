@@ -266,6 +266,16 @@ def test_build_question_values_joins_list_cells():
     assert matrix[2][caveat_idx] == "one list per abandoned attempt (DATA-2308)"
 
 
+def test_build_question_values_maps_renamed_columns_to_row_keys():
+    # answering_events/clickup_task read row keys events/question_ref; without the
+    # _QUESTION_COL_KEY remap each column silently renders blank.
+    matrix = gs.build_question_values(QUESTION_ROWS)
+    events_idx = gs.QUESTIONS_COLUMNS.index("answering_events")
+    assert matrix[1][events_idx] == "Voter Data - List Exported"
+    task_idx = gs.QUESTIONS_COLUMNS.index("clickup_task")
+    assert matrix[1][task_idx] == "86ak1111"
+
+
 def test_build_question_values_blank_for_missing_keys():
     matrix = gs.build_question_values([{"question": "Q"}])
     assert matrix[1][gs.QUESTIONS_COLUMNS.index("state")] == ""
