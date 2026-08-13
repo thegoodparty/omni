@@ -754,6 +754,7 @@ export const EVENTS = {
   // manual "log progress" modal already feeds it the same way.
   DoorKnocking: {
     ListCreated: 'Door Knocking - List Created',
+    ListEdited: 'Door Knocking - List Edited',
     ListDeleted: 'Door Knocking - List Deleted',
     RouteBuilt: 'Door Knocking - Route Built',
     RouteBuildFailed: 'Door Knocking - Route Build Failed',

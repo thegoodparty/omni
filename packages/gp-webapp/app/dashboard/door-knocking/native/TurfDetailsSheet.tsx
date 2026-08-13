@@ -4,11 +4,18 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
-import { Button, IconButton, Trash2Icon, XMarkIcon } from '@styleguide'
+import {
+  Button,
+  IconButton,
+  PencilIcon,
+  Trash2Icon,
+  XMarkIcon,
+} from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ConfirmDeleteDialog } from 'app/dashboard/shared/ConfirmDeleteDialog'
+import EditTurfDialog from './EditTurfDialog'
 import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
 import { LANGUAGE_KEY_TO_CODE } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import {
@@ -71,13 +78,16 @@ export default function TurfDetailsSheet({
   const queryClient = useQueryClient()
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   // `turf` is a snapshot the page captured when the row was clicked, so its
   // `locked` never moves on its own. Reading the live row keeps the affordance
   // honest after a refetch — the page already runs this query, so React Query
   // serves it from cache rather than fetching twice. Rule of thumb: liveTurf
-  // for anything that gates behavior, the prop for identity (id, filter id)
-  // and for the fields this surface never edits.
+  // for anything that gates behavior or that this surface can edit — name and
+  // color both, now that EditTurfDialog writes them, or the header would keep
+  // showing the old name after a rename — and the prop for identity (id,
+  // filter id), which no edit can change.
   const turfsQuery = useQuery(turfsQueryOptions)
   const liveTurf =
     turfsQuery.data?.find((candidate) => candidate.id === turf.id) ?? turf
@@ -159,21 +169,36 @@ export default function TurfDetailsSheet({
         <div className="mx-auto flex w-full max-w-2xl items-start gap-3">
           <span
             className="mt-1.5 h-3 w-3 shrink-0 rounded-full"
-            style={{ backgroundColor: turf.color }}
+            style={{ backgroundColor: liveTurf.color }}
           />
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-lg font-semibold">{turf.name}</h2>
+            <h2 className="truncate text-lg font-semibold">{liveTurf.name}</h2>
             <p className="text-sm text-muted-foreground">
               Overview of this list, its route, and applied filters.
             </p>
           </div>
+          {/* Same lock rule as Delete, for the same reason: gp-api's update
+              asserts not-locked because the endpoint also accepts geoPoly, and
+              the polygon is what the frozen route was computed from. */}
+          {!liveTurf.locked && (
+            <Button
+              size="small"
+              variant="outline"
+              aria-label={`Edit ${liveTurf.name}`}
+              className="shrink-0"
+              onClick={() => setEditOpen(true)}
+            >
+              <PencilIcon size={14} />
+              Edit
+            </Button>
+          )}
           {!liveTurf.locked && (
             <Button
               size="small"
               variant="outline"
               // Named for the turf so it doesn't collide with the confirm
               // dialog's own "Delete", for screen readers and tests alike.
-              aria-label={`Delete ${turf.name}`}
+              aria-label={`Delete ${liveTurf.name}`}
               className="shrink-0 text-destructive hover:bg-destructive/10"
               onClick={() => {
                 setDeleteError(null)
@@ -286,13 +311,18 @@ export default function TurfDetailsSheet({
           </section>
         </div>
       </div>
+      <EditTurfDialog
+        turf={liveTurf}
+        open={editOpen}
+        onOpenChange={setEditOpen}
+      />
       <ConfirmDeleteDialog
         open={confirmOpen}
         onOpenChange={(next) => {
           setConfirmOpen(next)
           if (!next) setDeleteError(null)
         }}
-        title={`Delete ${turf.name}?`}
+        title={`Delete ${liveTurf.name}?`}
         description="The drawn area and its filters are removed for good. The saved list stays in Contacts, and no logged knocks are affected."
         onConfirm={() => deleteTurf.mutate()}
         confirming={deleteTurf.isPending}
