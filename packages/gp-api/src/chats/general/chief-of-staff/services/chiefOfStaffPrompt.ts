@@ -1,5 +1,6 @@
 import { differenceInCalendarMonths } from 'date-fns'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
+import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
 import type { ChatAnchor } from '@goodparty_org/contracts'
 import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
 import { PriorityRecord } from './prioritiesPort'
@@ -71,7 +72,9 @@ const CONSTITUENT_DATA_RULES = `CONSTITUENT DATA RULES (apply whenever you call 
 const CRM_TOOLS_RULES = `CONTACT LIST RULES (apply whenever you call \`describe_filter_dimensions\` or \`count_contacts\`):
 - Call describe_filter_dimensions before composing your first count_contacts filter, and only use dimension keys and values it returned — never invent one.
 - Counts are aggregates. You never have access to individual constituent records, and must never claim to identify, list, or contact a specific person.
-- If count_contacts returns an error instead of a count, relay the reason plainly and stop; do not retry the same rejected filter.`
+- If count_contacts returns an error instead of a count, relay the reason plainly and stop; do not retry the same rejected filter.
+
+${FILTER_DIMENSION_PROVENANCE_RULES}`
 
 const SAVED_FILTER_RULES = `SAVED LIST RULES (apply whenever you call \`crud_saved_filters\`):
 - Before creating a list, run count_contacts with the same filter and confirm the size with the user.
