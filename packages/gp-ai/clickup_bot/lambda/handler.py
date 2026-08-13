@@ -266,15 +266,44 @@ your findings and recommend a human handle the implementation.
 
 Branch naming: `<custom_id>/gp-bot_<description-slug>` (use the task's custom_id like ENG-1234, not the internal ID)
 PR title format: `[GP-Bot] <custom_id> <description>`
-PRs target omni's `develop` branch.
+PRs target omni's `main` branch.
 
 Post the PR link to ClickUp when done.
 """
 
+ANALYZE_LABEL = "analyze"
+IMPLEMENT_LABEL = "implement"
+
 TAG_CONFIG = {
-    "gpbot-analyze": {"instruction": ANALYZE_INSTRUCTION, "label": "analyze", "model": "opus"},
-    "gpbot-work": {"instruction": IMPLEMENT_INSTRUCTION, "label": "implement", "model": "opus"},
+    "gpbot-analyze": {"instruction": ANALYZE_INSTRUCTION, "label": ANALYZE_LABEL, "model": "opus"},
+    "gpbot-work": {"instruction": IMPLEMENT_INSTRUCTION, "label": IMPLEMENT_LABEL, "model": "opus"},
 }
+
+# SCOPE GUARD for the implement agent. gpbot-work used to be applied by hand,
+# one ticket at a time, so "is this a code bug?" was answered by the human
+# doing the tagging. It is now applied by two ClickUp Automations — one on the
+# bug lists, one workspace-wide on `production-bug` — so nothing upstream
+# answers that question any more and this is the only place that does.
+#
+# Data tickets are the sharp edge: DATA-* work is a voter-file or
+# district-assignment problem rather than an omni code change, and they carry
+# `production-bug` as heavily as ENG tickets do, so without this guard the
+# workspace-wide automation points a code agent at every data bug reported.
+#
+# IMPLEMENT ONLY (deliberate): gpbot-analyze stays in scope everywhere. It
+# posts an investigation comment, it is used on data tickets constantly, and
+# it is trusted. Only opening a code PR against a data ticket is wrong.
+DATA_BACKLOG_LIST_ID = "901326391561"
+# Growth-Bugs is marketing-site work that does not live in omni at all, so the
+# agent would burn a full run and produce nothing.
+GROWTH_BUGS_LIST_ID = "901326170992"
+
+OUT_OF_SCOPE_LIST_IDS = frozenset({DATA_BACKLOG_LIST_ID, GROWTH_BUGS_LIST_ID})
+OUT_OF_SCOPE_CUSTOM_ID_PREFIXES = ("DATA-",)
+# The data team's own marker for district/voter-file problems. Catches data
+# work that was filed into (or triaged into) an ENG list, where neither the
+# custom_id nor the list id would flag it.
+OUT_OF_SCOPE_TAG_NAMES = frozenset({"bug: district-assignment"})
 
 
 def clickup_request(method: str, endpoint: str, data: dict | None = None) -> dict:
@@ -294,6 +323,51 @@ def clickup_request(method: str, endpoint: str, data: dict | None = None) -> dic
 def get_task_comments(task_id: str) -> list[dict]:
     result = clickup_request("GET", f"/task/{task_id}/comment")
     return result.get("comments", [])
+
+
+def get_task(task_id: str) -> dict:
+    return clickup_request("GET", f"/task/{task_id}")
+
+
+def out_of_scope_reason(task: Any) -> str | None:
+    # Short human-readable reason when the implement agent must NOT run for
+    # this task, else None. See the SCOPE GUARD note on OUT_OF_SCOPE_LIST_IDS.
+    #
+    # Shape-defensive throughout, in both directions. A ClickUp response drift
+    # must not crash the worker — but it must not silently WIDEN scope either,
+    # so every check is an explicit isinstance match: an unreadable field
+    # simply fails to match and falls through to the caller's documented
+    # fail-open, rather than being coerced into a comparison that accidentally
+    # passes.
+    if not isinstance(task, dict):
+        return None
+
+    custom_id = task.get("custom_id")
+    if isinstance(custom_id, str):
+        # Upper-cased before matching: the prefix is a human-typed convention
+        # and ClickUp echoes back whatever case the workspace configured.
+        normalized_custom_id = custom_id.upper()
+        for prefix in OUT_OF_SCOPE_CUSTOM_ID_PREFIXES:
+            if normalized_custom_id.startswith(prefix):
+                return f"custom_id {custom_id} is not omni code work"
+
+    task_list = task.get("list")
+    if isinstance(task_list, dict):
+        list_id = task_list.get("id")
+        if isinstance(list_id, str) and list_id in OUT_OF_SCOPE_LIST_IDS:
+            list_name = task_list.get("name")
+            return f"list {list_name if isinstance(list_name, str) else list_id} is not omni code work"
+
+    tags = task.get("tags")
+    if isinstance(tags, list):
+        for tag in tags:
+            if not isinstance(tag, dict):
+                continue
+            tag_name = tag.get("name")
+            if isinstance(tag_name, str) and tag_name.lower() in OUT_OF_SCOPE_TAG_NAMES:
+                return f"tag '{tag_name}' marks this as data work"
+
+    return None
 
 
 def has_processing_started_comment(comments: list[dict], label: str, now: float | None = None) -> bool:
@@ -656,6 +730,34 @@ def dedup_check_then_trigger(task_id: str, matched_tag: str, from_async_worker: 
     # its 200 (ack retry with a pause; see trigger_fargate_task) and behavior
     # that only makes sense when nobody receives the HTTP response (the
     # comment-fetch failure handling below).
+    config = TAG_CONFIG[matched_tag]
+
+    # SCOPE GUARD runs FIRST — before the comments GET and before the dedup
+    # claim. Both orderings are load-bearing: a claim written for a task we
+    # then refuse would outlive this delivery and suppress a legitimate re-tag
+    # for the whole TTL, and an out-of-scope task must never receive an ack
+    # comment. Rejecting here also keeps the entire out-of-scope path down to
+    # one ClickUp call, which matters once a workspace-wide automation is
+    # feeding it every data ticket in the workspace.
+    if config["label"] == IMPLEMENT_LABEL:
+        try:
+            task = get_task(task_id)
+        except Exception as e:
+            # FAIL OPEN, the same trade try_acquire_dedup_lock makes: one
+            # wasted agent run costs a few dollars and a closeable PR, while
+            # refusing every bug during a ClickUp blip is a silent outage.
+            # Alarm-matching ("Failed to") on purpose — a persistent failure
+            # here disables the data boundary without changing any behavior an
+            # operator would otherwise notice.
+            print(f"Failed to fetch task {task_id} for scope check, proceeding: {e}")
+        else:
+            skip_reason = out_of_scope_reason(task)
+            if skip_reason:
+                # Quiet (no "ERROR"/"Failed to"): this is the guard working as
+                # designed, and it fires on every data ticket in the workspace.
+                print(f"Task {task_id} out of scope for {IMPLEMENT_LABEL}: {skip_reason}")
+                return {"statusCode": 200, "body": json.dumps({"skipped": "out of scope"})}
+
     try:
         comments = get_task_comments(task_id)
     except Exception as e:
@@ -686,7 +788,6 @@ def dedup_check_then_trigger(task_id: str, matched_tag: str, from_async_worker: 
             post_failure_comment(task_id, f"{type(e).__name__} fetching ClickUp comments (see CloudWatch logs)")
             return {"statusCode": 500, "body": json.dumps({"error": "failed to get comments"})}
 
-    config = TAG_CONFIG[matched_tag]
     if has_processing_started_comment(comments, config["label"]):
         print(f"Task {task_id} already has a recent {PROCESSING_STARTED_PREFIX} ({config['label']}) comment, skipping")
         return {"statusCode": 200, "body": json.dumps({"skipped": "already processed"})}

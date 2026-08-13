@@ -40,6 +40,8 @@ ClickUp comment OR GitHub PR
    by a top-level `gpbot_async` key with no ALB envelope keys, which an
    internet request cannot produce — an ALB-wrapped body stays a string inside
    `event["body"]`):
+   - Scope guard (`implement` only): `GET /task/{id}` and skip when the task is
+     not omni code work. See "Scope guard" below.
    - Dedup check: does the task already have a **recent** `[GP-Bot] Processing
      started` comment **for the same label**? → Skip. Analyze and implement
      dedup independently. See "Dedup semantics" below.
@@ -69,6 +71,37 @@ on the task and returns HTTP 500.
 
 To retry after a failure (e.g. once the config is fixed): remove and re-add the tag.
 Failure comments do not mark the task as processed, so the retry re-triggers.
+
+## Scope guard
+
+`gpbot-work` used to be applied by hand, one ticket at a time, so a human
+decided "is this omni code work?" before the agent ever ran. ClickUp Automations
+now apply it — including one that is workspace-wide on `production-bug` — so
+nothing upstream answers that question and this guard is the only thing that
+does.
+
+Applies to the **implement label only**. `gpbot-analyze` is deliberately
+unrestricted: analyzing a data bug is useful and it is used on DATA tickets
+constantly. Only opening a code PR against one is wrong.
+
+An implement trigger is skipped (200, `{"skipped": "out of scope"}`) when any of:
+
+| Signal | Value | Why |
+|---|---|---|
+| `custom_id` prefix | `DATA-` | Voter-file/district work, not an omni code change |
+| `list.id` | `901326391561` (Data Backlog) | Catches DATA-list tasks with no custom ID |
+| `list.id` | `901326170992` (Growth-Bugs) | Marketing-site work; does not live in omni |
+| tag | `bug: district-assignment` | The data team's marker, for data work sitting in an ENG list |
+
+Two orderings are load-bearing. The guard runs **before the comments GET**, so a
+rejected task costs one ClickUp call rather than two — it now fires on every
+data ticket in the workspace. And it runs **before the dedup claim**, because a
+claim written for a task we then refuse would outlive the delivery and suppress
+a legitimate re-tag for the whole TTL.
+
+If the lookup itself fails the guard **fails open** and the run proceeds, with
+an alarm-matching log line. One wasted run costs a few dollars and a closeable
+PR; refusing every bug during a ClickUp blip is a silent outage.
 
 ## Dedup semantics
 
@@ -190,6 +223,23 @@ containing "ERROR" would let anyone fire the alarm). Both sides are locked by
 `clickup_bot/tests/test_handler.py`; reword log lines and the terraform pattern
 together.
 
+**Silence is the failure the error alarm cannot see.** Every alarm above needs the
+handler to RUN. A webhook that stops delivering produces no logs, no errors, and
+no alarm — the bot looks healthy because it looks like nothing happened.
+
+That is not hypothetical. Deliveries stopped on **2026-07-31** and nothing
+noticed for 12 days: zero requests to the ALB target group, zero invocations,
+zero errors before or after. The `CLICKUP_API_KEY` in `AI_SECRETS_PROD` was a
+**personal token belonging to someone who is no longer a workspace member** — it
+still authenticates (`GET /user` returns their account) but has lost all
+workspace access, so `GET /team` and every task read 404. A webhook registered
+with that token dies with it.
+
+Two consequences worth internalizing: **prefer a service account over a personal
+token**, and treat the `clickup-bot-no-deliveries-prod` alarm (4 consecutive days
+with no invocations, `treat_missing_data = "breaching"` because Lambda metrics
+are sparse) as the only thing that will tell you the bot has gone quiet.
+
 ### After an outage: check webhook health
 
 During a Secrets Manager outage the Lambda cannot verify signatures for gpbot-tagged
@@ -208,6 +258,11 @@ retried delivery. A nonzero fail_count that keeps climbing means deliveries are 
 failing (or timing out) and the webhook is walking toward suspension:
 
 ```bash
+# FIRST: confirm the token itself still has workspace access. "Workspace not
+# authorized" (OAUTH_192) from the call below, or a 404 from /team, means the
+# token is the problem and no webhook check will be meaningful.
+curl -s -H "Authorization: $CLICKUP_API_KEY" "https://api.clickup.com/api/v2/team" | jq .
+
 # health.status must be "active"; a climbing health.fail_count is a warning even before suspension
 curl -s -H "Authorization: $CLICKUP_API_KEY" \
   "https://api.clickup.com/api/v2/team/<team_id>/webhook" | jq '.webhooks[] | {id, endpoint, health}'
@@ -260,38 +315,25 @@ It previously worked the other way — Terraform seeded the code and
 checkouts and a stale one could roll prod back. CI-only applies from the promoted
 SHA removed that risk, and that workflow did not survive the move to omni.
 
-**Rollout ordering — code first, then config.** When a change touches both the
-handler and terraform, merge/push to `prod` and confirm the deploy workflow succeeded
-BEFORE running `terraform apply`. The previous (pre-fail-loud) handler gates on
-`ENABLE_FARGATE` and silently no-ops when it is absent; the module keeps
-`ENABLE_FARGATE = "true"` in the env map as transition compatibility so an
-out-of-order apply cannot re-create the silent no-op, but do not rely on that:
-terraform cannot deploy code anymore (`lifecycle.ignore_changes`), so an apply alone
-never ships a handler fix.
+**Code and config ship together, in one apply.** Since terraform reclaimed the
+code there is no ordering problem left to manage: the release train's
+`prod/clickup-bot` apply (`release.yml`) updates the handler and the env vars in
+the same run, from the same promoted SHA. A change touching both halves needs no
+sequencing.
 
-The fast-ack + atomic-dedup rollout follows exactly that ordering, and the handler
-is written so each half is safe alone:
+This was not always true. While `deploy-clickup-bot.yml` owned the code and
+terraform owned everything else, the two could land out of order, and the
+pre-fail-loud handler silently no-op'd when `ENABLE_FARGATE` was absent — which
+is why the module still carries `ENABLE_FARGATE = "true"` in its env map as
+transition compatibility. Keep it until a deploy is confirmed on a handler that
+no longer reads it.
 
-1. Merge/deploy the code first. Without the terraform it is a safe no-op on both
-   new paths: the async self-invoke lacks IAM and quietly falls back to the old
-   synchronous flow, and `DEDUP_TABLE_NAME` is unset so the atomic claim is a quiet
-   no-op (comment-based dedup only).
-2. Then `terraform apply` in `infrastructure/environments/prod/clickup-bot`. This
-   creates the dedup table, grants `dynamodb:PutItem`/`DeleteItem` and the
-   self-invoke `lambda:InvokeFunction`, sets `DEDUP_TABLE_NAME` on the Lambda, and
-   pins async `maximum_retry_attempts = 0`. The apply is what ACTIVATES both
-   fast-ack and atomic dedup — until then the bot runs exactly the old flow.
+There is no `clickup-bot-dev` Lambda — only `clickup-bot-prod` exists — so `prod`
+is the only environment this deploys.
 
-**Code** deploys with the promotion train (Terraform owns it; see above)
-to `prod` (paths: `clickup_bot/**`). The workflow runs `clickup_bot/tests/` first and
-blocks the deploy if they fail. No manual zip/upload. There is no `clickup-bot-dev`
-Lambda — only `clickup-bot-prod` exists, so the workflow deploys prod only.
-
-**Config and IAM** (env vars, role policies, log group) are managed by terraform in
-`infrastructure/environments/prod/clickup-bot/`. Terraform seeds the function code
-once at creation and then ignores it (`lifecycle.ignore_changes` on
-`filename`/`source_code_hash` in the module), so a `terraform apply` can never roll
-back code that CI deployed:
+**Applying by hand** (`infrastructure/environments/prod/clickup-bot/`) is still
+possible and is now genuinely dangerous, because an apply from a stale checkout
+rolls the handler back along with everything else. Prefer the release train:
 
 ```bash
 cd infrastructure/environments/prod/clickup-bot
@@ -303,8 +345,8 @@ terraform apply
 > **Warning**
 > - Do not run `aws lambda update-function-configuration` by hand. Terraform will
 >   revert your change on the next apply (drift).
-> - Do not run `aws lambda update-function-code` by hand either. Push to `prod` and
->   let the workflow deploy.
+> - Do not run `aws lambda update-function-code` by hand either. Terraform owns
+>   the code now; merge to `main` and let the release train apply it.
 > - A `terraform apply` from a checkout without the correct variables previously
 >   disabled the bot in prod: `enable_fargate_trigger` defaulted to `false` and the
 >   real value lived only in a gitignored local `terraform.tfvars`, so an apply
