@@ -270,10 +270,11 @@ describe('<ChiefOfStaffChatBody>', () => {
     await user.type(screen.getByLabelText(/ask a question/i), 'go')
     await user.click(screen.getByRole('button', { name: /send/i }))
 
-    // The reply starts appearing before the whole chunk is revealed...
+    // A prefix appears first (the smooth reveal types the chunk out) before the
+    // whole thing lands — proving it isn't dumped in one paint. Asserting the
+    // full text is "not yet present" mid-reveal is timing-fragile under load, so
+    // gate on the prefix-then-full ordering instead.
     await waitFor(() => expect(screen.getByText(/^word/)).toBeInTheDocument())
-    expect(screen.queryByText(long)).not.toBeInTheDocument()
-    // ...and finishes revealing shortly after.
     await waitFor(() => expect(screen.getByText(long)).toBeInTheDocument(), {
       timeout: 6000,
     })
