@@ -1,5 +1,5 @@
 import type { CampaignIssuePosition } from 'gpApi/api-endpoints'
-import type { Campaign, CustomIssue } from 'helpers/types'
+import type { Campaign, CustomIssue, User } from 'helpers/types'
 
 // The door script is deliberately static: the candidate's own issue stances,
 // assembled from what they already wrote elsewhere in the product. No AI, and
@@ -47,29 +47,45 @@ export const buildScriptIssues = (
       (a.order ?? Number.MAX_SAFE_INTEGER) -
       (b.order ?? Number.MAX_SAFE_INTEGER),
   )
-  const issues = [
-    ...ordered.map(fromPosition),
-    ...(customIssues ?? []).map(fromCustomIssue),
-  ].filter((issue): issue is ScriptIssue => issue !== null)
+  // Every curated row is a stance the candidate placed deliberately, and
+  // nothing stops two of them hanging off one top issue — they only share the
+  // heading they'd print under. Deduping these by title silently dropped the
+  // later talking point, so they all stand.
+  const curated = ordered
+    .map(fromPosition)
+    .filter((issue): issue is ScriptIssue => issue !== null)
 
   // The same issue can exist in both stores if a candidate re-entered it as
   // custom; saying it twice at the door reads as a script glitch.
-  const seen = new Set<string>()
-  return issues.filter((issue) => {
-    const key = issue.title.toLowerCase()
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+  const seen = new Set(curated.map((issue) => issue.title.toLowerCase()))
+  const custom = (customIssues ?? [])
+    .map(fromCustomIssue)
+    .filter((issue): issue is ScriptIssue => issue !== null)
+    .filter((issue) => {
+      const key = issue.title.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+
+  return [...curated, ...custom]
 }
 
 // "Hi, I'm Jane Doe, running for City Council." Each clause is dropped when its
 // data is missing rather than printing a placeholder the canvasser would have
 // to read around.
-export const buildIntro = (campaign: Campaign | null): string => {
-  const name = clean(
-    [campaign?.firstName, campaign?.lastName].filter(Boolean).join(' '),
-  )
+//
+// The name comes from the user, not the campaign: `GET /v1/campaigns/mine`
+// returns the campaign row (plus positionName and live metrics) and there are
+// no name columns on it, so reading `campaign.firstName` here always resolved
+// to undefined and the door intro dropped the candidate's name entirely.
+export const buildIntro = (
+  user: User | null,
+  campaign: Campaign | null,
+): string => {
+  const name =
+    clean([user?.firstName, user?.lastName].filter(Boolean).join(' ')) ||
+    clean(user?.name)
   const office = clean(campaign?.positionName ?? campaign?.office)
 
   if (name && office) return `Hi, I'm ${name}, running for ${office}.`

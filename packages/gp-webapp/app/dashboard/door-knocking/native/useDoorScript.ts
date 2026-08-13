@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import { useUser } from '@shared/hooks/useUser'
 import {
   buildIntro,
   buildScriptIssues,
@@ -11,6 +12,8 @@ import {
 // script depends on the campaign, not on which door is open.
 export const useDoorScript = (): { intro: string; issues: ScriptIssue[] } => {
   const [campaign] = useCampaign()
+  // The candidate's name lives on the user, not on the campaign.
+  const [user] = useUser()
   const campaignId = campaign?.id
 
   const positionsQuery = useQuery({
@@ -26,7 +29,7 @@ export const useDoorScript = (): { intro: string; issues: ScriptIssue[] } => {
   })
 
   return {
-    intro: buildIntro(campaign),
+    intro: buildIntro(user, campaign),
     issues: buildScriptIssues(
       positionsQuery.data,
       campaign?.details?.customIssues,

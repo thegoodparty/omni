@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CampaignIssuePosition } from 'gpApi/api-endpoints'
-import type { Campaign } from 'helpers/types'
+import type { Campaign, User } from 'helpers/types'
 import { buildIntro, buildScriptIssues } from './doorScriptContent'
 
 const position = (
@@ -14,13 +14,20 @@ const position = (
   ...overrides,
 })
 
+// Shaped like the real payloads: `GET /v1/campaigns/mine` carries the office
+// but no name columns, and the name only ever comes from the user.
 const campaign = (overrides: Partial<Campaign> = {}): Campaign =>
   ({
-    firstName: 'Jane',
-    lastName: 'Doe',
     positionName: 'City Council',
     ...overrides,
   }) as Campaign
+
+const user = (overrides: Partial<User> = {}): User =>
+  ({
+    firstName: 'Jane',
+    lastName: 'Doe',
+    ...overrides,
+  }) as User
 
 describe('buildScriptIssues', () => {
   it('prefers the candidate\u2019s own wording over the catalog stance', () => {
@@ -84,6 +91,32 @@ describe('buildScriptIssues', () => {
     expect(issues[0]?.body).toBe('Fund the shelter on Third.')
   })
 
+  // Nothing in campaign_position makes topIssueId unique per campaign, so a
+  // candidate can hold two stances under one top issue. They share a heading
+  // but they are two talking points, and the later one used to vanish.
+  it('keeps both stances that hang off the same top issue', () => {
+    const issues = buildScriptIssues(
+      [
+        position({
+          id: 1,
+          order: 0,
+          description: 'Fund the shelter on Third.',
+        }),
+        position({
+          id: 2,
+          order: 1,
+          description: 'Upzone the transit corridor.',
+        }),
+      ],
+      [],
+    )
+
+    expect(issues).toEqual([
+      { title: 'Housing', body: 'Fund the shelter on Third.' },
+      { title: 'Housing', body: 'Upzone the transit corridor.' },
+    ])
+  })
+
   it('collapses whitespace so a pasted stance reads as one line', () => {
     const issues = buildScriptIssues(
       [position({ description: 'Fund   the\n  shelter.' })],
@@ -100,26 +133,49 @@ describe('buildScriptIssues', () => {
 
 describe('buildIntro', () => {
   it('names the candidate and the office', () => {
-    expect(buildIntro(campaign())).toBe(
+    expect(buildIntro(user(), campaign())).toBe(
       "Hi, I'm Jane Doe, running for City Council.",
     )
+  })
+
+  // The campaign payload has no name columns at all, so a name read off it
+  // would leave every real candidate anonymous at the door.
+  it('takes the name from the user, not the campaign', () => {
+    expect(
+      buildIntro(
+        null,
+        campaign({ firstName: 'Jane', lastName: 'Doe' } as Partial<Campaign>),
+      ),
+    ).toBe("Hi, I'm running for City Council.")
+  })
+
+  it('falls back to the display name when the parts are missing', () => {
+    expect(
+      buildIntro(
+        user({ firstName: undefined, lastName: undefined, name: 'Jane Doe' }),
+        campaign(),
+      ),
+    ).toBe("Hi, I'm Jane Doe, running for City Council.")
   })
 
   // Each clause drops out on its own rather than printing a placeholder the
   // canvasser has to read around.
   it('drops the office when there is none', () => {
-    expect(buildIntro(campaign({ positionName: undefined }))).toBe(
+    expect(buildIntro(user(), campaign({ positionName: undefined }))).toBe(
       "Hi, I'm Jane Doe.",
     )
   })
 
   it('drops the name when there is none', () => {
     expect(
-      buildIntro(campaign({ firstName: undefined, lastName: undefined })),
+      buildIntro(
+        user({ firstName: undefined, lastName: undefined }),
+        campaign(),
+      ),
     ).toBe("Hi, I'm running for City Council.")
   })
 
   it('is empty without a campaign', () => {
-    expect(buildIntro(null)).toBe('')
+    expect(buildIntro(null, null)).toBe('')
   })
 })

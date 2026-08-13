@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React, { type ReactNode } from 'react'
-import type { Campaign } from 'helpers/types'
+import type { Campaign, User } from 'helpers/types'
 
 const clientRequestMock = vi.fn()
 const useCampaignMock = vi.fn()
+const useUserMock = vi.fn()
 
 vi.mock('gpApi/typed-request', () => ({
   clientRequest: (...args: unknown[]) => clientRequestMock(...args),
@@ -15,16 +16,27 @@ vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => useCampaignMock(),
 }))
 
+vi.mock('@shared/hooks/useUser', () => ({
+  useUser: () => useUserMock(),
+}))
+
 import { useDoorScript } from './useDoorScript'
 
+// No name columns on the campaign payload — the intro's name comes from the
+// user, so the fixtures keep the two sources apart.
 const campaign = (overrides: Partial<Campaign> = {}) =>
   ({
     id: 7,
-    firstName: 'Jane',
-    lastName: 'Doe',
     positionName: 'City Council',
     ...overrides,
   }) as Campaign
+
+const user = (overrides: Partial<User> = {}) =>
+  ({
+    firstName: 'Jane',
+    lastName: 'Doe',
+    ...overrides,
+  }) as User
 
 const wrapper = function Wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({
@@ -37,6 +49,8 @@ beforeEach(() => {
   clientRequestMock.mockReset()
   useCampaignMock.mockReset()
   useCampaignMock.mockReturnValue([campaign()])
+  useUserMock.mockReset()
+  useUserMock.mockReturnValue([user()])
   clientRequestMock.mockResolvedValue({ data: [] })
 })
 
@@ -105,6 +119,17 @@ describe('useDoorScript', () => {
     const { result } = renderHook(() => useDoorScript(), { wrapper })
 
     expect(clientRequestMock).not.toHaveBeenCalled()
+    // The clauses are independent, so a known name still introduces the
+    // candidate while the office is outstanding.
+    expect(result.current).toEqual({ intro: "Hi, I'm Jane Doe.", issues: [] })
+  })
+
+  it('is silent until either source has loaded', () => {
+    useCampaignMock.mockReturnValue([undefined])
+    useUserMock.mockReturnValue([null])
+
+    const { result } = renderHook(() => useDoorScript(), { wrapper })
+
     expect(result.current).toEqual({ intro: '', issues: [] })
   })
 })
