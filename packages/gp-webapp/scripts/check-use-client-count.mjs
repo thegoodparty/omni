@@ -164,7 +164,10 @@ import { dirname, join, relative } from 'node:path'
 // createFlow/CreateListFlow (filter/draw/confirm step state) replace inline
 // expansions; all are interactive surfaces inside the client-only map page.
 // Net +2 after deleting SaveTurfDialog.
-const BASELINE = 563
+// 2026-08-13: 563 -> 564 for door-knocking/native/DoorScript.tsx. The door
+// script collapses on tap so it doesn't push the answer pills off a phone
+// screen, and it renders inside PersonSheet, which is already client-only.
+const BASELINE = 564
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

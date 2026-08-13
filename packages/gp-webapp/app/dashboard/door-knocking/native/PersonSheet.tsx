@@ -8,6 +8,8 @@ import {
 } from '@goodparty_org/contracts'
 import { IconButton, MapPinIcon, XMarkIcon } from '@styleguide'
 import RecordKnockForm from './RecordKnockForm'
+import DoorScript from './DoorScript'
+import { useDoorScript } from './useDoorScript'
 import { STATUS_DOT_COLORS, STATUS_LABELS } from './statusPresentation'
 
 const StatusDot = ({ status }: { status: DoorKnockStatus }) => (
@@ -31,8 +33,9 @@ interface PersonSheetProps {
 }
 
 // The demo's person sheet: a right panel on desktop, a bottom sheet on
-// small screens. Talking points are deferred (needs the AI service); the
-// route payload carries no phones, so those read Unknown like the demo.
+// small screens. Talking points are the candidate's own saved issues, not the
+// AI copy the demo implied; the route payload carries no phones, so those read
+// Unknown like the demo.
 export default function PersonSheet({
   stop,
   initialTargetId,
@@ -42,6 +45,7 @@ export default function PersonSheet({
   onClose,
 }: PersonSheetProps) {
   const targets = stop.addresses.flatMap((address) => address.targets)
+  const script = useDoorScript()
   const [selectedId, setSelectedId] = useState(initialTargetId)
   const target =
     targets.find((candidate) => candidate.stopTargetId === selectedId) ??
@@ -163,8 +167,11 @@ export default function PersonSheet({
           </section>
         </div>
 
-        <div className="border-t border-border p-4">
-          <h3 className="mb-2 text-base font-semibold">Log this door</h3>
+        <div className="flex flex-col gap-3 border-t border-border p-4">
+          {/* Above the form, because it's what the canvasser says before there
+              is anything to log. */}
+          <DoorScript intro={script.intro} issues={script.issues} />
+          <h3 className="text-base font-semibold">Log this door</h3>
           <RecordKnockForm
             key={target.stopTargetId}
             target={target}
