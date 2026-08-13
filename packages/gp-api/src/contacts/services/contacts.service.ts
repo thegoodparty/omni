@@ -471,6 +471,43 @@ export class ContactsService {
     }
   }
 
+  // Everything a saved list needs before it can be queried: the FilterObject
+  // plus the id-set clauses that travel beside it. Public because door
+  // knocking evaluates a turf against the turf's own VoterFileFilter and has
+  // to run the identical resolution — `convertVoterFileFilterToFilters` alone
+  // silently drops activity conditions, support status, contacts-made, and
+  // voter-likelihood overrides, so a list previewed in Contacts and the same
+  // list knocked would target different people.
+  // Takes the resolution input shape, not a bare `Partial<VoterFileFilter>`:
+  // activityConditions is a relation, so a caller that loads the row without
+  // including it type-checks fine and silently resolves as if the list had no
+  // conditions at all.
+  async resolveSavedFilterForQuery(
+    organization: Organization,
+    filter: ContactsFilterResolutionInput,
+  ): Promise<{
+    filters: FilterObject
+    empty: boolean
+    idOverrides?: IdOverrides
+    contactsMadeIdOverrides?: IdOverrides
+  }> {
+    const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
+      organization,
+      filter,
+    )
+    const { idResolution, contactsMadeIdOverrides } =
+      await this.resolveIdFilterWithContactsMade(organization, filter)
+    if (idResolution.kind === 'empty') {
+      return { filters: baseFilters, empty: true, idOverrides }
+    }
+    return {
+      filters: this.mergeIdFilter(baseFilters, idResolution),
+      empty: false,
+      idOverrides,
+      contactsMadeIdOverrides,
+    }
+  }
+
   private async isProAccess(organization: Organization): Promise<boolean> {
     if (this.hasElectedOfficeAccess(organization)) return true
     const campaign = await this.campaigns.findFirst({
