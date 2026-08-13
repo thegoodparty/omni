@@ -347,6 +347,75 @@ describe('CampaignForm', () => {
       })
     })
 
+    it('enables Save when Can Download Federal is toggled', async () => {
+      renderForm()
+      const user = userEvent.setup()
+
+      await user.click(
+        screen.getByRole('switch', { name: 'Can Download Federal' })
+      )
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+    })
+
+    // Stored campaigns predate the current schema: `launchStatus` and
+    // `ballotLevel` live in JSON blobs where legacy rows hold null, and the
+    // enums accept undefined but not null. Those rows used to mount the form
+    // invalid, which left Save disabled no matter what the admin toggled.
+    it('enables Save on a campaign whose stored enum fields are null', async () => {
+      renderForm({
+        data: { ...mockCampaign.data, launchStatus: null },
+        details: { ...mockCampaign.details, ballotLevel: null },
+      } as unknown as Partial<CampaignWithLiveContext>)
+      const user = userEvent.setup()
+
+      await user.click(
+        screen.getByRole('switch', { name: 'Can Download Federal' })
+      )
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+    })
+
+    it('enables Save when canDownloadFederal is absent from the payload', async () => {
+      renderForm({
+        canDownloadFederal: undefined,
+      } as unknown as Partial<CampaignWithLiveContext>)
+      const user = userEvent.setup()
+
+      await user.click(
+        screen.getByRole('switch', { name: 'Can Download Federal' })
+      )
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /save changes/i })
+        ).toBeEnabled()
+      })
+    })
+
+    it('surfaces the offending field when stored data fails validation', async () => {
+      renderForm({
+        details: { ...mockCampaign.details, website: 'example.com' },
+      } as unknown as Partial<CampaignWithLiveContext>)
+
+      // Save stays disabled here by design, but the reason is now on screen
+      // instead of leaving the admin with a dead button.
+      await waitFor(() => {
+        expect(screen.getByText(/invalid/i)).toBeInTheDocument()
+      })
+      expect(
+        screen.getByRole('button', { name: /save changes/i })
+      ).toBeDisabled()
+    })
+
     it('toggles Pledged switch and makes form dirty', async () => {
       renderForm()
       const user = userEvent.setup()

@@ -10,6 +10,7 @@ import {
   Select,
   Separator,
 } from '@radix-ui/themes'
+import { useEffect } from 'react'
 import { useForm, type Path } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useNavigationGuard } from 'next-navigation-guard'
@@ -179,20 +180,24 @@ export function CampaignForm({
     setValue,
     getValues,
     reset,
+    trigger,
     formState: { errors, isDirty, isValid },
   } = useForm<CombinedCampaignFormData>({
     mode: FORM_MODE.ON_CHANGE,
     resolver: zodResolver(combinedCampaignSchema),
     defaultValues: {
-      isActive,
+      isActive: isActive ?? false,
       isVerified: isVerified ?? false,
       isPro: isPro ?? false,
-      isDemo,
+      isDemo: isDemo ?? false,
       didWin: didWin ?? false,
       tier,
-      canDownloadFederal,
+      canDownloadFederal: canDownloadFederal ?? false,
       data: {
-        launchStatus: data.launchStatus,
+        // The schema's enums accept `undefined` but not `null`, and these live
+        // in a JSON blob where legacy rows store null. Without the coalesce the
+        // form mounts invalid, which permanently disables Save.
+        launchStatus: data.launchStatus ?? undefined,
         name: data.name ?? '',
         adminUserEmail: data.adminUserEmail ?? '',
       },
@@ -201,7 +206,7 @@ export function CampaignForm({
         city: details.city ?? '',
         county: details.county ?? '',
         zip: details.zip ?? '',
-        ballotLevel: details.ballotLevel,
+        ballotLevel: details.ballotLevel ?? undefined,
         level: details.level ?? null,
         officeTermLength: details.officeTermLength ?? '',
         electionDate: details.electionDate ?? '',
@@ -222,6 +227,14 @@ export function CampaignForm({
       },
     },
   })
+
+  // Save is gated on `isValid`, and react-hook-form's mount-time validation
+  // sets that flag without populating `errors`. A campaign whose stored data
+  // fails the schema therefore renders a permanently disabled Save button with
+  // nothing on screen explaining why. Validating up front surfaces the field.
+  useEffect(() => {
+    void trigger()
+  }, [trigger])
 
   useNavigationGuard({
     enabled: isDirty,
@@ -277,38 +290,56 @@ export function CampaignForm({
   }
 
   function handleStatusFlagChange(key: StatusFlagKey, checked: boolean) {
-    setValue(key, checked, { shouldDirty: true })
+    setValue(key, checked, { shouldDirty: true, shouldValidate: true })
   }
 
   function handleTierChange(value: string) {
     if (isCampaignTier(value)) {
-      setValue('tier', value, { shouldDirty: true })
+      setValue('tier', value, { shouldDirty: true, shouldValidate: true })
     } else {
-      setValue('tier', null, { shouldDirty: true })
+      setValue('tier', null, { shouldDirty: true, shouldValidate: true })
     }
   }
 
   function handleLaunchStatusChange(value: string) {
     if (isLaunchStatus(value)) {
-      setValue('data.launchStatus', value, { shouldDirty: true })
+      setValue('data.launchStatus', value, {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
     } else {
-      setValue('data.launchStatus', undefined, { shouldDirty: true })
+      setValue('data.launchStatus', undefined, {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
     }
   }
 
   function handleBallotLevelChange(value: string) {
     if (isBallotLevel(value)) {
-      setValue('details.ballotLevel', value, { shouldDirty: true })
+      setValue('details.ballotLevel', value, {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
     } else {
-      setValue('details.ballotLevel', undefined, { shouldDirty: true })
+      setValue('details.ballotLevel', undefined, {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
     }
   }
 
   function handleElectionLevelChange(value: string) {
     if (isElectionLevel(value)) {
-      setValue('details.level', value, { shouldDirty: true })
+      setValue('details.level', value, {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
     } else {
-      setValue('details.level', null, { shouldDirty: true })
+      setValue('details.level', null, {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
     }
   }
 
@@ -535,7 +566,10 @@ export function CampaignForm({
               <Switch
                 checked={watch('details.pledged') ?? false}
                 onCheckedChange={(checked) =>
-                  setValue('details.pledged', checked, { shouldDirty: true })
+                  setValue('details.pledged', checked, {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  })
                 }
               />
             </Flex>
