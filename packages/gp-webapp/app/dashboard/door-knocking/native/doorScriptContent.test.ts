@@ -44,6 +44,17 @@ describe('buildScriptIssues', () => {
     ])
   })
 
+  // topIssueId is nullable, so a row can arrive with only its catalog stance.
+  // That one sentence is both the heading and the line to say — repeating it
+  // is better than dropping the candidate's only stance on that issue.
+  it('uses the catalog stance for both heading and body when the top issue is absent', () => {
+    expect(
+      buildScriptIssues([position({ description: null, topIssue: null })], []),
+    ).toEqual([
+      { title: 'Expand affordable housing', body: 'Expand affordable housing' },
+    ])
+  })
+
   // A heading with nothing under it is not a talking point.
   it('drops an issue with no stance at all', () => {
     expect(
