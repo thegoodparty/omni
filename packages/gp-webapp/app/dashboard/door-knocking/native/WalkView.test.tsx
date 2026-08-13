@@ -5,6 +5,7 @@ import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import WalkView from './WalkView'
+import { STATUS_DOT_COLORS } from './statusPresentation'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
@@ -203,6 +204,59 @@ describe('WalkView', () => {
 
     expect(screen.getByText('1/1 reached')).toBeInTheDocument()
     expect(unknownChip()).toHaveTextContent('Support unknown 0')
+  })
+
+  // `unknown` outranks every other status in the rollup, so before flagged
+  // residents were excluded a single do-not-knock neighbor held the stop on the
+  // grey "still to knock" dot no matter how much of the household was logged.
+  it('colors a stop from its knockable residents only', async () => {
+    const mixedHousehold: DoorKnockingRoutePayload = {
+      ...routePayload,
+      stops: [
+        {
+          ...routePayload.stops[0]!,
+          addresses: [
+            {
+              addressKey: '210|cedar|row',
+              address: '210 Cedar Row',
+              otherResidents: [],
+              targets: [
+                {
+                  ...routePayload.stops[0]!.addresses[0]!.targets[0]!,
+                  knockStatus: 'supporter',
+                },
+                {
+                  ...routePayload.stops[0]!.addresses[0]!.targets[0]!,
+                  stopTargetId: 23,
+                  personId: 'person-3',
+                  name: 'Ruben Vega',
+                  knockStatus: 'unknown',
+                  doNotKnock: true,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: mixedHousehold,
+    })
+
+    render(<WalkView turfId={3} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('210 Cedar Row')).toBeInTheDocument(),
+    )
+    // The seq badge is the "2" that carries a color; the other is the
+    // household's resident count.
+    const seqBadge = screen
+      .getAllByText('2')
+      .find((element) => element.style.backgroundColor)
+    expect(seqBadge).toHaveStyle({
+      backgroundColor: STATUS_DOT_COLORS.supporter,
+    })
   })
 
   it('records an answered knock through the person sheet', async () => {

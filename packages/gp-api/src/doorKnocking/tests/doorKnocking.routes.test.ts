@@ -1725,13 +1725,10 @@ describe('door-knocking routes', () => {
         })
       })
 
-      it('passes an empty exclusion list when the org has flagged nobody', async () => {
-        const turf = await createTurf()
-        stubVendors()
-
-        expect((await knock(turf.id)).status).toBe(201)
-        expect(lastEvaluateArg()).toMatchObject({ excludePersonIds: [] })
-      })
+      // The empty case is asserted against the DTO the adapter actually builds,
+      // in doorKnockingPeopleApi.service.test.ts. Spying here sees only what
+      // this route handed the adapter, which is the value under test's input
+      // rather than its output.
     })
   })
   describe('pack', () => {
