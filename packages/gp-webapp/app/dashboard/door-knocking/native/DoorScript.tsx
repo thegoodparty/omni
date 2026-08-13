@@ -34,8 +34,12 @@ export default function DoorScript({ intro, issues }: DoorScriptProps) {
       {open && (
         <div className="flex flex-col gap-3 border-t border-border px-3 py-3 text-sm">
           {intro && <p>{intro}</p>}
-          {issues.map((issue) => (
-            <div key={issue.title}>
+          {/* Two stances can hang off one top issue, so the title is not a
+              unique key. The list is static for the length of a walk — it is
+              built once from the campaign, never reordered or spliced — so the
+              position is a safe tiebreak. */}
+          {issues.map((issue, index) => (
+            <div key={`${issue.title}-${index}`}>
               <p className="text-xs font-medium text-muted-foreground">
                 {issue.title}
               </p>
