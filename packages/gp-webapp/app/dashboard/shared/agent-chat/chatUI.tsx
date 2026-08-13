@@ -11,8 +11,8 @@ import {
 } from '@styleguide/components/ui/icons'
 import type { LiveSegment } from './streaming'
 import ChatPill from '../ai-chat/ChatPill'
-import { DictationMicButton } from '../../briefings/shared/DictationMicButton'
-import type { UseDictationAppendResult } from '../../briefings/shared/useDictationAppend'
+import { DictationMicButton } from '../dictation/DictationMicButton'
+import type { UseDictationAppendResult } from '../dictation/useDictationAppend'
 
 // Module-level so react-markdown gets a stable plugins identity across the
 // per-tick re-renders of a streaming turn (a fresh [remarkGfm] each render

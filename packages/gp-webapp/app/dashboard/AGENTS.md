@@ -14,6 +14,7 @@ The candidate dashboard. Authenticated shell that hosts campaign tools, polls, v
 | `shared/DashboardMenu.tsx` | Sidebar nav items (per-feature visibility lives here) |
 | `shared/candidateAccess.ts` + `serveAccess.ts` | Access predicates (`canViewX` helpers) — client + server variants |
 | `shared/ProUpgradeModal.tsx` / `ProUpgradePrompt.tsx` | Pro-tier gating UI |
+| `shared/dictation/` | Domain-agnostic voice dictation (`useDictation`, `useDictationAppend`, `DictationMicButton`) used by briefings, the chat surfaces, onboarding, and outreach compose. Briefings-specific presentation (`DictationFeedback`, `DictationDemoWidget`) stays in `briefings/shared/` |
 | `components/` | Cross-feature dashboard widgets (alert banners, progress bars, `campaignManager/`) |
 
 ## Patterns

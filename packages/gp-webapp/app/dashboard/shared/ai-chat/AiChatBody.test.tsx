@@ -8,7 +8,7 @@ import type { AiChatClient, AiChatConfig, ChatStreamEvent } from './types'
 vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
 
 // Dictation touches browser media APIs; stub it so the composer stays inert.
-vi.mock('app/dashboard/briefings/shared/useDictationAppend', () => ({
+vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
   useDictationAppend: () => ({
     status: 'idle',
     error: null,
