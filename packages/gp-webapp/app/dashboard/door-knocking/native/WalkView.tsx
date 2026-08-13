@@ -11,6 +11,7 @@ import {
 } from '@goodparty_org/contracts'
 import { ChevronDownIcon, ChevronRightIcon } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
+import { countDoors } from '../routeCounts'
 import PersonSheet from './PersonSheet'
 import { formatDistance } from './routeFormat'
 import { routeQueryOptions } from './turfQueries'
@@ -199,7 +200,8 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
             <div className="flex items-baseline justify-between border-b border-border px-4 py-3">
               <h3 className="text-sm font-semibold">Stops</h3>
               <span className="text-sm tabular-nums text-muted-foreground">
-                {routeQuery.data.route.stopCount} doors ·{' '}
+                {routeQuery.data.route.stopCount} stops ·{' '}
+                {countDoors(routeQuery.data.stops)} doors ·{' '}
                 {formatDuration(routeQuery.data.route.totalSeconds)} ·{' '}
                 {formatDistance(routeQuery.data.route.totalMeters)}
               </span>
@@ -258,7 +260,10 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                     </span>
                     {stop.legSeconds > 0 && (
                       <span className="shrink-0 text-xs text-muted-foreground">
-                        {formatDuration(stop.legSeconds)} walk
+                        {formatDuration(stop.legSeconds)}{' '}
+                        {routeQuery.data.route.mode === 'walk'
+                          ? 'walk'
+                          : 'drive'}
                       </span>
                     )}
                     {targetsForStop(stop).length > 1 &&

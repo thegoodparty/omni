@@ -24,6 +24,7 @@ import {
   turfsQueryOptions,
 } from './turfQueries'
 import type { PolygonStats } from './filterEngine'
+import { countDoors } from '../routeCounts'
 
 // gp-api refuses to delete a knocked turf: doorKnockingTurf.delete runs
 // assertNotLocked first, and lockedness IS the frozen route row, so a turf
@@ -220,19 +221,26 @@ export default function TurfDetailsSheet({
               Overview
             </h3>
             <div className="grid grid-cols-2 gap-3">
-              {/* Both branches are stop counts — the frozen route's, or the
-                  dots in the polygon before one exists. Several households
-                  can share a stop, so this is doors, and says so. */}
+              {/* Doors are addresses, so both branches count households, not
+                  the coordinates the router visits: the frozen route's
+                  addresses once it exists, otherwise the households inside the
+                  polygon. A stop at a multi-unit building is many doors.
+
+                  The pre-route branch is computed with EMPTY filter selections
+                  (detailsAreaStats), so it describes the whole polygon, not
+                  this list's audience — and it sits right above the "Applied
+                  filters" list, which is exactly where an unqualified "Doors"
+                  reads as "doors this list will knock". The label carries the
+                  distinction until a route exists to give a real number. */}
               <Stat
-                label="Doors"
-                value={(
-                  route?.route.stopCount ??
-                  areaStats?.stops ??
-                  0
+                label={route ? 'Doors' : 'Doors in this area'}
+                value={(route
+                  ? countDoors(route.stops)
+                  : (areaStats?.households ?? 0)
                 ).toLocaleString()}
               />
               <Stat
-                label="People"
+                label={targets.length > 0 ? 'People' : 'People in this area'}
                 value={(targets.length > 0
                   ? targets.length
                   : (areaStats?.people ?? 0)

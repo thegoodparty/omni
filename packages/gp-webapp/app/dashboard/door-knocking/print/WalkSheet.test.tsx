@@ -63,7 +63,66 @@ describe('WalkSheet', () => {
       screen.getByRole('heading', { name: 'Elm & Cedar' }),
     ).toBeInTheDocument()
     expect(
-      screen.getByText(/2 stops · 2 doors · Walking loop · 31 min · 2\.0 mi/),
+      screen.getByText(
+        /2 stops · 2 doors · 2 people · Walking loop · 31 min · 2\.0 mi/,
+      ),
+    ).toBeInTheDocument()
+  })
+
+  // Doors are addresses. A single stop covering a three-unit building is one
+  // stop, three doors, and however many voters live across them — the header
+  // used to report the people count under the "doors" label.
+  it('counts doors as addresses, not people', () => {
+    const multiUnit = stop({
+      addresses: [
+        {
+          addressKey: '105|elm|st|1a',
+          address: '105 Elm St Apt 1A',
+          targets: [
+            {
+              stopTargetId: 31,
+              personId: 'person-a',
+              name: 'Ada One',
+              age: 40,
+              politicalParty: 'Democratic',
+              knockStatus: 'unknown',
+              mayHaveMoved: false,
+            },
+            {
+              stopTargetId: 32,
+              personId: 'person-b',
+              name: 'Bo Two',
+              age: 42,
+              politicalParty: 'Democratic',
+              knockStatus: 'unknown',
+              mayHaveMoved: false,
+            },
+          ],
+          otherResidents: [],
+        },
+        {
+          addressKey: '105|elm|st|1b',
+          address: '105 Elm St Apt 1B',
+          targets: [
+            {
+              stopTargetId: 33,
+              personId: 'person-c',
+              name: 'Cy Three',
+              age: 44,
+              politicalParty: 'Republican',
+              knockStatus: 'unknown',
+              mayHaveMoved: false,
+            },
+          ],
+          otherResidents: [],
+        },
+      ],
+    })
+
+    renderSheet([multiUnit])
+
+    expect(
+      screen.getByText(/1 stops · 2 doors · 3 people · Walking loop/),
     ).toBeInTheDocument()
   })
 
