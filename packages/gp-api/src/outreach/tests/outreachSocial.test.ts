@@ -141,7 +141,7 @@ describe('POST /v1/outreach/social/draft', () => {
     )?.content
     expect(systemPrompt).toContain('polish')
     expect(systemPrompt).toContain(
-      "Keep the author's meaning, structure, and every factual claim",
+      'Every concrete detail in the original MUST appear in your output',
     )
     const userPrompt = call.messages.find(
       (m: { role: string }) => m.role === 'user',
