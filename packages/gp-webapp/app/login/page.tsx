@@ -22,10 +22,8 @@ const MAGIC_LINK_EXPIRED_MESSAGE =
 export default async function LoginPage({
   searchParams,
 }: PageProps<any>): Promise<React.JSX.Element> {
-  const [
-    { userId },
-    { redirect_url: redirectUrlParam, magicLinkExpired },
-  ] = await Promise.all([auth(), searchParams])
+  const [{ userId }, { redirect_url: redirectUrlParam, magicLinkExpired }] =
+    await Promise.all([auth(), searchParams])
 
   // When the middleware bounces an unauthenticated deep link (e.g.
   // /dashboard/briefings from a marketing email) through here, it preserves
