@@ -291,7 +291,10 @@ def get_sheets_service(token_path: Path = TOKEN_PATH, client_secrets_file: str |
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Write the event-state table to a Google Sheet.")
-    parser.add_argument("command", choices=["refresh", "refresh-gaps", "refresh-questions"])
+    parser.add_argument(
+        "command",
+        choices=["refresh", "refresh-gaps", "refresh-questions", "writeback-questions"],
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -320,6 +323,35 @@ def main(argv: list[str] | None = None) -> int:
         "key on the raw event_type (as fired in code), not the Govern display name",
     )
     args = parser.parse_args(argv)
+
+    if args.command == "writeback-questions":
+        import question_writeback as qwb
+
+        api_key = os.environ.get("CLICKUP_API_KEY")
+        list_id = os.environ.get("GP_QUESTIONS_LIST_ID")
+        state_field = os.environ.get("GP_QUESTIONS_STATE_FIELD_ID")
+        checked_field = os.environ.get("GP_QUESTIONS_CHECKED_FIELD_ID")
+        options = {
+            "answerable": os.environ.get("GP_QUESTIONS_OPT_ANSWERABLE", ""),
+            "partially_answerable": os.environ.get("GP_QUESTIONS_OPT_PARTIAL", ""),
+            "not_answerable": os.environ.get("GP_QUESTIONS_OPT_NOT", ""),
+        }
+        if not all([api_key, list_id, state_field, checked_field, *options.values()]):
+            print("ClickUp write-back needs CLICKUP_API_KEY, GP_QUESTIONS_LIST_ID, "
+                  "GP_QUESTIONS_STATE_FIELD_ID, GP_QUESTIONS_CHECKED_FIELD_ID and the three "
+                  "GP_QUESTIONS_OPT_* option ids", file=sys.stderr)
+            return 2
+        rows = question_rows_for_refresh()
+        current = qwb.fetch_current_state(api_key, list_id)
+        if args.dry_run:
+            print(f"{len(qwb.changed_rows(rows, current))} of {len(rows)} questions changed")
+            return 0
+        n = qwb.write_answer_state(
+            api_key, rows, state_field_id=state_field, checked_field_id=checked_field,
+            option_ids=options, today=date.today(), current=current,
+        )
+        print(f"updated answer state on {n} question tasks")
+        return 0
 
     if args.command == "refresh-questions":
         rows = question_rows_for_refresh()
