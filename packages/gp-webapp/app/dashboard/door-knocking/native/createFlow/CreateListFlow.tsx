@@ -18,7 +18,7 @@ import {
   transformVoterFileFiltersForBackend,
   type VoterFileFilters,
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
-import { TURF_COLORS } from '../turfQueries'
+import { MAX_TURF_NAME_LENGTH, TURF_COLORS } from '../turfQueries'
 import type { PolygonRing } from '../VoterMapCanvas'
 import type { PolygonStats } from '../filterEngine'
 
@@ -439,7 +439,7 @@ export default function CreateListFlow({
                 <Input
                   id="turf-name"
                   value={name}
-                  maxLength={120}
+                  maxLength={MAX_TURF_NAME_LENGTH}
                   placeholder="Name this list"
                   onChange={(e) => setName(e.target.value)}
                 />
