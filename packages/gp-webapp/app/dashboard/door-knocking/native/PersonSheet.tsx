@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import {
   DoorKnockStatus,
   RoutePayloadStop,
@@ -22,7 +21,11 @@ const StatusDot = ({ status }: { status: DoorKnockStatus }) => (
 
 interface PersonSheetProps {
   stop: RoutePayloadStop
-  initialTargetId: number
+  // Controlled by WalkView rather than held here, because auto-advance moves
+  // between residents of one household without the sheet closing — internal
+  // state would keep showing the person who was just logged.
+  selectedTargetId: number
+  onSelectTarget: (targetId: number) => void
   statusFor: (target: RoutePayloadTarget) => DoorKnockStatus
   clientKeyFor: (targetId: number) => string
   onRecorded: (
@@ -58,7 +61,8 @@ const PhoneRow = ({ label, phone }: { label: string; phone: string }) => (
 
 export default function PersonSheet({
   stop,
-  initialTargetId,
+  selectedTargetId,
+  onSelectTarget,
   statusFor,
   clientKeyFor,
   onRecorded,
@@ -67,9 +71,8 @@ export default function PersonSheet({
 }: PersonSheetProps) {
   const targets = stop.addresses.flatMap((address) => address.targets)
   const script = useDoorScript()
-  const [selectedId, setSelectedId] = useState(initialTargetId)
   const target =
-    targets.find((candidate) => candidate.stopTargetId === selectedId) ??
+    targets.find((candidate) => candidate.stopTargetId === selectedTargetId) ??
     targets[0]
   if (!target) return null
   const otherResidents = stop.addresses.flatMap(
@@ -114,13 +117,13 @@ export default function PersonSheet({
                 <button
                   key={candidate.stopTargetId}
                   type="button"
-                  aria-pressed={candidate.stopTargetId === selectedId}
+                  aria-pressed={candidate.stopTargetId === target.stopTargetId}
                   className={`flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm ${
-                    candidate.stopTargetId === selectedId
+                    candidate.stopTargetId === target.stopTargetId
                       ? 'border border-border bg-background font-medium shadow-sm'
                       : ''
                   }`}
-                  onClick={() => setSelectedId(candidate.stopTargetId)}
+                  onClick={() => onSelectTarget(candidate.stopTargetId)}
                 >
                   {candidate.name ?? 'Unnamed'}
                   <StatusDot status={statusFor(candidate)} />
