@@ -115,6 +115,24 @@ events:
   - {event: "Briefing Assistant - Briefing Viewed", product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Briefing Assistant - Agenda Created", product: serve, family: serve, floor: null, owner: TBD, okr: ["Active Serve Users", "People Served"]}
 
+# Behaviors (DATA-2316): what we are trying to measure, and which events instrument it.
+# Absorbs the events: key above over time — a watchlist row is the degenerate case of a
+# behavior with one surface and one instrument. Coverage is derived, never written here.
+#
+#   id:            stable snake_case key
+#   question:      the plain-English thing this behavior lets us answer
+#   question_ref:  ClickUp task id in the Analytics Questions list (the intake identity)
+#   answers:       optional extra questions this behavior contributes to (composite questions)
+#   product:       win | serve | both
+#   okr:           optional OKR metric name(s); makes the behavior high-consequence
+#   surfaces[]:    path (repo-relative), label (stable, used in per-surface reporting),
+#                  instrumented_by (event name, or explicit null for a known gap)
+#   superseded[]:  historical instruments, for successor lineage
+#   caveats:       optional note that travels with the answer (a known data-quality defect)
+#   asked_by:      who wants this answered; review nudges route here
+#   review:        interval_days, last_reviewed, reviewed_by
+behaviors: []
+
 # Proposals a human reviewed and rejected (DATA-2152). The self-healing proposal queue
 # skips these permanently — a dismissed event never re-proposes (it would otherwise keep
 # surfacing every run while it is still inside the 90-day first-seen proposal window). Set
