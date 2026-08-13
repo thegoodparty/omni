@@ -48,11 +48,13 @@ Swagger is mounted at `/api` (no prefix) for ad-hoc exploration in non-prod.
 
 ## Auth
 
-There is no application-level auth. `election-api` is an **internal** service — the only callers are `gp-api` and other internal services inside the VPC. Network-level controls (VPC, security groups in `deploy/components/`) are the boundary. Don't add public endpoints without first changing this assumption.
+`election-api` runs behind an internet-facing ALB, so the application — not the network — is the security boundary. A global `M2MAuthGuard` (`APP_GUARD`, in `src/authentication/`) is default-deny: every route requires a JWT-format Clerk M2M bearer token, verified networkless against `ELECTION_API_MACHINE_SECRET`. Routes opt out with `@PublicAccess()`; only the ALB health check does.
 
-Unlike sibling `people-api` (which enforces a global `S2SAuthGuard` because it serves L2 voter PII), `election-api` relies on network isolation because it serves only public election/candidate data. This divergence is intentional — see [ADR-0001](adr/0001-no-app-level-auth.md).
+Callers mint their own tokens with their own machine secret (`gp-api`: `GP_API_MACHINE_SECRET`, `gp-marketing`: `GP_MARKETING_MACHINE_SECRET`) and must be connected to the election-api machine in the Clerk dashboard. New consumers need the same wiring — see [ADR-0001](adr/0001-m2m-lockdown.md).
 
-CORS is open (`origin: '*'`) for the same reason — change `CORS_ORIGIN` in env if/when this is no longer internal-only.
+Enforcement is gated on `ELECTION_API_AUTH_ENFORCED`. Until it is `'true'` the guard is **observe-only**: it verifies and logs what it would reject, but lets the request through. Rollout is per-env (dev → qa → prod); rollback is flipping the flag back.
+
+CORS defaults to open (`origin: '*'`, override with `CORS_ORIGIN`) — auth, not CORS, is what gates access.
 
 ## Cross-service edges
 
