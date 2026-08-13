@@ -116,6 +116,81 @@ describe('POST /v1/outreach/social/draft', () => {
     expect(userPrompt).toContain('City Council')
   })
 
+  it('polishes the given text instead of writing fresh when currentDraft is present', async () => {
+    jsonCompletion.mockResolvedValue({
+      object: { draft: 'A clearer version of my own words.' },
+      tokens: 50,
+      inputTokens: 25,
+      outputTokens: 25,
+      model: 'claude-test',
+    })
+
+    const res = await postDraft({
+      purpose: 'introduce_myself',
+      tone: 'direct',
+      currentDraft: 'Hi neighbors, I am Jane and I want your vote.',
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({ draft: 'A clearer version of my own words.' })
+
+    expect(jsonCompletion).toHaveBeenCalledTimes(1)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const systemPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'system',
+    )?.content
+    expect(systemPrompt).toContain('polish')
+    expect(systemPrompt).toContain(
+      "Keep the author's meaning, structure, and every factual claim",
+    )
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      'Hi neighbors, I am Jane and I want your vote.',
+    )
+    expect(userPrompt).toContain('Polish the message.')
+    expect(userPrompt).toContain('Direct:')
+    expect(userPrompt).not.toContain('Write the draft message.')
+  })
+
+  it('allows improve mode for the custom purpose', async () => {
+    jsonCompletion.mockResolvedValue({
+      object: { draft: 'Polished custom words.' },
+      tokens: 50,
+      inputTokens: 25,
+      outputTokens: 25,
+      model: 'claude-test',
+    })
+
+    const res = await postDraft({
+      purpose: 'custom',
+      tone: 'warm',
+      currentDraft: 'Entirely my words, roughly phrased.',
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({ draft: 'Polished custom words.' })
+  })
+
+  it('rejects an empty or oversized currentDraft without calling the LLM', async () => {
+    const empty = await postDraft({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+      currentDraft: '',
+    })
+    expect(empty.status).toBe(HttpStatus.BAD_REQUEST)
+
+    const oversized = await postDraft({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+      currentDraft: 'x'.repeat(2001),
+    })
+    expect(oversized.status).toBe(HttpStatus.BAD_REQUEST)
+
+    expect(jsonCompletion).not.toHaveBeenCalled()
+  })
+
   it('maps an LLM failure to 502', async () => {
     jsonCompletion.mockRejectedValue(new Error('model unavailable'))
 

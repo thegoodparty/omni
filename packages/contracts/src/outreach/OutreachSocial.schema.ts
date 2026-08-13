@@ -53,9 +53,16 @@ export const SocialAssetSchema = z
   )
 export type SocialAsset = z.infer<typeof SocialAssetSchema>
 
+// currentDraft switches the endpoint from writing a fresh draft to
+// polishing the given text (keep meaning/structure/claims, apply tone).
 export const SocialDraftRequestSchema = z.object({
   purpose: SocialPurposeSchema,
   tone: SocialToneSchema,
+  currentDraft: z
+    .string()
+    .min(1)
+    .max(SOCIAL_DRAFT_MESSAGE_MAX_LENGTH)
+    .optional(),
 })
 export type SocialDraftRequest = z.infer<typeof SocialDraftRequestSchema>
 

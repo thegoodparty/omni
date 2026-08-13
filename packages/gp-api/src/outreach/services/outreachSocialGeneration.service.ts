@@ -83,6 +83,22 @@ const DRAFT_SYSTEM_PROMPT = [
   '- Match the requested tone.',
 ].join('\n')
 
+const IMPROVE_SYSTEM_PROMPT = [
+  'You are a campaign writing assistant helping an independent,',
+  'non-partisan local candidate polish one short campaign message they',
+  'wrote themselves.',
+  'Rules:',
+  "- Keep the author's meaning, structure, and every factual claim",
+  '  exactly as written. Improve clarity and flow only.',
+  '- Keep roughly the same length as the original.',
+  '- Return plain prose (no hashtags, no links, no headings).',
+  '- Stay ISSUE-NEUTRAL: never add policy positions, issue stances,',
+  '  endorsements, statistics, dates, places, or events the original',
+  '  does not contain.',
+  '- Stay strictly non-partisan. No party labels, no attacks.',
+  '- Match the requested tone.',
+].join('\n')
+
 const DraftSchema = z.object({
   draft: z.string().min(1).max(SOCIAL_DRAFT_MESSAGE_MAX_LENGTH),
 })
@@ -129,24 +145,41 @@ export class OutreachSocialGenerationService {
     office: string,
     userId: string,
   ): Promise<string> {
-    if (input.purpose === 'custom') {
+    // Fresh generation only: improve mode polishes the candidate's own
+    // words, so it applies to custom-purpose messages too.
+    if (input.purpose === 'custom' && !input.currentDraft) {
       throw new BadRequestException(
         'Custom-purpose messages are written by the candidate',
       )
     }
-    const messages: LlmMessage[] = [
-      { role: 'system', content: DRAFT_SYSTEM_PROMPT },
-      {
-        role: 'user',
-        content: [
-          `Candidate name: ${candidateName || 'The candidate'}.`,
-          `Office sought: ${office || 'local office'}.`,
-          `Goal of this message: ${PURPOSE_GOALS[input.purpose]}.`,
-          `Tone: ${TONE_STYLES[input.tone]}`,
-          'Write the draft message.',
-        ].join('\n'),
-      },
+    const context = [
+      `Candidate name: ${candidateName || 'The candidate'}.`,
+      `Office sought: ${office || 'local office'}.`,
+      `Goal of this message: ${PURPOSE_GOALS[input.purpose]}.`,
+      `Tone: ${TONE_STYLES[input.tone]}`,
     ]
+    const messages: LlmMessage[] = input.currentDraft
+      ? [
+          { role: 'system', content: IMPROVE_SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: [
+              ...context,
+              "The candidate's message to polish:",
+              '"""',
+              input.currentDraft,
+              '"""',
+              'Polish the message.',
+            ].join('\n'),
+          },
+        ]
+      : [
+          { role: 'system', content: DRAFT_SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: [...context, 'Write the draft message.'].join('\n'),
+          },
+        ]
 
     try {
       const { object } = await this.llm.jsonCompletion({
