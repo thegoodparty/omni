@@ -56,13 +56,11 @@ events:
   # Candidate Dashboard Viewed is code-retired (PR #732) but still anchors the OKR until
   # DATA-2173 re-anchors it — the okr flag documents the (currently broken) dependency.
   - {event: "Dashboard - Candidate Dashboard Viewed",   product: win, family: win_dashboard, floor: null, owner: TBD, okr: "Active Candidates"}
-  - {event: "Dashboard - Campaign Plan Viewed",         product: win, family: win_dashboard, floor: null, owner: TBD, okr: ["Active Candidates", "Onboarded"]}
   - {event: "Dashboard - Campaign Plan Generation Completed", product: win, family: win_dashboard, floor: null, owner: TBD}
 
   # ---- Win · activation: voter outreach (campaign sent) ----
   - {event: "Schedule Text Campaign - Audience: Enter Audience Request", product: win, family: win_outreach_scheduling, floor: null, owner: TBD}
   - {event: "Schedule Text Campaign: Submit",           product: win, family: win_outreach_scheduling, floor: null, owner: TBD}
-  - {event: "Voter Outreach - Campaign Completed",      product: win, family: win_voter_outreach, floor: null, owner: TBD, okr: ["Activated Candidates", "Outreach Intensity"]}
   - {event: "Voter Outreach - 10DLC Compliance Completed", product: win, family: win_voter_outreach, floor: null, owner: TBD}
   - {event: "Voter Outreach - 10DLC Compliance PIN Sent", product: win, family: win_voter_outreach, floor: null, owner: TBD}
 
@@ -131,7 +129,81 @@ events:
 #   caveats:       optional note that travels with the answer (a known data-quality defect)
 #   asked_by:      who wants this answered; review nudges route here
 #   review:        interval_days, last_reviewed, reviewed_by
-behaviors: []
+behaviors:
+  - id: voter_file_exported
+    question: "How many candidates export a voter file each week, and is that growing?"
+    answers:
+      - "Are people creating and downloading lists but never doing outreach on our platform?"
+    product: win
+    asked_by: nate@goodparty.org
+    surfaces:
+      - path: packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx
+        label: crm_list_detail
+        instrumented_by: "Voter Data - List Exported"
+      - path: packages/gp-webapp/app/dashboard/components/tasks/flows/DownloadStep.tsx
+        label: outreach_wizard_download
+        instrumented_by: null
+      - path: packages/gp-webapp/app/dashboard/outreach/components/DownloadAudienceActionOption.tsx
+        label: outreach_table_download
+        instrumented_by: null
+    superseded:
+      - "Download Voter File Success"
+    review: {interval_days: 90, last_reviewed: 2026-08-13, reviewed_by: tristan@goodparty.org}
+
+  - id: voter_file_created
+    question: "How many candidates create a voter file, across every path that creates one?"
+    answers:
+      - "Are people creating and downloading lists but never doing outreach on our platform?"
+    product: win
+    asked_by: nate@goodparty.org
+    caveats: >-
+      The outreach flow appears to create a list on every abandoned attempt, so a raw count
+      overstates intent. Verify before reporting a number (DATA-2308).
+    surfaces:
+      - path: packages/gp-webapp/app/dashboard/contacts/crm/wizard/CreateListWizard.tsx
+        label: crm_wizard
+        instrumented_by: "Voter Data - List Created"
+      - path: packages/gp-webapp/app/dashboard/components/tasks/flows/AudienceStep.tsx
+        label: outreach_audience_step
+        instrumented_by: null          # DATA-2307
+    superseded:
+      - "Custom Voter file created"
+    review: {interval_days: 90, last_reviewed: 2026-08-13, reviewed_by: tristan@goodparty.org}
+
+  - id: voter_outreach_scheduled
+    question: "How many candidates schedule voter outreach, by channel?"
+    answers:
+      - "Are people creating and downloading lists but never doing outreach on our platform?"
+    product: win
+    okr: ["Activated Candidates", "Outreach Intensity"]
+    asked_by: nate@goodparty.org
+    surfaces:
+      - path: packages/gp-webapp/app/dashboard/components/tasks/flows/TaskFlow.tsx
+        label: schedule_campaign_completed
+        instrumented_by: "Voter Outreach - Campaign Completed"
+      - path: packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/CreateListFlow.tsx
+        label: door_knocking_list_created
+        instrumented_by: "Door Knocking - List Created"
+    review: {interval_days: 90, last_reviewed: 2026-08-13, reviewed_by: tristan@goodparty.org}
+
+  - id: campaign_plan_viewed
+    question: "Do candidates open their campaign plan, and do they read it to the end?"
+    product: win
+    okr: ["Active Candidates", "Onboarded"]
+    asked_by: nate@goodparty.org
+    surfaces:
+      # Legacy checklist and the tracker that replaced it: the model's first live
+      # supersession, and why both are declared rather than one being picked.
+      - path: packages/gp-webapp/app/dashboard/components/tasks/TasksList.tsx
+        label: campaign_plan_legacy_checklist
+        instrumented_by: "Dashboard - Campaign Plan Viewed"
+      - path: packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/CampaignStrategySection.tsx
+        label: campaign_plan_tracker
+        instrumented_by: "Campaign Plan - Campaign Tracker Viewed"
+      - path: packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/CampaignStrategySection.tsx
+        label: campaign_plan_read_through
+        instrumented_by: null          # no scroll-depth instrument; Nate asked for this
+    review: {interval_days: 90, last_reviewed: 2026-08-13, reviewed_by: tristan@goodparty.org}
 
 # Proposals a human reviewed and rejected (DATA-2152). The self-healing proposal queue
 # skips these permanently — a dismissed event never re-proposes (it would otherwise keep
