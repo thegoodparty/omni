@@ -229,8 +229,12 @@ export default function PersonSheet({
                   onRecorded(target.stopTargetId, personId, knockStatus)
                 }
               />
+              {/* Namespaced: a bare stopTargetId would collide with the
+                  form's key above, and React reconciles same-key siblings as
+                  one child. Both still need a key so each resets its mutation
+                  state when the canvasser switches resident. */}
               <DoNotKnockControl
-                key={target.stopTargetId}
+                key={`do-not-knock-${target.stopTargetId}`}
                 target={target}
                 onChanged={onDoNotKnockChanged}
               />
