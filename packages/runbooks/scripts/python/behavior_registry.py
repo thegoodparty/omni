@@ -90,7 +90,10 @@ def validate_behaviors(
             seen_refs.setdefault(ref, bid)
 
         surfaces = b.get("surfaces") or []
-        if not surfaces:
+        # A behavior carrying a question_ref is an intake stub: the question was accepted before
+        # anyone enumerated where it happens, which is legal and reads as uncovered downstream.
+        # Without a ref there is no such excuse — the entry is just incomplete.
+        if not surfaces and not ref:
             errors.append(f"{bid}: no surfaces declared")
 
         if b.get("product") not in PRODUCTS:

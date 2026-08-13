@@ -54,7 +54,14 @@ def test_rule_1_duplicate_id():
 
 
 def test_rule_2_empty_surfaces():
-    assert any("no surfaces" in e for e in _errs(VALID | {"surfaces": []}))
+    refless = {k: v for k, v in VALID.items() if k != "question_ref"}
+    assert any("no surfaces" in e for e in _errs(refless | {"surfaces": []}))
+
+
+def test_intake_stub_with_a_question_ref_may_have_no_surfaces():
+    assert not any("no surfaces" in e for e in _errs(VALID | {"surfaces": []}))
+    okr_stub = VALID | {"surfaces": [], "okr": "Active Candidates"}
+    assert any("okr declared but the behavior has no surfaces" in e for e in _errs(okr_stub))
 
 
 def test_rule_3_instrumented_by_absent_from_catalog():

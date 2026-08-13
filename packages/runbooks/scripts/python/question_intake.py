@@ -23,7 +23,9 @@ import clickup_api
 
 ACCEPTED_STATUS = "accepted"
 DEFAULT_INTERVAL_DAYS = 90
+PRODUCTS = frozenset({"win", "serve", "both"})
 _SLUG_STRIP = re.compile(r"[^a-z0-9]+")
+_BEHAVIORS_KEY = re.compile(r"^behaviors:(.*)$")
 
 
 def _custom(task: dict, name: str) -> str:
@@ -59,9 +61,28 @@ def fetch_questions(api_key: str, list_id: str, *, requester=None) -> list[dict]
     return rows
 
 
+def normalize_product(value) -> str:
+    """A ClickUp dropdown comes back as the raw label ("Win") or as an ordinal index, neither of
+    which is a registry product. Anything unrecognized becomes "both" rather than a stub that
+    fails validation on arrival."""
+    product = str(value or "").strip().lower()
+    return product if product in PRODUCTS else "both"
+
+
 def slugify(question: str) -> str:
     slug = _SLUG_STRIP.sub("_", question.lower()).strip("_")
     return "_".join(slug.split("_")[:8])
+
+
+def _uniquify(candidate: str, taken: set[str]) -> str:
+    """Two differently worded questions can slugify identically. Suffix rather than drop: a
+    dropped stub is re-proposed and re-dropped on every run, forever and silently."""
+    if candidate not in taken:
+        return candidate
+    n = 2
+    while f"{candidate}_{n}" in taken:
+        n += 1
+    return f"{candidate}_{n}"
 
 
 def similar_questions(question: str, existing: list[str], *, threshold: float = 0.6) -> list[str]:
@@ -76,25 +97,39 @@ def similar_questions(question: str, existing: list[str], *, threshold: float = 
 
 
 def intake_to_behaviors(
-    tasks: list[dict], *, today: date, existing_refs: set[str]
+    tasks: list[dict], *, today: date, existing_refs: set[str],
+    existing_ids: set[str] | None = None,
 ) -> list[dict]:
     """Only Accepted tasks enter the registry. Proposed ones are left alone so the accept gate
     is a real gate rather than a label."""
     out: list[dict] = []
     seen = set(existing_refs)
+    taken_ids = set(existing_ids or ())
     for task in tasks:
         if task.get("status") != ACCEPTED_STATUS:
             continue
         question = (task.get("name") or "").strip()
         ref = str(task.get("id") or "")
-        if not question or not ref or ref in seen:
+        if not question or not ref:
+            print(f"skipped task {ref or '<no id>'}: blank question or task id", file=sys.stderr)
+            continue
+        if ref in seen:
+            continue
+        base = slugify(question)
+        if not base:
+            print(f"skipped task {ref}: question {question!r} slugifies to nothing",
+                  file=sys.stderr)
             continue
         seen.add(ref)
+        bid = _uniquify(base, taken_ids)
+        if bid != base:
+            print(f"task {ref}: id {base!r} is taken, filing it as {bid!r}", file=sys.stderr)
+        taken_ids.add(bid)
         entry = {
-            "id": slugify(question),
+            "id": bid,
             "question": question,
             "question_ref": ref,
-            "product": (task.get("product") or "").strip() or "both",
+            "product": normalize_product(task.get("product")),
             "surfaces": [],
             "review": {
                 "interval_days": DEFAULT_INTERVAL_DAYS,
@@ -108,26 +143,79 @@ def intake_to_behaviors(
     return out
 
 
-def append_behaviors(path: Path, new: list[dict]) -> int:
-    """Append to the behaviors: key, preserving every other key. Idempotent on question_ref.
+def _render_entry(entry: dict) -> list[str]:
+    body = yaml.safe_dump(
+        entry, sort_keys=False, width=100, allow_unicode=True
+    ).rstrip("\n").split("\n")
+    return ["  - " + body[0]] + ["    " + line for line in body[1:]]
 
-    Rewrites the document through yaml.safe_dump, which drops the file's comments. Acceptable
-    only because this key is machine-appended; if the schema comment above behaviors: starts
-    disappearing in review, switch to a line-oriented insert.
+
+def _insert_behaviors(text: str, added: list[dict]) -> str:
+    """Splice list items into the behaviors: block and leave every other byte alone."""
+    lines = text.splitlines()
+    trailing_newline = text.endswith("\n")
+
+    key = next((i for i, line in enumerate(lines) if _BEHAVIORS_KEY.match(line)), None)
+    if key is None:
+        lines.append("behaviors:")
+        key, inline = len(lines) - 1, ""
+    else:
+        inline = (_BEHAVIORS_KEY.match(lines[key]).group(1) or "").strip()
+        if inline and inline != "[]":
+            raise ValueError(f"cannot append to an inline behaviors list: {lines[key]!r}")
+    if inline == "[]":
+        lines[key] = "behaviors:"
+
+    at, blank_first = key + 1, False
+    for i in range(key + 1, len(lines)):
+        if lines[i].strip() and not lines[i].startswith((" ", "\t")):
+            break
+        if lines[i].strip():
+            at, blank_first = i + 1, True
+
+    out = lines[:at]
+    for i, entry in enumerate(added):
+        if blank_first or i:
+            out.append("")
+        out.extend(_render_entry(entry))
+    out.extend(lines[at:])
+    return "\n".join(out) + ("\n" if trailing_newline else "")
+
+
+def append_behaviors(path: Path, new: list[dict]) -> int:
+    """Append under the behaviors: key, leaving every other byte of the file untouched.
+    Idempotent on question_ref; an id already in the registry is suffixed, never dropped.
+
+    The insert is line-oriented rather than a yaml round-trip because this file's comments are
+    its schema documentation, and the PR that carries an intake change auto-merges.
     """
     path = Path(path)
-    doc = yaml.safe_load(path.read_text()) or {}
+    text = path.read_text()
+    doc = yaml.safe_load(text) or {}
     behaviors = doc.get("behaviors") or []
     have_refs = {b.get("question_ref") for b in behaviors if b.get("question_ref")}
-    have_ids = {b.get("id") for b in behaviors}
-    added = [
-        b for b in new
-        if b.get("question_ref") not in have_refs and b.get("id") not in have_ids
-    ]
+    have_ids = {b.get("id") for b in behaviors if b.get("id")}
+
+    added: list[dict] = []
+    for entry in new:
+        ref = entry.get("question_ref")
+        if ref and ref in have_refs:
+            print(f"skipped {entry.get('id')!r}: question_ref {ref!r} is already in the registry",
+                  file=sys.stderr)
+            continue
+        bid = _uniquify(str(entry.get("id") or "behavior"), have_ids)
+        if bid != entry.get("id"):
+            print(f"renamed {entry.get('id')!r} to {bid!r}: id is already in the registry",
+                  file=sys.stderr)
+            entry = dict(entry, id=bid)
+        have_ids.add(bid)
+        if ref:
+            have_refs.add(ref)
+        added.append(entry)
+
     if not added:
         return 0
-    doc["behaviors"] = behaviors + added
-    path.write_text(yaml.safe_dump(doc, sort_keys=False, width=100))
+    path.write_text(_insert_behaviors(text, added))
     return len(added)
 
 
@@ -148,7 +236,10 @@ def main(argv: list[str] | None = None) -> int:
     tasks = fetch_questions(api_key, args.list_id)
     behaviors = br.load_behaviors(aeh.WATCHLIST)
     existing_refs = {b["question_ref"] for b in behaviors if b.get("question_ref")}
-    stubs = intake_to_behaviors(tasks, today=date.today(), existing_refs=existing_refs)
+    existing_ids = {b["id"] for b in behaviors if b.get("id")}
+    stubs = intake_to_behaviors(
+        tasks, today=date.today(), existing_refs=existing_refs, existing_ids=existing_ids
+    )
 
     existing_questions = [b["question"] for b in behaviors if b.get("question")]
     for stub in stubs:

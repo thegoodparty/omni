@@ -73,6 +73,35 @@ def test_missing_product_defaults_to_both():
     assert qi.intake_to_behaviors(rows, today=TODAY, existing_refs=set())[0]["product"] == "both"
 
 
+def test_product_is_lowercased_and_unknown_values_fall_back_to_both():
+    rows = [
+        {"id": "1", "name": "Q one?", "status": "accepted", "product": "Win", "asked_by": ""},
+        {"id": "2", "name": "Q two?", "status": "accepted", "product": "0", "asked_by": ""},
+    ]
+    out = qi.intake_to_behaviors(rows, today=TODAY, existing_refs=set())
+    assert [b["product"] for b in out] == ["win", "both"]
+
+
+def test_same_slug_in_one_batch_lands_twice_with_distinct_ids():
+    rows = [
+        {"id": "1", "name": "Are people exporting voter files?", "status": "accepted",
+         "product": "", "asked_by": ""},
+        {"id": "2", "name": "Are people exporting voter files???", "status": "accepted",
+         "product": "", "asked_by": ""},
+    ]
+    out = qi.intake_to_behaviors(rows, today=TODAY, existing_refs=set())
+    assert [b["id"] for b in out] == ["are_people_exporting_voter_files",
+                                      "are_people_exporting_voter_files_2"]
+
+
+def test_slug_colliding_with_an_existing_id_is_suffixed_not_dropped():
+    rows = [{"id": "9", "name": "Are people exporting voter files?", "status": "accepted",
+             "product": "", "asked_by": ""}]
+    out = qi.intake_to_behaviors(rows, today=TODAY, existing_refs=set(),
+                                 existing_ids={"are_people_exporting_voter_files"})
+    assert [b["id"] for b in out] == ["are_people_exporting_voter_files_2"]
+
+
 def test_blank_question_name_is_skipped():
     rows = [{"id": "1", "name": "   ", "status": "accepted", "product": "", "asked_by": ""}]
     assert qi.intake_to_behaviors(rows, today=TODAY, existing_refs=set()) == []
@@ -103,3 +132,43 @@ def test_append_behaviors_is_idempotent_on_question_ref(tmp_path):
     path = tmp_path / "m.yaml"
     path.write_text("behaviors:\n  - {id: q1, question: 'Q?', question_ref: '86ak1'}\n")
     assert qi.append_behaviors(path, [{"id": "other", "question_ref": "86ak1"}]) == 0
+
+
+def test_append_behaviors_suffixes_an_id_already_in_the_registry(tmp_path):
+    path = tmp_path / "m.yaml"
+    path.write_text("behaviors:\n  - {id: q1, question: 'Q?', question_ref: '86ak1'}\n")
+    n = qi.append_behaviors(path, [
+        {"id": "q1", "question": "Second?", "question_ref": "86ak2"},
+        {"id": "q1", "question": "Third?", "question_ref": "86ak3"},
+    ])
+    assert n == 2
+    doc = yaml.safe_load(path.read_text())
+    assert [b["id"] for b in doc["behaviors"]] == ["q1", "q1_2", "q1_3"]
+
+
+COMMENTED = """# hand-maintained header
+watched_families: [win_dashboard]
+
+# schema note above the key
+behaviors:
+  - id: existing
+    question: "Q?"          # trailing note
+    question_ref: '86ak1'
+
+# note above the next key
+dismissed: []
+"""
+
+
+def test_append_behaviors_keeps_every_comment_in_the_file(tmp_path):
+    path = tmp_path / "m.yaml"
+    path.write_text(COMMENTED)
+    n = qi.append_behaviors(path, [{"id": "new_q", "question": "New?", "question_ref": "86ak2",
+                                    "product": "win", "surfaces": []}])
+    assert n == 1
+    text = path.read_text()
+    head, _, tail = COMMENTED.partition("    question_ref: '86ak1'\n")
+    assert text.startswith(head + "    question_ref: '86ak1'\n")
+    assert text.endswith(tail)
+    doc = yaml.safe_load(text)
+    assert [b["id"] for b in doc["behaviors"]] == ["existing", "new_q"]
