@@ -14,9 +14,15 @@ from behavior_coverage import behavior_state
 _ORDER = {"not_answerable": 0, "partially_answerable": 1, "answerable": 2}
 
 
+def _as_list(value) -> list[str]:
+    if not value:
+        return []
+    return [str(v) for v in value] if isinstance(value, list) else [str(value)]
+
+
 def _questions_of(behavior: dict) -> list[str]:
     out = [str(behavior["question"])] if behavior.get("question") else []
-    out.extend(str(a) for a in behavior.get("answers") or [])
+    out.extend(_as_list(behavior.get("answers")))
     return out
 
 
@@ -44,8 +50,7 @@ def question_rows(behaviors: list[dict], records_by_type: dict[str, dict]) -> li
                 s["instrumented_by"] for s in state["surfaces"] if s["state"] == "live"
             )
             row["gaps"].extend(s["path"] for s in state["surfaces"] if s["state"] != "live")
-            if b.get("caveats"):
-                row["caveats"].append(str(b["caveats"]))
+            row["caveats"].extend(_as_list(b.get("caveats")))
             if b.get("asked_by") and not row["asked_by"]:
                 row["asked_by"] = str(b["asked_by"])
             if b.get("question_ref") and not row["question_ref"]:

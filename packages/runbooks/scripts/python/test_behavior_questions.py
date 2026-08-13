@@ -71,6 +71,18 @@ def test_worst_state_sorts_first():
     assert [r["question"] for r in rows] == ["Bad", "Good"]
 
 
+def test_scalar_answers_is_treated_as_a_single_composite_question():
+    behaviors = [_b("a", "Q1", "E", answers="Composite")]
+    rows = bq.question_rows(behaviors, {"E": _rec("E")})
+    assert [r["question"] for r in rows] == ["Composite", "Q1"]
+
+
+def test_list_caveats_are_carried_as_separate_strings():
+    behaviors = [_b("a", "Q1", "E", caveats=["one per attempt", "excludes drafts"])]
+    rows = bq.question_rows(behaviors, {"E": _rec("E")})
+    assert rows[0]["caveats"] == ["one per attempt", "excludes drafts"]
+
+
 def test_two_questions_on_the_same_behavior_set_are_reported_as_duplicates():
     behaviors = [_b("a", "Q1", "E", answers=["Q2"])]
     assert bq.duplicate_behavior_sets(behaviors, {"E": _rec("E")}) == [("Q1", "Q2")]
