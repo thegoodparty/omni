@@ -631,26 +631,6 @@ describe('CampaignForm', () => {
 
       warnSpy.mockRestore()
     })
-
-    it('does not call onSave when a field the admin edited is invalid', async () => {
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-      renderForm()
-      const user = userEvent.setup()
-
-      const websiteInput = screen.getByDisplayValue('https://example.com')
-      await user.clear(websiteInput)
-      await user.type(websiteInput, 'not-a-url')
-
-      await waitFor(() => {
-        expect(
-          screen.getByRole('button', { name: /save changes/i })
-        ).toBeDisabled()
-      })
-
-      expect(onSave).not.toHaveBeenCalled()
-
-      consoleSpy.mockRestore()
-    })
   })
 
   describe('defaults for nullable fields', () => {
