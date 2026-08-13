@@ -26,13 +26,14 @@ def test_event_state_sql_reads_mart_analytics_catalog():
     assert "dbt." not in esa.EVENT_STATE_SQL
 
 
-def test_columns_are_the_twentyone_in_order():
+def test_columns_are_the_twentytwo_in_order():
     assert esa.COLUMNS == [
         "event", "event_type", "status", "declared_intent", "intent_date", "supersession",
         "family", "first_seen_date",
         "last_seen_date", "event_count_30d", "event_count", "description", "tags",
         "instrumented_pr", "instrumented_date", "instrumented_author_email",
         "retired_pr", "retired_date", "retired_author_email", "watchlist_status", "okr",
+        "questions",
     ]
 
 
@@ -393,7 +394,7 @@ def test_build_rows_carries_okr_column():
         "watchlist_status": "tracked", "okr": "Active Candidates",
     }]
     rows = esa.build_rows(records, catalog_by_type={}, code_map={})
-    assert esa.COLUMNS[-1] == "okr"
+    assert "okr" in esa.COLUMNS
     assert rows[0]["okr"] == "Active Candidates"
 
 
@@ -403,3 +404,28 @@ def test_build_rows_okr_blank_when_unset():
         "event_count_30d": 5, "gpmeta": None, "watchlist_status": "—",
     }]
     assert esa.build_rows(records, catalog_by_type={}, code_map={})[0]["okr"] == ""
+
+
+def test_questions_by_event_maps_instruments_to_their_questions():
+    behaviors = [
+        {"id": "a", "question": "Q1",
+         "surfaces": [{"path": "x.tsx", "label": "l", "instrumented_by": "E"}]},
+        {"id": "b", "question": "Q2", "answers": ["Composite"],
+         "surfaces": [{"path": "y.tsx", "label": "l", "instrumented_by": "E"}]},
+    ]
+    assert esa.questions_by_event(behaviors) == {"E": ["Composite", "Q1", "Q2"]}
+
+
+def test_build_rows_renders_questions_column():
+    records = [{"event_type": "E", "status": "active", "family": "win_dashboard"}]
+    rows = esa.build_rows(records, {"E": {}}, {}, {"E": ["Q1", "Q2"]})
+    assert rows[0]["questions"] == "Q1; Q2"
+
+
+def test_build_rows_questions_blank_when_no_behavior_claims_the_event():
+    records = [{"event_type": "E", "status": "active", "family": "win_dashboard"}]
+    assert esa.build_rows(records, {"E": {}}, {})[0]["questions"] == ""
+
+
+def test_questions_is_the_last_column_so_existing_offsets_do_not_shift():
+    assert esa.COLUMNS[-1] == "questions"
