@@ -230,6 +230,7 @@ export default function PersonSheet({
                 }
               />
               <DoNotKnockControl
+                key={target.stopTargetId}
                 target={target}
                 onChanged={onDoNotKnockChanged}
               />

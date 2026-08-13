@@ -173,6 +173,38 @@ describe('WalkView', () => {
     expect(within(elmRow).getByText('Do not knock')).toBeInTheDocument()
   })
 
+  // ADR 0007. A flagged door keeps `knockStatus: 'unknown'`, so counting it
+  // would strand a canvasser who correctly skipped it below 100% and leave it
+  // sitting under the "Support unknown" chip as work still to do.
+  it('drops a flagged door out of the progress counts', async () => {
+    api.mock('POST /v1/door-knocking/do-not-knock', {
+      status: 200,
+      data: { personId: 'person-1', doNotKnock: true },
+    })
+
+    // The label is a bare text node beside its count, so the chip itself is the
+    // only span whose text carries both.
+    const unknownChip = () =>
+      screen.getByText(/Support unknown/, { selector: 'span' })
+
+    render(<WalkView turfId={3} />)
+    // Dorian is the unreached door of the two; Marisol is already a supporter.
+    await waitFor(() =>
+      expect(screen.getByText('1/2 reached')).toBeInTheDocument(),
+    )
+    expect(unknownChip()).toHaveTextContent('Support unknown 1')
+
+    await openPersonSheet('105 Elm St')
+    fireEvent.click(screen.getByRole('button', { name: /don.t knock/i }))
+    // Undo appearing is the flag landing; asserting the counts before the
+    // mutation settles would read the pre-patch cache.
+    await screen.findByRole('button', { name: 'Undo' })
+    await closePersonSheet()
+
+    expect(screen.getByText('1/1 reached')).toBeInTheDocument()
+    expect(unknownChip()).toHaveTextContent('Support unknown 0')
+  })
+
   it('records an answered knock through the person sheet', async () => {
     const posted: unknown[] = []
     api.mock('POST /v1/door-knocking/interactions', ({ body }) => {

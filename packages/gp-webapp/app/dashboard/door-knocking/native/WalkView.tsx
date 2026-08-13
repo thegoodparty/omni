@@ -101,13 +101,21 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
     stopList.flatMap((stop) =>
       stop.addresses.flatMap((address) => address.targets),
     )
+  // ADR 0007. Every count in the progress card is over knockable doors only. A
+  // flagged door keeps `knockStatus: 'unknown'` — do-not-knock is a separate
+  // flag, not a knock status — so counting it would leave a canvasser who
+  // correctly skipped it short of 100%, and park it under the `unknown` chip as
+  // outstanding work. Its recorded history, if any, still lives in the CRM.
+  const knockableTargets = (stopList: RoutePayloadStop[]) =>
+    allTargets(stopList).filter((target) => !target.doNotKnock)
   const targetCount = (stopList: RoutePayloadStop[]) =>
-    allTargets(stopList).length
+    knockableTargets(stopList).length
   const reachedCount = (stopList: RoutePayloadStop[]) =>
-    allTargets(stopList).filter((target) => target.knockStatus !== 'unknown')
-      .length
+    knockableTargets(stopList).filter(
+      (target) => target.knockStatus !== 'unknown',
+    ).length
   const statusCount = (stopList: RoutePayloadStop[], status: DoorKnockStatus) =>
-    allTargets(stopList).filter((target) => target.knockStatus === status)
+    knockableTargets(stopList).filter((target) => target.knockStatus === status)
       .length
   const stopStatus = (stop: RoutePayloadStop): DoorKnockStatus =>
     rollupStatuses(
