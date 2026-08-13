@@ -4,7 +4,10 @@ import { ACTIVITY_CONDITION_CHANNEL_ACTIONS } from '@/shared/schemas/activityCon
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { PinoLogger } from 'nestjs-pino'
 import type { Organization } from '../generated/prisma'
-import { FILTER_DIMENSIONS } from './filterDimensions.catalog'
+import {
+  FILTER_DIMENSIONS,
+  type FilterDimensionProvenance,
+} from './filterDimensions.catalog'
 import { ContactsService } from './services/contacts.service'
 import {
   INCOME_RANGE_MAPPING,
@@ -113,6 +116,59 @@ describe('FILTER_DIMENSIONS catalog', () => {
   })
 })
 
+describe('FILTER_DIMENSIONS provenance', () => {
+  it('every dimension declares a valid provenance value', () => {
+    const valid: ReadonlySet<FilterDimensionProvenance> = new Set([
+      'observed',
+      'modeled',
+      'derived',
+    ])
+    const invalid = FILTER_DIMENSIONS.filter(
+      (d) => !valid.has(d.provenance),
+    ).map((d) => d.key)
+    expect(invalid).toEqual([])
+  })
+
+  // Pinned so a quiet downgrade (e.g. ethnicity -> observed) fails here with
+  // a readable diff instead of silently reaching the model.
+  it('pins the modeled set', () => {
+    const modeled = FILTER_DIMENSIONS.filter(
+      (d) => d.provenance === 'modeled',
+    ).map((d) => d.key)
+    expect(modeled.sort()).toEqual(
+      [
+        'audience',
+        'businessOwner',
+        'children',
+        'education',
+        'ethnicity',
+        'homeowner',
+        'income',
+        'incomeRanges',
+        'languageCodes',
+        'maritalStatus',
+        'veteran',
+        'voterStatus',
+      ].sort(),
+    )
+  })
+
+  // audience and voterStatus both read Voter_Status under different keys; a
+  // split mark would let the model launder a modeled figure by picking the
+  // other route.
+  it('audience and voterStatus agree (same Voter_Status column)', () => {
+    const audience = FILTER_DIMENSIONS.find((d) => d.key === 'audience')
+    const voterStatus = FILTER_DIMENSIONS.find((d) => d.key === 'voterStatus')
+    expect(audience?.provenance).toBe(voterStatus?.provenance)
+  })
+
+  it('incomeRanges and income agree (same Estimated_Income_Amount_Int column)', () => {
+    const incomeRanges = FILTER_DIMENSIONS.find((d) => d.key === 'incomeRanges')
+    const income = FILTER_DIMENSIONS.find((d) => d.key === 'income')
+    expect(incomeRanges?.provenance).toBe(income?.provenance)
+  })
+})
+
 describe('ContactsService.getFilterDimensions', () => {
   const buildService = () =>
     new ContactsService(
@@ -161,5 +217,18 @@ describe('ContactsService.getFilterDimensions', () => {
       .getFilterDimensions(organization('eo-city-council'))
       .map((d) => d.key)
     expect(winKeys.filter((key) => !winOnlyKeys.has(key))).toEqual(serveKeys)
+  })
+
+  // Guards against a future .map() in the mode filter that reshapes
+  // dimensions and drops the field.
+  it('preserves provenance on every dimension for a Serve org', () => {
+    const dimensions = buildService().getFilterDimensions(
+      organization('eo-city-council'),
+    )
+    expect(dimensions.length).toBeGreaterThan(0)
+    expect(dimensions.every((d) => typeof d.provenance === 'string')).toBe(true)
+    expect(dimensions.find((d) => d.key === 'ethnicity')?.provenance).toBe(
+      'modeled',
+    )
   })
 })

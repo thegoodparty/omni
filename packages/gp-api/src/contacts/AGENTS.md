@@ -419,6 +419,16 @@ free-tier rules are inherited, never re-implemented. **No tool returns an
 individual voter row** — aggregates, dimension metadata, and filter
 ids/names only. `describe_filter_dimensions` reads
 `filterDimensions.catalog.ts`, the single mode-aware vocabulary source.
+Every catalog entry carries a required `provenance` mark
+(`observed` | `modeled` | `derived`) and the catalog exports the one rule
+string that tells the model what a mark obliges it to say
+(`FILTER_DIMENSION_PROVENANCE_RULES`, imported by the describe tool's
+description and by the Chief of Staff prompt's `CRM_TOOLS_RULES` —
+never restated). Most L2 demographics are `modeled`: the warehouse value
+says "Likely"/"Probable"/"Estimated"/"Inferred" and the catalog label
+strips it, so without the mark the assistant reported modeled ethnicity
+as observed fact (Chief of Staff eval D3-05). A new dimension without a
+mark fails `tsc`.
 The TDD's `GET /v1/contacts/filter-dimensions` route was deliberately
 skipped (tools call services in-process). The webapp assistant bar rides
 the existing `campaign_assistant` / `chief_of_staff` chat scopes — no new

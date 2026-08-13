@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
 import {
   buildChiefOfStaffSystemPrompt,
   COS_GUARDRAIL_DECLINE,
@@ -102,6 +103,24 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain('CONSTITUENT DATA RULES')
     // Pushes segmentation over flat district-wide averages.
     expect(prompt).toContain('segment by the demographics you have')
+  })
+
+  it('imports the provenance rules when count_contacts is registered', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ['count_contacts', 'describe_filter_dimensions'],
+    })
+    expect(prompt).toContain('CONTACT LIST RULES')
+    expect(prompt).toContain(FILTER_DIMENSION_PROVENANCE_RULES)
+  })
+
+  it('omits the provenance rules when the CRM tools are not registered', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: TOOLS,
+    })
+    expect(prompt).not.toContain('CONTACT LIST RULES')
+    expect(prompt).not.toContain(FILTER_DIMENSION_PROVENANCE_RULES)
   })
 
   it('instructs against over-refusing borderline in-scope requests', () => {
