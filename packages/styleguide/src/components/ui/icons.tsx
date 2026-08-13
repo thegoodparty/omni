@@ -68,6 +68,7 @@ export {
   Settings as SettingsIcon,
   Share as ShareIcon,
   Share2 as Share2Icon,
+  SlidersHorizontal as SlidersHorizontalIcon,
   Square as SquareIcon,
   Star as StarIcon,
   Timer as TimerIcon,

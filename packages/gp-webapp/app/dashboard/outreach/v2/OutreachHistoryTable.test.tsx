@@ -50,7 +50,75 @@ describe('OutreachHistoryTable — unified history', () => {
     expect(table.getByText('In review')).toBeInTheDocument()
     expect(table.getAllByText('SMS')).toHaveLength(2)
     expect(table.getByText('Robocall')).toBeInTheDocument()
-    expect(table.getByText('1,204 people')).toBeInTheDocument()
+    // The people cell splits the number from the unit.
+    expect(table.getByText('1,204')).toBeInTheDocument()
+    expect(table.getByText('people')).toBeInTheDocument()
+  })
+
+  it('filters by channel and status and can clear', async () => {
+    const rows: HistoryRow[] = [
+      {
+        id: 1,
+        date: '2026-07-02',
+        outreachType: 'socialMedia',
+        name: 'Intro post',
+        status: 'completed',
+      },
+      {
+        id: 2,
+        date: '2026-07-01',
+        outreachType: 'robocall',
+        name: 'Budget hearing reminder',
+        status: 'pending',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Filters' }))
+    await userEvent.click(screen.getByLabelText('Robocall'))
+
+    let table = within(desktopTable())
+    expect(table.getByText('Intro post')).toBeInTheDocument()
+    expect(table.queryByText('Budget hearing reminder')).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByLabelText('Social media'))
+    expect(
+      within(desktopTable()).getAllByText('No campaigns match your filters.'),
+    ).toHaveLength(1)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+    table = within(desktopTable())
+    expect(table.getByText('Intro post')).toBeInTheDocument()
+    expect(table.getByText('Budget hearing reminder')).toBeInTheDocument()
+  })
+
+  it('filters by status label', async () => {
+    const rows: HistoryRow[] = [
+      {
+        id: 1,
+        date: '2026-07-02',
+        outreachType: 'robocall',
+        name: 'Done call',
+        status: 'completed',
+      },
+      {
+        id: 2,
+        date: '2026-07-01',
+        outreachType: 'robocall',
+        name: 'Reviewing call',
+        status: 'pending',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Filters' }))
+    await userEvent.click(screen.getByLabelText('Done'))
+
+    const table = within(desktopTable())
+    expect(table.getByText('Reviewing call')).toBeInTheDocument()
+    expect(table.queryByText('Done call')).not.toBeInTheDocument()
   })
 
   it('shows the platform count for a social row from the detail fetch', async () => {

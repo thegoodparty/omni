@@ -93,7 +93,7 @@ const STATUS_DISPLAY: Record<
   'In review': { icon: <ClockIcon />, tone: 'primary' },
   Denied: { icon: <XCircleIcon />, tone: 'destructive' },
   Scheduled: { icon: <CalendarClockIcon />, tone: 'primary' },
-  Sent: { icon: <CheckCircleIcon />, tone: 'primary' },
+  Done: { icon: <CheckCircleIcon />, tone: 'primary' },
   'Pending payment': { icon: <ClockIcon />, tone: 'warning' },
 }
 
