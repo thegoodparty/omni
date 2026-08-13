@@ -37,6 +37,8 @@ import { useUser as useClerkUser } from '@clerk/nextjs'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useCampaignStrategyExists } from './useCampaignStrategyExists'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
+import { useNativeDoorKnockingFlag } from 'app/shared/experiments/nativeDoorKnockingFlag'
+import { useDistrictResolution } from './useDistrictResolution'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
 // Labels and icons shared with each tab's page title bar (DashboardNavHeader),
 // so the left rail and the top of the page can never read differently.
@@ -154,7 +156,7 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
   },
 ]
 
-const ECANVASSER_MENU_ITEM: MenuItem = {
+const DOOR_KNOCKING_MENU_ITEM: MenuItem = {
   id: 'door-knocking-dashboard',
   label: 'Door Knocking',
   link: '/dashboard/door-knocking',
@@ -275,6 +277,15 @@ const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
   v2Category: 'campaign',
 }
 
+// Which of the two door-knocking products the candidate would actually land on.
+// `nativeEnabled` is the flag's settled value, so it matches what
+// DoorKnockingPageGate decides on the page itself.
+interface DoorKnockingNavGate {
+  ecanvasserConnected: boolean
+  nativeEnabled: boolean
+  districtResolvable: boolean
+}
+
 export const getDashboardMenuItems = (
   serveAccessEnabled: boolean,
   isElectedOffice: boolean,
@@ -283,6 +294,11 @@ export const getDashboardMenuItems = (
   campaignStoryEnabled: boolean,
   communityIssuesEnabled: boolean,
   ordinancesEnabled: boolean,
+  doorKnocking: DoorKnockingNavGate = {
+    ecanvasserConnected: false,
+    nativeEnabled: false,
+    districtResolvable: false,
+  },
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
@@ -372,6 +388,19 @@ export const getDashboardMenuItems = (
     v2Category: 'campaign',
   })
 
+  // Mirror DoorKnockingPageGate: with the flag on, the route renders the native
+  // voter map and an eCanvasser record is irrelevant; with it off (or
+  // unsettled) it renders the legacy eCanvasser dashboard, which is only worth
+  // linking to for an integrated org. Gating on eCanvasser alone hid the native
+  // pilot from every candidate who never integrated it. The native map also
+  // needs a resolvable district — every pack and turf read 400s without one.
+  const doorKnockingShown = doorKnocking.nativeEnabled
+    ? doorKnocking.districtResolvable
+    : doorKnocking.ecanvasserConnected
+  if (doorKnockingShown) {
+    menuItems.push(DOOR_KNOCKING_MENU_ITEM)
+  }
+
   return menuItems
 }
 
@@ -392,34 +421,42 @@ export default function DashboardMenu({
   // Nav-only gate for the Ordinances tab; the page's FeatureFlagGuard is the
   // treatment surface.
   const { on: ordinancesEnabled } = useFlagOn('serve-ordinances')
+  // The page's gate is the treatment surface, so read without tracking exposure.
+  const { ready: nativeDoorKnockingReady, enabled: nativeDoorKnockingEnabled } =
+    useNativeDoorKnockingFlag(false)
+  const { isUnresolvable: isDistrictUnresolvable } = useDistrictResolution()
   const campaignStrategyExists = useCampaignStrategyExists()
 
-  const menuItems = useMemo(() => {
-    const items = getDashboardMenuItems(
+  const menuItems = useMemo(
+    () =>
+      getDashboardMenuItems(
+        serveAccessEnabled,
+        !!electedOffice,
+        isElectedOfficeLoading,
+        campaignStrategyExists,
+        campaignStoryEnabled,
+        communityIssuesEnabled,
+        ordinancesEnabled,
+        {
+          ecanvasserConnected: !!ecanvasser,
+          nativeEnabled: nativeDoorKnockingReady && nativeDoorKnockingEnabled,
+          districtResolvable: !isDistrictUnresolvable,
+        },
+      ),
+    [
       serveAccessEnabled,
-      !!electedOffice,
+      ecanvasser,
+      electedOffice,
       isElectedOfficeLoading,
       campaignStrategyExists,
       campaignStoryEnabled,
       communityIssuesEnabled,
       ordinancesEnabled,
-    )
-
-    if (ecanvasser) {
-      items.push(ECANVASSER_MENU_ITEM)
-    }
-
-    return items
-  }, [
-    serveAccessEnabled,
-    ecanvasser,
-    electedOffice,
-    isElectedOfficeLoading,
-    campaignStrategyExists,
-    campaignStoryEnabled,
-    communityIssuesEnabled,
-    ordinancesEnabled,
-  ])
+      nativeDoorKnockingReady,
+      nativeDoorKnockingEnabled,
+      isDistrictUnresolvable,
+    ],
+  )
 
   useEffect(() => {
     if (campaign && ecanvasser) {

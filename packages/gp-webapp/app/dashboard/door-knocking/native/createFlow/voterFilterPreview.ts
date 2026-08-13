@@ -128,6 +128,35 @@ const FILTER_KEY_TO_DIM: Record<string, { dim: string; candidates: string[] }> =
     ),
   }
 
+// True when a selected option can't be expressed against the pack's buckets,
+// so it leaves the preview unnarrowed. Shared with filtersToDimSelections
+// below to keep the two answers from disagreeing.
+const narrowsPreview = (
+  filterKey: string,
+  manifest: DoorKnockingPackManifest,
+): boolean => {
+  const mapping = FILTER_KEY_TO_DIM[filterKey]
+  if (!mapping) return false
+  const dim = manifest.dims.find((entry) => entry.key === mapping.dim)
+  if (!dim) return false
+  return dim.values.some((bucket) => mapping.candidates.includes(bucket))
+}
+
+// The selected options the map preview silently ignores — age 65+ today, and
+// anything else whose bucket the pack lacks. They still apply at knock time
+// (evaluation is canonical), so the preview shows a SUPERSET of what the list
+// will actually target. Callers surface this rather than letting a candidate
+// draw against a shape that quietly disagrees with their own filters.
+export const unpreviewableFilterKeys = (
+  filters: VoterFileFilters,
+  manifest: DoorKnockingPackManifest,
+): string[] =>
+  Object.entries(filters)
+    .filter(
+      ([filterKey, value]) => value && !narrowsPreview(filterKey, manifest),
+    )
+    .map(([filterKey]) => filterKey)
+
 // Builds the pack filter selection previewing a saved-list filter draft: for
 // each dim with at least one selected option, allow exactly the selected
 // buckets; dims untouched by the draft stay fully allowed.

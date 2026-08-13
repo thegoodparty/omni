@@ -198,3 +198,152 @@ describe('TurfDetailsSheet delete', () => {
     expect(errorSnackbar).not.toHaveBeenCalled()
   })
 })
+
+describe('TurfDetailsSheet edit', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+    successSnackbar.mockClear()
+    errorSnackbar.mockClear()
+    vi.mocked(trackEvent).mockClear()
+  })
+
+  const openEditor = async () => {
+    fireEvent.click(await screen.findByLabelText('Edit Elm St & 5th'))
+    return screen.findByRole('textbox')
+  }
+
+  // gp-api's update asserts not-locked too — the endpoint also accepts geoPoly,
+  // and the polygon is what the frozen route was computed from.
+  it('offers edit only while the turf is unlocked', () => {
+    renderSheet({ prop: { locked: true } })
+    expect(screen.queryByLabelText('Edit Elm St & 5th')).toBeNull()
+  })
+
+  it('retires the affordance when the live row is locked but the prop is stale', async () => {
+    renderSheet({ prop: { locked: false }, live: { locked: true } })
+
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Edit Elm St & 5th')).toBeNull(),
+    )
+  })
+
+  it('saves a new name and color', async () => {
+    let sent: { id?: string; body?: unknown } = {}
+    api.mock('PUT /v1/door-knocking/turfs/:id', ({ params, body }) => {
+      sent = { id: params.id, body }
+      return { status: 200, data: turf({ name: 'Oak Ave', color: '#16a34a' }) }
+    })
+    renderSheet()
+
+    const input = await openEditor()
+    fireEvent.change(input, { target: { value: 'Oak Ave' } })
+    fireEvent.click(screen.getByLabelText('Turf color #16a34a'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(sent.id).toBe('1'))
+    expect(sent.body).toEqual({ name: 'Oak Ave', color: '#16a34a' })
+    expect(successSnackbar).toHaveBeenCalledWith('List updated')
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.ListEdited, {
+      turfId: 1,
+      renamed: true,
+      recolored: true,
+    })
+  })
+
+  // The name is submitted trimmed, so a rename that only adds whitespace is not
+  // a change at all and Save stays disabled.
+  it('trims the name and treats whitespace as no change', async () => {
+    renderSheet()
+
+    const input = await openEditor()
+    fireEvent.change(input, { target: { value: '  Elm St & 5th  ' } })
+
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  it('will not save an empty name', async () => {
+    renderSheet()
+
+    const input = await openEditor()
+    fireEvent.change(input, { target: { value: '   ' } })
+
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  it('will not save when nothing changed', async () => {
+    renderSheet()
+    await openEditor()
+
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  // The header reads the live row, not the prop the page captured, or a rename
+  // would not show up until the page happened to re-pass the turf.
+  it('shows the renamed list in the header', async () => {
+    api.mock('PUT /v1/door-knocking/turfs/:id', {
+      status: 200,
+      data: turf({ name: 'Oak Ave' }),
+    })
+    renderSheet()
+
+    const input = await openEditor()
+    fireEvent.change(input, { target: { value: 'Oak Ave' } })
+    // After renderSheet, so this is what the post-save invalidation refetches
+    // rather than the original name it seeded the sheet with.
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [turf({ name: 'Oak Ave' })],
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Oak Ave' }),
+      ).toBeInTheDocument(),
+    )
+  })
+
+  // Someone knocked it while the dialog was open: permanent, so the dialog
+  // closes rather than leaving an enabled Save that can only 409 again.
+  it('closes and explains out of band on a 409', async () => {
+    api.mock('PUT /v1/door-knocking/turfs/:id', {
+      status: 409,
+      data: { message: 'frozen' },
+    })
+    renderSheet()
+
+    const input = await openEditor()
+    fireEvent.change(input, { target: { value: 'Oak Ave' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(
+        expect.stringMatching(/already been knocked/),
+        expect.anything(),
+      ),
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Save' })).toBeNull(),
+    )
+    expect(trackEvent).not.toHaveBeenCalled()
+  })
+
+  it('keeps the dialog open on a generic failure', async () => {
+    api.mock('PUT /v1/door-knocking/turfs/:id', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+    renderSheet()
+
+    const input = await openEditor()
+    fireEvent.change(input, { target: { value: 'Oak Ave' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(
+        expect.stringMatching(/could not be updated/),
+      ),
+    )
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+  })
+})
