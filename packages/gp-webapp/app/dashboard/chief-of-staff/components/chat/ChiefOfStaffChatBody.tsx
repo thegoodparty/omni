@@ -9,40 +9,27 @@ import {
   type RefObject,
 } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import {
-  Badge,
-  Button,
-  IconButton,
-  Loader2Icon,
-  MicIcon,
-  SquareIcon,
-  Textarea,
-} from '@styleguide'
-import { SparklesIcon } from '@styleguide/components/ui/icons'
+import { Badge, Button } from '@styleguide'
 import {
   ASSISTANT_BUBBLE,
   AssistantMarkdown,
-  ChatMarkdown,
-  ToolPillRow,
+  AssistantRow,
+  ChatComposer,
+  InlineSegments,
+  ThinkingRow,
+  UserBubble,
 } from '../../../shared/agent-chat/chatUI'
+import { segmentsToLive } from '../../../shared/agent-chat/streaming'
+import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
+import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../../briefings/shared/useDictationAppend'
 import { reportErrorToSentry } from '@shared/sentry'
 import { chiefOfStaffChatApi } from '../../data/chat-api'
-import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
-import {
-  friendlyError,
-  newClientMessageId,
-} from '../../../shared/agent-chat/chatHelpers'
 import type {
+  AgentChatClient,
   ChatMessageDto,
-  ChatMessageSegment,
-  ChatStreamEvent,
-} from '../../data/contracts'
-import {
-  COS_INTRO_MESSAGES,
-  toolDisplayName,
-  toolStatusLabel,
-} from './chatConstants'
+} from '../../../shared/agent-chat/chatClient'
+import { COS_INTRO_MESSAGES, toolDisplayName } from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
 import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
 
@@ -57,7 +44,7 @@ interface Props {
    * agent greeting). Always shown; bypasses the first-chat-only intro gate.
    */
   opener?: string[]
-  /** When the parent surface closes, set false to abort the in-flight stream. */
+  /** When the parent surface closes, set false to gate first-chat/kickoff logic. */
   active?: boolean
   /** Fires once the deferred create resolves with the real conversation id. */
   onConversationCreated?: (conversationId: string) => void
@@ -106,107 +93,24 @@ interface Props {
    */
   disclaimer?: string
   /**
-   * Message contents to drop from a reloaded transcript before it renders.
-   * Hides persisted sentinel turns (e.g. the story-kickoff sentinel) that
-   * exist only to keep the server-side history alternating. Default empty: no
-   * filtering, so Chief of Staff / Community Issues / Ordinance are unchanged.
+   * Message contents to drop from a rendered transcript. Hides persisted
+   * sentinel USER turns (e.g. the story-kickoff sentinel) that exist only to
+   * keep the server-side history alternating; their assistant reply still
+   * renders. Default empty: no filtering.
    */
   hiddenMessageContents?: string[]
 }
 
 /**
  * A starter chip. `kickoff` fires an on-demand hidden send of that string
- * (through the body's own `send`, no user bubble); otherwise `onSelect` runs.
- * `description` renders a secondary line beneath the label.
+ * (no user bubble); otherwise `onSelect` runs. `description` renders a
+ * secondary line beneath the label.
  */
 export type ChatSuggestion = {
   label: string
   description?: string
   onSelect?: () => void
   kickoff?: string
-}
-
-type ChatItem =
-  | { kind: 'user'; id: string; content: string }
-  | {
-      kind: 'assistant'
-      id: string
-      content: string
-      toolsUsed?: string[]
-      // Persisted ordered structure (reloaded turns that used tools). When set,
-      // the assistant message renders these blocks instead of flat content.
-      segments?: ChatMessageSegment[]
-    }
-
-// Fold the flat persisted segments into render blocks: a text run, or a group
-// of consecutive tool pills (matches the live in-progress layout). Tools are
-// stored as display labels and deduped within a group, so a run of calls that
-// share a label (e.g. several constituent-data queries) shows one pill, not a
-// stack — same as the live builder.
-type RenderBlock =
-  | { kind: 'text'; text: string }
-  | { kind: 'tools'; labels: string[] }
-
-function groupSegments(segments: ChatMessageSegment[]): RenderBlock[] {
-  const blocks: RenderBlock[] = []
-  for (const seg of segments) {
-    if (seg.kind === 'text') {
-      blocks.push({ kind: 'text', text: seg.text ?? '' })
-      continue
-    }
-    const label = toolDisplayName(seg.toolName ?? '')
-    const last = blocks[blocks.length - 1]
-    if (last && last.kind === 'tools') {
-      if (!last.labels.includes(label)) last.labels.push(label)
-    } else {
-      blocks.push({ kind: 'tools', labels: [label] })
-    }
-  }
-  return blocks
-}
-
-// The in-progress assistant turn, rendered as ordered blocks (text, tool-group,
-// text, ...) in the order events arrive — so a tool's wait reads as its own
-// "Thinking..." block instead of being buried under the text. Live-only; the
-// committed message still stores flat content + toolsUsed.
-type LiveSegment =
-  | { kind: 'text'; text: string }
-  | { kind: 'tools'; tools: string[]; running: boolean }
-
-type ErrorState = {
-  message: string
-  retryable: boolean
-  lastUserContent: string
-  lastClientMessageId: string
-  kind: 'init' | 'stream'
-}
-
-// A tool_call event carries the tool's input as `args` (unknown). Pull the
-// `action` field when present so the status label can reflect what the tool is
-// doing (e.g. reading vs saving priorities).
-function toolAction(args: unknown): string | undefined {
-  if (typeof args !== 'object' || args === null || !('action' in args)) {
-    return undefined
-  }
-  const action = args.action
-  return typeof action === 'string' ? action : undefined
-}
-
-function messageToItem(msg: ChatMessageDto): ChatItem | null {
-  if (msg.role === 'user') {
-    return { kind: 'user', id: msg.id, content: msg.content }
-  }
-  if (msg.role === 'assistant') {
-    return {
-      kind: 'assistant',
-      id: msg.id,
-      content: msg.content,
-      ...(msg.segments && msg.segments.length > 0
-        ? { segments: msg.segments }
-        : {}),
-    }
-  }
-  return null
 }
 
 const INTRO_SEEN_KEY = 'cos-intro-streamed'
@@ -224,10 +128,11 @@ const CHAT_SUGGESTIONS = [
 
 /**
  * The reusable Chief of Staff chat surface body — separate from the briefing
- * `AskAiChatBody`. Plays hard-coded intro messages on first open, defers
- * conversation creation until the first send (so opening + closing an empty
- * chat creates nothing), renders tool calls as status lines, and streams the
- * assistant response over SSE.
+ * `AskAiChatBody`. Streaming, smooth reveal, inline tool pills, and the
+ * persisted-history handoff come from the shared agent-chat kit
+ * (useStreamingTurn + chatUI); this component adds the CoS chrome: a typed
+ * intro on first open, a typed-in seeded greeting, deferred conversation
+ * creation, hidden kickoffs, starter chips, and quick prompts.
  */
 export default function ChiefOfStaffChatBody({
   conversationIdOverride,
@@ -251,47 +156,37 @@ export default function ChiefOfStaffChatBody({
 }: Props): React.JSX.Element {
   const queryClient = useQueryClient()
   const [conversationId, setConversationId] = useState<string | null>(null)
-  const [history, setHistory] = useState<ChatItem[]>([])
-  const [streaming, setStreaming] = useState<string | null>(null)
-  // Ordered blocks for the in-progress turn (see LiveSegment). Replaces the old
-  // flat "all pills on top + one text blob" view.
-  const [segments, setSegments] = useState<LiveSegment[]>([])
   const [composer, setComposer] = useState('')
   const dictation = useDictationAppend({
     value: composer,
     onChange: setComposer,
     analyticsLabel,
   })
-  const [error, setError] = useState<ErrorState | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [streamError, setStreamError] = useState<string | null>(null)
+  const [introProgress, setIntroProgress] = useState(0)
   // True once anything has been sent this session (visible OR hidden). Gates the
   // with-greeting starter chips off after a hidden kickoff (which adds no user
-  // turn). State, so it re-renders; resets naturally on remount / new chat.
+  // turn).
   const [hasSent, setHasSent] = useState(false)
-  const [creating, setCreating] = useState(false)
-  const [sending, setSending] = useState(false)
-  const [introProgress, setIntroProgress] = useState(0)
-  // Characters of the live turn's text revealed so far — the streamed reply is
-  // typed toward what has actually arrived instead of jumping per SSE chunk.
-  const [revealed, setRevealed] = useState(0)
-  // A reloaded transcript with no user turn yet (the server-seeded greeting)
-  // is typed in on open instead of dumped, then committed to history.
+  // Contents sent hidden this session; their persisted user turn is dropped from
+  // the rendered transcript (the engine reconciles against the raw server
+  // transcript, which includes the hidden turn).
+  const [hiddenSent, setHiddenSent] = useState<string[]>([])
+  // A reloaded assistant-only transcript (a server-seeded greeting) is typed in
+  // on open instead of dumped, then committed to the engine's messages.
   const [playback, setPlayback] = useState<{
-    items: ChatItem[]
+    items: ChatMessageDto[]
     progress: number
   } | null>(null)
 
-  const abortRef = useRef<AbortController | null>(null)
-  // Tracks the pendingKickoff value that has already fired, not just a boolean:
-  // the parent clears pendingKickoff on close and re-sets the same sentinel on
-  // reopen, and the body stays mounted, so a value-based guard (reset when the
-  // kickoff clears) lets that second open fire again instead of dropping it.
-  const kickedOffRef = useRef<string | undefined>(undefined)
-  const loadRequestedRef = useRef(false)
   const creatingRef = useRef(false)
-  const sendingRef = useRef(false)
-  const scrollRef = useRef<HTMLDivElement | null>(null)
-  // Local handle on the composer input (merged with the optional caller ref) so
-  // a completed turn can return focus to it — see the refocus effect below.
+  const loadRequestedRef = useRef(false)
+  const lastUserContentRef = useRef('')
+  // Tracks the pendingKickoff value that has already fired (not a boolean): the
+  // parent clears pendingKickoff on close and re-sets the same sentinel on
+  // reopen with the body still mounted, so a value guard lets that reopen fire.
+  const kickedOffRef = useRef<string | undefined>(undefined)
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
   const assignComposerRef = useCallback(
     (node: HTMLTextAreaElement | null) => {
@@ -300,23 +195,38 @@ export default function ChiefOfStaffChatBody({
     },
     [composerRef],
   )
-  const revealedRef = useRef(0)
-  const liveTextTotalRef = useRef(0)
-  // Set while a finished reply's reveal is still draining; invoking it commits
-  // the reply to history immediately (a mid-drain send flushes it first so the
-  // transcript stays ordered).
-  const pendingCommitRef = useRef<(() => void) | null>(null)
-  const playbackRef = useRef<{ items: ChatItem[]; progress: number } | null>(
-    null,
+
+  const toolLabel = useCallback(
+    (name: string): string => toolDisplayName(name),
+    [],
   )
 
-  useEffect(() => {
-    playbackRef.current = playback
-  }, [playback])
+  const { messages, setMessages, visibleSegments, sending, send } =
+    useStreamingTurn(chatApi, {
+      toolLabel,
+      onTurnStart: () => setStreamError(null),
+      onError: (message) => setStreamError(message),
+    })
 
-  // The intro only plays on the user's first chat — they have no prior
-  // conversations — and only once ever (a localStorage flag), typing the
-  // messages in character by character like a streamed assistant reply.
+  const busy = sending || loading
+
+  // Contents whose persisted USER turn is hidden from the transcript: the
+  // caller's reload sentinels plus anything sent hidden this session.
+  const hiddenContentSet = useMemo(
+    () => new Set([...hiddenMessageContents, ...hiddenSent]),
+    [hiddenMessageContents, hiddenSent],
+  )
+  const visibleMessages = useMemo(
+    () =>
+      messages.filter(
+        (m) => !(m.role === 'user' && hiddenContentSet.has(m.content)),
+      ),
+    [messages, hiddenContentSet],
+  )
+
+  // The intro plays only on the user's first chat (they have no prior
+  // conversations) and only once ever (a localStorage flag), typing in character
+  // by character. An onboarding-card opener bypasses both gates.
   const { data: priorConversations } = useChatHistory(
     active && !conversationIdOverride,
     chatApi,
@@ -327,21 +237,14 @@ export default function ChiefOfStaffChatBody({
     priorConversations !== undefined &&
     priorConversations.length === 0
 
-  // An onboarding-card opener always plays; otherwise the default intro plays
-  // only on the user's first chat. Either way it's the same typed animation.
   const introMessages = opener ?? defaultIntro
   const introTotal = useMemo(
     () => introMessages.reduce((sum, m) => sum + m.length, 0),
     [introMessages],
   )
 
-  // Type the intro in with a single counter + interval. A counter is
-  // StrictMode-safe (the discarded first mount only advances it; no duplicate
-  // bubbles or interleaved chains like a recursive setTimeout closure).
   useEffect(() => {
     const isOpener = opener !== undefined
-    // Default intro is gated to the first chat, once ever (localStorage). An
-    // opener bypasses both gates so it replays on every card click.
     if (!isOpener && !isFirstChat) return
     if (!isOpener) {
       let seen = false
@@ -355,9 +258,6 @@ export default function ChiefOfStaffChatBody({
 
     const step = Math.max(2, Math.ceil(introTotal / 120))
     const id = setInterval(() => {
-      // Mark seen once typing actually begins — set here, not at effect entry,
-      // so StrictMode's discarded first mount (whose interval is cleared
-      // before it ticks) doesn't suppress the real run.
       if (!isOpener) {
         try {
           window.localStorage.setItem(INTRO_SEEN_KEY, '1')
@@ -374,7 +274,6 @@ export default function ChiefOfStaffChatBody({
     return () => clearInterval(id)
   }, [opener, isFirstChat, introTotal])
 
-  // Per-message visible slices derived from the single progress counter.
   const introParts = useMemo(() => {
     let remaining = introProgress
     const parts: string[] = []
@@ -385,50 +284,6 @@ export default function ChiefOfStaffChatBody({
     }
     return parts
   }, [introProgress, introMessages])
-
-  // Smooth reveal for the live stream: tick the revealed counter toward the
-  // text that has arrived. The step scales with the backlog, so the reveal
-  // trails the network by a bounded amount and drains quickly after `done`.
-  const streamingActive = streaming !== null
-  useEffect(() => {
-    if (!streamingActive) return
-    const id = setInterval(() => {
-      setRevealed((r) => {
-        const total = liveTextTotalRef.current
-        if (r >= total) return r
-        const next = Math.min(
-          total,
-          r + Math.max(2, Math.ceil((total - r) / 50)),
-        )
-        revealedRef.current = next
-        return next
-      })
-    }, 24)
-    return () => clearInterval(id)
-  }, [streamingActive])
-
-  // The live segments sliced to the revealed budget. A partially revealed text
-  // block hides everything after it, so a tool pill never appears ahead of the
-  // text that precedes it.
-  const visibleSegments = useMemo(() => {
-    let budget = revealed
-    const out: LiveSegment[] = []
-    for (const seg of segments) {
-      if (seg.kind !== 'text') {
-        out.push(seg)
-        continue
-      }
-      if (budget < seg.text.length) {
-        if (budget > 0) {
-          out.push({ kind: 'text', text: seg.text.slice(0, budget) })
-        }
-        return out
-      }
-      out.push(seg)
-      budget -= seg.text.length
-    }
-    return out
-  }, [segments, revealed])
 
   // Type the seeded-greeting playback in with the same pacing as the intro.
   const playbackActive = playback !== null
@@ -451,9 +306,10 @@ export default function ChiefOfStaffChatBody({
     if (!playback) return
     const total = playback.items.reduce((sum, it) => sum + it.content.length, 0)
     if (playback.progress < total) return
-    setHistory((prev) => (prev.length === 0 ? playback.items : prev))
+    const items = playback.items
+    setMessages((prev) => (prev.length === 0 ? items : prev))
     setPlayback(null)
-  }, [playback])
+  }, [playback, setMessages])
 
   const playbackParts = useMemo(() => {
     if (!playback) return []
@@ -472,46 +328,27 @@ export default function ChiefOfStaffChatBody({
     if (!conversationIdOverride) return
     if (loadRequestedRef.current) return
     loadRequestedRef.current = true
-    setCreating(true)
+    setLoading(true)
+    setConversationId(conversationIdOverride)
     try {
-      setConversationId(conversationIdOverride)
       const msgs = await chatApi.listMessages(conversationIdOverride)
-      // Drop persisted sentinel turns (e.g. the story-kickoff sentinel) so
-      // they never enter history/playback or render as a raw bubble. A hidden
-      // sentinel is a USER turn whose canned assistant reply immediately
-      // follows it, so also skip that reply. Otherwise it reloads as an
-      // orphaned assistant bubble with no preceding user message. (The one-off
-      // story/product greeting therefore does not render on reload, an
-      // accepted cosmetic.)
-      const hidden = new Set(hiddenMessageContents)
-      const items: ChatItem[] = []
-      let skipNextAssistant = false
-      for (const m of msgs) {
-        if (hidden.has(m.content)) {
-          skipNextAssistant = m.role === 'user'
-          continue
-        }
-        if (skipNextAssistant && m.role === 'assistant') {
-          skipNextAssistant = false
-          continue
-        }
-        skipNextAssistant = false
-        const it = messageToItem(m)
-        if (it) items.push(it)
-      }
-      // No user turn yet means this is the server-seeded greeting (Campaign
-      // Manager seeds it on create). Play it like a live reply instead of
-      // dumping it as an already-sent transcript. Segment-bearing turns render
-      // structured blocks the playback can't, so they always dump.
+      // A transcript whose only VISIBLE turns are assistant messages (no user
+      // turn — the server-seeded greeting) is typed in like a live reply instead
+      // of dumped. Sentinel user turns are hidden but their replies count as
+      // visible; segment-bearing turns render structured blocks the plain typed
+      // playback can't, so those always dump.
+      const visible = msgs.filter(
+        (m) => !(m.role === 'user' && hiddenContentSet.has(m.content)),
+      )
       const playable =
-        items.length > 0 &&
-        items.every(
-          (it) => it.kind === 'assistant' && !(it.segments ?? []).length,
+        visible.length > 0 &&
+        visible.every(
+          (m) => m.role === 'assistant' && !(m.segments ?? []).length,
         )
       if (playable) {
-        setPlayback({ items, progress: 0 })
+        setPlayback({ items: visible, progress: 0 })
       } else {
-        setHistory(items)
+        setMessages(msgs)
       }
     } catch (err) {
       reportErrorToSentry(err, {
@@ -520,17 +357,15 @@ export default function ChiefOfStaffChatBody({
         conversationIdOverride,
       })
       loadRequestedRef.current = false
-      setError({
-        message: 'Could not load this chat. Try again.',
-        retryable: true,
-        lastUserContent: '',
-        lastClientMessageId: '',
-        kind: 'init',
-      })
+      setStreamError('Could not load this chat. Try again.')
     } finally {
-      setCreating(false)
+      setLoading(false)
     }
-  }, [conversationIdOverride, hiddenMessageContents])
+    // hiddenContentSet is read for the initial playable check only; it is stable
+    // for a given conversation load and intentionally not a dependency (a later
+    // hidden send must not re-run the load).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationIdOverride, chatApi, setMessages])
 
   useEffect(() => {
     if (!active) return
@@ -538,41 +373,17 @@ export default function ChiefOfStaffChatBody({
     void loadExisting()
   }, [active, conversationIdOverride, loadExisting])
 
-  // Abort the in-flight stream when the surface closes or unmounts.
-  useEffect(() => {
-    if (active) return
-    abortRef.current?.abort()
-    abortRef.current = null
-    sendingRef.current = false
-    setSending(false)
-  }, [active])
-
-  useEffect(() => {
-    return () => {
-      abortRef.current?.abort()
-      abortRef.current = null
-    }
-  }, [])
-
-  // Follow the latest content.
-  useEffect(() => {
-    const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [streaming, history.length, revealed, playback])
-
   // Deferred create — return the existing id or mint a new conversation.
   const ensureConversationId = useCallback(async (): Promise<string | null> => {
     if (conversationId) return conversationId
     if (creatingRef.current) return null
     creatingRef.current = true
-    setCreating(true)
+    setLoading(true)
     try {
       const { conversationId: id } = await chatApi.createConversation()
       setConversationId(id)
       onConversationCreated?.(id)
-      // Surface the new conversation in the history list right away — the cache
-      // is otherwise only refreshed on delete, so a fresh chat wouldn't appear
-      // until a later refetch.
+      // Surface the new conversation in the history list right away.
       void queryClient.invalidateQueries({ queryKey: historyKey })
       return id
     } catch (err) {
@@ -583,283 +394,157 @@ export default function ChiefOfStaffChatBody({
       return null
     } finally {
       creatingRef.current = false
-      setCreating(false)
+      setLoading(false)
     }
-  }, [conversationId, onConversationCreated, queryClient])
+  }, [conversationId, chatApi, onConversationCreated, queryClient, historyKey])
 
-  const runStream = useCallback(
-    async (targetId: string, content: string, clientMessageId: string) => {
-      const controller = new AbortController()
-      abortRef.current = controller
-      sendingRef.current = true
-      setSending(true)
-      setStreaming('')
-      setSegments([])
-      setRevealed(0)
-      revealedRef.current = 0
-      liveTextTotalRef.current = 0
-      setError(null)
-
-      try {
-        const iter = chatApi.streamMessage({
-          conversationId: targetId,
-          content,
-          clientMessageId,
-          signal: controller.signal,
-        })
-        let assembled = ''
-        let assistantId: string | undefined
-        let errored: ChatStreamEvent | null = null
-        const turnTools: string[] = []
-        // Text before and after a tool call comes from separate model steps,
-        // so the boundary has no whitespace ("...now." + "You..."). Insert a
-        // paragraph break when text resumes after a tool call.
-        let breakBeforeNextText = false
-        // Ordered blocks for the live render, built from the same events.
-        let segs: LiveSegment[] = []
-        const commitSegs = (next: LiveSegment[]): void => {
-          segs = next
-          // Kept on a ref (not derived from state) so the post-`done` wait
-          // below sees the total synchronously with the stream.
-          liveTextTotalRef.current = next.reduce(
-            (sum, s) => (s.kind === 'text' ? sum + s.text.length : sum),
-            0,
-          )
-          setSegments(next)
-        }
-        // Raw ordered segments mirroring what the backend persists (raw tool
-        // names, not display labels). Committed to history so a just-finished
-        // turn renders the same interleaving as a reloaded one.
-        const committedSegs: ChatMessageSegment[] = []
-        const pushCommittedText = (delta: string): void => {
-          if (!delta) return
-          const last = committedSegs[committedSegs.length - 1]
-          if (last && last.kind === 'text') {
-            last.text = (last.text ?? '') + delta
-          } else {
-            committedSegs.push({ kind: 'text', text: delta })
-          }
-        }
-        // A tool group stops "running" as soon as any text follows it.
-        const resolveRunningTools = (list: LiveSegment[]): LiveSegment[] =>
-          list.map((s) =>
-            s.kind === 'tools' && s.running ? { ...s, running: false } : s,
-          )
-
-        for await (const ev of iter) {
-          if (ev.type === 'text') {
-            // The post-tool paragraph break is applied ONLY to the flat
-            // `assembled` content (the no-tool fallback that renders as one
-            // bubble). Segments — both the live `segs` and the committed ones —
-            // store RAW deltas, matching what the backend persists, so a
-            // freshly-streamed turn and a reloaded one render identically.
-            // Separate text segments are already separate bubbles, so the gap
-            // doesn't need the literal break.
-            const needsBreak =
-              breakBeforeNextText &&
-              assembled.length > 0 &&
-              !/\s$/.test(assembled) &&
-              !/^\s/.test(ev.delta)
-            breakBeforeNextText = false
-            assembled += needsBreak ? `\n\n${ev.delta}` : ev.delta
-            pushCommittedText(ev.delta)
-            setStreaming(assembled)
-            // Segment view: close any running tool group, then extend or open
-            // the trailing text block.
-            const resolved = resolveRunningTools(segs)
-            const last = resolved[resolved.length - 1]
-            commitSegs(
-              last && last.kind === 'text'
-                ? [
-                    ...resolved.slice(0, -1),
-                    { kind: 'text', text: last.text + ev.delta },
-                  ]
-                : [...resolved, { kind: 'text', text: ev.delta }],
-            )
-          } else if (ev.type === 'tool_call') {
-            if (assembled.length > 0) breakBeforeNextText = true
-            if (!turnTools.includes(ev.toolName)) {
-              turnTools.push(ev.toolName)
-            }
-            committedSegs.push({ kind: 'tool', toolName: ev.toolName })
-            // Segment view: store the resolved (action-aware) label and group
-            // consecutive tool calls into one running block. turnTools keeps the
-            // raw names for the committed message (reload has no args).
-            const label = toolStatusLabel(ev.toolName, toolAction(ev.args))
-            const last = segs[segs.length - 1]
-            if (last && last.kind === 'tools' && last.running) {
-              if (!last.tools.includes(label)) {
-                commitSegs([
-                  ...segs.slice(0, -1),
-                  { ...last, tools: [...last.tools, label] },
-                ])
-              }
-            } else {
-              commitSegs([
-                ...segs,
-                { kind: 'tools', tools: [label], running: true },
-              ])
-            }
-          } else if (ev.type === 'done') {
-            assistantId = ev.assistantMessageId
-            break
-          } else if (ev.type === 'error') {
-            errored = ev
-            break
-          }
-        }
-
-        if (errored && errored.type === 'error') {
-          if (errored.code === 'aborted') {
-            setStreaming(null)
-          } else {
-            setError({
-              message: friendlyError(errored.code),
-              retryable: errored.retryable,
-              lastUserContent: content,
-              lastClientMessageId: clientMessageId,
-              kind: 'stream',
-            })
-            setStreaming(null)
-          }
-        } else {
-          // Network phase is over — release the send lock so the user can
-          // compose while the reveal drains.
-          sendingRef.current = false
-          setSending(false)
-          const assistantItem: ChatItem = {
-            kind: 'assistant',
-            id: assistantId ?? `local_assistant_${clientMessageId}`,
-            content: assembled,
-            ...(committedSegs.some((s) => s.kind === 'tool')
-              ? { segments: committedSegs }
-              : turnTools.length > 0 && { toolsUsed: [...turnTools] }),
-          }
-          let committed = false
-          const commit = (): void => {
-            if (committed) return
-            committed = true
-            pendingCommitRef.current = null
-            setHistory((prev) => [...prev, assistantItem])
-            setStreaming(null)
-            setSegments([])
-          }
-          pendingCommitRef.current = commit
-          // Let the smooth reveal finish before committing, so the tail of
-          // the reply types out instead of snapping in with the history swap.
-          while (
-            !committed &&
-            !controller.signal.aborted &&
-            revealedRef.current < liveTextTotalRef.current
-          ) {
-            await new Promise((resolve) => setTimeout(resolve, 40))
-          }
-          // A close-abort mid-drain skips the local commit — the server has
-          // already persisted the message, so it replays on reload.
-          if (!controller.signal.aborted) commit()
-          if (pendingCommitRef.current === commit) {
-            pendingCommitRef.current = null
-          }
-        }
-      } catch (err) {
-        reportErrorToSentry(err, {
-          surface: 'chief-of-staff-chat',
-          phase: 'stream',
-          conversationId: targetId,
-        })
-        setError({
-          message: 'Stream interrupted. Try again.',
-          retryable: true,
-          lastUserContent: content,
-          lastClientMessageId: clientMessageId,
-          kind: 'stream',
-        })
-        setStreaming(null)
-      } finally {
-        // Guard on our own controller: a mid-drain send may have started the
-        // next turn, whose state this turn's cleanup must not clobber.
-        if (abortRef.current === controller) {
-          sendingRef.current = false
-          setSending(false)
-          setSegments([])
-          abortRef.current = null
-        }
-      }
-    },
-    [],
-  )
-
-  const executeUserTurn = useCallback(
-    async (content: string, clientMessageId: string) => {
-      setSending(true)
-      setStreaming('')
-      let id = conversationId
-      if (!id) {
-        id = await ensureConversationId()
-        if (!id) {
-          setError({
-            message: 'Could not start chat. Try again.',
-            retryable: true,
-            lastUserContent: content,
-            lastClientMessageId: clientMessageId,
-            kind: 'init',
-          })
-          setStreaming(null)
-          setSending(false)
-          sendingRef.current = false
-          return
-        }
-      }
-      await runStream(id, content, clientMessageId)
-    },
-    [conversationId, ensureConversationId, runStream],
-  )
-
-  // The shared send path. `hidden` skips the optimistic user bubble so a
-  // kickoff message streams a reply without showing the prompt that triggered
-  // it (the server hides it / returns a canned reply); everything else (the
-  // reveal-drain commit, the mid-playback flush, the stream) is identical.
-  const send = useCallback(
-    async (content: string, options?: { hidden?: boolean }) => {
+  // The shared send path. `hidden` skips the optimistic user bubble AND drops
+  // the persisted user turn from the rendered transcript, so a kickoff streams a
+  // reply without ever showing the prompt that triggered it.
+  const deliver = useCallback(
+    async (content: string, opts?: { hidden?: boolean }): Promise<boolean> => {
       const trimmed = content.trim()
-      if (!trimmed) return false
-      if (sendingRef.current || creatingRef.current) return false
-      sendingRef.current = true
+      if (!trimmed || sending || creatingRef.current) return false
+      setStreamError(null)
       setHasSent(true)
-      const clientMessageId = newClientMessageId()
-      // A send during a reveal drain commits the previous assistant message
-      // first so the transcript stays ordered.
-      pendingCommitRef.current?.()
-      // Sending mid-playback flushes the rest of the greeting instantly so
-      // the transcript stays ordered ahead of the user's message.
-      const pending = playbackRef.current
-      if (pending) {
+      // A send mid-playback flushes the rest of the greeting into history so the
+      // transcript stays ordered ahead of the user's message.
+      if (playback) {
+        const items = playback.items
         setPlayback(null)
-        // History is empty for the whole playback; the length guard keeps a
-        // same-frame race with the completion effect from double-committing.
-        setHistory((prev) =>
-          prev.length === 0 ? [...pending.items, ...prev] : prev,
-        )
+        setMessages((prev) => (prev.length === 0 ? items : prev))
       }
-      if (!options?.hidden) {
-        setHistory((prev) => [
+      if (opts?.hidden) {
+        setHiddenSent((prev) =>
+          prev.includes(trimmed) ? prev : [...prev, trimmed],
+        )
+      } else {
+        lastUserContentRef.current = trimmed
+      }
+      const id = await ensureConversationId()
+      if (!id) {
+        setStreamError('Could not start chat. Try again.')
+        return false
+      }
+      if (!opts?.hidden) {
+        setMessages((prev) => [
           ...prev,
-          { kind: 'user', id: `local_${clientMessageId}`, content: trimmed },
+          {
+            id: `pending-${crypto.randomUUID()}`,
+            conversationId: id,
+            role: 'user',
+            content: trimmed,
+            createdAt: new Date().toISOString(),
+          },
         ])
       }
-      await executeUserTurn(trimmed, clientMessageId)
+      await send(id, trimmed, { hidden: true })
       return true
     },
-    [executeUserTurn],
+    [sending, playback, ensureConversationId, send, setMessages],
   )
 
   const sendContent = useCallback(
-    (content: string) => send(content, { hidden: false }),
-    [send],
+    (content: string) => deliver(content, { hidden: false }),
+    [deliver],
+  )
+
+  const onSend = useCallback((): void => {
+    const text = composer.trim()
+    if (!text || busy) return
+    if (dictation.active) void dictation.stop()
+    setComposer('')
+    void deliver(text, { hidden: false })
+  }, [composer, busy, dictation, deliver])
+
+  const onRetry = useCallback((): void => {
+    setStreamError(null)
+    const content = lastUserContentRef.current
+    if (content && conversationId) {
+      void send(conversationId, content, { hidden: true })
+      return
+    }
+    if (content) {
+      void deliver(content, { hidden: false })
+      return
+    }
+    // No user turn to replay — a load error. Reload the conversation.
+    loadRequestedRef.current = false
+    void loadExisting()
+  }, [conversationId, send, deliver, loadExisting])
+
+  // Fire the one-shot kickoff once the surface is open and any load/create has
+  // settled, so it appends to the resolved conversation rather than racing a
+  // fresh create.
+  useEffect(() => {
+    if (!pendingKickoff) {
+      kickedOffRef.current = undefined
+      return
+    }
+    if (!active || kickedOffRef.current === pendingKickoff) return
+    if (loading || creatingRef.current) return
+    if (conversationIdOverride && conversationId !== conversationIdOverride) {
+      return
+    }
+    kickedOffRef.current = pendingKickoff
+    void deliver(pendingKickoff, { hidden: true })
+  }, [
+    active,
+    pendingKickoff,
+    loading,
+    conversationId,
+    conversationIdOverride,
+    deliver,
+  ])
+
+  // A chip with `kickoff` fires an on-demand hidden send; otherwise it defers to
+  // the chip's own `onSelect`.
+  const onSuggestionClick = useCallback(
+    (s: ChatSuggestion) => {
+      if (s.kickoff) {
+        void deliver(s.kickoff, { hidden: true })
+        return
+      }
+      s.onSelect?.()
+    },
+    [deliver],
+  )
+
+  // Return focus to the composer once a turn finishes and it re-enables, so the
+  // candidate can keep chatting without clicking back in.
+  const prevBusyRef = useRef(busy)
+  useEffect(() => {
+    const wasBusy = prevBusyRef.current
+    prevBusyRef.current = busy
+    if (wasBusy && !busy && active !== false) {
+      composerInputRef.current?.focus()
+    }
+  }, [busy, active])
+
+  const { scrollRef, onScroll } = usePinnedAutoScroll([
+    visibleMessages,
+    visibleSegments,
+    playback,
+  ])
+
+  const working = sending && visibleSegments.length === 0
+
+  const history = useMemo(
+    () =>
+      visibleMessages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        live:
+          m.role === 'user'
+            ? null
+            : segmentsToLive(m.segments ?? [], m.content),
+      })),
+    [visibleMessages],
   )
 
   // Starter chips: the caller's list, or the CoS defaults that send the chip's
-  // own label as a message (byte-for-byte the prior hardwired behavior).
+  // own label as a message.
   const effectiveSuggestions = useMemo<ChatSuggestion[]>(
     () =>
       suggestions ??
@@ -870,122 +555,36 @@ export default function ChiefOfStaffChatBody({
     [suggestions, sendContent],
   )
 
-  // The with-greeting chips show only while the conversation is pristine:
-  // nothing sent this session and the transcript is at most the single seeded
-  // greeting (still playing back, or just committed). A hidden kickoff sets
-  // hasSent with no user turn, and a resumed conversation with a prior reply
-  // has more than one message, so both correctly hide the chips.
-  const isPristineGreeting =
-    !hasSent && history.length + (playback?.items.length ?? 0) <= 1
-
-  // Fire the one-shot kickoff once the surface is open and any load/create has
-  // settled, so it appends to the resolved conversation rather than racing a
-  // fresh create. `creating`/`creatingRef` gate on an in-flight load or create.
-  // With an override, also hold until that conversation's id has actually been
-  // applied: `loadExisting` sets `conversationId` and `creating` in the same
-  // synchronous pass this effect runs in, so reading `creating` alone is stale
-  // on that first pass, but `conversationId` is still null then too, so the
-  // override guard keeps the kickoff from firing (and minting a fresh
-  // conversation) until the resumed id is settled. The ref guards a re-render
-  // from re-firing it.
-  useEffect(() => {
-    // Reset on clear so a later re-set to the same sentinel (close then reopen)
-    // counts as a fresh kickoff.
-    if (!pendingKickoff) {
-      kickedOffRef.current = undefined
-      return
-    }
-    if (!active || kickedOffRef.current === pendingKickoff) return
-    if (creating || creatingRef.current) return
-    if (conversationIdOverride && conversationId !== conversationIdOverride) {
-      return
-    }
-    kickedOffRef.current = pendingKickoff
-    void send(pendingKickoff, { hidden: true })
-  }, [
-    active,
-    pendingKickoff,
-    creating,
-    conversationId,
-    conversationIdOverride,
-    send,
-  ])
-
-  // A chip with `kickoff` fires an on-demand hidden send of that string;
-  // otherwise it defers to the chip's own `onSelect`.
-  const onSuggestionClick = useCallback(
-    (s: ChatSuggestion) => {
-      if (s.kickoff) {
-        void send(s.kickoff, { hidden: true })
-        return
-      }
-      s.onSelect?.()
-    },
-    [send],
-  )
-
-  const onSend = useCallback(async () => {
-    const sent = await sendContent(composer)
-    if (sent) setComposer('')
-  }, [composer, sendContent])
-
-  const onRetry = useCallback(async () => {
-    if (!error) return
-    const { lastUserContent, lastClientMessageId } = error
-    setError(null)
-    if (!lastUserContent || !lastClientMessageId) {
-      loadRequestedRef.current = false
-      await loadExisting()
-      return
-    }
-    await executeUserTurn(lastUserContent, lastClientMessageId)
-  }, [error, executeUserTurn, loadExisting])
-
-  const busy = sending || creating
-  // The composer is disabled while a turn runs (busy), which blurs it. When the
-  // turn finishes and the input re-enables, return focus so the candidate can
-  // keep chatting without clicking back in. Gated on active !== false so a
-  // background turn on a closed surface can't steal focus.
-  const prevBusyRef = useRef(busy)
-  useEffect(() => {
-    const wasBusy = prevBusyRef.current
-    prevBusyRef.current = busy
-    if (wasBusy && !busy && active !== false) {
-      composerInputRef.current?.focus()
-    }
-  }, [busy, active])
   const showIntro =
     (opener !== undefined || isFirstChat) &&
-    history.length === 0 &&
-    !streaming &&
+    visibleMessages.length === 0 &&
+    !sending &&
+    visibleSegments.length === 0 &&
     !playback &&
-    !error
+    !streamError
 
-  // The starter suggestions + quick prompts show on an empty transcript, or
-  // alongside a seeded greeting when the caller opts in.
+  // The with-greeting chips show only while the conversation is pristine:
+  // nothing sent this session and the transcript is at most the single seeded
+  // greeting (still playing back, or just committed).
+  const isPristineGreeting =
+    !hasSent && visibleMessages.length + (playback?.items.length ?? 0) <= 1
+
   const showStarters =
-    ((history.length === 0 && !playback) ||
+    ((visibleMessages.length === 0 && !playback) ||
       (showSuggestionsWithGreeting && isPristineGreeting)) &&
-    streaming === null &&
-    !error
-  // Suggestions carrying a description render as full-width cards (Campaign
-  // Manager); description-less ones stay pills (Chief of Staff / Community
-  // Issues).
+    !sending &&
+    !streamError
   const suggestionsAsCards = effectiveSuggestions.some((s) =>
     Boolean(s.description),
   )
 
   return (
-    // vaul disables text selection on the drawer (user-select:none on fine
-    // pointers) and, on pointerdown, pointer-captures the target — which cancels
-    // any native drag-selection that spans more than one element (so you can
-    // highlight within one paragraph but not across the whole message).
-    // select-text restores the CSS; releasing the capture restores the drag
-    // (data-vaul-no-drag only blocks vaul's drag, not its capture). The release
-    // is queued because vaul sets the capture from its own handler on an
-    // ancestor, which runs after this one. Do NOT stop propagation instead:
-    // Radix dismisses popovers from a document-level pointerdown listener, so
-    // that would strand ChatHistoryPopover open on any click in here.
+    // vaul disables text selection on the drawer and pointer-captures on
+    // pointerdown, which cancels drag-selection spanning more than one element.
+    // select-text restores the CSS; releasing the capture restores the drag. The
+    // release is queued because vaul sets the capture from an ancestor handler
+    // that runs after this one. Do NOT stopPropagation: Radix dismisses popovers
+    // from a document-level pointerdown, so that would strand the history popover.
     <div
       className="flex min-h-0 flex-1 flex-col select-text"
       data-vaul-no-drag
@@ -1002,131 +601,63 @@ export default function ChiefOfStaffChatBody({
     >
       <div
         ref={scrollRef}
+        onScroll={onScroll}
         className={
           bodyClassName ??
           'flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-3'
         }
         data-testid="cos-conversation"
       >
-        {creating && history.length === 0 && !streaming && (
+        {loading && visibleMessages.length === 0 && !sending && (
           <div className="text-sm text-muted-foreground">Loading chat...</div>
         )}
 
         {showIntro &&
           introParts.map((text, i) => (
-            <div
-              key={i}
-              className="flex max-w-full items-start gap-2 self-start"
-            >
-              <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <SparklesIcon className="size-3.5" aria-hidden />
-              </span>
+            <AssistantRow key={`intro-${i}`}>
               <div className={ASSISTANT_BUBBLE}>{text}</div>
-            </div>
+            </AssistantRow>
           ))}
 
         {playbackParts.map((text, i) => (
-          <div
-            key={`pb-${i}`}
-            className="flex max-w-full items-start gap-2 self-start"
-          >
-            <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <SparklesIcon className="size-3.5" aria-hidden />
-            </span>
+          <AssistantRow key={`pb-${i}`}>
             <AssistantMarkdown>{text}</AssistantMarkdown>
-          </div>
+          </AssistantRow>
         ))}
 
-        {history.map((item) =>
-          item.kind === 'user' ? (
-            // whitespace-pre-wrap keeps the line breaks the composer now
-            // accepts (Shift+Enter); HTML would otherwise collapse them into
-            // one run of text.
-            <div
-              key={item.id}
-              className="max-w-full self-end rounded-2xl bg-primary px-3 py-2 text-sm break-words whitespace-pre-wrap text-primary-foreground"
-            >
-              {item.content}
-            </div>
+        {history.map((m) =>
+          m.live === null ? (
+            <UserBubble key={m.id}>{m.content}</UserBubble>
           ) : (
-            <div
-              key={item.id}
-              className="flex max-w-full items-start gap-2 self-start"
-            >
-              <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <SparklesIcon className="size-3.5" aria-hidden />
-              </span>
-              {item.segments && item.segments.length > 0 ? (
-                // Reloaded turn that used tools: replay the persisted ordered
-                // text/tool blocks, matching the in-progress layout.
-                <div className="flex min-w-0 max-w-full flex-col gap-2">
-                  {groupSegments(item.segments).map((block, i) =>
-                    block.kind === 'text' ? (
-                      <AssistantMarkdown key={`b-${i}`}>
-                        {block.text}
-                      </AssistantMarkdown>
-                    ) : (
-                      <ToolPillRow key={`b-${i}`} labels={block.labels} />
-                    ),
-                  )}
-                </div>
-              ) : (
-                <div className={ASSISTANT_BUBBLE}>
-                  {item.toolsUsed && item.toolsUsed.length > 0 && (
-                    <ToolPillRow labels={item.toolsUsed.map(toolDisplayName)} />
-                  )}
-                  <ChatMarkdown>{item.content}</ChatMarkdown>
-                </div>
-              )}
-            </div>
+            <AssistantRow key={m.id}>
+              <InlineSegments segments={m.live} toolLabel={toolLabel} />
+            </AssistantRow>
           ),
         )}
 
-        {streaming !== null && (
-          <div className="flex max-w-full items-start gap-2 self-start">
-            <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <SparklesIcon className="size-3.5" aria-hidden />
-            </span>
-            <div className="flex min-w-0 max-w-full flex-col gap-2">
-              {visibleSegments.length === 0 && (
-                <div className={ASSISTANT_BUBBLE}>
-                  <span className="text-shimmer-muted">Thinking...</span>
-                </div>
-              )}
-              {visibleSegments.map((seg, i) =>
-                seg.kind === 'text' ? (
-                  <AssistantMarkdown key={`seg-${i}`}>
-                    {seg.text}
-                  </AssistantMarkdown>
-                ) : (
-                  <ToolPillRow
-                    key={`seg-${i}`}
-                    labels={seg.tools}
-                    running={seg.running}
-                  />
-                ),
-              )}
-            </div>
-          </div>
-        )}
+        {visibleSegments.length > 0 ? (
+          <AssistantRow>
+            <InlineSegments segments={visibleSegments} toolLabel={toolLabel} />
+          </AssistantRow>
+        ) : null}
 
-        {error && (
+        {working ? <ThinkingRow /> : null}
+
+        {streamError && (
           <div
             role="alert"
             className="flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
           >
-            <span>{error.message}</span>
-            {error.retryable && (
-              <Button
-                type="button"
-                size="small"
-                variant="outline"
-                onClick={onRetry}
-                disabled={busy}
-              >
-                Retry
-              </Button>
-            )}
+            <span>{streamError}</span>
+            <Button
+              type="button"
+              size="small"
+              variant="outline"
+              onClick={onRetry}
+              disabled={busy}
+            >
+              Retry
+            </Button>
           </div>
         )}
       </div>
@@ -1200,80 +731,26 @@ export default function ChiefOfStaffChatBody({
             ))}
           </div>
         )}
-        {/* rounded-3xl (24px) reads as a pill at the one-line min height and
-            stays a sane rounded rectangle once the composer grows, which
-            rounded-full would not. items-end keeps the buttons on the last line
-            of a multiline draft. */}
-        <div className="relative mx-auto w-full max-w-[608px] rounded-3xl bg-gradient-to-r from-red-500 to-blue-500 p-px">
-          <div className="flex min-h-12 w-full items-end gap-1 rounded-3xl bg-card py-1 pl-1.5 pr-1.5">
-            {onSelectConversation && (
-              <ChatHistoryPopover
-                onSelect={onSelectConversation}
-                chatApi={chatApi}
-                historyKey={historyKey}
-              />
-            )}
-            <Textarea
-              ref={assignComposerRef}
-              autoGrow
-              maxRows={6}
-              rows={1}
-              value={composer}
-              onChange={(e) => setComposer(e.target.value)}
-              onKeyDown={(e) => {
-                // isComposing: don't send on the Enter that commits an IME
-                // candidate (CJK and other composed input) — it would fire a
-                // half-composed message and swallow the confirmation.
-                if (
-                  e.key === 'Enter' &&
-                  !e.shiftKey &&
-                  !e.nativeEvent.isComposing
-                ) {
-                  e.preventDefault()
-                  void onSend()
-                }
-              }}
-              placeholder={composerPlaceholder}
-              disabled={busy}
-              aria-label="Ask a question"
-              className="flex-1 border-0 bg-transparent px-2 py-2.5 text-[15px] leading-snug shadow-none focus-visible:border-0 focus-visible:ring-0"
-            />
-            <IconButton
-              type="button"
-              size="small"
-              variant="ghost"
-              aria-label={
-                dictation.status === 'recording'
-                  ? 'Stop dictation'
-                  : 'Dictate a message'
-              }
-              className="size-10 shrink-0"
-              disabled={busy || dictation.status === 'stopping'}
-              onClick={() => void dictation.toggle()}
-            >
-              {dictation.busy ? (
-                <Loader2Icon className="size-5 animate-spin" aria-hidden />
-              ) : dictation.status === 'recording' ? (
-                <SquareIcon
-                  className="size-5 animate-pulse text-red-500"
-                  aria-hidden
+        <div className="mx-auto w-full max-w-[608px]">
+          <ChatComposer
+            value={composer}
+            onChange={setComposer}
+            onSubmit={onSend}
+            disabled={busy}
+            placeholder={composerPlaceholder}
+            ariaLabel="Ask a question"
+            inputRef={assignComposerRef}
+            dictation={dictation}
+            leadingSlot={
+              onSelectConversation ? (
+                <ChatHistoryPopover
+                  onSelect={onSelectConversation}
+                  chatApi={chatApi}
+                  historyKey={historyKey}
                 />
-              ) : (
-                <MicIcon className="size-5" aria-hidden />
-              )}
-            </IconButton>
-            <IconButton
-              type="button"
-              size="small"
-              aria-label="Send"
-              className="size-10 shrink-0 bg-primary text-primary-foreground"
-              onClick={() => void onSend()}
-              disabled={composer.trim().length === 0 || busy}
-              loading={busy}
-            >
-              <SparklesIcon className="size-5" aria-hidden />
-            </IconButton>
-          </div>
+              ) : undefined
+            }
+          />
         </div>
         {disclaimer && (
           <p className="mx-auto mt-2 w-full max-w-[608px] text-center text-[11px] text-muted-foreground">

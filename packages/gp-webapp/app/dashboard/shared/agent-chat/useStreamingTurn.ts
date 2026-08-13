@@ -251,7 +251,9 @@ export function useStreamingTurn(
             doneSeen = true
             doneMessageId = event.assistantMessageId ?? null
           } else if (event.type === 'error') {
-            scope.onError?.(event.message)
+            // An aborted turn is intentional (the surface closed / a new turn
+            // superseded it), not a failure to surface to the user.
+            if (event.code !== 'aborted') scope.onError?.(event.message)
             errorSeen = true
             break
           }

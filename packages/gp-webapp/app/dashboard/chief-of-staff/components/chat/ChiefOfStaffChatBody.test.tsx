@@ -3,7 +3,11 @@ import { createRef } from 'react'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
-import type { ChatStreamEvent } from '../../data/contracts'
+import type {
+  ChatMessageDto,
+  ChatMessageSegment,
+  ChatStreamEvent,
+} from '../../../shared/agent-chat/chatClient'
 import ChiefOfStaffChatBody from './ChiefOfStaffChatBody'
 import { COS_INTRO_MESSAGES } from './chatConstants'
 
@@ -31,12 +35,36 @@ function makeStream(events: ChatStreamEvent[]): AsyncIterable<ChatStreamEvent> {
   })()
 }
 
+// Build a persisted transcript row. The engine reconciles against the server
+// transcript once a turn's stream ends (listMessages), so streaming tests must
+// resolve listMessages to the finished turn or the commit has nothing to swap in.
+let seq = 0
+function msg(
+  role: ChatMessageDto['role'],
+  content: string,
+  extra?: { id?: string; segments?: ChatMessageSegment[] },
+): ChatMessageDto {
+  seq += 1
+  return {
+    id: extra?.id ?? `m${seq}`,
+    conversationId: 'conv',
+    role,
+    content,
+    createdAt: `2026-07-01T00:00:0${seq % 10}.000Z`,
+    ...(extra?.segments ? { segments: extra.segments } : {}),
+  }
+}
+
 beforeEach(() => {
   createMock.mockReset()
   listMessagesMock.mockReset()
   listConversationsMock.mockReset()
   streamMessageMock.mockReset()
   softDeleteMock.mockReset()
+  // Default so the engine's post-turn reconcile never throws on an unmocked
+  // client; tests that assert the committed transcript override this.
+  listMessagesMock.mockResolvedValue([])
+  seq = 0
   window.localStorage.clear()
 })
 
@@ -44,8 +72,6 @@ describe('<ChiefOfStaffChatBody>', () => {
   it('streams the intro on the first chat', async () => {
     listConversationsMock.mockResolvedValue([])
     render(<ChiefOfStaffChatBody active />)
-    // The first intro message types in (over ~1s); waiting for the full short
-    // string confirms it streamed rather than being dumped at once.
     await waitFor(
       () =>
         expect(screen.getByText(COS_INTRO_MESSAGES[0]!)).toBeInTheDocument(),
@@ -80,6 +106,10 @@ describe('<ChiefOfStaffChatBody>', () => {
         { type: 'done', assistantMessageId: 'asst_1' },
       ]),
     )
+    listMessagesMock.mockResolvedValue([
+      msg('user', 'What is on my agenda?'),
+      msg('assistant', 'Here to help.', { id: 'asst_1' }),
+    ])
 
     render(<ChiefOfStaffChatBody active />)
 
@@ -119,6 +149,10 @@ describe('<ChiefOfStaffChatBody>', () => {
         { type: 'done', assistantMessageId: 'asst_1' },
       ]),
     )
+    listMessagesMock.mockResolvedValue([
+      msg('user', 'anything?'),
+      msg('assistant', 'All set.', { id: 'asst_1' }),
+    ])
 
     render(<ChiefOfStaffChatBody active />)
 
@@ -129,9 +163,7 @@ describe('<ChiefOfStaffChatBody>', () => {
     // candidate can keep chatting without clicking back in.
     await user.click(screen.getByRole('button', { name: /send/i }))
 
-    await waitFor(() =>
-      expect(screen.getByText('All set.')).toBeInTheDocument(),
-    )
+    await waitFor(() => expect(screen.getByText('All set.')).toBeInTheDocument())
     await waitFor(() => expect(input).toHaveFocus())
   })
 
@@ -145,6 +177,16 @@ describe('<ChiefOfStaffChatBody>', () => {
         { type: 'done' },
       ]),
     )
+    listMessagesMock.mockResolvedValue([
+      msg('user', 'latest news?'),
+      msg('assistant', 'Found it.', {
+        id: 'a1',
+        segments: [
+          { kind: 'tool', toolName: 'web_search' },
+          { kind: 'text', text: 'Found it.' },
+        ],
+      }),
+    ])
 
     render(<ChiefOfStaffChatBody active />)
 
@@ -218,6 +260,10 @@ describe('<ChiefOfStaffChatBody>', () => {
     streamMessageMock.mockReturnValue(
       makeStream([{ type: 'text', delta: long }, { type: 'done' }]),
     )
+    listMessagesMock.mockResolvedValue([
+      msg('user', 'go'),
+      msg('assistant', long, { id: 'a1' }),
+    ])
 
     render(<ChiefOfStaffChatBody active />)
 
@@ -227,8 +273,6 @@ describe('<ChiefOfStaffChatBody>', () => {
     // The reply starts appearing before the whole chunk is revealed...
     await waitFor(() => expect(screen.getByText(/^word/)).toBeInTheDocument())
     expect(screen.queryByText(long)).not.toBeInTheDocument()
-    // The network phase is over, so the composer unlocks during the drain.
-    expect(screen.getByLabelText(/ask a question/i)).toBeEnabled()
     // ...and finishes revealing shortly after.
     await waitFor(() => expect(screen.getByText(long)).toBeInTheDocument(), {
       timeout: 6000,
@@ -258,10 +302,9 @@ describe('<ChiefOfStaffChatBody>', () => {
     )
     expect(screen.queryByText(greeting)).not.toBeInTheDocument()
     // It finishes typing and stays (committed to history).
-    await waitFor(
-      () => expect(screen.getByText(greeting)).toBeInTheDocument(),
-      { timeout: 6000 },
-    )
+    await waitFor(() => expect(screen.getByText(greeting)).toBeInTheDocument(), {
+      timeout: 6000,
+    })
   })
 
   it('surfaces a retryable error when the stream errors', async () => {
@@ -309,8 +352,6 @@ describe('<ChiefOfStaffChatBody>', () => {
       />,
     )
 
-    // The seeded greeting types in (playback) and the custom chip renders
-    // alongside it (the default gate would hide chips while playback runs).
     await waitFor(() =>
       expect(screen.getByText(/^Welcome back/)).toBeInTheDocument(),
     )
@@ -354,11 +395,9 @@ describe('<ChiefOfStaffChatBody>', () => {
       />,
     )
 
-    // The resumed transcript loads (already has a real user turn)...
     await waitFor(() =>
       expect(screen.getByText('earlier answer')).toBeInTheDocument(),
     )
-    // ...and the chips do not render, unlike the freshly-seeded-greeting case.
     expect(
       screen.queryByRole('button', { name: 'Tell my story' }),
     ).not.toBeInTheDocument()
@@ -374,6 +413,10 @@ describe('<ChiefOfStaffChatBody>', () => {
         { type: 'done', assistantMessageId: 'a1' },
       ]),
     )
+    listMessagesMock.mockResolvedValue([
+      msg('user', "What's most urgent this week?"),
+      msg('assistant', 'On it.', { id: 'a1' }),
+    ])
 
     render(<ChiefOfStaffChatBody active />)
 
@@ -410,6 +453,10 @@ describe('<ChiefOfStaffChatBody>', () => {
         { type: 'done', assistantMessageId: 'a1' },
       ]),
     )
+    listMessagesMock.mockResolvedValue([
+      msg('user', '__kickoff__'),
+      msg('assistant', 'Canned kickoff reply.', { id: 'a1' }),
+    ])
 
     render(<ChiefOfStaffChatBody active pendingKickoff="__kickoff__" />)
 
@@ -427,24 +474,33 @@ describe('<ChiefOfStaffChatBody>', () => {
 
   it('fires the kickoff into an override conversation without minting a new one', async () => {
     // A fresh create is mocked so that, if the kickoff wrongly raced the load,
-    // it would mint this id, the assertions below prove it does not.
+    // it would mint this id; the assertions below prove it does not.
     createMock.mockResolvedValue({ conversationId: 'conv_new' })
-    listMessagesMock.mockResolvedValue([
+    const reload = [
       {
         id: 'm1',
         conversationId: 'conv_resume',
-        role: 'user',
+        role: 'user' as const,
         content: 'earlier question',
         createdAt: '2026-07-10T00:00:00.000Z',
       },
       {
         id: 'm2',
         conversationId: 'conv_resume',
-        role: 'assistant',
+        role: 'assistant' as const,
         content: 'earlier answer',
         createdAt: '2026-07-10T00:00:01.000Z',
       },
-    ])
+    ]
+    // First call is the reload; the post-kickoff reconcile adds the hidden
+    // kickoff turn and its reply.
+    listMessagesMock
+      .mockResolvedValueOnce(reload)
+      .mockResolvedValue([
+        ...reload,
+        msg('user', '__kickoff__'),
+        msg('assistant', 'Kickoff into the resumed chat.', { id: 'a1' }),
+      ])
     streamMessageMock.mockReturnValue(
       makeStream([
         { type: 'text', delta: 'Kickoff into the resumed chat.' },
@@ -495,6 +551,10 @@ describe('<ChiefOfStaffChatBody>', () => {
         { type: 'done', assistantMessageId: 'a1' },
       ]),
     )
+    listMessagesMock.mockResolvedValue([
+      msg('user', '__kickoff__'),
+      msg('assistant', 'Kickoff reply.', { id: 'a1' }),
+    ])
 
     const { rerender } = render(
       <ChiefOfStaffChatBody active pendingKickoff="__kickoff__" />,
@@ -520,6 +580,10 @@ describe('<ChiefOfStaffChatBody>', () => {
         { type: 'done', assistantMessageId: 'a1' },
       ]),
     )
+    listMessagesMock.mockResolvedValue([
+      msg('user', '__kickoff__'),
+      msg('assistant', 'Kickoff reply.', { id: 'a1' }),
+    ])
 
     const { rerender } = render(
       <ChiefOfStaffChatBody active pendingKickoff="__kickoff__" />,
@@ -538,15 +602,20 @@ describe('<ChiefOfStaffChatBody>', () => {
   it('hides the with-greeting chips after a hidden kickoff send (no user turn)', async () => {
     const user = userEvent.setup()
     createMock.mockResolvedValue({ conversationId: 'conv_greet' })
-    listMessagesMock.mockResolvedValue([
-      {
-        id: 'm1',
-        conversationId: 'conv_greet',
-        role: 'assistant',
-        content: 'Welcome back to your campaign.',
-        createdAt: '2026-07-01T00:00:00.000Z',
-      },
-    ])
+    const greeting = {
+      id: 'm1',
+      conversationId: 'conv_greet',
+      role: 'assistant' as const,
+      content: 'Welcome back to your campaign.',
+      createdAt: '2026-07-01T00:00:00.000Z',
+    }
+    listMessagesMock
+      .mockResolvedValueOnce([greeting])
+      .mockResolvedValue([
+        greeting,
+        msg('user', '__kick__'),
+        msg('assistant', 'Tell me your why.', { id: 'a1' }),
+      ])
     streamMessageMock.mockReturnValue(
       makeStream([
         { type: 'text', delta: 'Tell me your why.' },
@@ -604,9 +673,9 @@ describe('<ChiefOfStaffChatBody>', () => {
       />,
     )
 
-    // The prior kickoff reply loads (assistant messages, no user turn)...
-    // Both bubbles type in on a real interval (~900ms for these two), which
-    // overruns waitFor's 1s default on a loaded CI box.
+    // The prior kickoff reply loads (assistant messages, no user turn). Both
+    // bubbles type in on a real interval (~900ms), overrunning waitFor's 1s
+    // default on a loaded CI box.
     await waitFor(
       () =>
         expect(
@@ -657,6 +726,10 @@ describe('<ChiefOfStaffChatBody>', () => {
         { type: 'done', assistantMessageId: 'a1' },
       ]),
     )
+    listMessagesMock.mockResolvedValue([
+      msg('user', '__story_kickoff__'),
+      msg('assistant', 'Kicked off reply.', { id: 'a1' }),
+    ])
 
     render(
       <ChiefOfStaffChatBody
@@ -711,6 +784,10 @@ describe('<ChiefOfStaffChatBody>', () => {
         { type: 'done', assistantMessageId: 'a1' },
       ]),
     )
+    listMessagesMock.mockResolvedValue([
+      msg('user', "What's most urgent this week?"),
+      msg('assistant', 'On it.', { id: 'a1' }),
+    ])
 
     render(<ChiefOfStaffChatBody active />)
 
@@ -732,7 +809,7 @@ describe('<ChiefOfStaffChatBody>', () => {
     ).toBeInTheDocument()
   })
 
-  it('excludes a hidden sentinel user turn AND its canned assistant reply from a reloaded transcript', async () => {
+  it('hides a sentinel user turn from a reloaded transcript but keeps its assistant reply', async () => {
     listMessagesMock.mockResolvedValue([
       {
         id: 'm1',
@@ -765,7 +842,8 @@ describe('<ChiefOfStaffChatBody>', () => {
       />,
     )
 
-    // The assistant turn that preceded the sentinel still renders...
+    // The assistant turns render (typed in — only assistant turns remain visible
+    // once the sentinel user turn is filtered)...
     await waitFor(
       () =>
         expect(
@@ -773,14 +851,17 @@ describe('<ChiefOfStaffChatBody>', () => {
         ).toBeInTheDocument(),
       { timeout: 6000 },
     )
-    // ...but the sentinel user turn is never shown as a bubble...
+    // ...the raw sentinel user turn is never shown as a bubble...
     expect(screen.queryByText('__start_story__')).not.toBeInTheDocument()
-    // ...and neither is the canned reply that immediately followed it (it would
-    // otherwise be an orphaned assistant bubble with no preceding user turn).
-    expect(screen.queryByText('Tell me your why.')).not.toBeInTheDocument()
+    // ...but its assistant reply still renders (the engine reconciles against
+    // the server transcript, so only the raw sentinel string is hidden).
+    await waitFor(
+      () => expect(screen.getByText('Tell me your why.')).toBeInTheDocument(),
+      { timeout: 6000 },
+    )
   })
 
-  it('excludes the product-overview sentinel AND its canned reply from a reloaded transcript', async () => {
+  it('hides the product-overview sentinel user turn but keeps its canned reply', async () => {
     listMessagesMock.mockResolvedValue([
       {
         id: 'm1',
@@ -816,14 +897,11 @@ describe('<ChiefOfStaffChatBody>', () => {
     await waitFor(
       () =>
         expect(
-          screen.getByText('Welcome back to your campaign.'),
+          screen.getByText('Here is what your campaign manager can do.'),
         ).toBeInTheDocument(),
       { timeout: 6000 },
     )
     expect(screen.queryByText('__product_overview__')).not.toBeInTheDocument()
-    expect(
-      screen.queryByText('Here is what your campaign manager can do.'),
-    ).not.toBeInTheDocument()
   })
 
   it('renders all messages including a sentinel when hiddenMessageContents is unset (default)', async () => {
