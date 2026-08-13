@@ -141,6 +141,12 @@ jobs:
 
           # jq -n builds the payload so a PR title containing quotes or
           # backslashes cannot break out of the JSON.
+          #
+          # chat.postMessage answers 200 even when it refuses the message, so
+          # -f proves nothing: a revoked token or a channel the app was never
+          # invited to arrives as {"ok": false, "error": ...}. Without the -e
+          # check this step goes green while the owning group is never pinged,
+          # and an unnoticed bot PR is precisely the failure being designed out.
           jq -n \
             --arg channel "$CHANNEL" \
             --arg text "${mention}A bot PR is open${ticket}: <${PR_URL}|${PR_TITLE}>. ${reviewer_line} Bot approval does not merge it — closing it is a fine outcome if the fix is wrong." \
@@ -148,4 +154,6 @@ jobs:
             | curl -sSf -X POST https://slack.com/api/chat.postMessage \
                 -H "Authorization: Bearer $SLACK_TOKEN" \
                 -H 'Content-type: application/json; charset=utf-8' \
-                --data @-
+                --data @- \
+            | tee /dev/stderr \
+            | jq -e '.ok' > /dev/null

@@ -61,12 +61,18 @@ jobs:
           # jq builds the human-readable lines directly: a PR is stale when it
           # is bot-authored, older than the cutoff, and every review on it (if
           # any) came from an excluded account.
+          #
+          # The `!= null` guard is load-bearing. A review whose author account
+          # was deleted reports `author.login` as null, and `$bots | index(null)`
+          # is null, so `not` keeps it — a deleted account would otherwise count
+          # as human attention and quietly drop the PR from the alert, which is
+          # the exact miss this job exists to catch.
           bots="$(jq -cn --arg b "$BOT_REVIEWERS" '$b | split(" ")')"
           stale="$(jq -r --arg cutoff "$cutoff" --argjson bots "$bots" '
             .[]
             | select((.title | startswith("[GP-Bot]")) or (.headRefName | contains("/gp-bot_")))
             | select(.createdAt <= $cutoff)
-            | select([.reviews[]?.author.login] | map(select(. as $l | $bots | index($l) | not)) | length == 0)
+            | select([.reviews[]?.author.login] | map(select(. != null and (. as $l | $bots | index($l) | not))) | length == 0)
             | "• <\(.url)|#\(.number)> \(.title)"
           ' prs.json)"
 
@@ -91,6 +97,11 @@ jobs:
           COUNT: ${{ steps.scan.outputs.count }}
         run: |
           set -euo pipefail
+          # chat.postMessage answers 200 even when it refuses the message, so
+          # -f proves nothing: a revoked token or a channel the app was never
+          # invited to arrives as {"ok": false, "error": ...}. Without the -e
+          # check this step goes green while nobody is told anything, which is
+          # the same silence the alert is meant to break.
           jq -n \
             --arg channel "$CHANNEL" \
             --arg header "*${COUNT} bot PR(s) open past ${STALE_HOURS}h with no human review.* Closing one is a perfectly good outcome — leaving it open is not." \
@@ -99,4 +110,6 @@ jobs:
             | curl -sSf -X POST https://slack.com/api/chat.postMessage \
                 -H "Authorization: Bearer $SLACK_TOKEN" \
                 -H 'Content-type: application/json; charset=utf-8' \
-                --data @-
+                --data @- \
+            | tee /dev/stderr \
+            | jq -e '.ok' > /dev/null
