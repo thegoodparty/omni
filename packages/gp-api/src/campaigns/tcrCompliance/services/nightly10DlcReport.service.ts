@@ -7,7 +7,7 @@ import {
   subHours,
   subMinutes,
 } from 'date-fns'
-import { formatInTimeZone } from 'date-fns-tz'
+import { formatInTimeZone, toZonedTime } from 'date-fns-tz'
 import { setTimeout as sleep } from 'timers/promises'
 import {
   Campaign,
@@ -92,6 +92,17 @@ const PROFILE_STALL_MIN_AGE_HOURS = 20
 // work CV/finalize queues over the weekend either).
 const VENDOR_ESCALATION_BUSINESS_DAY_THRESHOLD = 3
 
+// `differenceInBusinessDays` buckets by the *host's* calendar day, so read both
+// instants on the Eastern business calendar the rest of this job already runs
+// on (the cron's timeZone and the Eastern `reportDate` below). Without this a
+// host west of Eastern sees the midnight-ET run as the previous day and
+// escalates a day late.
+const businessDaysSince = (now: Date, since: Date): number =>
+  differenceInBusinessDays(
+    toZonedTime(now, EASTERN_TIMEZONE),
+    toZonedTime(since, EASTERN_TIMEZONE),
+  )
+
 const reportableCampaign = {
   isPro: true,
   user: {
@@ -152,7 +163,7 @@ const vendorEscalationMessage = ({
   `Peerly identity: ${record.peerlyIdentityId}\n` +
   `Committee: ${record.committeeName}\n` +
   `${stateLabel} since ${formatDate(since, DateFormats.usDate)} ` +
-  `(${differenceInBusinessDays(now, since)} business days).\n` +
+  `(${businessDaysSince(now, since)} business days).\n` +
   `Ask: ${ask}`
 
 @Injectable()
@@ -454,7 +465,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
         peerlyCvStatusChangedAt: Date
       } =>
         record.peerlyCvStatusChangedAt !== null &&
-        differenceInBusinessDays(now, record.peerlyCvStatusChangedAt) >
+        businessDaysSince(now, record.peerlyCvStatusChangedAt) >
           VENDOR_ESCALATION_BUSINESS_DAY_THRESHOLD,
     )
     const waitingToFinalizeToEscalate = waitingToFinalizeStalled.filter(
@@ -464,7 +475,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
         peerlyProfileStatusChangedAt: Date
       } =>
         record.peerlyProfileStatusChangedAt !== null &&
-        differenceInBusinessDays(now, record.peerlyProfileStatusChangedAt) >
+        businessDaysSince(now, record.peerlyProfileStatusChangedAt) >
           VENDOR_ESCALATION_BUSINESS_DAY_THRESHOLD,
     )
 
@@ -563,7 +574,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
         lines: inReviewToEscalate.map(
           (record) =>
             `${campaignRef(record)} — identity ${record.peerlyIdentityId}, ` +
-            `IN_REVIEW ${differenceInBusinessDays(now, record.peerlyCvStatusChangedAt)}` +
+            `IN_REVIEW ${businessDaysSince(now, record.peerlyCvStatusChangedAt)}` +
             ` business days (${
               record.cvInReviewEscalatedAt
                 ? `escalated ${formatDate(record.cvInReviewEscalatedAt, DateFormats.usDate)}`
@@ -576,7 +587,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
         lines: waitingToFinalizeToEscalate.map(
           (record) =>
             `${campaignRef(record)} — identity ${record.peerlyIdentityId}, ` +
-            `waiting_to_finalize ${differenceInBusinessDays(now, record.peerlyProfileStatusChangedAt)}` +
+            `waiting_to_finalize ${businessDaysSince(now, record.peerlyProfileStatusChangedAt)}` +
             ` business days (${
               record.finalizeStalledEscalatedAt
                 ? `escalated ${formatDate(record.finalizeStalledEscalatedAt, DateFormats.usDate)}`
