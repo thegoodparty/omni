@@ -51,5 +51,8 @@ model MagicLink {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([email])
+  // Every inbound Sinch STOP/START callback resolves the sender through this
+  // column, and Sinch retries a callback it considers failed.
+  @@index([phone])
   @@map("magic_link")
 }
