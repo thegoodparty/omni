@@ -19,6 +19,8 @@ import {
 } from '../../generated/prisma'
 import { AddProjectDomainResponseBody } from '@vercel/sdk/models/addprojectdomainop'
 import { BuySingleDomainResponseBody } from '@vercel/sdk/models/buysingledomainop'
+import { DomainCannotBeTransferedOutUntil } from '@vercel/sdk/models/domaincannotbetransferedoutuntil'
+import { DomainNotRegistered } from '@vercel/sdk/models/domainnotregistered'
 import { GetDomainResponseBody } from '@vercel/sdk/models/getdomainop'
 import { GetOrderStatus } from '@vercel/sdk/models/getorderop'
 import { GetProjectDomainResponseBody } from '@vercel/sdk/models/getprojectdomainop'
@@ -419,6 +421,48 @@ export class DomainsService
 
   async getDomainDetails(domainName: string) {
     return this.vercel.getDomainDetails(domainName)
+  }
+
+  /**
+   * Issue the transfer (EPP) auth code for a domain we registered on a
+   * candidate's behalf, so they can move it to their own registrar.
+   *
+   * The code is passed straight through to the caller and deliberately never
+   * written to the `domain` table: it is a bearer credential, and persisting it
+   * would turn a DB read into the ability to steal any campaign's domain.
+   */
+  async getDomainTransferAuthCode(
+    domainName: string,
+    requestedBy: User,
+  ): Promise<string> {
+    // WHOIS registrant on these domains is a GoodParty identity rather than the
+    // candidate, so we are the only party who can produce this code. Record who
+    // asked, since the request is what hands control of the domain away.
+    this.logger.info(
+      { domain: domainName, requestedByUserId: requestedBy.id },
+      'Domain transfer auth code requested',
+    )
+
+    try {
+      return await this.vercel.getDomainAuthCode(domainName)
+    } catch (error) {
+      if (
+        this.vercel.isVercelNotFoundError(error) ||
+        error instanceof DomainNotRegistered
+      ) {
+        throw new NotFoundException(
+          `${domainName} is not registered through GoodParty`,
+        )
+      }
+
+      // Vercel's message names the date the ICANN 60-day post-registration lock
+      // lifts, which is the only actionable detail for the candidate.
+      if (error instanceof DomainCannotBeTransferedOutUntil) {
+        throw new ConflictException(error.message)
+      }
+
+      throw error
+    }
   }
 
   async searchDomainsForCampaign(
