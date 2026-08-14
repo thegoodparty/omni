@@ -35,8 +35,25 @@ vi.mock('gpApi/server-request', () => ({
 
 vi.mock('helpers/metadataHelper', () => ({ default: () => ({}) }))
 
+// The page's title bar is DashboardLayout's shared navHeader now (the same bar
+// Voter Data uses), so the stub has to render it for these assertions.
 vi.mock('../shared/DashboardLayout', () => ({
-  default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  default: ({
+    children,
+    navHeader,
+  }: {
+    children: ReactNode
+    navHeader?: { icon: string; label: string }
+  }) => (
+    <div>
+      {navHeader && (
+        <div data-testid="nav-header" data-icon={navHeader.icon}>
+          <h1>{navHeader.label}</h1>
+        </div>
+      )}
+      {children}
+    </div>
+  ),
 }))
 
 // RaceOpponentList is exercised by its own suite; stub it so this test isolates
@@ -74,14 +91,14 @@ beforeEach(() => {
 })
 
 describe('dashboard/race-opponent page', () => {
-  it('renders the shared styleguide PageHeader as the only h1 on the page', async () => {
+  it('titles the page through the shared nav header, as the only h1', async () => {
     render(await Page())
 
     expect(
       screen.getByRole('heading', { name: 'Know Your Opponent' }),
     ).toBeInTheDocument()
-    // The old feature-local h1 ("Know your opponent") is gone — PageHeader's
-    // own h1 is the single heading rendered above the (mocked) page content.
+    // The feature-local header bar is gone — the layout's shared navHeader is
+    // the single heading rendered above the (mocked) page content.
     expect(document.querySelectorAll('h1')).toHaveLength(1)
   })
 
@@ -89,19 +106,18 @@ describe('dashboard/race-opponent page', () => {
     ['Pro', true],
     ['non-Pro', false],
   ])(
-    'hides the PageHeader below lg on the %s branch so mobile keeps the single top-bar title',
+    "carries the sidebar tab's own icon and name in the title bar on the %s branch",
     async (_label, isPro) => {
       mockFetchUserCampaign.mockResolvedValue({ isPro, details: {} })
 
       render(await Page())
 
-      // On mobile the page title lives in MobileMenuTrigger's top bar (this
-      // route's MOBILE_PAGE_TITLES entry in DashboardLayout); without
-      // max-lg:hidden the page would stack two title bars with duplicate h1s
-      // below the lg breakpoint.
-      const pageHeader = document.querySelector('[data-slot="page-header"]')
-      expect(pageHeader).not.toBeNull()
-      expect(pageHeader).toHaveClass('max-lg:hidden')
+      // Must match KNOW_YOUR_OPPONENT_MENU_ITEM in DashboardMenu (both read the
+      // same NAV_HEADER_ICONS key / NAV_LABELS entry), so what a candidate sees
+      // at the top of the page matches the item they clicked in the left rail.
+      const navHeader = screen.getByTestId('nav-header')
+      expect(navHeader).toHaveAttribute('data-icon', 'flag')
+      expect(navHeader).toHaveTextContent('Know Your Opponent')
     },
   )
 
@@ -122,7 +138,7 @@ describe('dashboard/race-opponent page', () => {
     )
   })
 
-  it('renders the locked upgrade view (not a redirect) for a non-Pro user, still under the PageHeader', async () => {
+  it('renders the locked upgrade view (not a redirect) for a non-Pro user, still under the title bar', async () => {
     mockFetchUserCampaign.mockResolvedValue({ isPro: false, details: {} })
 
     render(await Page())

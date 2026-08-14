@@ -6,7 +6,7 @@ end to end: dispatch (gp-api) → run (`gp-ai-projects`) → reconcile (gp-api) 
 (products) → eval (`packages/runbooks`).
 
 Read the overview first: [`cap.md`](cap.md). For the gp-api transport layer in more
-local detail, `packages/gp-api/src/agentExperiments/CLAUDE.md`; for the runtime,
+local detail, `packages/gp-api/src/agentExperiments/AGENTS.md`; for the runtime,
 `gp-ai-projects/pmf_engine/control_plane/README.md` and
 `gp-ai-projects/broker/ARCHITECTURE.md`.
 
@@ -83,7 +83,7 @@ The dispatch message (what gp-api actually sends today):
 `MessageGroupId = "agent-dispatch-{organizationSlug}"` (per-org FIFO ordering).
 
 > **Doc correction:** the envelope documented in older copies of
-> `agentExperiments/CLAUDE.md` omits `clerk_user_id` and `priority`, which the code
+> `agentExperiments/AGENTS.md` omits `clerk_user_id` and `priority`, which the code
 > does send. There is no top-level `prior_artifact_versions` or `input_files` field on
 > the gp-api side — uploads ride inside `params._input_files`.
 
@@ -330,7 +330,7 @@ cert, scope-ticket DynamoDB, secrets), `pmf-engine-fargate` (runner cluster + em
 task role + quarantine SG + Slack failure topic), and `pmf-engine-control-plane`
 (the three Lambdas, dispatch FIFO + DLQ, job-queue DynamoDB, metadata + inputs S3
 buckets, SSM cap param, EventBridge rules). CI builds the broker and pmf-engine
-images on merge to `develop`/`qa`/`prod`. Ops detail: `broker/RUNBOOK.md`.
+images on merge to `main`. Ops detail: `broker/RUNBOOK.md`.
 
 ## Part 3 — the eval system
 

@@ -371,6 +371,23 @@ def test_propose_watchlist_additions():
     assert proposals[0]["family"] == "win_onboarding"
 
 
+def test_propose_skips_dismissed_events():
+    today = date(2026, 8, 3)
+    catalog = [
+        {"event_type": "Kept Proposal", "family": "win_onboarding",
+         "event_count_30d": 10, "first_seen_date": "2026-07-20", "last_seen_date": "2026-08-01"},
+        {"event_type": "Rejected Proposal", "family": "win_onboarding",
+         "event_count_30d": 10, "first_seen_date": "2026-07-20", "last_seen_date": "2026-08-01"},
+    ]
+    out = eh.propose_watchlist_additions(
+        catalog, code={}, watched_families=["win_onboarding"],
+        watchlist_events=[], today=today, dismissed_events=["Rejected Proposal"],
+    )
+    names = {p["event_type"] for p in out}
+    assert "Kept Proposal" in names
+    assert "Rejected Proposal" not in names
+
+
 # --- reconcile (end-to-end over fixtures) ------------------------------------
 
 
@@ -515,6 +532,30 @@ def test_reconcile_watchlist_elevates_and_proposes():
     assert result["proposals"] == []  # already on the watchlist
 
 
+def test_reconcile_stamps_watchlist_status():
+    today = date(2026, 8, 3)
+    catalog = [
+        {"event_type": "Sign Up Clicked", "family": "win_onboarding", "govern_description": "",
+         "event_count_30d": 5, "last_seen_date": "2026-08-01", "first_seen_date": "2024-01-01"},
+        {"event_type": "Noise Event", "family": "win_onboarding", "govern_description": "",
+         "event_count_30d": 5, "last_seen_date": "2026-08-01", "first_seen_date": "2026-07-20"},
+        {"event_type": "Fresh Live Event", "family": "win_onboarding", "govern_description": "",
+         "event_count_30d": 5, "last_seen_date": "2026-08-01", "first_seen_date": "2026-07-25"},
+        {"event_type": "Old Untracked", "family": "win_onboarding", "govern_description": "",
+         "event_count_30d": 5, "last_seen_date": "2026-08-01", "first_seen_date": "2020-01-01"},
+    ]
+    result = eh.reconcile(
+        catalog, weekly_rows=[], code={}, today=today,
+        watchlist_events=["Sign Up Clicked"], watched_families=["win_onboarding"],
+        dismissed_events=["Noise Event"],
+    )
+    status = {r["event_type"]: r["watchlist_status"] for r in result["records"]}
+    assert status["Sign Up Clicked"] == "tracked"
+    assert status["Noise Event"] == "dismissed"
+    assert status["Fresh Live Event"] == "proposed"
+    assert status["Old Untracked"] == "—"
+
+
 def test_reconcile_recent_retiree_quiet_before_retirement_is_not_orphaned():
     # DATA-2140 regression: an event whose LAST fire predates its retirement is retired-and-quiet,
     # not orphaned. The 30-day count straddles the retirement date (126 fires, all pre-retirement),
@@ -653,6 +694,66 @@ def test_load_prior_anomalous_reads_valid_list(tmp_path):
     p = tmp_path / "state.json"
     p.write_text('{"run_date": "2026-06-29", "anomalous": ["B", "C"]}')
     assert eh.load_prior_anomalous(p) == {"B", "C"}
+
+
+# --- load_watchlist ----------------------------------------------------------
+
+
+def test_load_watchlist_reads_dismissed(tmp_path):
+    p = tmp_path / "mon.yaml"
+    p.write_text(
+        "watched_families: [win_onboarding]\n"
+        'events:\n  - {event: "Sign Up Clicked", product: win, family: win_onboarding}\n'
+        'dismissed:\n  - {event: "Noise Event", reason: "UI micro-interaction", date: "2026-08-03"}\n'
+    )
+    families, events, dismissed, okr = eh.load_watchlist(p)
+    assert families == ["win_onboarding"]
+    assert events == ["Sign Up Clicked"]
+    assert dismissed == ["Noise Event"]
+    assert okr == {}
+
+
+def test_load_watchlist_returns_okr_map(tmp_path):
+    y = tmp_path / "w.yaml"
+    y.write_text(
+        "watched_families: [win_dashboard]\n"
+        "events:\n"
+        '  - {event: "Dashboard - Candidate Dashboard Viewed", product: win, '
+        'family: win_dashboard, floor: null, owner: TBD, okr: "Active Candidates"}\n'
+        '  - {event: "Sign Up Clicked", product: win, family: win_onboarding, '
+        "floor: null, owner: TBD}\n"
+        '  - {event: "Multi Metric Event", product: win, family: win_dashboard, '
+        'floor: null, owner: TBD, okr: ["Active Candidates", "Signups"]}\n'
+        "dismissed: []\n"
+    )
+    families, events, dismissed, okr = eh.load_watchlist(y)
+    assert events == [
+        "Dashboard - Candidate Dashboard Viewed", "Sign Up Clicked", "Multi Metric Event",
+    ]
+    assert okr == {
+        "Dashboard - Candidate Dashboard Viewed": "Active Candidates",
+        "Multi Metric Event": "Active Candidates, Signups",
+    }
+
+
+def test_load_watchlist_missing_file_returns_empty_okr(tmp_path):
+    assert eh.load_watchlist(tmp_path / "absent.yaml") == ([], [], [], {})
+
+
+def test_reconcile_stamps_okr_on_records():
+    catalog = [{
+        "event_type": "Dashboard - Candidate Dashboard Viewed", "family": "win_dashboard",
+        "govern_description": None, "event_count_30d": 0, "last_seen_date": None,
+    }]
+    result = eh.reconcile(
+        catalog, weekly_rows=[], code={}, today=date(2026, 8, 4),
+        watchlist_events=["Dashboard - Candidate Dashboard Viewed"],
+        watched_families=["win_dashboard"],
+        okr_by_event={"Dashboard - Candidate Dashboard Viewed": "Active Candidates"},
+    )
+    rec = result["records"][0]
+    assert rec["okr"] == "Active Candidates"
+    assert rec["on_watchlist"] is True
 
 
 # --- prepend_log -------------------------------------------------------------
@@ -883,3 +984,33 @@ def test_main_gap_slack_missing_file_is_graceful(monkeypatch, tmp_path):
     )
     assert rc == 0
     assert captured.get("gap") is None
+
+
+def test_build_slack_triage_quiet_run_returns_none_with_empty_items(monkeypatch):
+    # Quiet run: run_triage is invoked but with zero items, so its no-items early
+    # return keeps the API untouched (covered by test_run_triage_no_items) and the
+    # gate then suppresses the post.
+    seen_items = []
+    monkeypatch.setattr(
+        "digest_triage.run_triage",
+        lambda items, **kw: seen_items.append(list(items)) or {"status": "no-items", "items": items},
+    )
+    result = {"run_date": date(2026, 8, 4), "flagged": [], "proposals": [],
+              "status_counts": {}, "total_events": 0}
+    changes = {"new": [], "escalated": [], "resolved": [], "still_open": []}
+    triage = eh.build_slack_triage(result, changes, state_path=None, gap=None)
+    assert triage is None and seen_items == [[]]
+
+
+def test_build_slack_triage_runs_on_changes(monkeypatch):
+    monkeypatch.setattr(
+        "digest_triage.run_triage", lambda items, **kw: {"status": "ok", "items": items})
+    result = {"run_date": date(2026, 8, 4), "proposals": [], "status_counts": {},
+              "total_events": 1, "flagged": [{
+                  "event_type": "A", "status": "dormant", "rank": 8, "okr": None,
+                  "on_watchlist": False, "elevated": False, "anomaly": None,
+                  "event_count_30d": 0, "last_seen_date": None, "instrumented_pr": None,
+                  "divergence": None, "gpmeta": None}]}
+    changes = {"new": ["A"], "escalated": [], "resolved": [], "still_open": []}
+    triage = eh.build_slack_triage(result, changes, state_path=None, gap=None)
+    assert triage is not None and triage["items"][0]["event_type"] == "A"

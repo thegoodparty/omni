@@ -79,7 +79,6 @@ export const AUDIENCE_VOTER_STATUS_VALUES = [
   { field: 'audienceLikelyVoters', value: 'Likely' },
   { field: 'audienceUnreliableVoters', value: 'Unreliable' },
   { field: 'audienceUnlikelyVoters', value: 'Unlikely' },
-  { field: 'audienceFirstTimeVoters', value: 'First Time' },
   { field: 'audienceUnknown', value: 'Unknown' },
 ] as const
 
@@ -110,18 +109,6 @@ export const LANGUAGE_CODE_TO_LABEL: Record<string, string> = {
 // Single-sourced from contracts so people-api's pack encoder buckets by the
 // same bounds.
 export { INCOME_RANGE_MAPPING }
-
-// The people-db ETL's Voter_Status CASE (gp-data-platform,
-// m_people_api__voter.sql) has no 'Unreliable' branch: the middle-propensity
-// cohort (voted exactly 1 of the last 3 tracked elections) falls into its
-// `else` and is stored as 'Unknown', so the literal 'Unreliable' matches
-// zero rows in every environment. Until the ETL is fixed and the cluster
-// rebuilt, an Unreliable selection must also match 'Unknown' or it selects
-// nothing.
-const expandUnreliableVoterStatus = (values: string[]): string[] =>
-  values.includes('Unreliable') && !values.includes('Unknown')
-    ? [...values, 'Unknown']
-    : values
 
 // Accepts a full persisted VoterFileFilter (saved-segment path) or the
 // unsaved, partial filter set the live count sends (ENG-10517). Only the filter
@@ -158,7 +145,6 @@ export const convertVoterFileFilterToFilters = (
     'audienceLikelyVoters',
     'audienceUnreliableVoters',
     'audienceUnlikelyVoters',
-    'audienceFirstTimeVoters',
     'audienceUnknown',
     'partyIndependent',
     'partyDemocrat',
@@ -235,9 +221,9 @@ export const convertVoterFileFilterToFilters = (
             ? { eq: normalizedLanguages[0] }
             : { in: normalizedLanguages }
       } else if (key === 'voterStatus') {
-        const expanded = expandUnreliableVoterStatus(value.map(String))
+        const values = value.map(String)
         filters['voterStatus'] =
-          expanded.length === 1 ? { eq: expanded[0] } : { in: expanded }
+          values.length === 1 ? { eq: values[0] } : { in: values }
       } else if (key === 'incomeRanges') {
         // Income ranges are handled separately after the loop
         // to allow combining with incomeUnknown using _includeNull
@@ -248,11 +234,9 @@ export const convertVoterFileFilterToFilters = (
   }
 
   if (!filters['voterStatus']) {
-    const voterStatusValues: string[] = expandUnreliableVoterStatus(
-      AUDIENCE_VOTER_STATUS_VALUES.filter(({ field }) => segment[field]).map(
-        ({ value }) => value,
-      ),
-    )
+    const voterStatusValues: string[] = AUDIENCE_VOTER_STATUS_VALUES.filter(
+      ({ field }) => segment[field],
+    ).map(({ value }) => value)
     if (voterStatusValues.length > 0) {
       filters['voterStatus'] =
         voterStatusValues.length === 1

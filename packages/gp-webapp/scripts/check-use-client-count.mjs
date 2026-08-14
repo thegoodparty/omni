@@ -153,7 +153,25 @@ import { dirname, join, relative } from 'node:path'
 // ENG-10858: +1 for campaignManager/TextingSetupBanner.tsx — self-gates on
 // useCampaign and fires a view event in an effect, like its sibling
 // ProUpgradeBanner.
-const BASELINE = 559
+// +1 for ordinances/components/OrdinanceBugReportSheet.tsx — the draft's
+// "Flag a bug" sheet manages description/submit state and opens a Vaul drawer,
+// so it must be a client component.
+// +1 for ordinances/components/redline/RedlineEditor.tsx — the amendment
+// tracked-changes editor is a TipTap/ProseMirror instance, which is inherently
+// client-only, so it can't render on the server.
+// 2026-07-28: 561 -> 563 for the demo-parity pass: PersonSheet (household
+// switcher + record flow state), TurfDetailsSheet (route/list queries), and
+// createFlow/CreateListFlow (filter/draw/confirm step state) replace inline
+// expansions; all are interactive surfaces inside the client-only map page.
+// Net +2 after deleting SaveTurfDialog.
+// 2026-08-13: 563 -> 564 for native/EditTurfDialog.tsx — the rename/recolor
+// dialog holds draft name and color state and runs the PUT mutation, and it is
+// opened from TurfDetailsSheet, itself a client component inside the client-only
+// map page. Nothing here can render on the server.
+// 2026-08-13: 564 -> 565 for door-knocking/native/DoorScript.tsx. The door
+// script collapses on tap so it doesn't push the answer pills off a phone
+// screen, and it renders inside PersonSheet, which is already client-only.
+const BASELINE = 565
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

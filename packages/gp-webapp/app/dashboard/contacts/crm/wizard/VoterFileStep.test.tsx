@@ -97,7 +97,7 @@ describe('VoterFileStep — Voter Likelihood section position', () => {
       name: 'Voter Likelihood',
     })
     expect(voterLikelihoodGroup).toBeInTheDocument()
-    ;['Unknown', 'First Time', 'Unlikely', 'Likely', 'Super'].forEach(
+    ;['Unknown', 'Unlikely', 'Unreliable', 'Likely', 'Super'].forEach(
       (label) => {
         expect(
           within(voterLikelihoodGroup).getByRole('button', { name: label }),
@@ -106,7 +106,7 @@ describe('VoterFileStep — Voter Likelihood section position', () => {
     )
   })
 
-  it('renders the same for an elected official (Voter Likelihood is not party-gated)', () => {
+  it('does not render the section for an elected official (Win-only)', () => {
     render(
       <VoterFileStep
         filters={{}}
@@ -120,11 +120,12 @@ describe('VoterFileStep — Voter Likelihood section position', () => {
     const headings = screen
       .getAllByRole('heading', { level: 4 })
       .map((heading) => heading.textContent)
-    const supportStatusIndex = headings.indexOf('Support status')
-    const voterLikelihoodIndex = headings.indexOf('Voter likelihood')
 
-    expect(voterLikelihoodIndex).toBe(supportStatusIndex + 1)
+    expect(headings).not.toContain('Voter likelihood')
     expect(headings).not.toContain('Political party')
+    expect(
+      screen.queryByRole('toolbar', { name: 'Voter Likelihood' }),
+    ).not.toBeInTheDocument()
   })
 })
 
@@ -151,7 +152,7 @@ describe('VoterFileStep — prototype filter order', () => {
       .map((heading) => heading.textContent)
 
     expect(headings).toEqual([
-      'Contacts made',
+      'Prior contacts made',
       'Support status',
       'Voter likelihood',
       'Political party',
@@ -171,7 +172,7 @@ describe('VoterFileStep — prototype filter order', () => {
     ])
   })
 
-  it('renders the same order minus Contacts made and Political party for Serve', () => {
+  it('renders the same order minus the Win-only groups for Serve', () => {
     render(
       <VoterFileStep
         filters={{}}
@@ -188,7 +189,6 @@ describe('VoterFileStep — prototype filter order', () => {
 
     expect(headings).toEqual([
       'Support status',
-      'Voter likelihood',
       'Age',
       'Marital status',
       'Children',
@@ -227,7 +227,7 @@ describe('VoterFileStep — Contacts Made section', () => {
       .getAllByRole('heading', { level: 4 })
       .map((heading) => heading.textContent)
 
-    const contactsMadeIndex = headings.indexOf('Contacts made')
+    const contactsMadeIndex = headings.indexOf('Prior contacts made')
     const supportStatusIndex = headings.indexOf('Support status')
 
     expect(contactsMadeIndex).toBeGreaterThan(-1)
@@ -246,7 +246,7 @@ describe('VoterFileStep — Contacts Made section', () => {
     )
 
     const contactsMadeGroup = screen.getByRole('toolbar', {
-      name: 'Contacts Made',
+      name: 'Prior Contacts Made',
     })
     expect(contactsMadeGroup).toBeInTheDocument()
     ;['0', '1', '2', '3', '4', '5+'].forEach((label) => {
@@ -271,7 +271,7 @@ describe('VoterFileStep — Contacts Made section', () => {
     )
 
     const contactsMadeGroup = screen.getByRole('toolbar', {
-      name: 'Contacts Made',
+      name: 'Prior Contacts Made',
     })
     await user.click(
       within(contactsMadeGroup).getByRole('button', { name: '0' }),
@@ -296,9 +296,9 @@ describe('VoterFileStep — Contacts Made section', () => {
     const headings = screen
       .getAllByRole('heading', { level: 4 })
       .map((heading) => heading.textContent)
-    expect(headings).not.toContain('Contacts made')
+    expect(headings).not.toContain('Prior contacts made')
     expect(
-      screen.queryByRole('toolbar', { name: 'Contacts Made' }),
+      screen.queryByRole('toolbar', { name: 'Prior Contacts Made' }),
     ).not.toBeInTheDocument()
   })
 })

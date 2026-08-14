@@ -97,6 +97,11 @@ test.describe('Win Contacts', () => {
     await expect(wizardPillGroup(wizard, 'Political Party')).toBeVisible({
       timeout: 10_000,
     })
+    // Voter Likelihood is Win-only the same way; the Serve spec asserts its
+    // absence, so this is the paired positive.
+    await expect(wizardPillGroup(wizard, 'Voter Likelihood')).toBeVisible({
+      timeout: 10_000,
+    })
 
     const unfiltered = await readSettledWizardCount(page)
     expect(unfiltered).toBeGreaterThan(0)

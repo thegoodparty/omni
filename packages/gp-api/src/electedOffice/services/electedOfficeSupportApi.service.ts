@@ -7,6 +7,7 @@ import {
   ElectedOfficeSupport,
   ElectedOfficeSupportSchema,
 } from '@goodparty_org/contracts'
+import { ElectionApiTokenService } from '@/vendors/clerk/services/electionApiToken.service'
 
 @Injectable()
 export class ElectedOfficeSupportApiService {
@@ -16,6 +17,7 @@ export class ElectedOfficeSupportApiService {
   constructor(
     private readonly httpService: HttpService,
     private readonly logger: PinoLogger,
+    private readonly tokenService: ElectionApiTokenService,
   ) {
     this.logger.setContext(ElectedOfficeSupportApiService.name)
     const baseUrl = process.env.ELECTION_API_URL
@@ -34,8 +36,12 @@ export class ElectedOfficeSupportApiService {
   ): Promise<ElectedOfficeSupport | null> {
     const url = `${this.baseUrl}/${ElectedOfficeSupportApiService.PATH}`
     try {
+      const headers = await this.tokenService.authHeader()
       const { data } = await lastValueFrom(
-        this.httpService.get<unknown>(url, { params: { electedOfficeId } }),
+        this.httpService.get<unknown>(url, {
+          params: { electedOfficeId },
+          headers,
+        }),
       )
       const parsed = ElectedOfficeSupportSchema.safeParse(data)
       if (!parsed.success) {

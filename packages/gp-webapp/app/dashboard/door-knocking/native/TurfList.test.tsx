@@ -32,7 +32,7 @@ describe('TurfList', () => {
     testQueryClient.clear()
   })
 
-  it('focuses a turf on click and locks knocked turfs against deletion', async () => {
+  it('always offers Details and Knock, locked or not', async () => {
     api.mock('GET /v1/door-knocking/turfs', {
       status: 200,
       data: [
@@ -41,85 +41,38 @@ describe('TurfList', () => {
       ],
     })
     const onFocusTurf = vi.fn()
+    const onShowDetails = vi.fn()
     const onKnockTurf = vi.fn()
-    const onOpenRoute = vi.fn()
 
     render(
       <TurfList
+        selectedTurfId={null}
         onFocusTurf={onFocusTurf}
+        onShowDetails={onShowDetails}
         onKnockTurf={onKnockTurf}
-        onOpenRoute={onOpenRoute}
       />,
     )
 
     await waitFor(() =>
-      expect(screen.getByText('Elm St & 5th')).toBeInTheDocument(),
+      expect(screen.getByText('Saved lists · 2')).toBeInTheDocument(),
     )
+    expect(screen.getAllByRole('button', { name: 'Details' })).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: 'Knock' })).toHaveLength(2)
+    // No route/delete affordances on the card.
+    expect(screen.queryByRole('button', { name: 'Route' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Delete/ })).toBeNull()
+
     fireEvent.click(screen.getByText('Elm St & 5th'))
-    expect(onFocusTurf).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 1, name: 'Elm St & 5th' }),
+    expect(onFocusTurf).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }))
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Details' })[0]!)
+    expect(onShowDetails).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 1 }),
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Knock' }))
-    expect(onKnockTurf).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }))
-
-    fireEvent.click(screen.getByRole('button', { name: 'Route' }))
-    expect(onOpenRoute).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 2, name: 'Riverside loop' }),
+    fireEvent.click(screen.getAllByRole('button', { name: 'Knock' })[1]!)
+    expect(onKnockTurf).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 2, locked: true }),
     )
-    expect(
-      screen.queryByRole('button', { name: 'Delete turf Riverside loop' }),
-    ).toBeNull()
-  })
-
-  it('treats the turf being walked as locked before the refetch settles', async () => {
-    api.mock('GET /v1/door-knocking/turfs', {
-      status: 200,
-      data: [turf({ id: 1, name: 'Elm St & 5th', locked: false })],
-    })
-
-    render(
-      <TurfList
-        walkingTurfId={1}
-        onFocusTurf={vi.fn()}
-        onKnockTurf={vi.fn()}
-        onOpenRoute={vi.fn()}
-      />,
-    )
-
-    await waitFor(() =>
-      expect(screen.getByText('Elm St & 5th')).toBeInTheDocument(),
-    )
-    expect(screen.queryByRole('button', { name: 'Knock' })).toBeNull()
-    expect(screen.getByRole('button', { name: 'Route' })).toBeInTheDocument()
-  })
-
-  it('deletes an unlocked turf and refetches the list', async () => {
-    let deleted = false
-    api.mock('GET /v1/door-knocking/turfs', () => ({
-      status: 200,
-      data: deleted ? [] : [turf({ id: 1, name: 'Elm St & 5th' })],
-    }))
-    api.mock('DELETE /v1/door-knocking/turfs/:id', ({ params }) => {
-      expect(params.id).toBe('1')
-      deleted = true
-      return { status: 200, data: undefined }
-    })
-
-    render(
-      <TurfList
-        onFocusTurf={vi.fn()}
-        onKnockTurf={vi.fn()}
-        onOpenRoute={vi.fn()}
-      />,
-    )
-
-    await waitFor(() =>
-      expect(screen.getByText('Elm St & 5th')).toBeInTheDocument(),
-    )
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Delete turf Elm St & 5th' }),
-    )
-    await waitFor(() => expect(screen.queryByText('Elm St & 5th')).toBeNull())
   })
 })

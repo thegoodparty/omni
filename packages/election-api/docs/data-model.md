@@ -7,14 +7,15 @@ The Prisma schema is split across one file per model under `prisma/schema/` (ena
 ### `Place` — `prisma/schema/place.prisma`
 A geographic entity (state, county, city, township, etc.) identified by a Census `geoId`. Self-referential parent/child relation forms a hierarchy via `PlaceHierarchy`. Sources demographics ("fun facts": population, density, income, home value, unemployment).
 - **Unique:** `slug` (e.g., `tx/hidalgo/mission`), `geoId`
-- **Relations:** `Race[]`, `Position[]`, recursive `Place[]` parent/children
-- **Notes:** `mtfcc` is the Census MAF/TIGER feature class code; `state` is `Char(2)`
+- **Relations:** `Race[]`, recursive `Place[]` parent/children
+- **Notes:** `mtfcc` is the Census MAF/TIGER feature class code; `state` is `Char(2)`. The ETL appends a `-<geoId>` suffix to a slug that loses a collision (`tx/hidalgo/mission-4848072`), so never recompose a place slug in app code — read it.
 
 ### `Race` — `prisma/schema/race.prisma`
 A specific election contest at a `Place` for a particular position on a particular `electionDate`. Carries Ballotready (`brHashId`, `brDatabaseId`) and per-race metadata (filing window, eligibility, salary, partisan/runoff/primary flags).
-- **Indexed:** `slug`
-- **Relations:** `Place?`, `Candidacy[]`
+- **Indexed:** `slug`, `positionId`, `placeId`, `brHashId`
+- **Relations:** `Place?`, `Position?`, `Candidacy[]`
 - **Enum:** `PositionLevel { CITY, COUNTY, FEDERAL, LOCAL, REGIONAL, STATE, TOWNSHIP }`
+- **Note:** `slug` is the place slug plus the slugified normalized position name (`tx/hidalgo/mission/county-sheriff`). It is the only place that pairing exists — `Position` carries no slug and no `Place` — so it doubles as the canonical office slug for a sitting officeholder. `positionLevel` is non-null here, unlike the nullable `Position.level`.
 
 ### `Candidacy` — `prisma/schema/candidacy.prisma`
 A person running in a `Race`. Denormalizes parts of the candidate's Person + Position records from Ballotready (first/last name, party, image, about, urls, salary, election frequency, normalized position name).
@@ -23,11 +24,17 @@ A person running in a `Race`. Denormalizes parts of the candidate's Person + Pos
 - **Enum:** `ElectionResult { WON, LOST, RUNOFF }`
 
 ### `Position` — `prisma/schema/position.prisma`
-The "office being run for" — a Ballotready position scoped to a `District` and/or `Place`. The bridge between geography and `Race`.
+The "office being run for" — a Ballotready position scoped to a `District`. The bridge between geography and `Race`.
 - **Unique:** `brPositionId` (the Ballotready source position id — must be unique)
-- **Indexed:** `placeId`
-- **Relations:** `District?`, `Place?`, `ZipToPosition[]`
+- **Relations:** `District?`, `Race[]`, `OfficeHolder[]`, `ZipToPosition[]`
 - **Note:** `brDatabaseId` is a `String` here (outlier — the rest of the schema uses `Int`). Don't propagate this style; see `ZipToPosition` for the rationale.
+- **Note:** there is deliberately **no** `Place` relation — `placeId` was dropped in `20260722000000_drop_position_place_id` because the position mart never populated it. Reach a position's geography through its `Race[]` instead.
+
+### `OfficeHolder` — `prisma/schema/officeHolder.prisma`
+A term a `Person` holds (or held) in an office — the "elected official" spine behind the public `/people` profiles.
+- **Indexed:** `personId`, `positionId`
+- **Relations:** `Person` (required, cascades), `Position?`
+- **Note:** `positionId` is nullable and the officeholder mart fills it with a lossy left join (no `not_null` test upstream), so any traversal through it must degrade gracefully rather than assume a position.
 
 ### `District` — `prisma/schema/district.prisma`
 An L2 voter-file district (e.g., a state house district, a school board district). Identified uniquely by `(state, L2DistrictType, L2DistrictName)`.
@@ -62,6 +69,7 @@ Denormalized ZIP → position rollup, sourced from a dbt mart in `gp-data-platfo
 - **Find a place by hierarchy slug** — `slug` is unique on `Place`; query `where: { slug }` then optionally include `parent` / `children`. See `src/places/places.service.ts`.
 - **Position lookup from a ZIP** — query `ZipToPosition` by `zipCode`; the row carries denormalized `displayOfficeLevel`, `officeType`, `district`, etc. so the response can be built without a join.
 - **Candidate cards for a race** — `Race.findUnique({ where: { slug }, include: { Candidacies: { include: { Stances: { include: { Issue: true } } } } } })`.
+- **Office slug for a sitting officeholder** — `OfficeHolder.positionId` → `Position` → most recent `Race`, then read `Race.slug`/`Race.positionLevel`. See `src/persons/persons.service.ts`. A candidate reaches the same slug via `Candidacy.Race`.
 - **Top issues by district** — `DistrictTopIssue.findMany({ where: { districtId }, orderBy: { issueRank: 'asc' } })`.
 
 ## Conventions

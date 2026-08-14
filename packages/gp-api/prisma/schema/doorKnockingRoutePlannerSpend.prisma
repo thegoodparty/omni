@@ -1,0 +1,27 @@
+// The ledger for the only paid call in door knocking. Spend used to be read
+// off the frozen routes themselves (door_knocking_stop rows joined to
+// door_knocking_route), on the premise that a route is created exactly when
+// the vendor is called — but the Route Planner call happens INSIDE the knock
+// transaction, so anything that rolls back afterwards discards the record of
+// money already spent and hands the same allowance out twice.
+//
+// Rows here are written on their own connection, outside that transaction, the
+// moment the vendor returns. They are append-only and never cascade: a turf can
+// be deleted, a route can fail to freeze, and the spend still happened.
+model DoorKnockingRoutePlannerSpend {
+  id               Int      @id @default(autoincrement())
+  occurredAt       DateTime @default(now()) @map("occurred_at")
+  organizationSlug String   @map("organization_slug")
+  // Deliberately a plain Int and not a relation: a foreign key would let a
+  // turf deletion cascade away the spend it caused, which is the opposite of
+  // what a ledger is for. Informational only — nothing joins on it.
+  doorKnockingTurfId Int?   @map("door_knocking_turf_id")
+  // Waypoints (stops) sent to the vendor — the unit DAILY_WAYPOINT_LIMIT caps.
+  waypoints        Int
+  // Geoapify credits, waypoints x 10 at the Route Planner's current rate.
+  credits          Int
+
+  // Serves the rolling-window sum in assertWaypointQuota.
+  @@index([organizationSlug, occurredAt])
+  @@map("door_knocking_route_planner_spend")
+}

@@ -74,12 +74,14 @@ export const buildLegend = (): string =>
     '  (selectivity = how much a filter narrows the crowd; low = keeps most,',
     '   high = keeps few. multivalue = choose from a list. range = between.)',
     '',
-    'Cells are warm p50/p95 in ms — the median and 95th-percentile of the WARM',
-    'runs. Each case runs 8 times: 1 cold (first hit, discarded from p50/p95)',
-    'then 7 warm; heavy statewide cells run fewer (marked *). Markers: * = only',
-    '2 warm samples, !k = k of the runs errored, FAIL = every run errored,',
-    '— = not run for that cohort. Cold times and per-run detail are in the JSON',
-    'artifact.',
+    'Cells are median/max in ms over the WARM runs — the typical time and the',
+    'worst one observed. Each case runs 8 times: 1 cold (first hit, discarded)',
+    'then 7 warm; heavy statewide cells run fewer (marked *). We report max, not',
+    'a p95: 7 samples is far too few to estimate a real 95th percentile, so max',
+    'is the honest "worst seen" (a big gap from the median = an intermittent',
+    'stall). Markers: * = only 2 warm samples, !k = k of the runs errored, FAIL',
+    '= every run errored, — = not run. Cold times and per-run detail are in the',
+    'JSON artifact.',
   ].join('\n')
 
 type MatrixRow = { queryType: string; variant: string; label: string }
@@ -107,7 +109,7 @@ const cellText = (r: CaseResult | undefined): string => {
   if (r.failures >= r.iterations) return `FAIL(${r.failures}/${r.iterations})`
   const lowSamples = r.warm.count < 4 ? '*' : ''
   const someFailed = r.failures > 0 ? `!${r.failures}` : ''
-  return `${Math.round(r.warm.p50)}/${Math.round(r.warm.p95)}${someFailed}${lowSamples}`
+  return `${Math.round(r.warm.p50)}/${Math.round(r.warm.max)}${someFailed}${lowSamples}`
 }
 
 export const formatMatrix = (results: CaseResult[]): string => {
@@ -126,7 +128,7 @@ export const formatMatrix = (results: CaseResult[]): string => {
       ),
     )
   const header =
-    'query (warm p50/p95 ms)'.padEnd(labelWidth) +
+    'query (median/max ms)'.padEnd(labelWidth) +
     bands.map((b) => b.padStart(colWidth)).join('')
   const lines = rows.map(
     (row) =>

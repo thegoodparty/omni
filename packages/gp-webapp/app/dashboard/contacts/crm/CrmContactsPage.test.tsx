@@ -85,6 +85,15 @@ vi.mock('./assistant/CrmAssistant', () => ({
 vi.mock('./lists/ListsIndex', () => ({
   default: () => <div data-testid="lists-index" />,
 }))
+const mockOrganization = vi.hoisted(() => ({
+  current: { slug: 'campaign-1', positionName: 'Mayor of Nowhere' } as {
+    slug: string
+    positionName: string | null
+  } | null,
+}))
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => mockOrganization.current,
+}))
 vi.mock('./lists/ListDetailSheet', () => ({
   default: ({
     listId,
@@ -121,6 +130,10 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
 beforeEach(() => {
   setContext()
   mockCampaign.current = null
+  mockOrganization.current = {
+    slug: 'campaign-1',
+    positionName: 'Mayor of Nowhere',
+  }
   vi.mocked(trackEvent).mockClear()
 })
 
@@ -340,5 +353,147 @@ describe('CrmContactsPage — page contents', () => {
     render(<CrmContactsPage />)
 
     expect(screen.queryByTestId('list-detail-sheet')).not.toBeInTheDocument()
+  })
+})
+
+// The CRM page never consumed isVoterDataUnavailable, so an org with no
+// resolvable district got a broken page where the legacy page showed a clean
+// message. Unmounting the column is also what stops GET /v1/contacts/stats:
+// DistrictStatCard and ListsIndex's AllContactsCard share the
+// ['contacts-stats'] key, and React Query fires a query when ANY mounted
+// observer is enabled, so enabled:false on one of them would change nothing.
+describe('CrmContactsPage — voter data unavailable', () => {
+  it('renders the empty state naming the office', () => {
+    setContext({ voterDataUnavailable: true })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.getByRole('heading', {
+        name: /Voter data isn't available for this office yet/,
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Mayor of Nowhere/)).toBeInTheDocument()
+  })
+
+  it('unmounts every surface that queries contacts data', () => {
+    setContext({ voterDataUnavailable: true })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.queryByTestId('district-stat')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('lists-index')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('typeahead')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('crm-assistant')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Create new list' }),
+    ).not.toBeInTheDocument()
+  })
+
+  // The sheets open purely off the URL, and a district-gated query reports
+  // pending/idle — so isLoading (isPending && isFetching) and isError are BOTH
+  // false and neither guard branch fires. A deep link would drop a dataless sheet
+  // straight over the empty state.
+  it('mounts no person overlay on a deep link', () => {
+    setContext({ voterDataUnavailable: true })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.queryByTestId('person-overlay')).not.toBeInTheDocument()
+  })
+
+  it('mounts no list-detail sheet on a deep link', () => {
+    setContext({ voterDataUnavailable: true, currentlySelectedListId: '42' })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.queryByTestId('list-detail-sheet')).not.toBeInTheDocument()
+  })
+
+  it('keeps the nav header so the page still reads as Contacts', () => {
+    setContext({ voterDataUnavailable: true })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.getByTestId('nav-header')).toHaveTextContent('Voter Data')
+  })
+
+  it('uses Serve copy for an elected-office org', () => {
+    setContext({ voterDataUnavailable: true, isWinContext: false })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.getByRole('heading', {
+        name: /Constituent data isn't available for this office yet/,
+      }),
+    ).toBeInTheDocument()
+  })
+
+  it('falls back to generic copy when the org has no office name', () => {
+    setContext({ voterDataUnavailable: true })
+    mockOrganization.current = { slug: 'campaign-1', positionName: null }
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.getByText(/match your office to a district/),
+    ).toBeInTheDocument()
+  })
+
+  it('renders the normal page when voter data is available', () => {
+    setContext({ voterDataUnavailable: false })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.getByTestId('district-stat')).toBeInTheDocument()
+    expect(screen.getByTestId('lists-index')).toBeInTheDocument()
+    expect(screen.getByTestId('crm-assistant')).toBeInTheDocument()
+    expect(
+      screen.queryByText(/isn't available for this office yet/),
+    ).not.toBeInTheDocument()
+  })
+
+  it('fires the unavailable event once, with the settled context', () => {
+    setContext({ voterDataUnavailable: true })
+
+    const { rerender } = render(<CrmContactsPage />)
+    rerender(<CrmContactsPage />)
+
+    const calls = vi
+      .mocked(trackEvent)
+      .mock.calls.filter(
+        ([name]) => name === EVENTS.Contacts.VoterDataUnavailable,
+      )
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.[1]).toMatchObject({ context: 'win' })
+  })
+
+  it('does not fire the unavailable event when voter data is available', () => {
+    setContext({ voterDataUnavailable: false })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([name]) => name === EVENTS.Contacts.VoterDataUnavailable,
+        ),
+    ).toHaveLength(0)
+  })
+
+  it('waits for the Win/Serve mode to settle before firing', () => {
+    setContext({ voterDataUnavailable: true, isWinContextReady: false })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([name]) => name === EVENTS.Contacts.VoterDataUnavailable,
+        ),
+    ).toHaveLength(0)
   })
 })

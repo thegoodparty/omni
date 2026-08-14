@@ -2,6 +2,7 @@ import { useTestService } from '@/test-service'
 import {
   PersonProfileIssueStatus,
   PrioritySource,
+  ProfileClaimRequestSource,
 } from '../../generated/prisma'
 import { describe, expect, it } from 'vitest'
 
@@ -290,6 +291,7 @@ describe('POST /v1/public-person-profiles/claim-request', () => {
       personId: PERSON_ID,
       requesterEmail: EMAIL,
       requesterName: 'Curious Voter',
+      marketingConsent: true,
     })
 
     expect(res.status).toBe(201)
@@ -304,6 +306,8 @@ describe('POST /v1/public-person-profiles/claim-request', () => {
     })
     expect(stored?.requesterEmail).toBe(EMAIL)
     expect(stored?.requesterName).toBe('Curious Voter')
+    // The opt-in checkbox value is recorded verbatim.
+    expect(stored?.marketingConsent).toBe(true)
   })
 
   it('persists a claim request with just an email (name optional)', async () => {
@@ -317,6 +321,8 @@ describe('POST /v1/public-person-profiles/claim-request', () => {
       where: { personId: PERSON_ID },
     })
     expect(stored?.requesterName).toBeNull()
+    // Absent consent defaults to opted out (no marketing).
+    expect(stored?.marketingConsent).toBe(false)
   })
 
   it('400s on a missing email', async () => {
@@ -338,6 +344,63 @@ describe('POST /v1/public-person-profiles/claim-request', () => {
       requesterEmail: EMAIL,
     })
     expect(res.status).toBe(400)
+  })
+
+  // The two public forms POST this one endpoint but mean opposite things, and
+  // only `notify` feeds the candidate's HubSpot counter.
+  it.each([ProfileClaimRequestSource.notify, ProfileClaimRequestSource.owner])(
+    'records which form sent it (%s)',
+    async (source) => {
+      const res = await claim({
+        personId: PERSON_ID,
+        requesterEmail: EMAIL,
+        source,
+      })
+      expect(res.status).toBe(201)
+
+      const stored = await service.prisma.profileClaimRequest.findFirst({
+        where: { personId: PERSON_ID },
+      })
+      expect(stored?.source).toBe(source)
+    },
+  )
+
+  it('leaves source null when the caller omits it', async () => {
+    // An older marketing deploy sends no discriminator. The row is stored but
+    // stays out of the notify count rather than being guessed into it.
+    const res = await claim({ personId: PERSON_ID, requesterEmail: EMAIL })
+    expect(res.status).toBe(201)
+
+    const stored = await service.prisma.profileClaimRequest.findFirst({
+      where: { personId: PERSON_ID },
+    })
+    expect(stored?.source).toBeNull()
+  })
+
+  it('400s on an unrecognised source', async () => {
+    const res = await claim({
+      personId: PERSON_ID,
+      requesterEmail: EMAIL,
+      source: 'somewhere-else',
+    })
+    expect(res.status).toBe(400)
+  })
+
+  // The CRM sync runs detached after the row is committed, and HubSpot is
+  // unconfigured in tests, so this asserts the visitor's submission is
+  // unaffected by whatever the CRM side does or fails to do.
+  it('still persists and returns 201 for a notify submission', async () => {
+    const res = await claim({
+      personId: PERSON_ID,
+      requesterEmail: EMAIL,
+      source: ProfileClaimRequestSource.notify,
+    })
+
+    expect(res.status).toBe(201)
+    const stored = await service.prisma.profileClaimRequest.findFirst({
+      where: { personId: PERSON_ID },
+    })
+    expect(stored?.requesterEmail).toBe(EMAIL)
   })
 })
 

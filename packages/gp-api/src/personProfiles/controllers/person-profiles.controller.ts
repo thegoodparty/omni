@@ -1,9 +1,11 @@
+import { randomUUID } from 'node:crypto'
 import {
   BadRequestException,
   Body,
   ConflictException,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -21,7 +23,11 @@ import { CacheControls, MimeTypes } from 'http-constants-ts'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
 import { S3Service } from '@/vendors/aws/services/s3.service'
-import { ASSET_DOMAIN } from '@/shared/util/appEnvironment.util'
+import { UsersService } from '@/users/services/users.service'
+import {
+  ASSET_DOMAIN,
+  IS_NON_PROD_DEPLOY,
+} from '@/shared/util/appEnvironment.util'
 import { FileUpload } from 'src/files/files.types'
 import { ReqFile } from 'src/files/decorators/ReqFiles.decorator'
 import { FilesInterceptor } from 'src/files/interceptors/files.interceptor'
@@ -36,6 +42,7 @@ import {
 } from '../schemas/PersonProfileRemoval.schema'
 import { PersonProfilesService } from '../services/person-profiles.service'
 import { MarketingRevalidationService } from '../services/marketing-revalidation.service'
+import { PersonIdBackfillService } from '../services/person-id-backfill.service'
 import { recordProfileMutation } from '../observability/person-profiles.metrics'
 
 // Upper bound for an avatar/cover upload. The interceptor buffers the file in
@@ -54,6 +61,8 @@ export class PersonProfilesController {
     private readonly personProfilesService: PersonProfilesService,
     private readonly revalidation: MarketingRevalidationService,
     private readonly s3: S3Service,
+    private readonly personIdBackfill: PersonIdBackfillService,
+    private readonly users: UsersService,
   ) {}
 
   private requireUser(user: User | undefined): User {
@@ -69,9 +78,47 @@ export class PersonProfilesController {
   async getMine(@ReqUser() user: User) {
     const owner = this.requireUser(user)
     const profile = await this.personProfilesService.findByUserId(owner.id)
+    // Lazily unlock the editor: if the user has no personId yet, best-effort
+    // pull the civics link from election-api and backfill User.person_id. This
+    // never throws and is a graceful no-op (returns null) until the data
+    // platform populates the linkage — so canCreate is identical to today when
+    // the election-api column is empty.
+    const personId =
+      owner.personId ?? (await this.personIdBackfill.linkUserIfMissing(owner))
     // canCreate tells the editor whether the person is known to the civics
     // graph yet (i.e. whether POST would succeed).
-    return { profile, canCreate: Boolean(owner.personId) }
+    return { profile, canCreate: Boolean(personId) }
+  }
+
+  // Test-only: mint a canonical personId for the caller so an e2e can exercise
+  // create/publish/unpublish through the real editor. Every other path to a
+  // personId is the data platform's (see PersonIdBackfillService), and a
+  // synthetic @test.goodparty.org user is by construction absent from the civics
+  // spine — so without this the browser e2e can only ever assert the pre-mint
+  // "still setting up" state, and the publish toggle stays untested outside the
+  // real-DB controller suite. Mirrors the guard on
+  // `POST /v1/campaigns/mine/test-set-pro`: fail closed to a known non-prod
+  // deploy (an absent or unexpected environment denies rather than ungates), and
+  // only for a test user acting on their own record.
+  //
+  // The id is generated rather than accepted from the body so a caller cannot
+  // point their account at a real person's profile in the shared dev database.
+  @Post('mine/test-set-person-id')
+  @HttpCode(HttpStatus.OK)
+  async testSetPersonId(@ReqUser() user: User) {
+    const owner = this.requireUser(user)
+    if (!IS_NON_PROD_DEPLOY) {
+      throw new ForbiddenException('Not available in this environment')
+    }
+    if (!owner.email?.endsWith('@test.goodparty.org')) {
+      throw new ForbiddenException('Test users only')
+    }
+    if (owner.personId) {
+      return { personId: owner.personId }
+    }
+    const personId = randomUUID()
+    await this.users.updateUser({ id: owner.id }, { personId })
+    return { personId }
   }
 
   @Post()

@@ -79,7 +79,7 @@ model Voter {
     StateVoterID                           String?   @peopleDb.Text() // State-supplied voter ID
     Veteran_Status                         String?   @peopleDb.Text() // ConsumerDataLL_Veteran
     VoterParties_Change_Changed_Party      String?   @peopleDb.Text() // Voter changed party affiliation between Dem and Rep
-    Voter_Status                           String?   @peopleDb.Text() // In-house computed classification. One of: Unlikely, First Time, Likely, Super, Unknown
+    Voter_Status                           String?   @peopleDb.Text() // Turnout-propensity bucket (2026 General) from the in-house model probability. One of: Unlikely (<0.25), Unreliable (<0.50), Likely (<0.75), Super (>=0.75), Unknown (no score). See gp-api src/contacts/CLAUDE.md "The Voter_Status propensity vocabulary".
     Voter_Status_UpdatedAt                 DateTime?
     VoterTelephones_CellConfidenceCode     Int?      @peopleDb.Integer // 
     VoterTelephones_CellPhoneFormatted     String?   @peopleDb.Text() // 

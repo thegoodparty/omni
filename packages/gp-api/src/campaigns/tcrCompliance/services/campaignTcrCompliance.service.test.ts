@@ -2338,17 +2338,6 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
     })
   })
 
-  it('retrieveCampaignVerifyToken short-circuits in qa too', async () => {
-    await withEnv('qa', async () => {
-      const token = await service.retrieveCampaignVerifyToken(
-        'any-pin',
-        tcrCompliance,
-      )
-      expect(token).toBe('non-prod-bypass-cv-token')
-      expect(mockPeerly.verifyCampaignVerifyPin).not.toHaveBeenCalled()
-    })
-  })
-
   it('submitCampaignVerifyToken short-circuits in non-prod without calling Peerly', async () => {
     await withEnv('dev', async () => {
       const result = await service.submitCampaignVerifyToken(

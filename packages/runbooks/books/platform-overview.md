@@ -31,24 +31,24 @@ Most product code now lives in a single npm-workspaces monorepo: **omni** (`theg
 | **gp-api**          | NestJS 11/Fastify, Prisma, PG           | 3000       | `api.goodparty.org`                                                 | Docker → ECR → Pulumi → ECS Fargate |
 | **gp-webapp**       | Next.js 15, React 19, Tailwind, MUI     | 4000       | `goodparty.org` (product app)                                       | Vercel (CLI)                        |
 | **election-api**    | NestJS/Fastify, Prisma, PG              | 3001       | `election-api.goodparty.org`                                        | Docker → ECR → Pulumi → ECS Fargate |
-| **gp-admin**        | Next.js 16, React 19                    | 3500       | Vercel (single deploy fronts dev/qa/prod)                           | Vercel (CLI)                        |
+| **gp-admin**        | Next.js 16, React 19                    | 3500       | Vercel (single deploy fronts dev/prod)                              | Vercel (CLI)                        |
 | **candidate-sites** | Next.js, React, Tailwind                | 4001       | Vercel                                                              | Vercel (CLI)                        |
 | **gp-sdk**          | TypeScript (`@goodparty_org/sdk`)       | —          | typed API client — in-tree, not published                           | —                                   |
 | **contracts**       | TypeScript (`@goodparty_org/contracts`) | —          | Zod schemas/types for cross-service shapes — in-tree, not published | —                                   |
 
 > `gp-sdk` and `contracts` carry scoped npm names but are **in-tree workspace packages**, consumed via `"*"` workspace deps + node_modules symlinks. A change is live the moment it builds — no version bump or publish. npm publishing is intentionally disabled in omni. Change a cross-boundary shape in the **same PR** as its producer and consumer.
 
-> **people-api** used to be a package here (voter/people data microservice, 3002). It was removed once gp-api absorbed direct people-db access (`gp-api/src/peopleDb/`, behind the `USE_LOCAL_PEOPLE_DB` flag). The deployed people-api ECS service + Aurora cluster (`people-api.goodparty.org`) remain up as a manually-decommissioned fallback during the rollout — see the Voter Data section below.
+> **people-api** used to be a package here (voter/people data microservice, 3002). It was removed once gp-api absorbed direct people-db access (`gp-api/src/peopleDb/`). The HTTP fallback and its flag are gone; the deployed people-api ECS service + Aurora cluster (`people-api.goodparty.org`) remain up only as a frozen, manually-decommissioned service — see the Voter Data section below.
 
 ### External repos (separate, not in omni)
 
-| Project              | Location                         | Stack                      | Purpose                                                                                                                                     |
-| -------------------- | -------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| **gp-ai-projects**   | `$PROJECT_ROOT/gp-ai-projects`   | Python/FastAPI, Gemini     | AI/ML pipeline: campaign-plan generation, civic message analysis, HubSpot-DDHQ matching, engineer agent. ALBs: `ai-prod`, `ai-dev`, `ai-qa` |
-| **gp-data-platform** | `$PROJECT_ROOT/gp-data-platform` | Airbyte + dbt + Databricks | Full data pipeline: ingest 9+ sources, transform with 460+ dbt models, write back to all PG databases                                       |
-| **runbooks**         | `$PROJECT_ROOT/runbooks`         | Markdown + scripts         | Agent runbooks (this repo). PMF Engine experiment runs execute these via gp-api's `agentExperiments` dispatch                               |
-| **gp-marketing**     | `thegoodparty/gp-marketing`      | Next.js                    | Public marketing site (moved out of gp-webapp)                                                                                              |
-| **ops**              | `thegoodparty/ops`               | —                          | Operational scripts + Delegate agent/review framework                                                                                       |
+| Project              | Location                         | Stack                      | Purpose                                                                                                                            |
+| -------------------- | -------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **gp-ai-projects**   | `$PROJECT_ROOT/gp-ai-projects`   | Python/FastAPI, Gemini     | AI/ML pipeline: campaign-plan generation, civic message analysis, HubSpot-DDHQ matching, engineer agent. ALBs: `ai-prod`, `ai-dev` |
+| **gp-data-platform** | `$PROJECT_ROOT/gp-data-platform` | Airbyte + dbt + Databricks | Full data pipeline: ingest 9+ sources, transform with 460+ dbt models, write back to all PG databases                              |
+| **runbooks**         | `$PROJECT_ROOT/runbooks`         | Markdown + scripts         | Agent runbooks (this repo). PMF Engine experiment runs execute these via gp-api's `agentExperiments` dispatch                      |
+| **gp-marketing**     | `thegoodparty/gp-marketing`      | Next.js                    | Public marketing site (moved out of gp-webapp)                                                                                     |
+| **ops**              | `thegoodparty/ops`               | —                          | Operational scripts + Delegate agent/review framework                                                                              |
 
 ---
 
@@ -61,20 +61,17 @@ Users → goodparty.org (Vercel: gp-webapp — product app for candidates & elec
          └── candidate-sites (Vercel) for candidate pages → calls gp-api
 
 Staff → gp-admin (Vercel, single deploy) → gp-api via @goodparty_org/sdk + Clerk M2M
-         (active Clerk org selects dev/qa/prod; per-env M2M secret, no cookie flow)
+         (active Clerk org selects dev/prod; per-env M2M secret, no cookie flow)
 
 gp-api (53 controllers, 20+ Prisma models)
-  ├── Prisma → people-db (USE_LOCAL_PEOPLE_DB=true, in-process via src/peopleDb/)
+  ├── Prisma → people-db (in-process via src/peopleDb/)
   │     findPeople (paginated voter list with filters)
   │     samplePeople (hash-bucketed random sampling)
   │     streamPeopleCsv (cursor-based CSV streaming)
   │     getStats (pre-computed district demographics)
   │     findPerson (single voter lookup)
-  │   — falls back to HTTP + S2S JWT → legacy people-api service otherwise:
-  │     POST /v1/people, POST /v1/people/sample, POST /v1/people/download,
-  │     GET /v1/people/stats, GET /v1/people/:id
   │
-  ├── HTTP (no auth) → election-api
+  ├── HTTP + Clerk JWT M2M → election-api
   │     GET /v1/positions/by-ballotready-id/:id  (gold flow: BR position → district → turnout)
   │     GET /v1/projectedTurnout                 (direct turnout lookup)
   │     GET /v1/districts/types                  (valid district types by state)
@@ -109,24 +106,23 @@ gp-ai-projects (external — uv workspace monorepo)
 gp-data-platform (external — dbt + Databricks)
   ├── Airbyte → Databricks       (9 sources: HubSpot, BallotReady, Amplitude, Stripe, gp-api DB, DDHQ, TechSpeed, BallotReady S3, L2)
   ├── dbt transforms             (387 staging → 52 intermediate → 23 marts)
-  └── 4 PySpark write models →   election-api PG, people-api PG, gp-api voter PG
+  └── 4 PySpark write models →   election-api PG, people-db PG, retired voter PG
 ```
 
 ### Auth Between Services
 
-| From                           | To                  | Method                                                                                                        | Details                                                           |
-| ------------------------------ | ------------------- | ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Browser → gp-webapp            | —                   | Cookie                                                                                                        | `token` HTTP-only cookie (120-day expiry), `user` readable cookie |
-| gp-webapp middleware → gp-api  | JWT Bearer          | Middleware intercepts `/api/v1/*`, injects `Authorization` header from cookie                                 |
-| gp-admin → gp-api              | SDK + Clerk M2M     | `@goodparty_org/sdk`, per-env Clerk M2M secret; active Clerk org selects env (no cookie flow)                 |
-| gp-api → people-db             | Prisma (SSM creds)  | Direct DB connection; `PeopleDbUrlProvider` resolves via SSM/`PEOPLE_DATABASE_URL`                            |
-| gp-api → people-api (fallback) | S2S JWT Bearer      | Signed with `PEOPLE_API_S2S_SECRET`, 5-min TTL, cached, issuer: `gp-api`; kept until the HTTP path is removed |
-| gp-api → election-api          | HTTP                | No auth (internal / public read-only data)                                                                    |
-| M2M caller → gp-api            | Bearer `mt_*` token | `ClerkM2MAuthGuard`                                                                                           |
-| gp-api guards                  | —                   | Three global guards in order: `ClerkM2MAuthGuard` → `SessionGuard` → `RolesGuard`                             |
-| people-api (legacy fallback)   | —                   | `S2SAuthGuard` (global), verifies JWT with shared secret, localhost bypass in dev                             |
-| election-api                   | —                   | No auth (public read-only API)                                                                                |
-| Admin impersonation            | —                   | `impersonateToken`/`impersonateUser` cookies override normal auth                                             |
+| From                          | To                  | Method                                                                                                                                                                                                                                        | Details                                                           |
+| ----------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Browser → gp-webapp           | —                   | Cookie                                                                                                                                                                                                                                        | `token` HTTP-only cookie (120-day expiry), `user` readable cookie |
+| gp-webapp middleware → gp-api | JWT Bearer          | Middleware intercepts `/api/v1/*`, injects `Authorization` header from cookie                                                                                                                                                                 |
+| gp-admin → gp-api             | SDK + Clerk M2M     | `@goodparty_org/sdk`, per-env Clerk M2M secret; active Clerk org selects env (no cookie flow)                                                                                                                                                 |
+| gp-api → people-db            | Prisma (SSM creds)  | Direct DB connection; `PeopleDbUrlProvider` resolves via SSM/`PEOPLE_DATABASE_URL`                                                                                                                                                            |
+| gp-api → election-api         | Clerk M2M (JWT)     | Mints JWT-format M2M token with `GP_API_MACHINE_SECRET` (`tokenFormat: 'jwt'`, cached), sends `Authorization: Bearer eyJ...`                                                                                                                  |
+| gp-marketing → election-api   | Clerk M2M (JWT)     | Server-only; mints JWT-format M2M token with `GP_MARKETING_MACHINE_SECRET` (`tokenFormat: 'jwt'`, cached), sends `Authorization: Bearer eyJ...`                                                                                               |
+| M2M caller → gp-api           | Bearer `mt_*` token | `ClerkM2MAuthGuard`                                                                                                                                                                                                                           |
+| gp-api guards                 | —                   | Three global guards in order: `ClerkM2MAuthGuard` → `SessionGuard` → `RolesGuard`                                                                                                                                                             |
+| election-api                  | —                   | Global `M2MAuthGuard` (default-deny), verifies JWT-format M2M tokens against `ELECTION_API_MACHINE_SECRET` (networkless); only `/v1/health` is `@PublicAccess`. Enforcement gated by `ELECTION_API_AUTH_ENFORCED` (observe-only until `true`) |
+| Admin impersonation           | —                   | `impersonateToken`/`impersonateUser` cookies override normal auth                                                                                                                                                                             |
 
 Guard detail and decorators: `gp-api/src/authentication/CLAUDE.md`.
 
@@ -154,7 +150,7 @@ Guard detail and decorators: `gp-api/src/authentication/CLAUDE.md`.
 | Auth                    | `/authentication`                                                                                                                                                          | Login, social login (Google OAuth), JWT tokens                                                                                                                                    |
 | Users                   | `/users`, `/admin/users`                                                                                                                                                   | User management, admin user operations                                                                                                                                            |
 | Elections               | `/elections`                                                                                                                                                               | Proxy to election-api for district/turnout data                                                                                                                                   |
-| Contacts                | `/contacts`                                                                                                                                                                | Voter data (list, search, download, stats): direct people-db access in-process (`USE_LOCAL_PEOPLE_DB`) or proxy to the legacy people-api service                                  |
+| Contacts                | `/contacts`                                                                                                                                                                | Voter data (list, search, download, stats): direct people-db access in-process via `src/peopleDb/`                                                                                |
 | Path to Victory         | `/path-to-victory`                                                                                                                                                         | Win number calculations — gold flow (BallotReady → election-api) + silver flow (LLM-based, via SQS)                                                                               |
 | Outreach                | `/outreach`, `/contact-engagement`, `/scheduled-messaging`                                                                                                                 | Voter outreach campaigns, scheduled text messages                                                                                                                                 |
 | Polls                   | `/polls`                                                                                                                                                                   | Constituency polling — create, expand, analyze, bias check                                                                                                                        |
@@ -181,11 +177,11 @@ Guard detail and decorators: `gp-api/src/authentication/CLAUDE.md`.
 **Purpose**: Read-only access to 200M+ L2 voter records for gp-api. The engine
 used to be its own repo package/service (people-api, 6 API routes behind S2S
 JWT auth) called over HTTP; it's now ported in-process into gp-api
-(`gp-api/src/peopleDb/`, `PeopleQueryModule`) behind the `USE_LOCAL_PEOPLE_DB`
-flag, using a second, read-only Prisma client that connects directly to the
-same people-db Postgres cluster. The legacy people-api HTTP service is still
-deployed as the fallback path (`USE_LOCAL_PEOPLE_DB=false`) until a follow-up
-removes it — see `gp-api/src/peopleDb/CLAUDE.md`.
+(`gp-api/src/peopleDb/`, `PeopleQueryModule`), using a second, read-only Prisma
+client that connects directly to the same people-db Postgres cluster. The HTTP
+fallback and the flag that gated it are gone; the legacy people-api service is
+still deployed but frozen, pending teardown — see
+`gp-api/src/peopleDb/CLAUDE.md`.
 
 **Prisma schema** (4 models, multi-schema PG: `green` + `public`):
 
@@ -209,12 +205,14 @@ removes it — see `gp-api/src/peopleDb/CLAUDE.md`.
 
 **Deploy (legacy people-api service, frozen)**: no repo package or CI pipeline
 remains in omni — the ECS service and Aurora cluster stay up manually until
-decommissioned. Environments: `dev`/`prod` only (no qa). Aurora PG prod:
+decommissioned. Environments: `dev`/`prod` only. Aurora PG prod:
 `db.r6g.4xlarge` x2.
 
 ### election-api — Election Data Service
 
-**Purpose**: Read-only public API over BallotReady election data. No auth required. All data written by gp-data-platform dbt models.
+**Purpose**: Read-only API over BallotReady election data. All data written by gp-data-platform dbt models. Secured by default with Clerk JWT-format M2M tokens — every route except `GET /v1/health` requires a valid token (see Auth Between Services). Callers: gp-api and gp-marketing (both server-side).
+
+**Auth**: global `M2MAuthGuard` (`src/authentication/`) registered as `APP_GUARD` — default-deny, verifies Clerk JWT-format M2M tokens against `ELECTION_API_MACHINE_SECRET` networkless (no per-request Clerk API call). Routes opt out with `@PublicAccess()` (only the health check). `ELECTION_API_AUTH_ENFORCED` toggles enforcement: while `!= 'true'` the guard runs in observe-only mode (verify + log, never reject) for safe rollout; set to `true` to start returning `401`. Swagger `/api` is only mounted outside production.
 
 **7 controllers**, all prefixed `/v1`:
 
@@ -293,7 +291,7 @@ Route groups under `gp-webapp/app/`: `dashboard`, `onboarding`, `login`/`logout`
 **Next.js 16 App Router** at `packages/gp-admin` (`src/app`, `components`, `lib`, `shared`, `middleware.ts`). Local port 3500.
 
 - Talks to gp-api exclusively via `@goodparty_org/sdk`, authenticated with a per-environment **Clerk M2M secret** (no user cookie flow).
-- A **single Vercel deploy** fronts dev/qa/prod — the active Clerk org selects which environment it targets.
+- A **single Vercel deploy** fronts dev/prod — the active Clerk org selects which environment it targets.
 - Replaces the legacy admin tooling that used to live inside gp-webapp.
 
 ### candidate-sites — Candidate Campaign Websites
@@ -440,7 +438,7 @@ Other election-api marts: `m_election_api__place`, `m_election_api__race`, `m_el
 3. election-api resolves the chain: `Position` (matched by Gemini LLM, confidence >= 90/95%) → `District` (L2 district type/name) → `ProjectedTurnout` (ML model prediction, filtered by election year + code)
 4. gp-api calculates: `winNumber = ceil(projectedTurnout * 0.5) + 1`, `voterContactGoal = winNumber * 5`
 5. If turnout unavailable, returns sentinel values (-1) — partial match, district known but turnout not predicted
-6. The matched `district.L2DistrictType` and `district.L2DistrictName` are stored in the campaign's `PathToVictory` record — these are the same keys used by people-api to scope voter contacts
+6. The matched `district.L2DistrictType` and `district.L2DistrictName` are stored in the campaign's `PathToVictory` record — these are the same keys used to scope voter contacts in people-db
 
 ### Silver Flow (fallback, via SQS)
 
@@ -502,9 +500,9 @@ Before a campaign can send P2P texts, it must complete 10DLC (10-digit long code
 
 1. Validate TCR compliance exists with `peerlyIdentityId`
 2. Transform audience filters (voter propensity, party, age, gender) to `CustomFilter[]`
-3. Query voter DB for matching voters → generate CSV stream with `CHANNELS.TEXTING` + `PURPOSES.GOTV`
-   - Connects to `VOTER_DATASTORE` (people-api's voter PG) using raw `pg` Pool
-   - Uses `COPY ... TO STDOUT WITH CSV HEADER` for streaming performance
+3. Resolve the audience through `ContactsService.findContactsForFilter` → generate CSV with `CHANNELS.TEXTING` + `PURPOSES.GOTV`
+   - Same activityConditions/supportStatus/search resolution engine that list/count/download use, against people-db
+   - Paged (`SEGMENT_PAGE_SIZE` 1000, 100k recipient cap) with `hasCellPhone` forced on
    - Column mapping: `first_name` (1), `last_name` (2), `lead_phone` (3), `state` (4), `city` (5), `zip` (6)
 4. Upload CSV buffer to Peerly via `POST /phonelists` with FormData (list name, identity ID, DNC scrubbing settings, phone list mapping, suppress landline phones)
 5. Return upload `token` for status polling
@@ -574,7 +572,7 @@ Before a campaign can send P2P texts, it must complete 10DLC (10-digit long code
 ## Polling System — End to End
 
 1. **Create poll**: gp-webapp → gp-api `POST /polls` → enqueues `POLL_CREATION` to SQS
-2. **Sample voters**: Queue consumer calls people-api `POST /v1/people/sample` (hash-bucketed random sampling)
+2. **Sample voters**: Queue consumer calls `ContactsService.sampleContacts` → `VoterQueryService.samplePeople` (hash-bucketed random sampling, direct people-db access in-process)
 3. **Build CSV**: Generates CSV (id, firstName, lastName, cellPhone), uploads to S3 (`tevyn-poll-csvs-{stage}`)
 4. **Send to Tevyn**: Posts CSV + poll message to Slack channel for Tevyn (SMS delivery service)
 5. **Expand poll** (optional): `POLL_EXPANSION` message — samples more contacts, excludes already-sent
@@ -602,12 +600,12 @@ HubSpot, BallotReady, Amplitude, Stripe, gp-api PG, DDHQ (Google Drive), TechSpe
 
 ### dbt Write Models — What They Write
 
-| Model                                | Target DB                       | Tables Written                                                               | Logic                                                                                                                                                    |
-| ------------------------------------ | ------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `write__election_api_db`             | election-api PG                 | Place, Race, Candidacy, Issue, Stance, District, Position, Projected_Turnout | FK-safe order. Incremental by `updated_at`. Filters races to 1 day past → 2 years future. Cleans old races + orphaned candidacies.                       |
-| `write__people_api_db`               | people-api PG                   | Voter, District, DistrictVoter                                               | State-by-state ascending by row count. Incremental by `updated_at`. Non-prod downsampled to 6 small states (WY, ND, VT, DC, AK, SD). ~375 voter columns. |
-| `write__l2_databricks_to_gp_api`     | gp-api voter DB (`gp-voter-db`) | `Voter{STATE}` (per-state tables)                                            | Checks `VoterFile` log to skip loaded files. Per-state staging → upsert on `LALVOTERID`. ~365 columns.                                                   |
-| `write__l2_databricks_to_people_api` | people-api PG                   | Voter                                                                        | Similar to write\_\_people_api_db, different upsert strategy. Non-prod: WY, ND, VT only. 2-second buffer for microsecond rounding.                       |
+| Model                                | Target DB               | Tables Written                                                               | Logic                                                                                                                                                    |
+| ------------------------------------ | ----------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `write__election_api_db`             | election-api PG         | Place, Race, Candidacy, Issue, Stance, District, Position, Projected_Turnout | FK-safe order. Incremental by `updated_at`. Filters races to 1 day past → 2 years future. Cleans old races + orphaned candidacies.                       |
+| `write__people_api_db`               | people-db PG            | Voter, District, DistrictVoter                                               | State-by-state ascending by row count. Incremental by `updated_at`. Non-prod downsampled to 6 small states (WY, ND, VT, DC, AK, SD). ~375 voter columns. |
+| `write__l2_databricks_to_gp_api`     | Retired voter datastore | `Voter{STATE}` (per-state tables)                                            | No consumer left in gp-api — pending retirement in gp-data-platform, ahead of the cluster teardown.                                                      |
+| `write__l2_databricks_to_people_api` | people-db PG            | Voter                                                                        | Similar to write\_\_people_api_db, different upsert strategy. Non-prod: WY, ND, VT only. 2-second buffer for microsecond rounding.                       |
 
 ### District → Voter Mapping Pipeline
 
@@ -618,15 +616,15 @@ L2 voter records in Databricks have 200+ district columns (`City_Ward`, `County`
 1. `m_people_api__district` — unpivots L2 district columns into distinct District records (type + name + state). UUID generated from `(state, type, name)`.
 2. `m_people_api__districtvoter` — creates junction rows linking each voter to their districts based on the L2 column values.
 3. `m_people_api__districtstats` — pre-computes per-district aggregates (total constituents, cell phone counts, demographic buckets) to avoid `COUNT(*)` on 200M+ rows.
-4. `write__people_api_db` — writes all three tables to people-api PG, state-by-state.
+4. `write__people_api_db` — writes all three tables to people-db PG, state-by-state.
 
 **How the app uses districts**:
 
 - **P2V gold flow** sets `L2DistrictType` + `L2DistrictName` on the campaign's PathToVictory record (e.g., `City_Ward` / `OVERLAND CITY WARD 1`)
-- **Contacts** (`findPeople`/`POST /v1/people`, direct people-db or legacy people-api) filters voters by district via DistrictVoter joins
-- **Polls** sample voters from the district via `POST /v1/people/sample`
+- **Contacts** (`findPeople`, in-process people-db access via `src/peopleDb/`) filters voters by district via DistrictVoter joins
+- **Polls** sample voters from the district via `VoterQueryService.samplePeople`
 - **Outreach/P2P** builds phone lists from voters in the district
-- **DistrictStats** powers the contacts stats endpoint (`GET /v1/people/stats`) without scanning the full Voter table
+- **DistrictStats** powers the contacts stats endpoint without scanning the full Voter table
 
 **Sync gap**: District records can be created by newer dbt mart builds independently of the DistrictVoter write. If new districts appear after the last `write__people_api_db` run for a state, those districts will exist with zero voters until re-run. Diagnose by comparing `District.created_at` vs `MAX(DistrictVoter.created_at)` for the state.
 
@@ -643,14 +641,10 @@ Catalog: `goodparty_data_catalog`. Read-only from app code (SELECT only). Write 
 | Secret Name         | Used By                    |
 | ------------------- | -------------------------- |
 | `GP_API_DEV`        | gp-api (dev + PR previews) |
-| `GP_API_QA`         | gp-api (qa)                |
 | `GP_API_PROD`       | gp-api (prod)              |
-| `ELECTION_API_DEV`  | election-api (dev + qa)    |
+| `ELECTION_API_DEV`  | election-api (dev)         |
 | `ELECTION_API_PROD` | election-api (prod)        |
-| `PEOPLE_API_DEV`    | people-api (dev)           |
-| `PEOPLE_API_PROD`   | people-api (prod)          |
 | `AI_SECRETS_DEV`    | gp-ai-projects (dev)       |
-| `AI_SECRETS_QA`     | gp-ai-projects (qa)        |
 | `AI_SECRETS_PROD`   | gp-ai-projects (prod)      |
 
 Read a secret: `AWS_PROFILE=$AWS_PROFILE aws secretsmanager get-secret-value --secret-id SECRET_NAME --query SecretString --output text | jq .`
@@ -659,27 +653,27 @@ Read a secret: `AWS_PROFILE=$AWS_PROFILE aws secretsmanager get-secret-value --s
 
 In the monorepo, each app keeps its own local env files — copy from each app's `.env.example` / `.env.local` template before starting it.
 
-| Package          | .env Location                                   | Notes                                                                                                                                                                             |
-| ---------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| gp-api           | `omni/packages/gp-api/.env`                     | DB, AWS, Stripe, HubSpot, Slack, Peerly, Vercel, Clerk, `PEOPLE_DATABASE_URL`/`PEOPLE_DB_SSM_PARAM` (people-db), `PEOPLE_API_URL`/`PEOPLE_API_S2S_SECRET` (legacy fallback), etc. |
-| gp-webapp        | `omni/packages/gp-webapp/.env.local`            | `NEXT_PUBLIC_*`, Sentry                                                                                                                                                           |
-| election-api     | `omni/packages/election-api/.env`               | DATABASE_URL, CORS_ORIGIN, LOG_LEVEL                                                                                                                                              |
-| gp-admin         | `omni/packages/gp-admin/.env.local`             | Clerk M2M, SDK base URL                                                                                                                                                           |
-| candidate-sites  | `omni/packages/candidate-sites/.env.local`      | `NEXT_PUBLIC_API_BASE`                                                                                                                                                            |
-| gp-ai-projects   | `gp-ai-projects/.env` (external repo)           | GEMINI*API_KEY, TAVILY_API_KEY, DATABRICKS*\*, BRAINTRUST_API_KEY                                                                                                                 |
-| gp-data-platform | `gp-data-platform/.env.example` (external repo) | DBT_CLOUD_PROJECT_ID                                                                                                                                                              |
+| Package          | .env Location                                   | Notes                                                                                                                 |
+| ---------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| gp-api           | `omni/packages/gp-api/.env`                     | DB, AWS, Stripe, HubSpot, Slack, Peerly, Vercel, Clerk, `PEOPLE_DATABASE_URL`/`PEOPLE_DB_SSM_PARAM` (people-db), etc. |
+| gp-webapp        | `omni/packages/gp-webapp/.env.local`            | `NEXT_PUBLIC_*`, Sentry                                                                                               |
+| election-api     | `omni/packages/election-api/.env`               | DATABASE_URL, CORS_ORIGIN, LOG_LEVEL                                                                                  |
+| gp-admin         | `omni/packages/gp-admin/.env.local`             | Clerk M2M, SDK base URL                                                                                               |
+| candidate-sites  | `omni/packages/candidate-sites/.env.local`      | `NEXT_PUBLIC_API_BASE`                                                                                                |
+| gp-ai-projects   | `gp-ai-projects/.env` (external repo)           | GEMINI*API_KEY, TAVILY_API_KEY, DATABRICKS*\*, BRAINTRUST_API_KEY                                                     |
+| gp-data-platform | `gp-data-platform/.env.example` (external repo) | DBT_CLOUD_PROJECT_ID                                                                                                  |
 
 Tests load `.env.test`.
 
 ### Key Env Vars by Service (names only)
 
-**gp-api**: DATABASE*URL, PEOPLE_DATABASE_URL, PEOPLE_DB_SSM_PARAM, USE_LOCAL_PEOPLE_DB, PEOPLE_API_URL, PEOPLE_API_S2S_SECRET (fallback), ELECTION_API_URL, AUTH_SECRET, CONTENTFUL_SPACE_ID, CONTENTFUL_ACCESS_TOKEN, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, SQS_QUEUE, HUBSPOT_TOKEN, MAILGUN_API_KEY, STRIPE_SECRET_KEY, L2_DATA_KEY, BALLOT_READY_KEY, SLACK_BOT*_*TOKEN, VERCEL_TOKEN, VERCEL_PROJECT_ID, VERCEL_TEAM_ID, PEERLY*_, CLERK_SECRET_KEY, GP_WEBAPP_MACHINE_SECRET, BRAINTRUST_API_KEY
+**gp-api**: DATABASE*URL, PEOPLE_DATABASE_URL, PEOPLE_DB_SSM_PARAM, ELECTION_API_URL, AUTH_SECRET, CONTENTFUL_SPACE_ID, CONTENTFUL_ACCESS_TOKEN, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, SQS_QUEUE, HUBSPOT_TOKEN, MAILGUN_API_KEY, STRIPE_SECRET_KEY, L2_DATA_KEY, BALLOT_READY_KEY, SLACK_BOT*_*TOKEN, VERCEL_TOKEN, VERCEL_PROJECT_ID, VERCEL_TEAM_ID, PEERLY*_, CLERK_SECRET_KEY, GP_API_MACHINE_SECRET, BRAINTRUST_API_KEY
 
 **election-api**: DATABASE_URL, CORS_ORIGIN
 
 **gp-ai-projects**: GEMINI_API_KEY, TAVILY_API_KEY, DATABRICKS_API_KEY, DATABRICKS_SERVER_HOSTNAME, DATABRICKS_HTTP_PATH, GOODPARTY_API_TOKEN, BRAINTRUST_API_KEY, ANTHROPIC_API_KEY, CLICKUP_API_KEY
 
-**gp-admin**: CLERK_SECRET_KEY, NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, per-env Clerk org IDs (GP_ORG_ID_DEV/QA/PROD) + M2M secrets (GP_DEV/QA/PROD_MACHINE_SECRET), GP_DEV/QA/PROD_API_DOMAIN, GP_API_PROTOCOL, GP_API_PORT, GP_API_ROOT_PATH, NEXT_PUBLIC_GP_WEBAPP_URL (see `omni/packages/gp-admin/.env.example`)
+**gp-admin**: CLERK_SECRET_KEY, NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, per-env Clerk org IDs (GP_ORG_ID_DEV/PROD) + M2M secrets (GP_DEV/PROD_MACHINE_SECRET), GP_DEV/PROD_API_DOMAIN, GP_API_PROTOCOL, GP_API_PORT, GP_API_ROOT_PATH, NEXT_PUBLIC_GP_WEBAPP_URL (see `omni/packages/gp-admin/.env.example`)
 
 **Local agent tooling**: `GRAFANA_SERVICE_ACCOUNT_TOKEN` (for the Grafana MCP — see MCP tools below)
 
@@ -695,33 +689,28 @@ Backend infra for gp-api and election-api is provisioned via **Pulumi** from `om
 | ------------------------------------- | ------------------------------------- | ----------------------------- |
 | `gp-master-fargateCluster`            | `gp-api-master`                       | 2                             |
 | `gp-develop-fargateCluster`           | `gp-api-develop`                      | —                             |
-| `gp-qa-fargateCluster`                | `gp-api-qa`                           | —                             |
 | `gp-pr-*-fargateCluster`              | `gp-api-pr-*` (ephemeral PR previews) | 1 each                        |
 | `election-api-master-fargateCluster`  | `election-api-master`                 | 2                             |
 | `election-api-develop-fargateCluster` | `election-api-develop`                | 1                             |
-| `election-api-qa-fargateCluster`      | `election-api-qa`                     | —                             |
 | `people-api-master-fargateCluster`    | `people-api-master`                   | 2-16 (auto-scale 50% CPU/mem) |
 | `people-api-develop-fargateCluster`   | `people-api-develop`                  | 1-4                           |
 | `vpn-cluster`                         | `vpn-service`                         | 1                             |
 
-On-demand ECS (Lambda-triggered, gp-ai-projects): `serve-analyze-{dev,qa,prod}`, `ddhq-matcher-{dev,qa,prod}`, `engineer-agent-{dev,qa,prod}`
+On-demand ECS (Lambda-triggered, gp-ai-projects): `serve-analyze-{dev,prod}`, `ddhq-matcher-{dev,prod}`, `engineer-agent-{dev,prod}`
 
 > PR-preview clusters/DBs are ephemeral — enumerate live ones with `aws ecs list-clusters` rather than trusting a static list. Stale gp-api preview stacks are cleaned up by `gp-api-cleanup-preview.yml`.
 
 ### RDS Aurora PostgreSQL Clusters
 
-| Cluster                   | Used By                            | Instance Class                                     |
-| ------------------------- | ---------------------------------- | -------------------------------------------------- |
-| `gp-api-db-prod`          | gp-api prod                        | db.serverless                                      |
-| `gp-api-db`               | gp-api dev                         | db.serverless                                      |
-| `gp-api-db-qa`            | gp-api qa                          | db.serverless                                      |
-| `gp-api-pr-*`             | PR previews (ephemeral)            | db.serverless                                      |
-| `election-api-db-prod`    | election-api prod                  | Serverless v2 (1-64 ACU, 14-day backup)            |
-| `election-api-db-develop` | election-api dev/qa                | Serverless v2 (0.5-64 ACU, 7-day backup)           |
-| `gp-people-db-prod`       | people-api prod                    | db.r6g.4xlarge (x2), Performance Insights advanced |
-| `gp-people-db-dev`        | people-api dev                     | db.t4g.medium                                      |
-| `gp-voter-db`             | Voter data (L2) — per-state tables | db.r6g.4xlarge (x2)                                |
-| `gp-voter-db-develop`     | Voter data dev                     | db.serverless                                      |
+| Cluster                   | Used By                 | Instance Class                                     |
+| ------------------------- | ----------------------- | -------------------------------------------------- |
+| `gp-api-db-prod`          | gp-api prod             | db.serverless                                      |
+| `gp-api-db`               | gp-api dev              | db.serverless                                      |
+| `gp-api-pr-*`             | PR previews (ephemeral) | db.serverless                                      |
+| `election-api-db-prod`    | election-api prod       | Serverless v2 (1-64 ACU, 14-day backup)            |
+| `election-api-db-develop` | election-api dev        | Serverless v2 (0.5-64 ACU, 7-day backup)           |
+| `gp-people-db-prod`       | gp-api (people-db) prod | db.r6g.4xlarge (x2), Performance Insights advanced |
+| `gp-people-db-dev`        | gp-api (people-db) dev  | db.t4g.medium                                      |
 
 ### S3 Buckets (key ones)
 
@@ -729,7 +718,6 @@ On-demand ECS (Lambda-triggered, gp-ai-projects): `serve-analyze-{dev,qa,prod}`,
 | --------------------------------------- | ----------------------------------------- |
 | `assets.goodparty.org`                  | Production assets (fronted by CloudFront) |
 | `assets-dev.goodparty.org`              | Dev assets (fronted by CloudFront)        |
-| `assets-qa.goodparty.org`               | QA assets (fronted by CloudFront)         |
 | `normalized-voter-files`                | L2 voter data by state                    |
 | `goodparty-ballotready`                 | BallotReady election data                 |
 | `goodparty-warehouse-databricks`        | Databricks warehouse data                 |
@@ -749,19 +737,19 @@ aws s3 ls | grep -i assets
 
 ### SQS (FIFO queues)
 
-Per-stage: `{stage}-campaign-queue.fifo` + DLQ for develop, master, qa, PR previews. Per-developer: `{DevName}-campaign-queue.fifo` + DLQ (one per team member). Plus agent-experiment / agent-results queues for the PMF Engine.
+Per-stage: `{stage}-campaign-queue.fifo` + DLQ for develop, master, PR previews. Per-developer: `{DevName}-campaign-queue.fifo` + DLQ (one per team member). Plus agent-experiment / agent-results queues for the PMF Engine.
 
 ### Lambda Functions
 
-| Function                              | Purpose                                                       |
-| ------------------------------------- | ------------------------------------------------------------- |
-| `serve-analyze-trigger-{dev,qa,prod}` | Trigger serve-analyze ECS tasks                               |
-| `ddhq-matcher-trigger-{dev,qa,prod}`  | Trigger DDHQ matcher ECS tasks                                |
-| `clickup-bot-prod`                    | ClickUp webhook → engineer agent ECS trigger                  |
-| `shared-slack-notifier`               | Slack notifications for deploys                               |
-| `databricks-s3-ingest` (x2)           | S3 → Databricks ingestion                                     |
-| `s3-ballotready`                      | BallotReady S3 processing                                     |
-| agent-experiment worker               | PMF Engine: runs the matching runbook for an `experiment_run` |
+| Function                           | Purpose                                                       |
+| ---------------------------------- | ------------------------------------------------------------- |
+| `serve-analyze-trigger-{dev,prod}` | Trigger serve-analyze ECS tasks                               |
+| `ddhq-matcher-trigger-{dev,prod}`  | Trigger DDHQ matcher ECS tasks                                |
+| `clickup-bot-prod`                 | ClickUp webhook → engineer agent ECS trigger                  |
+| `shared-slack-notifier`            | Slack notifications for deploys                               |
+| `databricks-s3-ingest` (x2)        | S3 → Databricks ingestion                                     |
+| `s3-ballotready`                   | BallotReady S3 processing                                     |
+| agent-experiment worker            | PMF Engine: runs the matching runbook for an `experiment_run` |
 
 ### ECR Repositories
 
@@ -773,7 +761,7 @@ Per-stage: `{stage}-campaign-queue.fifo` + DLQ for develop, master, qa, PR previ
 
 ### SNS Topics (failure alerts)
 
-`ddhq-matcher-failures-{dev,qa,prod}`, `serve-analyze-pipeline-failures-{dev,qa,prod}`, `engineer-agent-failures-{dev,qa,prod}`, `GP-Prod-SNS`
+`ddhq-matcher-failures-{dev,prod}`, `serve-analyze-pipeline-failures-{dev,prod}`, `engineer-agent-failures-{dev,prod}`, `GP-Prod-SNS`
 
 ### DynamoDB
 
@@ -807,18 +795,18 @@ Every workflow's concurrency group uses `cancel-in-progress: false`. Canceling a
 
 ### Dependency updates (Dependabot)
 
-**Security updates only** — version bumps disabled (`open-pull-requests-limit: 0`). Security PRs target `develop` and self-merge via `dependabot-merge.yml` (sweeps every 30 min; merges approved, green PRs whose last commit is ≥24h old) authenticating as the `omni-automation` GitHub App. Auto-merge stops at `develop`; qa/prod go through normal promotion.
+**Security updates only** — version bumps disabled (`open-pull-requests-limit: 0`). Security PRs target `main` and self-merge via `dependabot-merge.yml` (sweeps every 30 min; merges approved, green PRs whose last commit is ≥24h old) authenticating as the `omni-automation` GitHub App. Merging to `main` deploys dev; prod follows automatically once those checks go green, via the promote-on-green workflow — there is no separate promotion step to reach prod.
 
 ### Branch → Environment Mapping
 
-| Branch    | Environment | Notes                                                                                                           |
-| --------- | ----------- | --------------------------------------------------------------------------------------------------------------- |
-| `develop` | Dev         | Integration branch; PRs target it. `*-dev.goodparty.org` / `dev.goodparty.org`                                  |
-| `qa`      | QA          | `*-qa.goodparty.org`. The legacy people-api service has no qa env and is no longer branch-driven from this repo |
-| `master`  | Prod        | `*.goodparty.org` / `api.goodparty.org`                                                                         |
-| `pr-<N>`  | Preview     | Backend: `https://pr-<N>.preview.goodparty.org`; frontend: deterministic Vercel alias                           |
+Single trunk: `main` is the one long-lived branch and the default branch; all PRs target it.
 
-PR-triggered workflows skip PRs targeting `qa`/`master` (`branches-ignore`) — promotion PRs don't re-run PR CI.
+| Branch   | Environment | Notes                                                                                                                                           |
+| -------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `main`   | Dev         | The trunk; PRs target it. A push deploys dev (`*-dev.goodparty.org` / `dev.goodparty.org`) and runs full CI incl. the post-merge Playwright E2E |
+| `pr-<N>` | Preview     | Backend: `https://pr-<N>.preview.goodparty.org`; frontend: deterministic Vercel alias                                                           |
+
+Prod (`*.goodparty.org` / `api.goodparty.org`) is reached only by automated promotion: the release train (`release.yml`) rides `push: main`: it deploys the commit to dev, runs the E2E against dev, then promotes the same commit to prod. It runs as the `omni-automation` GitHub App, is freeze-switch gated, and has a manual `workflow_dispatch` fallback. Forward-only — the ECS circuit breaker auto-reverts a crash-on-boot; there is no manual rollback and no manual `develop → qa → master` promotion. The `qa` and `master` branches are gone, and the qa environment has been fully decommissioned.
 
 ### VPC Details
 
@@ -842,7 +830,7 @@ aws ec2 describe-security-groups --filters "Name=vpc-id,Values=<vpc-id>" --query
 | Contentful      | gp-api (CMS), gp-webapp (rich text rendering)                                                    | `CONTENTFUL_SPACE_ID`, `CONTENTFUL_ACCESS_TOKEN` in gp-api .env            |
 | BallotReady     | gp-data-platform (primary election data source via Airbyte + dbt) → election-api                 | `BALLOT_READY_KEY` in gp-api .env; GraphQL API                             |
 | DDHQ            | gp-ai-projects (matcher), gp-data-platform (Airbyte source)                                      | Via Databricks tables                                                      |
-| L2 (voter data) | gp-data-platform → people-api (200M+ voter records)                                              | `L2_DATA_KEY` in gp-api .env; SFTP → S3 → Databricks → PG                  |
+| L2 (voter data) | gp-data-platform → people-db (200M+ voter records)                                               | `L2_DATA_KEY` in gp-api .env; SFTP → S3 → Databricks → PG                  |
 | Databricks      | gp-data-platform (warehouse), gp-ai-projects (read-only queries)                                 | `DATABRICKS_API_KEY`, `DATABRICKS_SERVER_HOSTNAME`, `DATABRICKS_HTTP_PATH` |
 | Gemini AI       | gp-ai-projects (all LLM calls — no OpenAI)                                                       | `GEMINI_API_KEY`                                                           |
 | Anthropic       | gp-ai-projects/engineer_agent (Claude coding agent)                                              | `ANTHROPIC_API_KEY`                                                        |
@@ -915,7 +903,7 @@ cd $PROJECT_ROOT/gp-data-platform/airflow/astro && astro dev start  # :8080
 | Slack channels | Deploy notifications, AI failures, P2V issues, poll delivery                              | Configured in gp-api                                                                                                                                                   |
 | SNS            | Pipeline failure alerts                                                                   | ddhq-matcher, serve-analyze, engineer-agent                                                                                                                            |
 
-**Narrowing Grafana logs** — filter by `service_name` (`gp-api` | `election-api` | `people-api`) and `deployment_environment_name` (`dev` | `qa` | `prod`):
+**Narrowing Grafana logs** — filter by `service_name` (`gp-api` | `election-api` | `people-api`) and `deployment_environment_name` (`dev` | `prod`):
 
 ```logql
 {service_name="gp-api", deployment_environment_name="prod"}

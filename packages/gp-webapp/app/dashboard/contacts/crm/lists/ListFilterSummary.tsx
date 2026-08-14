@@ -64,10 +64,15 @@ export const buildFilterSummary = (
 
   for (const section of filterSections) {
     for (const field of section.fields) {
-      // Political party doesn't apply to an elected official's constituent
-      // file — same exclusion VoterFileStep.tsx applies at creation time.
-      if (isElectedOfficial && field.key === 'political_party') continue
-      // Contacts Made gets its own "with N or M contacts made" clause below
+      // Political party and voter likelihood don't apply to an elected
+      // official's constituent file — same exclusions VoterFileStep.tsx
+      // applies at creation time.
+      if (
+        isElectedOfficial &&
+        (field.key === 'political_party' || field.key === 'voter_likely')
+      )
+        continue
+      // Contacts Made gets its own "with N or M prior contacts made" clause
       // (ENG-10839, matching the product-specified wording) instead of the
       // generic "{Label} {value}" phrasing every other boolean-group field
       // uses — same skip-and-handle-separately pattern as language/income.
@@ -121,7 +126,7 @@ export const buildFilterSummary = (
     )
     if (matched.length > 0) {
       clauses.push(
-        `with ${matched.map((option) => option.label).join(' or ')} contacts made`,
+        `with ${matched.map((option) => option.label).join(' or ')} prior contacts made`,
       )
     }
   }

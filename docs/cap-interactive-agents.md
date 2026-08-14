@@ -179,7 +179,7 @@ gp-webapp.
 background SQS job in gp-api (not the CAP background system) that QCs and
 revises the draft outside chat, so the draft can change between a chat turn's
 reads (the review scope's rules tell the model to re-read before quoting).
-Detail: `packages/gp-api/src/ordinances/CLAUDE.md`.
+Detail: `packages/gp-api/src/ordinances/AGENTS.md`.
 
 COS-specific tool ports live in `src/chats/general/chief-of-staff/services/`
 (`list_briefings`/`get_briefing`, `read_community_issues`). Tool-calling chat is

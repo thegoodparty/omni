@@ -61,10 +61,14 @@ export const TASK_TO_TYPE_MAP: {
 }
 
 // TODO: store this in DB table? (currently in campaign.data)
+// `filters` is optional because the same type describes two things: the live
+// `customFilters` query param, which always carries it, and the persisted
+// campaign.data.customVoterFiles entries, where it was stripped by
+// 20260805143000_strip_custom_voter_file_filters.
 export type CustomVoterFile = {
   name: string
   channel?: CustomChannel
   purpose?: CustomPurpose
-  filters: CustomFilter[]
+  filters?: CustomFilter[]
   createdAt: string
 }

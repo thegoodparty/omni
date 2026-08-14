@@ -19,6 +19,9 @@ const mocks = vi.hoisted(() => ({
   cancelQualityLoop: vi.fn(),
   fetchQualityIterations: vi.fn(),
   useOrdinanceQualityLoopFlag: vi.fn(),
+  redlineProps: {
+    current: null as { suggesting?: boolean; value?: string } | null,
+  },
 }))
 
 vi.mock('../data/ordinances-api', () => ({
@@ -36,8 +39,56 @@ vi.mock('@shared/experiments/ordinanceQualityLoopFlag', () => ({
   useOrdinanceQualityLoopFlag: mocks.useOrdinanceQualityLoopFlag,
 }))
 
+vi.mock('@shared/utils/Snackbar', () => ({
+  useSnackbar: () => ({
+    successSnackbar: vi.fn(),
+    errorSnackbar: vi.fn(),
+    displaySnackbar: vi.fn(),
+  }),
+}))
+
 vi.mock('./DraftChat', () => ({
   default: () => null,
+}))
+
+// Stand in for the TipTap body editor (see DraftDetail.test.tsx for the
+// rationale): an uncontrolled contentEditable that mirrors the real body's
+// role/name, lock, reseed-via-key, and innerText reporting, so the loop's
+// lock/reseed/autosave assertions keep working. Also records the props
+// DraftDetail chose (suggesting on/off) for the amendment-mode tests.
+vi.mock('./redline/RedlineEditor', () => ({
+  RedlineEditor: ({
+    value,
+    onChange,
+    editable = true,
+    suggesting,
+    ariaLabel,
+  }: {
+    value: string
+    onChange?: (markup: string) => void
+    editable?: boolean
+    suggesting?: boolean
+    ariaLabel?: string
+  }) => {
+    mocks.redlineProps.current = { suggesting, value }
+    return (
+      <div
+        role="textbox"
+        aria-multiline="true"
+        aria-label={ariaLabel}
+        contentEditable={editable}
+        aria-readonly={editable ? undefined : 'true'}
+        suppressContentEditableWarning
+        ref={(el) => {
+          if (el && el.dataset.seeded !== '1') {
+            el.innerText = value
+            el.dataset.seeded = '1'
+          }
+        }}
+        onInput={(e) => onChange?.((e.currentTarget as HTMLElement).innerText)}
+      />
+    )
+  },
 }))
 
 const AUTOSAVE_DELAY_MS = 800
@@ -601,5 +652,104 @@ describe('DraftDetail quality panel (design: refresh only, loop is auto)', () =>
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('DraftDetail amendment editor', () => {
+  // The body now edits in the same RedlineEditor for every draft; only
+  // suggesting mode differs. Whether the redline actually renders is covered by
+  // RedlineEditor.test.tsx — here we assert only what DraftDetail decides.
+  // "Amendment" is derived from the record (a source link or researched current
+  // law), NOT from markup in the body, so a new draft that carries chat-applied
+  // redline is not reclassified.
+  it('turns on suggesting mode for an amendment with a source link', () => {
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({ sourceLink: 'https://muni.example/ch12' })}
+      />,
+    )
+
+    expect(
+      screen.getByRole('textbox', { name: 'Ordinance draft body' }),
+    ).toBeInTheDocument()
+    expect(mocks.redlineProps.current?.suggesting).toBe(true)
+  })
+
+  it('turns on suggesting mode for an amendment with a stored verbatim baseline', () => {
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({
+          existingLaw: {
+            sourceUrl: 'https://x',
+            text: 'Current law summary.',
+            fetchedAt: '2026-07-01T00:00:00.000Z',
+            verbatimText: 'The verbatim section being amended.',
+          },
+        })}
+      />,
+    )
+
+    expect(mocks.redlineProps.current?.suggesting).toBe(true)
+  })
+
+  it('treats a new ordinance with only a current-law summary (no verbatim) as new', () => {
+    // The flow saves an existingLaw *summary* for new ordinances too, so its
+    // mere presence must not flip suggesting on or hide the Accept action.
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({
+          existingLaw: {
+            sourceUrl: 'https://x',
+            text: 'Summary of current law for a brand-new ordinance.',
+            fetchedAt: '2026-07-01T00:00:00.000Z',
+          },
+        })}
+      />,
+    )
+
+    expect(mocks.redlineProps.current?.suggesting).toBe(false)
+  })
+
+  it('leaves suggesting off for a new draft even when it carries chat redline', () => {
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({ draftBody: 'The fee is {-$50-}{+$75+}.' })}
+      />,
+    )
+
+    expect(mocks.redlineProps.current?.suggesting).toBe(false)
+  })
+
+  it('offers Accept changes on a new draft with redline and collapses it clean', async () => {
+    mocks.updateOrdinance.mockResolvedValue(makeOrdinance())
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({ draftBody: 'The fee is {-$50-}{+$75+}.' })}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /accept all changes/i }))
+
+    await waitFor(() =>
+      expect(mocks.updateOrdinance).toHaveBeenCalledWith(
+        'public-safety-cameras',
+        { draftBody: 'The fee is $75.' },
+      ),
+    )
+  })
+
+  it('does not offer Accept changes for an amendment (its redline is the deliverable)', () => {
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({
+          sourceLink: 'https://muni.example/ch12',
+          draftBody: 'Sec 1. {-old-}{+new+} end.',
+        })}
+      />,
+    )
+
+    expect(
+      screen.queryByRole('button', { name: /accept all changes/i }),
+    ).not.toBeInTheDocument()
   })
 })

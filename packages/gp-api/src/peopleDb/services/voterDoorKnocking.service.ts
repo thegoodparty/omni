@@ -56,6 +56,8 @@ type ResidentRow = {
   Age: string | null
   Age_Int: number | null
   Parties_Description: string | null
+  cellPhone: string | null
+  landline: string | null
   addressKey: string
 }
 
@@ -93,6 +95,8 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
       districtId: effectiveDistrictId,
       filters: dto.filters,
       extraConditions: [ROOFTOP_ONLY, buildBboxSql(dto.bbox)],
+      idOverrides: dto.idOverrides,
+      contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
     })
 
     // maxPeople is a guard, not pagination: over the cap the whole request
@@ -149,6 +153,8 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
         v."Age",
         v."Age_Int",
         v."Parties_Description",
+        v."VoterTelephones_CellPhoneFormatted" AS "cellPhone",
+        v."VoterTelephones_LandlineFormatted" AS "landline",
         ${buildDoorKnockingAddressKeySql('v')} AS "addressKey"
       FROM ${VOTER_TABLE} v
       ${joinClause}
@@ -193,6 +199,10 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
           politicalParty: row.Parties_Description
             ? (mapPoliticalParty(row.Parties_Description) ?? null)
             : null,
+          // Blank-vs-NULL is not consistent across the voter file, and a blank
+          // would render as an empty phone row at the door.
+          cellPhone: row.cellPhone?.trim() || null,
+          landline: row.landline?.trim() || null,
         })
       } else {
         address.otherResidents.push({

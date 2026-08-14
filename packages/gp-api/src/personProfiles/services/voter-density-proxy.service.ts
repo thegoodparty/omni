@@ -4,6 +4,7 @@ import { isAxiosError } from 'axios'
 import { PinoLogger } from 'nestjs-pino'
 import { lastValueFrom } from 'rxjs'
 import { VoterDensityService } from '@/peopleDb/services/voterDensity.service'
+import { ElectionApiTokenService } from '@/vendors/clerk/services/electionApiToken.service'
 import { VoterDensityResponse } from '../schemas/public/VoterDensity.schema'
 
 const { ELECTION_API_URL } = process.env
@@ -34,6 +35,7 @@ export class VoterDensityProxyService {
     private readonly httpService: HttpService,
     private readonly voterDensity: VoterDensityService,
     private readonly logger: PinoLogger,
+    private readonly tokenService: ElectionApiTokenService,
   ) {
     this.logger.setContext(VoterDensityProxyService.name)
   }
@@ -60,11 +62,17 @@ export class VoterDensityProxyService {
     }
 
     try {
+      // election-api is M2M-locked; attach the Clerk bearer like every other
+      // gp-api → election-api caller. Without it these reads 401 once
+      // ELECTION_API_AUTH_ENFORCED is on (a 401 is not a 404, so resolveDistrictId
+      // would 502 instead of degrading to "no district").
+      const headers = await this.tokenService.authHeader()
       const response = await lastValueFrom(
         this.httpService.get<ElectionApiVoterDistrict>(
           `${ELECTION_API_URL}/v1/persons/${encodeURIComponent(
             personId,
           )}/voter-district`,
+          { headers },
         ),
       )
       return response.data?.districtId ?? null

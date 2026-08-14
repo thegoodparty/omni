@@ -104,10 +104,12 @@ describe('PublicProfileEditor — pre-profile states', () => {
     )
 
     expect(mockedRequest).toHaveBeenCalledWith('POST /v1/person-profiles', {})
-    // The created profile swaps the shell for the loaded editor.
+    // The created profile swaps the shell for the loaded editor. Asserted on
+    // the first section heading, not a page title: the page's h1 lives in the
+    // shared title bar DashboardLayout renders, not in this component.
     await waitFor(() =>
       expect(
-        screen.getByRole('heading', { name: /^public profile$/i }),
+        screen.getByRole('heading', { name: /^identity$/i }),
       ).toBeInTheDocument(),
     )
   })

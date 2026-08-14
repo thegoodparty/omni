@@ -42,10 +42,30 @@ export async function downloadOrdinanceExport(
   document.body.appendChild(anchor)
   anchor.click()
   anchor.remove()
-  // Defer the revoke: the browser's download manager reads the blob URL
-  // asynchronously, and revoking on the same tick can abort the download on
-  // Safari / older Chromium (matches the other download helpers here).
-  setTimeout(() => URL.revokeObjectURL(url), 100)
+  // Free the object URL only after the browser has had time to read the blob.
+  // Revoking too soon after click() cancels the download in current Chrome and
+  // surfaces as a spurious network error, worse for these larger PDF/Word blobs
+  // than for a small CSV. Matches the poll download fix (ENG-10860).
+  setTimeout(() => URL.revokeObjectURL(url), 10000)
+}
+
+// Flag a bug on the draft. Persists a bug_report annotation carrying the user's
+// description and the flagged passage (excerpt). The anchor is resource-wide
+// (all null) on purpose: the draft body is editable, so a positional anchor
+// can't be trusted to re-find the passage later — the excerpt is the record.
+export async function createOrdinanceBugReport(
+  slug: string,
+  input: { description: string; excerpt: string },
+): Promise<void> {
+  await clientRequest('POST /v1/ordinances/:slug/annotations', {
+    slug,
+    kind: 'bug_report',
+    anchor: { json_path: null, start: null, end: null },
+    payload: {
+      description: input.description,
+      excerpt: input.excerpt || undefined,
+    },
+  })
 }
 
 export async function fetchOrdinanceBySlug(slug: string): Promise<Ordinance> {

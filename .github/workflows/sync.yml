@@ -39,10 +39,10 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
-      - name: Checkout omni (develop, full history)
+      - name: Checkout omni (main, full history)
         uses: actions/checkout@v5
         with:
-          ref: develop
+          ref: main
           fetch-depth: 0
           persist-credentials: false
           token: ${{ steps.app-token.outputs.token }}
@@ -63,12 +63,12 @@ jobs:
       - name: Run sync-all
         run: bash scripts/sync-all.sh
 
-      - name: Push merged history to develop
+      - name: Push merged history to main
         run: |
-          if git push origin HEAD:develop; then
+          if git push origin HEAD:main; then
             echo "Pushed sync commits (or already up to date)."
           else
-            echo "::error::Push to develop failed. If develop is a protected branch," \
+            echo "::error::Push to main failed. If main is a protected branch," \
               "allow the sync app/bot to bypass it, or point this workflow at an" \
               "unprotected sync branch."
             exit 1

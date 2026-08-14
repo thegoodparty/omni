@@ -6,6 +6,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import DashboardLayout from '../../shared/DashboardLayout'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
 import { useCampaign } from '@shared/hooks/useCampaign'
+import { useOrganization } from '@shared/organization-picker'
 import {
   getContactsLabels,
   WIN_UNIVERSE_STAT_LABELS,
@@ -19,6 +20,7 @@ import DistrictStatCard from './DistrictStatCard'
 import ListsIndex from './lists/ListsIndex'
 import ListDetailSheet from './lists/ListDetailSheet'
 import CrmAssistant from './assistant/CrmAssistant'
+import VoterDataUnavailableState from './VoterDataUnavailableState'
 
 export const CrmContactsPage = () => {
   const [campaign] = useCampaign()
@@ -30,7 +32,9 @@ export const CrmContactsPage = () => {
     canUseProFeatures,
     currentlySelectedListId,
     selectList,
+    voterDataUnavailable,
   } = useContactsTable()
+  const organization = useOrganization()
   const labels = getContactsLabels(isWinContext)
 
   // ENG-10767: same event the pre-CRM ContactsPage fires (parity — flag-on
@@ -47,6 +51,19 @@ export const CrmContactsPage = () => {
       surface: 'crm',
     })
   }, [isWinContextReady, isWinContext])
+
+  // Same ready-gate and latch as the Viewed event above: isWinContext reads
+  // false until the elected-office query settles, so firing early would label a
+  // Win user as Serve.
+  const hasFiredUnavailableRef = useRef(false)
+  useEffect(() => {
+    if (!isWinContextReady || !voterDataUnavailable) return
+    if (hasFiredUnavailableRef.current) return
+    hasFiredUnavailableRef.current = true
+    trackEvent(EVENTS.Contacts.VoterDataUnavailable, {
+      context: isWinContext ? 'win' : 'serve',
+    })
+  }, [isWinContextReady, isWinContext, voterDataUnavailable])
 
   const handleCreateList = () => {
     if (!canUseProFeatures) {
@@ -96,19 +113,21 @@ export const CrmContactsPage = () => {
         {/* Top bar: search + primary create action on its own full-bleed
             white bar (negative margins cancel the layout wrapper's padding)
             so the content below floats on the gray canvas (ENG-10747). */}
-        <div className="-mx-2 -mt-2 flex flex-col gap-4 border-b border-border bg-background px-4 py-3 md:-mx-4 md:-mt-4 md:flex-row md:items-center md:justify-between md:px-6">
-          <div className="w-full md:w-[420px]">
-            <ContactTypeahead />
+        {!voterDataUnavailable && (
+          <div className="-mx-2 -mt-2 flex flex-col gap-4 border-b border-border bg-background px-4 py-3 md:-mx-4 md:-mt-4 md:flex-row md:items-center md:justify-between md:px-6">
+            <div className="w-full md:w-[420px]">
+              <ContactTypeahead />
+            </div>
+            <Button
+              className="shrink-0 self-start text-sm font-semibold md:self-auto"
+              disabled={!isWinContextReady}
+              onClick={handleCreateList}
+              icon={<PlusIcon />}
+            >
+              Create new list
+            </Button>
           </div>
-          <Button
-            className="shrink-0 self-start text-sm font-semibold md:self-auto"
-            disabled={!isWinContextReady}
-            onClick={handleCreateList}
-            icon={<PlusIcon />}
-          >
-            Create new list
-          </Button>
-        </div>
+        )}
 
         {/* Hold ALL mode copy (heading, stat label, and the lists section's
             Voter/Constituent heading) until the Win/Serve context settles:
@@ -120,32 +139,57 @@ export const CrmContactsPage = () => {
           // pb-24 clears the fixed assistant bar so the last list card
           // scrolls fully above it.
           <div className="mx-auto mt-8 flex w-full max-w-[560px] flex-col gap-8 pb-24">
-            <div className="flex flex-col gap-1">
-              <h1 className="text-lg font-semibold">{labels.universeTitle}</h1>
-              <p className="text-sm text-muted-foreground">
-                {labels.universeSubtitleBefore}
-                <span className="font-semibold text-foreground">
-                  {districtLocation}
-                </span>
-                {labels.universeSubtitleAfter}
-              </p>
-              <DistrictStatCard
-                className="mt-4"
-                label={labels.districtTotalLabel}
-                additionalRows={universeMetricRows}
+            {voterDataUnavailable ? (
+              // Unmounting rather than disabling: DistrictStatCard and
+              // ListsIndex's AllContactsCard share the ['contacts-stats'] key,
+              // and React Query fires a query when ANY mounted observer is
+              // enabled, so disabling one of them would still spend the request.
+              <VoterDataUnavailableState
+                officeName={organization?.positionName ?? null}
+                isWinContext={isWinContext}
+                organizationSlug={organization?.slug}
               />
-            </div>
+            ) : (
+              <>
+                <div className="flex flex-col gap-1">
+                  <h1 className="text-lg font-semibold">
+                    {labels.universeTitle}
+                  </h1>
+                  <p className="text-sm text-muted-foreground">
+                    {labels.universeSubtitleBefore}
+                    <span className="font-semibold text-foreground">
+                      {districtLocation}
+                    </span>
+                    {labels.universeSubtitleAfter}
+                  </p>
+                  <DistrictStatCard
+                    className="mt-4"
+                    label={labels.districtTotalLabel}
+                    additionalRows={universeMetricRows}
+                  />
+                </div>
 
-            <ListsIndex />
+                <ListsIndex />
+              </>
+            )}
           </div>
         )}
-        <PersonOverlay />
-        <CreateListWizard open={wizardOpen} onOpenChange={setWizardOpen} />
-        <ListDetailSheet
-          listId={currentlySelectedListId}
-          onClose={() => selectList(null)}
-        />
-        <CrmAssistant />
+        {/* Both sheets open purely off the URL, and a district-gated query reports
+            pending/idle — so isLoading (isPending && isFetching) and isError are
+            both false and neither guard branch fires. Left mounted, a deep link
+            drops a dataless sheet straight over the empty state. The assistant's
+            CRM tools hit the same gated services. */}
+        {!voterDataUnavailable && (
+          <>
+            <PersonOverlay />
+            <CreateListWizard open={wizardOpen} onOpenChange={setWizardOpen} />
+            <ListDetailSheet
+              listId={currentlySelectedListId}
+              onClose={() => selectList(null)}
+            />
+            <CrmAssistant />
+          </>
+        )}
       </DashboardLayout>
       {campaign && (
         <ProUpgradeModal

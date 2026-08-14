@@ -1078,3 +1078,55 @@ describe('ListDetailSheet — ENG-10709 List Exported analytics', () => {
     expect(eventCalls(EVENTS.VoterData.ListExported)).toHaveLength(2)
   })
 })
+
+// getListDetail is pro-gated and district-gated server-side. The sheet already
+// rendered a non-pro branch but fetched regardless, so a direct hit on
+// /dashboard/contacts/lists/<id> 400d.
+//
+// A "no request fired" assertion must not use waitFor: the callback succeeds on
+// its first synchronous check at t=0, before the query could have fired, so the
+// test passes whether or not the gate exists. Instead every case below waits the
+// SAME macrotask and the enabled case proves that wait is long enough for the
+// request to land.
+describe('ListDetailSheet — request gating', () => {
+  const mockDetailWithSpy = () => {
+    const onRequest = vi.fn()
+    api.mock('GET /v1/contacts/list-detail', () => {
+      onRequest()
+      return { status: 200, data: emptyDetailResponse }
+    })
+    return onRequest
+  }
+
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  it('fires the request for a pro user with a resolvable district', async () => {
+    const onRequest = mockDetailWithSpy()
+    setContext({ canUseProFeatures: true, voterDataUnavailable: false })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+    await flush()
+
+    expect(onRequest).toHaveBeenCalled()
+  })
+
+  it('fires no request for a non-pro user reaching the URL directly', async () => {
+    const onRequest = mockDetailWithSpy()
+    setContext({ canUseProFeatures: false })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+    await flush()
+
+    expect(onRequest).not.toHaveBeenCalled()
+  })
+
+  it('fires no request when the org has no resolvable district', async () => {
+    const onRequest = mockDetailWithSpy()
+    setContext({ canUseProFeatures: true, voterDataUnavailable: true })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+    await flush()
+
+    expect(onRequest).not.toHaveBeenCalled()
+  })
+})

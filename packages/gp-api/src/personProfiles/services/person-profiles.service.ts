@@ -16,6 +16,8 @@ const withIssues = {
   },
 } satisfies Prisma.PersonProfileInclude
 
+const UNLISTED_PERSON_CAP = 50_000
+
 @Injectable()
 export class PersonProfilesService extends createPrismaBase(
   MODELS.PersonProfile,
@@ -39,6 +41,42 @@ export class PersonProfilesService extends createPrismaBase(
       orderBy: { updatedAt: 'desc' },
       take: 50_000,
     })
+  }
+
+  // The /people sitemap emits a URL per person page rather than one per
+  // published overlay, so it needs every personId whose page does not render,
+  // from either direction: a removal on record (the noindex K/L states) or an
+  // owner-deleted overlay (410 Gone, which the marketing loader turns into a
+  // 404). Both used to fall out for free when the sitemap listed published
+  // profiles only.
+  //
+  // Capped like listPublished for the same unbounded-heap reason, but the
+  // ceiling sits far above any realistic count because truncation is the
+  // dangerous direction here: a dropped entry is a URL we advertise and then
+  // fail to render.
+  async listUnlisted() {
+    const [removals, deleted] = await Promise.all([
+      this.client.personProfileRemoval.findMany({
+        select: { personId: true },
+        take: UNLISTED_PERSON_CAP,
+      }),
+      this.model.findMany({
+        where: { deletedAt: { not: null } },
+        select: { personId: true },
+        take: UNLISTED_PERSON_CAP,
+      }),
+    ])
+
+    // A person can be both removed and deleted. The consumer builds a Set
+    // either way, but duplicates would spend the cap twice on one URL.
+    const personIds = new Set([
+      ...removals.map(({ personId }) => personId),
+      ...deleted.map(({ personId }) => personId),
+    ])
+
+    return [...personIds]
+      .slice(0, UNLISTED_PERSON_CAP)
+      .map((personId) => ({ personId }))
   }
 
   findByUserId(userId: number) {
@@ -186,13 +224,17 @@ export class PersonProfilesService extends createPrismaBase(
 
   // Persists an inbound "claim this profile" lead from the public modal. There
   // is no dedupe/rate-limit here by design — it is raw lead data the growth
-  // team follows up on; `personId` is a civics reference, not a FK.
+  // team follows up on; `personId` is a civics reference, not a FK. `source`
+  // records which of the two forms sent it, and is null for callers that
+  // predate the discriminator (see the schema comment).
   createClaimRequest(input: CreateProfileClaimRequestInput) {
     return this.client.profileClaimRequest.create({
       data: {
         personId: input.personId,
         requesterEmail: input.requesterEmail,
         requesterName: input.requesterName ?? null,
+        marketingConsent: input.marketingConsent,
+        source: input.source ?? null,
       },
     })
   }

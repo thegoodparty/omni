@@ -293,6 +293,7 @@ describe('OrdinanceFlowToolsService', () => {
       sourceUrl: 'https://library.municode.com/nc/hendersonville/ch12',
       chapterLabel: 'Chapter 12, Public Safety Surveillance',
       text: 'Allows cameras in public rights-of-way; no retention limit.',
+      verbatimText: 'Sec. 12-1. Cameras may be installed in public places.',
     })
     const read = await tools.readSection(
       ordinanceId,
@@ -303,6 +304,7 @@ describe('OrdinanceFlowToolsService', () => {
       sourceUrl: 'https://library.municode.com/nc/hendersonville/ch12',
       chapterLabel: 'Chapter 12, Public Safety Surveillance',
       text: 'Allows cameras in public rights-of-way; no retention limit.',
+      verbatimText: 'Sec. 12-1. Cameras may be installed in public places.',
     })
     const law = read.currentLaw as { fetchedAt: string }
     expect(new Date(law.fetchedAt).getTime()).not.toBeNaN()
@@ -387,9 +389,131 @@ describe('OrdinanceFlowToolsService', () => {
     expect(row.status).toBe('draft')
   })
 
+  it('applyDraftEdit writes the body in place, leaving status, title, and sources untouched', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: {
+        status: OrdinanceStatus.proposed,
+        draftTitle: 'Keep this title',
+        draftBody: 'The fee shall be $50.',
+        draftSources: [{ id: 's1', title: 'Chapter 12' }],
+      },
+    })
+
+    await tools.applyDraftEdit(ordinanceId, electedOfficeId, {
+      body: 'The fee shall be {-$50-}{+$75+}.',
+    })
+
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe('The fee shall be {-$50-}{+$75+}.')
+    expect(row.draftTitle).toBe('Keep this title')
+    expect(row.status).toBe(OrdinanceStatus.proposed)
+    expect(row.draftSources).toEqual([{ id: 's1', title: 'Chapter 12' }])
+  })
+
+  it('acceptDraftChanges collapses a new ordinance redline to clean text', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: { draftBody: 'The fee is {-$50-}{+$75+}.' },
+    })
+
+    expect(
+      await tools.acceptDraftChanges(ordinanceId, electedOfficeId),
+    ).toEqual({ accepted: true })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe('The fee is $75.')
+  })
+
+  it('acceptDraftChanges reports no_changes when nothing is redlined', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: { draftBody: 'A clean draft with no tracked changes.' },
+    })
+
+    expect(
+      await tools.acceptDraftChanges(ordinanceId, electedOfficeId),
+    ).toEqual({ accepted: false, reason: 'no_changes' })
+  })
+
+  it('acceptDraftChanges declines for an amendment (source link) and keeps its redline', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: {
+        sourceLink: 'https://muni.example/ch12',
+        draftBody: 'Sec 1. {-old-}{+new+}.',
+      },
+    })
+
+    expect(
+      await tools.acceptDraftChanges(ordinanceId, electedOfficeId),
+    ).toEqual({ accepted: false, reason: 'amendment' })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe('Sec 1. {-old-}{+new+}.')
+  })
+
+  it('acceptDraftChanges declines for an amendment with a verbatim baseline', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: {
+        draftBody: 'Sec 1. {-old-}{+new+}.',
+        existingLaw: {
+          sourceUrl: 'https://x',
+          text: 'Current law summary.',
+          fetchedAt: '2026-07-01T00:00:00.000Z',
+          verbatimText: 'The verbatim section being amended.',
+        },
+      },
+    })
+
+    expect(
+      await tools.acceptDraftChanges(ordinanceId, electedOfficeId),
+    ).toEqual({ accepted: false, reason: 'amendment' })
+  })
+
+  it('applyDraftEdit rejects a changed body with no redline and does not write', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: { draftBody: 'The fee shall be $50.' },
+    })
+
+    const result = await tools.applyDraftEdit(ordinanceId, electedOfficeId, {
+      body: 'The fee shall be $75.',
+    })
+    expect(result).toEqual({ applied: false, reason: 'missing_redline' })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe('The fee shall be $50.')
+  })
+
+  it('applyDraftEdit rejects a no-redline body even when no prior draft exists', async () => {
+    // Seeded ordinance has draftBody null; the guard must still fire (not be
+    // short-circuited away by the missing prior body).
+    const result = await tools.applyDraftEdit(ordinanceId, electedOfficeId, {
+      body: 'A plain body with no tracked changes.',
+    })
+    expect(result).toEqual({ applied: false, reason: 'missing_redline' })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBeNull()
+  })
+
   it('scopes every operation to the owning office', async () => {
     await expect(
       tools.appendNote(ordinanceId, 'someone-elses-office', 'clarify', 'x'),
+    ).rejects.toBeInstanceOf(NotFoundException)
+    await expect(
+      tools.applyDraftEdit(ordinanceId, 'someone-elses-office', { body: 'b' }),
+    ).rejects.toBeInstanceOf(NotFoundException)
+    await expect(
+      tools.acceptDraftChanges(ordinanceId, 'someone-elses-office'),
     ).rejects.toBeInstanceOf(NotFoundException)
     await expect(
       tools.readSection(ordinanceId, 'someone-elses-office', 'draft'),
@@ -617,6 +741,41 @@ describe('ordinance-flow present_* tool builders', () => {
           body: 'Section 1.',
         }),
       ).resolves.toEqual({ saved: true })
+    })
+
+    it('applyDraftEdit does not auto-start a loop (unlike saveDraft)', async () => {
+      const startSpy = vi
+        .spyOn(service.app.get(OrdinanceQualityLoopService), 'start')
+        .mockResolvedValue({ started: true })
+
+      await tools.applyDraftEdit(ordinanceId, electedOfficeId, {
+        body: 'Section 1. {-old-}{+new+}.',
+      })
+
+      expect(startSpy).not.toHaveBeenCalled()
+    })
+
+    it('applyDraftEdit supersedes a running loop', async () => {
+      await seedRunningLoop()
+
+      await tools.applyDraftEdit(ordinanceId, electedOfficeId, {
+        body: 'Section 1. {-Existing text-}{+Edited text+}.',
+      })
+
+      expect(await loopStatus()).toBe(
+        OrdinanceQualityLoopStatus.superseded_by_edit,
+      )
+    })
+
+    it('applyDraftEdit is a no-op (no supersede) when the body is unchanged', async () => {
+      await seedRunningLoop()
+
+      const result = await tools.applyDraftEdit(ordinanceId, electedOfficeId, {
+        body: 'Section 1. Existing text.',
+      })
+
+      expect(result).toEqual({ applied: true })
+      expect(await loopStatus()).toBe(OrdinanceQualityLoopStatus.running)
     })
 
     it('saveAuthority supersedes a running loop', async () => {

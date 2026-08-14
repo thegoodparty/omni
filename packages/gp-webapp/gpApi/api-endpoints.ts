@@ -98,6 +98,20 @@ export interface MeetingsListItemDto {
 
 export type UserAgendaStatus = 'processing' | 'failed' | 'completed' | 'unknown'
 
+// A row of campaign_position with its relations included. `description` is the
+// candidate's own wording; `position.name` is the catalog stance it was chosen
+// from, and reads as a usable sentence on its own when the candidate wrote
+// nothing. `position` is a required relation in the schema and `topIssue` is
+// not, but both are typed nullable: this is a wire shape, and a script that
+// renders nothing beats one that throws at the door.
+export type CampaignIssuePosition = {
+  id: number
+  description: string | null
+  order: number | null
+  topIssue: { id: number; name: string } | null
+  position: { id: number; name: string } | null
+}
+
 /**
  * A Campaign Tracker task row (campaign_tracker_tasks). Mirrors the gp-api
  * CampaignTrackerTask model returned by the /campaigns/tracker-tasks endpoints.
@@ -394,6 +408,15 @@ export type APIEndpoints = {
     Response: { exists: boolean }
   }
 
+  // The candidate's own issue stances (campaign_position), ordered by `order`
+  // with topIssue and position included — CampaignPositionsController's @Get(),
+  // behind CampaignOwnerOrAdminGuard. The legacy issues editor reaches this
+  // through clientFetch; typed here for the door script.
+  'GET /v1/campaigns/:id/positions': {
+    Request: { id: string }
+    Response: CampaignIssuePosition[]
+  }
+
   // Campaign Tracker tasks (campaign_tracker_tasks). The new tracker reads and
   // completes these; mirrors /campaigns/tracker-tasks in gp-api.
   'GET /v1/campaigns/tracker-tasks': {
@@ -510,6 +533,18 @@ export type APIEndpoints = {
   'GET /v1/ordinances/:slug': {
     Request: {}
     Response: Ordinance
+  }
+
+  // Ordinance draft annotations. Only bug_report is supported here (the draft's
+  // "Flag a bug" affordance); the passage rides in payload.excerpt because the
+  // draft body is editable and a positional anchor would go stale.
+  'GET /v1/ordinances/:slug/annotations': {
+    Request: { slug: string }
+    Response: { annotations: ApiAnnotation[] }
+  }
+  'POST /v1/ordinances/:slug/annotations': {
+    Request: ApiCreateAnnotationInput & { slug: string }
+    Response: ApiAnnotation
   }
 
   'PATCH /v1/ordinances/:slug': {
@@ -1494,7 +1529,7 @@ export type CommunityIssueDetail = CommunityIssueCard & {
 // in gp-api. The AnnotationsApi client maps to/from the camelCase shape
 // the rest of the frontend uses.
 export type ApiAnnotationKind = 'note' | 'chat' | 'bug_report' | 'review'
-export type ApiAnnotationResourceType = 'briefing'
+export type ApiAnnotationResourceType = 'briefing' | 'ordinance'
 
 export interface ApiAnnotationAnchorInput {
   json_path: string | null
@@ -1550,6 +1585,8 @@ export interface ApiAttachmentDownloadUrlResponse {
 export interface ApiAnnotationBugReport {
   id: string
   description: string
+  /** The flagged passage; null for briefings (re-derived from the anchor). */
+  excerpt: string | null
   submitted_at: string
 }
 
@@ -1600,7 +1637,7 @@ export type ApiCreateAnnotationInput =
   | {
       kind: 'bug_report'
       anchor: ApiAnnotationAnchorInput
-      payload: { description: string }
+      payload: { description: string; excerpt?: string }
     }
   | {
       kind: 'review'

@@ -2,6 +2,11 @@ model AnnotationBugReport {
   id String @id @default(cuid())
 
   description String   @db.Text
+  // The passage the user flagged, captured at submit time. Briefing bug reports
+  // re-derive the passage from the anchor against immutable content, so this is
+  // null there; ordinance drafts are editable and the anchor goes stale, so the
+  // quoted text is stored here instead.
+  excerpt     String?  @db.Text
   submittedAt DateTime @default(now()) @map("submitted_at")
 
   annotation Annotation?

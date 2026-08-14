@@ -7,11 +7,11 @@ name: Analytics governance
 # State story (decided in DATA-2068): the scheduled run is the authoritative
 # writer of the git-tracked state under
 # packages/runbooks/scripts/python/instrumentation_data/. It commits changes
-# to a fixed branch and keeps a single auto-merge PR open against develop;
+# to a fixed branch and keeps a single auto-merge PR open against main;
 # per-PR provisional rows written by the instrument-analytics-event skill are
 # hints the walk verifies and overwrites. The branch is pushed with the
 # automation App token, not GITHUB_TOKEN, because GITHUB_TOKEN pushes never
-# trigger the Validate/E2E workflows the develop ruleset requires — the PR
+# trigger the Validate/E2E workflows the main ruleset requires — the PR
 # would hang unmergeable.
 #
 # Operational caveats (also in the governance runbook):
@@ -84,10 +84,10 @@ jobs:
           private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
 
       # Full history: the provenance walk pickaxes all of git history.
-      - name: Checkout develop (full history)
+      - name: Checkout main (full history)
         uses: actions/checkout@v5
         with:
-          ref: develop
+          ref: main
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
@@ -124,6 +124,12 @@ jobs:
 
       - name: Health monitor + Slack digest
         working-directory: packages/runbooks/scripts/python
+        env:
+          # Digest triage judgment (DATA-2174), same repo secret as the gap sweep step
+          # above. Unset until an omni repo admin adds it; build_slack_triage then
+          # degrades to the rules tier via run_triage's "skipped: ANTHROPIC_API_KEY
+          # unset" status and the run continues.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_PRODUCT_ANALYTICS_API_KEY }}
         run: |
           # --gap-slack degrades to a health-only post when the file is absent (e.g. the
           # gap sweep step above failed) — never fails this step.
@@ -149,9 +155,9 @@ jobs:
           git add "$state_dir"
           git commit -m "chore(analytics): scheduled governance state refresh"
           git push -f origin "$branch"
-          pr=$(gh pr list --head "$branch" --base develop --state open --json number --jq '.[0].number // empty')
+          pr=$(gh pr list --head "$branch" --base main --state open --json number --jq '.[0].number // empty')
           if [ -z "$pr" ]; then
-            gh pr create --base develop --head "$branch" \
+            gh pr create --base main --head "$branch" \
               --title "chore(analytics): scheduled governance state refresh" \
               --body "$(cat <<'EOF'
           Automated state write-back from the analytics-governance scheduled run: the provenance CSV/watermark and the health log/state, per the DATA-2068 state story (the scheduled run is the authoritative writer; per-PR provisional rows are hints it verifies).

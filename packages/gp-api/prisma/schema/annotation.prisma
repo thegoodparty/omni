@@ -8,6 +8,7 @@ enum AnnotationKind {
 // The type of resource about which
 enum AnnotationResourceType {
   briefing
+  ordinance
 }
 
 model Annotation {

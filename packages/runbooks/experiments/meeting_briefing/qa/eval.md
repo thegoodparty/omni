@@ -153,7 +153,7 @@ The system might pull data that sounds related but is actually about a different
 
 **Fail if:**
 
-- The constituent data is about a related but different issue than the topic of that meeting. For example: the meeting topic is approving permits for a market-rate apartment building, but the constituent data says "71% of residents support affordable housing programs." These are not the same thing, and an official relying on the data would get a misleading picture of where their constituents stand.
+- The constituent data is about a related but different issue than the topic of that meeting. For example: the meeting topic is approving permits for a market-rate apartment building, but the constituent data reports "a modeled lean toward affordable housing programs: 71 on a 0-100 scale." These are not the same thing, and an official relying on the data would get a misleading picture of where their constituents stand.
 
 **Pass if:**
 
@@ -165,7 +165,7 @@ The system might pull data that sounds related but is actually about a different
 
 | ✓ Pass                                                                                                                                                                                                                                                                    | ✗ Fail                                                                                                                                                                                                                                                                                       |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Meeting topic: Approve permits for 47-unit apartment building at 4th and Main. Constituent data: 68% of District 4 residents support increasing housing density in commercial corridors. The data addresses density in commercial zones, which matches the meeting topic. | Meeting topic: Approve permits for 47-unit market-rate apartment building. Constituent data: 71% of District 4 residents support affordable housing programs. The topic is market-rate density; the data is about affordable housing. These are different things and the data would mislead. |
+| Meeting topic: Approve permits for 47-unit apartment building at 4th and Main. Constituent data: a modeled lean toward increasing housing density in commercial corridors, 68 on a 0-100 scale where ~50 is state-typical. The data addresses density in commercial zones, which matches the meeting topic. | Meeting topic: Approve permits for 47-unit market-rate apartment building. Constituent data: a modeled lean toward affordable housing programs, 71 on a 0-100 scale. The topic is market-rate density; the data is about affordable housing. These are different things and the data would mislead. |
 
 ## Output — write a contract-C fragment array to the result file
 
@@ -210,7 +210,7 @@ Example (gate passes, one fail, constituent data present):
     "name": "constituent_match",
     "type": "agent",
     "passed": false,
-    "detail": "scope mismatch: topic is market-rate, data is affordable housing | item_002 sentiment block | \"71% support affordable housing programs\""
+    "detail": "scope mismatch: topic is market-rate, data is affordable housing | item_002 sentiment block | \"modeled lean of 71 toward affordable housing programs\""
   }
 ]
 ```

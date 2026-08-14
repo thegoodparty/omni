@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { SqlRejected } from './districtInsights.tool'
+import { HS_SCORE_SEMANTICS } from './hsScoreSemantics'
 import {
   buildDescribeConstituentDataTool,
   buildQueryConstituentDataTool,
@@ -423,6 +424,24 @@ describe('buildQueryConstituentDataTool — wiring + suppression', () => {
     expect(out.truncated).toBe(false)
   })
 
+  it('masks a sub-threshold unknown_count next to a healthy group count', async () => {
+    // The score semantics teach SUM(CASE WHEN col IS NULL ...) AS unknown_count.
+    // A small unknown segment must not reach the model as an exact figure just
+    // because the row's primary count clears the floor.
+    const provider = fakeProvider([
+      { age_band: '25-34', n: 800, unknown_count: 3 },
+      { age_band: '35-44', n: 900, unknown_count: 450 },
+    ])
+    const tool = buildQueryConstituentDataTool({ provider, scope })
+    const out = await tool.execute({ sql: happySql })
+
+    expect(out.rowsReturned).toBe(2)
+    expect(out.rows).toEqual([
+      { age_band: '25-34', n: 800, unknown_count: null },
+      { age_band: '35-44', n: 900, unknown_count: 450 },
+    ])
+  })
+
   it('fails closed when the result has no recognized count column', async () => {
     // Unrecognized count alias -> scrubResults can't enforce the cell-size
     // floor, so the tool must reject rather than return possibly-small cells.
@@ -509,6 +528,47 @@ describe('buildDescribeConstituentDataTool', () => {
   it('never references the warehouse provider', async () => {
     const tool = buildDescribeConstituentDataTool({ scope })
     await expect((async () => tool.execute({}))()).resolves.toBeDefined()
+  })
+})
+
+describe('tool description — score semantics follows the scope', () => {
+  const provider = new InMemoryDatabricksProvider(new Map())
+  // Mirrors the serve production scope, which sets catalogCarriesScoreMarks
+  // because its catalog carries the marks HS_SCORE_SEMANTICS refers to.
+  const markedScope: ConstituentDataScope = {
+    ...scope,
+    catalogCarriesScoreMarks: true,
+  }
+
+  it('states the percentile-rank basis so score averages are never read as absolute shares', () => {
+    const tool = buildQueryConstituentDataTool({ provider, scope: markedScope })
+    // The whole constant, not fragments — partial pastes and drift between
+    // the constant and the rendered description must fail.
+    expect(tool.description).toContain(HS_SCORE_SEMANTICS)
+    expect(tool.description).toMatch(/percentile rank/i)
+    expect(tool.description).toMatch(/deviation from 50/i)
+    expect(tool.description).not.toContain('likelihood')
+  })
+
+  it('keeps the legacy wording for scopes whose catalog has no marks (win)', () => {
+    const tool = buildQueryConstituentDataTool({ provider, scope })
+    expect(tool.description).toContain('0-100 likelihood')
+    expect(tool.description).toContain(
+      "Categorical flag columns hold string values (e.g. 'support', 'oppose'), not 1/0.",
+    )
+    expect(tool.description).not.toContain(HS_SCORE_SEMANTICS)
+    expect(tool.description).not.toMatch(/percentile rank/i)
+  })
+
+  // QR-08: a threshold share reported with no mandated denominator name
+  // reads as a survey result ("over known responses"). Asserted on the
+  // constant directly so districtInsights.tool.ts inherits the guarantee.
+  // The ban has to name the words it forbids, so this checks for the ban
+  // statement and the old buggy phrasing's absence, not word absence.
+  it('names the share denominator and bans survey language (QR-08)', () => {
+    expect(HS_SCORE_SEMANTICS).toMatch(/scored/i)
+    expect(HS_SCORE_SEMANTICS).toMatch(/survey language/i)
+    expect(HS_SCORE_SEMANTICS).not.toContain('state the coverage alongside')
   })
 })
 

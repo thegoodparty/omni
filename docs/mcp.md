@@ -32,6 +32,20 @@ metrics, and traces.
 - `sentry`, `clickup`, and `amplitude` are remote HTTP servers and use OAuth, so they
   need no token in env — authorize them on first use via `/mcp`.
 
+## Plugins
+
+Some tooling arrives as a Claude Code **plugin** rather than a raw MCP server entry.
+Plugins are enabled project-wide in `.claude/settings.json` under `enabledPlugins`,
+so anyone opening omni gets them without installing anything by hand.
+
+| Plugin                          | What it adds                                                                                                             |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `slack@claude-plugins-official` | Slack MCP tools (search, read channels/threads, post, canvases) plus Slack-authoring skills and digest/standup commands. |
+
+`claude-plugins-official` is a built-in marketplace, so no `extraKnownMarketplaces`
+entry is needed. The Slack server is OAuth-based — authorize the GoodParty workspace
+on first use via `/mcp`; nothing is committed.
+
 ## Design docs in ClickUp
 
 Our engineering design docs live in ClickUp, and the ClickUp MCP can read them.

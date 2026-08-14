@@ -5,21 +5,38 @@ import { formatCurrency, numberFormatter } from 'helpers/numberHelper'
 import clsx from 'clsx'
 import { useQuery } from '@tanstack/react-query'
 import { districtStatsQueryOptions } from './queries'
+import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 
-export const useTotalConstituentsWithCellPhone = () =>
-  useQuery({
+// Polls is Serve-only and Serve has no Pro gate, so the district predicate is the
+// only protection. `isUnavailable` is returned explicitly because consumers branch
+// on `status !== 'success'` to render a spinner — a disabled query is neither
+// success nor error, so without this flag they would spin forever.
+export const useTotalConstituentsWithCellPhone = () => {
+  const { isUnresolvable } = useDistrictResolution()
+  const query = useQuery({
     ...districtStatsQueryOptions,
+    enabled: !isUnresolvable,
     select: (data) => ({
       totalConstituents: data.totalConstituentsWithCellPhone,
     }),
   })
 
-const calculateRecommendedPollSize = (params: {
+  return { ...query, isUnavailable: isUnresolvable }
+}
+
+export const calculateRecommendedPollSize = (params: {
   expectedResponseRate: number
   totalConstituentsWithCellPhone: number
   alreadySent: number
   responsesAlreadyReceived: number
 }) => {
+  // Without a resolvable district the total is undefined, and
+  // `MAX_CONSTITUENTS_PER_RUN - undefined` is NaN — which flowed straight into the
+  // audience options and the cost preview rather than failing visibly.
+  if (!Number.isFinite(params.totalConstituentsWithCellPhone)) {
+    return { recommendedSendCount: 0, totalRemainingUsableConstituents: 0 }
+  }
+
   const totalRemainingUsableConstituents = Math.min(
     MAX_CONSTITUENTS_PER_RUN,
     params.totalConstituentsWithCellPhone - params.alreadySent,

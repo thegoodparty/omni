@@ -131,6 +131,8 @@ function setContext({
     pagination: null,
     isLoading: false,
     isVoterDataUnavailable: false,
+    isDistrictUnresolvable: false,
+    voterDataUnavailable: false,
     isCustomSegment: false,
     totalSegmentContacts: 0,
     canUseProFeatures: true,

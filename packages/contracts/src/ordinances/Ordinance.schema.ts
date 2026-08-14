@@ -34,6 +34,10 @@ export const OrdinanceExistingLawSchema = z.object({
   sourceUrl: z.string().url(),
   chapterLabel: z.string().optional(),
   text: z.string(),
+  // Exact, unedited text of the section(s) being amended, captured from the
+  // source. The immutable baseline an amendment's redline is checked against;
+  // absent for a brand-new ordinance.
+  verbatimText: z.string().optional(),
   fetchedAt: z.string(),
 })
 export type OrdinanceExistingLaw = z.infer<typeof OrdinanceExistingLawSchema>

@@ -2,9 +2,8 @@ name: gp-webapp
 
 on:
   pull_request:
-    branches-ignore: [qa, master]
   push:
-    branches: [develop, qa, master]
+    branches: [main]
 
 permissions:
   contents: read
@@ -60,10 +59,7 @@ jobs:
 
   deploy:
     name: Deploy
-    if: >-
-      github.event_name == 'pull_request'
-      || (github.event_name == 'push'
-          && contains(fromJSON('["develop", "qa", "master"]'), github.ref_name))
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     outputs:
       url: ${{ steps.vercel.outputs.url }}
@@ -77,9 +73,9 @@ jobs:
           app: gp-webapp
           build-contracts: 'true'
 
-      # develop -> dev.goodparty.org, qa -> qa.goodparty.org (preview target +
-      # branch-scoped env vars, then aliased); master -> production; PRs get a
-      # generic preview with no alias.
+      # main -> dev.goodparty.org (preview target + branch-scoped env vars, then
+      # aliased); PRs get a generic preview with no alias. Production is deployed
+      # by the release train, not here.
       - name: Resolve deploy target
         id: ctx
         shell: bash
@@ -90,18 +86,9 @@ jobs:
             # always bake the per-PR backend into the webapp preview.
             echo "api_base=https://pr-${{ github.event.pull_request.number }}.preview.goodparty.org" >> "$GITHUB_OUTPUT"
           else
-            case "${{ github.ref_name }}" in
-              develop)
-                echo "target=preview" >> "$GITHUB_OUTPUT"
-                echo "branch=develop" >> "$GITHUB_OUTPUT"
-                echo "alias=dev.goodparty.org" >> "$GITHUB_OUTPUT" ;;
-              qa)
-                echo "target=preview" >> "$GITHUB_OUTPUT"
-                echo "branch=qa" >> "$GITHUB_OUTPUT"
-                echo "alias=qa.goodparty.org" >> "$GITHUB_OUTPUT" ;;
-              master)
-                echo "target=production" >> "$GITHUB_OUTPUT" ;;
-            esac
+            echo "target=preview" >> "$GITHUB_OUTPUT"
+            echo "branch=main" >> "$GITHUB_OUTPUT"
+            echo "alias=dev.goodparty.org" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Deploy to Vercel
@@ -117,36 +104,6 @@ jobs:
           pr-alias: ${{ github.event_name == 'pull_request' && format('gp-ui-pr-{0}-good-party.vercel.app', github.event.pull_request.number) || '' }}
           api-base: ${{ steps.ctx.outputs.api_base }}
 
-  # The Storybook styleguide (packages/styleguide) ships to its own
-  # Vercel project, served at style.goodparty.org. Only on merges to develop —
-  # it's a single-environment site. vercel build runs the project's configured
-  # `build-storybook` on the runner against the installed workspace deps (same
-  # as the webapp's next build), then deploys --prebuilt to the project's
-  # production target, which Vercel serves at its production domain.
-  deploy-styleguide:
-    name: Deploy styleguide
-    if: >-
-      github.event_name == 'push' && github.ref_name == 'develop'
-      && vars.VERCEL_PROJECT_ID_STYLEGUIDE != ''
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
-      - uses: ./.github/actions/setup-node-workspace
-        with:
-          app: gp-webapp
-          build-contracts: 'true'
-
-      - name: Deploy to Vercel
-        uses: ./.github/actions/vercel-deploy
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ vars.VERCEL_PROJECT_ID_STYLEGUIDE }}
-          target: production
-
   # Run the Playwright suite against the freshly deployed preview, sharded
   # across runners to cut wall-clock. Three jobs:
   #   e2e-wait  — gates once on gp-api's (slow) deploy, so the shards don't each
@@ -156,19 +113,18 @@ jobs:
   #   e2e       — merges the shard blobs into one HTML report + results.json,
   #               publishes to S3, upserts the PR comment, and fails iff any
   #               shard failed. This is the single required status check the
-  #               develop ruleset gates on ("E2E"); keep its name stable.
-  # Runs on PRs and on develop pushes (the dev deploy), not qa/master. The one
+  #               main ruleset gates on ("E2E"); keep its name stable.
+  # Runs on PRs and on main pushes (the dev deploy). The one
   # @dev-only polls test (analyze pipeline; needs AWS OIDC + Slack) runs only on
-  # the develop push; the rest only need Clerk test keys.
+  # the main push; the rest only need Clerk test keys.
   e2e-wait:
     name: E2E Wait
     needs: [deploy]
     if: >-
       needs.deploy.outputs.url != ''
-      && (github.event_name == 'pull_request'
-          || (github.event_name == 'push' && github.ref_name == 'develop'))
+      && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    # Exposes whether this develop commit's gp-api deploy was superseded by a
+    # Exposes whether this main commit's gp-api deploy was superseded by a
     # newer merge. When true, the shards (and the E2E fail-gate) skip cleanly
     # instead of hard-failing on a healthy dev stack.
     outputs:
@@ -178,14 +134,15 @@ jobs:
     # 17x10s), before gh-api/curl latency and runner provisioning — so keep the
     # 45-min headroom the single-job version had. It fails fast if gp-api's
     # deploy fails, so the full budget is only ever spent when gp-api is
-    # genuinely still deploying.
-    timeout-minutes: 45
+    # genuinely still deploying. The gp-ai wait that follows adds up to 15 min of
+    # polling on top, hence 60 rather than 45.
+    timeout-minutes: 60
     permissions:
       contents: read
       actions: read
     steps:
       # Full-stack: the webapp is built against this PR's gp-api stack (or, on
-      # develop, gp-api-dev), and gp-api runs on every PR/push. Wait until that
+      # main, gp-api-dev), and gp-api runs on every PR/push. Wait until that
       # deploy of THIS commit is done before testing. gp-api's validate+build+ECS path is much
       # slower than the webapp deploy, so a blind timer off the (fast) webapp
       # deploy can't cover it. Instead wait on gp-api's existing Deploy job
@@ -206,11 +163,12 @@ jobs:
           JOB_NAME: ${{ github.event_name == 'pull_request' && 'Deploy PR preview' || 'Deploy' }}
           IS_PUSH: ${{ github.event_name == 'push' }}
         run: |
-          # On develop, gp-api's deploy concurrency group (gp-api-deploy-develop)
-          # serializes deploys and drops the older *pending* run when a newer
+          # On main, gp-api's deploy concurrency group (gp-api-deploy-main)
+          # serializes deploys and drops the older *pending* one when a newer
           # push queues. So a rapid second merge can cancel the first commit's
-          # gp-api deploy run (cancelled while pending => the run has no Deploy
-          # job at all), and the edge ends up serving the newer commit. Neither
+          # gp-api Deploy job (cancelled while pending => that job, and so its
+          # run, concludes cancelled), and the edge ends up serving the newer
+          # commit — which is why both conclusions are checked below. Neither
           # is a real failure for the older commit: the newer commit's gp-api
           # deploy + E2E cover the current dev stack. Detect that "superseded"
           # case and skip cleanly instead of hard-failing. A genuinely failed
@@ -219,9 +177,9 @@ jobs:
           superseded() {
             [ "$IS_PUSH" = "true" ] || return 1
             local latest
-            latest=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=develop&event=push&per_page=30" \
+            latest=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=main&event=push&per_page=30" \
               --jq '[.workflow_runs[] | select(.name=="gp-api")] | sort_by(.run_started_at) | last | .id // empty')
-            # Our commit's gp-api develop run is no longer the newest develop
+            # Our commit's gp-api main run is no longer the newest main
             # gp-api run => a later merge superseded it.
             [ -n "$latest" ] && [ -n "$run_id" ] && [ "$latest" != "$run_id" ]
           }
@@ -248,16 +206,16 @@ jobs:
                 exit 1 ;;
             esac
 
-            # Cancelled run/job: tolerate ONLY if a newer develop gp-api deploy
+            # Cancelled run/job: tolerate ONLY if a newer main gp-api deploy
             # superseded ours (rapid back-to-back merge); otherwise it's a real
             # failure and must fail E2E.
             if [ "$run_conclusion" = "cancelled" ] || [ "$job_conclusion" = "cancelled" ]; then
               if superseded; then
-                echo "::notice::gp-api deploy for $RUN_SHA was superseded by a newer develop commit; skipping E2E for this commit."
+                echo "::notice::gp-api deploy for $RUN_SHA was superseded by a newer main commit; skipping E2E for this commit."
                 echo "skip=true" >> "$GITHUB_OUTPUT"
                 exit 0
               fi
-              echo "::error::gp-api '$JOB_NAME' was cancelled and no newer develop deploy superseded it"
+              echo "::error::gp-api '$JOB_NAME' was cancelled and no newer main deploy superseded it"
               exit 1
             fi
 
@@ -279,7 +237,7 @@ jobs:
             [ "$got" = "$EXPECTED_SHA" ] && { echo "gp-api serving $EXPECTED_SHA"; exit 0; }
             sleep 10
           done
-          # Our commit never appeared on the edge. On develop this is expected
+          # Our commit never appeared on the edge. On main this is expected
           # when a newer commit already deployed over dev (same supersession as
           # above) — the serialized deploy moves dev forward, never back to our
           # SHA — so skip cleanly rather than failing on a stale exact-SHA check.
@@ -291,17 +249,61 @@ jobs:
           echo "::error::gp-api deploy succeeded but $API_BASE not serving $EXPECTED_SHA"
           exit 1
 
+      # gp-ai's services (the broker and the PMF runner) sit behind the same dev
+      # stack this suite exercises. If E2E starts while they are still on the
+      # previous images, a green run does not mean "this commit works on dev" —
+      # which is exactly what the release train gates prod on. So wait for gp-ai's
+      # Deploy dev to settle too.
+      #
+      # Most commits do not touch packages/gp-ai, in which case that job is
+      # skipped and this returns on the first poll. PR runs skip it entirely:
+      # gp-ai only deploys from main.
+      - name: Wait for gp-ai deploy
+        if: github.event_name == 'push' && steps.wait.outputs.skip != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_SHA: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          for i in $(seq 1 90); do
+            run_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$RUN_SHA&event=push" \
+              --jq '[.workflow_runs[] | select(.name=="gp-ai")] | sort_by(.run_started_at) | last | .id // empty')
+            if [ -z "$run_id" ]; then
+              echo "  attempt $i/90: no gp-ai run yet for $RUN_SHA"
+              sleep 10
+              continue
+            fi
+            jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs" --paginate \
+              --jq '[.jobs[] | select(.name == "Deploy dev")] | map(.conclusion // "running")')
+            # No Deploy dev job at all means the commit did not touch gp-ai, so
+            # there is nothing to wait for. An empty array is a pass, not a hang.
+            pending=$(jq -r '[.[] | select(. == "running")] | length' <<<"$jobs")
+            failed=$(jq -r '[.[] | select(. == "failure" or . == "timed_out" or . == "cancelled")] | length' <<<"$jobs")
+            if [ "$failed" != "0" ]; then
+              echo "::error::gp-ai Deploy dev did not succeed for $RUN_SHA"
+              exit 1
+            fi
+            if [ "$pending" = "0" ]; then
+              echo "gp-ai dev deploy settled for $RUN_SHA ($(jq -r 'length' <<<"$jobs") Deploy dev job(s))"
+              exit 0
+            fi
+            echo "  attempt $i/90: $pending gp-ai Deploy dev job(s) still running"
+            sleep 10
+          done
+          echo "::error::timed out waiting for gp-ai dev deploy on $RUN_SHA"
+          exit 1
+
   e2e-shard:
     name: E2E Shard (${{ matrix.shard }})
     needs: [deploy, e2e-wait]
-    # Skip when the wait gate determined this develop commit was superseded by a
+    # Skip when the wait gate determined this main commit was superseded by a
     # newer merge (the newer commit's gp-api deploy + E2E cover the current dev
     # stack), so there's nothing meaningful to test for this SHA.
     if: >-
       needs.deploy.outputs.url != ''
       && needs.e2e-wait.outputs.skip != 'true'
-      && (github.event_name == 'pull_request'
-          || (github.event_name == 'push' && github.ref_name == 'develop'))
+      && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -314,10 +316,10 @@ jobs:
       contents: read
       id-token: write
     env:
-      # develop pushes test through the stable alias, not the raw deploy URL:
+      # main pushes test through the stable alias, not the raw deploy URL:
       # the deploy job aliased this exact deployment to dev.goodparty.org
       # before E2E starts (and the workflow's concurrency group queues any
-      # newer develop deploy until this run finishes, so the alias can't move
+      # newer main deploy until this run finishes, so the alias can't move
       # mid-run). The raw *-good-party.vercel.app URL is rejected by the
       # HTTP-referer-restricted Google Maps key (RefererNotAllowedMapError),
       # which kills Places autocomplete — the pro-upgrade filing-details step
@@ -328,7 +330,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # The @dev-only polls test (develop push only) drives the analyze
+      # The @dev-only polls test (main push only) drives the analyze
       # pipeline and needs AWS; we don't know which shard it lands in, so all
       # shards configure OIDC creds.
       - uses: aws-actions/configure-aws-credentials@v5
@@ -352,7 +354,7 @@ jobs:
       # package.json dir, which here is packages/gp-webapp — one level above
       # e2e-tests — so it silently runs with NO config (no baseURL, no
       # globalSetup/clerkSetup) unless we point at the file explicitly.
-      # @dev-only specs run only on the post-merge develop e2e (warm dev stack +
+      # @dev-only specs run only on the post-merge main e2e (warm dev stack +
       # live pipelines: SQS analyze round-trip, Stripe webhook). Exclude them on
       # PRs, where an ephemeral per-PR preview can't drive those pipelines. See
       # e2e-tests/CLAUDE.md.
@@ -385,16 +387,15 @@ jobs:
 
   # Merge the shard blob reports, publish, comment, and gate the merge.
   # always(): run even when a shard failed (so the report + comment still post),
-  # but the gate keeps it skipped on qa/master like the shards. On PRs it
-  # upserts a results comment and publishes the HTML report to S3.
+  # but the gate keeps it aligned with the shards (PRs and main pushes only). On
+  # PRs it upserts a results comment and publishes the HTML report to S3.
   e2e:
     name: E2E
     needs: [deploy, e2e-wait, e2e-shard]
     if: >-
       always()
       && needs.deploy.outputs.url != ''
-      && (github.event_name == 'pull_request'
-          || (github.event_name == 'push' && github.ref_name == 'develop'))
+      && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -598,9 +599,9 @@ jobs:
 
       # Surface the same results + HTML-report link on the run's Summary page.
       # The PR comment above only fires on pull_request events, so post-merge
-      # develop pushes (which have no PR to comment on) had no link to the
+      # main pushes (which have no PR to comment on) had no link to the
       # Playwright report. The job summary shows up under the run — reachable
-      # from the "E2E" check's Details on any run, including failed develop runs.
+      # from the "E2E" check's Details on any run, including failed main runs.
       - name: Write E2E summary
         if: >-
           ${{ always()
@@ -644,7 +645,7 @@ jobs:
       # Make the required "E2E" check red exactly when a shard had a failure (or
       # was skipped because the gp-api gate failed). always() so an earlier
       # report/comment step failing can't mask a shard failure. The one tolerated
-      # non-success is a superseded develop commit (e2e-wait set skip=true): the
+      # non-success is a superseded main commit (e2e-wait set skip=true): the
       # shards are intentionally skipped and the newer commit's E2E covers dev, so
       # don't fail the gate in that case.
       - name: Fail if any shard did not pass

@@ -13,11 +13,26 @@ export const PERSON_PII_COLUMNS = [
   'phone',
 ] satisfies (keyof typeof Prisma.PersonScalarFieldEnum)[]
 
+// Internal linkage columns that are filterable but must never be broadcast on
+// this public, unauthenticated endpoint. `gpApiUserId` ties a person back to
+// the originating gp-api user; it is queried by gp-api (filter-only) but is not
+// public data, so it is excluded from both the column allowlist and every
+// response body (via `omit` in persons.service.ts). Typed against the field
+// enum so a typo fails the build.
+export const PERSON_INTERNAL_COLUMNS = [
+  'gpApiUserId',
+] satisfies (keyof typeof Prisma.PersonScalarFieldEnum)[]
+
+const PERSON_NON_SELECTABLE_COLUMNS: readonly string[] = [
+  ...PERSON_PII_COLUMNS,
+  ...PERSON_INTERNAL_COLUMNS,
+]
+
 export const personColumns = (
   Object.values(
     Prisma.PersonScalarFieldEnum,
   ) as (keyof typeof Prisma.PersonScalarFieldEnum)[]
-).filter((col) => !(PERSON_PII_COLUMNS as readonly string[]).includes(col))
+).filter((col) => !PERSON_NON_SELECTABLE_COLUMNS.includes(col))
 
 export const personFilterSchema = z
   .object({
@@ -30,6 +45,14 @@ export const personFilterSchema = z
       }, 'Invalid state code'),
     slug: z.string().optional(),
     personId: z.guid('personId must be a valid UUID').optional(),
+    // Filter-only linkage to the originating gp-api user. The gp-api User.id is
+    // a numeric autoincrement passed as a string here — not a UUID. Never
+    // returned in a response and never selectable via `columns` (see
+    // PERSON_INTERNAL_COLUMNS + the `omit`s in persons.service.ts).
+    gpApiUserId: z
+      .string()
+      .regex(/^\d+$/, 'gpApiUserId must be a numeric gp-api user id')
+      .optional(),
     // Comma-separated UUIDs for batch lookup (e.g. building the /people sitemap
     // from the set of published personIds). Capped to keep the query bounded.
     ids: z

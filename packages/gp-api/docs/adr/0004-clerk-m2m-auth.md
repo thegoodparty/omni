@@ -19,5 +19,5 @@ Routes that should accept M2M-only use `@M2MOnly()`. Routes that accept either a
 ## Consequences
 
 - Caller services don't manage their own keys; rotation goes through Clerk.
-- people-api uses a separate model (S2S JWT signed with `PEOPLE_API_S2S_SECRET`) because it predates the Clerk M2M decision. Standardizing both on Clerk M2M is a future cleanup.
+- people-api used a separate model (S2S JWT) because it predated this decision. That is moot now: gp-api reaches people-db directly via Prisma and the S2S path is gone, so Clerk M2M is the only machine-auth model left.
 - Public routes still need `@PublicAccess()`; the guard chain runs even when no token is present.

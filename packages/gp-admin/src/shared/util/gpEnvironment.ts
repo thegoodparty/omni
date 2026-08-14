@@ -2,7 +2,6 @@ import { generateUrl } from '@/shared/util/generateUrl.util'
 
 export const GP_ENVIRONMENT = {
   DEV: 'dev',
-  QA: 'qa',
   PROD: 'prod',
 } as const
 
@@ -15,7 +14,6 @@ export type GpEnvironmentConfig = {
 
 const ORG_ID_ENV_KEYS: Record<GpEnvironment, string> = {
   [GP_ENVIRONMENT.DEV]: 'GP_ORG_ID_DEV',
-  [GP_ENVIRONMENT.QA]: 'GP_ORG_ID_QA',
   [GP_ENVIRONMENT.PROD]: 'GP_ORG_ID_PROD',
 }
 
@@ -39,10 +37,6 @@ const ENV_CONFIG_KEYS: Record<
   [GP_ENVIRONMENT.DEV]: {
     domain: 'GP_DEV_API_DOMAIN',
     secret: 'GP_DEV_MACHINE_SECRET',
-  },
-  [GP_ENVIRONMENT.QA]: {
-    domain: 'GP_QA_API_DOMAIN',
-    secret: 'GP_QA_MACHINE_SECRET',
   },
   [GP_ENVIRONMENT.PROD]: {
     domain: 'GP_PROD_API_DOMAIN',

@@ -19,6 +19,7 @@ import { lastValueFrom } from 'rxjs'
 import { serializeError } from 'serialize-error'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { SlackChannel } from 'src/vendors/slack/slackService.types'
+import { ElectionApiTokenService } from '@/vendors/clerk/services/electionApiToken.service'
 import { ElectionApiRoutes } from '../constants/elections.const'
 import {
   BuildRaceTargetDetailsInput,
@@ -46,6 +47,7 @@ export class ElectionsService {
     private readonly httpService: HttpService,
     private readonly slack: SlackService,
     private readonly logger: PinoLogger,
+    private readonly tokenService: ElectionApiTokenService,
   ) {
     this.logger.setContext(ElectionsService.name)
     if (!ElectionsService.BASE_URL) {
@@ -72,8 +74,10 @@ export class ElectionsService {
     ) as Record<string, string | number | boolean | string[]>
     this.logger.debug({ filteredParams }, `Election API GET ${path} params: `)
     try {
+      const headers = await this.tokenService.authHeader()
       const { data, status } = (await lastValueFrom(
         this.httpService.get(fullUrl, {
+          headers,
           params: query,
           paramsSerializer: (params) =>
             Object.entries(params)
@@ -126,8 +130,9 @@ export class ElectionsService {
     const fullUrl = `${ElectionsService.BASE_URL}/${ElectionsService.API_VERSION}/${path}`
     this.logger.debug({ body }, `Election API POST ${path} body: `)
     try {
+      const headers = await this.tokenService.authHeader()
       const { data, status } = (await lastValueFrom(
-        this.httpService.post(fullUrl, body),
+        this.httpService.post(fullUrl, body, { headers }),
       )) as { data: Res; status: number }
       if (status >= 200 && status < 300) return data
       this.logger.warn(`Election API POST ${path} responded ${status}`)
@@ -316,6 +321,35 @@ export class ElectionsService {
     })
     return districts?.[0]?.id ?? null
   }
+
+  /**
+   * Resolve the civics person id linked to a gp-api user via election-api's
+   * `person.gp_api_user_id` filter. Powers gp-api's own backfill of
+   * `User.person_id`: the data platform writes only the election-api column,
+   * and gp-api pulls it here and writes its own DB — no data-team → gp-api
+   * write. The gp-api User.id is numeric; election-api stores it as text, so
+   * pass `String(gpApiUserId)`. Returns null on ANY failure (404 / 5xx /
+   * network) so the caller degrades gracefully — the column is empty until the
+   * data platform's ETL populates it, so this is a graceful no-op until then.
+   */
+  async getPersonIdByGpApiUserId(
+    gpApiUserId: number | string,
+  ): Promise<string | null> {
+    try {
+      const result = await this.electionApiGet<
+        { id: string }[],
+        { gpApiUserId: string; columns: string }
+      >('persons', { gpApiUserId: String(gpApiUserId), columns: 'id' })
+      return result?.[0]?.id ?? null
+    } catch (error) {
+      this.logger.warn(
+        { error, gpApiUserId },
+        'Election API GET persons?gpApiUserId failed',
+      )
+      return null
+    }
+  }
+
   // Gold flow: match a district via BallotReady position ID.
   // Returns district data even when projected turnout is unavailable,
   // using sentinel values (-1) so callers can distinguish partial matches.

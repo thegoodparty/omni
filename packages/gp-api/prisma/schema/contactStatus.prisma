@@ -8,8 +8,8 @@
 // semantics.
 enum VoterLikelihood {
   unknown
-  first_time
   unlikely
+  unreliable
   likely
   super
 }
