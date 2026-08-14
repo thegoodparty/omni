@@ -1388,6 +1388,49 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
       ).not.toHaveBeenCalled()
     })
 
+    it('maps the prediction bounds onto their camelCase counterparts', async () => {
+      vi.mocked(mockElections.fetchCampaignStrategyContext!).mockResolvedValue({
+        candidate_count: 0,
+        candidate_office: 'City Council',
+        candidates: [],
+        civics_win_number: null,
+        contacts_needed_estimate: 3000,
+        general_election_date: '2026-11-03',
+        number_of_seats: 1,
+        office_level: 'CITY',
+        office_type: 'COUNCIL',
+        official_office_name: 'City Council Seat 5',
+        primary_election_date: '2026-08-04',
+        projected_turnout: 1200,
+        projected_turnout_lower: 900,
+        projected_turnout_upper: 1500,
+        projected_voter_turnout: null,
+        registered_voters: 5500,
+        unique_cellphones: 3300,
+        unique_landlines: 1800,
+        relevant_election_date: '2026-11-03',
+        state: 'CA',
+        win_number_effective: 601,
+        win_number_estimate: 601,
+        win_number_lower: 451,
+        win_number_upper: 751,
+      })
+      vi.mocked(mockElections.fetchFilingFeeByRaceHash!).mockResolvedValue(null)
+      vi.mocked(mockBallotReady.fetchMilestones!).mockResolvedValue(null)
+
+      const result =
+        await service.fetchLiveRaceTargetMetrics(campaignWithRaceId)
+
+      expect(result).toMatchObject({
+        projectedTurnout: 1200,
+        projectedTurnoutLower: 900,
+        projectedTurnoutUpper: 1500,
+        winNumber: 601,
+        winNumberLower: 451,
+        winNumberUpper: 751,
+      })
+    })
+
     it('falls back to position-based path when context returns null', async () => {
       vi.mocked(mockElections.fetchCampaignStrategyContext!).mockResolvedValue(
         null,
