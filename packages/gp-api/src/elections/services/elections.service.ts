@@ -35,6 +35,10 @@ import {
   VoterIssue,
   VoterIssueLevel,
 } from '../types/elections.types'
+import {
+  parseProposedCongressionalNumber,
+  PROPOSED_DISTRICT_TYPE,
+} from '../util/proposedDistrictName.util'
 
 @Injectable()
 export class ElectionsService {
@@ -320,6 +324,28 @@ export class ElectionsService {
       districtColumns: 'id',
     })
     return districts?.[0]?.id ?? null
+  }
+
+  async findProposedCongressionalDistrict(
+    state: string,
+    districtNumber: number,
+  ): Promise<District | null> {
+    const districts = await this.electionApiGet<
+      District[],
+      { state: string; L2DistrictType: string; districtColumns: string }
+    >(ElectionApiRoutes.districts.list.path, {
+      state,
+      L2DistrictType: PROPOSED_DISTRICT_TYPE,
+      districtColumns: 'id,state,L2DistrictType,L2DistrictName',
+    })
+
+    return (
+      districts?.find(
+        (district) =>
+          parseProposedCongressionalNumber(district.L2DistrictName) ===
+          districtNumber,
+      ) ?? null
+    )
   }
 
   /**

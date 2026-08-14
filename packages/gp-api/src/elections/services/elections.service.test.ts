@@ -949,4 +949,73 @@ describe('ElectionsService', () => {
       expect(result).toBeNull()
     })
   })
+
+  describe('findProposedCongressionalDistrict', () => {
+    const proposedRows = [
+      {
+        id: 'd-3',
+        state: 'OH',
+        L2DistrictType: 'Proposed_District',
+        L2DistrictName: '2026 PROPOSED CONG DIST 03 (EST.)',
+      },
+      {
+        id: 'd-4',
+        state: 'OH',
+        L2DistrictType: 'Proposed_District',
+        L2DistrictName: '2026 PROPOSED CONG DIST 04 (EST.)',
+      },
+    ]
+
+    it('returns the proposed district whose parsed number matches', async () => {
+      mockHttpGet.mockReturnValue(of({ data: proposedRows, status: 200 }))
+
+      const result = await service.findProposedCongressionalDistrict('OH', 4)
+
+      expect(result?.id).toBe('d-4')
+    })
+
+    it('ignores a proposed state senate district with the same number', async () => {
+      mockHttpGet.mockReturnValue(
+        of({
+          data: [
+            {
+              id: 'mi-sen-1',
+              state: 'MI',
+              L2DistrictType: 'Proposed_District',
+              L2DistrictName: '2026 PROPOSED STATE SEN DIST 01',
+            },
+          ],
+          status: 200,
+        }),
+      )
+
+      expect(
+        await service.findProposedCongressionalDistrict('MI', 1),
+      ).toBeNull()
+    })
+
+    it('returns null when the state has no proposed rows', async () => {
+      mockHttpGet.mockReturnValue(of({ data: [], status: 200 }))
+
+      expect(
+        await service.findProposedCongressionalDistrict('VA', 2),
+      ).toBeNull()
+    })
+
+    it('queries election-api for the proposed type only', async () => {
+      mockHttpGet.mockReturnValue(of({ data: proposedRows, status: 200 }))
+
+      await service.findProposedCongressionalDistrict('OH', 4)
+
+      expect(mockHttpGet).toHaveBeenCalledWith(
+        expect.stringContaining('districts'),
+        expect.objectContaining({
+          params: expect.objectContaining({
+            state: 'OH',
+            L2DistrictType: 'Proposed_District',
+          }),
+        }),
+      )
+    })
+  })
 })
