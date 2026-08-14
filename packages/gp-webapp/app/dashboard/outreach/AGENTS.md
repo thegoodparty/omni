@@ -11,14 +11,17 @@ Flag on renders the v2 hub (`v2/`); flag off (or unsettled — respect `ready`)
 renders the legacy `components/OutreachPage.tsx` unchanged. The two UIs never
 mix; turning the flag off restores the legacy page exactly.
 
-Inside the v2 hub, each channel's tile target is its own swap flag:
-`voter-outreach-v2-social` (`@shared/experiments/voterOutreachV2SocialFlag.ts`)
-gates the social tile — on opens the new `SocialFlow`, off (or unsettled)
-launches the legacy socialMedia TaskFlow. So the hub can ship with 100%
-legacy behavior underneath and channels flip individually; later phases add
-their own swap flags the same way.
+Inside the v2 hub, each channel's tile target is its own swap flag, so the
+hub can ship with 100% legacy behavior underneath and channels flip
+individually: `voter-outreach-v2-social`
+(`@shared/experiments/voterOutreachV2SocialFlag.ts`) gates the social tile
+(on → the new `SocialFlow`, off/unsettled → the legacy socialMedia
+TaskFlow), and `voter-outreach-v2-sms`
+(`@shared/experiments/voterOutreachV2SmsFlag.ts`) gates the SMS tile
+(on → `v2/sms/SmsFlow.tsx`, off → the legacy TaskFlow). The text gate
+(Pro/compliance) runs in front of BOTH SMS targets.
 
-## v2/ — the Voter Outreach 2.0 hub (phase 1)
+## v2/ — the Voter Outreach 2.0 hub (phases 1-2)
 
 | File | Role |
 |------|------|
@@ -32,6 +35,9 @@ their own swap flags the same way.
 | `v2/OutreachFlowShell.tsx` | Generic flow chrome: sticky header (desktop Back floats left of the column, mobile icon-only slot) + bar `Stepper`, shell-owned step-keyed CTA, dirty-close "Discard changes?" confirm, scroll-to-top on step change |
 | `v2/social/SocialFlow.tsx` | The social channel flow: purpose → compose → platforms → share. Compose drafts are AI-generated: picking a purpose (and each tone-pill click / Regenerate) fires stateless `POST /v1/outreach/social/draft` with purpose + tone, showing the thinking-stream card while it runs; the custom purpose never generates fresh (no call). The compose card's bottom toolbar adds "Improve with AI" (same endpoint with `currentDraft`, polish-in-place; shown only once the user has typed/dictated — the manuallyEdited state that also gates Undo snapshots; works for custom too) and a dictation mic (`shared/dictation/`, appends transcript as manual input). `POST /v1/outreach/social/generate` runs once on entering the share step; Save (`POST /v1/outreach/social`) persists atomically and seeds the history + detail cache from the response |
 | `v2/SocialAssetCards.tsx` | Per-platform asset cards (copy/script + caption) shared by the share step and the details drawer; clipboard failure falls back to a select-all readonly textarea |
+| `v2/sms/SmsFlow.tsx` | The SMS channel flow (phase 2, initial build): purpose → audience (saved lists only; the custom builder is a deferred slice) → schedule (48h min, 9am-9pm, no Send now) → compose → review+pay. Reuses the legacy draft-first purchase sequence verbatim: audience advance creates the Peerly phone list (`createP2pPhoneList` + `LongPoll` status), review entry creates the outreach with `draft: true`, and payment runs through `CheckoutSessionProvider`/`CheckoutPayment` (custom-mode Checkout Session, `PurchaseType.TEXT`) with the free-texts zero-amount branch in `v2/sms/SmsReviewStep.tsx` |
+| `v2/sms/SmsComposeStep.tsx` | Compose with system-owned regions: the tone-flavored identification intro and the "Reply STOP to opt out." footer frame the AI-drafted body (`POST /v1/outreach/sms/draft`; per-tone memory / Improve / dictation, same contract as social). The submitted script is the client-side concatenation of the three regions — the backend has no region concept and sends the script to Peerly verbatim. Image REQUIRED (500 KB, JPG/PNG/GIF): the backend rejects imageless text/p2p sends |
+| `v2/sms/smsCompose.util.ts` | SMS purposes (the social slugs minus issue_update), `identificationIntro`, `composeScript`, image constraints |
 
 Flow state is flat client state; no server drafts — closing a dirty flow asks
 to discard, reopening starts fresh. Nothing persists until Save.

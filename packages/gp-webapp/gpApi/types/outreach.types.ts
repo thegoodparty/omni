@@ -21,6 +21,7 @@ export type OutreachStatus =
 export interface CreateOutreachPayload {
   campaignId: number
   outreachType: OutreachType
+  name?: string
   message?: string | null
   title?: string | null
   script?: string | null

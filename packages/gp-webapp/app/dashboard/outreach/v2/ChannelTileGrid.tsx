@@ -10,6 +10,7 @@ import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/components/OutreachCreateCards'
 import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
 import { useVoterOutreachV2SocialFlag } from '@shared/experiments/voterOutreachV2SocialFlag'
+import { useVoterOutreachV2SmsFlag } from '@shared/experiments/voterOutreachV2SmsFlag'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { TcrCompliance } from 'helpers/types'
 import type { OutreachType } from 'gpApi/types/outreach.types'
@@ -19,6 +20,7 @@ interface ChannelTileGridProps {
   tcrCompliance?: TcrCompliance
   preselectedListId?: number
   onCreateSocial: () => void
+  onCreateSms: () => void
 }
 
 // Hub tile order: social first (unlocked for everyone), then the Pro-locked
@@ -39,6 +41,7 @@ export const ChannelTileGrid = ({
   tcrCompliance,
   preselectedListId,
   onCreateSocial,
+  onCreateSms,
 }: ChannelTileGridProps) => {
   const router = useRouter()
   const [campaign] = useCampaign()
@@ -46,11 +49,11 @@ export const ChannelTileGrid = ({
   const [flowType, setFlowType] = useState<OutreachType | null>(null)
   const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
   const { runTextGate, gateModals } = useTextOutreachGate(tcrCompliance)
-  // The social tile is its own divergence point: flag on opens the new
-  // social flow, off (or unsettled) launches the legacy socialMedia
-  // TaskFlow — the same fallback shape every other channel gets until its
-  // phase swaps the tile target.
+  // Each tile is its own divergence point: flag on opens the new flow,
+  // off (or unsettled) launches the legacy TaskFlow — the same fallback
+  // shape every channel gets until its phase swaps the tile target.
   const socialV2 = useVoterOutreachV2SocialFlag()
+  const smsV2 = useVoterOutreachV2SmsFlag()
 
   // Consume-once preselected list (ENG-10762 conventions, mirrored from
   // OutreachCreateCards): the deep-link strip's router.replace re-runs the
@@ -85,6 +88,10 @@ export const ChannelTileGrid = ({
     }
     if (type === OUTREACH_TYPES.text) {
       if (!runTextGate()) return
+      if (smsV2.ready && smsV2.enabled) {
+        onCreateSms()
+        return
+      }
       setFlowType(type)
       return
     }

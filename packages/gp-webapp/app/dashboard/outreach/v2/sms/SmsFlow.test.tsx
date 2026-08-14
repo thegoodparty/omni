@@ -1,0 +1,207 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { render } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
+import type { SmsDraftRequest } from '@goodparty_org/contracts'
+import { SmsFlow } from './SmsFlow'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
+
+vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
+  useDictationAppend: () => ({
+    status: 'idle' as const,
+    error: null,
+    partialTranscript: '',
+    active: false,
+    busy: false,
+    start: vi.fn(),
+    stop: vi.fn(),
+    toggle: vi.fn(),
+  }),
+}))
+
+// The p2p phone-list helpers use the untyped clientFetch/apiRoutes path, so
+// they are module-mocked rather than MSW-mocked.
+vi.mock('helpers/createP2pPhoneList', () => ({
+  createP2pPhoneList: vi.fn(async () => ({ ok: true, token: 'tok-1' })),
+  getP2pPhoneListStatus: vi.fn(async () => ({
+    phoneListId: 77,
+    leadsLoaded: 1200,
+    excludedOptedOutCount: 3,
+    excludedDuplicatePhoneCount: 1,
+  })),
+}))
+
+vi.mock('helpers/createOutreach', () => ({
+  createOutreach: vi.fn(async () => ({ id: 55 })),
+}))
+
+const completeFreePurchase = vi.fn(async () => ({ ok: true }))
+vi.mock('app/dashboard/purchase/utils/purchaseFetch.utils', () => ({
+  createCheckoutSession: vi.fn(async () => ({
+    ok: true,
+    data: { id: 'free_1', clientSecret: '', amount: 0 },
+  })),
+  completeCheckoutSession: vi.fn(async () => ({ ok: true })),
+  completeFreePurchase: (...args: unknown[]) => completeFreePurchase(...args),
+}))
+
+// The flow reads campaign (details/office, free-texts offer) and user (first
+// name) from their providers; both are context-mocked at the hook level.
+vi.mock('@shared/hooks/useCampaign', () => ({
+  useCampaign: () => [
+    {
+      id: 9,
+      isPro: true,
+      hasFreeTextsOffer: true,
+      details: { normalizedOffice: 'City Council' },
+    },
+    vi.fn(),
+  ],
+}))
+vi.mock('@shared/hooks/useUser', () => ({
+  useUser: () => [{ id: 1, firstName: 'Jane' }, vi.fn(), false],
+}))
+
+const mockLists = () =>
+  api.mock('GET /v1/voters/voter-file/filters', {
+    status: 200,
+    data: [
+      { id: 41, name: 'Likely voters' },
+      { id: 42, name: 'Text outreach — Aug 1, 2026' },
+    ],
+  })
+
+const mockListDetail = () =>
+  api.mock('GET /v1/contacts/list-detail', {
+    status: 200,
+    data: {
+      demographics: { people: 1500 },
+      reachability: { sms: 1200 },
+      outreachHistory: [],
+    },
+  })
+
+const mockDraft = () => {
+  const calls: SmsDraftRequest[] = []
+  api.mock('POST /v1/outreach/sms/draft', ({ body }) => {
+    calls.push(body)
+    return {
+      status: 200,
+      data: { draft: `AI body (${body.tone}) for ${body.purpose}` },
+    }
+  })
+  return calls
+}
+
+const mockOutreachList = () =>
+  api.mock('GET /v1/outreach', { status: 200, data: [] })
+
+const attachImage = async () => {
+  const file = new File(['x'.repeat(100)], 'headshot.png', {
+    type: 'image/png',
+  })
+  const input = document.querySelector('input[type="file"]') as HTMLInputElement
+  await userEvent.upload(input, file)
+}
+
+const openFlow = () => {
+  const onClose = vi.fn()
+  const onScheduled = vi.fn().mockResolvedValue(undefined)
+  render(<SmsFlow open onClose={onClose} onScheduled={onScheduled} />)
+  return { onClose, onScheduled }
+}
+
+describe('SmsFlow', () => {
+  beforeEach(() => {
+    mockLists()
+    mockListDetail()
+    mockOutreachList()
+  })
+
+  it('runs purpose → audience → schedule → compose → review and schedules free', async () => {
+    const draftCalls = mockDraft()
+    const { onScheduled } = openFlow()
+
+    // Purpose
+    await userEvent.click(screen.getByText('Introduce myself'))
+
+    // Audience: auto-filter hides the auto-generated list.
+    expect(await screen.findByText('Who are you texting?')).toBeInTheDocument()
+    await userEvent.click(screen.getByText('Choose a voter list'))
+    expect(
+      screen.queryByText('Text outreach — Aug 1, 2026'),
+    ).not.toBeInTheDocument()
+    await userEvent.click(await screen.findByText('Likely voters'))
+    expect(
+      await screen.findByText(/Message 1,200 voters for \$42\.00/),
+    ).toBeInTheDocument()
+    await userEvent.click(
+      screen.getByRole('button', { name: /Continue \(1,200\)/ }),
+    )
+
+    // Schedule: pick the earliest allowed date via the calendar is fiddly in
+    // jsdom; type a custom time path instead by picking a date 4 days out.
+    expect(
+      await screen.findByText('When do you want to send it?'),
+    ).toBeInTheDocument()
+    const target = new Date()
+    target.setDate(target.getDate() + 4)
+    await userEvent.click(screen.getByText('Pick a date'))
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: new RegExp(
+          `^${target.toLocaleDateString('en-US', { weekday: 'long' })}, ${target.toLocaleDateString('en-US', { month: 'long' })} ${target.getDate()}`,
+        ),
+      }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // Compose: initial AI draft fires; body arrives with the intro region.
+    expect(
+      await screen.findByText(/AI body \(warm\) for introduce_myself/),
+    ).toBeInTheDocument()
+    expect(draftCalls).toHaveLength(1)
+    expect(
+      screen.getByText('Hi, this is Jane, candidate for City Council.'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Reply STOP to opt out.')).toBeInTheDocument()
+
+    // Continue blocked until the required image is attached.
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    await attachImage()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // Review: free-texts offer covers 1,200 → free branch.
+    expect(await screen.findByText('Review & pay')).toBeInTheDocument()
+    expect(await screen.findByText('1,200')).toBeInTheDocument()
+    const scheduleButton = await screen.findByRole('button', {
+      name: 'Schedule text',
+    })
+    await userEvent.click(scheduleButton)
+
+    await waitFor(() =>
+      expect(screen.getByText('Payment successful!')).toBeInTheDocument(),
+    )
+    expect(completeFreePurchase).toHaveBeenCalledWith(
+      'TEXT',
+      expect.objectContaining({ outreachId: 55, phoneListToken: 'tok-1' }),
+    )
+    expect(onScheduled).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps Continue disabled on the audience step until a list is picked', async () => {
+    mockDraft()
+    openFlow()
+    await userEvent.click(screen.getByText('Persuade likely voters'))
+    expect(await screen.findByText('Who are you texting?')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+})

@@ -733,6 +733,18 @@ export {
   type OutreachDetail,
 } from './outreach/OutreachSocial.schema'
 
+export {
+  SMS_PURPOSE_VALUES,
+  SmsPurposeSchema,
+  type SmsPurpose,
+  SMS_COMPOSED_MAX_LENGTH,
+  SMS_BODY_MAX_LENGTH,
+  SmsDraftRequestSchema,
+  type SmsDraftRequest,
+  SmsDraftResponseSchema,
+  type SmsDraftResponse,
+} from './outreach/OutreachSms.schema'
+
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
 
 export {

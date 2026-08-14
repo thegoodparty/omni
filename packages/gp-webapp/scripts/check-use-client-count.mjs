@@ -186,7 +186,10 @@ import { dirname, join, relative } from 'node:path'
 // asset cards / detail-fetch hook are all interactive drawer/wizard surfaces
 // (flag reads, mutations, flow state) that can't be server components. Net
 // +13 after deleting P2pUxEnabledProvider + useTcrComplianceCheck.
-const BASELINE = 580
+// 2026-08-14: 580 -> 586 for Voter Outreach 2.0 phase 2: the SMS drawer flow
+// (flow + five step components) — interactive wizard surfaces (mutations,
+// flow state, Stripe payment mount) that can't be server components.
+const BASELINE = 586
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
