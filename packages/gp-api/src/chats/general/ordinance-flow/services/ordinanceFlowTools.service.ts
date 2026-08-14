@@ -270,9 +270,9 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
       !this.isAmendmentRecord(o) && hasRedline(draft.body)
         ? redlineToAmended(draft.body)
         : draft.body
-    // A degenerate all-deletion body collapses to '' — keep the model's text
-    // rather than persist an empty draft.
-    const body = collapsed || draft.body
+    // A degenerate all-deletion body collapses to '' or whitespace — keep the
+    // model's text rather than persist a blank draft.
+    const body = collapsed.trim() ? collapsed : draft.body
     const updated = await this.model.update({
       where: { id: o.id },
       data: {
@@ -369,9 +369,12 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     }
     const body = o.draftBody ?? ''
     if (!hasRedline(body)) return { accepted: false, reason: 'no_changes' }
+    // Mirror saveDraft: a degenerate all-deletion body collapses to '' or
+    // whitespace, so keep the current text rather than write a blank draft.
+    const collapsed = redlineToAmended(body)
     await this.model.update({
       where: { id: o.id },
-      data: { draftBody: redlineToAmended(body) },
+      data: { draftBody: collapsed.trim() ? collapsed : body },
     })
     await this.supersedeRunningLoop(o)
     return { accepted: true }

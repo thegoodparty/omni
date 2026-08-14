@@ -428,6 +428,23 @@ describe('OrdinanceFlowToolsService', () => {
     expect(row.draftBody).toBe('The fee is $75.')
   })
 
+  it('acceptDraftChanges does not blank an all-deletion draft', async () => {
+    // All-deletion markup with whitespace collapses to '\n\n' (not ''); keep
+    // the current text rather than write a blank draft (mirrors saveDraft).
+    const body = '{-Section 1.-}\n\n{-Section 2.-}'
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: { draftBody: body },
+    })
+    expect(
+      await tools.acceptDraftChanges(ordinanceId, electedOfficeId),
+    ).toEqual({ accepted: true })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe(body)
+  })
+
   it('acceptDraftChanges reports no_changes when nothing is redlined', async () => {
     await service.prisma.ordinance.update({
       where: { id: ordinanceId },
@@ -701,10 +718,11 @@ describe('ordinance-flow present_* tool builders', () => {
     expect(row.draftBody).toBe('Section 1. Cameras shall be sited by data.')
   })
 
-  it('saveDraft does not blank a new draft when a body would collapse to empty', async () => {
-    // Degenerate all-deletion markup collapses to '' via redlineToAmended;
-    // fall back to the model's text instead of persisting an empty draft.
-    const body = '{-Section 1. Placeholder.-}'
+  it('saveDraft does not blank a new draft when a body would collapse to blank', async () => {
+    // All-deletion markup with inter-segment whitespace collapses to '\n\n'
+    // (not ''), so a plain `|| draft.body` fallback would still persist blank —
+    // fall back to the model's text when the collapse has no real content.
+    const body = '{-Section 1.-}\n\n{-Section 2.-}'
     await tools.saveDraft(ordinanceId, electedOfficeId, { title: 'Odd', body })
     const row = await service.prisma.ordinance.findUniqueOrThrow({
       where: { id: ordinanceId },
