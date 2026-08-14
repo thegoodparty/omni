@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   SmsDraftRequest,
   SmsPurpose,
@@ -30,10 +30,19 @@ import {
 import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/components/OutreachCreateCards'
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
 import { dollarsToCents } from 'helpers/numberHelper'
-import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
+import type {
+  SegmentResponse,
+  SupportStatusRollup,
+} from 'app/dashboard/contacts/crm/shared/contacts-types'
+import {
+  hasAnyVoterFileSelection,
+  transformVoterFileFiltersForBackend,
+  type VoterFileFilters,
+} from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import { useListWizardCount } from 'app/dashboard/contacts/crm/wizard/useListWizardCount'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { SmsPurposeStep } from './SmsPurposeStep'
-import { SmsAudienceStep } from './SmsAudienceStep'
+import { SmsAudienceStep, type SmsAudienceMode } from './SmsAudienceStep'
 import { SmsScheduleStep, TIME_OPTIONS } from './SmsScheduleStep'
 import { SmsComposeStep } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
@@ -122,6 +131,12 @@ export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
   >({})
 
   const [selectedListId, setSelectedListId] = useState<number | null>(null)
+  const [audienceMode, setAudienceMode] = useState<SmsAudienceMode>('picker')
+  const [builderFilters, setBuilderFilters] = useState<VoterFileFilters>({})
+  const [builderSupportStatus, setBuilderSupportStatus] = useState<
+    SupportStatusRollup[]
+  >([])
+  const [builderName, setBuilderName] = useState('')
   const [phoneListToken, setPhoneListToken] = useState<string | null>(null)
   const [phoneListCreating, setPhoneListCreating] = useState(false)
   const [phoneListError, setPhoneListError] = useState(false)
@@ -179,6 +194,45 @@ export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
   })
   const reachableCount = reachabilityQuery.data ?? null
 
+  const queryClient = useQueryClient()
+
+  const builderPayload = useMemo(
+    () => ({
+      ...transformVoterFileFiltersForBackend(builderFilters),
+      ...(builderSupportStatus.length
+        ? { supportStatus: builderSupportStatus }
+        : {}),
+    }),
+    [builderFilters, builderSupportStatus],
+  )
+  const builderCountResult = useListWizardCount(
+    builderPayload,
+    open && stepId === 'audience' && audienceMode !== 'picker',
+  )
+  const builderCounting =
+    builderCountResult.isLoading ||
+    builderCountResult.isStale ||
+    builderCountResult.count === undefined
+  // Mirrors the CRM wizard's settled-zero gate: only a settled zero blocks.
+  const builderZeroMatch =
+    !builderCountResult.isLoading &&
+    !builderCountResult.isStale &&
+    !builderCountResult.isError &&
+    builderCountResult.count === 0
+
+  const createListMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await clientRequest(
+        'POST /v1/voters/voter-file/filter',
+        {
+          name: builderName.trim(),
+          ...builderPayload,
+        },
+      )
+      return data
+    },
+  })
+
   const draftMutation = useMutation({
     mutationFn: async (input: SmsDraftRequest) => {
       const { data } = await clientRequest('POST /v1/outreach/sms/draft', input)
@@ -198,6 +252,10 @@ export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
     setUndoText(null)
     setToneDrafts({})
     setSelectedListId(null)
+    setAudienceMode('picker')
+    setBuilderFilters({})
+    setBuilderSupportStatus([])
+    setBuilderName('')
     setPhoneListToken(null)
     setPhoneListCreating(false)
     setPhoneListError(false)
@@ -349,6 +407,45 @@ export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
     setManuallyEdited(true)
   }
 
+  const resetBuilder = () => {
+    setAudienceMode('picker')
+    setBuilderFilters({})
+    setBuilderSupportStatus([])
+    setBuilderName('')
+    createListMutation.reset()
+  }
+
+  // Name-step continue: create the list (the same endpoint the CRM wizard
+  // uses), select it, derive its phone list, and land on the schedule step —
+  // the prototype's build-and-keep-going path.
+  const handleCreateListContinue = async () => {
+    if (builderName.trim().length === 0 || createListMutation.isPending) return
+    setPhoneListError(false)
+    try {
+      const created = await createListMutation.mutateAsync()
+      await queryClient.invalidateQueries({
+        queryKey: ['sms-flow-saved-lists'],
+      })
+      setSelectedListId(created.id)
+      setPhoneList(null)
+      setStopPolling(false)
+      setPhoneListCreating(true)
+      const result = await createP2pPhoneList(created, created.id)
+      setPhoneListCreating(false)
+      if (!result.ok || !result.token) {
+        setPhoneListError(true)
+        resetBuilder()
+        return
+      }
+      setPhoneListToken(result.token)
+      resetBuilder()
+      setStepId('schedule')
+    } catch {
+      setPhoneListCreating(false)
+      // createListMutation.isError renders the inline message below.
+    }
+  }
+
   // Audience advance: derive the Peerly phone list from the saved filter.
   // The status poll runs across the later steps; the pay step waits on it.
   const handleAudienceContinue = async () => {
@@ -439,6 +536,14 @@ export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
   const stepIndex = STEP_ORDER.indexOf(stepId)
 
   const handleBack = () => {
+    if (stepId === 'audience' && audienceMode === 'name') {
+      setAudienceMode('filters')
+      return
+    }
+    if (stepId === 'audience' && audienceMode === 'filters') {
+      resetBuilder()
+      return
+    }
     if (stepId === 'review') {
       // Back off the pay step discards the draft (stale drafts stay hidden
       // server-side); re-entry creates a fresh one.
@@ -453,44 +558,68 @@ export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
 
   const cta: FlowShellCta | null = scheduled
     ? null
-    : stepId === 'audience'
+    : stepId === 'audience' && audienceMode === 'filters'
       ? {
-          label: phoneListError
-            ? 'Try again'
-            : reachableCount !== null
-              ? `Continue (${reachableCount.toLocaleString()})`
-              : 'Continue',
-          onClick: () => {
-            void handleAudienceContinue()
-          },
+          label: builderCounting
+            ? 'Continue'
+            : `Continue (${(builderCountResult.count ?? 0).toLocaleString()})`,
+          onClick: () => setAudienceMode('name'),
           disabled:
-            !selectedList ||
-            reachabilityQuery.isLoading ||
-            reachableCount === null ||
-            reachableCount === 0,
-          loading: phoneListCreating,
+            !hasAnyVoterFileSelection(builderFilters, builderSupportStatus) ||
+            builderCounting ||
+            builderZeroMatch ||
+            builderCountResult.isCapError,
+          loading:
+            hasAnyVoterFileSelection(builderFilters, builderSupportStatus) &&
+            builderCounting,
         }
-      : stepId === 'schedule'
+      : stepId === 'audience' && audienceMode === 'name'
         ? {
             label: 'Continue',
-            onClick: () => setStepId('compose'),
-            disabled:
-              name.trim().length === 0 ||
-              scheduledAt === null ||
-              violates48h ||
-              outsideWindow,
+            onClick: () => {
+              void handleCreateListContinue()
+            },
+            disabled: builderName.trim().length === 0,
+            loading: createListMutation.isPending || phoneListCreating,
           }
-        : stepId === 'compose'
+        : stepId === 'audience'
           ? {
-              label: 'Continue',
-              onClick: () => setStepId('review'),
+              label: phoneListError
+                ? 'Try again'
+                : reachableCount !== null
+                  ? `Continue (${reachableCount.toLocaleString()})`
+                  : 'Continue',
+              onClick: () => {
+                void handleAudienceContinue()
+              },
               disabled:
-                body.trim().length === 0 ||
-                composedLength > SMS_COMPOSED_MAX_LENGTH ||
-                image === null ||
-                draftMutation.isPending,
+                !selectedList ||
+                reachabilityQuery.isLoading ||
+                reachableCount === null ||
+                reachableCount === 0,
+              loading: phoneListCreating,
             }
-          : null
+          : stepId === 'schedule'
+            ? {
+                label: 'Continue',
+                onClick: () => setStepId('compose'),
+                disabled:
+                  name.trim().length === 0 ||
+                  scheduledAt === null ||
+                  violates48h ||
+                  outsideWindow,
+              }
+            : stepId === 'compose'
+              ? {
+                  label: 'Continue',
+                  onClick: () => setStepId('review'),
+                  disabled:
+                    body.trim().length === 0 ||
+                    composedLength > SMS_COMPOSED_MAX_LENGTH ||
+                    image === null ||
+                    draftMutation.isPending,
+                }
+              : null
 
   return (
     <OutreachFlowShell
@@ -529,6 +658,7 @@ export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
       ) : stepId === 'audience' ? (
         <>
           <SmsAudienceStep
+            mode={audienceMode}
             lists={lists}
             listsLoading={listsQuery.isLoading}
             selectedId={selectedListId}
@@ -539,10 +669,26 @@ export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
               setPhoneList(null)
               setStopPolling(false)
             }}
+            onStartBuilder={() => setAudienceMode('filters')}
             reachableCount={reachableCount}
             reachableLoading={reachabilityQuery.isLoading}
             pricePerMessage={PRICE_PER_MESSAGE}
+            builderFilters={builderFilters}
+            onBuilderFiltersChange={setBuilderFilters}
+            builderSupportStatus={builderSupportStatus}
+            onBuilderSupportStatusChange={setBuilderSupportStatus}
+            builderName={builderName}
+            onBuilderNameChange={setBuilderName}
+            builderCount={builderCountResult.count}
+            builderCounting={builderCounting}
+            builderCapError={builderCountResult.isCapError}
+            builderCountErrorMessage={builderCountResult.errorMessage}
           />
+          {createListMutation.isError && (
+            <p className="mt-4 text-sm text-destructive">
+              We couldn&apos;t save this list. Try again.
+            </p>
+          )}
           {phoneListError && (
             <p className="mt-4 text-sm text-destructive">
               We couldn&apos;t prepare this audience. Try again.
