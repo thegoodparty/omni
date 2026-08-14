@@ -1,3 +1,4 @@
+import { DistrictRoutingService } from '@/elections/services/districtRouting.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { VoterIssueLevel } from '@/elections/types/elections.types'
 import { getVoterIssueLevelFromPositionLevel } from '@/elections/util/getVoterIssueLevelFromPositionLevel.util'
@@ -47,6 +48,7 @@ export class OrganizationsService extends createPrismaBase(
   constructor(
     private readonly electionsService: ElectionsService,
     private readonly clerkEnricher: ClerkUserEnricherService,
+    private readonly districtRouting: DistrictRoutingService,
   ) {
     super()
   }
@@ -462,7 +464,11 @@ export class OrganizationsService extends createPrismaBase(
         : Promise.resolve(null),
     ])
 
-    const rawDistrict = overrideDistrict ?? position?.district
+    const rawDistrict = overrideDistrict
+      ? overrideDistrict
+      : position?.district
+        ? await this.districtRouting.routeWinDistrict(slug, position.district)
+        : undefined
     const district: OrgDistrict | null = rawDistrict
       ? {
           id: rawDistrict.id,
@@ -500,7 +506,11 @@ export class OrganizationsService extends createPrismaBase(
         : Promise.resolve(null),
     ])
 
-    const rawDistrict = overrideDistrict ?? position?.district
+    const rawDistrict = overrideDistrict
+      ? overrideDistrict
+      : position?.district
+        ? await this.districtRouting.routeWinDistrict(slug, position.district)
+        : undefined
     const district: OrgDistrict | null = rawDistrict
       ? {
           id: rawDistrict.id,
@@ -621,7 +631,14 @@ export class OrganizationsService extends createPrismaBase(
         : Promise.resolve(null),
     ])
 
-    const district = overrideDistrict ?? position?.district
+    const district = overrideDistrict
+      ? overrideDistrict
+      : position?.district
+        ? await this.districtRouting.routeWinDistrict(
+            org.slug,
+            position.district,
+          )
+        : undefined
     if (!district) return null
 
     return {

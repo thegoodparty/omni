@@ -1,6 +1,8 @@
 import { ElectionsService } from '@/elections/services/elections.service'
+import { DistrictRoutingService } from '@/elections/services/districtRouting.service'
 import { createMockClerkEnricher } from '@/shared/test-utils/mockClerkEnricher.util'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { Organization } from '../../generated/prisma'
 import { OrganizationsService } from './organizations.service'
 
 describe('OrganizationsService', () => {
@@ -10,6 +12,7 @@ describe('OrganizationsService', () => {
   let mockGetDistrictId: ReturnType<typeof vi.fn>
   let mockGetDistrict: ReturnType<typeof vi.fn>
   let mockCleanDistrictName: ReturnType<typeof vi.fn>
+  let mockRouteWinDistrict: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     mockGetPositionByBallotReadyId = vi.fn().mockResolvedValue(null)
@@ -17,6 +20,7 @@ describe('OrganizationsService', () => {
     mockGetDistrictId = vi.fn().mockResolvedValue(null)
     mockGetDistrict = vi.fn().mockResolvedValue(null)
     mockCleanDistrictName = vi.fn((name: string) => name)
+    mockRouteWinDistrict = vi.fn(async (_slug: string, current) => current)
 
     service = new OrganizationsService(
       {
@@ -27,6 +31,9 @@ describe('OrganizationsService', () => {
         cleanDistrictName: mockCleanDistrictName,
       } as unknown as ElectionsService,
       createMockClerkEnricher(),
+      {
+        routeWinDistrict: mockRouteWinDistrict,
+      } as unknown as DistrictRoutingService,
     )
     ;(
       service as unknown as { logger: { error: ReturnType<typeof vi.fn> } }
@@ -833,6 +840,115 @@ describe('OrganizationsService', () => {
 
       expect(mockFindUnique).toHaveBeenCalledTimes(1)
       expect(mockGetPositionById).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('Win district routing', () => {
+    let mockFindUnique: ReturnType<typeof vi.fn>
+
+    const position = {
+      id: 'pos-1',
+      state: 'OH',
+      level: 'FEDERAL',
+      name: 'U.S. Representative',
+      district: {
+        id: 'current-oh-4',
+        state: 'OH',
+        L2DistrictType: 'US_Congressional_District',
+        L2DistrictName: '4',
+      },
+    }
+
+    const proposed = {
+      id: 'proposed-oh-4',
+      state: 'OH',
+      L2DistrictType: 'Proposed_District',
+      L2DistrictName: '2026 PROPOSED CONG DIST 04 (EST.)',
+    }
+
+    beforeEach(() => {
+      mockGetPositionById.mockResolvedValue(position)
+      mockFindUnique = vi.fn().mockResolvedValue({
+        slug: 'oh-4-campaign',
+        positionId: 'pos-1',
+        overrideDistrictId: null,
+      })
+      service.findUnique = mockFindUnique as typeof service.findUnique
+      Object.defineProperty(service, 'model', {
+        get: () => ({ findUnique: mockFindUnique }),
+        configurable: true,
+      })
+    })
+
+    it('routes getDistrictAndLevelForOrgSlug', async () => {
+      mockRouteWinDistrict.mockResolvedValue(proposed)
+
+      const { district } =
+        await service.getDistrictAndLevelForOrgSlug('oh-4-campaign')
+
+      expect(district?.id).toBe('proposed-oh-4')
+      expect(district?.l2Type).toBe('Proposed_District')
+    })
+
+    it('routes getDistrictAndBallotLevelForOrgSlug', async () => {
+      mockRouteWinDistrict.mockResolvedValue(proposed)
+
+      const { district } =
+        await service.getDistrictAndBallotLevelForOrgSlug('oh-4-campaign')
+
+      expect(district?.id).toBe('proposed-oh-4')
+    })
+
+    it('routes getDistrictForOrgSlug', async () => {
+      mockRouteWinDistrict.mockResolvedValue(proposed)
+
+      const district = await service.getDistrictForOrgSlug('oh-4-campaign')
+
+      expect(district?.id).toBe('proposed-oh-4')
+    })
+
+    it('does not route when an override district is set', async () => {
+      mockFindUnique.mockResolvedValue({
+        slug: 'oh-4-campaign',
+        positionId: 'pos-1',
+        overrideDistrictId: 'override-1',
+      })
+      mockGetDistrict.mockResolvedValue({
+        id: 'override-1',
+        state: 'OH',
+        L2DistrictType: 'US_Congressional_District',
+        L2DistrictName: '9',
+      })
+
+      const { district } =
+        await service.getDistrictAndLevelForOrgSlug('oh-4-campaign')
+
+      expect(district?.id).toBe('override-1')
+      expect(mockRouteWinDistrict).not.toHaveBeenCalled()
+    })
+
+    it('does not route CRM company context', async () => {
+      mockRouteWinDistrict.mockResolvedValue(proposed)
+
+      const { district } =
+        await service.getCrmCompanyOrgContextByOrgSlug('oh-4-campaign')
+
+      expect(district?.id).toBe('current-oh-4')
+      expect(mockRouteWinDistrict).not.toHaveBeenCalled()
+    })
+
+    it('does not route resolveServeContext', async () => {
+      mockRouteWinDistrict.mockResolvedValue(proposed)
+
+      const result = await service.resolveServeContext({
+        slug: 'oh-4-campaign',
+        positionId: 'pos-1',
+        overrideDistrictId: null,
+        customPositionName: null,
+      } as unknown as Organization)
+
+      expect(result?.l2DistrictType).toBe('US_Congressional_District')
+      expect(mockRouteWinDistrict).not.toHaveBeenCalled()
     })
   })
 
