@@ -163,7 +163,9 @@ describe('<ChiefOfStaffChatBody>', () => {
     // candidate can keep chatting without clicking back in.
     await user.click(screen.getByRole('button', { name: /send/i }))
 
-    await waitFor(() => expect(screen.getByText('All set.')).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByText('All set.')).toBeInTheDocument(),
+    )
     await waitFor(() => expect(input).toHaveFocus())
   })
 
@@ -302,9 +304,12 @@ describe('<ChiefOfStaffChatBody>', () => {
     )
     expect(screen.queryByText(greeting)).not.toBeInTheDocument()
     // It finishes typing and stays (committed to history).
-    await waitFor(() => expect(screen.getByText(greeting)).toBeInTheDocument(), {
-      timeout: 6000,
-    })
+    await waitFor(
+      () => expect(screen.getByText(greeting)).toBeInTheDocument(),
+      {
+        timeout: 6000,
+      },
+    )
   })
 
   it('surfaces a retryable error when the stream errors', async () => {
