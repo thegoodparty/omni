@@ -688,6 +688,35 @@ describe('ordinance-flow present_* tool builders', () => {
     expect(draft.sources).toEqual([{ id: 's1', title: 'Source one' }])
   })
 
+  it('saveDraft collapses stray redline on a new (non-amendment) draft', async () => {
+    // The drafting model sometimes wraps a from-scratch draft in {+inserted+}
+    // markup; a new ordinance has no baseline, so it must persist plain.
+    await tools.saveDraft(ordinanceId, electedOfficeId, {
+      title: 'New ordinance',
+      body: '{+Section 1. Cameras shall be sited by data.+}',
+    })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe('Section 1. Cameras shall be sited by data.')
+  })
+
+  it('saveDraft keeps redline on an amendment draft (the deliverable)', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: { sourceLink: 'https://example.gov/code/chapter-5' },
+    })
+    const redline = 'Section 5-1. {-old rule-}{+new rule+}'
+    await tools.saveDraft(ordinanceId, electedOfficeId, {
+      title: 'Amendment',
+      body: redline,
+    })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe(redline)
+  })
+
   describe('quality loop hooks', () => {
     const seedRunningLoop = () =>
       service.prisma.ordinance.update({

@@ -262,18 +262,26 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     draft: { title: string; body: string; sources?: OrdinanceSource[] },
   ): Promise<{ saved: true }> {
     const o = await this.findOwned(ordinanceId, electedOfficeId)
+    // A new (non-amendment) ordinance has no verbatim baseline, so its first
+    // draft must be plain — but the model sometimes wraps the whole body in
+    // {+inserted+} markup. Collapse that stray redline; an amendment's redline
+    // is the deliverable and stays.
+    const body =
+      !this.isAmendmentRecord(o) && hasRedline(draft.body)
+        ? redlineToAmended(draft.body)
+        : draft.body
     const updated = await this.model.update({
       where: { id: o.id },
       data: {
         draftTitle: draft.title,
-        draftBody: draft.body,
+        draftBody: body,
         ...(o.status === 'in_progress' && { status: 'draft' as const }),
         ...(draft.sources &&
           draft.sources.length > 0 && { draftSources: draft.sources }),
       },
       include: { electedOffice: true },
     })
-    this.warnOnAmendmentDrift(o, draft.body)
+    this.warnOnAmendmentDrift(o, body)
     // Fire-and-forget: the chat turn must never block on or fail with the
     // background loop. start() itself supersedes and restarts a running loop
     // for a re-draft, and guards flag/env/status/redline internally.
