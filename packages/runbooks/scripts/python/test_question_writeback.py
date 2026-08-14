@@ -159,6 +159,28 @@ def test_a_bare_label_value_is_still_accepted():
     }
 
 
+def test_unknown_state_does_not_evict_a_known_worst_state():
+    rows = [
+        {"question": "Q-known", "state": "not_answerable", "question_ref": "ref1"},
+        {"question": "Q-unknown", "state": "invented", "question_ref": "ref1"},
+    ]
+    deduped = qw._worst_by_ref(rows)
+    assert len(deduped) == 1
+    assert deduped[0]["state"] == "not_answerable"
+
+
+def test_an_unknown_state_alone_still_survives_dedupe_and_raises_at_write():
+    import pytest
+
+    rows = [{"question": "Q", "state": "invented", "question_ref": "ref1"}]
+    assert qw._worst_by_ref(rows) == rows
+    with pytest.raises(KeyError):
+        qw.write_answer_state(
+            "k", rows, state_field_id="f", checked_field_id="d", option_ids=OPTIONS,
+            today=TODAY, current={}, requester=_recorder([]),
+        )
+
+
 def test_rows_sharing_a_task_ref_write_once_with_the_worst_state():
     log = []
     rows = [

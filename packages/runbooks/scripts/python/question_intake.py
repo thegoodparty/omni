@@ -182,7 +182,9 @@ def _insert_behaviors(text: str, added: list[dict]) -> str:
         lines.append("behaviors:")
         key, inline = len(lines) - 1, ""
     else:
-        inline = (_BEHAVIORS_KEY.match(lines[key]).group(1) or "").strip()
+        raw = _BEHAVIORS_KEY.match(lines[key]).group(1) or ""
+        # The key takes no value, so anything after # is a comment, not an inline list.
+        inline = re.sub(r"\s*#.*$", "", raw).strip()
         if inline and inline != "[]":
             raise ValueError(f"cannot append to an inline behaviors list: {lines[key]!r}")
     if inline == "[]":

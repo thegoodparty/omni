@@ -37,9 +37,11 @@ def _worst_by_ref(rows: list[dict]) -> list[dict]:
         if not ref:
             continue
         kept = out.get(ref)
-        if kept is None or _SEVERITY.get(row.get("state"), -1) < _SEVERITY.get(
-            kept.get("state"), -1
-        ):
+        new_sev = _SEVERITY.get(row.get("state"))
+        kept_sev = _SEVERITY.get(kept.get("state")) if kept is not None else None
+        # An unknown state loses to any known one (it must never evict a valid answer) but
+        # survives when alone, so write_answer_state still raises instead of writing nothing.
+        if kept is None or (new_sev is not None and (kept_sev is None or new_sev < kept_sev)):
             out[ref] = row
     return list(out.values())
 

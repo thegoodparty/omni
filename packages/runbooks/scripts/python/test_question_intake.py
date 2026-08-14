@@ -142,6 +142,15 @@ def test_dropdown_uuid_value_resolves_to_its_option_name():
     assert rows[0]["product"] == "Serve"
 
 
+def test_append_behaviors_tolerates_a_trailing_comment_on_the_key_line(tmp_path):
+    path = tmp_path / "m.yaml"
+    path.write_text("behaviors: []  # schema described above\ndismissed: []\n")
+    n = qi.append_behaviors(path, [{"id": "q1", "question": "Q?", "question_ref": "r1"}])
+    assert n == 1
+    doc = yaml.safe_load(path.read_text())
+    assert [b["id"] for b in doc["behaviors"]] == ["q1"]
+
+
 def test_append_behaviors_survives_a_column_zero_comment_inside_the_block(tmp_path):
     path = tmp_path / "m.yaml"
     path.write_text(
