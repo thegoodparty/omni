@@ -189,6 +189,9 @@ describe('ContactsService — people-db (sole path)', () => {
     const mockContactsMadeResolutionService = {
       resolveContactsMade: vi.fn().mockResolvedValue({ kind: 'none' }),
     }
+    const mockDistrictRoutingService = {
+      routeWinDistrict: vi.fn(async (_slug: string, current) => current),
+    }
 
     service = new ContactsService(
       mockVoterFileFilterService as never,
@@ -204,6 +207,7 @@ describe('ContactsService — people-db (sole path)', () => {
       mockVoterDownloadService as never,
       mockStatsService as never,
       mockContactsMadeResolutionService as never,
+      mockDistrictRoutingService as never,
       createMockLogger(),
     )
   })

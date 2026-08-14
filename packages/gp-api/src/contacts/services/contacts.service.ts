@@ -39,6 +39,7 @@ import {
 } from 'src/contactInteraction/services/contactsMadeResolution.service'
 import { ContactStatusService } from 'src/contactInteraction/services/contactStatus.service'
 import { SupportStatusService } from 'src/contactInteraction/services/supportStatus.service'
+import { DistrictRoutingService } from '@/elections/services/districtRouting.service'
 import { ElectionsService } from 'src/elections/services/elections.service'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
@@ -222,6 +223,7 @@ export class ContactsService {
     private readonly voterDownloadService: VoterDownloadService,
     private readonly peopleStatsService: StatsService,
     private readonly contactsMadeResolutionService: ContactsMadeResolutionService,
+    private readonly districtRouting: DistrictRoutingService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(ContactsService.name)
@@ -546,7 +548,13 @@ export class ContactsService {
       const position = await this.elections.getPositionById(org.positionId, {
         includeDistrict: true,
       })
-      return { districtId: position?.district?.id ?? null }
+      if (!position?.district) return { districtId: null }
+
+      const routed = await this.districtRouting.routeWinDistrict(
+        org.slug,
+        position.district,
+      )
+      return { districtId: routed.id }
     }
 
     return { districtId: null }

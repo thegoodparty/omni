@@ -21,6 +21,7 @@ const PRO_FEATURE_MSG =
 const OVERRIDE_DISTRICT_ID = '11111111-1111-1111-1111-111111111111'
 const POSITION_DISTRICT_ID = '22222222-2222-2222-2222-222222222222'
 const ELIGIBLE_DISTRICT_ID = '33333333-3333-3333-3333-333333333333'
+const PROPOSED_DISTRICT_ID = '44444444-4444-4444-4444-444444444444'
 const POSITION_ID_FIXTURE = 'position-uuid'
 const PERSON_ID_1 = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
 const PERSON_ID_2 = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
@@ -124,6 +125,10 @@ describe('ContactsService', () => {
     let mockContactsMadeResolutionService: {
       resolveContactsMade: ReturnType<typeof vi.fn>
     }
+    let mockRouteWinDistrict: ReturnType<typeof vi.fn>
+    let mockDistrictRoutingService: {
+      routeWinDistrict: ReturnType<typeof vi.fn>
+    }
 
     beforeEach(() => {
       mockVoterFileFilterService = {
@@ -179,6 +184,10 @@ describe('ContactsService', () => {
       mockContactsMadeResolutionService = {
         resolveContactsMade: vi.fn().mockResolvedValue({ kind: 'none' }),
       }
+      mockRouteWinDistrict = vi.fn(async (_slug: string, current) => current)
+      mockDistrictRoutingService = {
+        routeWinDistrict: mockRouteWinDistrict,
+      }
 
       service = new ContactsService(
         mockVoterFileFilterService as never,
@@ -194,6 +203,7 @@ describe('ContactsService', () => {
         mockVoterDownloadService as never,
         mockStatsService as never,
         mockContactsMadeResolutionService as never,
+        mockDistrictRoutingService as never,
         createMockLogger(),
       )
       vi.clearAllMocks()
@@ -1960,6 +1970,67 @@ describe('ContactsService', () => {
         )
         expect(flushHeaders).toHaveBeenCalledTimes(1)
         expect(end).toHaveBeenCalledTimes(1)
+      })
+    })
+
+    describe('Win district routing', () => {
+      const currentCongressional = {
+        id: POSITION_DISTRICT_ID,
+        state: 'OH',
+        L2DistrictType: 'US_Congressional_District',
+        L2DistrictName: '4',
+      }
+
+      const proposedCongressional = {
+        id: PROPOSED_DISTRICT_ID,
+        state: 'OH',
+        L2DistrictType: 'Proposed_District',
+        L2DistrictName: '2026 PROPOSED CONG DIST 04 (EST.)',
+      }
+
+      it('returns the override district id without routing', async () => {
+        const org = makeOrganization({
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+          positionId: POSITION_ID_FIXTURE,
+        })
+
+        const result = await service.resolveEligibleDistrictId(org)
+
+        expect(result).toBe(OVERRIDE_DISTRICT_ID)
+        expect(mockRouteWinDistrict).not.toHaveBeenCalled()
+        expect(mockElectionsService.getPositionById).not.toHaveBeenCalled()
+      })
+
+      it('routes the position district for a Win org', async () => {
+        mockElectionsService.getPositionById.mockResolvedValue({
+          id: POSITION_ID_FIXTURE,
+          district: currentCongressional,
+        })
+        mockRouteWinDistrict.mockResolvedValue(proposedCongressional)
+
+        const org = makeOrganization({ positionId: POSITION_ID_FIXTURE })
+
+        expect(await service.resolveEligibleDistrictId(org)).toBe(
+          PROPOSED_DISTRICT_ID,
+        )
+        expect(mockRouteWinDistrict).toHaveBeenCalledWith(
+          org.slug,
+          currentCongressional,
+        )
+      })
+
+      it('keeps the current district when routing declines to swap', async () => {
+        mockElectionsService.getPositionById.mockResolvedValue({
+          id: POSITION_ID_FIXTURE,
+          district: currentCongressional,
+        })
+        mockRouteWinDistrict.mockResolvedValue(currentCongressional)
+
+        const org = makeOrganization({ positionId: POSITION_ID_FIXTURE })
+
+        expect(await service.resolveEligibleDistrictId(org)).toBe(
+          POSITION_DISTRICT_ID,
+        )
       })
     })
   })
