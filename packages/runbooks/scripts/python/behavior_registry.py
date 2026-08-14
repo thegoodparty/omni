@@ -13,7 +13,7 @@ from pathlib import Path
 
 import yaml
 
-from analytics_event_health import WATCHLIST
+from analytics_event_health import WATCHLIST, load_watchlist
 
 BEHAVIOR_FIELDS = frozenset({
     "id", "question", "question_ref", "answers", "product", "okr", "surfaces",
@@ -139,3 +139,23 @@ def validate_behaviors(
             errors.append(f"{bid}: review.interval_days must be an int")
 
     return errors
+
+
+def load_validated_behaviors(path: Path = WATCHLIST) -> list[dict]:
+    """The entry point every runtime caller uses, so the registry's rules bind the scheduled loop
+    and not just the test suite. Raises on any error rather than degrading to partial coverage.
+
+    catalog_event_types is the set of names the registry itself uses, not the live Amplitude
+    catalog: an instrumented-but-not-yet-ingested event (`Door Knocking - List Created`, PR #1220)
+    is legitimate and would turn rule 3 red on the first scheduled run. Checking instrumented_by
+    against the live catalog is deferred to DATA-2302.
+    """
+    behaviors = load_behaviors(path)
+    _, watchlist_events, _, _ = load_watchlist(Path(path))
+    named = {n for b in behaviors for n in instrumenting_events(b)}
+    errors = validate_behaviors(
+        behaviors, catalog_event_types=named, watchlist_events=watchlist_events
+    )
+    if errors:
+        raise ValueError("invalid behavior registry:\n" + "\n".join(errors))
+    return behaviors

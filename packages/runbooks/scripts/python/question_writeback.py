@@ -11,7 +11,7 @@ notification noise, which is the difference between a signal and a thing people 
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import clickup_api
 
@@ -50,7 +50,9 @@ def changed_rows(rows: list[dict], current: dict[str, str]) -> list[dict]:
 
 
 def _epoch_ms(day: date) -> int:
-    return int(datetime(day.year, day.month, day.day).timestamp() * 1000)
+    """Noon UTC, not local midnight. The scheduled run is a UTC runner and the workspace renders
+    dates in a US timezone, so a midnight anchor shows "Last checked" as the previous day."""
+    return int(datetime(day.year, day.month, day.day, 12, tzinfo=timezone.utc).timestamp() * 1000)
 
 
 def _option_label(field: dict) -> str:

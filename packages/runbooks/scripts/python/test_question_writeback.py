@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 
 import question_writeback as qw
 
@@ -88,14 +88,17 @@ def test_dropdown_is_set_to_the_option_uuid_not_the_label():
 
 
 def test_last_checked_is_sent_as_epoch_milliseconds():
+    # Noon UTC, not local midnight: the runner is UTC and the workspace is US-timezone, so a
+    # midnight anchor renders as the previous day in ClickUp.
     log = []
     qw.write_answer_state(
         "k", [ROWS[0]], state_field_id="f-state", checked_field_id="f-date",
         option_ids=OPTIONS, today=TODAY, current={}, requester=_recorder(log),
     )
     date_payload = [body for _, url, body in log if "f-date" in url][0]
+    assert date_payload["value"] == 1786622400000
     assert date_payload["value"] == int(
-        __import__("datetime").datetime(2026, 8, 13).timestamp() * 1000
+        datetime(2026, 8, 13, 12, tzinfo=timezone.utc).timestamp() * 1000
     )
 
 

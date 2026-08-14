@@ -42,6 +42,35 @@ project. Key on the raw `event_type`, not the Govern display name (which can dif
 inject a phantom row and leave the real one stale. `assemble()` overlays it onto (or injects
 it into) the Databricks catalog.
 
+## The questions tab (DATA-2316)
+
+The `questions` tab answers "which questions can we actually answer right now". One row per
+distinct question in the `behaviors:` block of `scripts/python/monitored_events.yaml`, worst
+state first: `not_answerable`, `partially_answerable`, `answerable`, plus the behaviors and
+live events behind it, the surfaces still uninstrumented, and the ClickUp task that asked it.
+
+Questions come from the ClickUp Analytics Questions list, not from the sheet.
+`scripts/python/question_intake.py` reads accepted tasks into `monitored_events.yaml` as
+surfaceless stubs (uncovered until someone enumerates where the behavior happens), and the
+write-back pushes each question's answer state and last-checked date back onto its task.
+
+- `uv run python event_state_gsheet.py refresh-questions` — full overwrite of the `questions`
+  tab. Same auth as `refresh` (`GP_EVENT_STATE_SHEET_ID` + the cached Google token) plus
+  Databricks, and `--dry-run` prints the matrix dimensions without writing.
+- `uv run python event_state_gsheet.py writeback-questions` — writes two ClickUp custom fields
+  (answer state, last checked) and nothing else. Needs `CLICKUP_API_KEY`,
+  `GP_QUESTIONS_LIST_ID`, `GP_QUESTIONS_STATE_FIELD_ID`, `GP_QUESTIONS_CHECKED_FIELD_ID` and
+  the three option ids `GP_QUESTIONS_OPT_ANSWERABLE` / `GP_QUESTIONS_OPT_PARTIAL` /
+  `GP_QUESTIONS_OPT_NOT`; missing any of them exits 2. `--dry-run` reports how many tasks
+  would change. Unchanged states are skipped, so a quiet week produces no task notifications.
+- `uv run python question_intake.py` — reads the list into the registry.
+  `GP_QUESTIONS_LIST_ID` + `CLICKUP_API_KEY`; `--dry-run` counts what it would add. It refuses
+  to write on top of an invalid `behaviors:` block and exits non-zero listing every problem.
+
+Both the `questions` and `gaps` tabs refresh **only** via the scheduled `analytics-governance`
+workflow. `scripts/shell/refresh-event-state.sh` runs `refresh` alone, so a manual run updates
+the `events` and `meta` tabs and leaves those two as the scheduled run last left them.
+
 ## Steps
 
 1. Make sure the provenance CSV is current — run the provenance walk first if needed:

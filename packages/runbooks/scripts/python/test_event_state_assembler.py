@@ -387,6 +387,40 @@ def test_assembled_rows_carry_watchlist_status(monkeypatch, tmp_path):
     assert out["rows"][0]["watchlist_status"] == "tracked"
 
 
+def test_assembled_rows_carry_the_questions_column(monkeypatch, tmp_path):
+    # Pins the assemble -> build_rows wiring, not just build_rows: dropping the questions
+    # argument leaves a blank governance column that every unit test still passes.
+    mon = tmp_path / "mon.yaml"
+    mon.write_text(
+        "watched_families: [win_onboarding]\n"
+        "events: []\n"
+        "dismissed: []\n"
+        "behaviors:\n"
+        "  - id: signup\n"
+        '    question: "Are people signing up?"\n'
+        "    product: win\n"
+        "    surfaces:\n"
+        '      - {path: "SignUp.tsx", label: "sign up", '
+        'instrumented_by: "Sign Up Clicked"}\n'
+    )
+    monkeypatch.setattr(esa.aeh, "WATCHLIST", mon)
+
+    code_csv = tmp_path / "code.csv"
+    code_csv.write_text("event_type\n")
+
+    def fake_query(sql):
+        return pd.DataFrame([
+            {"event_type": "Sign Up Clicked", "govern_display_name": "Sign Up Clicked",
+             "family": "win_onboarding", "first_seen_date": "2024-01-01",
+             "last_seen_date": "2026-08-01", "event_count": 100, "event_count_30d": 5,
+             "govern_description": "", "govern_tags": None},
+        ])
+
+    out = esa.assemble(date(2026, 8, 3), run_query=fake_query, code_csv=code_csv)
+    row = {r["event_type"]: r for r in out["rows"]}["Sign Up Clicked"]
+    assert row["questions"] == "Are people signing up?"
+
+
 def test_build_rows_carries_okr_column():
     records = [{
         "event_type": "Dashboard - Candidate Dashboard Viewed", "status": "active",

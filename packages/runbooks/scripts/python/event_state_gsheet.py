@@ -198,17 +198,19 @@ def write_questions_sheet(
 
 
 def question_rows_for_refresh() -> list[dict]:
-    """Shared by the refresh-questions command and the ClickUp write-back, so both report the
-    same state from one Databricks read. assemble()'s rows already carry event_type and
-    status, which is everything coverage reads; re-running reconcile would be a second round
-    trip for the same answer."""
+    """Shared by the refresh-questions command and the ClickUp write-back so each derives state
+    the same way from one Databricks read of its own. They are separate CLI invocations, so
+    their reads are minutes apart and can briefly disagree; handing one command's rows to the
+    other is the DATA-2302 cleanup. assemble()'s rows already carry event_type and status, which
+    is everything coverage reads; re-running reconcile would be a second round trip within the
+    command for the same answer."""
     import analytics_event_health as aeh
     import behavior_questions as bqs
     import behavior_registry as brg
 
     result = esa.assemble(date.today())
     by_type = {r["event_type"]: r for r in result["rows"]}
-    return bqs.question_rows(brg.load_behaviors(aeh.WATCHLIST), by_type)
+    return bqs.question_rows(brg.load_validated_behaviors(aeh.WATCHLIST), by_type)
 
 
 def write_sheet(rows: list[dict], *, service: Any, spreadsheet_id: str, tab: str = SHEET_TAB) -> int:

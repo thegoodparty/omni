@@ -59,6 +59,15 @@ def test_caveats_and_ref_travel_with_the_question():
     assert rows[0]["question_ref"] == "86ak1"
 
 
+def test_a_composite_row_does_not_inherit_a_contributors_task_ref():
+    # The ref names the task that asked THIS behaviour's question; letting it ride along to a
+    # composite would stamp the composite's state onto that task once the two diverge.
+    behaviors = [_b("a", "Q1", "E", answers=["Composite"], ref="86ak1")]
+    rows = {r["question"]: r for r in bq.question_rows(behaviors, {"E": _rec("E")})}
+    assert rows["Q1"]["question_ref"] == "86ak1"
+    assert rows["Composite"]["question_ref"] == ""
+
+
 def test_asked_by_is_carried_from_the_first_behavior_that_has_one():
     behaviors = [_b("a", "Q1", "E"), _b("b", "Q1", "E", asked_by="nate@goodparty.org")]
     rows = bq.question_rows(behaviors, {"E": _rec("E")})

@@ -76,10 +76,46 @@ def test_missing_product_defaults_to_both():
 def test_product_is_lowercased_and_unknown_values_fall_back_to_both():
     rows = [
         {"id": "1", "name": "Q one?", "status": "accepted", "product": "Win", "asked_by": ""},
-        {"id": "2", "name": "Q two?", "status": "accepted", "product": "0", "asked_by": ""},
+        {"id": "2", "name": "Q two?", "status": "accepted", "product": "campaign",
+         "asked_by": ""},
     ]
     out = qi.intake_to_behaviors(rows, today=TODAY, existing_refs=set())
     assert [b["product"] for b in out] == ["win", "both"]
+
+
+_PRODUCT_TYPE_CONFIG = {"options": [
+    {"id": "opt-win", "name": "Win", "orderindex": 0},
+    {"id": "opt-serve", "name": "Serve", "orderindex": 1},
+]}
+
+
+def _dropdown_task(value):
+    return {"tasks": [{
+        "id": "86ak5555", "name": "Q?", "status": {"status": "accepted"},
+        "custom_fields": [
+            {"name": "Product", "type_config": _PRODUCT_TYPE_CONFIG, "value": value},
+        ],
+    }]}
+
+
+def test_dropdown_orderindex_zero_resolves_to_its_option_name_not_both():
+    # orderindex 0 is a real selection; reading the raw value made it unrecognized, so
+    # normalize_product turned every Win question into "both" and the field was decorative.
+    rows = qi.fetch_questions("k", "L", requester=_requester(_dropdown_task(0)))
+    assert rows[0]["product"] == "Win"
+    out = qi.intake_to_behaviors(rows, today=TODAY, existing_refs=set())
+    assert out[0]["product"] == "win"
+
+
+def test_dropdown_uuid_value_resolves_to_its_option_name():
+    rows = qi.fetch_questions("k", "L", requester=_requester(_dropdown_task("opt-serve")))
+    assert rows[0]["product"] == "Serve"
+
+
+def test_an_unresolvable_dropdown_value_still_falls_back_to_both():
+    rows = qi.fetch_questions("k", "L", requester=_requester(_dropdown_task("opt-gone")))
+    out = qi.intake_to_behaviors(rows, today=TODAY, existing_refs=set())
+    assert out[0]["product"] == "both"
 
 
 def test_same_slug_in_one_batch_lands_twice_with_distinct_ids():
@@ -144,6 +180,37 @@ def test_append_behaviors_suffixes_an_id_already_in_the_registry(tmp_path):
     assert n == 2
     doc = yaml.safe_load(path.read_text())
     assert [b["id"] for b in doc["behaviors"]] == ["q1", "q1_2", "q1_3"]
+
+
+_DUP_ID_REGISTRY = """events: []
+behaviors:
+  - id: dup
+    question: "Q one?"
+    product: win
+    surfaces:
+      - {path: "a.tsx", label: "a", instrumented_by: null}
+    review: {last_reviewed: 2026-08-01, reviewed_by: t, interval_days: 90}
+  - id: dup
+    question: "Q two?"
+    product: win
+    surfaces:
+      - {path: "b.tsx", label: "b", instrumented_by: null}
+    review: {last_reviewed: 2026-08-01, reviewed_by: t, interval_days: 90}
+"""
+
+
+def test_main_exits_nonzero_on_an_invalid_registry(monkeypatch, tmp_path, capsys):
+    # Intake appends to the registry, so it must refuse to write on top of a broken one.
+    import analytics_event_health as aeh
+
+    mon = tmp_path / "mon.yaml"
+    mon.write_text(_DUP_ID_REGISTRY)
+    monkeypatch.setattr(aeh, "WATCHLIST", mon)
+    monkeypatch.setenv("CLICKUP_API_KEY", "k")
+    monkeypatch.setattr(qi, "fetch_questions", lambda *a, **k: [])
+    assert qi.main(["--list-id", "L"]) == 1
+    assert "duplicate id" in capsys.readouterr().err
+    assert mon.read_text() == _DUP_ID_REGISTRY
 
 
 COMMENTED = """# hand-maintained header

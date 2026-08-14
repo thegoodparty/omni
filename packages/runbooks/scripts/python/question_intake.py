@@ -29,8 +29,11 @@ _BEHAVIORS_KEY = re.compile(r"^behaviors:(.*)$")
 
 
 def _custom(task: dict, name: str) -> str:
-    """ClickUp returns custom fields as a list, not a map, and person fields as a list of user
-    objects. Flatten both here so nothing downstream knows the API shape."""
+    """ClickUp returns custom fields as a list, not a map; person fields as a list of user
+    objects; and drop_down fields as the chosen option's uuid or orderindex, with the names in
+    type_config.options. Flatten and resolve all three here so nothing downstream knows the API
+    shape — an unresolved orderindex 0 reads as an unrecognized product and silently becomes
+    "both", which makes the form field decorative."""
     for field in task.get("custom_fields") or []:
         if field.get("name") != name:
             continue
@@ -38,7 +41,13 @@ def _custom(task: dict, name: str) -> str:
         if isinstance(value, list):
             first = value[0] if value else {}
             return str(first.get("email") or first.get("username") or "")
-        return "" if value is None else str(value)
+        if value is None:
+            return ""
+        target = str(value)
+        for option in (field.get("type_config") or {}).get("options") or []:
+            if target in (str(option.get("id")), str(option.get("orderindex"))):
+                return str(option.get("name", ""))
+        return target
     return ""
 
 
@@ -234,7 +243,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     tasks = fetch_questions(api_key, args.list_id)
-    behaviors = br.load_behaviors(aeh.WATCHLIST)
+    try:
+        behaviors = br.load_validated_behaviors(aeh.WATCHLIST)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 1
     existing_refs = {b["question_ref"] for b in behaviors if b.get("question_ref")}
     existing_ids = {b["id"] for b in behaviors if b.get("id")}
     stubs = intake_to_behaviors(

@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 import event_state_gsheet as gs
 import event_state_assembler as esa
 
@@ -287,3 +289,37 @@ def test_write_questions_sheet_updates_then_clears():
     assert n == 2
     assert [k for k, _ in svc.log] == ["update", "clear"]
     assert svc.log[0][1]["range"] == f"{gs.QUESTIONS_TAB}!A1"
+
+
+_DUP_ID_REGISTRY = """events: []
+behaviors:
+  - id: dup
+    question: "Q one?"
+    product: win
+    surfaces:
+      - {path: "a.tsx", label: "a", instrumented_by: null}
+    review: {last_reviewed: 2026-08-01, reviewed_by: t, interval_days: 90}
+  - id: dup
+    question: "Q two?"
+    product: win
+    surfaces:
+      - {path: "b.tsx", label: "b", instrumented_by: null}
+    review: {last_reviewed: 2026-08-01, reviewed_by: t, interval_days: 90}
+"""
+
+
+def test_question_rows_for_refresh_raises_on_an_invalid_registry(monkeypatch, tmp_path):
+    # The registry's rules only bind the scheduled loop if a live caller runs them.
+    import analytics_event_health as aeh
+
+    mon = tmp_path / "mon.yaml"
+    mon.write_text(_DUP_ID_REGISTRY)
+    monkeypatch.setattr(aeh, "WATCHLIST", mon)
+    monkeypatch.setattr(gs.esa, "assemble", lambda *a, **k: {"rows": [], "meta": {}})
+    with pytest.raises(ValueError, match="duplicate id"):
+        gs.question_rows_for_refresh()
+
+
+def test_question_rows_for_refresh_accepts_the_committed_registry(monkeypatch):
+    monkeypatch.setattr(gs.esa, "assemble", lambda *a, **k: {"rows": [], "meta": {}})
+    assert gs.question_rows_for_refresh()

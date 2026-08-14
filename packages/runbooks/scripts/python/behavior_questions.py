@@ -39,6 +39,7 @@ def question_rows(behaviors: list[dict], records_by_type: dict[str, dict]) -> li
     grouped: dict[str, dict] = {}
     for b in behaviors:
         state = behavior_state(b, records_by_type)
+        own = str(b["question"]) if b.get("question") else None
         for q in _questions_of(b):
             row = grouped.setdefault(q, {
                 "question": q, "behaviors": [], "_coverages": [], "events": [],
@@ -53,7 +54,10 @@ def question_rows(behaviors: list[dict], records_by_type: dict[str, dict]) -> li
             row["caveats"].extend(_as_list(b.get("caveats")))
             if b.get("asked_by") and not row["asked_by"]:
                 row["asked_by"] = str(b["asked_by"])
-            if b.get("question_ref") and not row["question_ref"]:
+            # Only the behavior's own question, never one it merely `answers:`. The ref is the
+            # task that asked that question, and the write-back stamps the row's state onto it;
+            # a composite inheriting it would post the composite's state to someone else's task.
+            if q == own and b.get("question_ref") and not row["question_ref"]:
                 row["question_ref"] = str(b["question_ref"])
 
     rows = []
