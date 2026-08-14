@@ -25,7 +25,9 @@ export class DistrictRoutingService {
     }
 
     const districtNumber = Number(current.L2DistrictName)
-    if (!Number.isInteger(districtNumber)) return current
+    if (!Number.isInteger(districtNumber) || districtNumber < 1) {
+      return current
+    }
 
     const proposed = await this.elections.findProposedCongressionalDistrict(
       current.state,

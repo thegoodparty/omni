@@ -89,4 +89,26 @@ describe('DistrictRoutingService', () => {
     expect(result.id).toBe('current-odd')
     expect(mockFindProposed).not.toHaveBeenCalled()
   })
+
+  it('does not route when the current name is empty', async () => {
+    const result = await service.routeWinDistrict('blank-campaign', {
+      ...currentOhio4,
+      id: 'current-blank',
+      L2DistrictName: '',
+    })
+
+    expect(result.id).toBe('current-blank')
+    expect(mockFindProposed).not.toHaveBeenCalled()
+  })
+
+  it('does not route when the current name is whitespace-only', async () => {
+    const result = await service.routeWinDistrict('whitespace-campaign', {
+      ...currentOhio4,
+      id: 'current-whitespace',
+      L2DistrictName: '   ',
+    })
+
+    expect(result.id).toBe('current-whitespace')
+    expect(mockFindProposed).not.toHaveBeenCalled()
+  })
 })
