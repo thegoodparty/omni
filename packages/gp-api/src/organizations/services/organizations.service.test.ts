@@ -950,6 +950,37 @@ describe('OrganizationsService', () => {
       expect(result?.l2DistrictType).toBe('US_Congressional_District')
       expect(mockRouteWinDistrict).not.toHaveBeenCalled()
     })
+
+    it('does not route makeFriendly (org-settings display)', async () => {
+      mockRouteWinDistrict.mockResolvedValue(proposed)
+
+      const result = await service.getOrganization(1, 'oh-4-campaign')
+
+      expect(result.district?.id).toBe('current-oh-4')
+      expect(mockRouteWinDistrict).not.toHaveBeenCalled()
+    })
+
+    it('does not route resolveCitySlug (a display/identity string)', async () => {
+      mockGetPositionById.mockResolvedValue({
+        id: 'pos-city',
+        state: 'NC',
+        district: {
+          id: 'district-city',
+          state: 'NC',
+          L2DistrictType: 'City',
+          L2DistrictName: 'Fayetteville',
+        },
+      })
+      mockRouteWinDistrict.mockResolvedValue(proposed)
+
+      const slug = await service.resolveCitySlug({
+        positionId: 'pos-1',
+        overrideDistrictId: null,
+      } as unknown as Organization)
+
+      expect(slug).toBe('fayetteville-NC')
+      expect(mockRouteWinDistrict).not.toHaveBeenCalled()
+    })
   })
 
   describe('extractCityFromDistrictName', () => {

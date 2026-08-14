@@ -363,20 +363,27 @@ export class OrganizationsService extends createPrismaBase(
    * to a stored value or manual configuration.
    */
   async resolveCitySlug(org: Organization): Promise<string | null> {
-    const [district, position] = await Promise.all([
-      this.resolveDistrict(org),
+    // A city slug is a display/identity string, not a Win voter-data read —
+    // it must stay on the current map, so this resolves its own
+    // overrideDistrict ?? position?.district rather than going through the
+    // routed resolveDistrict (see the other excluded methods above).
+    const [position, overrideDistrict] = await Promise.all([
       org.positionId
         ? this.electionsService.getPositionById(org.positionId, {
-            includeDistrict: false,
+            includeDistrict: true,
           })
+        : Promise.resolve(null),
+      org.overrideDistrictId
+        ? this.electionsService.getDistrict(org.overrideDistrictId)
         : Promise.resolve(null),
     ])
 
     const state = position?.state
-    if (!state || !district?.l2Name) return null
+    const district = overrideDistrict ?? position?.district
+    if (!state || !district?.L2DistrictName) return null
 
     const city = OrganizationsService.extractCityFromDistrictName(
-      district.l2Name,
+      district.L2DistrictName,
     )
     if (!city) return null
 
