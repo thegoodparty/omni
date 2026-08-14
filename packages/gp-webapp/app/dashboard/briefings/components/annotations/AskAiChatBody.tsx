@@ -2,10 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Textarea } from '@styleguide'
-import {
-  ChevronDownIcon,
-  SparklesIcon,
-} from '@styleguide/components/ui/icons'
+import { ChevronDownIcon, SparklesIcon } from '@styleguide/components/ui/icons'
 import {
   AssistantRow,
   InlineSegments,
@@ -14,10 +11,7 @@ import {
 } from '../../../shared/agent-chat/chatUI'
 import { segmentsToLive } from '../../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
-import type {
-  AgentChatClient,
-  ChatMessageDto,
-} from '../../../shared/agent-chat/chatClient'
+import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
 import { useDictationAppend } from '../../shared/useDictationAppend'
 import { DictationMicButton } from '../../shared/DictationMicButton'
 import { DictationFeedback } from '../../shared/DictationFeedback'
@@ -496,7 +490,10 @@ export default function AskAiChatBody({
 
           {visibleSegments.length > 0 ? (
             <AssistantRow>
-              <InlineSegments segments={visibleSegments} toolLabel={toolLabel} />
+              <InlineSegments
+                segments={visibleSegments}
+                toolLabel={toolLabel}
+              />
             </AssistantRow>
           ) : null}
 
@@ -546,7 +543,11 @@ export default function AskAiChatBody({
             value={composer}
             onChange={(e) => setComposer(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) {
+              if (
+                e.key !== 'Enter' ||
+                e.shiftKey ||
+                e.nativeEvent.isComposing
+              ) {
                 return
               }
               if (composer.trim().length === 0) return
