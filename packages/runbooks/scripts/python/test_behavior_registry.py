@@ -103,5 +103,10 @@ def test_explicit_null_instrumented_by_is_valid_but_missing_key_is_not():
     assert any("must set instrumented_by" in e for e in _errs(bad))
 
 
+def test_empty_string_instrumented_by_is_rejected_not_read_as_a_gap():
+    bad = VALID | {"surfaces": [{"path": "x.tsx", "label": "l", "instrumented_by": ""}]}
+    assert any("empty instrumented_by" in e for e in _errs(bad))
+
+
 def test_instrumenting_events_skips_nulls():
     assert br.instrumenting_events(VALID) == ["Voter Data - List Exported"]

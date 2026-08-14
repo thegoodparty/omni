@@ -51,7 +51,7 @@ def test_instruments_firing_with_no_working_surface_is_orphaned():
     assert bc.behavior_state(_behavior("E"), by_type)["coverage"] == "orphaned"
 
 
-def test_orphaned_outranks_partial():
+def test_partial_outranks_orphaned():
     by_type = {"E": _rec("E", "orphaned_firing"), "F": _rec("F")}
     assert bc.behavior_state(_behavior("E", "F"), by_type)["coverage"] == "partial"
 

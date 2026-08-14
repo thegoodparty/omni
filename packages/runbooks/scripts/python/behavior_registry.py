@@ -119,6 +119,13 @@ def validate_behaviors(
                     f"{bid}: surface {s.get('path')} must set instrumented_by "
                     "(use null to declare it uninstrumented)"
                 )
+            # An empty string would silently read as a declared gap downstream; only an
+            # explicit null carries that intent.
+            elif s["instrumented_by"] == "":
+                errors.append(
+                    f"{bid}: surface {s.get('path')} has an empty instrumented_by "
+                    "(use null to declare it uninstrumented)"
+                )
             name = s.get("instrumented_by")
             if name and name not in catalog_event_types:
                 errors.append(f"{bid}: instrumented_by {name!r} is not in the Amplitude catalog")
