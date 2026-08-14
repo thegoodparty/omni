@@ -23,7 +23,16 @@ class _FakeResponse:
 def _requester(payload):
     def fake(method, url, **kwargs):
         assert method == "GET"
+        if (kwargs.get("params") or {}).get("page", "0") != "0":
+            return _FakeResponse({"tasks": [], "last_page": True})
         return _FakeResponse(payload)
+    return fake
+
+
+def _paged_requester(pages):
+    def fake(method, url, **kwargs):
+        page = int((kwargs.get("params") or {}).get("page", "0"))
+        return _FakeResponse(pages[page])
     return fake
 
 
@@ -37,6 +46,27 @@ TASKS = {"tasks": [
     {"id": "86ak2222", "name": "Do candidates read the plan?",
      "status": {"status": "proposed"}, "custom_fields": []},
 ]}
+
+
+def test_fetch_questions_follows_pagination_until_last_page():
+    pages = [
+        {"tasks": [{"id": "1", "name": "Q1?", "status": {"status": "accepted"},
+                    "custom_fields": []}], "last_page": False},
+        {"tasks": [{"id": "2", "name": "Q2?", "status": {"status": "accepted"},
+                    "custom_fields": []}], "last_page": True},
+    ]
+    rows = qi.fetch_questions("k", "list1", requester=_paged_requester(pages))
+    assert [r["id"] for r in rows] == ["1", "2"]
+
+
+def test_fetch_questions_stops_on_an_empty_page_without_last_page():
+    pages = [
+        {"tasks": [{"id": "1", "name": "Q1?", "status": {"status": "accepted"},
+                    "custom_fields": []}]},
+        {"tasks": []},
+    ]
+    rows = qi.fetch_questions("k", "list1", requester=_paged_requester(pages))
+    assert [r["id"] for r in rows] == ["1"]
 
 
 def test_fetch_questions_flattens_tasks_and_custom_fields():
@@ -110,6 +140,13 @@ def test_dropdown_orderindex_zero_resolves_to_its_option_name_not_both():
 def test_dropdown_uuid_value_resolves_to_its_option_name():
     rows = qi.fetch_questions("k", "L", requester=_requester(_dropdown_task("opt-serve")))
     assert rows[0]["product"] == "Serve"
+
+
+def test_dropdown_value_returned_as_an_option_object_resolves_to_its_name():
+    rows = qi.fetch_questions(
+        "k", "L", requester=_requester(_dropdown_task({"id": "opt-x", "name": "Win"}))
+    )
+    assert rows[0]["product"] == "Win"
 
 
 def test_an_unresolvable_dropdown_value_still_falls_back_to_both():

@@ -48,26 +48,38 @@ def _custom(task: dict, name: str) -> str:
         for option in (field.get("type_config") or {}).get("options") or []:
             if target in (str(option.get("id")), str(option.get("orderindex"))):
                 return str(option.get("name", ""))
+        if isinstance(value, dict):
+            return str(value.get("name", ""))
         return target
     return ""
 
 
 def fetch_questions(api_key: str, list_id: str, *, requester=None) -> list[dict]:
-    """Flatten the list's tasks. Closed tasks are excluded: a retired question should stop
-    being asked about, and leaving them in would keep proposing dead behaviors."""
+    """Flatten the list's tasks, following pagination: ClickUp pages at 100, and a truncated
+    read here silently drops an accepted question forever. Closed tasks are excluded: a retired
+    question should stop being asked about, and leaving them in would keep proposing dead
+    behaviors."""
     kwargs = {"requester": requester} if requester else {}
-    payload = clickup_api.get(
-        f"list/{list_id}/task", api_key, params={"include_closed": "false"}, **kwargs
-    ) or {}
     rows = []
-    for task in payload.get("tasks") or []:
-        rows.append({
-            "id": str(task.get("id", "")),
-            "name": str(task.get("name", "")),
-            "status": str((task.get("status") or {}).get("status", "")).lower(),
-            "product": _custom(task, "Product"),
-            "asked_by": _custom(task, "Asked by"),
-        })
+    page = 0
+    while True:
+        payload = clickup_api.get(
+            f"list/{list_id}/task", api_key,
+            params={"include_closed": "false", "page": str(page)}, **kwargs
+        ) or {}
+        tasks = payload.get("tasks") or []
+        for task in tasks:
+            rows.append({
+                "id": str(task.get("id", "")),
+                "name": str(task.get("name", "")),
+                "status": str((task.get("status") or {}).get("status", "")).lower(),
+                "product": _custom(task, "Product"),
+                "asked_by": _custom(task, "Asked by"),
+            })
+        # Empty page also terminates: a response missing last_page must not loop forever.
+        if payload.get("last_page") or not tasks:
+            break
+        page += 1
     return rows
 
 

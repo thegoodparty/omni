@@ -76,18 +76,28 @@ def fetch_current_state(
 ) -> dict[str, str]:
     """{task_id: state key} from the list as it stands, so we only write real changes."""
     kwargs = {"requester": requester} if requester else {}
-    payload = clickup_api.get(
-        f"list/{list_id}/task", api_key, params={"include_closed": "false"}, **kwargs
-    ) or {}
     label_to_key = {v: k for k, v in STATE_LABELS.items()}
     out: dict[str, str] = {}
-    for task in payload.get("tasks") or []:
-        for field in task.get("custom_fields") or []:
-            if field.get("name") != state_field_name:
-                continue
-            label = _option_label(field)
-            if label in label_to_key:
-                out[str(task.get("id"))] = label_to_key[label]
+    page = 0
+    while True:
+        payload = clickup_api.get(
+            f"list/{list_id}/task", api_key,
+            params={"include_closed": "false", "page": str(page)}, **kwargs
+        ) or {}
+        tasks = payload.get("tasks") or []
+        for task in tasks:
+            for field in task.get("custom_fields") or []:
+                if field.get("name") != state_field_name:
+                    continue
+                label = _option_label(field)
+                if label in label_to_key:
+                    out[str(task.get("id"))] = label_to_key[label]
+        # A task past page 1 that we miss here reads as state-less and is rewritten every run,
+        # which is the notification churn this map exists to prevent. Empty page also
+        # terminates so a response missing last_page cannot loop forever.
+        if payload.get("last_page") or not tasks:
+            break
+        page += 1
     return out
 
 

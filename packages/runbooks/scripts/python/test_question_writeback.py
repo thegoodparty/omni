@@ -38,7 +38,16 @@ def _recorder(log):
 
 def _responder(payload):
     def fake(method, url, **kwargs):
+        if (kwargs.get("params") or {}).get("page", "0") != "0":
+            return _FakeResponse({"tasks": [], "last_page": True})
         return _FakeResponse(payload)
+    return fake
+
+
+def _paged_responder(pages):
+    def fake(method, url, **kwargs):
+        page = int((kwargs.get("params") or {}).get("page", "0"))
+        return _FakeResponse(pages[page])
     return fake
 
 
@@ -124,6 +133,20 @@ def test_dropdown_orderindex_value_is_resolved_through_type_config():
     ]}
     assert qw.fetch_current_state("k", "L", requester=_responder(payload)) == {
         "86ak3333": "partially_answerable",
+    }
+
+
+def test_fetch_current_state_follows_pagination_until_last_page():
+    pages = [
+        {"tasks": [_task("86ak1111", {
+            "name": "Answer state", "type_config": _TYPE_CONFIG, "value": "opt-a",
+        })], "last_page": False},
+        {"tasks": [_task("86ak2222", {
+            "name": "Answer state", "type_config": _TYPE_CONFIG, "value": "opt-n",
+        })], "last_page": True},
+    ]
+    assert qw.fetch_current_state("k", "L", requester=_paged_responder(pages)) == {
+        "86ak1111": "answerable", "86ak2222": "not_answerable",
     }
 
 
