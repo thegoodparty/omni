@@ -29,10 +29,23 @@ export class DistrictRoutingService {
       return current
     }
 
-    const proposed = await this.elections.findProposedCongressionalDistrict(
-      current.state,
-      districtNumber,
-    )
+    let proposed: District | null
+    try {
+      proposed = await this.elections.findProposedCongressionalDistrict(
+        current.state,
+        districtNumber,
+      )
+    } catch (error) {
+      // findProposedCongressionalDistrict already degrades a missing-map
+      // 404 to null (elections.service.ts) — this catch is a second line of
+      // defense so any failure here still resolves to "current district
+      // stands," the one guarantee this whole routing policy exists for.
+      this.logger.warn(
+        { error, orgSlug, state: current.state, districtNumber },
+        'findProposedCongressionalDistrict failed; keeping current district',
+      )
+      return current
+    }
     if (!proposed) return current
 
     // The only way to tell in prod which map a campaign's numbers describe.

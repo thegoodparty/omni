@@ -994,11 +994,37 @@ describe('ElectionsService', () => {
       ).toBeNull()
     })
 
-    it('returns null when the state has no proposed rows', async () => {
-      mockHttpGet.mockReturnValue(of({ data: [], status: 200 }))
+    it('returns null when the state has no adopted map (election-api 404s)', async () => {
+      // election-api's districts/list throws on an empty match rather than
+      // returning [] — this is the shape almost every state hits today.
+      mockHttpGet.mockReturnValue(
+        throwError(() =>
+          makeAxiosError(404, 'No districts found for query: ...'),
+        ),
+      )
 
       expect(
         await service.findProposedCongressionalDistrict('VA', 2),
+      ).toBeNull()
+    })
+
+    it('returns null (swallows) when election-api errors (genuine bug)', async () => {
+      mockHttpGet.mockReturnValue(
+        throwError(() => makeAxiosError(500, 'internal error')),
+      )
+
+      expect(
+        await service.findProposedCongressionalDistrict('OH', 4),
+      ).toBeNull()
+    })
+
+    it('returns null (swallows) on a network failure', async () => {
+      mockHttpGet.mockImplementation(() => {
+        throw new Error('boom')
+      })
+
+      expect(
+        await service.findProposedCongressionalDistrict('OH', 4),
       ).toBeNull()
     })
 

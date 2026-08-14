@@ -32,6 +32,7 @@ describe('DistrictRoutingService', () => {
       {
         setContext: vi.fn(),
         info: vi.fn(),
+        warn: vi.fn(),
       } as unknown as PinoLogger,
     )
   })
@@ -52,6 +53,19 @@ describe('DistrictRoutingService', () => {
 
     expect(result.id).toBe('current-oh-4')
     expect(mockFindProposed).not.toHaveBeenCalled()
+  })
+
+  it('keeps the current district when findProposedCongressionalDistrict rejects', async () => {
+    // Pins the invariant the whole "safe by construction" design rests on:
+    // a lookup failure must never turn into a broken Win surface. Fixed at
+    // its source in elections.service.ts (findProposedCongressionalDistrict
+    // degrades any failure to null) — this test exercises the same
+    // guarantee from routeWinDistrict's own vantage point.
+    mockFindProposed.mockRejectedValue(new Error('election-api down'))
+
+    const result = await service.routeWinDistrict('oh-4-campaign', currentOhio4)
+
+    expect(result.id).toBe('current-oh-4')
   })
 
   it('keeps the current district when the state has no adopted map', async () => {

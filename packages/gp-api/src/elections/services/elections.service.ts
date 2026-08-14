@@ -326,26 +326,41 @@ export class ElectionsService {
     return districts?.[0]?.id ?? null
   }
 
+  // Most states have no adopted 2026 congressional map yet, so election-api's
+  // districts/list 404s (it throws on an empty match, not returns []) for
+  // almost every call here — that 404 is the ordinary "nothing adopted yet"
+  // case, not a fault, and callers (routeWinDistrict) rely on this resolving
+  // to null rather than throwing so the current district stands. Returns
+  // null on ANY failure (404 / 5xx / network), same shape as
+  // getPersonIdByGpApiUserId above.
   async findProposedCongressionalDistrict(
     state: string,
     districtNumber: number,
   ): Promise<District | null> {
-    const districts = await this.electionApiGet<
-      District[],
-      { state: string; L2DistrictType: string; districtColumns: string }
-    >(ElectionApiRoutes.districts.list.path, {
-      state,
-      L2DistrictType: PROPOSED_DISTRICT_TYPE,
-      districtColumns: 'id,state,L2DistrictType,L2DistrictName',
-    })
+    try {
+      const districts = await this.electionApiGet<
+        District[],
+        { state: string; L2DistrictType: string; districtColumns: string }
+      >(ElectionApiRoutes.districts.list.path, {
+        state,
+        L2DistrictType: PROPOSED_DISTRICT_TYPE,
+        districtColumns: 'id,state,L2DistrictType,L2DistrictName',
+      })
 
-    return (
-      districts?.find(
-        (district) =>
-          parseProposedCongressionalNumber(district.L2DistrictName) ===
-          districtNumber,
-      ) ?? null
-    )
+      return (
+        districts?.find(
+          (district) =>
+            parseProposedCongressionalNumber(district.L2DistrictName) ===
+            districtNumber,
+        ) ?? null
+      )
+    } catch (error) {
+      this.logger.warn(
+        { error, state, districtNumber },
+        'Election API GET districts/list (proposed) failed',
+      )
+      return null
+    }
   }
 
   /**
