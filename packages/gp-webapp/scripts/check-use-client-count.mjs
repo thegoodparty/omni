@@ -240,7 +240,12 @@ import { dirname, join, relative } from 'node:path'
 // RobocallScheduleStep drawer surface owns the name/date/time inputs and their
 // selection handlers, so it's a client component. Its scheduleTimeZone.ts
 // helper is directive-free (pure date/tz functions, no JSX).
-const BASELINE = 600
+// 2026-08-24: 600 -> 606 for Voter Outreach 2.0 phase 2 (rebased onto main):
+// the SMS drawer flow (flow + five step components) — interactive wizard
+// surfaces (mutations, flow state, Stripe payment mount) that can't be server
+// components. Same +6 previously recorded against the pre-merge phase 1
+// baseline (580 -> 586).
+const BASELINE = 606
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

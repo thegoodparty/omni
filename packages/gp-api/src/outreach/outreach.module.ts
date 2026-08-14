@@ -16,6 +16,7 @@ import { PaymentsModule } from '../payments/payments.module'
 import { PeerlyModule } from '../vendors/peerly/peerly.module'
 import { VotersModule } from '../voters/voters.module'
 import { OutreachController } from './outreach.controller'
+import { OutreachSmsController } from './outreachSms.controller'
 import { OutreachSocialController } from './outreachSocial.controller'
 import { OutreachPhoneBankingController } from './outreachPhoneBanking.controller'
 import { OutreachNotificationInterceptor } from './interceptors/outreachNotification.interceptor'
@@ -26,6 +27,7 @@ import { OutreachService } from './services/outreach.service'
 import { OutreachSocialService } from './services/outreachSocial.service'
 import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
 import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
+import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
 import { OutreachNotificationService } from './services/outreachNotification.service'
 import { OutreachPurchaseHandlerService } from './services/outreachPurchase.service'
@@ -56,12 +58,14 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachController,
     OutreachSocialController,
     OutreachPhoneBankingController,
+    OutreachSmsController,
   ],
   providers: [
     OutreachService,
     OutreachSocialService,
     OutreachSocialGenerationService,
     OutreachPhoneBankingGenerationService,
+    OutreachSmsGenerationService,
     OutreachComposeContextService,
     OutreachCompletionService,
     OutreachInboundSweepService,

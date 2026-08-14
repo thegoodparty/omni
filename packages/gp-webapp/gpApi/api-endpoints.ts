@@ -43,6 +43,8 @@ import type {
   PhoneBankingScriptDraftResponse,
   PhoneBankingCreate,
   PhoneBankingCreateResponse,
+  SmsDraftRequest,
+  SmsDraftResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -291,6 +293,14 @@ export type APIEndpoints = {
   'POST /v1/outreach/social/generate': {
     Request: SocialGenerateRequest
     Response: SocialGenerateResponse
+  }
+
+  // SMS sibling of the social draft endpoint: writes/polishes only the
+  // message BODY — the flow wraps it in the system-owned identification
+  // intro and opt-out footer client-side before submission.
+  'POST /v1/outreach/sms/draft': {
+    Request: SmsDraftRequest
+    Response: SmsDraftResponse
   }
 
   // Persists the social campaign atomically (spine row + satellite +
