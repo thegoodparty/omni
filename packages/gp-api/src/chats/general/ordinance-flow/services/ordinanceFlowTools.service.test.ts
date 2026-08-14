@@ -717,6 +717,26 @@ describe('ordinance-flow present_* tool builders', () => {
     expect(row.draftBody).toBe(redline)
   })
 
+  it('saveDraft keeps redline on an amendment with a verbatim baseline (no sourceLink)', async () => {
+    // The flow reaches amendments without a user-pasted link: it researches the
+    // code and stores existingLaw.verbatimText but no sourceLink, so the
+    // verbatimText arm of isAmendmentRecord must also protect the redline.
+    await tools.saveExistingLaw(ordinanceId, electedOfficeId, {
+      sourceUrl: 'https://library.municode.com/nc/hendersonville/ch12',
+      text: 'Current law summary.',
+      verbatimText: 'Sec. 12-1. The fee shall be $50.',
+    })
+    const redline = 'Sec. 12-1. The fee shall be {-$50-}{+$75+}.'
+    await tools.saveDraft(ordinanceId, electedOfficeId, {
+      title: 'Amendment via verbatim baseline',
+      body: redline,
+    })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe(redline)
+  })
+
   describe('quality loop hooks', () => {
     const seedRunningLoop = () =>
       service.prisma.ordinance.update({
