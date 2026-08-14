@@ -93,6 +93,9 @@ describe('GET /v1/public-person-profiles/voter-density', () => {
     // would 401 (→ 502) once ELECTION_API_AUTH_ENFORCED is on. The test harness
     // stubs ElectionApiTokenService.authHeader to 'Bearer test-election-api-token'.
     let capturedHeaders: Record<string, string> | undefined
+    // District resolution succeeds here, so the proxy goes on to read people-db;
+    // stub that too or the unmocked client throws and the assertion sees a 500.
+    const densitySpy = mockDensity({ coverage: 0.5, cells: [] })
     const proxy = service.app.get(VoterDensityProxyService)
     const http = (proxy as unknown as { httpService: HttpService }).httpService
     const spy = vi
@@ -118,6 +121,7 @@ describe('GET /v1/public-person-profiles/voter-density', () => {
       'Bearer test-election-api-token',
     )
     spy.mockRestore()
+    densitySpy.mockRestore()
   })
 
   it('404s when the person maps to no district (null districtId)', async () => {
