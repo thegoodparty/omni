@@ -1,8 +1,9 @@
 """Read the Analytics Questions ClickUp list into proposed behaviors (DATA-2316).
 
-Intake is deliberately not applied live. An accepted task becomes a proposed YAML change on
-the governance branch, so monitored_events.yaml stays the source of truth and a human still
-approves what enters the registry. Stubs land with no surfaces, which makes them uncovered on
+Intake is deliberately not applied live. The human gate is the ClickUp accept status: only a
+task a person moved to Accepted becomes a YAML change, and that change rides the governance
+state PR (which auto-merges — the approval happened in ClickUp, upstream, not at PR review).
+Stubs land with no surfaces, which makes them uncovered on
 the next run: a question nobody has instrumented is exactly what the digest should be shouting
 about, and guessing file paths here would manufacture false coverage instead.
 """

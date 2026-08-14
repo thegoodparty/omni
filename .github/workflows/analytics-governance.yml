@@ -221,8 +221,17 @@ jobs:
           GP_QUESTIONS_OPT_NOT: ${{ vars.GP_QUESTIONS_OPT_NOT }}
         run: |
           set -euo pipefail
-          if [ -z "${CLICKUP_API_KEY:-}" ] || [ -z "${GP_QUESTIONS_LIST_ID:-}" ]; then
-            echo "::warning::Question write-back skipped: no ClickUp identity configured."
+          # Skip while ANY of the seven ids is missing (rollout is incremental), but name the
+          # gaps: a write-back that skips silently forever would be invisible except as a stale
+          # Last-checked date on the ClickUp list.
+          missing=""
+          for var in CLICKUP_API_KEY GP_QUESTIONS_LIST_ID GP_QUESTIONS_STATE_FIELD_ID \
+                     GP_QUESTIONS_CHECKED_FIELD_ID GP_QUESTIONS_OPT_ANSWERABLE \
+                     GP_QUESTIONS_OPT_PARTIAL GP_QUESTIONS_OPT_NOT; do
+            [ -z "${!var:-}" ] && missing="$missing $var"
+          done
+          if [ -n "$missing" ]; then
+            echo "::warning::Question write-back skipped: missing$missing"
             exit 0
           fi
           uv run event_state_gsheet.py writeback-questions
