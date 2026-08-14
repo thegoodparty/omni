@@ -6,6 +6,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   Loader2Icon,
+  PlusIcon,
 } from '@styleguide/components/ui/icons'
 import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import { Intro } from '../social/Intro'
@@ -93,9 +94,31 @@ export const SmsAudienceStep = ({
             className="max-h-80 w-[var(--radix-popover-trigger-width)] overflow-y-auto p-0"
           >
             <div className="divide-y divide-border">
+              {/* Prototype entry, interim behavior: the in-flow builder is a
+                  deferred phase 2 slice, so this opens the CRM's list surface
+                  in a new tab — the drawer (and flow state) stays alive, and
+                  the lists query refetches on return. */}
+              <a
+                href="/dashboard/contacts"
+                target="_blank"
+                rel="noreferrer"
+                className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-muted"
+              >
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary-light">
+                  <PlusIcon className="size-4 text-primary" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-medium text-primary">
+                    Create a new list
+                  </span>
+                  <span className="block text-sm text-muted-foreground">
+                    Build a custom audience
+                  </span>
+                </span>
+              </a>
               {lists.length === 0 && !listsLoading && (
                 <p className="p-4 text-sm text-muted-foreground">
-                  No saved lists yet. Create one in Voter Data first.
+                  No saved lists yet.
                 </p>
               )}
               {lists.map((list) => {
