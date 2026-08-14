@@ -223,6 +223,31 @@ export class VercelService {
     }
   }
 
+  /**
+   * Retrieve the EPP/auth code a registrant needs to transfer a domain away
+   * from Vercel to another registrar.
+   * @see https://vercel.com/docs/domains/registrar-api
+   */
+  async getDomainAuthCode(domainName: string): Promise<string> {
+    try {
+      const { authCode } = await this.client.domainsRegistrar.getDomainAuthCode(
+        {
+          domain: domainName,
+          teamId: VERCEL_TEAM_ID,
+        },
+      )
+      return authCode
+    } catch (error) {
+      // Unlike the sibling methods, never log the success payload — the auth
+      // code is a bearer credential for taking the domain off our account.
+      this.logger.error(
+        { error },
+        `Error getting auth code for domain ${domainName}:`,
+      )
+      throw error
+    }
+  }
+
   async getDomainDetails(domainName: string) {
     try {
       return await this.client.domains.getDomain({

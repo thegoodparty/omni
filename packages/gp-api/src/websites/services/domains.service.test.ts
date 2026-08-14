@@ -34,6 +34,8 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { DomainAvailability } from '@aws-sdk/client-route-53-domains'
+import { DomainCannotBeTransferedOutUntil } from '@vercel/sdk/models/domaincannotbetransferedoutuntil'
+import { DomainNotRegistered } from '@vercel/sdk/models/domainnotregistered'
 import { GetOrderStatus } from '@vercel/sdk/models/getorderop'
 
 const mockUser = createMockUser()
@@ -71,6 +73,8 @@ describe('DomainsService', () => {
     createMXRecords: ReturnType<typeof vi.fn>
     createTXTVerificationRecord: ReturnType<typeof vi.fn>
     getDomainDetails: ReturnType<typeof vi.fn>
+    getDomainAuthCode: ReturnType<typeof vi.fn>
+    isVercelNotFoundError: ReturnType<typeof vi.fn>
   }
   let mockForwardEmail: {
     getDomain: ReturnType<typeof vi.fn>
@@ -119,6 +123,8 @@ describe('DomainsService', () => {
           boughtAt: 1700000000000,
         },
       }),
+      getDomainAuthCode: vi.fn().mockResolvedValue('AuthC0de!'),
+      isVercelNotFoundError: vi.fn().mockReturnValue(false),
     }
     mockForwardEmail = {
       getDomain: vi.fn().mockResolvedValue(null),
@@ -295,6 +301,88 @@ describe('DomainsService', () => {
 
       expect(result).toHaveProperty('domain')
       expect(result).toHaveProperty('message')
+    })
+  })
+
+  describe('getDomainTransferAuthCode', () => {
+    // The SDK error constructors require a live fetch Request/Response pair,
+    // so build instances off the prototype to keep `instanceof` meaningful.
+    const buildVercelError = (
+      errorClass: { prototype: object },
+      message: string,
+    ): Error =>
+      Object.assign(Object.create(errorClass.prototype), { message }) as Error
+
+    it('returns the auth code from Vercel', async () => {
+      const result = await service.getDomainTransferAuthCode(
+        'test-domain.com',
+        mockUser,
+      )
+
+      expect(mockVercel.getDomainAuthCode).toHaveBeenCalledWith(
+        'test-domain.com',
+      )
+      expect(result).toBe('AuthC0de!')
+    })
+
+    it('never persists the auth code', async () => {
+      // The code is a bearer credential for moving the domain off our account.
+      // Storing it would turn any read of the domain table into the ability to
+      // transfer away every campaign's domain.
+      await service.getDomainTransferAuthCode('test-domain.com', mockUser)
+
+      expect(mockPrisma.domain.update).not.toHaveBeenCalled()
+      expect(mockPrisma.domain.updateMany).not.toHaveBeenCalled()
+      expect(mockPrisma.domain.create).not.toHaveBeenCalled()
+    })
+
+    it('maps a domain we never registered to NotFoundException', async () => {
+      mockVercel.isVercelNotFoundError.mockReturnValue(true)
+      mockVercel.getDomainAuthCode.mockRejectedValueOnce(new Error('404'))
+
+      await expect(
+        service.getDomainTransferAuthCode('not-ours.com', mockUser),
+      ).rejects.toBeInstanceOf(NotFoundException)
+    })
+
+    it('maps DomainNotRegistered to NotFoundException', async () => {
+      mockVercel.getDomainAuthCode.mockRejectedValueOnce(
+        buildVercelError(
+          DomainNotRegistered,
+          'The domain is not registered with Vercel.',
+        ),
+      )
+
+      await expect(
+        service.getDomainTransferAuthCode('not-ours.com', mockUser),
+      ).rejects.toBeInstanceOf(NotFoundException)
+    })
+
+    it('surfaces the ICANN 60-day lock as a ConflictException carrying the unlock date', async () => {
+      // Freshly purchased domains cannot be transferred out for 60 days. The
+      // date in Vercel's message is the only thing support can act on, so it
+      // has to survive the translation instead of collapsing into a 500.
+      mockVercel.getDomainAuthCode.mockRejectedValue(
+        buildVercelError(
+          DomainCannotBeTransferedOutUntil,
+          'The domain cannot be transfered out until 2026-05-02.',
+        ),
+      )
+
+      await expect(
+        service.getDomainTransferAuthCode('brand-new.run', mockUser),
+      ).rejects.toBeInstanceOf(ConflictException)
+      await expect(
+        service.getDomainTransferAuthCode('brand-new.run', mockUser),
+      ).rejects.toThrow(/2026-05-02/)
+    })
+
+    it('rethrows unexpected Vercel failures rather than reporting the domain missing', async () => {
+      mockVercel.getDomainAuthCode.mockRejectedValue(new Error('Vercel is 500'))
+
+      await expect(
+        service.getDomainTransferAuthCode('test-domain.com', mockUser),
+      ).rejects.toThrow('Vercel is 500')
     })
   })
 

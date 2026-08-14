@@ -7,7 +7,8 @@ import {
   NotFoundException,
   RequestMethod,
 } from '@nestjs/common'
-import { DomainSource, DomainStatus } from '../../generated/prisma'
+import { DomainSource, DomainStatus, UserRole } from '../../generated/prisma'
+import { ROLES_KEY } from 'src/authentication/decorators/Roles.decorator'
 import { IncomingRequest } from '@/authentication/authentication.types'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -318,6 +319,79 @@ describe('DomainsController.purchaseDomain MCP discoverability', () => {
     )
     expect(purchase!.inputDeclarations.query.declared).toBe(false)
     expect(purchase!.inputDeclarations.params.declared).toBe(false)
+  })
+})
+
+describe('DomainsController.domainAuthCode', () => {
+  let controller: DomainsController
+  let mockDomains: { getDomainTransferAuthCode: ReturnType<typeof vi.fn> }
+
+  beforeEach(async () => {
+    mockDomains = {
+      getDomainTransferAuthCode: vi.fn().mockResolvedValue('AuthC0de!'),
+    }
+
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [DomainsController],
+      providers: [
+        { provide: DomainsService, useValue: mockDomains },
+        { provide: WebsitesService, useValue: {} },
+      ],
+    })
+      .overrideGuard(UseCampaignGuard)
+      .useValue({ canActivate: () => true })
+      .compile()
+
+    controller = module.get<DomainsController>(DomainsController)
+  })
+
+  it('returns the auth code from the service and passes the requesting user through', async () => {
+    const user = createMockUser({ firstName: 'Support', lastName: 'Staff' })
+
+    const result = await controller.domainAuthCode(user, {
+      domain: 'stephanieberardi.com',
+    })
+
+    expect(mockDomains.getDomainTransferAuthCode).toHaveBeenCalledWith(
+      'stephanieberardi.com',
+      user,
+    )
+    expect(result).toEqual({ authCode: 'AuthC0de!' })
+  })
+
+  it('propagates NotFoundException for a domain we did not register', async () => {
+    mockDomains.getDomainTransferAuthCode.mockRejectedValueOnce(
+      new NotFoundException('not-ours.com is not registered through GoodParty'),
+    )
+
+    await expect(
+      controller.domainAuthCode(createMockUser(), { domain: 'not-ours.com' }),
+    ).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  it('is registered for GET /auth-code and restricted to admins', () => {
+    // The auth code hands control of the domain to whoever holds it, and every
+    // domain sits under one shared Vercel team — without the admin role this
+    // route would let any authenticated candidate transfer away someone else's.
+    const reflector = new Reflector()
+
+    expect(Reflect.getMetadata('path', controller.domainAuthCode)).toBe(
+      'auth-code',
+    )
+    expect(Reflect.getMetadata('method', controller.domainAuthCode)).toBe(
+      RequestMethod.GET,
+    )
+    expect(reflector.get(ROLES_KEY, controller.domainAuthCode)).toEqual([
+      UserRole.admin,
+    ])
+  })
+
+  it('is not exposed as an MCP tool', () => {
+    // Agents run the compliance_setup purchase flow against this controller.
+    // Issuing transfer codes must stay a human, admin-audited action.
+    expect(
+      new Reflector().get(MCP_TOOL_KEY, controller.domainAuthCode),
+    ).toBeUndefined()
   })
 })
 
