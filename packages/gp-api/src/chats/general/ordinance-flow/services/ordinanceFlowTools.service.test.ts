@@ -701,6 +701,17 @@ describe('ordinance-flow present_* tool builders', () => {
     expect(row.draftBody).toBe('Section 1. Cameras shall be sited by data.')
   })
 
+  it('saveDraft does not blank a new draft when a body would collapse to empty', async () => {
+    // Degenerate all-deletion markup collapses to '' via redlineToAmended;
+    // fall back to the model's text instead of persisting an empty draft.
+    const body = '{-Section 1. Placeholder.-}'
+    await tools.saveDraft(ordinanceId, electedOfficeId, { title: 'Odd', body })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe(body)
+  })
+
   it('saveDraft keeps redline on an amendment draft (the deliverable)', async () => {
     await service.prisma.ordinance.update({
       where: { id: ordinanceId },

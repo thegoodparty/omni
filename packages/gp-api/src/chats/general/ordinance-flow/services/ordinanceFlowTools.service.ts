@@ -266,10 +266,13 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     // draft must be plain — but the model sometimes wraps the whole body in
     // {+inserted+} markup. Collapse that stray redline; an amendment's redline
     // is the deliverable and stays.
-    const body =
+    const collapsed =
       !this.isAmendmentRecord(o) && hasRedline(draft.body)
         ? redlineToAmended(draft.body)
         : draft.body
+    // A degenerate all-deletion body collapses to '' — keep the model's text
+    // rather than persist an empty draft.
+    const body = collapsed || draft.body
     const updated = await this.model.update({
       where: { id: o.id },
       data: {
