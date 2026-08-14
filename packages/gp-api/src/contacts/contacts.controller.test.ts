@@ -1,5 +1,10 @@
+import { randomUUID } from 'node:crypto'
 import { useTestService } from '@/test-service'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { ElectionsService } from '@/elections/services/elections.service'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
+import { HttpService } from '@nestjs/axios'
+import { of } from 'rxjs'
 import { describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -221,6 +226,96 @@ describe('GET /v1/contacts authz', () => {
     expect(getListDetail).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ slug: WIN_SLUG }),
+    )
+  })
+
+  // DATA-2245: a Win org's congressional position routes onto the adopted
+  // 2026 proposed map (Serve stays on the current map — covered at the unit
+  // level in districtRouting.service.test.ts). Drives POST /v1/contacts/count
+  // through the real routing path (resolveDistrictInfoFromOrg ->
+  // DistrictRoutingService.routeWinDistrict), asserting the *proposed*
+  // district id is what reaches VoterQueryService — the thing routing
+  // actually changes. Position resolution is stubbed on ElectionsService
+  // directly (the convention organizations.controller.test.ts uses); the
+  // districts-list lookup behind findProposedCongressionalDistrict is left
+  // to run for real against a stubbed HttpService.get, per the brief.
+  it('routes a Win congressional district to the adopted 2026 map', async () => {
+    // A prior test in this file leaves ContactsService.countContacts spied
+    // with a canned resolved value (clearMocks only clears call history, not
+    // the installed implementation, and the service instance is shared for
+    // the whole file). This test needs the real countContacts implementation
+    // to exercise routing, so restore it first.
+    vi.spyOn(service.app.get(ContactsService), 'countContacts').mockRestore()
+
+    const positionId = 'br-pos-oh-4'
+    const currentDistrict = {
+      // The ported people-db DTOs run through Zod, whose districtId is
+      // z.guid() — a non-UUID placeholder like 'current-oh-4' fails
+      // validation once it reaches ListPeopleDTO.
+      id: randomUUID(),
+      state: 'OH',
+      L2DistrictType: 'US_Congressional_District',
+      L2DistrictName: '4',
+      projectedTurnout: null,
+    }
+    const proposedDistrict = {
+      id: randomUUID(),
+      state: 'OH',
+      L2DistrictType: 'Proposed_District',
+      L2DistrictName: '2026 PROPOSED CONG DIST 04 (EST.)',
+      projectedTurnout: null,
+    }
+
+    vi.spyOn(
+      service.app.get(ElectionsService),
+      'getPositionById',
+    ).mockResolvedValue({
+      id: positionId,
+      brPositionId: positionId,
+      brDatabaseId: 'br-db-oh-4',
+      state: 'OH',
+      name: 'U.S. House',
+      district: currentDistrict,
+    })
+    vi.spyOn(service.app.get(HttpService), 'get').mockReturnValue(
+      of({ data: [proposedDistrict], status: 200 }) as never,
+    )
+
+    await service.prisma.organization.create({
+      data: { slug: WIN_SLUG, ownerId: service.user.id, positionId },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: `${WIN_SLUG}-campaign`,
+        organizationSlug: WIN_SLUG,
+        isPro: true,
+      },
+    })
+
+    const findPeople = vi
+      .spyOn(service.app.get(VoterQueryService), 'findPeople')
+      .mockResolvedValue({
+        pagination: {
+          totalResults: 0,
+          currentPage: 1,
+          pageSize: 1,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+        people: [],
+      })
+
+    const result = await service.client.post(
+      '/v1/contacts/count',
+      {},
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+    expect(findPeople).toHaveBeenCalledWith(
+      expect.objectContaining({ districtId: proposedDistrict.id }),
     )
   })
 })
