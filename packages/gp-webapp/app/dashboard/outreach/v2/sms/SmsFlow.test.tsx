@@ -40,14 +40,17 @@ vi.mock('helpers/createOutreach', () => ({
   createOutreach: vi.fn(async () => ({ id: 55 })),
 }))
 
-const completeFreePurchase = vi.fn(async () => ({ ok: true }))
+const completeFreePurchase = vi.fn(
+  async (_type: string, _meta: Record<string, unknown>) => ({ ok: true }),
+)
 vi.mock('app/dashboard/purchase/utils/purchaseFetch.utils', () => ({
   createCheckoutSession: vi.fn(async () => ({
     ok: true,
     data: { id: 'free_1', clientSecret: '', amount: 0 },
   })),
   completeCheckoutSession: vi.fn(async () => ({ ok: true })),
-  completeFreePurchase: (...args: unknown[]) => completeFreePurchase(...args),
+  completeFreePurchase: (type: string, meta: Record<string, unknown>) =>
+    completeFreePurchase(type, meta),
 }))
 
 // The flow reads campaign (details/office, free-texts offer) and user (first
@@ -62,6 +65,9 @@ vi.mock('@shared/hooks/useCampaign', () => ({
     },
     vi.fn(),
   ],
+}))
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'campaign-9', district: {} }),
 }))
 vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => [{ id: 1, firstName: 'Jane' }, vi.fn(), false],
@@ -80,8 +86,14 @@ const mockListDetail = () =>
   api.mock('GET /v1/contacts/list-detail', {
     status: 200,
     data: {
-      demographics: { people: 1500 },
-      reachability: { sms: 1200 },
+      demographics: { people: 1500, avgAge: null, avgIncome: null },
+      reachability: {
+        sms: 1200,
+        robocall: null,
+        phoneBanking: null,
+        doorKnocking: null,
+        polls: null,
+      },
       outreachHistory: [],
     },
   })
@@ -195,6 +207,45 @@ describe('SmsFlow', () => {
       expect.objectContaining({ outreachId: 55, phoneListToken: 'tok-1' }),
     )
     expect(onScheduled).toHaveBeenCalledTimes(1)
+  })
+
+  it('builds a new list in-flow and continues into scheduling', async () => {
+    mockDraft()
+    api.mock('POST /v1/contacts/count', { status: 200, data: { count: 875 } })
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => ({
+      status: 200,
+      data: { id: 77, name: (body as { name: string }).name },
+    }))
+    openFlow()
+
+    await userEvent.click(screen.getByText('Introduce myself'))
+    await userEvent.click(await screen.findByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Create a new list'))
+
+    // Builder: CRM wizard pills; continue stays disabled until a selection.
+    expect(await screen.findByText('Build a voter list')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Super' }))
+
+    // Debounced count settles into the CTA label.
+    const continueWithCount = await screen.findByRole(
+      'button',
+      { name: 'Continue (875)' },
+      { timeout: 3000 },
+    )
+    await userEvent.click(continueWithCount)
+
+    // Name step: live count sentence + name input gate.
+    expect(await screen.findByText('Name your list')).toBeInTheDocument()
+    expect(screen.getByText(/875 voters match/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    await userEvent.type(screen.getByLabelText('List name'), 'Super voters TX')
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // Created + phone list derived (mocked) → schedule step.
+    expect(
+      await screen.findByText('When do you want to send it?'),
+    ).toBeInTheDocument()
   })
 
   it('keeps Continue disabled on the audience step until a list is picked', async () => {

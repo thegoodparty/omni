@@ -8,19 +8,40 @@ import {
   Loader2Icon,
   PlusIcon,
 } from '@styleguide/components/ui/icons'
-import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
+import type {
+  SegmentResponse,
+  SupportStatusRollup,
+} from 'app/dashboard/contacts/crm/shared/contacts-types'
+import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import VoterFileStep from 'app/dashboard/contacts/crm/wizard/VoterFileStep'
+import NameStep from 'app/dashboard/contacts/crm/wizard/NameStep'
 import { Intro } from '../social/Intro'
 
+export type SmsAudienceMode = 'picker' | 'filters' | 'name'
+
 interface SmsAudienceStepProps {
+  mode: SmsAudienceMode
   lists: SegmentResponse[]
   listsLoading: boolean
   selectedId: number | null
   onSelect: (id: number) => void
+  onStartBuilder: () => void
   // The saved list's SMS-reachable count (reachability.sms from the list
   // detail): null while loading or when the aggregate failed server-side.
   reachableCount: number | null
   reachableLoading: boolean
   pricePerMessage: number
+  // In-flow list builder (the CRM wizard's dumb steps re-hosted here).
+  builderFilters: VoterFileFilters
+  onBuilderFiltersChange: (filters: VoterFileFilters) => void
+  builderSupportStatus: SupportStatusRollup[]
+  onBuilderSupportStatusChange: (value: SupportStatusRollup[]) => void
+  builderName: string
+  onBuilderNameChange: (name: string) => void
+  builderCount: number | undefined
+  builderCounting: boolean
+  builderCapError: boolean
+  builderCountErrorMessage: string | undefined
 }
 
 const money = (n: number): string =>
@@ -30,16 +51,63 @@ const money = (n: number): string =>
   })
 
 export const SmsAudienceStep = ({
+  mode,
   lists,
   listsLoading,
   selectedId,
   onSelect,
+  onStartBuilder,
   reachableCount,
   reachableLoading,
   pricePerMessage,
+  builderFilters,
+  onBuilderFiltersChange,
+  builderSupportStatus,
+  onBuilderSupportStatusChange,
+  builderName,
+  onBuilderNameChange,
+  builderCount,
+  builderCounting,
+  builderCapError,
+  builderCountErrorMessage,
 }: SmsAudienceStepProps) => {
   const [open, setOpen] = useState(false)
   const active = lists.find((l) => l.id === selectedId) ?? null
+
+  if (mode === 'name') {
+    return (
+      <div className="space-y-6">
+        <Intro title="Name your list" body="You can rename it any time." />
+        <NameStep
+          name={builderName}
+          onNameChange={onBuilderNameChange}
+          count={builderCount}
+          isCounting={builderCounting}
+          isCapError={builderCapError}
+          countErrorMessage={builderCountErrorMessage}
+          peopleNoun="voters"
+        />
+      </div>
+    )
+  }
+
+  if (mode === 'filters') {
+    return (
+      <div className="space-y-6">
+        <Intro
+          title="Build a voter list"
+          body="Pick filters to define who this campaign reaches."
+        />
+        <VoterFileStep
+          filters={builderFilters}
+          onFiltersChange={onBuilderFiltersChange}
+          supportStatus={builderSupportStatus}
+          onSupportStatusChange={onBuilderSupportStatusChange}
+          isElectedOfficial={false}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -94,14 +162,12 @@ export const SmsAudienceStep = ({
             className="max-h-80 w-[var(--radix-popover-trigger-width)] overflow-y-auto p-0"
           >
             <div className="divide-y divide-border">
-              {/* Prototype entry, interim behavior: the in-flow builder is a
-                  deferred phase 2 slice, so this opens the CRM's list surface
-                  in a new tab — the drawer (and flow state) stays alive, and
-                  the lists query refetches on return. */}
-              <a
-                href="/dashboard/contacts"
-                target="_blank"
-                rel="noreferrer"
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  onStartBuilder()
+                }}
                 className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-muted"
               >
                 <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary-light">
@@ -115,7 +181,7 @@ export const SmsAudienceStep = ({
                     Build a custom audience
                   </span>
                 </span>
-              </a>
+              </button>
               {lists.length === 0 && !listsLoading && (
                 <p className="p-4 text-sm text-muted-foreground">
                   No saved lists yet.

@@ -28,6 +28,10 @@ vi.mock('@shared/experiments/voterOutreachV2SocialFlag', () => ({
   useVoterOutreachV2SocialFlag: () => socialFlag,
 }))
 
+vi.mock('@shared/experiments/voterOutreachV2SmsFlag', () => ({
+  useVoterOutreachV2SmsFlag: () => ({ ready: true, enabled: false }),
+}))
+
 describe('ChannelTileGrid — social tile swap flag', () => {
   beforeEach(() => {
     socialFlag.ready = true
@@ -36,7 +40,9 @@ describe('ChannelTileGrid — social tile swap flag', () => {
 
   it('opens the new social flow when the flag is on', async () => {
     const onCreateSocial = vi.fn()
-    render(<ChannelTileGrid onCreateSocial={onCreateSocial} />)
+    render(
+      <ChannelTileGrid onCreateSocial={onCreateSocial} onCreateSms={vi.fn()} />,
+    )
 
     await userEvent.click(screen.getByText('Social media'))
 
@@ -47,7 +53,9 @@ describe('ChannelTileGrid — social tile swap flag', () => {
   it('launches the legacy socialMedia TaskFlow when the flag is off', async () => {
     socialFlag.enabled = false
     const onCreateSocial = vi.fn()
-    render(<ChannelTileGrid onCreateSocial={onCreateSocial} />)
+    render(
+      <ChannelTileGrid onCreateSocial={onCreateSocial} onCreateSms={vi.fn()} />,
+    )
 
     await userEvent.click(screen.getByText('Social media'))
 
@@ -58,7 +66,9 @@ describe('ChannelTileGrid — social tile swap flag', () => {
   it('treats an unsettled flag as off (legacy launch, no flash)', async () => {
     socialFlag.ready = false
     const onCreateSocial = vi.fn()
-    render(<ChannelTileGrid onCreateSocial={onCreateSocial} />)
+    render(
+      <ChannelTileGrid onCreateSocial={onCreateSocial} onCreateSms={vi.fn()} />,
+    )
 
     await userEvent.click(screen.getByText('Social media'))
 
