@@ -161,6 +161,10 @@ export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
       )
     },
     enabled: open,
+    // A list created in the CRM tab (the picker's interim create path) must
+    // appear when the user returns — bypass the app's 5-minute staleTime.
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   })
   const lists = useMemo(() => listsQuery.data ?? [], [listsQuery.data])
   const selectedList = lists.find((l) => l.id === selectedListId) ?? null
