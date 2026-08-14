@@ -63,7 +63,8 @@ describe('serve suggested dimensions — catalog integrity', () => {
 describe('serve suggested dimensions — mark coupling with HS_SCORE_SEMANTICS', () => {
   // HS_SCORE_SEMANTICS tells the model exceptions "are marked on catalog
   // entries". These counts pin the marks to the verified warehouse story
-  // (2026-08-04): re-verify against the mart before changing them.
+  // (re-verified 2026-08-14 after the December-2025-load bug fix):
+  // re-verify against the mart before changing them.
 
   it('marks exactly the two off-center columns', () => {
     const offCenter = SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS.filter((d) =>
@@ -72,26 +73,25 @@ describe('serve suggested dimensions — mark coupling with HS_SCORE_SEMANTICS',
     expect(offCenter.sort()).toEqual(['hs_any_home_buyer', 'hs_new_home_buyer'])
   })
 
-  it('marks the 106 vintage-limited columns, split by vintage direction', () => {
+  it('marks the 51 columns still limited to the 12-state December 2025 delivery', () => {
     const twelveStateOnly = hsEntries.filter((d) =>
       d.label.includes('limited coverage: data exists in only 12 states'),
     )
-    const thirtyNineStateOnly = hsEntries.filter((d) =>
-      d.label.includes('limited coverage: no data in 12 states'),
-    )
     expect(twelveStateOnly.length).toBe(51)
-    expect(thirtyNineStateOnly.length).toBe(55)
-    // Spot anchors, one per vintage (per hs_coverage_report.json).
     expect(twelveStateOnly.map((d) => d.name)).toContain(
       'hs_conspiracy_believer',
-    )
-    expect(thirtyNineStateOnly.map((d) => d.name)).toContain(
-      'hs_voting_fraud_concern_barriers',
     )
     // Full-coverage columns must stay unmarked. hs_doge_support is the trap:
     // it is schema-absent from the 12-state staging set but has real data in
     // all 51 states, so coverage (not schema presence) decides the mark.
-    for (const name of ['hs_gun_control_support', 'hs_doge_support']) {
+    // hs_voting_fraud_concern_barriers is a regression anchor: it was
+    // wrongly marked "no data in 12 states" until the load-bug fix gave
+    // those 12 states real coverage on the whole newer-delivery column set.
+    for (const name of [
+      'hs_gun_control_support',
+      'hs_doge_support',
+      'hs_voting_fraud_concern_barriers',
+    ]) {
       const dim = hsEntries.find((d) => d.name === name)
       expect(dim?.label, name).not.toContain('limited coverage')
     }

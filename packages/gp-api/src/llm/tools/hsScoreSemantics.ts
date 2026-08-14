@@ -9,10 +9,13 @@
 // (verified against the mart: per-state means ~50 with SD ~28.9, the SD of a
 // uniform 0-100 distribution, verified per state wherever a column has real
 // coverage). Two columns have a shifted baseline (~60) and are marked "not
-// centered at 50". The vendor ships two column vintages with disjoint sets:
-// 12 states carry an older 303-column set, the rest a newer 326-column set,
-// so ~106 columns are null outside their vintage — marked "limited
-// coverage" in the catalogs that advertise them. The >= 50 / >= 70
+// centered at 50". 12 states also carry an older 303-column set: 51 of those
+// columns don't exist in the newer, nationwide 326-column set and are null
+// in the other states — marked "limited coverage" in the catalogs that
+// advertise them. (A load bug had also left the newer set's state-only
+// columns null in those same 12 states, making the two sets look fully
+// disjoint; fixed 2026-08-14 — the newer set now has real coverage
+// nationwide, so those columns carry no coverage mark.) The >= 50 / >= 70
 // thresholds follow the convention already used by the meeting_briefing and
 // district-issue experiment instructions in packages/runbooks.
 export const HS_SCORE_SEMANTICS = `SCORE SEMANTICS (misreading these produces false claims):
