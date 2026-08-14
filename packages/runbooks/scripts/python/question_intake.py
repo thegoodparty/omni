@@ -1,7 +1,7 @@
 """Read the Analytics Questions ClickUp list into proposed behaviors (DATA-2316).
 
-Intake is deliberately not applied live. The human gate is the ClickUp accept status: only a
-task a person moved to Accepted becomes a YAML change, and that change rides the governance
+Intake is deliberately not applied live. The human gate is the ClickUp "stage" field: only a
+task a person set to accepted becomes a YAML change, and that change rides the governance
 state PR (which auto-merges — the approval happened in ClickUp, upstream, not at PR review).
 Stubs land with no surfaces, which makes them uncovered on
 the next run: a question nobody has instrumented is exactly what the digest should be shouting
@@ -22,7 +22,10 @@ import yaml
 
 import clickup_api
 
-ACCEPTED_STATUS = "accepted"
+ACCEPTED_STAGE = "accepted"
+# The gate is a custom field, not the native task status: the Data Team space enforces a shared
+# status group, so this list cannot carry its own Proposed/Accepted/Retired.
+STAGE_FIELD = "stage"
 DEFAULT_INTERVAL_DAYS = 90
 PRODUCTS = frozenset({"win", "serve", "both"})
 _SLUG_STRIP = re.compile(r"[^a-z0-9]+")
@@ -35,8 +38,12 @@ def _custom(task: dict, name: str) -> str:
     type_config.options. Flatten and resolve all three here so nothing downstream knows the API
     shape — an unresolved orderindex 0 reads as an unrecognized product and silently becomes
     "both", which makes the form field decorative."""
+    # Case-insensitive: field names are human-editable in the ClickUp UI, and an exact match
+    # fails open here — an unfound field is indistinguishable from an empty one, so "Product"
+    # against a field named "product" reads as blank and normalizes to "both".
+    wanted = name.strip().lower()
     for field in task.get("custom_fields") or []:
-        if field.get("name") != name:
+        if str(field.get("name") or "").strip().lower() != wanted:
             continue
         value = field.get("value")
         if isinstance(value, list):
@@ -72,7 +79,7 @@ def fetch_questions(api_key: str, list_id: str, *, requester=None) -> list[dict]
             rows.append({
                 "id": str(task.get("id", "")),
                 "name": str(task.get("name", "")),
-                "status": str((task.get("status") or {}).get("status", "")).lower(),
+                "stage": _custom(task, STAGE_FIELD).strip().lower(),
                 "product": _custom(task, "Product"),
                 "asked_by": _custom(task, "Asked by"),
             })
@@ -122,13 +129,13 @@ def intake_to_behaviors(
     tasks: list[dict], *, today: date, existing_refs: set[str],
     existing_ids: set[str] | None = None,
 ) -> list[dict]:
-    """Only Accepted tasks enter the registry. Proposed ones are left alone so the accept gate
+    """Only accepted tasks enter the registry. Proposed ones are left alone so the accept gate
     is a real gate rather than a label."""
     out: list[dict] = []
     seen = set(existing_refs)
     taken_ids = set(existing_ids or ())
     for task in tasks:
-        if task.get("status") != ACCEPTED_STATUS:
+        if task.get("stage") != ACCEPTED_STAGE:
             continue
         question = (task.get("name") or "").strip()
         ref = str(task.get("id") or "")

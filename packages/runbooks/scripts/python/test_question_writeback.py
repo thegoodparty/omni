@@ -159,6 +159,18 @@ def test_a_bare_label_value_is_still_accepted():
     }
 
 
+def test_field_name_matches_case_insensitively():
+    # The live list's field is "answer state"; an exact match returned {}, which reads as
+    # "no task has a state yet" and rewrites every task on every run.
+    payload = {"tasks": [
+        _task("86ak6666", {"name": "answer state", "type_config": _TYPE_CONFIG,
+                           "value": "opt-a"}),
+    ]}
+    assert qw.fetch_current_state("k", "L", requester=_responder(payload)) == {
+        "86ak6666": "answerable",
+    }
+
+
 def test_unknown_state_does_not_evict_a_known_worst_state():
     rows = [
         {"question": "Q-known", "state": "not_answerable", "question_ref": "ref1"},

@@ -54,6 +54,12 @@ Questions come from the ClickUp Analytics Questions list, not from the sheet.
 surfaceless stubs (uncovered until someone enumerates where the behavior happens), and the
 write-back pushes each question's answer state and last-checked date back onto its task.
 
+The accept gate is the list's `stage` dropdown (`proposed` / `accepted` / `retired`), not the
+native task status — the Data Team space enforces a shared status group, so the list cannot
+carry its own statuses. Native status means nothing to the loop; Closed tasks drop out because
+the API read passes `include_closed: false`. Custom fields are matched by name,
+case-insensitively.
+
 - `uv run python event_state_gsheet.py refresh-questions` — full overwrite of the `questions`
   tab. Same auth as `refresh` (`GP_EVENT_STATE_SHEET_ID` + the cached Google token) plus
   Databricks, and `--dry-run` prints the matrix dimensions without writing.
@@ -63,6 +69,9 @@ write-back pushes each question's answer state and last-checked date back onto i
   the three option ids `GP_QUESTIONS_OPT_ANSWERABLE` / `GP_QUESTIONS_OPT_PARTIAL` /
   `GP_QUESTIONS_OPT_NOT`; missing any of them exits 2. `--dry-run` reports how many tasks
   would change. Unchanged states are skipped, so a quiet week produces no task notifications.
+  In CI every id but the API key is inlined in `analytics-governance.yml`'s job `env:` — they
+  are not secrets, and gating the loop on seven admin-set repo variables is what stalled
+  DATA-2069. Set them locally in `scripts/.env` for a laptop run.
 - `uv run python question_intake.py` — reads the list into the registry.
   `GP_QUESTIONS_LIST_ID` + `CLICKUP_API_KEY`; `--dry-run` counts what it would add. It refuses
   to write on top of an invalid `behaviors:` block and exits non-zero listing every problem.

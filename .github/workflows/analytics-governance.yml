@@ -56,6 +56,17 @@ jobs:
       # Deep-links the Slack "browse gaps" link to the gaps tab; unset -> the
       # browse link falls back to the sheet's default tab (DATA-2151 Phase 3).
       GP_GAPS_TAB_GID: ${{ vars.GP_GAPS_TAB_GID }}
+      # ClickUp object ids for the Analytics Questions list, inline rather than
+      # repo variables: they are not secrets (useless without CLICKUP_API_KEY),
+      # and making seven admin-only settings the price of the loop starting is
+      # what stalled DATA-2069. The vars. lookups stay as an override so the
+      # list can be repointed without a deploy.
+      GP_QUESTIONS_LIST_ID: ${{ vars.GP_QUESTIONS_LIST_ID || '901328192602' }}
+      GP_QUESTIONS_STATE_FIELD_ID: ${{ vars.GP_QUESTIONS_STATE_FIELD_ID || 'a70134c2-467d-4f9e-b14f-1530d796c35f' }}
+      GP_QUESTIONS_CHECKED_FIELD_ID: ${{ vars.GP_QUESTIONS_CHECKED_FIELD_ID || 'e85b0387-00a5-4e24-9fed-08453ffcb7b3' }}
+      GP_QUESTIONS_OPT_ANSWERABLE: ${{ vars.GP_QUESTIONS_OPT_ANSWERABLE || '71093466-4a7c-4b39-8c1d-10507006a425' }}
+      GP_QUESTIONS_OPT_PARTIAL: ${{ vars.GP_QUESTIONS_OPT_PARTIAL || '5550de83-518e-444d-ac73-d13da170632a' }}
+      GP_QUESTIONS_OPT_NOT: ${{ vars.GP_QUESTIONS_OPT_NOT || 'd4228860-5d2a-4738-880f-6fb421529e04' }}
     steps:
       - name: Preflight required config
         env:
@@ -144,7 +155,6 @@ jobs:
         working-directory: packages/runbooks/scripts/python
         env:
           CLICKUP_API_KEY: ${{ secrets.CLICKUP_API_KEY }}
-          GP_QUESTIONS_LIST_ID: ${{ vars.GP_QUESTIONS_LIST_ID }}
         run: |
           set -euo pipefail
           if [ -z "${CLICKUP_API_KEY:-}" ] || [ -z "${GP_QUESTIONS_LIST_ID:-}" ]; then
@@ -213,17 +223,12 @@ jobs:
         working-directory: packages/runbooks/scripts/python
         env:
           CLICKUP_API_KEY: ${{ secrets.CLICKUP_API_KEY }}
-          GP_QUESTIONS_LIST_ID: ${{ vars.GP_QUESTIONS_LIST_ID }}
-          GP_QUESTIONS_STATE_FIELD_ID: ${{ vars.GP_QUESTIONS_STATE_FIELD_ID }}
-          GP_QUESTIONS_CHECKED_FIELD_ID: ${{ vars.GP_QUESTIONS_CHECKED_FIELD_ID }}
-          GP_QUESTIONS_OPT_ANSWERABLE: ${{ vars.GP_QUESTIONS_OPT_ANSWERABLE }}
-          GP_QUESTIONS_OPT_PARTIAL: ${{ vars.GP_QUESTIONS_OPT_PARTIAL }}
-          GP_QUESTIONS_OPT_NOT: ${{ vars.GP_QUESTIONS_OPT_NOT }}
         run: |
           set -euo pipefail
-          # Skip while ANY of the seven ids is missing (rollout is incremental), but name the
-          # gaps: a write-back that skips silently forever would be invisible except as a stale
-          # Last-checked date on the ClickUp list.
+          # Skip while ANY of the seven ids is missing (in practice only the API key can be
+          # missing now that the rest are inlined at job level), but name the gaps: a write-back
+          # that skips silently forever would be invisible except as a stale Last-checked date
+          # on the ClickUp list.
           missing=""
           for var in CLICKUP_API_KEY GP_QUESTIONS_LIST_ID GP_QUESTIONS_STATE_FIELD_ID \
                      GP_QUESTIONS_CHECKED_FIELD_ID GP_QUESTIONS_OPT_ANSWERABLE \
