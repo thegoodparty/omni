@@ -190,9 +190,12 @@ def _insert_behaviors(text: str, added: list[dict]) -> str:
 
     at, blank_first = key + 1, False
     for i in range(key + 1, len(lines)):
-        if lines[i].strip() and not lines[i].startswith((" ", "\t")):
+        # A column-0 comment inside the block must not end the scan — but it never advances
+        # `at` either, so insertion stays after the last real entry, before any trailing
+        # comment that introduces the next key.
+        if lines[i].strip() and not lines[i].startswith((" ", "\t", "#")):
             break
-        if lines[i].strip():
+        if lines[i].strip() and not lines[i].startswith("#"):
             at, blank_first = i + 1, True
 
     out = lines[:at]

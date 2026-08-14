@@ -142,6 +142,27 @@ def test_dropdown_uuid_value_resolves_to_its_option_name():
     assert rows[0]["product"] == "Serve"
 
 
+def test_append_behaviors_survives_a_column_zero_comment_inside_the_block(tmp_path):
+    path = tmp_path / "m.yaml"
+    path.write_text(
+        "behaviors:\n"
+        "  - {id: q1, question: 'Q1?', question_ref: 'r1'}\n"
+        "# interior note a human left\n"
+        "  - {id: q2, question: 'Q2?', question_ref: 'r2'}\n"
+        "# trailing comment introducing the next key\n"
+        "dismissed: []\n"
+    )
+    n = qi.append_behaviors(path, [{"id": "q3", "question": "Q3?", "question_ref": "r3"}])
+    assert n == 1
+    text = path.read_text()
+    assert "# interior note a human left" in text
+    assert "# trailing comment introducing the next key" in text
+    doc = yaml.safe_load(text)
+    assert [b["id"] for b in doc["behaviors"]] == ["q1", "q2", "q3"]
+    assert doc["dismissed"] == []
+    assert text.index("q3") < text.index("# trailing comment")
+
+
 def test_dropdown_value_returned_as_an_option_object_resolves_to_its_name():
     rows = qi.fetch_questions(
         "k", "L", requester=_requester(_dropdown_task({"id": "opt-x", "name": "Win"}))

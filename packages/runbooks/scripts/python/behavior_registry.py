@@ -142,8 +142,11 @@ def validate_behaviors(
 
 
 def load_validated_behaviors(path: Path = WATCHLIST) -> list[dict]:
-    """The entry point every runtime caller uses, so the registry's rules bind the scheduled loop
-    and not just the test suite. Raises on any error rather than degrading to partial coverage.
+    """The entry point for intake and the two question commands, so the registry's rules bind
+    the scheduled loop and not just the test suite. Raises on any error rather than degrading to
+    partial coverage. event_state_assembler.assemble deliberately stays on load_behaviors: the
+    events tab must survive a corrupt registry (blank questions column), while refresh-questions
+    in the same workflow step still fails the run loudly.
 
     catalog_event_types is the set of names the registry itself uses, not the live Amplitude
     catalog: an instrumented-but-not-yet-ingested event (`Door Knocking - List Created`, PR #1220)
