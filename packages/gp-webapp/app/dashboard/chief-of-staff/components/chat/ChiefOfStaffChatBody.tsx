@@ -482,7 +482,12 @@ export default function ChiefOfStaffChatBody({
       return
     }
     if (!active || kickedOffRef.current === pendingKickoff) return
-    if (loading || creatingRef.current) return
+    // Wait out an in-flight stream: a close/reopen can re-set the same kickoff
+    // while the prior turn is still draining. Firing now would bail inside
+    // `deliver` (its own `sending` guard) yet still latch `kickedOffRef` below,
+    // so the retry after the stream settles would be skipped. Returning here
+    // leaves the ref unlatched; the effect re-runs when `sending` clears.
+    if (loading || creatingRef.current || sending) return
     if (conversationIdOverride && conversationId !== conversationIdOverride) {
       return
     }
@@ -492,6 +497,7 @@ export default function ChiefOfStaffChatBody({
     active,
     pendingKickoff,
     loading,
+    sending,
     conversationId,
     conversationIdOverride,
     deliver,
