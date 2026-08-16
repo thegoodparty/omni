@@ -92,12 +92,17 @@ const PROFILE_STALL_MIN_AGE_HOURS = 20
 // work CV/finalize queues over the weekend either).
 const VENDOR_ESCALATION_BUSINESS_DAY_THRESHOLD = 3
 
-const reportableCampaign = {
+// The suffix predicates must be OR'd inside the NOT. Prisma reads a bare
+// `NOT: [a, b]` as NOT(a AND b), and no address ends with both suffixes, so
+// that form is always true and excludes nobody.
+export const reportableCampaign = {
   isPro: true,
   user: {
-    NOT: INTERNAL_EMAIL_SUFFIXES.map((suffix) => ({
-      email: { endsWith: suffix, mode: Prisma.QueryMode.insensitive },
-    })),
+    NOT: {
+      OR: INTERNAL_EMAIL_SUFFIXES.map((suffix) => ({
+        email: { endsWith: suffix, mode: Prisma.QueryMode.insensitive },
+      })),
+    },
   },
 }
 
@@ -236,7 +241,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
       rejectedRecords,
       billingBlocked,
       stuckDomains,
-      agingAwaitingPin,
+      agingCvInFlight,
       neverReachedCv,
       profileStalled,
       inReviewStalled,
@@ -291,14 +296,19 @@ export class Nightly10DlcReportService extends createPrismaBase(
           ...proOnly,
           status: TcrComplianceStatus.submitted,
           peerlyIdentityId: { not: null },
-          // A null CV status means the submission never reached
-          // CampaignVerify — no PIN ever went out, so the record belongs to
-          // the case-1 failure section, not this nudge. VERIFIED is the
-          // opposite end: the PIN was already entered, so nudging is wrong
-          // and a stalled profile belongs to case 3a instead.
+          // Split below into the two sections these statuses actually mean.
+          // Only APPROVED implies a PIN went out; REQUESTED and IN_REVIEW mean
+          // CampaignVerify is still reviewing, and nudging those candidates
+          // walked them into a PIN box with no PIN behind it (ENG-10866). A
+          // null CV status belongs to the case-1 failure section; VERIFIED is
+          // the opposite end (PIN already entered — a stall there is case 3a);
+          // REJECTED/WITHDRAWN land in the rejected section.
           peerlyCvStatus: {
-            not: null,
-            notIn: [PeerlyCvVerificationStatus.VERIFIED],
+            in: [
+              PeerlyCvVerificationStatus.APPROVED,
+              PeerlyCvVerificationStatus.REQUESTED,
+              PeerlyCvVerificationStatus.IN_REVIEW,
+            ],
           },
           OR: [
             {
@@ -585,6 +595,13 @@ export class Nightly10DlcReportService extends createPrismaBase(
         ),
       },
     ]
+    const agingAwaitingPin = agingCvInFlight.filter(
+      (record) => record.peerlyCvStatus === PeerlyCvVerificationStatus.APPROVED,
+    )
+    const agingCvUnissued = agingCvInFlight.filter(
+      (record) => record.peerlyCvStatus !== PeerlyCvVerificationStatus.APPROVED,
+    )
+
     const nudgeSection: ReportSection = {
       title: `⏳ Awaiting PIN >${AWAITING_PIN_NUDGE_DAYS}d (candidate nudge)`,
       lines: agingAwaitingPin.map(
@@ -594,6 +611,22 @@ export class Nightly10DlcReportService extends createPrismaBase(
             now,
             record.pinSentDetectedAt ?? record.updatedAt,
           )}d`,
+      ),
+    }
+
+    // Deliberately not a nudge: no PIN exists, so contacting the candidate can
+    // only push them into a PIN box they cannot satisfy. Waiting on
+    // CampaignVerify; IN_REVIEW past the business-day floor escalates to
+    // Peerly through its own section.
+    const cvUnissuedSection: ReportSection = {
+      title:
+        `⏳ CampaignVerify still reviewing >${AWAITING_PIN_NUDGE_DAYS}d ` +
+        '(no PIN issued — do not nudge)',
+      lines: agingCvUnissued.map(
+        (record) =>
+          `${campaignRef(record)} — identity ${record.peerlyIdentityId}, ` +
+          `CV ${record.peerlyCvStatus} for ` +
+          `${differenceInCalendarDays(now, record.updatedAt)}d`,
       ),
     }
 
@@ -637,6 +670,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
       ...failureSections,
       deferredDispatchSection,
       nudgeSection,
+      cvUnissuedSection,
     ].filter((section) => section.lines.length > 0)
 
     const blocks: SlackMessageBlock[] = [
@@ -695,6 +729,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
         reportDate,
         stuckCount,
         awaitingPin: agingAwaitingPin.length,
+        cvUnissued: agingCvUnissued.length,
         deferredDispatch: deferredDispatch.length,
       },
       '[10DLC nightly report] Posted',

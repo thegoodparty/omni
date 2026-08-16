@@ -2,16 +2,17 @@
 
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
 import { MessageSquareIcon } from '@styleguide/components/ui/icons'
 import {
-  COMPLIANCE_STATE_QUERY_KEY,
   TCR_COMPLIANCE_QUERY_KEY,
   TCR_COMPLIANCE_STATUS,
-  getComplianceState,
   getTcrCompliance,
 } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
+import {
+  CV_PIN_GATE,
+  useCvPinGate,
+} from 'app/dashboard/profile/texting-compliance/shared/useCvPinGate'
 import ComplianceCardArt from './ComplianceCardArt'
 import ProUpgrade3PinEntry from './ProUpgrade3PinEntry'
 import TextingComplianceApproved from './TextingComplianceApproved'
@@ -39,16 +40,7 @@ export default function ProUpgrade3Compliance(): React.JSX.Element {
     queryFn: getTcrCompliance,
   })
 
-  const isSubmitted = tcrCompliance?.status === TCR_COMPLIANCE_STATUS.SUBMITTED
-
-  // Only the `submitted` (awaiting-PIN) state gates on the live Peerly CV
-  // status, so fetch compliance-state only then — this keeps the extra Peerly
-  // read (and its cost) off every other Pro candidate's dashboard load.
-  const { data: complianceState, isPending: isCvStatePending } = useQuery({
-    queryKey: COMPLIANCE_STATE_QUERY_KEY,
-    queryFn: getComplianceState,
-    enabled: isSubmitted,
-  })
+  const pinGate = useCvPinGate(tcrCompliance, { isTcrPending: isPending })
 
   // Hold a placeholder shell while loading so we don't flash the neutral
   // fallback to a candidate who is actually awaiting-PIN / in review / etc.
@@ -59,22 +51,15 @@ export default function ProUpgrade3Compliance(): React.JSX.Element {
   if (tcrCompliance) {
     switch (tcrCompliance.status) {
       case TCR_COMPLIANCE_STATUS.SUBMITTED: {
-        // Peerly issues the PIN only once CampaignVerify reaches APPROVED. Show
-        // the PIN box only then; before that (REQUESTED/IN_REVIEW, or no CV
-        // request yet) show an in-progress state so we don't ask a candidate to
-        // enter a PIN that was never sent. While the CV status is still loading,
-        // hold the shell rather than flash the wrong surface.
-        if (isCvStatePending) {
+        // While the CV status is still loading, hold the shell rather than
+        // flash the wrong surface.
+        if (pinGate.state === CV_PIN_GATE.LOADING) {
           return <LoadingShell />
         }
-        const cvStatus = complianceState?.peerlyCvStatus ?? null
-        const pinReady =
-          cvStatus === PeerlyCvVerificationStatus.APPROVED ||
-          cvStatus === PeerlyCvVerificationStatus.VERIFIED
-        return pinReady ? (
+        return pinGate.state === CV_PIN_GATE.READY ? (
           <ProUpgrade3PinEntry
             tcrCompliance={tcrCompliance}
-            pinDelivery={complianceState?.pinDelivery ?? null}
+            pinDelivery={pinGate.pinDelivery}
           />
         ) : (
           <TextingComplianceInReview

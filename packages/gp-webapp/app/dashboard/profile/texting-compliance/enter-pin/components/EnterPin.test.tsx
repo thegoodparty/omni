@@ -4,11 +4,17 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { api } from 'helpers/test-utils/api-mocking'
+import {
+  PeerlyCvVerificationStatus,
+  type ComplianceStateOutput,
+} from '@goodparty_org/contracts'
 import type { TcrCompliance, TcrComplianceStatus } from 'helpers/types'
 import { EVENTS } from 'helpers/analyticsHelper'
 import EnterPin from './EnterPin'
 
 const mockGetTcrCompliance = vi.fn<() => Promise<TcrCompliance | null>>()
+const mockGetComplianceState =
+  vi.fn<() => Promise<ComplianceStateOutput | null>>()
 vi.mock(
   'app/dashboard/profile/texting-compliance/util/tcrCompliance.util',
   async (importOriginal) => {
@@ -19,9 +25,23 @@ vi.mock(
     return {
       ...actual,
       getTcrCompliance: () => mockGetTcrCompliance(),
+      getComplianceState: () => mockGetComplianceState(),
     }
   },
 )
+
+const stateWith = (
+  peerlyCvStatus: ComplianceStateOutput['peerlyCvStatus'],
+): ComplianceStateOutput => ({
+  stage: 'awaiting_pin',
+  domain: null,
+  websiteId: null,
+  peerlyVerificationId: 'cv-1',
+  peerlyCvStatus,
+  pinDelivery: null,
+  internalTestingApprovedAt: null,
+  hasComplianceRecord: true,
+})
 
 const mockSuccessSnackbar = vi.fn()
 const mockErrorSnackbar = vi.fn()
@@ -69,7 +89,7 @@ const tcrWith = (status: TcrComplianceStatus | null): TcrCompliance => ({
 
 const getDigitInputs = (): HTMLInputElement[] =>
   screen
-    .getAllByRole('textbox')
+    .queryAllByRole('textbox')
     .filter((el) =>
       (el.getAttribute('aria-label') ?? '').startsWith('Digit '),
     ) as HTMLInputElement[]
@@ -86,6 +106,12 @@ const fillPin = async (
 
 beforeEach(() => {
   mockGetTcrCompliance.mockReset()
+  mockGetComplianceState.mockReset()
+  // Default to a PIN-issued CV so the awaiting-PIN surface renders the form;
+  // the CV gating tests override this per-case.
+  mockGetComplianceState.mockResolvedValue(
+    stateWith(PeerlyCvVerificationStatus.APPROVED),
+  )
   mockSuccessSnackbar.mockReset()
   mockErrorSnackbar.mockReset()
   mockTrackEvent.mockReset()
@@ -137,6 +163,63 @@ describe('EnterPin — gating', () => {
         screen.getByText(/this step isn’t available yet/i),
       ).toBeInTheDocument()
     })
+  })
+})
+
+// ENG-10866: a `submitted` record only means the registration reached Peerly.
+// APPROVED is the only CV status under which a PIN exists (VERIFIED means one
+// was issued and consumed — the retry path still needs the form).
+describe('EnterPin — CampaignVerify PIN gate (ENG-10866)', () => {
+  it.each([
+    [PeerlyCvVerificationStatus.APPROVED],
+    [PeerlyCvVerificationStatus.VERIFIED],
+  ])('renders the PIN form when the CV status is %s', async (cvStatus) => {
+    mockGetTcrCompliance.mockResolvedValue(tcrWith('submitted'))
+    mockGetComplianceState.mockResolvedValue(stateWith(cvStatus))
+
+    render(<EnterPin />)
+
+    await waitFor(() => expect(getDigitInputs()).toHaveLength(6))
+  })
+
+  it.each([
+    [PeerlyCvVerificationStatus.REQUESTED],
+    [PeerlyCvVerificationStatus.IN_REVIEW],
+    [PeerlyCvVerificationStatus.REJECTED],
+    [null],
+  ])(
+    'renders the in-progress notice (never the PIN form) when the CV status is %s',
+    async (cvStatus) => {
+      mockGetTcrCompliance.mockResolvedValue(tcrWith('submitted'))
+      mockGetComplianceState.mockResolvedValue(stateWith(cvStatus))
+
+      render(<EnterPin />)
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/hasn’t issued your PIN yet/i),
+        ).toBeInTheDocument()
+      })
+      expect(getDigitInputs()).toHaveLength(0)
+      expect(screen.queryByRole('button', { name: /submit/i })).toBeNull()
+      expect(mockTrackEvent).not.toHaveBeenCalledWith(
+        EVENTS.ProUpgrade.Compliance.PinEntryViewed,
+      )
+    },
+  )
+
+  it('renders the in-progress notice when compliance state cannot be read', async () => {
+    mockGetTcrCompliance.mockResolvedValue(tcrWith('submitted'))
+    mockGetComplianceState.mockResolvedValue(null)
+
+    render(<EnterPin />)
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/hasn’t issued your PIN yet/i),
+      ).toBeInTheDocument()
+    })
+    expect(getDigitInputs()).toHaveLength(0)
   })
 })
 
@@ -232,6 +315,30 @@ describe('EnterPin — submit flow', () => {
     // Form re-enabled.
     expect(screen.getByRole('button', { name: /submit/i })).toBeEnabled()
     expect(getDigitInputs()[0]).not.toBeDisabled()
+  })
+
+  it('409 response: says no PIN was issued, never that the PIN was wrong', async () => {
+    const user = userEvent.setup()
+    mockGetTcrCompliance.mockResolvedValue(tcrWith('submitted'))
+
+    api.mock(
+      'POST /v1/campaigns/tcr-compliance/:tcrComplianceId/submit-cv-pin',
+      { status: 409, data: { message: "CampaignVerify hasn't issued a PIN" } },
+    )
+
+    render(<EnterPin />)
+    await waitFor(() => expect(getDigitInputs()).toHaveLength(6))
+
+    await fillPin(user, '123456')
+    await user.click(screen.getByRole('button', { name: /submit/i }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /hasn’t issued your PIN yet/i,
+      )
+    })
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/didn’t match/i)
+    expect(router.push).not.toHaveBeenCalled()
   })
 
   it('500 response: renders generic verify error (does not claim PIN mismatch)', async () => {

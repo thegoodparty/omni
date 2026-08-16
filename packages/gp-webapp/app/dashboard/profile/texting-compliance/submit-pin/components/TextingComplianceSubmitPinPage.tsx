@@ -16,6 +16,12 @@ import { apiRoutes } from 'gpApi/routes'
 import { trackEvent } from 'helpers/analyticsHelper'
 import { EVENTS } from 'helpers/analyticsHelper'
 import { useUser } from '@shared/hooks/useUser'
+import {
+  CV_PIN_GATE,
+  useCvPinGate,
+} from 'app/dashboard/profile/texting-compliance/shared/useCvPinGate'
+import CvVerificationInProgressNotice from 'app/dashboard/profile/texting-compliance/shared/CvVerificationInProgressNotice'
+import PinStepUnavailableNotice from 'app/dashboard/profile/texting-compliance/shared/PinStepUnavailableNotice'
 import type { TcrCompliance } from 'helpers/types'
 
 interface TextingComplianceSubmitPinPageProps {
@@ -47,6 +53,9 @@ const TextingComplianceSubmitPinPage = ({
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [user] = useUser()
+  // This page had no gate at all, so it would render the PIN form for a
+  // record whose CampaignVerify request had never issued a PIN (ENG-10866).
+  const pinGate = useCvPinGate(tcrCompliance)
 
   const handleFormSubmit = async (formData: PinFormData) => {
     setLoading(true)
@@ -80,18 +89,26 @@ const TextingComplianceSubmitPinPage = ({
       <div className="mx-auto max-w-2xl px-4 py-6 md:px-8 md:py-8">
         <H2 className="mb-6 hidden md:block">Enter your PIN</H2>
 
-        <FormDataProvider
-          initialState={initialFormState}
-          validator={validatePinForm}
-        >
-          <TextingComplianceSubmitPinForm
-            {...{
-              onSubmit: handleFormSubmit,
-              loading,
-              error,
-            }}
-          />
-        </FormDataProvider>
+        {pinGate.state === CV_PIN_GATE.LOADING ? (
+          <div className="text-sm text-gray-500">Loading…</div>
+        ) : pinGate.state === CV_PIN_GATE.NOT_AWAITING_PIN ? (
+          <PinStepUnavailableNotice />
+        ) : pinGate.state === CV_PIN_GATE.READY ? (
+          <FormDataProvider
+            initialState={initialFormState}
+            validator={validatePinForm}
+          >
+            <TextingComplianceSubmitPinForm
+              {...{
+                onSubmit: handleFormSubmit,
+                loading,
+                error,
+              }}
+            />
+          </FormDataProvider>
+        ) : (
+          <CvVerificationInProgressNotice />
+        )}
       </div>
     </div>
   )

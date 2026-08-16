@@ -37,7 +37,7 @@ type WhereClause = {
   kickoffSentAt?: null | { lt: Date }
   createdAt?: { lt: Date }
   peerlyBillingBlockedAt?: { gte: Date }
-  peerlyCvStatus?: string | null | { not: null; notIn: string[] }
+  peerlyCvStatus?: string | null | { in: string[] }
   peerlyProfileStatus?: string | null
   peerlyProfileStatusChangedAt?: { lt: Date }
   NOT?: object
@@ -78,7 +78,7 @@ const proRecord = (
 // Queues the first 10 of the 11 sequential model.findMany results
 // handleNightlyReport makes, in call order: poll candidates,
 // stuckSubmissions, errorRecords, rejectedRecords, billingBlocked,
-// agingAwaitingPin, neverReachedCv (case 1), profileStalled (case 3a),
+// agingCvInFlight, neverReachedCv (case 1), profileStalled (case 3a),
 // inReviewStalled (case 2), waitingToFinalizeStalled (case 3b). The 11th
 // (deferredDispatchCandidates) falls through to the beforeEach [] default —
 // tests exercising it use a mockImplementation keyed on its
@@ -315,10 +315,12 @@ describe('Nightly10DlcReportService', () => {
             return Promise.resolve([
               proRecord('tcr-5', 'pin-camp', 555, {
                 peerlyIdentityId: '11540157',
+                peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
                 pinSentDetectedAt: subDays(new Date(), 10),
               }),
               proRecord('tcr-6', 'pin-undetected-camp', 556, {
                 peerlyIdentityId: '11540158',
+                peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
                 pinSentDetectedAt: null,
                 updatedAt: subDays(new Date(), 12),
               }),
@@ -374,16 +376,21 @@ describe('Nightly10DlcReportService', () => {
 
       // Staff test accounts use @goodparty.org (not just the seeded
       // @test.goodparty.org), so both domains must be excluded or their
-      // intentionally stuck records page as real incidents.
+      // intentionally stuck records page as real incidents. The suffixes must
+      // be OR'd *inside* the NOT: Prisma reads a bare `NOT: [a, b]` as
+      // NOT(a AND b), and since no address ends with both suffixes that form
+      // is always true and excludes nobody.
       const expectedCampaignWhere = {
         isPro: true,
         user: {
-          NOT: [
-            { email: { endsWith: '@goodparty.org', mode: 'insensitive' } },
-            {
-              email: { endsWith: '@test.goodparty.org', mode: 'insensitive' },
-            },
-          ],
+          NOT: {
+            OR: [
+              { email: { endsWith: '@goodparty.org', mode: 'insensitive' } },
+              {
+                email: { endsWith: '@test.goodparty.org', mode: 'insensitive' },
+              },
+            ],
+          },
         },
       }
       for (const call of mockModel.findMany.mock.calls) {
@@ -869,9 +876,122 @@ describe('Nightly10DlcReportService', () => {
         { where: WhereClause },
       ]
       expect(nudgeCall[0].where.peerlyCvStatus).toEqual({
-        not: null,
-        notIn: [PeerlyCvVerificationStatus.VERIFIED],
+        in: [
+          PeerlyCvVerificationStatus.APPROVED,
+          PeerlyCvVerificationStatus.REQUESTED,
+          PeerlyCvVerificationStatus.IN_REVIEW,
+        ],
       })
+    })
+  })
+
+  // ENG-10866: the nudge used to claim "PIN out Nd" for REQUESTED/IN_REVIEW
+  // records too, which sent staff to chase candidates who had no PIN — and
+  // straight into the PIN box that then rejected whatever they typed.
+  describe('handleNightlyReport — awaiting-PIN nudge split (ENG-10866)', () => {
+    const cvInFlight = (
+      id: string,
+      slug: string,
+      campaignId: number,
+      peerlyCvStatus: string,
+    ) =>
+      proRecord(id, slug, campaignId, {
+        peerlyIdentityId: `ident-${campaignId}`,
+        peerlyCvStatus,
+        pinSentDetectedAt: null,
+        updatedAt: subDays(new Date(), 9),
+      })
+
+    it('nudges only the APPROVED record and files the rest as no-PIN-issued', async () => {
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+          cvInFlight(
+            'tcr-a',
+            'approved-camp',
+            801,
+            PeerlyCvVerificationStatus.APPROVED,
+          ),
+          cvInFlight(
+            'tcr-r',
+            'requested-camp',
+            802,
+            PeerlyCvVerificationStatus.REQUESTED,
+          ),
+          cvInFlight(
+            'tcr-i',
+            'in-review-camp',
+            803,
+            PeerlyCvVerificationStatus.IN_REVIEW,
+          ),
+        ],
+        [],
+        [],
+        [],
+        [],
+      ])
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+        { blocks: SlackMessageBlock[] },
+      ]
+      const nudge = blocks.find((block) =>
+        blocksText([block]).includes('Awaiting PIN >7d'),
+      )
+      const unissued = blocks.find((block) =>
+        blocksText([block]).includes('CampaignVerify still reviewing'),
+      )
+
+      expect(blocksText([nudge!])).toContain('approved-camp (campaign 801)')
+      expect(blocksText([nudge!])).toContain('PIN out 9d')
+      expect(blocksText([nudge!])).not.toContain('requested-camp')
+      expect(blocksText([nudge!])).not.toContain('in-review-camp')
+
+      expect(blocksText([unissued!])).toContain('requested-camp (campaign 802)')
+      expect(blocksText([unissued!])).toContain('in-review-camp (campaign 803)')
+      expect(blocksText([unissued!])).toContain('CV REQUESTED for 9d')
+      expect(blocksText([unissued!])).not.toContain('PIN out')
+      expect(blocksText([unissued!])).not.toContain('approved-camp')
+    })
+
+    it('counts neither section toward the stuck total', async () => {
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+          cvInFlight(
+            'tcr-a',
+            'approved-camp',
+            801,
+            PeerlyCvVerificationStatus.APPROVED,
+          ),
+          cvInFlight(
+            'tcr-i',
+            'in-review-camp',
+            803,
+            PeerlyCvVerificationStatus.IN_REVIEW,
+          ),
+        ],
+        [],
+        [],
+        [],
+        [],
+      ])
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+        { blocks: SlackMessageBlock[] },
+      ]
+      expect(blocksText(blocks)).toContain('no campaigns stuck')
     })
   })
 

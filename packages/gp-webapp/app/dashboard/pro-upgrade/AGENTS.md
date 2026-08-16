@@ -77,7 +77,8 @@ shared building blocks**, they do not reimplement validators/mappers/submit:
 - EIN: `EinCheckInput` + `isValidEIN` + `checkEinSanity` (sanity check shared with committee-check).
 - Filing details: `submitTcrCompliance` + `toRegistrationFormData` + `validateRegistrationForm` (same path the standalone election-filing form uses).
 - Candidate profile: `useCandidateProfileForm` + `CandidateProfileFields` (extracted so the standalone profile page and the wizard step share one source).
-- PIN: `useSubmitCvPin` + `PinForm` + `getPinChannels`.
+- PIN: `useSubmitCvPin` + `PinForm` + `getPinChannels`, and **`useCvPinGate` decides
+  whether a PIN box may render at all** — see below.
 
 If you change a validator or submit path, change it in the shared module — both chromes
 consume it, so a fork drifts silently.
@@ -148,6 +149,24 @@ After payment, `isPro` flips and the **post-payment compliance states** (PIN ent
 review / approved / denied) render in `ProUpgrade3Compliance` on the **profile page**
 (`app/dashboard/profile/texting-compliance/`), not in this dir. The wizard's `success`
 step just lands the candidate and routes them to `/dashboard`.
+
+### Never render a PIN box off the local status alone (ENG-10866)
+
+`TcrCompliance.status === 'submitted'` only means the registration reached Peerly. A PIN
+exists only once the **live** CampaignVerify status is `APPROVED` (or `VERIFIED`, meaning
+one was issued and consumed — the retry path still needs the box). `REQUESTED`,
+`IN_REVIEW`, `REJECTED` and `null` all mean no PIN was ever sent, and gp-api answers 409
+if you post one anyway.
+
+That gate is **one hook**, `texting-compliance/shared/useCvPinGate.ts`, returning
+`loading` / `not_awaiting_pin` / `verification_in_progress` / `ready` plus the
+`pinDelivery` payload. It exists because the gate was originally implemented inline in
+`ProUpgrade3Compliance` and the other two PIN surfaces (`/enter-pin`, `/submit-pin`)
+never got it — a candidate whose CV sat `IN_REVIEW` was shown a PIN box, typed a code,
+and was told "That PIN didn't match" five times over three days. Call the hook; never
+re-derive the condition. The `verification_in_progress` and `not_awaiting_pin` copy also
+lives in shared components (`CvVerificationInProgressNotice`,
+`PinStepUnavailableNotice`).
 
 ## Phase 4 entry points live elsewhere too
 

@@ -74,6 +74,7 @@ import {
   PEERLY_NO_PAYMENT_METHOD_MESSAGE,
 } from '../../../vendors/peerly/utils/peerlyBillingError.util'
 import { PeerlyCvRejectionException } from '../../../vendors/peerly/utils/peerlyCvRejection.util'
+import { CampaignVerifyPinNotIssuedException } from '../utils/campaignVerifyPinNotIssued.util'
 
 // `parseInt(x) || default` (not `x ? parseInt(x) : default`) so a non-numeric
 // env value yields NaN and falls back to the default rather than reaching
@@ -2036,6 +2037,14 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         campaign,
       )
     if (cvStatus !== PeerlyCvVerificationStatus.VERIFIED) {
+      // APPROVED is the only state in which a PIN actually exists. REQUESTED,
+      // IN_REVIEW, REJECTED and null all mean CampaignVerify never issued one,
+      // so forwarding the candidate's guess to verify_pin can only come back
+      // rejected — which we then reported as "that PIN didn't match", sending
+      // them into an unwinnable retry loop (ENG-10866).
+      if (cvStatus !== PeerlyCvVerificationStatus.APPROVED) {
+        throw new CampaignVerifyPinNotIssuedException()
+      }
       const pinIsValid =
         await this.peerlyIdentityService.verifyCampaignVerifyPin(
           peerlyIdentityId,

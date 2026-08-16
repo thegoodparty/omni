@@ -221,6 +221,23 @@ single-class `sweepStuckPeerlySubmissions` hourly digest (and its
   mirror sections (ENG-10796 cases 2 and 3b — see below), and an awaiting-PIN
   > 7d nudge section that is reported but not counted as stuck. Sections cap
   > at 25 rows with an explicit `…and N more`.
+- **The awaiting-PIN nudge is `peerlyCvStatus = APPROVED` only (ENG-10866).**
+  It used to be `{ not: null, notIn: [VERIFIED] }`, which swept in `REQUESTED`
+  and `IN_REVIEW` and printed `PIN out Nd` for records where CampaignVerify had
+  never issued a PIN — sending staff to nudge candidates straight into the
+  PIN-entry bug above. One query still fetches all three statuses (call order
+  in the report's `Promise.all` is load-bearing for the tests); the split into
+  the nudge vs. a separate "CampaignVerify still reviewing >7d (no PIN issued —
+  do not nudge)" section happens in code. Neither section counts toward the
+  stuck total. `IN_REVIEW` past the business-day floor still escalates to Peerly
+  through case 2.
+- **Internal accounts are excluded via `NOT: { OR: [...] }`, not `NOT: [...]`.**
+  Prisma reads a bare `NOT: [a, b]` as `NOT(a AND b)`; since no address ends
+  with both `@goodparty.org` and `@test.goodparty.org`, that form was always
+  true and every report section silently included staff records. The semantics
+  are covered against real Postgres in
+  `services/nightly10DlcReportScope.test.ts` — a structural assertion on the
+  `where` object can't catch this class of bug.
 
 ### Vendor escalation into the shared Peerly channel (ENG-10796)
 
@@ -408,14 +425,29 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
   `submitToPeerlyForAgent`'s gate depends on it. What changed is that
   `findStateForCampaign` now also resolves the _live_ CV status into
   `ComplianceStateOutput.peerlyCvStatus`, and only at the `awaiting_pin` stage (so the
-  extra Peerly `retrieve_cv` read stays off the other stages the agent polls). The FE
-  (`ProUpgrade3Compliance.tsx`) shows the PIN-entry box only when `peerlyCvStatus` is
-  `APPROVED`/`VERIFIED`; for `REQUESTED`/`IN_REVIEW`/`null` (Peerly hasn't issued a PIN
-  yet) it shows a "verification in progress" state instead. `resolvePeerlyCvState`
-  short-circuits to `APPROVED` in non-prod (Peerly is stubbed there, mirroring
-  `retrieveCampaignVerifyToken`'s bypass) so testers still reach the PIN screen, and
-  parses Peerly's status defensively so an unrecognized value degrades to the
+  extra Peerly `retrieve_cv` read stays off the other stages the agent polls). Every FE
+  PIN surface shows the entry box only when `peerlyCvStatus` is `APPROVED`/`VERIFIED`;
+  for `REQUESTED`/`IN_REVIEW`/`REJECTED`/`null` (Peerly hasn't issued a PIN yet) it
+  shows a "verification in progress" state instead. The gate is one shared hook,
+  `useCvPinGate` (`texting-compliance/shared/useCvPinGate.ts`) — it was originally
+  written inline in `ProUpgrade3Compliance.tsx` only, and the surfaces that gated on the
+  DB status alone (`/enter-pin`, `/submit-pin`) is how ENG-10866 happened. Add a new PIN
+  surface by calling the hook, never by re-deriving the condition.
+  `resolvePeerlyCvState` short-circuits to `APPROVED` in non-prod (Peerly is stubbed
+  there, mirroring `retrieveCampaignVerifyToken`'s bypass) so testers still reach the PIN
+  screen, and parses Peerly's status defensively so an unrecognized value degrades to the
   in-progress state rather than 500ing the read.
+- **`APPROVED` is the only CV status where a PIN exists (ENG-10866).** `REQUESTED`,
+  `IN_REVIEW` and `null` mean CampaignVerify has not issued one; `VERIFIED` means one was
+  issued and already consumed. `retrieveCampaignVerifyToken` is a three-way branch on
+  that: `VERIFIED` skips verification and mints the token (the retry path above),
+  `APPROVED` calls `verify_pin`, and **everything else throws
+  `CampaignVerifyPinNotIssuedException` (409) without contacting Peerly**. Before this,
+  every non-`VERIFIED` status fell through to `verify_pin`, so a candidate whose CV was
+  still `IN_REVIEW` got Peerly's rejection reported back as "That PIN didn't match" and
+  retried an unanswerable prompt for days. The 409 is deliberately distinct from the 422
+  a genuinely wrong PIN returns — it is what lets `useSubmitCvPin` tell the two apart.
+  Don't collapse them.
 - **PIN delivery channel is surfaced live + to HubSpot (ENG-10658):**
   `resolvePeerlyCvState` uses one `retrieveCampaignVerifyDetails` call (enriched
   `retrieve_cv`) to return both `peerlyCvStatus` and `ComplianceStateOutput.pinDelivery`

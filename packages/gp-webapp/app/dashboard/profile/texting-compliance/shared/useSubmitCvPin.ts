@@ -10,10 +10,24 @@ import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import { TCR_COMPLIANCE_QUERY_KEY } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import type { TcrCompliance } from 'helpers/types'
 
-// A 4xx means the PIN itself was wrong (client-correctable); anything else is
-// an upstream/Peerly failure we don't attribute to the candidate's input.
-const isPinMismatch = (e: unknown): boolean =>
-  e instanceof FetchError && (e.status === 400 || e.status === 422)
+// gp-api answers 409 when CampaignVerify has not issued a PIN at all — the
+// candidate has nothing to get right, so blaming their input sent them into an
+// unwinnable retry loop (ENG-10866). 400/422 is a genuine mismatch against an
+// issued PIN; anything else is an upstream/Peerly failure.
+const messageForError = (e: unknown): string => {
+  if (e instanceof FetchError) {
+    if (e.status === 409) {
+      return (
+        'CampaignVerify hasn’t issued your PIN yet, so there’s nothing to ' +
+        'enter. We’ll email you as soon as it’s on its way.'
+      )
+    }
+    if (e.status === 400 || e.status === 422) {
+      return 'That PIN didn’t match. Double-check and try again.'
+    }
+  }
+  return 'We couldn’t verify that PIN. Please try again.'
+}
 
 interface UseSubmitCvPinOptions {
   // Runs after a successful submit (analytics + snackbar + cache invalidation
@@ -70,11 +84,7 @@ export function useSubmitCvPin(
       setSubmitting(false)
       onSuccess?.()
     } catch (e) {
-      setError(
-        isPinMismatch(e)
-          ? 'That PIN didn’t match. Double-check and try again.'
-          : 'We couldn’t verify that PIN. Please try again.',
-      )
+      setError(messageForError(e))
       setSubmitting(false)
     }
   }
