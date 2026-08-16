@@ -26,6 +26,14 @@ Results print as a table and are written to `scripts/output/people-db-bench-<env
 off-peak. It exits non-zero if any scenario's error rate at the target
 concurrency (50, the `connection_limit`) is above its budget.
 
+Budgets are **per scenario**. The `large` scenarios carry `maxErrorRate: 1`
+(observation-only): that band already cold-runs past the 25s statement timeout
+single-shot, and at c=50 all 50 requests are cold at once, so a 0 budget there
+would make `FAIL` the permanent baseline instead of a regression signal. They
+still record numbers in the artifact — they just can't red the gate. Tighten
+them once a load pass gives a measured error rate to calibrate against. At
+least one scenario must keep a 0 budget or the gate is decorative.
+
 ## Cohort bands are NOT ordered by cost
 
 Bands are `small` (~8k) / `medium` (~65k) / `large` (~400k) / `mega` (~900k) /

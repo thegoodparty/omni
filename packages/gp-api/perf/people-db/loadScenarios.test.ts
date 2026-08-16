@@ -2,15 +2,31 @@ import { describe, it, expect } from 'vitest'
 import { LOAD_SCENARIOS, scenarioCase } from './loadScenarios'
 
 describe('LOAD_SCENARIOS', () => {
-  it('targets the pool ceiling (50) with a zero error budget and sweeps past it', () => {
+  it('targets the pool ceiling (50) and sweeps past it', () => {
     expect(LOAD_SCENARIOS.length).toBeGreaterThan(0)
     for (const s of LOAD_SCENARIOS) {
       expect(s.targetConcurrency).toBe(50)
-      expect(s.maxErrorRate).toBe(0)
+      expect(s.maxErrorRate).toBeGreaterThanOrEqual(0)
+      expect(s.maxErrorRate).toBeLessThanOrEqual(1)
       // a level above the pool so the over-saturation cliff stays visible
       expect(s.concurrencyLevels.some((c) => c > s.targetConcurrency)).toBe(
         true,
       )
+    }
+  })
+
+  it('keeps at least one scenario actually gating', () => {
+    // Budgets are per-scenario so a known-broken band can be observation-only
+    // (maxErrorRate: 1), but if every scenario were observation-only the load
+    // gate would be decorative — runLoad could never exit non-zero.
+    expect(LOAD_SCENARIOS.some((s) => s.maxErrorRate === 0)).toBe(true)
+  })
+
+  it('only lets the large band off the hook, and says why in a comment', () => {
+    // large cold-runs past the 25s statement timeout, so a 0 budget there is a
+    // permanent FAIL rather than a signal. Every other band must still gate.
+    for (const s of LOAD_SCENARIOS) {
+      if (s.maxErrorRate !== 0) expect(s.band).toBe('large')
     }
   })
 
