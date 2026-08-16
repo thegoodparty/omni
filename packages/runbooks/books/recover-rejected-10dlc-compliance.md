@@ -116,7 +116,11 @@ not the candidate's own registered domain.
 
 ## Step 2 — clear the rejection
 
+`rejected` and `error` both derive `tcr_rejected`, but they do **not** take the same
+fix. Run the block that matches the record's `status`.
+
 ```sql
+-- status = 'rejected' — CampaignVerify rejected at submit time.
 UPDATE tcr_compliance
 SET status = 'submitted'
 WHERE campaign_id = <campaign_id>
@@ -124,12 +128,28 @@ WHERE campaign_id = <campaign_id>
   AND peerly_identity_id IS NULL;
 ```
 
-Preconditions, all enforced in the `WHERE` clause above so a wrong-shaped record is a
+```sql
+-- status = 'error' — the kickoff handler rejected the record before Peerly.
+-- `kickoff_sent_at` must also be cleared: sweepStrandedAgenticKickoffs only
+-- re-dispatches records with status = 'submitted' AND kickoff_sent_at IS NULL,
+-- so a status reset alone leaves the record stranded with no dispatcher.
+UPDATE tcr_compliance
+SET status = 'submitted',
+    kickoff_sent_at = NULL
+WHERE campaign_id = <campaign_id>
+  AND status = 'error'
+  AND peerly_identity_id IS NULL;
+```
+
+Preconditions, all enforced in the `WHERE` clauses above so a wrong-shaped record is a
 0-row update rather than a bad write:
 
-- currently `rejected` (or `error` — same derived stage, same fix);
+- currently `rejected` or `error`, matching the block you ran;
 - `peerly_identity_id IS NULL`, per Step 0;
 - the data from Step 1 is already corrected and committed.
+
+A 0-row update means the record is not the shape you assumed — re-check Step 0 rather
+than loosening the `WHERE`.
 
 `submitted` is the right target, not `pending`/`approved`: those derive
 `tcr_in_review`/`tcr_approved` and would make the agent skip submission entirely.
