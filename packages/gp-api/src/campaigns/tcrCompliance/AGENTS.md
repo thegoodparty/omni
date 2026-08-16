@@ -365,10 +365,12 @@ is load-bearing — read this before touching a rejected record.
 The agent is right to refuse: resubmitting an uncorrected record just re-fails and
 spams CampaignVerify. But the record is not necessarily dead — the **operator**
 recovery path is to correct the data and then clear the rejection. Until the
-rejection is cleared, an admin retry is a **silent, billable no-op**: the run
-re-dispatches, reads the state, sees `tcr_rejected`, writes `stage: "failed"`, and
-exits (~$0.43 on campaign 325819, Aug 2026). Nothing in the UI distinguishes that
-from a real failure.
+rejection is cleared there is nothing for a retry to do, so **the admin retry
+endpoint refuses with 409 while the derived stage is `tcr_rejected`**
+(`AdminAgentRunsService.retry`). It keys on the stage, not `status === 'rejected'`,
+so `error` is covered too. Before that guard the retry silently succeeded, queued a
+real run, and billed for it (~$0.43 on campaign 325819, Aug 2026) — the run read the
+state, wrote `stage: "failed"`, and exited indistinguishably from a real failure.
 
 **Correcting the data is not sufficient.** `deriveComplianceStage` maps both
 `rejected` and `error` to `tcr_rejected` _before_ any domain/website check, and

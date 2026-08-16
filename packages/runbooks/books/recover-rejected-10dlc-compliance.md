@@ -24,11 +24,11 @@ nobody had written down.
 
 Three layers disagree about whether `rejected` is recoverable:
 
-| Layer                                                | Treats `rejected` as | Evidence                                                             |
-| ---------------------------------------------------- | -------------------- | -------------------------------------------------------------------- |
-| gp-api `createAgentic`                               | retryable            | `error`/`rejected` → delete + recreate the row                       |
-| Admin retry `POST /v1/admin/agent-runs/:runId/retry` | retryable            | returns 201 and queues a real, billable run                          |
-| The `compliance_setup` agent                         | terminal             | `experiments/compliance_setup/instruction.md` Step 1, `tcr_rejected` |
+| Layer                                                | Treats `rejected` as       | Evidence                                                                        |
+| ---------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------- |
+| gp-api `createAgentic`                               | retryable                  | `error`/`rejected` → delete + recreate the row                                  |
+| Admin retry `POST /v1/admin/agent-runs/:runId/retry` | retryable, until it wasn't | queued a real billable run that could never succeed; now 409s at `tcr_rejected` |
+| The `compliance_setup` agent                         | terminal                   | `experiments/compliance_setup/instruction.md` Step 1, `tcr_rejected`            |
 
 The agent is following its instructions correctly, and the instruction is right in
 the general case: resubmitting an uncorrected record just re-fails and spams the
@@ -188,6 +188,12 @@ It refuses (409) if the run is `QUEUED`, `RUNNING`, `AWAITING_RESUME`, or
 `SUPERSEDED`. To recover a dead resume chain, retry the latest **FAILED** run, not the
 `SUPERSEDED` predecessor.
 
+It also refuses (409, "unresolved CampaignVerify rejection") while the campaign's
+derived stage is still `tcr_rejected` — i.e. if you get here without having done Step
+2, or Step 2 didn't land. That is the safety net, not the check: run Step 3 first
+anyway, because a stage of `pending_domain_purchase` or `pending_website_live` passes
+this guard and still means the run will do more (and cost more) than you expected.
+
 ## Step 5 — confirm the resubmit actually reached Peerly
 
 A successful run leaves `stage: "tcr_submitted"` on the artifact. On the record:
@@ -216,9 +222,9 @@ the app.
   clause. A `POST /v1/campaigns/tcr-compliance/admin/:campaignId/clear-rejection`
   (M2M-guarded, enforcing the `peerly_identity_id IS NULL` precondition) is the
   obvious fix and does not exist.
-- **The admin Retry button silently no-ops at `tcr_rejected`.** It returns 201, queues
-  a real run, bills for it, and the run fails identically to the one before. Nothing
-  warns the operator. Until that's addressed, always run Step 3 before Step 4.
+- **The rejection reason isn't stored anywhere queryable.** Step 0 sends you to
+  Segment, Slack, and the run artifact to answer "why was this rejected", which makes
+  the data-fixable-versus-terminal call slower than it should be.
 
 ## Related
 
