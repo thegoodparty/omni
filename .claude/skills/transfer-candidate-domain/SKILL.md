@@ -201,12 +201,17 @@ Vercel UI — open a Vercel support ticket referencing the domain and the pendin
 transfer. Warn the candidate up front so a lock error doesn't read as GoodParty
 stonewalling.
 
-Two things you can usually rule out as blockers, but check:
+**Run both of these before you send the code, and act on the results.** A
+contact-verification hold is a hard blocker under ICANN's Transfer Policy, not a
+formality — the gaining registrar will reject the transfer, and the rejection gives
+the candidate no error that points back here.
 
 ```bash
 curl -s -H "Authorization: Bearer $VT" \
   "https://api.vercel.com/v1/registrar/domains/<domain>/contact-verification?teamId=$TEAM"
-# want {"verified": true} — otherwise there's an ICANN contact-verification hold
+# {"verified": true} is required.
+# If false: do NOT send the code. Open a Vercel support ticket to trigger ICANN
+# contact re-verification, and wait for it to clear first.
 
 whois <domain> | grep -i dnssec
 # unsigned means no DS records to strip before transfer
@@ -245,7 +250,10 @@ State the trade-offs before they choose:
 account outside the team, and whether the move itself trips a lock. Treat Path B as
 promising, not guaranteed, and don't promise it to a candidate as a sure thing.
 
-## Step 4 — What to send the candidate
+## Step 4 (Path A) — What to send the candidate
+
+Path B produces no auth code — if you moved the domain inside Vercel, skip this
+template entirely and confirm the move instead (see Path B and Step 5).
 
 Send to **`<u.email — the value the Step 0 query returned>`**, not an address from
 a forwarded ticket, and not whichever address is most recent in the thread. Include the DNS warnings — they're what stop the site and their campaign
