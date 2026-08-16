@@ -50,10 +50,15 @@ export const useCvPinGate = (
 
   // Only the awaiting-PIN state gates on the live Peerly CV status, so the
   // extra Peerly read stays off every other candidate's page load.
+  // staleTime 0 overrides the app-wide 5-minute default: all three PIN surfaces
+  // share this cache key, so a candidate who opens one, gets approved by
+  // CampaignVerify, then opens another would otherwise be gated on a stale
+  // IN_REVIEW and see no PIN form. Serving a stale status defeats the gate.
   const { data: complianceState, isPending: isCvStatePending } = useQuery({
     queryKey: COMPLIANCE_STATE_QUERY_KEY,
     queryFn: getComplianceState,
     enabled: isAwaitingPin,
+    staleTime: 0,
   })
 
   if (isTcrPending) {
