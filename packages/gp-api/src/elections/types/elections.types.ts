@@ -147,6 +147,14 @@ export type District = {
   L2DistrictType: string
   L2DistrictName: string
   projectedTurnout: SourceProjectedTurnout | null
+  // L2-derived voter aggregates. Only `GET /districts/:id` returns the whole
+  // District row; the position lookup hand-shapes a district response without
+  // them, hence optional. `null` means the aggregate hasn't been computed for
+  // this district type (common for school districts) — it is not evidence of
+  // an empty electorate.
+  registeredVoters?: number | null
+  uniqueCellphones?: number | null
+  uniqueLandlines?: number | null
 }
 
 export type PositionWithOptionalDistrict = {
