@@ -799,6 +799,25 @@ describe('WebsitesController', () => {
       expect(mockWebsitesService.update).toHaveBeenCalled()
     })
 
+    it('does not re-gate the attached domain on a content-only edit', async () => {
+      // Deliberate asymmetry with the content gate: a Domain row sits at
+      // `pending` for the duration of an async registrar purchase, and gating
+      // edits on it would lock the candidate out of their own editor.
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        content: structuredClone(completeContent),
+        hasEverBeenPublished: true,
+        status: WebsiteStatus.published,
+        domain: { status: DomainStatus.pending },
+      })
+
+      const body = new UpdateWebsiteSchema()
+      body.main = { tagline: 'Still editable while the domain settles' }
+
+      await controller.updateWebsite(mockUser, mockCampaign, body)
+
+      expect(mockWebsitesService.update).toHaveBeenCalled()
+    })
+
     it('allows unpublishing a site whose content is incomplete', async () => {
       mockWebsitesService.findUniqueOrThrow.mockResolvedValue(publishedSite({}))
 

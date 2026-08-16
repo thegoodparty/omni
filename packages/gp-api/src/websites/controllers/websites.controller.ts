@@ -311,6 +311,16 @@ export class WebsitesController {
       },
     })
 
+    // The status the site will HAVE after this write. Content validation below
+    // keys off this; the domain gate deliberately does not — see there.
+    const nextStatus = body.status ?? currentStatus
+
+    // Publish transition only, unlike the content gate. Domain status is
+    // external state this request can't damage or repair, and a Domain row
+    // sits at `pending` for the duration of an async registrar purchase — so
+    // gating edits on it would 400 every content save on an already-published
+    // site until the purchase lands, with no way for the candidate to clear it
+    // from the editor.
     if (
       body.status === WebsiteStatus.published &&
       domain &&
@@ -335,14 +345,12 @@ export class WebsitesController {
       updatedContent.about.issues = body.about.issues
     }
 
-    // Gate on the status the site will HAVE after this write, not on the
-    // publish transition alone: an edit that omits `status` used to skip
-    // validation entirely, so a body carrying `about: { bio: '' }` could empty
-    // a required field on an already-live site and leave it published with
-    // content that would fail this very check on republish. That is how a
-    // candidate's bio was silently wiped mid-10DLC (campaign 296539), which
-    // then failed their compliance run at submit_tcr.
-    const nextStatus = body.status ?? currentStatus
+    // Keyed on nextStatus, not the publish transition: an edit that omits
+    // `status` used to skip validation entirely, so a body carrying
+    // `about: { bio: '' }` could empty a required field on an already-live site
+    // and leave it published with content that would fail this very check on
+    // republish. That is how a candidate's bio was silently wiped mid-10DLC
+    // (campaign 296539), which then failed their compliance run at submit_tcr.
     if (nextStatus === WebsiteStatus.published) {
       applyContactFallbacks(updatedContent)
       assertReadyToPublish(updatedContent)
