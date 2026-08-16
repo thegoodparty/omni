@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import {
   PeerlyCvVerificationStatus,
   type ComplianceStateOutput,
 } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
 import type { TcrCompliance, TcrComplianceStatus } from 'helpers/types'
 import TextingComplianceSubmitPinPage from './TextingComplianceSubmitPinPage'
 
@@ -127,4 +129,56 @@ describe('TextingComplianceSubmitPinPage — CampaignVerify PIN gate', () => {
       expect(mockGetComplianceState).not.toHaveBeenCalled()
     },
   )
+})
+
+// This route submitted through its own clientFetch wrapper, which discards the
+// HTTP status — so the 409 that distinguishes "no PIN was ever issued" from a
+// wrong PIN could never reach the candidate here. It now shares useSubmitCvPin
+// with every other surface.
+describe('TextingComplianceSubmitPinPage — error copy', () => {
+  const renderReadyAndSubmit = async () => {
+    mockGetComplianceState.mockResolvedValue(
+      stateWith(PeerlyCvVerificationStatus.APPROVED),
+    )
+    const user = userEvent.setup()
+    render(
+      <TextingComplianceSubmitPinPage tcrCompliance={tcrWith('submitted')} />,
+    )
+    const field = await waitFor(() => {
+      const found = getPinField()
+      expect(found).not.toBeNull()
+      return found!
+    })
+    await user.type(field, '123456')
+    await user.click(screen.getByRole('button', { name: /submit/i }))
+  }
+
+  it('surfaces the no-PIN-issued copy on a 409', async () => {
+    api.mock(
+      'POST /v1/campaigns/tcr-compliance/:tcrComplianceId/submit-cv-pin',
+      { status: 409, data: { message: "CampaignVerify hasn't issued a PIN" } },
+    )
+
+    await renderReadyAndSubmit()
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/hasn’t issued your PIN yet/i),
+      ).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/didn’t match/i)).toBeNull()
+  })
+
+  it('still reports a mismatch on a 400', async () => {
+    api.mock(
+      'POST /v1/campaigns/tcr-compliance/:tcrComplianceId/submit-cv-pin',
+      { status: 400, data: { message: 'Invalid PIN' } },
+    )
+
+    await renderReadyAndSubmit()
+
+    await waitFor(() => {
+      expect(screen.getByText(/didn’t match/i)).toBeInTheDocument()
+    })
+  })
 })

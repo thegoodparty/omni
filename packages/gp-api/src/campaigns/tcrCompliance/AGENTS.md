@@ -188,8 +188,10 @@ single-class `sweepStuckPeerlySubmissions` hourly digest (and its
     `VERIFIED` does it also call `getIdentityProfile` (`getProfile`) →
     `peerlyProfileStatus`. Each `*ChangedAt` companion column advances only
     when the observed value differs from what's stored — an unchanged
-    observation writes nothing at all (not even a no-op `update`), so
-    `updatedAt` (which the awaiting-PIN section keys off) is untouched.
+    observation writes nothing at all (not even a no-op `update`). A changed
+    one does write, which bumps `updatedAt` too: **no report section may
+    measure an age from `updatedAt`**, since any write to the row resets it
+    (see the ENG-10866 clock note below).
   - Paced with the same `PEERLY_CV_READ_SPACING_MS` + sleep pattern as
     `sweepPinDeliveryDetection`. Each record's poll is wrapped individually —
     a thrown Peerly error logs + skips that record (keeping its stored
@@ -231,6 +233,16 @@ single-class `sweepStuckPeerlySubmissions` hourly digest (and its
   do not nudge)" section happens in code. Neither section counts toward the
   stuck total. `IN_REVIEW` past the business-day floor still escalates to Peerly
   through case 2.
+- **Neither section's clock may come from `updatedAt` (ENG-10866).** The poll
+  bumps it on every CV transition, so a record that moved `REQUESTED →
+IN_REVIEW` reported a three-week wait as `0d` the next night — hiding exactly
+  the stalls the section exists to surface. `PIN out Nd` ages from
+  `pinSentDetectedAt ?? peerlyCvStatusChangedAt` (when CV reached `APPROVED` is
+  when Peerly issues the PIN); the no-PIN section ages from
+  `peerlySubmissionStartedAt ?? createdAt`, the total wait, because a sideways
+  CV transition is not a delivery. Both floors are applied **in code** for the
+  same reason — the SQL keeps only a coarse `createdAt` floor, which cannot
+  over-exclude.
 - **Internal accounts are excluded via `NOT: { OR: [...] }`, not `NOT: [...]`.**
   Prisma reads a bare `NOT: [a, b]` as `NOT(a AND b)`; since no address ends
   with both `@goodparty.org` and `@test.goodparty.org`, that form was always

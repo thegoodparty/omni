@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule'
 import {
   differenceInBusinessDays,
   differenceInCalendarDays,
+  isBefore,
   subDays,
   subHours,
   subMinutes,
@@ -310,15 +311,14 @@ export class Nightly10DlcReportService extends createPrismaBase(
               PeerlyCvVerificationStatus.IN_REVIEW,
             ],
           },
-          OR: [
-            {
-              pinSentDetectedAt: { lt: subDays(now, AWAITING_PIN_NUDGE_DAYS) },
-            },
-            {
-              pinSentDetectedAt: null,
-              updatedAt: { lt: subDays(now, AWAITING_PIN_NUDGE_DAYS) },
-            },
-          ],
+          // Coarse floor only: a record created less than the nudge window
+          // ago cannot have been waiting longer than it, so this can never
+          // over-exclude. The precise clock is applied per section in code
+          // below — the two sections measure different things, and the
+          // `updatedAt` this filter used to key off is bumped by *any* write
+          // to the row (including the nightly poll's own status write), which
+          // silently reset the age.
+          createdAt: { lt: subDays(now, AWAITING_PIN_NUDGE_DAYS) },
         },
         include: { campaign: true },
       }),
@@ -595,11 +595,30 @@ export class Nightly10DlcReportService extends createPrismaBase(
         ),
       },
     ]
+    const nudgeCutoff = subDays(now, AWAITING_PIN_NUDGE_DAYS)
+    // When the PIN went out: the detection sweep's stamp, else when CV reached
+    // APPROVED (Peerly issues the PIN on that transition). Never `updatedAt` —
+    // any write to the row bumps it, so an unrelated update would reset a
+    // three-week-old wait to "PIN out 0d".
+    const pinSentAt = (record: RecordWithCampaign) =>
+      record.pinSentDetectedAt ?? record.peerlyCvStatusChangedAt
+    // How long the candidate has been waiting with no PIN at all. Measured
+    // from the CV submission, not the last status change: REQUESTED ->
+    // IN_REVIEW is a transition, not a delivery, and this section exists to
+    // surface the total wait. Keying it off any *ChangedAt column would
+    // restart the clock every time CampaignVerify moved the record sideways.
+    const cvWaitingSince = (record: RecordWithCampaign) =>
+      record.peerlySubmissionStartedAt ?? record.createdAt
+
     const agingAwaitingPin = agingCvInFlight.filter(
-      (record) => record.peerlyCvStatus === PeerlyCvVerificationStatus.APPROVED,
+      (record) =>
+        record.peerlyCvStatus === PeerlyCvVerificationStatus.APPROVED &&
+        isBefore(pinSentAt(record) ?? record.createdAt, nudgeCutoff),
     )
     const agingCvUnissued = agingCvInFlight.filter(
-      (record) => record.peerlyCvStatus !== PeerlyCvVerificationStatus.APPROVED,
+      (record) =>
+        record.peerlyCvStatus !== PeerlyCvVerificationStatus.APPROVED &&
+        isBefore(cvWaitingSince(record), nudgeCutoff),
     )
 
     const nudgeSection: ReportSection = {
@@ -609,7 +628,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
           `${campaignRef(record)} — identity ${record.peerlyIdentityId}, ` +
           `PIN out ${differenceInCalendarDays(
             now,
-            record.pinSentDetectedAt ?? record.updatedAt,
+            pinSentAt(record) ?? record.createdAt,
           )}d`,
       ),
     }
@@ -625,8 +644,9 @@ export class Nightly10DlcReportService extends createPrismaBase(
       lines: agingCvUnissued.map(
         (record) =>
           `${campaignRef(record)} — identity ${record.peerlyIdentityId}, ` +
-          `CV ${record.peerlyCvStatus} for ` +
-          `${differenceInCalendarDays(now, record.updatedAt)}d`,
+          `no PIN issued, waiting ` +
+          `${differenceInCalendarDays(now, cvWaitingSince(record))}d ` +
+          `(CV ${record.peerlyCvStatus})`,
       ),
     }
 

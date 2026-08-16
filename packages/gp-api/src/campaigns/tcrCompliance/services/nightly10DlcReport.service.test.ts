@@ -308,8 +308,12 @@ describe('Nightly10DlcReportService', () => {
             typeof where.peerlyIdentityId === 'object'
           ) {
             // The poll query (ENG-10793) shares this shape but carries no
-            // OR clause — only the awaiting-PIN query does.
-            if (!where.OR) {
+            // peerlyCvStatus — only the in-flight CV query lists statuses.
+            if (
+              typeof where.peerlyCvStatus !== 'object' ||
+              where.peerlyCvStatus === null ||
+              !('in' in where.peerlyCvStatus)
+            ) {
               return Promise.resolve([])
             }
             return Promise.resolve([
@@ -322,7 +326,7 @@ describe('Nightly10DlcReportService', () => {
                 peerlyIdentityId: '11540158',
                 peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
                 pinSentDetectedAt: null,
-                updatedAt: subDays(new Date(), 12),
+                peerlyCvStatusChangedAt: subDays(new Date(), 12),
               }),
             ])
           }
@@ -364,7 +368,8 @@ describe('Nightly10DlcReportService', () => {
       expect(text).toContain('vote-dead-domain.site')
       expect(text).toContain('pin-camp (campaign 555)')
       expect(text).toContain('Awaiting PIN')
-      // The pinSentDetectedAt-null arm falls back to updatedAt for the age.
+      // The pinSentDetectedAt-null arm falls back to when CV reached APPROVED
+      // (peerlyCvStatusChangedAt), which is when Peerly issues the PIN.
       expect(text).toContain('pin-undetected-camp (campaign 556)')
       expect(text).toContain('PIN out 12d')
       // Nudge rows are not system failures and must not inflate the count.
@@ -889,6 +894,8 @@ describe('Nightly10DlcReportService', () => {
   // records too, which sent staff to chase candidates who had no PIN — and
   // straight into the PIN box that then rejected whatever they typed.
   describe('handleNightlyReport — awaiting-PIN nudge split (ENG-10866)', () => {
+    // 9 days in flight, with the row written last night — the shape the
+    // nightly poll leaves behind every time it observes anything.
     const cvInFlight = (
       id: string,
       slug: string,
@@ -899,7 +906,10 @@ describe('Nightly10DlcReportService', () => {
         peerlyIdentityId: `ident-${campaignId}`,
         peerlyCvStatus,
         pinSentDetectedAt: null,
-        updatedAt: subDays(new Date(), 9),
+        peerlySubmissionStartedAt: subDays(new Date(), 9),
+        peerlyCvStatusChangedAt: subDays(new Date(), 9),
+        createdAt: subDays(new Date(), 9),
+        updatedAt: subDays(new Date(), 1),
       })
 
     it('nudges only the APPROVED record and files the rest as no-PIN-issued', async () => {
@@ -954,9 +964,103 @@ describe('Nightly10DlcReportService', () => {
 
       expect(blocksText([unissued!])).toContain('requested-camp (campaign 802)')
       expect(blocksText([unissued!])).toContain('in-review-camp (campaign 803)')
-      expect(blocksText([unissued!])).toContain('CV REQUESTED for 9d')
+      expect(blocksText([unissued!])).toContain(
+        'no PIN issued, waiting 9d (CV REQUESTED)',
+      )
       expect(blocksText([unissued!])).not.toContain('PIN out')
       expect(blocksText([unissued!])).not.toContain('approved-camp')
+    })
+
+    // The nightly poll writes peerlyCvStatusChangedAt AND bumps updatedAt on
+    // every CV transition, so keying the age off updatedAt reported a
+    // three-week wait as "0d" the night after CampaignVerify moved the record
+    // from REQUESTED to IN_REVIEW — hiding exactly the stalls this section
+    // exists to surface.
+    it('reports the true wait for a record whose CV status just transitioned', async () => {
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+          proRecord('tcr-moved', 'just-moved-camp', 804, {
+            peerlyIdentityId: 'ident-804',
+            peerlyCvStatus: PeerlyCvVerificationStatus.IN_REVIEW,
+            pinSentDetectedAt: null,
+            peerlySubmissionStartedAt: subDays(new Date(), 30),
+            createdAt: subDays(new Date(), 30),
+            // Moved REQUESTED -> IN_REVIEW on last night's poll, which also
+            // bumped updatedAt.
+            peerlyCvStatusChangedAt: subDays(new Date(), 1),
+            updatedAt: subDays(new Date(), 1),
+          }),
+        ],
+        [],
+        [],
+        [],
+        [],
+      ])
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+        { blocks: SlackMessageBlock[] },
+      ]
+      const unissued = blocks.find((block) =>
+        blocksText([block]).includes('CampaignVerify still reviewing'),
+      )
+
+      expect(unissued).toBeDefined()
+      expect(blocksText([unissued!])).toContain(
+        'just-moved-camp (campaign 804)',
+      )
+      expect(blocksText([unissued!])).toContain(
+        'no PIN issued, waiting 30d (CV IN_REVIEW)',
+      )
+      expect(blocksText([unissued!])).not.toContain('waiting 1d')
+    })
+
+    // Same class of bug on the nudge line: `PIN out Nd` fell back to updatedAt
+    // when the delivery sweep had not stamped pinSentDetectedAt, so any
+    // unrelated write to the row reset the age.
+    it('ages `PIN out` from the APPROVED transition, not the last row write', async () => {
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+          proRecord('tcr-approved', 'approved-stale-camp', 805, {
+            peerlyIdentityId: 'ident-805',
+            peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
+            // Delivery sweep never detected the channel, so the fallback is
+            // the APPROVED transition — 21 days ago.
+            pinSentDetectedAt: null,
+            peerlyCvStatusChangedAt: subDays(new Date(), 21),
+            createdAt: subDays(new Date(), 25),
+            updatedAt: subDays(new Date(), 1),
+          }),
+        ],
+        [],
+        [],
+        [],
+        [],
+      ])
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+        { blocks: SlackMessageBlock[] },
+      ]
+      const nudge = blocks.find((block) =>
+        blocksText([block]).includes('Awaiting PIN >7d'),
+      )
+
+      expect(nudge).toBeDefined()
+      expect(blocksText([nudge!])).toContain('PIN out 21d')
+      expect(blocksText([nudge!])).not.toContain('PIN out 1d')
     })
 
     it('counts neither section toward the stuck total', async () => {
