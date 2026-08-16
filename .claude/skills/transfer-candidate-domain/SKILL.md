@@ -12,13 +12,18 @@ someone here has to hand it over. This skill is the fulfilment procedure.
 There are two destinations, and they are not interchangeable — ask which one the
 candidate actually wants before you start:
 
-| Path                                                | What it is                                 | Lock-gated?            | Registrar ends up         |
-| --------------------------------------------------- | ------------------------------------------ | ---------------------- | ------------------------- |
-| **A — their own registrar** (GoDaddy, Namecheap, …) | Real inter-registrar transfer via EPP code | Yes, 60-day ICANN lock | Wherever they chose       |
-| **B — their own Vercel account**                    | Account-to-account move inside Vercel      | Should not be          | Still Name.com via Vercel |
+| Path                                                | What it is                                 | Lock-gated?             | Registrar ends up         |
+| --------------------------------------------------- | ------------------------------------------ | ----------------------- | ------------------------- |
+| **A — their own registrar** (GoDaddy, Namecheap, …) | Real inter-registrar transfer via EPP code | Yes, 60-day ICANN lock  | Wherever they chose       |
+| **B — their own Vercel account**                    | Account-to-account move inside Vercel      | Shouldn't be — unproven | Still Name.com via Vercel |
 
 Path A is what people usually mean by "transfer my domain". Path B is the escape
 hatch when they're still inside the lock window or they just want control.
+
+**Path B has never been run here.** Nobody has confirmed that Vercel permits moving
+a registrar-purchased domain to an account outside the team, or that the move
+itself doesn't trip a lock. Offer it as something to try, never as a promise, and
+read the Path B section in full before you commit a candidate to it.
 
 ## Before you touch anything
 
@@ -85,7 +90,13 @@ everything through Vercel, never Name.com directly.
 The auth code is a bearer credential for taking a domain. Anyone holding it can
 move the domain. Confirm identity before you send it.
 
+The domain string comes from a support ticket, so don't paste it into the query
+body. Bind it to a psql variable and reference it with `:'domain'`, which psql
+quote-escapes for you:
+
 ```sql
+\set domain 'example.com'
+
 SELECT d.id, d.name, d.status, d.source, d.created_at,
        (d.created_at + interval '60 days') AS eligible_at,
        w.status AS site_status, u.id AS user_id, u.email, u.first_name, u.last_name
@@ -93,7 +104,7 @@ FROM domain d
 JOIN website w  ON w.id = d.website_id
 JOIN campaign c ON c.id = w.campaign_id
 JOIN "user" u   ON u.id = c.user_id
-WHERE lower(d.name) = lower('<domain>');
+WHERE lower(d.name) = lower(:'domain');
 ```
 
 **The email in a forwarded support ticket is not proof.** Candidates routinely sign
@@ -236,8 +247,8 @@ promising, not guaranteed, and don't promise it to a candidate as a sure thing.
 
 ## Step 4 — What to send the candidate
 
-Send to the **email on the GoodParty account**, not an address from a forwarded
-ticket. Include the DNS warnings — they're what stop the site and their campaign
+Send to **`<u.email — the value the Step 0 query returned>`**, not an address from
+a forwarded ticket, and not whichever address is most recent in the thread. Include the DNS warnings — they're what stop the site and their campaign
 email from silently dying.
 
 > Your domain **`<domain>`** is now eligible to transfer, and here is the
