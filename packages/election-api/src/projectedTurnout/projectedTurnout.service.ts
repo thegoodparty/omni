@@ -1,9 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import {
-  ProjectedTurnoutManyQueryDTO,
-  ProjectedTurnoutUniqueDTO,
-} from './projectedTurnout.schema'
+import { ProjectedTurnoutUniqueDTO } from './projectedTurnout.schema'
 import { ElectionCode } from '../generated/prisma'
 
 @Injectable()
@@ -93,39 +90,6 @@ export class ProjectedTurnoutService extends createPrismaBase(
         electionYear,
       },
     })
-  }
-  async getManyProjectedTurnouts(dto: ProjectedTurnoutManyQueryDTO) {
-    const {
-      state,
-      L2DistrictType,
-      L2DistrictName,
-      electionYear,
-      electionCode,
-      includeDistrict,
-    } = dto
-
-    const districtInclude =
-      state || L2DistrictType || L2DistrictName ? true : includeDistrict
-
-    return districtInclude
-      ? this.model.findMany({
-          where: {
-            district: {
-              state,
-              L2DistrictType,
-              L2DistrictName,
-            },
-            electionYear,
-            electionCode,
-          },
-          include: { district: districtInclude },
-        })
-      : this.model.findMany({
-          where: {
-            electionYear,
-            electionCode,
-          },
-        })
   }
 
   private isTuesdayAfterFirstMondayInNov(date: Date): boolean {

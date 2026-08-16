@@ -83,11 +83,24 @@ export class CampaignStrategyContextService extends createPrismaBase(
       race.id,
     )
 
-    const projectedTurnout = this.resolveProjectedTurnout(
-      race.Position?.district ?? null,
-      race.electionDate,
-      race.state,
-    )
+    // The race row carries the projection the warehouse tagged for this
+    // race's own election day, so nothing here has to classify the date.
+    const raceRowTurnout =
+      process.env.ELECTION_API_RACE_TURNOUT_ENABLED === 'true'
+
+    const projectedTurnout = raceRowTurnout
+      ? race.projectedTurnout
+      : this.resolveProjectedTurnout(
+          race.Position?.district ?? null,
+          race.electionDate,
+          race.state,
+        )
+    const projectedTurnoutLower = raceRowTurnout
+      ? race.projectedTurnoutLower
+      : null
+    const projectedTurnoutUpper = raceRowTurnout
+      ? race.projectedTurnoutUpper
+      : null
 
     // Pass the *general*'s date (when known) so the resolver anchors on
     // the General row's year, not the looked-up race's year. Matters for
@@ -99,10 +112,13 @@ export class CampaignStrategyContextService extends createPrismaBase(
     // the looked-up race is a primary/runoff with a known sibling, or
     // null when no sibling is found. The ?? fallback keeps behavior
     // unchanged for the no-sibling case.
-    const projectedVoterTurnout = this.resolveGeneralProjectedTurnout(
-      race.Position?.district ?? null,
-      generalDate ?? race.electionDate,
-    )
+    // Retires with the flag: a race's relevant turnout is its own day's.
+    const projectedVoterTurnout = raceRowTurnout
+      ? null
+      : this.resolveGeneralProjectedTurnout(
+          race.Position?.district ?? null,
+          generalDate ?? race.electionDate,
+        )
 
     const winNumberEstimate = this.computeWinNumberEstimate(projectedTurnout)
     const winNumberEffective = race.winNumber ?? winNumberEstimate
@@ -110,6 +126,15 @@ export class CampaignStrategyContextService extends createPrismaBase(
       winNumberEffective !== null
         ? CONTACTS_NEEDED_MULTIPLIER * winNumberEffective
         : null
+    // The bounds bracket the estimate. A civics win number is not derived
+    // from turnout, so a turnout-derived range would not contain it.
+    const winNumberBounded = race.winNumber === null
+    const winNumberLower = winNumberBounded
+      ? this.computeWinNumberEstimate(projectedTurnoutLower)
+      : null
+    const winNumberUpper = winNumberBounded
+      ? this.computeWinNumberEstimate(projectedTurnoutUpper)
+      : null
 
     const candidates: CampaignStrategyContextCandidate[] = race.Candidacies.map(
       (c) => ({
@@ -143,6 +168,8 @@ export class CampaignStrategyContextService extends createPrismaBase(
       official_office_name: race.officialOfficeName,
       primary_election_date: this.toIsoDate(primaryDate),
       projected_turnout: projectedTurnout,
+      projected_turnout_lower: projectedTurnoutLower,
+      projected_turnout_upper: projectedTurnoutUpper,
       projected_voter_turnout: projectedVoterTurnout,
       registered_voters: district?.registeredVoters ?? null,
       unique_cellphones: district?.uniqueCellphones ?? null,
@@ -151,6 +178,8 @@ export class CampaignStrategyContextService extends createPrismaBase(
       state: race.state,
       win_number_effective: winNumberEffective,
       win_number_estimate: winNumberEstimate,
+      win_number_lower: winNumberLower,
+      win_number_upper: winNumberUpper,
     }
   }
 

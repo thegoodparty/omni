@@ -41,6 +41,8 @@ export type CampaignStrategyContextResponse = {
   official_office_name: string | null
   primary_election_date: string | null
   projected_turnout: number | null
+  projected_turnout_lower: number | null
+  projected_turnout_upper: number | null
   projected_voter_turnout: number | null
   registered_voters: number | null
   unique_cellphones: number | null
@@ -49,4 +51,6 @@ export type CampaignStrategyContextResponse = {
   state: string | null
   win_number_effective: number | null
   win_number_estimate: number | null
+  win_number_lower: number | null
+  win_number_upper: number | null
 }
