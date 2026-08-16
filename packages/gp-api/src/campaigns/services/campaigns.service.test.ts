@@ -895,6 +895,7 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
   const mockElections: Partial<ElectionsService> = {
     getPositionMatchedRaceTargetDetails: vi.fn(),
     buildRaceTargetDetails: vi.fn(),
+    getDistrict: vi.fn().mockResolvedValue(null),
     fetchFilingFeeByRaceHash: vi.fn(),
     fetchCampaignStrategyContext: vi.fn().mockResolvedValue(null),
   }

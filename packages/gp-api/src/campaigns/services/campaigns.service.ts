@@ -1061,8 +1061,10 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     // candidates, dates), filing fee, and BR campaign-timeline milestones.
     // Milestones come straight from BR GraphQL — election-api doesn't
     // store or expose them. All three return null on failure, letting us
-    // degrade gracefully to the position-based path below.
-    const [contextResult, filingFeeFromRaceHash, milestones] =
+    // degrade gracefully to the position-based path below. The fourth is
+    // district-keyed, not race-keyed: it only runs when the org carries a
+    // district override, and it wins over anything district-derived below.
+    const [contextResult, filingFeeFromRaceHash, milestones, overrideMetrics] =
       await Promise.all([
         raceId
           ? this.elections.fetchCampaignStrategyContext(raceId)
@@ -1073,35 +1075,50 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         raceId
           ? this.ballotReady.fetchMilestones(raceId)
           : Promise.resolve(null),
+        org?.overrideDistrictId
+          ? this.resolveOverrideDistrictMetrics(
+              org.overrideDistrictId,
+              electionDate,
+            )
+          : Promise.resolve(null),
       ])
 
     if (contextResult) {
-      return this.mapContextToRaceTargetMetrics(
+      const contextMetrics = this.mapContextToRaceTargetMetrics(
         contextResult,
         filingFeeFromRaceHash,
         milestones,
       )
+      if (!org?.overrideDistrictId) return contextMetrics
+
+      // An override exists precisely because the race's own district is
+      // wrong for this candidate, so every district-derived number on the
+      // context was computed against the wrong electorate. Keep the
+      // race-level facts (candidates, dates, filing, milestones) and
+      // recompute the district-derived ones from the override. Returning
+      // null when the override can't be resolved is deliberate: serving
+      // the context's numbers here is the bug (DATA-2226).
+      if (!overrideMetrics) return null
+      return {
+        ...contextMetrics,
+        ...overrideMetrics,
+        // The general-election baseline is district-derived too, and
+        // buildRaceTargetDetails only resolves turnout for the campaign's
+        // own election date. No override equivalent, so drop it rather
+        // than pass the wrong district's through.
+        projectedVoterTurnout: null,
+      }
     }
 
     // Fallback path: no raceId, or the context endpoint failed. Use the
     // legacy position / district-based metrics. New fields default to null
     // because the legacy path doesn't surface them.
     if (org?.overrideDistrictId) {
-      const result = await this.elections
-        .buildRaceTargetDetails({
-          districtId: org.overrideDistrictId,
-          electionDate,
-        })
-        .catch(() => null)
-
-      const { projectedTurnout, winNumber, voterContactGoal } = result ?? {}
-      if (!projectedTurnout || projectedTurnout <= 0) return null
+      if (!overrideMetrics) return null
 
       return {
         ...emptyContextFields(),
-        projectedTurnout,
-        winNumber: winNumber ?? 0,
-        voterContactGoal: voterContactGoal ?? 0,
+        ...overrideMetrics,
         filingFee: filingFeeFromRaceHash?.filingFee ?? null,
         filingRequirementsText:
           filingFeeFromRaceHash?.filingRequirementsText ?? null,
@@ -1152,6 +1169,52 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       paperworkInstructions:
         filingFeeFromRaceHash?.paperworkInstructions ?? null,
       milestones,
+    }
+  }
+
+  /**
+   * Every field of `RaceTargetMetrics` that is derived from the campaign's
+   * district rather than from its race, recomputed against the org's
+   * `overrideDistrictId`. Returns null when the override district yields no
+   * trustworthy electorate — callers must then return null rather than fall
+   * back to numbers computed against the race's own (wrong) district.
+   */
+  private async resolveOverrideDistrictMetrics(
+    districtId: string,
+    electionDate: string,
+  ): Promise<Pick<
+    RaceTargetMetrics,
+    | 'winNumber'
+    | 'projectedTurnout'
+    | 'voterContactGoal'
+    | 'registeredVoters'
+    | 'uniqueCellphones'
+    | 'uniqueLandlines'
+  > | null> {
+    const [details, district] = await Promise.all([
+      this.elections
+        .buildRaceTargetDetails({ districtId, electionDate })
+        .catch(() => null),
+      this.elections.getDistrict(districtId).catch(() => null),
+    ])
+
+    const { projectedTurnout, winNumber, voterContactGoal } = details ?? {}
+    if (!projectedTurnout || projectedTurnout <= 0) return null
+
+    // A district twin with no constituents can still carry a projected
+    // turnout, which renders a confident win number for an electorate that
+    // doesn't exist. Only an explicit zero disqualifies: `null` means the L2
+    // aggregate was never computed for this district type (84 prod campaigns
+    // sit on such districts today), not that the district is empty.
+    if (district?.registeredVoters === 0) return null
+
+    return {
+      projectedTurnout,
+      winNumber: winNumber ?? 0,
+      voterContactGoal: voterContactGoal ?? 0,
+      registeredVoters: district?.registeredVoters ?? null,
+      uniqueCellphones: district?.uniqueCellphones ?? null,
+      uniqueLandlines: district?.uniqueLandlines ?? null,
     }
   }
 
