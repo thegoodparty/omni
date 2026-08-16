@@ -59,6 +59,29 @@ export const createHarness = async (): Promise<Harness> => {
           aggregatesSchema.parse({ districtId, filters }),
         )
         return
+      // One whole GET /v1/contacts/list-detail, not one query: mirrors
+      // ContactsService.fetchListDetailAggregates, which resolves the
+      // load-bearing base tile FIRST and only then fans out to the three
+      // channel-restricted tiles in parallel. Benchmarking 'count' alone
+      // understates a real request by ~4x, and the serial-then-parallel shape
+      // is what decides how long a connection is actually held.
+      case 'list-detail': {
+        await voterQuery.getAggregates(
+          aggregatesSchema.parse({ districtId, filters }),
+        )
+        await Promise.all(
+          [
+            { ...filters, hasCellPhone: true },
+            { ...filters, hasLandline: true },
+            { ...filters, hasAddress: true },
+          ].map((channelFilters) =>
+            voterQuery.getAggregates(
+              aggregatesSchema.parse({ districtId, filters: channelFilters }),
+            ),
+          ),
+        )
+        return
+      }
       case 'overlap':
         await voterQuery.getOverlapCount(
           overlapCountSchema.parse({

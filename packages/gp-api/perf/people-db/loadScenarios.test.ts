@@ -14,6 +14,18 @@ describe('LOAD_SCENARIOS', () => {
     }
   })
 
+  it('loads the join-path mega cohort, not just the no-join statewide one', () => {
+    // statewide takes useVoterOnlyPath and skips the DistrictVoter join, so on
+    // its own it does not exercise the path that 504s in production.
+    const counts = LOAD_SCENARIOS.filter((s) => s.queryType === 'count')
+    expect(counts.map((s) => s.band)).toContain('mega')
+  })
+
+  it('sweeps a level at the real lists-page fan-out (one request per saved list)', () => {
+    const mega = LOAD_SCENARIOS.find((s) => s.id === 'load:count:mega')
+    expect(mega?.concurrencyLevels).toContain(10)
+  })
+
   it('resolves each scenario to a runnable case', () => {
     for (const s of LOAD_SCENARIOS) {
       const c = scenarioCase(s)
