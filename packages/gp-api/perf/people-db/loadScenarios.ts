@@ -9,12 +9,21 @@ export type LoadScenario = {
   concurrencyLevels: number[]
   targetConcurrency: number
   maxErrorRate: number
+  // Defaults to the no-filter variant. Set it where the shape under load is
+  // not the unfiltered one — a load gate that only ever exercises empty
+  // filters can pass while the shape that actually 504s saturates the pool.
+  variant?: FilterVariant
 }
 
 // Sweep past the 50-connection pool so the over-saturation cliff is still
 // visible (100 = 2x the pool); the gate targets 50, the pool size.
 const LEVELS = [1, 10, 50, 100]
 const NONE = FILTER_VARIANTS.find((v) => v.name === 'none') as FilterVariant
+// Every list-detail 504 in the week to 2026-08-16 was segment-scoped, so the
+// list-detail load scenarios run the saved-list shape, not the universe row.
+const SAVED_LIST = FILTER_VARIANTS.find(
+  (v) => v.name === 'single-multivalue',
+) as FilterVariant
 
 // The paths that hold a connection longest are the ones that saturate the
 // 50-connection pool first.
@@ -33,6 +42,7 @@ export const LOAD_SCENARIOS: readonly LoadScenario[] = [
     concurrencyLevels: LEVELS,
     targetConcurrency: 50,
     maxErrorRate: 0,
+    variant: SAVED_LIST,
   },
   // Same fan-out against the slow partition — the two failure modes stacked.
   // OBSERVATION-ONLY (maxErrorRate: 1). `large` already cold-runs past the 25s
@@ -47,6 +57,7 @@ export const LOAD_SCENARIOS: readonly LoadScenario[] = [
     concurrencyLevels: LEVELS,
     targetConcurrency: 50,
     maxErrorRate: 1,
+    variant: SAVED_LIST,
   },
   {
     id: 'load:count:mega',
@@ -93,7 +104,7 @@ export const scenarioCase = (s: LoadScenario): BenchCase => {
     id: s.id,
     queryType: s.queryType,
     cohort,
-    variant: NONE,
+    variant: s.variant ?? NONE,
     iterations: 1,
   }
 }

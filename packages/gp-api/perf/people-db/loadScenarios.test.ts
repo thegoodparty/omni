@@ -47,6 +47,18 @@ describe('LOAD_SCENARIOS', () => {
       const c = scenarioCase(s)
       expect(c.queryType).toBe(s.queryType)
       expect(c.cohort.band).toBe(s.band)
+      expect(c.variant).toBe(s.variant ?? c.variant)
+    }
+  })
+
+  it('load-tests list-detail in the filtered shape that actually 504s', () => {
+    // Every list-detail 504 in the week to 2026-08-16 was segment-scoped. An
+    // unfiltered load gate can pass while the saved-list path saturates the
+    // pool, so the variant must not quietly fall back to `none` here.
+    const detail = LOAD_SCENARIOS.filter((s) => s.queryType === 'list-detail')
+    expect(detail.length).toBeGreaterThan(0)
+    for (const s of detail) {
+      expect(scenarioCase(s).variant.name).not.toBe('none')
     }
   })
 })

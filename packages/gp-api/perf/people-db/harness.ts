@@ -66,10 +66,16 @@ export const createHarness = async (): Promise<Harness> => {
       // understates a real request by ~4x, and the serial-then-parallel shape
       // is what decides how long a connection is actually held.
       case 'list-detail': {
+        // Base is awaited on its own so a base rejection throws — that IS the
+        // 504. The channels then settle independently, matching the service:
+        // a rejected channel becomes a null "Unavailable" tile and the request
+        // still returns 200, so counting one here as a benchmark failure would
+        // be a false regression. A slow channel is not hidden by this — the
+        // case still waits for it, so it shows up as a slow cell.
         await voterQuery.getAggregates(
           aggregatesSchema.parse({ districtId, filters }),
         )
-        await Promise.all(
+        await Promise.allSettled(
           [
             { ...filters, hasCellPhone: true },
             { ...filters, hasLandline: true },

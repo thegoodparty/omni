@@ -78,7 +78,16 @@ describe('report', () => {
     // The exact large-district case: cold blows the 25s statement timeout,
     // warm runs come back. Reporting only the warm number would hide it.
     const matrix = formatMatrix([mk({ cold: null, failures: 1 })])
-    expect(matrix).toContain('ERR|38/45!1')
+    expect(matrix).toContain('ERR|38/45')
+    // ERR already reports that failure; !1 would double-count it and read as
+    // "a warm run failed too"
+    expect(matrix).not.toContain('!1')
+  })
+
+  it('still reports warm failures alongside a failed cold run', () => {
+    // cold + 2 warm failed: ERR covers the cold one, !2 the warm ones
+    const matrix = formatMatrix([mk({ cold: null, failures: 3 })])
+    expect(matrix).toContain('ERR|38/45!2')
   })
 
   it('matrix appends * when a cell has fewer than 4 warm samples', () => {

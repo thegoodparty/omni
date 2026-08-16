@@ -124,7 +124,11 @@ const cellText = (r: CaseResult | undefined): string => {
   if (!r) return '—'
   if (r.failures >= r.iterations) return `FAIL(${r.failures}/${r.iterations})`
   const lowSamples = r.warm.count < 4 ? '*' : ''
-  const someFailed = r.failures > 0 ? `!${r.failures}` : ''
+  // A failed cold run is already reported by the ERR prefix and is counted in
+  // r.failures, so subtract it — otherwise the same failure shows up twice and
+  // !k reads as "a warm run also failed", which the legend says it means.
+  const warmFailures = r.cold === null ? r.failures - 1 : r.failures
+  const someFailed = warmFailures > 0 ? `!${warmFailures}` : ''
   // Cold leads. A cold miss is the shape production actually fails in — the
   // people-db loader cuts prod over to a brand-new cluster with an empty
   // buffer pool, so the first hit per district is the one that blows the 25s
