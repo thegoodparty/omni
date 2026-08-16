@@ -1,6 +1,9 @@
 import { z } from 'zod'
 import { BboxSchema } from '../shared/Bbox.schema'
-import { PeopleFiltersSchema } from '../people/PeopleFilters.schema'
+import {
+  IdOverridesSchema,
+  PeopleFiltersSchema,
+} from '../people/PeopleFilters.schema'
 
 // S2S gp-api → people-api: evaluate a door-knocking turf. people-api
 // returns every voter matching the filters inside the bbox; gp-api then
@@ -13,6 +16,15 @@ export const DoorKnockingEvaluateRequestSchema = z
     districtId: z.guid(),
     bbox: BboxSchema,
     filters: PeopleFiltersSchema.optional(),
+    // The two id-set clauses that travel beside `filters` rather than inside
+    // it, mirroring the CRM read path: `idOverrides` carries per-person
+    // voter-likelihood overrides (OR-ed against the voterStatus clause
+    // only), `contactsMadeIdOverrides` the mixed "0 plus a non-zero bucket"
+    // contacts-made case that can't collapse into `filters.id`. A saved list
+    // knocked without these applies a different audience than the same list
+    // previewed in Contacts.
+    idOverrides: IdOverridesSchema.optional(),
+    contactsMadeIdOverrides: IdOverridesSchema.optional(),
     // A guard, not pagination: people-api rejects the request outright when
     // the bbox holds more matches than this, so a city-sized polygon can't
     // stream a whole voter file. gp-api sizes it from the 150-stop cap times

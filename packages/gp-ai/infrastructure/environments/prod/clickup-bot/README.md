@@ -9,8 +9,8 @@ is specific to this terraform environment.
 
 ## Deployment — two paths, no third
 
-**Code** deploys ONLY via `.github/workflows/deploy-clickup-bot.yml` on push to
-`prod` (paths: `clickup_bot/**`). The workflow runs `clickup_bot/tests/` and
+**Code** deploys with the promotion train: Terraform owns the zip, so a merge to
+`main` ships it to prod via `promote.yml`.
 blocks the deploy if they fail. Never run `aws lambda update-function-code` by
 hand and never zip a local `handler.py`: terraform ignores code drift
 (`lifecycle.ignore_changes` in the module), so a hand-deployed stale handler

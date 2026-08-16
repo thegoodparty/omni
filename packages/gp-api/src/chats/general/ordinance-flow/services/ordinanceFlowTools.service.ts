@@ -19,6 +19,8 @@ import {
   OrdinanceResearchSchema,
   OrdinanceScratchpadSchema,
   OrdinanceSourceSchema,
+  hasRedline,
+  redlineToAmended,
   type OrdinanceAuthority,
   type OrdinanceClarify,
   type OrdinanceComparables,
@@ -86,6 +88,27 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
       throw new NotFoundException('Ordinance not found')
     }
     return ordinance
+  }
+
+  // Deterministic amend-fidelity check: when the verbatim current law is on
+  // file, warn if the draft's redline misrepresents it (paraphrased, omitted,
+  // or invented "existing" text). Non-blocking; observable in logs. Shared by
+  // every path that writes draftBody (full draft and in-place chat edit).
+  private warnOnAmendmentDrift(ordinance: Ordinance, body: string): void {
+    const currentLaw = OrdinanceExistingLawSchema.safeParse(
+      ordinance.existingLaw,
+    )
+    if (!currentLaw.success || !currentLaw.data.verbatimText) return
+    const fidelity = checkAmendmentFidelity(body, currentLaw.data.verbatimText)
+    if (fidelity.ok) return
+    this.logger.warn(
+      {
+        ordinanceId: ordinance.id,
+        verbatimBaseline: fidelity.baseline,
+        draftClaimsOriginal: fidelity.reconstructed,
+      },
+      'amendment redline drifts from the verbatim current law',
+    )
   }
 
   async readSection(
@@ -239,37 +262,29 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     draft: { title: string; body: string; sources?: OrdinanceSource[] },
   ): Promise<{ saved: true }> {
     const o = await this.findOwned(ordinanceId, electedOfficeId)
+    // A new (non-amendment) ordinance has no verbatim baseline, so its first
+    // draft must be plain — but the model sometimes wraps the whole body in
+    // {+inserted+} markup. Collapse that stray redline; an amendment's redline
+    // is the deliverable and stays.
+    const collapsed =
+      !this.isAmendmentRecord(o) && hasRedline(draft.body)
+        ? redlineToAmended(draft.body)
+        : draft.body
+    // A degenerate all-deletion body collapses to '' or whitespace — keep the
+    // model's text rather than persist a blank draft.
+    const body = collapsed.trim() ? collapsed : draft.body
     const updated = await this.model.update({
       where: { id: o.id },
       data: {
         draftTitle: draft.title,
-        draftBody: draft.body,
+        draftBody: body,
         ...(o.status === 'in_progress' && { status: 'draft' as const }),
         ...(draft.sources &&
           draft.sources.length > 0 && { draftSources: draft.sources }),
       },
       include: { electedOffice: true },
     })
-    // Deterministic amend-fidelity check: when the verbatim current law is on
-    // file, warn if the draft's redline misrepresents it (paraphrased, omitted,
-    // or invented "existing" text). Non-blocking; observable in logs.
-    const currentLaw = OrdinanceExistingLawSchema.safeParse(o.existingLaw)
-    if (currentLaw.success && currentLaw.data.verbatimText) {
-      const fidelity = checkAmendmentFidelity(
-        draft.body,
-        currentLaw.data.verbatimText,
-      )
-      if (!fidelity.ok) {
-        this.logger.warn(
-          {
-            ordinanceId: o.id,
-            verbatimBaseline: fidelity.baseline,
-            draftClaimsOriginal: fidelity.reconstructed,
-          },
-          'amendment redline drifts from the verbatim current law',
-        )
-      }
-    }
+    this.warnOnAmendmentDrift(o, body)
     // Fire-and-forget: the chat turn must never block on or fail with the
     // background loop. start() itself supersedes and restarts a running loop
     // for a re-draft, and guards flag/env/status/redline internally.
@@ -286,6 +301,83 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
         ),
       )
     return { saved: true }
+  }
+
+  // Apply one user-requested edit from the review chat to the draft body, in
+  // place. Unlike saveDraft this is not a (re)generation: it never touches
+  // title/sources/status and never kicks the quality loop — the edit lands as
+  // {-/+} redline for the user to review, accept, or undo in the editor.
+  // Fidelity is still checked so an amendment edit that misstates the current
+  // law stays observable.
+  async applyDraftEdit(
+    ordinanceId: string,
+    electedOfficeId: string,
+    edit: { body: string },
+  ): Promise<
+    { applied: true } | { applied: false; reason: 'missing_redline' }
+  > {
+    const o = await this.findOwned(ordinanceId, electedOfficeId)
+    // No-op: the model echoed the current body unchanged. Don't rewrite it or
+    // supersede a running quality loop over a change that isn't there.
+    if (edit.body === o.draftBody) return { applied: true }
+    // Reject BEFORE writing: a compliant edit always wraps its change in {-/+}
+    // redline. A changed body with none means the model rewrote in place
+    // without tracking it — committing that would corrupt the draft (and break
+    // an amendment's tracked-changes Word export) with no user-visible signal.
+    // Return a structured error so the model retries with proper redline. No
+    // `o.draftBody &&` short-circuit — the guard must fire even for a
+    // (defensively) null prior body, not be silently skipped.
+    if (edit.body !== o.draftBody && !hasRedline(edit.body)) {
+      this.logger.warn(
+        { ordinanceId: o.id },
+        'apply_draft_edit rejected: body changed without redline markup',
+      )
+      return { applied: false, reason: 'missing_redline' }
+    }
+    await this.model.update({
+      where: { id: o.id },
+      data: { draftBody: edit.body },
+    })
+    this.warnOnAmendmentDrift(o, edit.body)
+    await this.supersedeRunningLoop(o)
+    return { applied: true }
+  }
+
+  // An amendment amends existing law (a source link, or a stored verbatim
+  // baseline). Its redline is the deliverable — never collapsed. A new
+  // ordinance has neither and its chat redline is review-only.
+  private isAmendmentRecord(ordinance: Ordinance): boolean {
+    if (ordinance.sourceLink) return true
+    const law = OrdinanceExistingLawSchema.safeParse(ordinance.existingLaw)
+    return law.success && law.data.verbatimText != null
+  }
+
+  // Accept every tracked change in a new ordinance's draft: collapse the {-/+}
+  // redline to clean final text (drop deletions, keep insertions). Declines for
+  // an amendment, whose redline is the deliverable the Word export carries, and
+  // no-ops when there is nothing to accept — both reported so the chat can
+  // explain rather than silently doing nothing.
+  async acceptDraftChanges(
+    ordinanceId: string,
+    electedOfficeId: string,
+  ): Promise<
+    { accepted: true } | { accepted: false; reason: 'amendment' | 'no_changes' }
+  > {
+    const o = await this.findOwned(ordinanceId, electedOfficeId)
+    if (this.isAmendmentRecord(o)) {
+      return { accepted: false, reason: 'amendment' }
+    }
+    const body = o.draftBody ?? ''
+    if (!hasRedline(body)) return { accepted: false, reason: 'no_changes' }
+    // Mirror saveDraft: a degenerate all-deletion body collapses to '' or
+    // whitespace, so keep the current text rather than write a blank draft.
+    const collapsed = redlineToAmended(body)
+    await this.model.update({
+      where: { id: o.id },
+      data: { draftBody: collapsed.trim() ? collapsed : body },
+    })
+    await this.supersedeRunningLoop(o)
+    return { accepted: true }
   }
 
   async saveExistingLaw(

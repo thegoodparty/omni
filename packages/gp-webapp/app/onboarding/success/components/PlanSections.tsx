@@ -137,7 +137,7 @@ interface KeyValueTableProps {
 }
 
 const KeyValueTable = ({ rows }: KeyValueTableProps): React.JSX.Element => (
-  <dl className="divide-y divide-base-border rounded-xl border border-base-border">
+  <dl className="divide-y divide-base-border rounded-xl border border-base-border bg-card">
     {rows.map((row) => (
       <div
         key={row.label}
@@ -156,7 +156,7 @@ interface PlanTableProps {
 }
 
 const PlanTable = ({ columns, rows }: PlanTableProps): React.JSX.Element => (
-  <div className="overflow-x-auto rounded-xl border border-base-border">
+  <div className="overflow-x-auto rounded-xl border border-base-border bg-card">
     <table className="w-full text-left text-sm">
       <thead className="bg-muted">
         <tr>

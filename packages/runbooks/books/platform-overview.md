@@ -712,8 +712,6 @@ On-demand ECS (Lambda-triggered, gp-ai-projects): `serve-analyze-{dev,prod}`, `d
 | `gp-people-db-prod`       | gp-api (people-db) prod | db.r6g.4xlarge (x2), Performance Insights advanced |
 | `gp-people-db-dev`        | gp-api (people-db) dev  | db.t4g.medium                                      |
 
-The retired `gp-voter-db*` clusters are not listed — nothing reads them and they are being torn down.
-
 ### S3 Buckets (key ones)
 
 | Bucket                                  | Purpose                                   |
@@ -808,7 +806,7 @@ Single trunk: `main` is the one long-lived branch and the default branch; all PR
 | `main`   | Dev         | The trunk; PRs target it. A push deploys dev (`*-dev.goodparty.org` / `dev.goodparty.org`) and runs full CI incl. the post-merge Playwright E2E |
 | `pr-<N>` | Preview     | Backend: `https://pr-<N>.preview.goodparty.org`; frontend: deterministic Vercel alias                                                           |
 
-Prod (`*.goodparty.org` / `api.goodparty.org`) is reached only by automated promotion: `promote.yml` rides `push: main`, waits for that commit's checks to go green on dev, then deploys the same commit to prod. It runs as the `omni-automation` GitHub App, is freeze-switch gated, and has a manual `workflow_dispatch` fallback. Forward-only — the ECS circuit breaker auto-reverts a crash-on-boot; there is no manual rollback and no manual `develop → qa → master` promotion. The `qa` and `master` branches are gone, and the qa environment has been fully decommissioned.
+Prod (`*.goodparty.org` / `api.goodparty.org`) is reached only by automated promotion: the release train (`release.yml`) rides `push: main`: it deploys the commit to dev, runs the E2E against dev, then promotes the same commit to prod. It runs as the `omni-automation` GitHub App, is freeze-switch gated, and has a manual `workflow_dispatch` fallback. Forward-only — the ECS circuit breaker auto-reverts a crash-on-boot; there is no manual rollback and no manual `develop → qa → master` promotion. The `qa` and `master` branches are gone, and the qa environment has been fully decommissioned.
 
 ### VPC Details
 

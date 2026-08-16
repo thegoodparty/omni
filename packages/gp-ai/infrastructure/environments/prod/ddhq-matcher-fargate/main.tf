@@ -49,6 +49,11 @@ variable "failure_notification_email" {
 # env's deploy and is managed outside Terraform. A remote_state read would break
 # the moment that root is retired (the state file survives with no outputs), and
 # it coupled six roots to a state file nothing writes.
+variable "docker_image_tag" {
+  description = "Immutable, SHA-pinned image tag (e.g. broker-a1b2c3d4). CI passes this per deploy; there is no default so a missing value fails loudly instead of silently shipping a mutable tag."
+  type        = string
+}
+
 data "aws_ecr_repository" "ai_projects" {
   name = "gp-ai-projects"
 }
@@ -70,7 +75,7 @@ module "ddhq_matcher_fargate" {
   vpc_id                           = var.vpc_id
   private_subnet_ids               = var.private_subnet_ids
   ecr_repository_url               = data.aws_ecr_repository.ai_projects.repository_url
-  docker_image_tag                 = "ddhq-matcher-prod"
+  docker_image_tag                 = var.docker_image_tag
   shared_slack_notifier_lambda_arn = data.terraform_remote_state.shared_slack_notifier.outputs.lambda_function_arn
   failure_notification_email       = var.failure_notification_email
 }

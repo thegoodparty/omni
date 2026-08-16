@@ -1,6 +1,7 @@
 'use client'
 
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
+import { NAV_LABELS } from 'app/dashboard/shared/navLabels'
 import HeaderSection from './HeaderSection'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import ProgressSection from './ProgressSection'
@@ -55,6 +56,7 @@ export default function CampaignManager({
       pathname={pathname}
       campaign={campaign}
       wrapperClassName="!p-0"
+      navHeader={{ icon: 'dashboard', label: NAV_LABELS.campaignManager }}
     >
       <VoterContactsProvider>
         <CampaignUpdateHistoryProvider>

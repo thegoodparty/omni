@@ -3,6 +3,7 @@ import pageMetaData from 'helpers/metadataHelper'
 import { serverRequest } from 'gpApi/server-request'
 import type { Priority } from '@goodparty_org/contracts'
 import DashboardLayout from '../shared/DashboardLayout'
+import { NAV_LABELS } from '../shared/navLabels'
 import PublicProfileEditor from './components/PublicProfileEditor'
 import publicProfileAccess from './publicProfileAccess'
 import type { GetMinePersonProfileResponse } from './shared/types'
@@ -36,6 +37,10 @@ export default async function Page(): Promise<JSX.Element> {
       pathname="/dashboard/public-profile"
       showAlert={false}
       wrapperClassName="!p-0"
+      // The editor's publish toggle + Save changes portal into the bar
+      // (PublicProfileEditor); the pre-mint create/waiting state has no CTA, and
+      // the bar tracks that itself.
+      navHeader={{ icon: 'profile', label: NAV_LABELS.publicProfile }}
     >
       <PublicProfileEditor
         product={product}

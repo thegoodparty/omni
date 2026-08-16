@@ -39,6 +39,34 @@ export const deriveKnockStatus = (
   return STATUS.unknown
 }
 
+// A manual support-status override, translated into the map's vocabulary.
+// The two vocabularies only partly overlap: the CRM's `undecided` has no
+// DoorKnockStatus member and collapses to unknown, which is the same thing
+// `deriveKnockStatus` does with an 'unsure' answer — the door is still worth
+// knocking. Outcome-only statuses (not_home, inaccessible, not_a_voter) can
+// never arrive here because they aren't part of the override vocabulary, so
+// an override never claims to know something about the door itself.
+// Returns null for "no override", including an unrecognized value: a rollup
+// member added without a mapping here should fall through to derivation
+// rather than silently read as unknown.
+export const overrideToKnockStatus = (
+  value: string | undefined,
+): DoorKnockStatus | null => {
+  switch (value) {
+    case 'supporter':
+      return STATUS.supporter
+    case 'non_supporter':
+      return STATUS.non_supporter
+    case 'refused':
+      return STATUS.refused
+    case 'unknown':
+    case 'undecided':
+      return STATUS.unknown
+    default:
+      return null
+  }
+}
+
 // Most-actionable-first: one unknown person keeps the whole stop knockable,
 // then not-homes (retry), then settled outcomes. A Record keyed by the full
 // vocabulary so the compiler forces every status to be ranked — an unranked

@@ -60,6 +60,11 @@ class FakeUrlopen:
         self.get_comments_error = None  # exception to raise on GET .../comment
         self.post_comment_error = None  # exception to raise on EVERY POST .../comment
         self.post_comment_error_queue = []  # one-shot exceptions, consumed per POST
+        # GET /task/{id} — the scope guard's lookup. Default is an in-scope
+        # ENG task in the Win bug list, so every pre-existing implement test
+        # keeps its old behavior without opting in.
+        self.task_response = {"custom_id": "ENG-1234", "list": {"id": "901321761872", "name": "Bugs"}, "tags": []}
+        self.get_task_error = None  # exception to raise on GET /task/{id}
 
     def __call__(self, request, timeout=None, **kwargs):
         method = request.get_method()
@@ -72,6 +77,10 @@ class FakeUrlopen:
             if self.get_comments_error is not None:
                 raise self.get_comments_error
             return FakeHTTPResponse(self.comments_response)
+        if method == "GET" and "/task/" in url:
+            if self.get_task_error is not None:
+                raise self.get_task_error
+            return FakeHTTPResponse(self.task_response)
         if method == "POST" and "/comment" in url:
             if self.post_comment_error_queue:
                 raise self.post_comment_error_queue.pop(0)
@@ -2533,3 +2542,157 @@ def test_release_failure_alarms_but_does_not_change_response(
     assert any("Failed to start processing" in text for text in fake_clickup.posted_comment_texts)
     out = assert_alarm_log_emitted(capsys)
     assert "Failed to release dedup lock" in out
+
+
+# ---------------------------------------------------------------------------
+# 25. Scope guard. gpbot-work used to be applied by hand, so a human decided
+# "is this omni code work?" before the agent ever ran. Two ClickUp Automations
+# now apply it — one on the bug lists, one workspace-wide on `production-bug`
+# — so nothing upstream answers that question and this guard is the only
+# thing standing between a data ticket and a code agent. Data tickets carry
+# `production-bug` as heavily as ENG tickets do, so this is a routine path,
+# not an edge case.
+# ---------------------------------------------------------------------------
+
+
+def data_task(**overrides) -> dict:
+    task = {"custom_id": "DATA-1845", "list": {"id": "901326391561", "name": "Data Backlog"}, "tags": []}
+    task.update(overrides)
+    return task
+
+
+def test_data_custom_id_blocks_implement(fake_clickup, fake_ecs, ecs_env, capsys):
+    fake_clickup.task_response = data_task()
+
+    resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
+
+    assert resp["statusCode"] == 200
+    assert response_body(resp)["skipped"] == "out of scope"
+    assert_no_side_effects(fake_clickup, fake_ecs)
+    # Firing on every data ticket in the workspace is the guard WORKING; it
+    # must not look like breakage to the CloudWatch alarm.
+    assert_no_alarm_log_emitted(capsys)
+
+
+def test_data_backlog_list_blocks_implement_without_a_custom_id(fake_clickup, fake_ecs, ecs_env):
+    # Not every Data Backlog task carries a DATA- custom_id, so the list id is
+    # an independent check rather than a redundant one.
+    fake_clickup.task_response = data_task(custom_id=None)
+
+    resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
+
+    assert response_body(resp)["skipped"] == "out of scope"
+    assert_no_side_effects(fake_clickup, fake_ecs)
+
+
+def test_growth_bugs_list_blocks_implement(fake_clickup, fake_ecs, ecs_env):
+    # Growth-Bugs is marketing-site work that does not live in omni; the agent
+    # only knows omni, so a run there produces nothing.
+    fake_clickup.task_response = {
+        "custom_id": None,
+        "list": {"id": "901326170992", "name": "Growth-Bugs"},
+        "tags": [],
+    }
+
+    resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
+
+    assert response_body(resp)["skipped"] == "out of scope"
+    assert_no_side_effects(fake_clickup, fake_ecs)
+
+
+def test_district_assignment_tag_blocks_implement_inside_an_eng_list(fake_clickup, fake_ecs, ecs_env):
+    # Data work triaged into an ENG list: neither the custom_id nor the list
+    # id flags it, so the data team's own marker is the only remaining signal.
+    fake_clickup.task_response = {
+        "custom_id": "ENG-9999",
+        "list": {"id": "901321761872", "name": "Bugs"},
+        "tags": [{"name": "bug: district-assignment"}, {"name": "production-bug"}],
+    }
+
+    resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
+
+    assert response_body(resp)["skipped"] == "out of scope"
+    assert_no_side_effects(fake_clickup, fake_ecs)
+
+
+def test_scope_guard_does_not_block_analyze_on_data_tickets(fake_clickup, fake_ecs, ecs_env):
+    # DELIBERATE ASYMMETRY: analyzing a data bug is useful and gpbot-analyze
+    # is used on DATA tickets constantly. Only opening a code PR against one
+    # is wrong, so the guard is scoped to the implement label.
+    fake_clickup.task_response = data_task()
+
+    resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-analyze",))), None)
+
+    assert resp["statusCode"] == 200
+    assert response_body(resp)["fargate_task_arn"] == TASK_ARN
+    assert len(fake_ecs.run_task_calls) == 1
+
+
+def test_eng_bug_still_launches_with_the_guard_in_place(fake_clickup, fake_ecs, ecs_env):
+    fake_clickup.task_response = {
+        "custom_id": "ENG-7337",
+        "list": {"id": "901321761872", "name": "Bugs"},
+        "tags": [{"name": "production-bug"}, {"name": "hs ticket"}],
+    }
+
+    resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
+
+    assert response_body(resp)["fargate_task_arn"] == TASK_ARN
+    assert len(fake_ecs.run_task_calls) == 1
+
+
+def test_scope_lookup_failure_fails_open_and_alarms(fake_clickup, fake_ecs, ecs_env, capsys):
+    # FAIL OPEN: one wasted run costs a few dollars and a closeable PR, while
+    # refusing every bug during a ClickUp blip is a silent outage. Alarming is
+    # the other half — a persistent failure here disables the data boundary
+    # without changing anything an operator would otherwise notice.
+    fake_clickup.get_task_error = URLError("clickup unreachable")
+
+    resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
+
+    assert response_body(resp)["fargate_task_arn"] == TASK_ARN
+    assert len(fake_ecs.run_task_calls) == 1
+    assert "Failed to fetch task" in assert_alarm_log_emitted(capsys)
+
+
+def test_out_of_scope_task_never_writes_a_dedup_claim(fake_clickup, fake_ecs, fake_dynamodb, ecs_env, dedup_table_env):
+    # Ordering contract: a claim written for a task we then refuse would
+    # outlive this delivery and suppress a legitimate re-tag for the whole
+    # TTL, so the guard must run before try_acquire_dedup_lock.
+    fake_clickup.task_response = data_task()
+
+    handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
+
+    assert fake_dynamodb.put_item_calls == []
+
+
+def test_out_of_scope_rejection_costs_one_clickup_call(fake_clickup, fake_ecs, ecs_env):
+    # The guard also runs before the comments GET: once a workspace-wide
+    # automation is feeding it every data ticket, the rejected path should not
+    # pay for a second round trip.
+    fake_clickup.task_response = data_task()
+
+    handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
+
+    assert [url for method, url, _ in fake_clickup.calls if "/comment" in url] == []
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        {},
+        {"custom_id": None, "list": None, "tags": None},
+        {"custom_id": 1234, "list": {"id": 901326391561}, "tags": [None, "str", {"name": None}]},
+        [],
+        None,
+    ],
+)
+def test_unreadable_task_shapes_never_crash_the_guard(task):
+    # Shape drift must not crash the worker. It must also not silently WIDEN
+    # scope, but an unreadable field simply fails to match and lands in the
+    # caller's fail-open — the same posture as a failed lookup.
+    assert handler.out_of_scope_reason(task) is None
+
+
+def test_custom_id_prefix_match_is_case_insensitive():
+    assert handler.out_of_scope_reason({"custom_id": "data-1845"}) is not None

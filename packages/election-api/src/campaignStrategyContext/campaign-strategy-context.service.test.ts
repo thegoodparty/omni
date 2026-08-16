@@ -1,6 +1,6 @@
 import { NotFoundException } from '@nestjs/common'
 import { ElectionCode } from '../generated/prisma'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProjectedTurnoutService } from 'src/projectedTurnout/projectedTurnout.service'
 import { CampaignStrategyContextService } from './campaign-strategy-context.service'
 import { CampaignStrategyContextRequestDto } from './campaign-strategy-context.schema'
@@ -20,6 +20,9 @@ type RaceRow = {
   normalizedPositionName: string | null
   numberOfSeats: number | null
   winNumber: number | null
+  projectedTurnout: number | null
+  projectedTurnoutLower: number | null
+  projectedTurnoutUpper: number | null
   officeLevel: string | null
   officeType: string | null
   partisanType: string | null
@@ -67,6 +70,9 @@ const baseRace = (overrides: Partial<RaceRow> = {}): RaceRow => ({
   normalizedPositionName: 'City Legislature',
   numberOfSeats: 1,
   winNumber: null,
+  projectedTurnout: null,
+  projectedTurnoutLower: null,
+  projectedTurnoutUpper: null,
   officeLevel: null,
   officeType: 'Other',
   partisanType: 'nonpartisan',
@@ -176,6 +182,8 @@ describe('CampaignStrategyContextService', () => {
       official_office_name: 'City Legislature',
       primary_election_date: null,
       projected_turnout: 2272,
+      projected_turnout_lower: null,
+      projected_turnout_upper: null,
       projected_voter_turnout: 8400,
       registered_voters: 18000,
       unique_cellphones: 12500,
@@ -184,6 +192,8 @@ describe('CampaignStrategyContextService', () => {
       state: 'AL',
       win_number_effective: 1137,
       win_number_estimate: 1137,
+      win_number_lower: null,
+      win_number_upper: null,
     })
   })
 
@@ -892,5 +902,68 @@ describe('CampaignStrategyContextService', () => {
     expect(raceFindMany).not.toHaveBeenCalled()
     expect(result.primary_election_date).toBeNull()
     expect(result.general_election_date).toBe('2026-08-25')
+  })
+
+  // Every test above runs with the flag unset, so they are the flag-off
+  // regression suite for the district-keyed lookup this replaces.
+  describe('with ELECTION_API_RACE_TURNOUT_ENABLED', () => {
+    beforeEach(() => {
+      process.env.ELECTION_API_RACE_TURNOUT_ENABLED = 'true'
+    })
+
+    afterEach(() => {
+      delete process.env.ELECTION_API_RACE_TURNOUT_ENABLED
+    })
+
+    it('serves the race row point and bounds and stops sending the November figure', async () => {
+      raceFindFirst.mockResolvedValue(
+        baseRace({
+          projectedTurnout: 10_000,
+          projectedTurnoutLower: 8_000,
+          projectedTurnoutUpper: 13_000,
+        }),
+      )
+
+      const result = await service.getCampaignStrategyContext(baseRequest())
+
+      expect(result.projected_turnout).toBe(10_000)
+      expect(result.projected_turnout_lower).toBe(8_000)
+      expect(result.projected_turnout_upper).toBe(13_000)
+      expect(result.projected_voter_turnout).toBeNull()
+      expect(result.win_number_effective).toBe(5_001)
+      expect(result.win_number_lower).toBe(4_001)
+      expect(result.win_number_upper).toBe(6_501)
+      expect(result.contacts_needed_estimate).toBe(25_005)
+    })
+
+    it('serves no numbers for a race the model does not cover', async () => {
+      raceFindFirst.mockResolvedValue(baseRace())
+
+      const result = await service.getCampaignStrategyContext(baseRequest())
+
+      expect(result.projected_turnout).toBeNull()
+      expect(result.projected_turnout_lower).toBeNull()
+      expect(result.projected_turnout_upper).toBeNull()
+      expect(result.win_number_effective).toBeNull()
+      expect(result.win_number_lower).toBeNull()
+      expect(result.win_number_upper).toBeNull()
+    })
+
+    it('suppresses win-number bounds when the race carries a civics win number', async () => {
+      raceFindFirst.mockResolvedValue(
+        baseRace({
+          winNumber: 4_200,
+          projectedTurnout: 10_000,
+          projectedTurnoutLower: 8_000,
+          projectedTurnoutUpper: 13_000,
+        }),
+      )
+
+      const result = await service.getCampaignStrategyContext(baseRequest())
+
+      expect(result.win_number_effective).toBe(4_200)
+      expect(result.win_number_lower).toBeNull()
+      expect(result.win_number_upper).toBeNull()
+    })
   })
 })

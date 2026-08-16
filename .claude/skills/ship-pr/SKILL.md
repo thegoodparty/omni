@@ -20,7 +20,7 @@ the only one: any package touched by the diff can add its own required check (a
 Delegate approval alone is not enough for any of them. So "done" means delegate
 approved and the full set of checks green, all on the same commit.
 
-Repo conventions this skill enforces (from the root `CLAUDE.md`): PR bodies explain
+Repo conventions this skill enforces (from the root `AGENTS.md`): PR bodies explain
 **why**, not what; **no** "test plan" section; **no** `Co-Authored-By: Claude` and
 no "Created by Claude" footers. **PRs always target `main`.**
 
@@ -29,10 +29,10 @@ no "Created by Claude" footers. **PRs always target `main`.**
 Purpose: don't open a PR — or push a loop fix — that will obviously fail the
 package's CI and waste a delegate round.
 
-**How to verify is documented in each package's `CLAUDE.md`** (its "Verify"
+**How to verify is documented in each package's `AGENTS.md`** (its "Verify"
 section). Find the package(s) the diff touches
 (`git diff --name-only origin/main...HEAD`), open the relevant
-`packages/<dir>/CLAUDE.md`, and run the verification steps it lists. There is no
+`packages/<dir>/AGENTS.md`, and run the verification steps it lists. There is no
 single universal command — gp-api has `npm run verify`; others document their own
 lint / type-check / test / build steps.
 
@@ -165,7 +165,7 @@ re-triggers them. Anchor on HEAD, the same as delegate.
        "Pre-flight checks" above) before pushing. For `E2E` specifically, reproduce
        locally where feasible: `npm run test:e2e -w packages/gp-webapp` (needs a
        configured `BASE_URL` + Clerk test stack against a real API — see
-       `packages/gp-webapp/e2e-tests/CLAUDE.md`).
+       `packages/gp-webapp/e2e-tests/AGENTS.md`).
      - **Flaky, pre-existing, or infra** (a failure unrelated to your diff and
        present on `main`, a deploy failure, an auth stack outage) → **escalate**,
        don't churn. Hand back the failing check with your evidence; a single re-run
@@ -200,5 +200,5 @@ re-triggers them. Anchor on HEAD, the same as delegate.
   HTML-report / log link, and your read (your diff vs. flake/pre-existing/infra,
   with evidence).
 - Keep docs current: if a fix you apply changes behavior, architecture, or a
-  convention, update the nearest `CLAUDE.md`/`docs/` in the same commit (root
-  `CLAUDE.md` rule).
+  convention, update the nearest `AGENTS.md`/`docs/` in the same commit (root
+  `AGENTS.md` rule).

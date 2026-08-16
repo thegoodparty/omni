@@ -56,13 +56,11 @@ events:
   # Candidate Dashboard Viewed is code-retired (PR #732) but still anchors the OKR until
   # DATA-2173 re-anchors it — the okr flag documents the (currently broken) dependency.
   - {event: "Dashboard - Candidate Dashboard Viewed",   product: win, family: win_dashboard, floor: null, owner: TBD, okr: "Active Candidates"}
-  - {event: "Dashboard - Campaign Plan Viewed",         product: win, family: win_dashboard, floor: null, owner: TBD, okr: ["Active Candidates", "Onboarded"]}
   - {event: "Dashboard - Campaign Plan Generation Completed", product: win, family: win_dashboard, floor: null, owner: TBD}
 
   # ---- Win · activation: voter outreach (campaign sent) ----
   - {event: "Schedule Text Campaign - Audience: Enter Audience Request", product: win, family: win_outreach_scheduling, floor: null, owner: TBD}
   - {event: "Schedule Text Campaign: Submit",           product: win, family: win_outreach_scheduling, floor: null, owner: TBD}
-  - {event: "Voter Outreach - Campaign Completed",      product: win, family: win_voter_outreach, floor: null, owner: TBD, okr: ["Activated Candidates", "Outreach Intensity"]}
   - {event: "Voter Outreach - 10DLC Compliance Completed", product: win, family: win_voter_outreach, floor: null, owner: TBD}
   - {event: "Voter Outreach - 10DLC Compliance PIN Sent", product: win, family: win_voter_outreach, floor: null, owner: TBD}
 
@@ -92,6 +90,121 @@ events:
   - {event: "Polls - Poll Question Completed",          product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Poll - Results Synthesis Complete",        product: serve, family: serve, floor: null, owner: TBD}
 
+  # ---- Promoted from the proposal queue, /triage-instrumentation-gaps 2026-08-06 ----
+  - {event: "Pro Upgrade - Texting Setup Banner: Click Start", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  - {event: "Onboarding V2 - Onboarding Skipped", product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Voter Outreach - 10DLC Compliance Rejected", product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  - {event: "Voter Outreach - 10DLC Compliance Candidate Profile Submitted", product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  - {event: "Pro Upgrade - Filing Details Submit Error", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  - {event: "Community Issues - Ask AI Started", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Serve Onboarding - Confirm Viewed", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Pro Upgrade - Value Prop: Click Get Pro", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  - {event: "Pro Upgrade - EIN: Click continue", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  - {event: "Pro Upgrade - Banner: Click Get Pro", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  - {event: "Org Switcher - Run For Office Clicked", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Dashboard - Campaign Plan: Campaign Manager Clicked", product: win, family: win_dashboard, floor: null, owner: TBD}
+  - {event: "Briefing Assistant - Agenda Not Created", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Pro Upgrade - Candidate Profile Submitted", product: win, family: win_pro_upgrade, floor: null, owner: TBD, okr: ["Pro Conversions"]}
+  - {event: "Onboarding V2 - Welcome Completed", product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Onboarding V2 - Pledge Completed", product: win, family: win_onboarding, floor: null, owner: TBD, okr: ["Win Onboarding Completed"]}
+  - {event: "Onboarding V2 - Office Completed", product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Onboarding V2 - Ballot Status Completed", product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Pro Upgrade - Filing Details Submitted", product: win, family: win_pro_upgrade, floor: null, owner: TBD, okr: ["Pro Conversions"]}
+  - {event: "Briefing Assistant - Briefing Viewed", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Briefing Assistant - Agenda Created", product: serve, family: serve, floor: null, owner: TBD, okr: ["Active Serve Users", "People Served"]}
+
+# Behaviors (DATA-2316): what we are trying to measure, and which events instrument it.
+# Absorbs the events: key above over time — a watchlist row is the degenerate case of a
+# behavior with one surface and one instrument. Coverage is derived, never written here.
+#
+#   id:            stable snake_case key
+#   question:      the plain-English thing this behavior lets us answer
+#   question_ref:  ClickUp task id in the Analytics Questions list (the intake identity)
+#   answers:       optional extra questions this behavior contributes to (composite questions)
+#   product:       win | serve | both
+#   okr:           optional OKR metric name(s); makes the behavior high-consequence
+#   surfaces[]:    path (repo-relative), label (stable, used in per-surface reporting),
+#                  instrumented_by (event name, or explicit null for a known gap)
+#   superseded[]:  historical instruments, for successor lineage
+#   caveats:       optional note that travels with the answer (a known data-quality defect)
+#   asked_by:      who wants this answered; review nudges route here
+#   review:        interval_days, last_reviewed, reviewed_by
+behaviors:
+  - id: voter_file_exported
+    question: "How many candidates export a voter file each week, and is that growing?"
+    answers:
+      - "Are people creating and downloading lists but never doing outreach on our platform?"
+    product: win
+    asked_by: nate@goodparty.org
+    surfaces:
+      - path: packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx
+        label: crm_list_detail
+        instrumented_by: "Voter Data - List Exported"
+      - path: packages/gp-webapp/app/dashboard/components/tasks/flows/DownloadStep.tsx
+        label: outreach_wizard_download
+        instrumented_by: null
+      - path: packages/gp-webapp/app/dashboard/outreach/components/DownloadAudienceActionOption.tsx
+        label: outreach_table_download
+        instrumented_by: null
+    superseded:
+      - "Download Voter File Success"
+    review: {interval_days: 90, last_reviewed: 2026-08-13, reviewed_by: tristan@goodparty.org}
+
+  - id: voter_file_created
+    question: "How many candidates create a voter file, across every path that creates one?"
+    answers:
+      - "Are people creating and downloading lists but never doing outreach on our platform?"
+    product: win
+    asked_by: nate@goodparty.org
+    caveats: >-
+      The outreach flow appears to create a list on every abandoned attempt, so a raw count
+      overstates intent. Verify before reporting a number (DATA-2308).
+    surfaces:
+      - path: packages/gp-webapp/app/dashboard/contacts/crm/wizard/CreateListWizard.tsx
+        label: crm_wizard
+        instrumented_by: "Voter Data - List Created"
+      - path: packages/gp-webapp/app/dashboard/components/tasks/flows/AudienceStep.tsx
+        label: outreach_audience_step
+        instrumented_by: null          # DATA-2307
+    superseded:
+      - "Custom Voter file created"
+    review: {interval_days: 90, last_reviewed: 2026-08-13, reviewed_by: tristan@goodparty.org}
+
+  - id: voter_outreach_scheduled
+    question: "How many candidates schedule voter outreach, by channel?"
+    answers:
+      - "Are people creating and downloading lists but never doing outreach on our platform?"
+    product: win
+    okr: ["Activated Candidates", "Outreach Intensity"]
+    asked_by: nate@goodparty.org
+    surfaces:
+      - path: packages/gp-webapp/app/dashboard/components/tasks/flows/TaskFlow.tsx
+        label: schedule_campaign_completed
+        instrumented_by: "Voter Outreach - Campaign Completed"
+      - path: packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/CreateListFlow.tsx
+        label: door_knocking_list_created
+        instrumented_by: "Door Knocking - List Created"
+    review: {interval_days: 90, last_reviewed: 2026-08-13, reviewed_by: tristan@goodparty.org}
+
+  - id: campaign_plan_viewed
+    question: "Do candidates open their campaign plan, and do they read it to the end?"
+    product: win
+    okr: ["Active Candidates", "Onboarded"]
+    asked_by: nate@goodparty.org
+    surfaces:
+      # Legacy checklist and the tracker that replaced it: the model's first live
+      # supersession, and why both are declared rather than one being picked.
+      - path: packages/gp-webapp/app/dashboard/components/tasks/TasksList.tsx
+        label: campaign_plan_legacy_checklist
+        instrumented_by: "Dashboard - Campaign Plan Viewed"
+      - path: packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/CampaignStrategySection.tsx
+        label: campaign_plan_tracker
+        instrumented_by: "Campaign Plan - Campaign Tracker Viewed"
+      - path: packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/CampaignStrategySection.tsx
+        label: campaign_plan_read_through
+        instrumented_by: null          # no scroll-depth instrument; Nate asked for this
+    review: {interval_days: 90, last_reviewed: 2026-08-13, reviewed_by: tristan@goodparty.org}
+
 # Proposals a human reviewed and rejected (DATA-2152). The self-healing proposal queue
 # skips these permanently — a dismissed event never re-proposes (it would otherwise keep
 # surfacing every run while it is still inside the 90-day first-seen proposal window). Set
@@ -100,4 +213,94 @@ events:
 #   event:  exact Amplitude event_type
 #   reason: why it was dismissed (e.g. "UI micro-interaction, not a funnel milestone")
 #   date:   YYYY-MM-DD the decision was made
-dismissed: []
+dismissed:
+  - {event: "Briefing Assistant - Attachment Clicked", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Pro Upgrade - Texting Setup Banner Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Why Are You Running Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Why Are You Running Completed", reason: "intermediate onboarding step; funnel entry and exit are covered by Welcome Completed and Pledge Completed", date: "2026-08-06"}
+  - {event: "Onboarding V2 - What's Your Background Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Onboarding V2 - What's Your Background Completed", reason: "intermediate onboarding step; funnel entry and exit are covered by Welcome Completed and Pledge Completed", date: "2026-08-06"}
+  - {event: "Onboarding V2 - What Issues Do You Want To Solve Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Onboarding V2 - What Issues Do You Want To Solve Completed", reason: "intermediate onboarding step; funnel entry and exit are covered by Welcome Completed and Pledge Completed", date: "2026-08-06"}
+  - {event: "Voter Outreach - 10DLC Compliance PIN Resent", reason: "retry action; 10DLC Compliance Rejected is the outcome we watch", date: "2026-08-06"}
+  - {event: "Community Issues - Trending Issues Dispatch Skipped", reason: "Fires as normal imminence-gating behavior, so a nonzero count carries no health signal.", date: "2026-08-06"}
+  - {event: "Community Issues - Top Issues Dispatch Skipped", reason: "Fires as normal imminence-gating behavior, so a nonzero count carries no health signal.", date: "2026-08-06"}
+  - {event: "Briefing Assistant - Dispatch Skipped", reason: "Fires as normal imminence-gating behavior, so a nonzero count carries no health signal.", date: "2026-08-06"}
+  - {event: "Community Issues - Trending Issues Refreshed", reason: "secondary engagement action, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Community Issues - Top Issues Refreshed", reason: "secondary engagement action, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Community Issues - Prioritize Clicked", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Dashboard - Campaign Plan: Plan Shared", reason: "export/share action, secondary to plan generation and low-volume by nature", date: "2026-08-06"}
+  - {event: "Community Issues - Run Poll Clicked", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Community Issues - List Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Community Issues - Issue Detail Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Serve Onboarding - Pledge Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Serve Onboarding - Know Your Constituents Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Serve Onboarding - Welcome Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Serve Onboarding - Term Dates Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Serve Onboarding - Party Designation Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Serve Onboarding - Office Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Serve Onboarding - Office Status Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Serve Onboarding - BR Suggestion Changed", reason: "form field adjustment, not a milestone", date: "2026-08-06"}
+  - {event: "Pro Upgrade - EIN: Hover help", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Plan Shared", reason: "export/share action, secondary to plan generation and low-volume by nature", date: "2026-08-06"}
+  - {event: "Pro Upgrade - Success: Click continue", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Pro Upgrade - Success Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Pro Upgrade - Payment Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Pro Upgrade - Filing Status: Click not yet filed", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Pro Upgrade - Filing Instructions: Click email this to me", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Pro Upgrade - Filing Instructions: Click continue to dashboard", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Pro Upgrade - Filing Instructions Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Pro Upgrade - Value Prop: Click Maybe later", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Pro Upgrade - Value Prop Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Pro Upgrade - Locked Item: Click", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Pro Upgrade - Guidance: Click let's go", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Pro Upgrade - Guidance Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Pro Upgrade - Filing Status: Click already filed", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Pro Upgrade - Filing Status Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Pro Upgrade - EIN Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Pro Upgrade - Banner Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Briefing Assistant - Share Completed", reason: "secondary engagement action, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Org Switcher - Organization Switched", reason: "navigation action, not a milestone", date: "2026-08-06"}
+  - {event: "Briefing Assistant - Share Drawer Opened", reason: "secondary engagement action, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Briefing Assistant - Feedback Completed", reason: "secondary engagement action, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Briefing Assistant - Download Clicked", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Votes Needed Failed", reason: "client error telemetry; Sentry is the right surface, not the event watchlist", date: "2026-08-06"}
+  - {event: "Dashboard - Campaign Plan: Strategic Landscape Results Received", reason: "async generation pipeline observability (requested/results/displayed); belongs on a service dashboard, not the OKR watchlist", date: "2026-08-06"}
+  - {event: "Dashboard - Campaign Plan: Strategic Landscape Requested", reason: "async generation pipeline observability (requested/results/displayed); belongs on a service dashboard, not the OKR watchlist", date: "2026-08-06"}
+  - {event: "Dashboard - Campaign Plan: Strategic Landscape Displayed", reason: "async generation pipeline observability (requested/results/displayed); belongs on a service dashboard, not the OKR watchlist", date: "2026-08-06"}
+  - {event: "Dashboard - Campaign Plan: Plan Downloaded", reason: "export/share action, secondary to plan generation and low-volume by nature", date: "2026-08-06"}
+  - {event: "Dashboard - Campaign Plan: Media Results Received", reason: "async generation pipeline observability (requested/results/displayed); belongs on a service dashboard, not the OKR watchlist", date: "2026-08-06"}
+  - {event: "Dashboard - Campaign Plan: Media Requested", reason: "async generation pipeline observability (requested/results/displayed); belongs on a service dashboard, not the OKR watchlist", date: "2026-08-06"}
+  - {event: "Dashboard - Campaign Plan: Media Displayed", reason: "async generation pipeline observability (requested/results/displayed); belongs on a service dashboard, not the OKR watchlist", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Votes Needed Calculated", reason: "intermediate onboarding step; funnel entry and exit are covered by Welcome Completed and Pledge Completed", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Pledge Submit Clicked", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Office Next Clicked", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Briefing Assistant - Sources Expanded", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Briefing Assistant - Agenda Submitted", reason: "intake step; Agenda Created / Agenda Not Created carry the outcome", date: "2026-08-06"}
+  - {event: "Pro Upgrade - PIN Entry Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Welcome Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Votes Needed Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Votes Needed Completed", reason: "intermediate onboarding step; funnel entry and exit are covered by Welcome Completed and Pledge Completed", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Voter Insights Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Voter Insights Completed", reason: "intermediate onboarding step; funnel entry and exit are covered by Welcome Completed and Pledge Completed", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Strategic Landscape Results Received", reason: "async generation pipeline observability (requested/results/displayed); belongs on a service dashboard, not the OKR watchlist", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Strategic Landscape Requested", reason: "async generation pipeline observability (requested/results/displayed); belongs on a service dashboard, not the OKR watchlist", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Strategic Landscape Displayed", reason: "async generation pipeline observability (requested/results/displayed); belongs on a service dashboard, not the OKR watchlist", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Pledge Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Plan Downloaded", reason: "export/share action, secondary to plan generation and low-volume by nature", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Party Designation Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Party Designation Completed", reason: "intermediate onboarding step; funnel entry and exit are covered by Welcome Completed and Pledge Completed", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Party Designation Blocked", reason: "eligibility guard, expected to fire; not a health signal", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Office Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Media Results Received", reason: "async generation pipeline observability (requested/results/displayed); belongs on a service dashboard, not the OKR watchlist", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Media Requested", reason: "async generation pipeline observability (requested/results/displayed); belongs on a service dashboard, not the OKR watchlist", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Media Displayed", reason: "async generation pipeline observability (requested/results/displayed); belongs on a service dashboard, not the OKR watchlist", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Community Events Results Received", reason: "async generation pipeline observability (requested/results/displayed); belongs on a service dashboard, not the OKR watchlist", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Community Events Requested", reason: "async generation pipeline observability (requested/results/displayed); belongs on a service dashboard, not the OKR watchlist", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Community Events Displayed", reason: "async generation pipeline observability (requested/results/displayed); belongs on a service dashboard, not the OKR watchlist", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Campaign Manager Clicked", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Onboarding V2 - Ballot Status Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Pro Upgrade - Filing Details Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Pro Upgrade - Candidate Profile Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
+  - {event: "Briefing Assistant - TOC Item Clicked", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
+  - {event: "Briefing Assistant - List Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}

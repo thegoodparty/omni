@@ -247,10 +247,23 @@ resource "aws_iam_role_policy" "clickup_bot_self_invoke" {
   })
 }
 
-# Seeds the function code at creation time ONLY. After creation, code deploys
-# exclusively via .github/workflows/deploy-clickup-bot.yml (aws lambda
-# update-function-code); the lifecycle block below stops terraform from
-# reverting CI-deployed code on later applies (e.g. from a stale checkout).
+# Terraform owns this Lambda's code, as of 2026-08-10.
+#
+# It used to only seed the code at creation, with an ignore_changes on filename
+# and source_code_hash, because deploys were hand-run `terraform apply` from
+# whatever a developer had checked out — a stale checkout could silently roll
+# prod code back, so .github/workflows/deploy-clickup-bot.yml was made the single
+# code writer instead.
+#
+# Both halves of that premise are gone. Applies run in CI from the exact promoted
+# SHA, never a laptop, so there is no stale checkout to defend against; and that
+# workflow did not come across in the move to omni, which left this Lambda's code
+# with no deploy path at all. Dropping ignore_changes puts it back on the
+# promotion train with every other gp-ai component.
+#
+# archive_file's hash is stable for unchanged source (verified against prod:
+# two consecutive plans produced the same target hash), so this does not churn
+# the function on every apply.
 data "archive_file" "lambda_zip" {
   type        = "zip"
   source_file = "${path.module}/../../../clickup_bot/lambda/handler.py"
@@ -276,12 +289,6 @@ resource "aws_lambda_function" "clickup_bot" {
   timeout     = 120
   memory_size = 128
 
-  # Terraform manages config and IAM only. GitHub Actions is the single code
-  # writer; without this, any `terraform apply` would upload the applier's
-  # local handler.py and could silently roll prod code back.
-  lifecycle {
-    ignore_changes = [filename, source_code_hash]
-  }
 
   environment {
     variables = merge(
@@ -442,6 +449,49 @@ resource "aws_cloudwatch_metric_alarm" "handler_errors" {
   treat_missing_data  = "notBreaching"
   alarm_actions       = [aws_sns_topic.bot_failures.arn]
   ok_actions          = [aws_sns_topic.bot_failures.arn]
+
+  tags = {
+    Environment = var.environment
+    Service     = "clickup-bot"
+  }
+}
+
+# SILENCE ALARM. The handler_errors alarm above can only fire if the handler
+# RUNS, so it is blind to the one failure mode that has actually happened:
+# ClickUp stopping delivery altogether. Deliveries stopped on 2026-07-31 —
+# zero requests reached the ALB target group and zero invocations followed —
+# and nothing alarmed for 12 days, because a webhook that never fires produces
+# no error logs. "A suspended webhook is indistinguishable from a quiet one"
+# was in the runbook as something to check by hand; this makes it check itself.
+#
+# treat_missing_data = "breaching" is the entire point. Lambda metrics are
+# SPARSE: no invocations means no datapoint at all, not a datapoint of zero, so
+# the default (missing = ignore) would leave this alarm permanently INSUFFICIENT
+# _DATA during exactly the outage it exists to catch.
+#
+# Four days, not one. The webhook fires on taskTagUpdated for the whole
+# workspace, so weekday traffic is 5-35/day, but a quiet Saturday legitimately
+# reaches zero (2026-07-25 did). Four consecutive silent days is well past any
+# observed gap, including a long weekend, and still turns a 12-day blind spot
+# into a 4-day one.
+resource "aws_cloudwatch_metric_alarm" "no_deliveries" {
+  alarm_name          = "clickup-bot-no-deliveries-${var.environment}"
+  alarm_description   = "clickup-bot ${var.environment} has received NO webhook deliveries for 4 days. The bot is not broken — it is not being called. Check the ClickUp webhook's health status and that its owning token still has workspace access (see clickup_bot/README.md, 'After an outage'). A webhook registered with a personal token dies when that person loses workspace access, which is how deliveries stopped on 2026-07-31."
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 4
+  datapoints_to_alarm = 4
+  metric_name         = "Invocations"
+  namespace           = "AWS/Lambda"
+  period              = 86400
+  statistic           = "Sum"
+  threshold           = 1
+  treat_missing_data  = "breaching"
+  alarm_actions       = [aws_sns_topic.bot_failures.arn]
+  ok_actions          = [aws_sns_topic.bot_failures.arn]
+
+  dimensions = {
+    FunctionName = aws_lambda_function.clickup_bot.function_name
+  }
 
   tags = {
     Environment = var.environment

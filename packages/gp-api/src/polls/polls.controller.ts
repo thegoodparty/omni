@@ -185,7 +185,7 @@ export class PollsController {
     const sanitizedName =
       poll.name.replace(/[^a-zA-Z0-9 _-]/g, '').trim() || 'poll-responses'
 
-    return this.pollResponsesDownloadService.streamPollResponses(
+    return this.pollResponsesDownloadService.buildPollResponsesCsv(
       pollId,
       poll.name,
       sanitizedName,

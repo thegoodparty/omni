@@ -44,6 +44,23 @@ describe('buildFilterSummary — demographic-only filters', () => {
     expect(summary).not.toContain('Political party')
   })
 
+  it('excludes voter likelihood for an elected official', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ audienceSuperVoters: true }),
+      true,
+    )
+    expect(summary).not.toContain('Super')
+    expect(summary).not.toContain('Voter likelihood')
+  })
+
+  it('includes voter likelihood for a Win (non-elected-official) list', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ audienceSuperVoters: true }),
+      false,
+    )
+    expect(summary).toBe('Voter likelihood Super.')
+  })
+
   it('includes political party for a Win (non-elected-official) list', () => {
     const summary = buildFilterSummary(
       baseSegment({ partyDemocrat: true }),

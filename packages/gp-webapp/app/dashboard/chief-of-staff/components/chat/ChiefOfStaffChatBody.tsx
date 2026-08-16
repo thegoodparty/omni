@@ -9,29 +9,31 @@ import {
   type RefObject,
 } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import {
   Badge,
   Button,
   IconButton,
-  Input,
   Loader2Icon,
   MicIcon,
   SquareIcon,
+  Textarea,
 } from '@styleguide'
 import { SparklesIcon } from '@styleguide/components/ui/icons'
 import {
   ASSISTANT_BUBBLE,
   AssistantMarkdown,
+  ChatMarkdown,
   ToolPillRow,
 } from '../../../shared/agent-chat/chatUI'
 import { useDictationAppend } from '../../../briefings/shared/useDictationAppend'
 import { reportErrorToSentry } from '@shared/sentry'
 import { chiefOfStaffChatApi } from '../../data/chat-api'
 import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
+import {
+  friendlyError,
+  newClientMessageId,
+} from '../../../shared/agent-chat/chatHelpers'
 import type {
-  ChatErrorCode,
   ChatMessageDto,
   ChatMessageSegment,
   ChatStreamEvent,
@@ -97,7 +99,12 @@ interface Props {
    */
   pendingKickoff?: string
   /** Ref to the composer input, so a caller's suggestion can focus it. */
-  composerRef?: RefObject<HTMLInputElement | null>
+  composerRef?: RefObject<HTMLTextAreaElement | null>
+  /**
+   * Fine-print line under the composer, e.g. "<Agent> can make mistakes. Check
+   * important details." Omit to render nothing.
+   */
+  disclaimer?: string
   /**
    * Message contents to drop from a reloaded transcript before it renders.
    * Hides persisted sentinel turns (e.g. the story-kickoff sentinel) that
@@ -174,26 +181,6 @@ type ErrorState = {
   kind: 'init' | 'stream'
 }
 
-const FRIENDLY_ERROR_COPY: Record<ChatErrorCode, string> = {
-  rate_limited: 'Too many requests. Try again in a moment.',
-  upstream_unavailable: 'Chat is temporarily unavailable. Try again.',
-  aborted: '',
-  conversation_not_found:
-    'This chat is no longer available. Try starting a new one.',
-  internal: 'Something went wrong. Try again.',
-}
-
-function friendlyErrorMessage(code: ChatErrorCode): string {
-  return FRIENDLY_ERROR_COPY[code] ?? 'Something went wrong. Try again.'
-}
-
-function newClientMessageId(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID()
-  }
-  return `cmid_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`
-}
-
 // A tool_call event carries the tool's input as `args` (unknown). Pull the
 // `action` field when present so the status label can reflect what the tool is
 // doing (e.g. reading vs saving priorities).
@@ -259,6 +246,7 @@ export default function ChiefOfStaffChatBody({
   composerPlaceholder = 'How can I help?',
   pendingKickoff,
   composerRef,
+  disclaimer,
   hiddenMessageContents = NO_HIDDEN_CONTENTS,
 }: Props): React.JSX.Element {
   const queryClient = useQueryClient()
@@ -304,9 +292,9 @@ export default function ChiefOfStaffChatBody({
   const scrollRef = useRef<HTMLDivElement | null>(null)
   // Local handle on the composer input (merged with the optional caller ref) so
   // a completed turn can return focus to it — see the refocus effect below.
-  const composerInputRef = useRef<HTMLInputElement | null>(null)
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
   const assignComposerRef = useCallback(
-    (node: HTMLInputElement | null) => {
+    (node: HTMLTextAreaElement | null) => {
       composerInputRef.current = node
       if (composerRef) composerRef.current = node
     },
@@ -726,7 +714,7 @@ export default function ChiefOfStaffChatBody({
             setStreaming(null)
           } else {
             setError({
-              message: friendlyErrorMessage(errored.code),
+              message: friendlyError(errored.code),
               retryable: errored.retryable,
               lastUserContent: content,
               lastClientMessageId: clientMessageId,
@@ -1045,17 +1033,18 @@ export default function ChiefOfStaffChatBody({
             <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
               <SparklesIcon className="size-3.5" aria-hidden />
             </span>
-            <div className={ASSISTANT_BUBBLE}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
-            </div>
+            <AssistantMarkdown>{text}</AssistantMarkdown>
           </div>
         ))}
 
         {history.map((item) =>
           item.kind === 'user' ? (
+            // whitespace-pre-wrap keeps the line breaks the composer now
+            // accepts (Shift+Enter); HTML would otherwise collapse them into
+            // one run of text.
             <div
               key={item.id}
-              className="self-end rounded-2xl bg-primary px-3 py-2 text-sm text-primary-foreground"
+              className="max-w-full self-end rounded-2xl bg-primary px-3 py-2 text-sm break-words whitespace-pre-wrap text-primary-foreground"
             >
               {item.content}
             </div>
@@ -1086,9 +1075,7 @@ export default function ChiefOfStaffChatBody({
                   {item.toolsUsed && item.toolsUsed.length > 0 && (
                     <ToolPillRow labels={item.toolsUsed.map(toolDisplayName)} />
                   )}
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {item.content}
-                  </ReactMarkdown>
+                  <ChatMarkdown>{item.content}</ChatMarkdown>
                 </div>
               )}
             </div>
@@ -1213,8 +1200,12 @@ export default function ChiefOfStaffChatBody({
             ))}
           </div>
         )}
-        <div className="relative mx-auto w-full max-w-[608px] rounded-full bg-gradient-to-r from-red-500 to-blue-500 p-px">
-          <div className="flex h-12 w-full items-center gap-1 rounded-full bg-card pl-1.5 pr-1.5">
+        {/* rounded-3xl (24px) reads as a pill at the one-line min height and
+            stays a sane rounded rectangle once the composer grows, which
+            rounded-full would not. items-end keeps the buttons on the last line
+            of a multiline draft. */}
+        <div className="relative mx-auto w-full max-w-[608px] rounded-3xl bg-gradient-to-r from-red-500 to-blue-500 p-px">
+          <div className="flex min-h-12 w-full items-end gap-1 rounded-3xl bg-card py-1 pl-1.5 pr-1.5">
             {onSelectConversation && (
               <ChatHistoryPopover
                 onSelect={onSelectConversation}
@@ -1222,12 +1213,22 @@ export default function ChiefOfStaffChatBody({
                 historyKey={historyKey}
               />
             )}
-            <Input
+            <Textarea
               ref={assignComposerRef}
+              autoGrow
+              maxRows={6}
+              rows={1}
               value={composer}
               onChange={(e) => setComposer(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                // isComposing: don't send on the Enter that commits an IME
+                // candidate (CJK and other composed input) — it would fire a
+                // half-composed message and swallow the confirmation.
+                if (
+                  e.key === 'Enter' &&
+                  !e.shiftKey &&
+                  !e.nativeEvent.isComposing
+                ) {
                   e.preventDefault()
                   void onSend()
                 }
@@ -1235,7 +1236,7 @@ export default function ChiefOfStaffChatBody({
               placeholder={composerPlaceholder}
               disabled={busy}
               aria-label="Ask a question"
-              className="h-9 flex-1 border-0 bg-transparent px-2 text-[15px] shadow-none focus-visible:border-0 focus-visible:ring-0"
+              className="flex-1 border-0 bg-transparent px-2 py-2.5 text-[15px] leading-snug shadow-none focus-visible:border-0 focus-visible:ring-0"
             />
             <IconButton
               type="button"
@@ -1274,6 +1275,11 @@ export default function ChiefOfStaffChatBody({
             </IconButton>
           </div>
         </div>
+        {disclaimer && (
+          <p className="mx-auto mt-2 w-full max-w-[608px] text-center text-[11px] text-muted-foreground">
+            {disclaimer}
+          </p>
+        )}
       </div>
     </div>
   )

@@ -117,13 +117,29 @@ There is no inbound HTTP API exposed to GoodParty's web frontends from this repo
 
 ## CI
 
-`.github/workflows/`:
+CI lives in **omni**, at `.github/workflows/gp-ai.yml`. The per-member
+`build-*.yml` / `deploy-*.yml` workflows described here previously belonged to the
+standalone `gp-ai-projects` repo and did not come across.
 
-- `build-broker.yml`, `build-ddhq-matcher.yml`, `build-engineer-agent.yml`, `build-pmf-engine.yml`, `build-serve-analyze.yml` — per-member Docker→ECR builds. Triggered on changes to that member's path (or shared dependencies).
-- `deploy-campaign-plan-lambda.yml` — separate deploy flow for `campaign_plan_lambda/`.
-- `deploy-clickup-bot.yml` — separate deploy flow for `clickup_bot/`.
+One workflow covers everything. It has no path filter, so it runs on every commit
+and gates internally on a change-detection job:
 
-There is **no lint/type-check workflow** in CI yet. `.github/workflows/README.md` references one as if it lived in `.github/workflows-disabled/`, but that directory does not currently exist on disk. Until a real CI lint job is added, **green pre-commit locally is the only enforcement of style + types in this repo's CI**.
+- **Validate** — ruff lint + format check and the pytest suites. Runs on any
+  Python change, and unconditionally on `main` so deployed code is always
+  validated at the commit it ships from. mypy runs advisory-only; it has a large
+  pre-existing backlog and is not yet a gate.
+- **Build** — all five service images to ECR, SHA-tagged and immutable. Every
+  `main` push builds all of them, because Terraform pins `<service>-<sha>` and a
+  service without an image at that commit would point at a tag that was never
+  pushed.
+- **TF plan (dev)** — on PRs touching `infrastructure/`, plans every dev root and
+  posts one consolidated comment.
+- **Deploy dev** — on `main`, applies every dev root, re-plans to confirm
+  convergence, then asserts the running configuration matches the commit.
+
+Prod is reached only by promotion: `promote.yml` waits for the commit's checks to
+go green on dev, then applies the prod roots pinned to the same SHA-tagged images.
+Nothing is rebuilt at promotion time.
 
 ## Skills
 

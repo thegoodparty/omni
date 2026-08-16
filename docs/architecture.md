@@ -1,6 +1,6 @@
 # Architecture
 
-How the pieces fit together. For per-package detail, read that package's `CLAUDE.md`.
+How the pieces fit together. For per-package detail, read that package's `AGENTS.md`.
 
 ## Shape of the system
 
@@ -54,7 +54,7 @@ nothing boring would work.
 | External -> gp-webapp       | Public              | Public election/candidate pages                  |
 
 gp-api runs three global guards in order: `ClerkM2MAuthGuard`, `SessionGuard`,
-`RolesGuard`. Detail and decorators: `packages/gp-api/src/authentication/CLAUDE.md`.
+`RolesGuard`. Detail and decorators: `packages/gp-api/src/authentication/AGENTS.md`.
 
 ## Contracts — the cross-service source of truth
 
@@ -85,10 +85,10 @@ Each backend owns its own Postgres database, managed by Prisma with modular
 `prisma/schema/*.prisma` files.
 
 - **gp-api:** user, campaign, pathToVictory, aiChat, website, outreach, payments,
-  etc. See `packages/gp-api/prisma/CLAUDE.md`. It also holds a second, read-only
+  etc. See `packages/gp-api/prisma/AGENTS.md`. It also holds a second, read-only
   Prisma client for people-db (`src/peopleDb/`) — Voter (partitioned by state),
   District, DistrictStats. Mostly raw SQL. ~200M+ L2 records — treat voter data as
-  restricted. See `packages/gp-api/src/peopleDb/CLAUDE.md`.
+  restricted. See `packages/gp-api/src/peopleDb/AGENTS.md`.
 - **election-api:** Race, Place, District, Position, Candidacy, ProjectedTurnout.
 
 Never edit an applied migration under `prisma/schema/migrations/<timestamp>/`.
@@ -112,7 +112,7 @@ detail, not something gp-webapp talks to.
 
 Adoption of the unified path is measured via the `Contacts` analytics events, which
 carry a `context: 'win' | 'serve'` property. Detail:
-`packages/gp-webapp/app/dashboard/contacts/CLAUDE.md`.
+`packages/gp-webapp/app/dashboard/contacts/AGENTS.md`.
 
 ## External repos (not in omni)
 
@@ -127,7 +127,7 @@ Some systems live outside this monorepo. Consult them when:
   is a privileged broker service; results come back on gp-api's `{branch}-Queue.fifo`
   (consumed in `queue/consumer/`, with `communityIssues` a downstream consumer).
   The experiment playbooks themselves are in-tree at `packages/runbooks/experiments/`.
-  See `packages/gp-api/src/agentExperiments/CLAUDE.md`.
+  See `packages/gp-api/src/agentExperiments/AGENTS.md`.
 - **gp-marketing** (`thegoodparty/gp-marketing`) — the public marketing site. It
   moved out of gp-webapp; `gp-webapp` is the product app for candidates & elected
   officials, not the marketing site. Marketing changes go there, not here.

@@ -60,7 +60,7 @@ if [ "$PUSH_TO_ECR" = "true" ]; then
 
   if [ -z "$ECR_REPO_URL" ]; then
     echo -e "${YELLOW}Warning: ECR repository 'gp-ai-projects' not found${NC}"
-    echo -e "${YELLOW}Run: cd infrastructure/shared/ecr && terraform apply${NC}"
+    echo -e "${YELLOW}The gp-ai-projects ECR repo is managed in the AWS console, not Terraform. Check your AWS credentials/region.${NC}"
     exit 1
   fi
 

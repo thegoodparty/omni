@@ -3,7 +3,7 @@
 import type { Ref, ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { cn, IconButton, Input } from '@styleguide'
+import { cn, IconButton, Textarea } from '@styleguide'
 import {
   SearchIcon,
   SendIcon,
@@ -35,6 +35,10 @@ export const ASSISTANT_BUBBLE =
   '[&_strong]:!inline [&_strong]:font-semibold [&_em]:!inline [&_em]:italic ' +
   '[&_a]:!inline [&_a]:underline [&_code]:!inline [&_code]:rounded ' +
   '[&_code]:bg-foreground/10 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs ' +
+  '[&_pre]:!block [&_pre]:overflow-x-auto [&_pre]:rounded-md ' +
+  '[&_pre]:bg-foreground/10 [&_pre]:p-3 [&_pre]:my-1 [&_pre_code]:!block ' +
+  '[&_pre_code]:!bg-transparent [&_pre_code]:!px-0 [&_pre_code]:!py-0 ' +
+  '[&_pre_code]:!rounded-none ' +
   '[&_li]:!list-item [&_li]:my-0 [&_ul]:!block [&_ul]:list-disc [&_ul]:pl-5 ' +
   '[&_ul]:space-y-1 [&_ol]:!block [&_ol]:list-decimal [&_ol]:pl-5 ' +
   '[&_ol]:space-y-1 [&_h1]:!block [&_h1]:text-base [&_h1]:font-semibold ' +
@@ -70,6 +74,40 @@ export function AssistantRow({
   )
 }
 
+// CommonMark turns any line indented 4+ spaces into a code block, so model
+// output that leaks leading indentation renders prose as a grey code box.
+// Strip that indentation outside fenced (```) blocks before rendering.
+// Trade-off: deeply nested list items (indented 4+ spaces) also flatten to a
+// single level — acceptable for chat prose, where stray code boxes are worse.
+const normalizeMarkdown = (md: string): string => {
+  let inFence = false
+  return md
+    .split('\n')
+    .map((line) => {
+      if (/^\s*(`{3,}|~{3,})/.test(line)) {
+        inFence = !inFence
+        return line
+      }
+      return inFence ? line : line.replace(/^ {4,}/, '')
+    })
+    .join('\n')
+}
+
+// The markdown core with no chrome: normalized source + the shared plugins.
+// Use inside a caller's own bubble (a turn that also renders tool pills in the
+// same bubble); AssistantMarkdown wraps this in the standard bubble.
+export function ChatMarkdown({
+  children,
+}: {
+  children: string
+}): React.JSX.Element {
+  return (
+    <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>
+      {normalizeMarkdown(children)}
+    </ReactMarkdown>
+  )
+}
+
 export function AssistantMarkdown({
   children,
 }: {
@@ -77,7 +115,7 @@ export function AssistantMarkdown({
 }): React.JSX.Element {
   return (
     <div className={ASSISTANT_BUBBLE}>
-      <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{children}</ReactMarkdown>
+      <ChatMarkdown>{children}</ChatMarkdown>
     </div>
   )
 }
@@ -245,18 +283,40 @@ export function ChatComposer({
   onSubmit: () => void
   disabled?: boolean
   placeholder?: string
-  inputRef?: Ref<HTMLInputElement>
+  inputRef?: Ref<HTMLTextAreaElement>
   dictation?: UseDictationAppendResult
 }): React.JSX.Element {
+  // A textarea keeps Enter for newlines, so submit is wired by hand: Enter
+  // sends, Shift+Enter inserts a break, and the Enter that commits an IME
+  // candidate (CJK and other composed input) must not send. The guard mirrors
+  // the send button's disabled state: the old input relied on a disabled
+  // default button to block Enter form-submission, so an empty or
+  // mid-dictation Enter must stay a no-op here (not every caller's onSubmit
+  // guards an empty send).
+  const submit = (): void => {
+    if (disabled || dictation?.active || value.trim().length === 0) return
+    onSubmit()
+  }
+  const onComposerKeyDown = (
+    e: React.KeyboardEvent<HTMLTextAreaElement>,
+  ): void => {
+    if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return
+    e.preventDefault()
+    submit()
+  }
   const controls = (
     <>
-      <Input
+      <Textarea
         ref={inputRef}
+        autoGrow
+        rows={1}
+        maxRows={6}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={onComposerKeyDown}
         placeholder={placeholder}
         disabled={disabled}
-        className="min-w-0 flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
+        className="min-w-0 flex-1 border-0 bg-transparent px-2 py-2.5 text-sm leading-snug shadow-none focus-visible:ring-0"
       />
       {dictation ? (
         <DictationMicButton
@@ -284,20 +344,20 @@ export function ChatComposer({
   )
   const handleSubmit = (e: React.FormEvent): void => {
     e.preventDefault()
-    // Match the send button's guard so Enter can't submit mid-dictation, which
-    // would drop the not-yet-finalized words still being spoken.
-    if (dictation?.active) return
-    onSubmit()
+    submit()
   }
+  // rounded-3xl reads as a pill at the one-line min height and stays a sane
+  // rounded rectangle once the composer grows; items-end keeps the send button
+  // on the last line of a multiline draft.
   return dictation ? (
     <form onSubmit={handleSubmit}>
-      <ChatPill innerClassName="items-center gap-1 py-1 pr-1 pl-4">
+      <ChatPill rounded="3xl" innerClassName="items-end gap-1 py-1 pr-1 pl-4">
         {controls}
       </ChatPill>
     </form>
   ) : (
     <form
-      className="flex items-center gap-1 rounded-full border border-border bg-card py-1 pr-1 pl-4"
+      className="flex min-h-12 items-end gap-1 rounded-3xl border border-border bg-card py-1 pr-1 pl-4"
       onSubmit={handleSubmit}
     >
       {controls}

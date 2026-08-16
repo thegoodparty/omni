@@ -19,7 +19,6 @@ import {
   DoorClosed,
   ExternalLink,
   FileText,
-  LayoutDashboard,
   LogOut,
   Send,
   Settings,
@@ -38,7 +37,12 @@ import { useUser as useClerkUser } from '@clerk/nextjs'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useCampaignStrategyExists } from './useCampaignStrategyExists'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
+import { useNativeDoorKnockingFlag } from 'app/shared/experiments/nativeDoorKnockingFlag'
+import { useDistrictResolution } from './useDistrictResolution'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
+// Labels and icons shared with each tab's page title bar (DashboardNavHeader),
+// so the left rail and the top of the page can never read differently.
+import { NAV_HEADER_ICONS, NAV_LABELS } from './navLabels'
 import { CIRCLE_COMMUNITY_BASE } from 'appEnv'
 import {
   Avatar,
@@ -59,11 +63,7 @@ import {
   SidebarSeparator,
   useSidebar,
 } from '@styleguide'
-import {
-  BookOpenIcon,
-  FlagIcon,
-  ScrollTextIcon,
-} from '@styleguide/components/ui/icons'
+import { FlagIcon, ScrollTextIcon } from '@styleguide/components/ui/icons'
 import {
   OrganizationPicker,
   useOrganization,
@@ -99,9 +99,9 @@ const VOTER_DATA_UPGRADE_ITEM: MenuItem = {
 
 const DEFAULT_MENU_ITEMS: MenuItem[] = [
   {
-    label: 'Campaign Manager',
+    label: NAV_LABELS.campaignManager,
     icon: <MdFactCheck />,
-    v2Icon: LayoutDashboard,
+    v2Icon: NAV_HEADER_ICONS.dashboard,
     link: '/dashboard',
     v2Category: 'campaign',
     id: 'campaign-tracker-dashboard',
@@ -156,7 +156,7 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
   },
 ]
 
-const ECANVASSER_MENU_ITEM: MenuItem = {
+const DOOR_KNOCKING_MENU_ITEM: MenuItem = {
   id: 'door-knocking-dashboard',
   label: 'Door Knocking',
   link: '/dashboard/door-knocking',
@@ -233,10 +233,10 @@ const CHIEF_OF_STAFF_MENU_ITEM: MenuItem = {
 
 const PUBLIC_PROFILE_MENU_ITEM: MenuItem = {
   id: 'public-profile-dashboard',
-  label: 'Public Profile',
+  label: NAV_LABELS.publicProfile,
   link: '/dashboard/public-profile',
   icon: <MdFactCheck />,
-  v2Icon: CircleUserRound,
+  v2Icon: NAV_HEADER_ICONS.profile,
   v2Category: 'elected-office',
 }
 
@@ -251,30 +251,39 @@ const ORDINANCES_MENU_ITEM: MenuItem = {
 
 const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   id: 'campaign-plan-dashboard',
-  label: 'Campaign Plan',
+  label: NAV_LABELS.campaignPlan,
   link: '/dashboard/campaign-plan',
   icon: <MdFileOpen />,
-  v2Icon: ScrollTextIcon,
+  v2Icon: NAV_HEADER_ICONS.scroll,
   v2Category: 'campaign',
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignPlan),
 }
 
 const CAMPAIGN_STORY_MENU_ITEM: MenuItem = {
   id: 'campaign-story-dashboard',
-  label: 'Your story',
+  label: NAV_LABELS.campaignStory,
   link: '/dashboard/campaign-story',
   icon: <MdMenuBook />,
-  v2Icon: BookOpenIcon,
+  v2Icon: NAV_HEADER_ICONS.book,
   v2Category: 'campaign',
 }
 
 const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
   id: 'race-opponent-dashboard',
-  label: 'Know Your Opponent',
+  label: NAV_LABELS.knowYourOpponent,
   link: '/dashboard/race-opponent',
   icon: <MdFactCheck />,
-  v2Icon: FlagIcon,
+  v2Icon: NAV_HEADER_ICONS.flag,
   v2Category: 'campaign',
+}
+
+// Which of the two door-knocking products the candidate would actually land on.
+// `nativeEnabled` is the flag's settled value, so it matches what
+// DoorKnockingPageGate decides on the page itself.
+interface DoorKnockingNavGate {
+  ecanvasserConnected: boolean
+  nativeEnabled: boolean
+  districtResolvable: boolean
 }
 
 export const getDashboardMenuItems = (
@@ -285,6 +294,11 @@ export const getDashboardMenuItems = (
   campaignStoryEnabled: boolean,
   communityIssuesEnabled: boolean,
   ordinancesEnabled: boolean,
+  doorKnocking: DoorKnockingNavGate = {
+    ecanvasserConnected: false,
+    nativeEnabled: false,
+    districtResolvable: false,
+  },
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
@@ -350,7 +364,7 @@ export const getDashboardMenuItems = (
     menuItems.splice(afterCampaignManager, 0, {
       ...CAMPAIGN_PLAN_MENU_ITEM,
       label: campaignStoryEnabled
-        ? 'Campaign Tracker'
+        ? NAV_LABELS.campaignTracker
         : CAMPAIGN_PLAN_MENU_ITEM.label,
     })
   }
@@ -374,6 +388,19 @@ export const getDashboardMenuItems = (
     v2Category: 'campaign',
   })
 
+  // Mirror DoorKnockingPageGate: with the flag on, the route renders the native
+  // voter map and an eCanvasser record is irrelevant; with it off (or
+  // unsettled) it renders the legacy eCanvasser dashboard, which is only worth
+  // linking to for an integrated org. Gating on eCanvasser alone hid the native
+  // pilot from every candidate who never integrated it. The native map also
+  // needs a resolvable district — every pack and turf read 400s without one.
+  const doorKnockingShown = doorKnocking.nativeEnabled
+    ? doorKnocking.districtResolvable
+    : doorKnocking.ecanvasserConnected
+  if (doorKnockingShown) {
+    menuItems.push(DOOR_KNOCKING_MENU_ITEM)
+  }
+
   return menuItems
 }
 
@@ -394,34 +421,42 @@ export default function DashboardMenu({
   // Nav-only gate for the Ordinances tab; the page's FeatureFlagGuard is the
   // treatment surface.
   const { on: ordinancesEnabled } = useFlagOn('serve-ordinances')
+  // The page's gate is the treatment surface, so read without tracking exposure.
+  const { ready: nativeDoorKnockingReady, enabled: nativeDoorKnockingEnabled } =
+    useNativeDoorKnockingFlag(false)
+  const { isUnresolvable: isDistrictUnresolvable } = useDistrictResolution()
   const campaignStrategyExists = useCampaignStrategyExists()
 
-  const menuItems = useMemo(() => {
-    const items = getDashboardMenuItems(
+  const menuItems = useMemo(
+    () =>
+      getDashboardMenuItems(
+        serveAccessEnabled,
+        !!electedOffice,
+        isElectedOfficeLoading,
+        campaignStrategyExists,
+        campaignStoryEnabled,
+        communityIssuesEnabled,
+        ordinancesEnabled,
+        {
+          ecanvasserConnected: !!ecanvasser,
+          nativeEnabled: nativeDoorKnockingReady && nativeDoorKnockingEnabled,
+          districtResolvable: !isDistrictUnresolvable,
+        },
+      ),
+    [
       serveAccessEnabled,
-      !!electedOffice,
+      ecanvasser,
+      electedOffice,
       isElectedOfficeLoading,
       campaignStrategyExists,
       campaignStoryEnabled,
       communityIssuesEnabled,
       ordinancesEnabled,
-    )
-
-    if (ecanvasser) {
-      items.push(ECANVASSER_MENU_ITEM)
-    }
-
-    return items
-  }, [
-    serveAccessEnabled,
-    ecanvasser,
-    electedOffice,
-    isElectedOfficeLoading,
-    campaignStrategyExists,
-    campaignStoryEnabled,
-    communityIssuesEnabled,
-    ordinancesEnabled,
-  ])
+      nativeDoorKnockingReady,
+      nativeDoorKnockingEnabled,
+      isDistrictUnresolvable,
+    ],
+  )
 
   useEffect(() => {
     if (campaign && ecanvasser) {

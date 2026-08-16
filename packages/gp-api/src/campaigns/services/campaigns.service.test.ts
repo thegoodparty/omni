@@ -1,3 +1,4 @@
+import { RaceTargetMetricsSchema } from '@goodparty_org/contracts'
 import { BallotReadyService } from '@/elections/services/ballotReady.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
@@ -44,6 +45,10 @@ const EMPTY_RACE_CONTEXT_FIELDS = {
   uniqueCellphones: null,
   uniqueLandlines: null,
   projectedVoterTurnout: null,
+  projectedTurnoutLower: null,
+  projectedTurnoutUpper: null,
+  winNumberLower: null,
+  winNumberUpper: null,
   candidates: [],
   generalElectionDate: null,
   primaryElectionDate: null,
@@ -895,6 +900,7 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
   const mockElections: Partial<ElectionsService> = {
     getPositionMatchedRaceTargetDetails: vi.fn(),
     buildRaceTargetDetails: vi.fn(),
+    getDistrict: vi.fn().mockResolvedValue(null),
     fetchFilingFeeByRaceHash: vi.fn(),
     fetchCampaignStrategyContext: vi.fn().mockResolvedValue(null),
   }
@@ -1341,6 +1347,10 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
         uniqueCellphones: 3300,
         uniqueLandlines: 1800,
         projectedVoterTurnout: 1200,
+        projectedTurnoutLower: null,
+        projectedTurnoutUpper: null,
+        winNumberLower: null,
+        winNumberUpper: null,
         candidates: [
           {
             gpCandidateId: 'gp-1',
@@ -1367,10 +1377,59 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
         },
       })
 
+      // The context fixture above omits the bound fields, which is what an
+      // older election-api sends mid-rollout — the two services deploy in
+      // parallel. Undefined there fails the response schema and 500s the
+      // campaign read, so the mapper has to land null.
+      expect(RaceTargetMetricsSchema.safeParse(result).success).toBe(true)
+
       // The legacy position-based path must not fire when context wins.
       expect(
         mockElections.getPositionMatchedRaceTargetDetails,
       ).not.toHaveBeenCalled()
+    })
+
+    it('maps the prediction bounds onto their camelCase counterparts', async () => {
+      vi.mocked(mockElections.fetchCampaignStrategyContext!).mockResolvedValue({
+        candidate_count: 0,
+        candidate_office: 'City Council',
+        candidates: [],
+        civics_win_number: null,
+        contacts_needed_estimate: 3000,
+        general_election_date: '2026-11-03',
+        number_of_seats: 1,
+        office_level: 'CITY',
+        office_type: 'COUNCIL',
+        official_office_name: 'City Council Seat 5',
+        primary_election_date: '2026-08-04',
+        projected_turnout: 1200,
+        projected_turnout_lower: 900,
+        projected_turnout_upper: 1500,
+        projected_voter_turnout: null,
+        registered_voters: 5500,
+        unique_cellphones: 3300,
+        unique_landlines: 1800,
+        relevant_election_date: '2026-11-03',
+        state: 'CA',
+        win_number_effective: 601,
+        win_number_estimate: 601,
+        win_number_lower: 451,
+        win_number_upper: 751,
+      })
+      vi.mocked(mockElections.fetchFilingFeeByRaceHash!).mockResolvedValue(null)
+      vi.mocked(mockBallotReady.fetchMilestones!).mockResolvedValue(null)
+
+      const result =
+        await service.fetchLiveRaceTargetMetrics(campaignWithRaceId)
+
+      expect(result).toMatchObject({
+        projectedTurnout: 1200,
+        projectedTurnoutLower: 900,
+        projectedTurnoutUpper: 1500,
+        winNumber: 601,
+        winNumberLower: 451,
+        winNumberUpper: 751,
+      })
     })
 
     it('falls back to position-based path when context returns null', async () => {

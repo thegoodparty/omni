@@ -15,6 +15,10 @@ export const turfsQueryOptions = queryOptions({
     clientRequest('GET /v1/door-knocking/turfs', {}).then((res) => res.data),
 })
 
+// Shared by the create flow and the edit dialog so the two can't disagree on
+// what a valid name is.
+export const MAX_TURF_NAME_LENGTH = 120
+
 // The Lovable palette: distinct, map-legible turf colors.
 export const TURF_COLORS = [
   '#2563eb',
@@ -26,3 +30,14 @@ export const TURF_COLORS = [
   '#db2777',
   '#65a30d',
 ] as const
+
+// Shared by WalkView (list rail) and the page (map pins): same key, so
+// React Query serves one fetch to both.
+export const routeQueryOptions = (turfId: number) =>
+  queryOptions({
+    queryKey: ['door-knocking-route', turfId],
+    queryFn: () =>
+      clientRequest('GET /v1/door-knocking/turfs/:id/route', {
+        id: String(turfId),
+      }).then((res) => res.data),
+  })

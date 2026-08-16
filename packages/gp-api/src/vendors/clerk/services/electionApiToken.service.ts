@@ -6,7 +6,11 @@ import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-cli
 // Renew slightly before expiry so an in-flight request never uses a token
 // that expires mid-call.
 const TOKEN_RENEWAL_BUFFER_MS = 30_000
-const TOKEN_TTL_SECONDS = 600
+// 1h TTL. JWT M2M tokens are billed/quota'd per creation and are never
+// deduplicated by Clerk (JWTs are stateless), so a longer TTL directly cuts
+// mint volume: at 600s this singleton re-minted ~6×/hour/task (over Clerk's
+// 2,500/month free tier across tasks); 3600s brings it comfortably under.
+const TOKEN_TTL_SECONDS = 3600
 
 const { GP_API_MACHINE_SECRET } = process.env
 
@@ -77,11 +81,14 @@ export class ElectionApiTokenService {
       throw new Error('Clerk M2M token creation returned no token')
     }
     this.cachedToken = minted.token
-    // Clerk's createToken returns `expiration` as a Unix timestamp in seconds
-    // (M2MToken.fromJSON passes it through unconverted); isTokenValid compares
-    // against Date.now() in ms, so convert here or the cache never hits.
-    this.tokenExpiration =
-      minted.expiration != null ? minted.expiration * 1000 : null
+    // Anchor the cache window to the TTL we requested, NOT to `minted.expiration`.
+    // The JWT's real `exp` claim is (mint time + secondsUntilExpiration). Clerk's
+    // returned `expiration` field is typed as seconds but is actually milliseconds
+    // at runtime, so `* 1000` double-scaled it ~56k years into the future — the
+    // cache then never renewed and replayed one token long past its real `exp`,
+    // which election-api rejected as expired. Deriving from TTL is unit-agnostic
+    // and keeps the cache strictly inside the JWT's actual lifetime.
+    this.tokenExpiration = Date.now() + TOKEN_TTL_SECONDS * 1000
     return minted.token
   }
 }

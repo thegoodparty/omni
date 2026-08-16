@@ -1,6 +1,6 @@
 name: gp-ai
 
-# Deliberately NO workflow-level path filter. promote.yml gates on workflow-run
+# Deliberately NO workflow-level path filter. The release train gates on workflow-run
 # conclusions, and a path-filtered workflow produces no run at all for unrelated
 # commits — which would force it into the awkward "gate only if a run exists"
 # bucket. Instead this always runs and gates internally on the `changes` job, so
@@ -84,25 +84,53 @@ jobs:
       # Collapse the per-service booleans into a JSON array the build matrix
       # consumes, so only changed services get a build job. An empty array
       # skips the build job entirely rather than running a no-op matrix.
+      # EVERY main push builds all five images and deploys, whether or not this
+      # commit touched packages/gp-ai. The invariant is "the deployed artifact
+      # corresponds to the commit on main" — with no exceptions to reason about.
+      #
+      # Path-filtering the build made deployed state depend on what a commit
+      # happened to touch, which produced two bugs already: an infra-only commit
+      # pinning terraform to images that were never built, and the release train doing
+      # the same on the prod side. Building unconditionally removes the whole
+      # class rather than adding another guard.
+      #
+      # Unchanged services are near-total cache hits (~20-30s each). PRs keep
+      # per-service filtering: nothing deploys from a PR, so the point there is
+      # fast feedback, and an unrelated PR should not build gp-ai images.
       - name: Build service matrix
         id: services
         env:
           FILTERS: ${{ toJSON(steps.filter.outputs) }}
+          ALL: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
         run: |
           set -euo pipefail
-          list='[]'
-          for s in broker pmf-engine serve-analyze ddhq-matcher engineer-agent; do
-            if [ "$(jq -r --arg s "$s" '.[$s] // "false"' <<<"$FILTERS")" = "true" ]; then
-              list=$(jq -c --arg s "$s" '. + [$s]' <<<"$list")
-            fi
-          done
+          all='["broker","pmf-engine","serve-analyze","ddhq-matcher","engineer-agent"]'
+          if [ "$ALL" = "true" ]; then
+            list="$all"
+            echo "main push: building all services so every one has an image at this SHA"
+          else
+            list='[]'
+            for s in broker pmf-engine serve-analyze ddhq-matcher engineer-agent; do
+              if [ "$(jq -r --arg s "$s" '.[$s] // "false"' <<<"$FILTERS")" = "true" ]; then
+                list=$(jq -c --arg s "$s" '. + [$s]' <<<"$list")
+              fi
+            done
+          fi
           echo "list=$list" >> "$GITHUB_OUTPUT"
           echo "Services to build: $list"
 
   validate:
     name: Validate
     needs: changes
-    if: needs.changes.outputs.python == 'true'
+    # Also unconditional on main, for the same reason the build is. Gating this
+    # on the path filter while the build ignores it opens a bypass: a commit
+    # touching nothing under packages/gp-ai skips lint/test but still builds and
+    # deploys all five services — carrying along any broken Python an earlier
+    # commit left in the tree. Deployed code must have been validated at the
+    # commit it is deployed from.
+    if: >-
+      needs.changes.outputs.python == 'true'
+      || (github.event_name == 'push' && github.ref_name == 'main')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -215,39 +243,13 @@ jobs:
           file: ${{ steps.df.outputs.file }}
           platforms: linux/arm64
           push: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
-          # SHA-tagged and immutable. The mutable <service>-dev tag is retained
-          # only until Terraform pins the SHA (that PR removes it), so the
-          # existing force-new-deployment dev path keeps working until then.
-          tags: |
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ matrix.service }}-${{ github.sha }}
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ matrix.service }}-dev
+          # SHA-tagged and immutable — the only tag written. The mutable
+          # <service>-dev tag is gone: terraform now pins the exact SHA, so a
+          # moving tag would just be a second, lying source of truth.
+          tags: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ matrix.service }}-${{ github.sha }}
           cache-from: type=gha,scope=gp-ai-${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=gp-ai-${{ matrix.service }}
           provenance: false
-
-      # Preserves the dev deploy that build-broker.yml used to do in the old
-      # repo. Without this, pushing the mutable broker-dev tag changes nothing —
-      # the running service keeps its old image — and because gp-ai changes no
-      # longer land in gp-ai-projects, dev would silently freeze on the last
-      # image that repo built. Broker is the only service that needs it: the
-      # pmf-engine runner is RunTask-driven off a moving tag, so the next run
-      # picks up the new image on its own.
-      #
-      # This is transitional. Once Terraform pins the SHA, `terraform apply`
-      # becomes the deploy and this step goes away along with the mutable tag.
-      - name: Redeploy broker on dev
-        if: >-
-          matrix.service == 'broker'
-          && github.event_name == 'push'
-          && github.ref_name == 'main'
-        run: |
-          aws ecs update-service \
-            --cluster broker-dev \
-            --service broker-dev \
-            --force-new-deployment \
-            --region ${{ env.AWS_REGION }} \
-            --query 'service.deployments[0].{status:status,taskDefinition:taskDefinition}' \
-            --output table
 
   # Plans every dev root and posts one consolidated comment. PR-only: this shows
   # a reviewer what an apply would do, and nothing here applies anything.
@@ -293,9 +295,25 @@ jobs:
 
       # Both artifacts are consumed at PLAN time (archive_file / filebase64sha256),
       # not just at apply, so they must exist before any plan runs.
+      # campaign_plan_lambda/build.sh drives `uv export` + `uv pip install`. The
+      # pmf-engine build gets by on the runner's python3 -m pip; this one does
+      # not, so uv must be present wherever gp-ai artifacts are built.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: latest
+
       - name: Build pmf-engine lambda package
         working-directory: packages/gp-ai
         run: bash pmf_engine/scripts/build_lambda_package.sh
+      # Terraform reads this zip via fileexists(...) ? filebase64sha256(...) : null.
+      # If it is missing the hash resolves to null, no diff is detected, and the
+      # plan comes back CLEAN while the lambda's code silently never updates —
+      # which is how campaign-plan sat frozen at 2026-07-08.
+      - name: Build campaign-plan lambda zip
+        working-directory: packages/gp-ai
+        run: bash campaign_plan_lambda/build.sh
+
 
       - name: Build serve-analyze lambda trigger
         working-directory: packages/gp-ai/infrastructure/modules/serve-analyze-fargate/lambda-trigger
@@ -307,61 +325,39 @@ jobs:
       # short-circuits everything after it if any background step fails, and we
       # want the comment posted even when a root errors — so the assemble step
       # below owns the pass/fail decision.
-      - {
-          name: plan dev/agent-experiment-metadata,
-          background: true,
-          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/agent-experiment-metadata,
-        }
-      - {
-          name: plan dev/agent-run-inputs,
-          background: true,
-          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/agent-run-inputs,
-        }
-      - {
-          name: plan dev/broker,
-          background: true,
-          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/broker,
-        }
-      - {
-          name: plan dev/campaign-plan-lambda,
-          background: true,
-          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/campaign-plan-lambda,
-        }
-      - {
-          name: plan dev/ddhq-matcher-fargate,
-          background: true,
-          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/ddhq-matcher-fargate,
-        }
-      - {
-          name: plan dev/engineer-agent-fargate,
-          background: true,
-          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/engineer-agent-fargate,
-        }
-      - {
-          name: plan dev/pmf-engine-control-plane,
-          background: true,
-          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/pmf-engine-control-plane,
-        }
-      - {
-          name: plan dev/pmf-engine-fargate,
-          background: true,
-          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/pmf-engine-fargate,
-        }
-      - {
-          name: plan dev/pmf-vpc-endpoints,
-          background: true,
-          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/pmf-vpc-endpoints,
-        }
-      - {
-          name: plan dev/serve-analyze-fargate,
-          background: true,
-          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/serve-analyze-fargate,
-        }
-      - {
-          name: plan dev/shared-infra,
-          background: true,
-          run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/shared-infra,
-        }
+      - name: plan dev/agent-experiment-metadata
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/agent-experiment-metadata
+      - name: plan dev/agent-run-inputs
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/agent-run-inputs
+      - name: plan dev/broker
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/broker broker-${{ github.sha }}
+      - name: plan dev/campaign-plan-lambda
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/campaign-plan-lambda
+      - name: plan dev/ddhq-matcher-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/ddhq-matcher-fargate ddhq-matcher-${{ github.sha }}
+      - name: plan dev/engineer-agent-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/engineer-agent-fargate engineer-agent-${{ github.sha }}
+      - name: plan dev/pmf-engine-control-plane
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/pmf-engine-control-plane
+      - name: plan dev/pmf-engine-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/pmf-engine-fargate pmf-engine-${{ github.sha }}
+      - name: plan dev/pmf-vpc-endpoints
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/pmf-vpc-endpoints
+      - name: plan dev/serve-analyze-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/serve-analyze-fargate serve-analyze-${{ github.sha }}
+      - name: plan dev/shared-infra
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/shared-infra
 
       - wait-all:
 
@@ -474,7 +470,7 @@ jobs:
               core.setFailed(`terraform plan failed for: ${errored.map(r => r.slug).join(', ')}`)
             }
 
-  # Stable aggregation gate. Branch protection and promote.yml want one name
+  # Stable aggregation gate. Branch protection and the release train want one name
   # whose meaning doesn't change as jobs fan in and out. `skipped` is a
   # legitimate pass here (the commit didn't touch this subtree); `failure` and
   # `cancelled` are not.

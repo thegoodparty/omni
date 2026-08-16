@@ -12,6 +12,7 @@ package.json
 .storybook/
 .vscode/
 public/
+AGENTS.md
 CLAUDE.md
 ai-rules/
 test-results/

@@ -389,9 +389,148 @@ describe('OrdinanceFlowToolsService', () => {
     expect(row.status).toBe('draft')
   })
 
+  it('applyDraftEdit writes the body in place, leaving status, title, and sources untouched', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: {
+        status: OrdinanceStatus.proposed,
+        draftTitle: 'Keep this title',
+        draftBody: 'The fee shall be $50.',
+        draftSources: [{ id: 's1', title: 'Chapter 12' }],
+      },
+    })
+
+    await tools.applyDraftEdit(ordinanceId, electedOfficeId, {
+      body: 'The fee shall be {-$50-}{+$75+}.',
+    })
+
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe('The fee shall be {-$50-}{+$75+}.')
+    expect(row.draftTitle).toBe('Keep this title')
+    expect(row.status).toBe(OrdinanceStatus.proposed)
+    expect(row.draftSources).toEqual([{ id: 's1', title: 'Chapter 12' }])
+  })
+
+  it('acceptDraftChanges collapses a new ordinance redline to clean text', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: { draftBody: 'The fee is {-$50-}{+$75+}.' },
+    })
+
+    expect(
+      await tools.acceptDraftChanges(ordinanceId, electedOfficeId),
+    ).toEqual({ accepted: true })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe('The fee is $75.')
+  })
+
+  it('acceptDraftChanges does not blank an all-deletion draft', async () => {
+    // All-deletion markup with whitespace collapses to '\n\n' (not ''); keep
+    // the current text rather than write a blank draft (mirrors saveDraft).
+    const body = '{-Section 1.-}\n\n{-Section 2.-}'
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: { draftBody: body },
+    })
+    expect(
+      await tools.acceptDraftChanges(ordinanceId, electedOfficeId),
+    ).toEqual({ accepted: true })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe(body)
+  })
+
+  it('acceptDraftChanges reports no_changes when nothing is redlined', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: { draftBody: 'A clean draft with no tracked changes.' },
+    })
+
+    expect(
+      await tools.acceptDraftChanges(ordinanceId, electedOfficeId),
+    ).toEqual({ accepted: false, reason: 'no_changes' })
+  })
+
+  it('acceptDraftChanges declines for an amendment (source link) and keeps its redline', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: {
+        sourceLink: 'https://muni.example/ch12',
+        draftBody: 'Sec 1. {-old-}{+new+}.',
+      },
+    })
+
+    expect(
+      await tools.acceptDraftChanges(ordinanceId, electedOfficeId),
+    ).toEqual({ accepted: false, reason: 'amendment' })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe('Sec 1. {-old-}{+new+}.')
+  })
+
+  it('acceptDraftChanges declines for an amendment with a verbatim baseline', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: {
+        draftBody: 'Sec 1. {-old-}{+new+}.',
+        existingLaw: {
+          sourceUrl: 'https://x',
+          text: 'Current law summary.',
+          fetchedAt: '2026-07-01T00:00:00.000Z',
+          verbatimText: 'The verbatim section being amended.',
+        },
+      },
+    })
+
+    expect(
+      await tools.acceptDraftChanges(ordinanceId, electedOfficeId),
+    ).toEqual({ accepted: false, reason: 'amendment' })
+  })
+
+  it('applyDraftEdit rejects a changed body with no redline and does not write', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: { draftBody: 'The fee shall be $50.' },
+    })
+
+    const result = await tools.applyDraftEdit(ordinanceId, electedOfficeId, {
+      body: 'The fee shall be $75.',
+    })
+    expect(result).toEqual({ applied: false, reason: 'missing_redline' })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe('The fee shall be $50.')
+  })
+
+  it('applyDraftEdit rejects a no-redline body even when no prior draft exists', async () => {
+    // Seeded ordinance has draftBody null; the guard must still fire (not be
+    // short-circuited away by the missing prior body).
+    const result = await tools.applyDraftEdit(ordinanceId, electedOfficeId, {
+      body: 'A plain body with no tracked changes.',
+    })
+    expect(result).toEqual({ applied: false, reason: 'missing_redline' })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBeNull()
+  })
+
   it('scopes every operation to the owning office', async () => {
     await expect(
       tools.appendNote(ordinanceId, 'someone-elses-office', 'clarify', 'x'),
+    ).rejects.toBeInstanceOf(NotFoundException)
+    await expect(
+      tools.applyDraftEdit(ordinanceId, 'someone-elses-office', { body: 'b' }),
+    ).rejects.toBeInstanceOf(NotFoundException)
+    await expect(
+      tools.acceptDraftChanges(ordinanceId, 'someone-elses-office'),
     ).rejects.toBeInstanceOf(NotFoundException)
     await expect(
       tools.readSection(ordinanceId, 'someone-elses-office', 'draft'),
@@ -566,6 +705,67 @@ describe('ordinance-flow present_* tool builders', () => {
     expect(draft.sources).toEqual([{ id: 's1', title: 'Source one' }])
   })
 
+  it('saveDraft collapses stray redline on a new (non-amendment) draft', async () => {
+    // The drafting model sometimes wraps a from-scratch draft in {+inserted+}
+    // markup; a new ordinance has no baseline, so it must persist plain.
+    await tools.saveDraft(ordinanceId, electedOfficeId, {
+      title: 'New ordinance',
+      body: '{+Section 1. Cameras shall be sited by data.+}',
+    })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe('Section 1. Cameras shall be sited by data.')
+  })
+
+  it('saveDraft does not blank a new draft when a body would collapse to blank', async () => {
+    // All-deletion markup with inter-segment whitespace collapses to '\n\n'
+    // (not ''), so a plain `|| draft.body` fallback would still persist blank —
+    // fall back to the model's text when the collapse has no real content.
+    const body = '{-Section 1.-}\n\n{-Section 2.-}'
+    await tools.saveDraft(ordinanceId, electedOfficeId, { title: 'Odd', body })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe(body)
+  })
+
+  it('saveDraft keeps redline on an amendment draft (the deliverable)', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: { sourceLink: 'https://example.gov/code/chapter-5' },
+    })
+    const redline = 'Section 5-1. {-old rule-}{+new rule+}'
+    await tools.saveDraft(ordinanceId, electedOfficeId, {
+      title: 'Amendment',
+      body: redline,
+    })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe(redline)
+  })
+
+  it('saveDraft keeps redline on an amendment with a verbatim baseline (no sourceLink)', async () => {
+    // The flow reaches amendments without a user-pasted link: it researches the
+    // code and stores existingLaw.verbatimText but no sourceLink, so the
+    // verbatimText arm of isAmendmentRecord must also protect the redline.
+    await tools.saveExistingLaw(ordinanceId, electedOfficeId, {
+      sourceUrl: 'https://library.municode.com/nc/hendersonville/ch12',
+      text: 'Current law summary.',
+      verbatimText: 'Sec. 12-1. The fee shall be $50.',
+    })
+    const redline = 'Sec. 12-1. The fee shall be {-$50-}{+$75+}.'
+    await tools.saveDraft(ordinanceId, electedOfficeId, {
+      title: 'Amendment via verbatim baseline',
+      body: redline,
+    })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe(redline)
+  })
+
   describe('quality loop hooks', () => {
     const seedRunningLoop = () =>
       service.prisma.ordinance.update({
@@ -619,6 +819,41 @@ describe('ordinance-flow present_* tool builders', () => {
           body: 'Section 1.',
         }),
       ).resolves.toEqual({ saved: true })
+    })
+
+    it('applyDraftEdit does not auto-start a loop (unlike saveDraft)', async () => {
+      const startSpy = vi
+        .spyOn(service.app.get(OrdinanceQualityLoopService), 'start')
+        .mockResolvedValue({ started: true })
+
+      await tools.applyDraftEdit(ordinanceId, electedOfficeId, {
+        body: 'Section 1. {-old-}{+new+}.',
+      })
+
+      expect(startSpy).not.toHaveBeenCalled()
+    })
+
+    it('applyDraftEdit supersedes a running loop', async () => {
+      await seedRunningLoop()
+
+      await tools.applyDraftEdit(ordinanceId, electedOfficeId, {
+        body: 'Section 1. {-Existing text-}{+Edited text+}.',
+      })
+
+      expect(await loopStatus()).toBe(
+        OrdinanceQualityLoopStatus.superseded_by_edit,
+      )
+    })
+
+    it('applyDraftEdit is a no-op (no supersede) when the body is unchanged', async () => {
+      await seedRunningLoop()
+
+      const result = await tools.applyDraftEdit(ordinanceId, electedOfficeId, {
+        body: 'Section 1. Existing text.',
+      })
+
+      expect(result).toEqual({ applied: true })
+      expect(await loopStatus()).toBe(OrdinanceQualityLoopStatus.running)
     })
 
     it('saveAuthority supersedes a running loop', async () => {

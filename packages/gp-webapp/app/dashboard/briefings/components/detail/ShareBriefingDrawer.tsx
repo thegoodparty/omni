@@ -16,7 +16,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@styleguide'
-import { APP_BASE } from 'appEnv'
+import { APP_SHARE_BASE } from 'appEnv'
 import { cn } from '@styleguide/lib/utils'
 import type { Briefing } from '@shared/briefings/types'
 import {
@@ -44,9 +44,19 @@ export default function ShareBriefingDrawer({
   open,
   onOpenChange,
 }: Props): React.JSX.Element {
+  // APP_SHARE_BASE is a build-time constant, and on preview deploys the
+  // NEXT_PUBLIC_VERCEL_BRANCH_URL it interpolates is undefined — which
+  // produced share links pointing at the literal host `undefined`. The live
+  // origin is the same thing the constant is trying to name (this page is
+  // only ever served from the app's own origin, never the marketing one) and
+  // it cannot be wrong, so prefer it and keep the constant for the SSR pass.
+  const [origin, setOrigin] = useState(APP_SHARE_BASE)
+  useEffect(() => {
+    setOrigin(window.location.origin)
+  }, [])
   const shareUrl = useMemo(
-    () => buildShareUrl(briefing.briefing_id),
-    [briefing.briefing_id],
+    () => buildShareUrl(origin, briefing.briefing_id),
+    [origin, briefing.briefing_id],
   )
   const subtext = useMemo(() => buildSubtext(briefing), [briefing])
 
@@ -316,8 +326,10 @@ function ShareAction({
   )
 }
 
-function buildShareUrl(briefingId: string): string {
-  return `${APP_BASE}/api/v1/briefings/${briefingId}`
+function buildShareUrl(origin: string, briefingId: string): string {
+  // Must be the app's own origin: only it proxies /api/v1/* through to
+  // gp-api. APP_BASE is the marketing origin in prod, where this 404s.
+  return `${origin}/api/v1/briefings/${briefingId}`
 }
 
 function buildSubtext(briefing: Briefing): string {

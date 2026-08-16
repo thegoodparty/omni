@@ -193,7 +193,10 @@ export const EVENTS = {
   Dashboard: {
     CampaignPlan: {
       GenerationCompleted: 'Dashboard - Campaign Plan Generation Completed',
+      // The legacy dashboard task checklist (story-off cohort only). The
+      // campaign tracker that replaced it fires CampaignTrackerViewed below.
       Viewed: 'Dashboard - Campaign Plan Viewed',
+      CampaignTrackerViewed: 'Campaign Plan - Campaign Tracker Viewed',
       WeekNavigated: 'Dashboard - Campaign Plan Week Navigated',
       TaskCTAClicked: 'Dashboard - Campaign Plan Task CTA Clicked',
       TaskStatusUpdated: 'Dashboard - Campaign Task Status Updated',
@@ -734,6 +737,31 @@ export const EVENTS = {
     DraftDetailsDownloaded: 'Ordinances - Draft Details Downloaded',
     DraftDetailsStatusUpdated: 'Ordinances - Draft Details Status Updated',
     DraftDetailsDeleted: 'Ordinances - Draft Details Deleted',
+  },
+  // ENG-10626: the native door-knocking surface (voter map, turf cutting,
+  // routed walk). Distinct from Dashboard.VoterContact.DoorKnocking above,
+  // which belongs to the legacy eCanvasser/script surface — different funnel,
+  // don't merge them.
+  //
+  // The walk is the session: Started when the walk view opens, then exactly
+  // one of Completed (left having logged at least one door) or Abandoned
+  // (left having logged none). RouteBuildFailed is the funnel's only real
+  // failure, since building a route is the one step that calls a paid vendor.
+  //
+  // Session Completed also fires the canonical
+  // Dashboard.VoterContact.CampaignCompleted with medium 'doorKnocking' —
+  // that's the event the door-knocking activation metric counts, and the
+  // manual "log progress" modal already feeds it the same way.
+  DoorKnocking: {
+    ListCreated: 'Door Knocking - List Created',
+    ListEdited: 'Door Knocking - List Edited',
+    ListDeleted: 'Door Knocking - List Deleted',
+    RouteBuilt: 'Door Knocking - Route Built',
+    RouteBuildFailed: 'Door Knocking - Route Build Failed',
+    SessionStarted: 'Door Knocking - Session Started',
+    SessionCompleted: 'Door Knocking - Session Completed',
+    SessionAbandoned: 'Door Knocking - Session Abandoned',
+    DoorLogged: 'Door Knocking - Door Logged',
   },
 } as const
 

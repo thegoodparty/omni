@@ -2,6 +2,26 @@ import { describe, expect, it, vi } from 'vitest'
 import { ExperimentRunStatus } from '../../generated/prisma'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { useTestService } from '@/test-service'
+import { BriefingPdfService } from '../services/briefingPdf.service'
+
+// In prod these two diverge: WEBAPP_ROOT is the MARKETING origin
+// (goodparty.org), served by a deployment with no /api/v1/* proxy, so a QR
+// pointing there 404s. APP_ROOT is the app's own origin, which does proxy
+// through to this controller. `.env.test` collapses both onto
+// http://localhost:4000, so pin distinct sentinels to make the difference
+// observable.
+const { APP_ROOT, WEBAPP_ROOT } = vi.hoisted(() => ({
+  APP_ROOT: 'https://app.test.example',
+  WEBAPP_ROOT: 'https://marketing.test.example',
+}))
+
+vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@/shared/util/appEnvironment.util')
+  >()),
+  APP_ROOT,
+  WEBAPP_ROOT,
+}))
 
 const service = useTestService()
 
@@ -174,6 +194,32 @@ describe('GET /v1/briefings/:uuid', () => {
     expect(buf.slice(0, 4).toString('latin1')).toBe('%PDF')
     // And it's not trivially small — a real briefing renders hundreds of KB.
     expect(buf.length).toBeGreaterThan(5_000)
+  })
+
+  it('renders the cover QR against the app origin, not the marketing one', async () => {
+    // Regression lock. The QR base used to be WEBAPP_ROOT, the marketing
+    // origin, which has no /api/v1/* proxy — so every scan of an already
+    // downloaded PDF 404s. Only the app origin reaches this controller.
+    const orgSlug = 'eo-pdf-qr-origin'
+    const eo = await seedElectedOffice(orgSlug)
+    const seeded = await seedBriefing(eo.id, orgSlug, {
+      meetingDate: '2026-06-08',
+      artifactBucket: 'briefing-bucket',
+      artifactKey: 'qr.json',
+    })
+    mockS3({ 'qr.json': JSON.stringify(validArtifact) })
+    const renderSpy = vi.spyOn(
+      service.app.get(BriefingPdfService),
+      'renderById',
+    )
+
+    const result = await service.client.get(`/v1/briefings/${seeded.id}`, {
+      responseType: 'arraybuffer',
+    })
+
+    expect(result.status).toBe(200)
+    expect(renderSpy).toHaveBeenCalledWith(seeded.id, APP_ROOT)
+    expect(renderSpy).not.toHaveBeenCalledWith(seeded.id, WEBAPP_ROOT)
   })
 
   it('emits an RFC 6266 Content-Disposition with a slugified filename', async () => {

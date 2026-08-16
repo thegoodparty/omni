@@ -126,6 +126,8 @@ describe('VoterDoorKnockingService', () => {
       Age: '47',
       Age_Int: 47,
       Parties_Description: 'Non-Partisan',
+      cellPhone: '(615) 555-0142',
+      landline: null,
       addressKey,
     })
 
@@ -146,11 +148,38 @@ describe('VoterDoorKnockingService', () => {
           lastName: 'Vega',
           age: 47,
           politicalParty: 'Independent',
+          cellPhone: '(615) 555-0142',
+          landline: null,
         },
       ])
+      // Household context stays name-only: a non-target resident is context for
+      // the conversation, not someone the candidate asked to contact.
       expect(address?.otherResidents).toEqual([
         { personId: OTHER_ID, firstName: 'Marisol', lastName: 'Vega' },
       ])
+    })
+
+    // The voter file is inconsistent about blank vs NULL, and an empty string
+    // would render as an empty phone row at the door.
+    it('normalizes a blank phone column to null', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([
+        { ...residentRow(TARGET_ID), cellPhone: '', landline: '   ' },
+      ])
+
+      const result = await service.residents(dto as never)
+
+      expect(result.addresses[0]?.targets[0]?.cellPhone).toBeNull()
+      expect(result.addresses[0]?.targets[0]?.landline).toBeNull()
+    })
+
+    it('selects both phone columns', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([residentRow(TARGET_ID)])
+
+      await service.residents(dto as never)
+
+      const sql = mockClient.$queryRaw.mock.calls[0]?.[0]?.strings?.join(' ')
+      expect(sql).toContain('VoterTelephones_CellPhoneFormatted')
+      expect(sql).toContain('VoterTelephones_LandlineFormatted')
     })
 
     it('emits null party for a target with no party data, not Other', async () => {
