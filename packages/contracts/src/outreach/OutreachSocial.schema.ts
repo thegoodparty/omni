@@ -62,6 +62,7 @@ export const SocialAssetSchema = z
     (asset) => asset.kind === socialAssetKindForPlatform(asset.platform),
     {
       message: 'Asset kind does not match its platform',
+      path: ['kind'],
     },
   )
   .refine(
@@ -70,6 +71,7 @@ export const SocialAssetSchema = z
       asset.text.length <= SOCIAL_POST_COPY_MAX_LENGTH,
     {
       message: `Post copy cannot exceed ${SOCIAL_POST_COPY_MAX_LENGTH} characters`,
+      path: ['text'],
     },
   )
 export type SocialAsset = z.infer<typeof SocialAssetSchema>
