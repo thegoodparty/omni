@@ -455,6 +455,19 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
   checks the CV status first and, when it is already `VERIFIED`, skips re-verifying
   and mints the token so the retry finishes the flow. Don't reintroduce an
   unconditional `verify_pin` call ahead of that check.
+- **A rejected PIN is not an incident — it must not page `bot-10dlc-compliance`.**
+  Peerly proxies CampaignVerify on `verify_pin` and `resend_pin` and collapses CV's
+  answer into HTTP 400 with CV's own status nested in `status_code` — the same
+  envelope `isPeerlyCvRejection` reads on `submit_cv`. A nested 4xx is CV declining
+  the request: a wrong or expired code on `verify_pin`, or a resend CV won't repeat
+  yet on `resend_pin` (it refuses within 10 days of a mailed PIN). Both are ordinary
+  outcomes of the flow, and the candidate or staff member who triggered it already
+  sees the failure in the response, so `isPeerlyCvPinRejection`
+  (`utils/peerlyCvPinRejection.util.ts`) passes `suppressSlackAlert` on those two
+  paths. Every one of these used to fire the generic 🚨 error alert, which is what
+  made the channel unreadable — one wrong digit from a candidate looked identical to
+  a vendor outage. A nested **5xx** (CV itself down) and any non-CV Peerly 400 still
+  alert. The HTTP status the caller gets is unchanged; only the alert is suppressed.
 - **PIN screen is gated on the live Peerly CV status (ENG-10654):**
   `deriveComplianceStage` still returns `awaiting_pin` from the DB `status` alone (a
   `submitted` record with a live site) — that stage value is unchanged because
