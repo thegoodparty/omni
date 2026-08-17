@@ -388,7 +388,12 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
       data: [{ ...turf, locked: true }],
     })
     api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
-    api.mock('GET /v1/door-knocking/turfs/:id/route', { status: 500 })
+    // The walk view's own content is not what this asserts, only that leaving
+    // it puts the sheet back the way the canvasser left the landing map.
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 500,
+      data: { message: 'no route in this test' },
+    })
     render(
       <NativeDoorKnockingPage
         pathname="/dashboard/door-knocking"
