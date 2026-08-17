@@ -280,6 +280,7 @@ export function ChatComposer({
   inputRef,
   dictation,
   leadingSlot,
+  ariaLabel,
 }: {
   value: string
   onChange: (value: string) => void
@@ -291,6 +292,8 @@ export function ChatComposer({
   // Rendered at the pill's leading edge, before the input (e.g. a
   // conversation-history popover). Omit for the plain composer.
   leadingSlot?: ReactNode
+  // Accessible name for the input. Omit to fall back to the placeholder.
+  ariaLabel?: string
 }): React.JSX.Element {
   // A textarea keeps Enter for newlines, so submit is wired by hand: Enter
   // sends, Shift+Enter inserts a break, and the Enter that commits an IME
@@ -322,6 +325,7 @@ export function ChatComposer({
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onComposerKeyDown}
         placeholder={placeholder}
+        aria-label={ariaLabel}
         disabled={disabled}
         className="min-w-0 flex-1 border-0 bg-transparent px-2 py-2.5 text-sm leading-snug shadow-none focus-visible:ring-0"
       />
