@@ -91,7 +91,7 @@ export interface StreamingTurn {
   send: (
     conversationId: string,
     content: string,
-    opts?: { hidden?: boolean },
+    opts?: { hidden?: boolean; clientMessageId?: string },
   ) => Promise<void>
   // Synchronous "a turn is actively streaming" check (false once the stream is
   // done and the turn is merely settling). Consumers that push their own
@@ -153,7 +153,7 @@ export function useStreamingTurn(
     async (
       conversationId: string,
       content: string,
-      opts?: { hidden?: boolean },
+      opts?: { hidden?: boolean; clientMessageId?: string },
     ): Promise<void> => {
       const trimmed = content.trim()
       if (!conversationId || !trimmed) return
@@ -215,7 +215,9 @@ export function useStreamingTurn(
           .streamMessage({
             conversationId,
             content: trimmed,
-            clientMessageId: crypto.randomUUID(),
+            // Replay the caller's id on retry so the server's partial unique
+            // index on (conversation_id, client_message_id) dedupes the turn.
+            clientMessageId: opts?.clientMessageId ?? crypto.randomUUID(),
             signal: abortController.signal,
           })
           [Symbol.asyncIterator]()
@@ -308,8 +310,11 @@ export function useStreamingTurn(
             abortRef.current === abortController &&
             (!abortController.signal.aborted || stalled)
           // The turn produced its content without error — fire the success
-          // handoff now, before the (possibly long) commit poll below.
-          scope.onTurnSuccess?.()
+          // handoff now, before the (possibly long) commit poll below. NOT on a
+          // stall: the server is still generating, so a handoff that swaps the
+          // host surface (e.g. a deferred create's onChatCreated) would unmount
+          // us mid-generation. A stall reconciles via the poll instead.
+          if (!stalled) scope.onTurnSuccess?.()
           // The stream is done: drop `sending` so the composer re-enables for a
           // follow-up send, and mark the turn settling so that send supersedes
           // the drain + reconcile below instead of being blocked by it. The live

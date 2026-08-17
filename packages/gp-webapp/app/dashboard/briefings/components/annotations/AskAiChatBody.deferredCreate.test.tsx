@@ -414,6 +414,53 @@ describe('<AskAiChatBody> deferred creation', () => {
       content: 'second',
     })
   })
+
+  it('replays the same clientMessageId on retry after a stream error (server dedupe)', async () => {
+    const user = userEvent.setup()
+    createMock.mockResolvedValue({
+      annotationId: 'ann_dedupe',
+      conversationId: 'conv_dedupe',
+    })
+    listMessagesMock.mockResolvedValue([])
+    streamMessageMock
+      // First attempt errors mid-turn…
+      .mockReturnValueOnce(makeErrorStream('upstream_unavailable'))
+      // …the retry streams cleanly.
+      .mockReturnValueOnce(makeOkStream())
+
+    render(
+      <AskAiChatBody
+        meetingDate={MEETING_DATE}
+        anchor={null}
+        composerVariant="block"
+        active
+      />,
+    )
+
+    const textarea = await screen.findByLabelText(/ask assistant message/i)
+    await user.type(textarea, 'dedupe me')
+    await user.click(screen.getByRole('button', { name: /ask assistant/i }))
+
+    // First send errored; capture the client-message id it used.
+    await screen.findByRole('alert')
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
+    const firstId = streamMessageMock.mock.calls[0]?.[0]?.clientMessageId as
+      | string
+      | undefined
+    expect(firstId).toBeTruthy()
+
+    // Retry — same content AND the same client-message id, so the server's
+    // partial unique index dedupes the turn instead of inserting a duplicate.
+    await user.click(screen.getByRole('button', { name: /^retry$/i }))
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(2))
+    expect(streamMessageMock.mock.calls[1]?.[0]).toMatchObject({
+      annotationId: 'ann_dedupe',
+      content: 'dedupe me',
+      clientMessageId: firstId,
+    })
+    // No second chat row was minted for the retry.
+    expect(createMock).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('<AskAiChatBody> override path still works', () => {
