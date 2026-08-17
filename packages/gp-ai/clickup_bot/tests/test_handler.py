@@ -7,6 +7,7 @@ reads the source). Each test encodes one numbered behavior from the spec.
 import hashlib
 import hmac
 import json
+import re
 import time
 from urllib.error import HTTPError, URLError
 
@@ -2933,3 +2934,60 @@ def test_unreadable_task_shapes_never_crash_the_guard(task):
 
 def test_custom_id_prefix_match_is_case_insensitive():
     assert handler.out_of_scope_reason({"custom_id": "data-1845"}) is not None
+
+
+# ---------------------------------------------------------------------------
+# 22. The analyze prompt and the verdict parser are one contract split across
+# two deployment artifacts.
+#
+# The prompt that asks for `GPBOT-VERDICT:` lives in this Lambda; the parser
+# that acts on it lives in the Fargate agent. Nothing at runtime connects them,
+# so a reworded prompt or a renamed verdict would not fail anything — every
+# analysis would just quietly stop escalating, which is indistinguishable from
+# the feature being switched off. These tests are the only thing holding the two
+# ends together.
+# ---------------------------------------------------------------------------
+
+
+def test_every_verdict_the_prompt_offers_is_one_the_parser_accepts():
+    from engineer_agent.agent.escalation import parse_verdict
+
+    offered = re.findall(r"GPBOT-VERDICT:\s*([a-z-]+)", handler.ANALYZE_INSTRUCTION)
+
+    assert offered, "the analyze prompt no longer shows the agent any GPBOT-VERDICT line"
+    for verdict in offered:
+        assert parse_verdict(f"GPBOT-VERDICT: {verdict}") == verdict
+
+
+def test_the_prompt_offers_every_verdict_the_parser_knows():
+    # The other direction: a verdict the parser handles but the prompt never
+    # mentions is dead code the model can never reach.
+    from engineer_agent.agent.escalation import KNOWN_VERDICTS
+
+    offered = set(re.findall(r"GPBOT-VERDICT:\s*([a-z-]+)", handler.ANALYZE_INSTRUCTION))
+
+    assert offered == set(KNOWN_VERDICTS)
+
+
+def test_only_the_analyze_prompt_asks_for_a_verdict():
+    # An implement run that emitted the token could otherwise look like an
+    # analysis asking to queue another implement run.
+    assert "GPBOT-VERDICT" not in handler.IMPLEMENT_INSTRUCTION
+
+
+# ---------------------------------------------------------------------------
+# 23. The agent is told which kind of run it is, as a value.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("tag_name,expected_label", [("gpbot-analyze", "analyze"), ("gpbot-work", "implement")])
+def test_run_label_is_passed_to_the_container(fake_clickup, fake_ecs, ecs_env, tag_name, expected_label):
+    # The agent gates escalation on this value. Inferring the run type from the
+    # instruction prose instead would make an unrelated prompt edit silently
+    # change whether a run can open a PR.
+    event = make_event(tag_updated_body(tags=(tag_name,)))
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 200
+    assert engineer_agent_env(fake_ecs.run_task_calls[0])["AGENT_LABEL"] == expected_label

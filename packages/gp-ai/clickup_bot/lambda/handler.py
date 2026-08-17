@@ -234,6 +234,28 @@ or the reporter may have been incorrect.
 - State explicitly when something could not be verified.
 
 Post your analysis to ClickUp when done. Be concise.
+
+## VERDICT (required, last line of your final response)
+
+End your final response with exactly one of these lines, and nothing after it:
+
+```
+GPBOT-VERDICT: fix
+GPBOT-VERDICT: no-code-change
+GPBOT-VERDICT: needs-human
+```
+
+- `fix` — a real defect in omni code, you found the root cause, and the change
+  is small and bounded enough that a competent PR could be opened from what you
+  already know. **This one automatically queues an implementation run, so only
+  use it when you would be comfortable reviewing that PR yourself.**
+- `no-code-change` — not a code defect: works as designed, a feature request,
+  an upstream/vendor data gap, bad input data, or already fixed.
+- `needs-human` — a real defect, but the fix is broad, risky, ambiguous, needs a
+  product decision, or you could not establish the root cause.
+
+Pick the conservative verdict when torn. `needs-human` costs a human a read;
+`fix` on a bug you have not actually understood costs a human a wrong PR.
 """
 
 IMPLEMENT_INSTRUCTION = """## YOUR TASK: Implement and Create PR
@@ -241,6 +263,18 @@ IMPLEMENT_INSTRUCTION = """## YOUR TASK: Implement and Create PR
 **Approach this ticket with healthy skepticism.** It may be out of date - the issue
 could have been fixed, the data may have changed, the description may be incomplete,
 or the reporter may have been incorrect.
+
+## START FROM THE EXISTING ANALYSIS
+
+Read the ticket's comments first. An analyze run has usually already been here
+and posted a `[GP-Bot] Analysis` comment with the root cause and `file:line`
+citations. Build on it — re-deriving what it already established is paying twice
+for the same investigation.
+
+Treat it as a strong lead, not as proof: it was written by a run that could not
+edit code. Confirm the cited lines still say what the comment claims before you
+change them. If your own reading contradicts the analysis, trust the code, say so
+in the PR description, and stop if the disagreement means the fix is wrong.
 
 **BEFORE writing any code**, you MUST:
 1. Find all files that use/import the function or component you plan to modify
@@ -1145,6 +1179,13 @@ def trigger_fargate_task(
                             {"name": "CLICKUP_TASK_ID", "value": task_id},
                             {"name": "INSTRUCTION", "value": instruction},
                             {"name": "AGENT_MODEL", "value": model},
+                            # Which KIND of run this is, as a value rather than
+                            # something inferred from the instruction prose. The
+                            # agent gates its post-run escalation on it, and
+                            # sniffing the instruction text for "analyze" would
+                            # make an unrelated prompt edit silently change
+                            # whether a run can queue an implementation.
+                            {"name": "AGENT_LABEL", "value": label},
                         ],
                     }
                 ]
