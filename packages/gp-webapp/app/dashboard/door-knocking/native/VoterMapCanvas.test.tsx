@@ -1,0 +1,293 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, render } from '@testing-library/react'
+import type { DoorKnockingPackManifest } from '@goodparty_org/contracts'
+import VoterMapCanvas, { type PolygonRing } from './VoterMapCanvas'
+import type { DecodedPack } from './packDecoder'
+import type { FilterResult } from './filterEngine'
+
+vi.mock('appEnv', () => ({ NEXT_PUBLIC_GEOAPIFY_TILES_KEY: 'test-tiles-key' }))
+
+interface MapEvent {
+  lngLat: { lng: number; lat: number }
+  point: { x: number; y: number }
+}
+
+interface MockLayerProps {
+  id: string
+  data: unknown
+}
+
+const gl = vi.hoisted(() => {
+  const handlers = new Map<string, (event: MapEvent) => void>()
+  let canvas: HTMLCanvasElement | null = null
+  const map = {
+    addControl: vi.fn(),
+    on: vi.fn((event: string, handler: (event: MapEvent) => void) => {
+      handlers.set(event, handler)
+    }),
+    getStyle: () => ({ layers: [] }),
+    setPaintProperty: vi.fn(),
+    setLayoutProperty: vi.fn(),
+    getCanvas: () => (canvas ??= document.createElement('canvas')),
+    fitBounds: vi.fn(),
+    jumpTo: vi.fn(),
+    easeTo: vi.fn(),
+    remove: vi.fn(),
+    dragPan: { enable: vi.fn(), disable: vi.fn() },
+    doubleClickZoom: { enable: vi.fn(), disable: vi.fn() },
+  }
+  const overlay = {
+    layers: [] as MockLayerProps[],
+    setProps: (props: { layers: Array<{ props: MockLayerProps }> }) => {
+      overlay.layers = props.layers.map((layer) => layer.props)
+    },
+    pickObject: () => null,
+  }
+  return { handlers, map, overlay }
+})
+
+vi.mock('maplibre-gl', () => ({
+  default: {
+    Map: class {
+      constructor() {
+        return gl.map
+      }
+    },
+    NavigationControl: class {},
+  },
+}))
+
+vi.mock('@deck.gl/mapbox', () => ({
+  MapboxOverlay: class {
+    constructor() {
+      return gl.overlay
+    }
+  },
+}))
+
+vi.mock('@deck.gl/layers', () => {
+  class MockLayer {
+    props: MockLayerProps
+    constructor(props: MockLayerProps) {
+      this.props = props
+    }
+  }
+  return {
+    ScatterplotLayer: MockLayer,
+    PolygonLayer: MockLayer,
+    PathLayer: MockLayer,
+    TextLayer: MockLayer,
+  }
+})
+
+const manifest: DoorKnockingPackManifest = {
+  version: 1,
+  generatedAt: '2026-08-14T00:00:00.000Z',
+  counts: { people: 2, households: 2, dots: 2 },
+  dims: [{ key: 'canvassStatus', values: ['unknown'] }],
+  arrays: [
+    { name: 'positions', type: 'f32', byteOffset: 0, elementCount: 4 },
+    { name: 'personToHousehold', type: 'u32', byteOffset: 16, elementCount: 2 },
+    { name: 'householdToDot', type: 'u32', byteOffset: 24, elementCount: 2 },
+    { name: 'dim:canvassStatus', type: 'u8', byteOffset: 32, elementCount: 2 },
+  ],
+}
+
+const pack: DecodedPack = {
+  manifest,
+  positions: new Float32Array([-87.66, 41.92, -87.64, 41.94]),
+  personToHousehold: new Uint32Array([0, 1]),
+  householdToDot: new Uint32Array([0, 1]),
+  dimPlanes: new Map([['canvassStatus', new Uint8Array([0, 0])]]),
+}
+
+const filterResult: FilterResult = {
+  people: 2,
+  households: 2,
+  dots: 2,
+  matchedPerDot: new Uint32Array([1, 1]),
+  statusPerDot: new Uint8Array([0, 0]),
+}
+
+const POINTS: PolygonRing = [
+  [-87.66, 41.92],
+  [-87.65, 41.92],
+  [-87.65, 41.93],
+  [-87.66, 41.93],
+]
+
+const clickMap = (point: [number, number]) => {
+  act(() => {
+    gl.handlers.get('click')?.({
+      lngLat: { lng: point[0], lat: point[1] },
+      point: { x: 0, y: 0 },
+    })
+  })
+}
+
+const layerData = (id: string) =>
+  gl.overlay.layers.find((layer) => layer.id === id)?.data
+
+describe('VoterMapCanvas drawing', () => {
+  const baseProps = {
+    pack,
+    filterResult,
+    turfs: [],
+    routePins: [],
+    routeLoop: false,
+    routeGeometry: null,
+    focusTurf: null,
+    startDrawToken: 1,
+    clearDrawToken: 0,
+    undoDrawToken: 0,
+  }
+
+  beforeEach(() => {
+    gl.handlers.clear()
+    gl.overlay.layers = []
+    vi.clearAllMocks()
+  })
+
+  it('undoes the most recently placed point', () => {
+    const onPolygonChange = vi.fn()
+    const onDrawPointCount = vi.fn()
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={onDrawPointCount}
+      />,
+    )
+    POINTS.forEach(clickMap)
+    expect(onPolygonChange).toHaveBeenLastCalledWith(POINTS)
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        undoDrawToken={1}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={onDrawPointCount}
+      />,
+    )
+
+    expect(onDrawPointCount).toHaveBeenLastCalledWith(3)
+    expect(onPolygonChange).toHaveBeenLastCalledWith(POINTS.slice(0, 3))
+    expect(layerData('draw-vertices')).toEqual(POINTS.slice(0, 3))
+  })
+
+  // Three points is where a ring starts existing, so undoing across that line
+  // has to retract the shape too — otherwise the stats bar keeps reporting
+  // doors for an area that is no longer drawn.
+  it('drops the polygon when undo takes it from three points to two', () => {
+    const onPolygonChange = vi.fn()
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    POINTS.slice(0, 3).forEach(clickMap)
+    expect(onPolygonChange).toHaveBeenLastCalledWith(POINTS.slice(0, 3))
+    expect(layerData('draw-preview')).toEqual([POINTS.slice(0, 3)])
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        undoDrawToken={1}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    expect(onPolygonChange).toHaveBeenLastCalledWith(null)
+    expect(layerData('draw-preview')).toEqual([])
+    expect(layerData('draw-vertices')).toEqual(POINTS.slice(0, 2))
+  })
+
+  it('undoes one point per bump, down to an empty shape', () => {
+    const onDrawPointCount = vi.fn()
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={onDrawPointCount}
+      />,
+    )
+    POINTS.slice(0, 2).forEach(clickMap)
+
+    for (const token of [1, 2, 3]) {
+      rerender(
+        <VoterMapCanvas
+          {...baseProps}
+          undoDrawToken={token}
+          onPolygonChange={vi.fn()}
+          onDrawPointCount={onDrawPointCount}
+        />,
+      )
+    }
+
+    // The third bump has nothing left to drop rather than throwing.
+    expect(onDrawPointCount).toHaveBeenLastCalledWith(0)
+    expect(layerData('draw-vertices')).toEqual([])
+  })
+
+  // Clear is a restarted drawing session, not an exit from one: the canvasser
+  // asked for a blank map to redraw on, not to leave the draw step.
+  it('clears the shape and keeps taking new points', () => {
+    const onPolygonChange = vi.fn()
+    const onDrawPointCount = vi.fn()
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={onDrawPointCount}
+      />,
+    )
+    POINTS.forEach(clickMap)
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        startDrawToken={2}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={onDrawPointCount}
+      />,
+    )
+
+    expect(onPolygonChange).toHaveBeenLastCalledWith(null)
+    expect(onDrawPointCount).toHaveBeenLastCalledWith(0)
+    expect(layerData('draw-vertices')).toEqual([])
+    expect(layerData('draw-preview')).toEqual([])
+
+    clickMap(POINTS[0] as [number, number])
+    expect(onDrawPointCount).toHaveBeenLastCalledWith(1)
+  })
+
+  it('opens at street level when given an initial zoom', () => {
+    const { unmount } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    expect(gl.map.fitBounds).toHaveBeenCalled()
+    expect(gl.map.jumpTo).not.toHaveBeenCalled()
+    unmount()
+
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        initialZoom={16}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    // The pack's coordinates are f32, so the midpoint is only approximate.
+    expect(gl.map.jumpTo).toHaveBeenCalledWith({
+      center: [expect.closeTo(-87.65, 4), expect.closeTo(41.93, 4)],
+      zoom: 16,
+    })
+  })
+})

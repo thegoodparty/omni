@@ -35,6 +35,9 @@ const baseProps = {
   districtHouseholds: 1500,
   ring: OPEN_RING,
   turfStats: { stops: 14, people: 22, households: 9, partyMix: [] },
+  drawPointCount: 3,
+  onUndoPoint: vi.fn(),
+  onClearPoints: vi.fn(),
   onSaved: vi.fn(),
   isElectedOfficial: false,
   unpreviewableKeys: [],
@@ -420,6 +423,86 @@ describe('CreateListFlow', () => {
           new RegExp(`can’t shade by ${label}`).test(element.textContent ?? ''),
       ),
     ).toBeInTheDocument()
+  })
+
+  // The bare option labels ('0'…'5+') made this read "the map can't shade by
+  // 0 yet", which sounds like a bug rather than a filter.
+  it('names the prior-contacts group rather than its bucket number', () => {
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        unpreviewableKeys={['contactsMade0', 'contactsMade3']}
+      />,
+    )
+
+    const disclosure = screen.getByText(
+      (_, element) =>
+        element?.tagName === 'P' &&
+        /can’t shade by/.test(element.textContent ?? ''),
+    )
+    // Named once, however many of its buckets are selected.
+    expect(disclosure.textContent).toContain(
+      'can’t shade by Prior contacts made yet',
+    )
+  })
+
+  // The mis-tap fix: a stray vertex was previously only draggable somewhere
+  // harmless, and a turf's polygon freezes permanently once it is knocked.
+  it('offers Undo only once a point exists, and Clear throughout', () => {
+    const onUndoPoint = vi.fn()
+    const onClearPoints = vi.fn()
+    const { rerender } = render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        ring={null}
+        turfStats={null}
+        drawPointCount={0}
+        onUndoPoint={onUndoPoint}
+        onClearPoints={onClearPoints}
+      />,
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Undo last boundary point' }),
+    ).toBeNull()
+    expect(
+      screen.getByRole('button', { name: 'Clear the boundary' }),
+    ).toBeDisabled()
+
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        ring={null}
+        turfStats={null}
+        drawPointCount={1}
+        onUndoPoint={onUndoPoint}
+        onClearPoints={onClearPoints}
+      />,
+    )
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Undo last boundary point' }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Clear the boundary' }))
+    expect(onUndoPoint).toHaveBeenCalledTimes(1)
+    expect(onClearPoints).toHaveBeenCalledTimes(1)
+  })
+
+  // The draw chrome is a pointer-events-none overlay so taps reach the map
+  // underneath. Only the control cluster re-enables them — miss that and
+  // pressing Undo also drops a boundary point where the button was.
+  it('keeps the draw controls from leaking a click through to the map', () => {
+    render(<CreateListFlow {...baseProps} step="draw" drawPointCount={2} />)
+
+    const undo = screen.getByRole('button', {
+      name: 'Undo last boundary point',
+    })
+    const cluster = undo.parentElement
+    expect(cluster).toHaveClass('pointer-events-auto')
+    // The row around the cluster stays click-through, so the map keeps the
+    // full width of the band it was given.
+    expect(cluster?.parentElement).not.toHaveClass('pointer-events-auto')
   })
 
   // gp-api 400s a contacts-made selection from an elected-office org

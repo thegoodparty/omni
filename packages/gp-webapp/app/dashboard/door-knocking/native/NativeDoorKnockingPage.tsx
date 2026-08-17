@@ -86,6 +86,7 @@ export default function NativeDoorKnockingPage({
   const [ring, setRing] = useState<PolygonRing | null>(null)
   const [startDrawToken, setStartDrawToken] = useState(0)
   const [clearDrawToken, setClearDrawToken] = useState(0)
+  const [undoDrawToken, setUndoDrawToken] = useState(0)
   const [drawPointCount, setDrawPointCount] = useState(0)
   const [drawHintDismissed, setDrawHintDismissed] = useState(false)
   // Landing-map legend filter: chip clicks narrow the dots to those
@@ -459,6 +460,7 @@ export default function NativeDoorKnockingPage({
                 focusTurf={focusTurf}
                 startDrawToken={startDrawToken}
                 clearDrawToken={clearDrawToken}
+                undoDrawToken={undoDrawToken}
                 onPolygonChange={setRing}
                 onDrawPointCount={setDrawPointCount}
               />
@@ -500,6 +502,15 @@ export default function NativeDoorKnockingPage({
               districtHouseholds={filterResult?.households ?? 0}
               ring={ring}
               turfStats={turfStats}
+              drawPointCount={drawPointCount}
+              onUndoPoint={() => setUndoDrawToken((token) => token + 1)}
+              // Clear is a fresh drawing session: the start-draw effect
+              // already empties the ring and stays in draw mode, which is the
+              // initial state Clear returns to. The instruction card stays
+              // dismissed on purpose — it is a first-run coach mark that
+              // covers the whole map, and someone who just cleared has
+              // already learned the gesture.
+              onClearPoints={() => setStartDrawToken((token) => token + 1)}
               onSaved={handleSaved}
               isElectedOfficial={isElectedOfficial}
               unpreviewableKeys={unpreviewableKeys}

@@ -41,6 +41,12 @@ const PILL_CLASSNAME =
 // existing route's roster is frozen — and "give me the doors I haven't done"
 // is the behavior a candidate wants there anyway.
 const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
+// Every other group's option labels stand on their own ("65+", "Renter"), so
+// the unpreviewable disclosure names the option. Contacts made's are the bare
+// counts '0'…'5+', which turned the sentence into "the map can't shade by 0
+// yet" — a sentence that reads like a bug. Name the group instead, once
+// however many of its buckets are selected.
+const CONTACTS_MADE_DISCLOSURE_LABEL = 'Prior contacts made'
 
 // The POC's rate, and what the walking estimate is worth: 45 doors an hour is
 // a canvasser's sustained pace with the walk between doors included. The
@@ -73,6 +79,14 @@ interface CreateListFlowProps {
   ring: PolygonRing | null
   // In-polygon counts for the drawn shape, computed by the page from the pack.
   turfStats: PolygonStats | null
+  // Boundary points placed so far. `ring` only exists from three points, so
+  // this is the only thing that knows there is a one- or two-point shape to
+  // undo — and it counts adds, not drags, which never change the total.
+  drawPointCount: number
+  // Drop the last placed point / empty the shape. The canvas owns the ring,
+  // so both are requests, not edits made here.
+  onUndoPoint: () => void
+  onClearPoints: () => void
   // Saved-flow completion: clear the drawing (and optionally exit).
   onSaved: (drawAnother: boolean) => void
   // Hides the Win-only filters, same contract as the CRM wizard's
@@ -156,6 +170,9 @@ export default function CreateListFlow({
   districtHouseholds,
   ring,
   turfStats,
+  drawPointCount,
+  onUndoPoint,
+  onClearPoints,
   onSaved,
   isElectedOfficial,
   unpreviewableKeys,
@@ -299,15 +316,21 @@ export default function CreateListFlow({
   const overCap = stops > HARD_STOP_LIMIT
   const longWalk = stops > SOFT_STOP_LIMIT && !overCap
 
-  const unpreviewableLabels = unpreviewableKeys
-    .map(
-      (key) =>
-        filterSections
-          .flatMap((section) => section.fields)
-          .flatMap((field) => field.options)
-          .find((option) => option.key === key)?.label,
-    )
-    .filter((label): label is string => Boolean(label))
+  const unpreviewableLabels = [
+    ...new Set(
+      unpreviewableKeys
+        .map((key) => {
+          const field = filterSections
+            .flatMap((section) => section.fields)
+            .find((entry) => entry.options.some((option) => option.key === key))
+          if (!field) return undefined
+          if (field.key === CONTACTS_MADE_FIELD_KEY)
+            return CONTACTS_MADE_DISCLOSURE_LABEL
+          return field.options.find((option) => option.key === key)?.label
+        })
+        .filter((label): label is string => Boolean(label)),
+    ),
+  ]
 
   const toggleGroupValues = (
     options: Array<{ key: string; label: string }>,
@@ -339,6 +362,38 @@ export default function CreateListFlow({
           />
         </div>
         <div className="flex-1" />
+        {/* Bottom-right of the live map band, in flow directly above the
+            stats bar (and in its column, so they line up over Continue) —
+            a taller bar from a cap warning pushes them up instead of
+            covering them. Only the buttons take pointer events; the rest of
+            the row stays a tappable part of the map. */}
+        <div className="px-6 pb-3">
+          <div className="mx-auto flex w-full max-w-2xl justify-end">
+            <div className="pointer-events-auto flex items-center gap-2">
+              {drawPointCount > 0 && (
+                <Button
+                  size="small"
+                  variant="secondary"
+                  className="shadow-md"
+                  aria-label="Undo last boundary point"
+                  onClick={onUndoPoint}
+                >
+                  Undo
+                </Button>
+              )}
+              <Button
+                size="small"
+                variant="secondary"
+                className="shadow-md"
+                aria-label="Clear the boundary"
+                disabled={drawPointCount === 0}
+                onClick={onClearPoints}
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+        </div>
         <div className="pointer-events-auto border-t border-border bg-background px-6 py-4">
           <div className="mx-auto flex w-full max-w-2xl items-center gap-4">
             {/* Everything here describes the drawn shape, not the district —

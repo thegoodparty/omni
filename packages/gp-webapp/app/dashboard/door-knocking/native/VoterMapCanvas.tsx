@@ -56,10 +56,19 @@ interface VoterMapCanvasProps {
   // Road-following path frozen at knock; straight legs are the fallback.
   routeGeometry: RoutePathGeometry | null
   focusTurf: DoorKnockingTurf | null
-  // Bump to enter polygon-draw mode (the page owns the Draw button).
+  // Street-level opening view; without it the map frames the whole pack.
+  initialZoom?: number
+  // Bump to enter polygon-draw mode (the page owns the Draw button), and to
+  // restart it: emptying the ring while staying in draw mode is exactly what
+  // the draw step's Clear does.
   startDrawToken: number
-  // Bump to clear the in-progress drawing (e.g. after a turf is saved).
+  // Bump to clear the in-progress drawing AND leave draw mode (e.g. after a
+  // turf is saved, or when the flow closes).
   clearDrawToken: number
+  // Bump to drop the most recently added vertex. Add-only by design: a drag
+  // corrects itself by dragging again, so the ring stays the whole history
+  // instead of becoming an edit stack.
+  undoDrawToken: number
   onPolygonChange: (ring: PolygonRing | null) => void
   // Fires with the vertex count as points are placed (0 on start/clear) —
   // the page uses it to dismiss the draw instructions on the first click.
@@ -126,8 +135,10 @@ export default function VoterMapCanvas({
   routeLoop,
   routeGeometry,
   focusTurf,
+  initialZoom,
   startDrawToken,
   clearDrawToken,
+  undoDrawToken,
   onPolygonChange,
   onDrawPointCount,
 }: VoterMapCanvasProps) {
@@ -292,7 +303,17 @@ export default function VoterMapCanvas({
 
     const bounds = packBounds(pack.positions)
     if (bounds) {
-      map.fitBounds(bounds, { padding: 48, animate: false })
+      // Read at mount only: this names the opening view, not a controlled
+      // zoom — reacting to it later would fight the canvasser's own panning.
+      if (initialZoom === undefined) {
+        map.fitBounds(bounds, { padding: 48, animate: false })
+      } else {
+        const [[minX, minY], [maxX, maxY]] = bounds
+        map.jumpTo({
+          center: [(minX + maxX) / 2, (minY + maxY) / 2],
+          zoom: initialZoom,
+        })
+      }
     }
 
     return () => {
@@ -548,6 +569,20 @@ export default function VoterMapCanvas({
     // Adding vertices shouldn't fight the zoom gesture.
     mapRef.current?.doubleClickZoom.disable()
   }, [startDrawToken])
+
+  useEffect(() => {
+    if (undoDrawToken === 0) return
+    // Settle any in-flight drag first, or it would keep writing to an index
+    // this undo is about to remove.
+    endDragRef.current?.()
+    const next = drawPointsRef.current.slice(0, -1)
+    drawPointsRef.current = next
+    setDrawPoints(next)
+    onDrawPointCountRef.current?.(next.length)
+    // Same gate the click handler uses, so undoing from 3 points to 2 drops
+    // the polygon (and with it the counts) rather than leaving stale ones up.
+    onPolygonChangeRef.current(next.length >= 3 ? next : null)
+  }, [undoDrawToken])
 
   useEffect(() => {
     if (clearDrawToken === 0) return
