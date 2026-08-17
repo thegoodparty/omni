@@ -44,6 +44,8 @@ const raceContext: CampaignStrategyContextResponse = {
   official_office_name: 'Larimer County Commissioner At-Large',
   primary_election_date: '2025-06-24',
   projected_turnout: RACE_DISTRICT_TURNOUT,
+  projected_turnout_lower: 96_000,
+  projected_turnout_upper: 156_000,
   projected_voter_turnout: RACE_DISTRICT_TURNOUT,
   registered_voters: 200_000,
   unique_cellphones: 90_000,
@@ -52,6 +54,8 @@ const raceContext: CampaignStrategyContextResponse = {
   state: 'CO',
   win_number_effective: 60_001,
   win_number_estimate: 60_001,
+  win_number_lower: 48_001,
+  win_number_upper: 78_001,
 }
 
 const overrideDistrict: District = {
@@ -157,6 +161,12 @@ describe('fetchLiveRaceTargetMetrics — overrideDistrictId (DATA-2226)', () => 
       uniqueCellphones: overrideDistrict.uniqueCellphones,
       uniqueLandlines: overrideDistrict.uniqueLandlines,
       projectedVoterTurnout: null,
+      // The prediction interval brackets the race district's turnout, so it
+      // cannot travel with the override district's point values.
+      projectedTurnoutLower: null,
+      projectedTurnoutUpper: null,
+      winNumberLower: null,
+      winNumberUpper: null,
     })
 
     // Race-level facts stay sourced from the race context.
@@ -268,6 +278,10 @@ describe('fetchLiveRaceTargetMetrics — overrideDistrictId (DATA-2226)', () => 
       uniqueCellphones: raceContext.unique_cellphones,
       uniqueLandlines: raceContext.unique_landlines,
       projectedVoterTurnout: raceContext.projected_voter_turnout,
+      projectedTurnoutLower: raceContext.projected_turnout_lower,
+      projectedTurnoutUpper: raceContext.projected_turnout_upper,
+      winNumberLower: raceContext.win_number_lower,
+      winNumberUpper: raceContext.win_number_upper,
     })
   })
 
