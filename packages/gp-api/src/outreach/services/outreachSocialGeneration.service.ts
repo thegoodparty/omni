@@ -134,7 +134,7 @@ const GeneratedAssetsSchema = z.object({
       .object({
         platform: SocialAssetPlatformSchema,
         text: z.string().min(1),
-        caption: z.string().max(SOCIAL_POST_COPY_MAX_LENGTH).optional(),
+        caption: z.string().min(1).max(SOCIAL_POST_COPY_MAX_LENGTH).optional(),
       })
       .refine(
         (asset) =>
