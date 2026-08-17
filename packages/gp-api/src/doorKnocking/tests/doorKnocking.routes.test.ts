@@ -1519,6 +1519,257 @@ describe('door-knocking routes', () => {
         expect(events).toHaveLength(0)
       })
     })
+    describe('do-not-knock (ADR 0007)', () => {
+      const setDoNotKnock = (body: Record<string, unknown>) =>
+        service.client.post('/v1/door-knocking/do-not-knock', body, {
+          ...orgHeaders(),
+          validateStatus: () => true,
+        })
+
+      // knockAndGetTarget drops the turf on the floor; the frozen-route
+      // assertion needs it back.
+      const knockAndGetTurfAndTarget = async () => {
+        const turf = await createTurf()
+        stubVendors()
+        expect((await knock(turf.id)).status).toBe(201)
+        const target =
+          await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+            orderBy: { id: 'asc' },
+          })
+        return { turf, target }
+      }
+
+      // stubVendors already replaced evaluate with a spy; read the last call
+      // rather than the first, since building the fixture knocks once too.
+      const lastEvaluateArg = () => {
+        const { evaluate } = service.app.get(DoorKnockingPeopleApiService)
+        const { calls } = (evaluate as unknown as ReturnType<typeof vi.fn>).mock
+        return calls.at(-1)?.[0] as Record<string, unknown> | undefined
+      }
+
+      const currentFor = (personId: string) =>
+        service.prisma.contactCurrentStatus.findFirst({
+          where: {
+            organizationSlug: orgSlug,
+            personId,
+            field: 'do_not_knock',
+          },
+        })
+
+      it('flags a person, attributing it to the user who tapped it', async () => {
+        const target = await knockAndGetTarget()
+
+        const res = await setDoNotKnock({
+          stopTargetId: target.id,
+          value: 'active',
+        })
+
+        expect(res.status).toBe(201)
+        expect(res.data).toEqual({
+          personId: target.personId,
+          doNotKnock: true,
+        })
+
+        const event = await service.prisma.contactStatusEvent.findFirstOrThrow({
+          where: {
+            organizationSlug: orgSlug,
+            personId: target.personId,
+            field: 'do_not_knock',
+          },
+        })
+        expect(event).toMatchObject({
+          fromValue: 'cleared',
+          toValue: 'active',
+          source: 'door_knock',
+          // A person pressed a button, so unlike the willVote-derived events
+          // above this one has an actor and no idempotency key.
+          actorUserId: service.user.id,
+          sourceId: null,
+        })
+        expect((await currentFor(target.personId))?.value).toBe('active')
+      })
+
+      // Reversal is the whole reason `cleared` is a value rather than a
+      // deleted row: the log has to answer who lifted it and when.
+      it('records the reversal rather than erasing the flag', async () => {
+        const target = await knockAndGetTarget()
+        await setDoNotKnock({ stopTargetId: target.id, value: 'active' })
+
+        const res = await setDoNotKnock({
+          stopTargetId: target.id,
+          value: 'cleared',
+        })
+
+        expect(res.status).toBe(201)
+        expect(res.data).toEqual({
+          personId: target.personId,
+          doNotKnock: false,
+        })
+
+        const events = await service.prisma.contactStatusEvent.findMany({
+          where: {
+            organizationSlug: orgSlug,
+            personId: target.personId,
+            field: 'do_not_knock',
+          },
+          orderBy: { createdAt: 'asc' },
+        })
+        expect(events.map((e) => [e.fromValue, e.toValue])).toEqual([
+          ['cleared', 'active'],
+          ['active', 'cleared'],
+        ])
+        expect((await currentFor(target.personId))?.value).toBe('cleared')
+      })
+
+      // The seed is `cleared`, so this is a no-op rather than a logged
+      // transition that never happened.
+      it('writes nothing when clearing a person who was never flagged', async () => {
+        const target = await knockAndGetTarget()
+
+        const res = await setDoNotKnock({
+          stopTargetId: target.id,
+          value: 'cleared',
+        })
+
+        expect(res.status).toBe(201)
+        expect(res.data).toEqual({
+          personId: target.personId,
+          doNotKnock: false,
+        })
+        expect(
+          await service.prisma.contactStatusEvent.findMany({
+            where: { organizationSlug: orgSlug, field: 'do_not_knock' },
+          }),
+        ).toHaveLength(0)
+      })
+
+      // Holding a stopTargetId proves nothing on its own; resolving it under
+      // the caller's org is the authorization.
+      it('404s on a stop target belonging to another org', async () => {
+        const target = await knockAndGetTarget()
+        const otherSlug = `campaign-dk-other-${Date.now()}`
+        await service.prisma.organization.create({
+          data: {
+            slug: otherSlug,
+            ownerId: service.user.id,
+            overrideDistrictId: DISTRICT_ID,
+          },
+        })
+
+        const res = await service.client.post(
+          '/v1/door-knocking/do-not-knock',
+          { stopTargetId: target.id, value: 'active' },
+          {
+            headers: { 'x-organization-slug': otherSlug },
+            validateStatus: () => true,
+          },
+        )
+
+        expect(res.status).toBe(404)
+        expect(await currentFor(target.personId)).toBeNull()
+      })
+
+      it('rejects a value outside the vocabulary', async () => {
+        const target = await knockAndGetTarget()
+
+        const res = await setDoNotKnock({
+          stopTargetId: target.id,
+          value: 'maybe',
+        })
+
+        expect(res.status).toBe(400)
+      })
+
+      // Suppression happens at evaluation, which a frozen route has already
+      // passed, so the walk view has to read the flag live instead.
+      it('marks a flagged person on an already-frozen route', async () => {
+        const { turf, target } = await knockAndGetTurfAndTarget()
+        await setDoNotKnock({ stopTargetId: target.id, value: 'active' })
+
+        const res = await service.client.get(
+          `/v1/door-knocking/turfs/${turf.id}/route`,
+          { ...orgHeaders(), validateStatus: () => true },
+        )
+
+        expect(res.status).toBe(200)
+        const targets = (
+          res.data.stops as Array<{
+            addresses: Array<{
+              targets: Array<{ personId: string; doNotKnock: boolean }>
+            }>
+          }>
+        )
+          .flatMap((s) => s.addresses)
+          .flatMap((a) => a.targets)
+        expect(
+          targets.find((t) => t.personId === target.personId)?.doNotKnock,
+        ).toBe(true)
+        // Everyone else on the same route is untouched.
+        expect(
+          targets
+            .filter((t) => t.personId !== target.personId)
+            .every((t) => t.doNotKnock === false),
+        ).toBe(true)
+      })
+
+      // The point of the whole feature: the next list must not contain them.
+      it('keeps flagged people out of a newly built route', async () => {
+        const target = await knockAndGetTarget()
+        await setDoNotKnock({ stopTargetId: target.id, value: 'active' })
+
+        const secondTurf = await createTurf('Second turf')
+        expect((await knock(secondTurf.id)).status).toBe(201)
+
+        expect(lastEvaluateArg()).toMatchObject({
+          excludePersonIds: [target.personId],
+        })
+      })
+
+      // The empty case is asserted against the DTO the adapter actually builds,
+      // in doorKnockingPeopleApi.service.test.ts. Spying here sees only what
+      // this route handed the adapter, which is the value under test's input
+      // rather than its output.
+
+      // `unknown` outranks every other status in the rollup, so a flagged
+      // resident would otherwise report their whole stop as still-to-knock —
+      // persons 1 and 2 share an address, which is what makes that reachable.
+      it('rolls a stop up from its knockable residents only', async () => {
+        const { turf } = await knockAndGetTurfAndTarget()
+        const shared = await service.prisma.doorKnockingStopTarget.findMany({
+          where: { addressKey: PIPED_KEY },
+          orderBy: { id: 'asc' },
+        })
+        expect(shared).toHaveLength(2)
+
+        expect(
+          (
+            await record({
+              stopTargetId: shared[0]!.id,
+              clientKey: CLIENT_KEY,
+              outcome: 'answered',
+              supportAnswer: 'supporter',
+            })
+          ).status,
+        ).toBe(201)
+        await setDoNotKnock({ stopTargetId: shared[1]!.id, value: 'active' })
+
+        const res = await service.client.get(
+          `/v1/door-knocking/turfs/${turf.id}/route`,
+          { ...orgHeaders(), validateStatus: () => true },
+        )
+
+        expect(res.status).toBe(200)
+        const stop = (
+          res.data.stops as Array<{
+            knockStatus: string
+            addresses: Array<{ addressKey: string }>
+          }>
+        ).find((candidate) =>
+          candidate.addresses.some((a) => a.addressKey === PIPED_KEY),
+        )
+        expect(stop?.knockStatus).toBe('supporter')
+      })
+    })
   })
   describe('pack', () => {
     it('proxies the binary and threads org knock statuses', async () => {

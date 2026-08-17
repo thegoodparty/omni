@@ -23,6 +23,7 @@ const target = (
   landline: null,
   knockStatus: 'unknown',
   mayHaveMoved: false,
+  doNotKnock: false,
   ...overrides,
 })
 
@@ -53,6 +54,7 @@ const renderSheet = (targets: RoutePayloadTarget[]) =>
       statusFor={(candidate) => candidate.knockStatus}
       clientKeyFor={() => 'key'}
       onRecorded={vi.fn()}
+      onDoNotKnockChanged={vi.fn()}
       onClose={vi.fn()}
     />,
   )
@@ -133,5 +135,22 @@ describe('PersonSheet phone numbers', () => {
     expect(
       within(contactCard()).getByRole('link', { name: '(615) 555-0177' }),
     ).toBeInTheDocument()
+  })
+})
+
+// The knock form and the do-not-knock control are siblings that both key off the
+// selected target so each resets when the canvasser switches resident. Keyed on
+// the bare id they collide, and React reconciles same-key siblings as one child
+// — it only says so through a console warning, which a passing suite hides.
+describe('PersonSheet reconciliation', () => {
+  it('keys its two mutating children apart', () => {
+    const warn = vi.spyOn(console, 'error').mockImplementation(vi.fn())
+
+    renderSheet([target()])
+
+    expect(warn.mock.calls.flat().join(' ')).not.toMatch(
+      /two children with the same key/,
+    )
+    warn.mockRestore()
   })
 })

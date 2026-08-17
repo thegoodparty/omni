@@ -762,6 +762,11 @@ export const EVENTS = {
     SessionCompleted: 'Door Knocking - Session Completed',
     SessionAbandoned: 'Door Knocking - Session Abandoned',
     DoorLogged: 'Door Knocking - Door Logged',
+    // ADR 0007. Both directions, because the ratio is the signal: a rising
+    // clear rate means the button is being mis-tapped, not that voters changed
+    // their minds.
+    DoNotKnockSet: 'Door Knocking - Do Not Knock Set',
+    DoNotKnockCleared: 'Door Knocking - Do Not Knock Cleared',
   },
 } as const
 

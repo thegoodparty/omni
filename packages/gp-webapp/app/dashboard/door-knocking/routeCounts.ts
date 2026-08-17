@@ -14,13 +14,20 @@ import type { DoorKnockingRoutePayload } from '@goodparty_org/contracts'
 export const countDoors = (stops: DoorKnockingRoutePayload['stops']): number =>
   stops.reduce((total, stop) => total + stop.addresses.length, 0)
 
-export const countPeople = (stops: DoorKnockingRoutePayload['stops']): number =>
-  stops.reduce(
-    (total, stop) =>
-      total +
-      stop.addresses.reduce(
-        (perStop, address) => perStop + address.targets.length,
-        0,
-      ),
-    0,
+// People, and the only definition of them: ADR 0007 doors are ones nobody
+// should knock, so they are not conversations anyone can have. Counting them
+// would promise a canvasser an evening they can't have and hold the one who
+// correctly skipped every flagged house below 100%. Every people figure and
+// every reached-of-total reads this.
+//
+// The printed sheet still LISTS flagged residents, one row each — paper freezes
+// at print time and is the surface used without the app, so it has to carry
+// their skip instruction rather than quietly drop them. A sheet that lists more
+// names than its header counts is the intended reading: the header is the
+// evening's work, the rows are the index.
+export const knockableTargets = (stops: DoorKnockingRoutePayload['stops']) =>
+  stops.flatMap((stop) =>
+    stop.addresses.flatMap((address) =>
+      address.targets.filter((target) => !target.doNotKnock),
+    ),
   )

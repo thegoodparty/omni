@@ -24,7 +24,7 @@ import {
   turfsQueryOptions,
 } from './turfQueries'
 import type { PolygonStats } from './filterEngine'
-import { countDoors } from '../routeCounts'
+import { countDoors, knockableTargets } from '../routeCounts'
 
 // gp-api refuses to delete a knocked turf: doorKnockingTurf.delete runs
 // assertNotLocked first, and lockedness IS the frozen route row, so a turf
@@ -155,10 +155,7 @@ export default function TurfDetailsSheet({
     : []
 
   const route = routeQuery.data
-  const targets =
-    route?.stops.flatMap((stop) =>
-      stop.addresses.flatMap((address) => address.targets),
-    ) ?? []
+  const targets = knockableTargets(route?.stops ?? [])
   const reached = targets.filter(
     (target) => target.knockStatus !== 'unknown',
   ).length

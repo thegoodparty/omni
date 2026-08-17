@@ -5,6 +5,7 @@ import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import WalkView from './WalkView'
+import { STATUS_DOT_COLORS } from './statusPresentation'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
@@ -50,6 +51,7 @@ const routePayload: DoorKnockingRoutePayload = {
               landline: null,
               knockStatus: 'supporter',
               mayHaveMoved: false,
+              doNotKnock: false,
             },
           ],
           otherResidents: [{ name: 'Ruben Vega' }],
@@ -80,6 +82,7 @@ const routePayload: DoorKnockingRoutePayload = {
               landline: null,
               knockStatus: 'unknown',
               mayHaveMoved: true,
+              doNotKnock: false,
             },
           ],
           otherResidents: [],
@@ -140,6 +143,129 @@ describe('WalkView', () => {
     const link = await screen.findByRole('link', { name: 'Print list' })
     expect(link).toHaveAttribute('href', '/dashboard/door-knocking/print/3')
     expect(link).toHaveAttribute('target', '_blank')
+  })
+
+  // ADR 0007. The marker has to survive walking on to the next stop, so it
+  // patches the route cache the way a recorded knock does.
+  it('marks a flagged door in the list and withholds the log form', async () => {
+    api.mock('POST /v1/door-knocking/do-not-knock', {
+      status: 200,
+      data: { personId: 'person-1', doNotKnock: true },
+    })
+
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
+
+    fireEvent.click(screen.getByRole('button', { name: /don.t knock/i }))
+
+    await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+
+    // Closing the sheet leaves the marker on the stop row itself. A
+    // single-resident stop never expands, so this is the only place a
+    // canvasser sees it before walking up.
+    fireEvent.click(
+      screen.getAllByRole('button', { name: 'Close person details' }).pop()!,
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull(),
+    )
+    const elmRow = screen.getAllByRole('listitem')[0] as HTMLElement
+    expect(within(elmRow).getByText('Do not knock')).toBeInTheDocument()
+  })
+
+  // ADR 0007. A flagged door keeps `knockStatus: 'unknown'`, so counting it
+  // would strand a canvasser who correctly skipped it below 100% and leave it
+  // sitting under the "Support unknown" chip as work still to do.
+  it('drops a flagged door out of the progress counts', async () => {
+    api.mock('POST /v1/door-knocking/do-not-knock', {
+      status: 200,
+      data: { personId: 'person-1', doNotKnock: true },
+    })
+
+    // The label is a bare text node beside its count, so the chip itself is the
+    // only span whose text carries both.
+    const unknownChip = () =>
+      screen.getByText(/Support unknown/, { selector: 'span' })
+
+    render(<WalkView turfId={3} />)
+    // Dorian is the unreached door of the two; Marisol is already a supporter.
+    await waitFor(() =>
+      expect(screen.getByText('1/2 reached')).toBeInTheDocument(),
+    )
+    expect(unknownChip()).toHaveTextContent('Support unknown 1')
+
+    await openPersonSheet('105 Elm St')
+    fireEvent.click(screen.getByRole('button', { name: /don.t knock/i }))
+    // Undo appearing is the flag landing; asserting the counts before the
+    // mutation settles would read the pre-patch cache.
+    await screen.findByRole('button', { name: 'Undo' })
+    await closePersonSheet()
+
+    expect(screen.getByText('1/1 reached')).toBeInTheDocument()
+    expect(unknownChip()).toHaveTextContent('Support unknown 0')
+  })
+
+  // `unknown` outranks every other status in the rollup, so before flagged
+  // residents were excluded a single do-not-knock neighbor held the stop on the
+  // grey "still to knock" dot no matter how much of the household was logged.
+  it('colors a stop from its knockable residents only', async () => {
+    const mixedHousehold: DoorKnockingRoutePayload = {
+      ...routePayload,
+      stops: [
+        {
+          ...routePayload.stops[0]!,
+          addresses: [
+            {
+              addressKey: '210|cedar|row',
+              address: '210 Cedar Row',
+              otherResidents: [],
+              targets: [
+                {
+                  ...routePayload.stops[0]!.addresses[0]!.targets[0]!,
+                  knockStatus: 'supporter',
+                },
+                {
+                  ...routePayload.stops[0]!.addresses[0]!.targets[0]!,
+                  stopTargetId: 23,
+                  personId: 'person-3',
+                  name: 'Ruben Vega',
+                  knockStatus: 'unknown',
+                  doNotKnock: true,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: mixedHousehold,
+    })
+
+    render(<WalkView turfId={3} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('210 Cedar Row')).toBeInTheDocument(),
+    )
+    // The seq badge is the "2" that carries a color; the other is the
+    // household's resident count.
+    const seqBadge = screen
+      .getAllByText('2')
+      .find((element) => element.style.backgroundColor)
+    expect(seqBadge).toHaveStyle({
+      backgroundColor: STATUS_DOT_COLORS.supporter,
+    })
+
+    // ADR 0007. The flagged resident gets no per-person dot either — a status
+    // dot beside the "Do not knock" label would say the opposite of the label.
+    const row = screen.getAllByRole('listitem')[0] as HTMLElement
+    const personDots = Array.from(row.querySelectorAll('span.h-1\\.5'))
+    expect(personDots).toHaveLength(1)
+    expect(personDots[0]).toHaveStyle({
+      backgroundColor: STATUS_DOT_COLORS.supporter,
+    })
   })
 
   it('records an answered knock through the person sheet', async () => {

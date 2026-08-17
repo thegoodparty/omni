@@ -10,6 +10,7 @@ import { ContactsService } from '@/contacts/services/contacts.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import {
   ContactStatusField,
+  DoNotKnockStatus,
   DoorKnockingStopTarget,
   Organization,
   Prisma,
@@ -104,10 +105,10 @@ export class DoorKnockingServeService extends createPrismaBase(
       residents.addresses.map((address) => [address.addressKey, address]),
     )
 
-    const statusByPersonId = await this.latestKnockStatuses(
-      organization.slug,
-      targetPersonIds,
-    )
+    const [statusByPersonId, doNotKnockPersonIds] = await Promise.all([
+      this.latestKnockStatuses(organization.slug, targetPersonIds),
+      this.doNotKnockPersonIds(organization.slug, targetPersonIds),
+    ])
 
     return {
       route: {
@@ -127,6 +128,7 @@ export class DoorKnockingServeService extends createPrismaBase(
           stop.displayAddress,
           liveByAddressKey,
           statusByPersonId,
+          doNotKnockPersonIds,
         )
         return {
           id: stop.id,
@@ -136,9 +138,16 @@ export class DoorKnockingServeService extends createPrismaBase(
           displayAddress: stop.displayAddress,
           legSeconds: stop.legSeconds,
           legMeters: stop.legMeters,
+          // ADR 0007. Flagged residents are left out because `unknown` outranks
+          // every other status in the rollup, so one do-not-knock neighbor would
+          // report the whole stop as still-to-knock however much of the
+          // household had been logged. The webapp's rollup drops them for the
+          // same reason.
           knockStatus: rollupStopStatus(
             addresses.flatMap((address) =>
-              address.targets.map((target) => target.knockStatus),
+              address.targets
+                .filter((target) => !target.doNotKnock)
+                .map((target) => target.knockStatus),
             ),
           ),
           addresses,
@@ -152,6 +161,7 @@ export class DoorKnockingServeService extends createPrismaBase(
     stopDisplayAddress: string,
     liveByAddressKey: Map<string, LiveAddress>,
     statusByPersonId: Map<string, DoorKnockStatus>,
+    doNotKnockPersonIds: Set<string>,
   ): RoutePayloadAddress[] {
     const byAddressKey = new Map<string, DoorKnockingStopTarget[]>()
     for (const target of targets) {
@@ -190,6 +200,7 @@ export class DoorKnockingServeService extends createPrismaBase(
             landline: livePerson?.landline ?? null,
             knockStatus: statusByPersonId.get(target.personId) ?? 'unknown',
             mayHaveMoved: !livePerson,
+            doNotKnock: doNotKnockPersonIds.has(target.personId),
           }
         }),
         otherResidents: (live?.otherResidents ?? []).map((person) => ({
@@ -260,5 +271,25 @@ export class DoorKnockingServeService extends createPrismaBase(
       }
     }
     return statusByPersonId
+  }
+
+  // ADR 0007. Turf evaluation keeps flagged people out of new routes, but it
+  // cannot reach into a route already frozen — so the flag is read live here,
+  // scoped to this route's targets rather than the org's whole flagged set.
+  private async doNotKnockPersonIds(
+    organizationSlug: string,
+    personIds: string[],
+  ): Promise<Set<string>> {
+    if (personIds.length === 0) return new Set()
+    const byPersonId = await this.contactStatus.currentStatusForPeople(
+      organizationSlug,
+      ContactStatusField.do_not_knock,
+      personIds,
+    )
+    return new Set(
+      [...byPersonId.entries()]
+        .filter(([, value]) => value === DoNotKnockStatus.active)
+        .map(([personId]) => personId),
+    )
   }
 }
