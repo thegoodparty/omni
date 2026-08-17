@@ -2,14 +2,16 @@ import { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
+import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import NativeDoorKnockingPage from './NativeDoorKnockingPage'
 
-// 4 people over 2 dots. Person 0 is a supporter and persons 1-2 are unknown,
-// all three at dot 0; person 3 is unknown at dot 1, outside the saved turf
-// below. So the district reads 3 unknown / 1 supporter and the turf reads
-// 2 unknown / 1 supporter — the two numbers the rail has to tell apart.
+// 4 people over 2 dots. Person 0 is a Democratic supporter and persons 1-2 are
+// unknown, all three at dot 0; person 3 is unknown at dot 1, outside the saved
+// turf below. So the district reads 3 unknown / 1 supporter and the turf reads
+// 2 unknown / 1 supporter — the two numbers the rail has to tell apart — while
+// the party plane gives a saved list something of its own to narrow by.
 const { packFixture } = vi.hoisted(() => ({
   packFixture: {
     manifest: {
@@ -18,13 +20,17 @@ const { packFixture } = vi.hoisted(() => ({
       counts: { people: 4, households: 3, dots: 2 },
       dims: [
         { key: 'canvassStatus', values: ['unknown', 'not_home', 'supporter'] },
+        { key: 'party', values: ['Unknown', 'Democratic', 'Republican'] },
       ],
       arrays: [],
     },
     positions: new Float32Array([-87.65, 41.9, -87.66, 41.91]),
     personToHousehold: new Uint32Array([0, 0, 1, 2]),
     householdToDot: new Uint32Array([0, 0, 1]),
-    dimPlanes: new Map([['canvassStatus', new Uint8Array([2, 0, 0, 0])]]),
+    dimPlanes: new Map([
+      ['canvassStatus', new Uint8Array([2, 0, 0, 0])],
+      ['party', new Uint8Array([1, 2, 0, 0])],
+    ]),
   },
 }))
 
@@ -88,9 +94,14 @@ const turf: DoorKnockingTurf = {
 const chip = (label: string, count: number) =>
   screen.getByRole('button', { name: new RegExp(`${label}\\s*${count}`) })
 
-const renderPage = () => {
+// The turf points at saved filter 7; passing one here is what exercises the
+// list's own filters, as opposed to only its polygon.
+const renderPage = (savedLists: SegmentResponse[] = []) => {
   api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [turf] })
-  api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+  api.mock('GET /v1/voters/voter-file/filters', {
+    status: 200,
+    data: savedLists,
+  })
   return render(
     <NativeDoorKnockingPage
       pathname="/dashboard/door-knocking"
@@ -148,6 +159,20 @@ describe('NativeDoorKnockingPage landing rail', () => {
       screen.queryByRole('button', { name: /Support unknown\s*3/ }),
     ).toBeNull()
     expect(chip('Supporter', 1)).toBeInTheDocument()
+  })
+
+  // A list is its filters as well as its polygon, which is the whole reason
+  // the scope isn't just the ring. Person 0 is the only Democrat inside it.
+  it('scopes by the saved list filters, not only by its polygon', async () => {
+    renderPage([{ id: 7, partyDemocrat: true }])
+    await selectTurf()
+
+    expect(screen.getByText(/1\s*voters in this list/)).toBeInTheDocument()
+    expect(screen.getByTestId('voter-map')).toHaveAttribute('data-people', '1')
+    // The two unknowns at the same dot are Republican and Unknown, so the
+    // legend has to drop them along with the map.
+    expect(chip('Supporter', 1)).toBeInTheDocument()
+    expect(chip('Support unknown', 0)).toBeInTheDocument()
   })
 
   // The chips were pressed-but-inert with a list selected: the turf branch of

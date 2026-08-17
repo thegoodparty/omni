@@ -301,6 +301,11 @@ describe('canvassStatusCounts', () => {
     expect(
       maskToPolygon(pack, runFilter(pack, unknownOnly), dotZeroRing).people,
     ).toBe(2)
+    // And the counts themselves intersect the same way: the supporter at dot 0
+    // drops out, leaving only the two unknowns the chip asked for.
+    expect(canvassStatusCounts(pack, unknownOnly, dotZeroRing)).toEqual([
+      2, 0, 0,
+    ])
   })
 })
 
