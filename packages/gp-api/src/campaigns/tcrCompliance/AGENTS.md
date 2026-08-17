@@ -188,7 +188,15 @@ replicas' independent `@Interval` timers):
   admin PIN-resend pre-check, and the pre-submit existence check.
 - The PIN-entry path (`retrieveCampaignVerifyToken`) stamps
   `peerlyCvStatus = VERIFIED` directly on a successful verify, so
-  `sweepUnsubmittedUsecases` doesn't wait up to 12h for the next scan.
+  `sweepUnsubmittedUsecases` doesn't wait up to 12h for the next scan — and
+  it runs `applyCvDetection` off its own (demand-driven, enriched) read,
+  detached and best-effort. That stamp removes the record from the scan's
+  poll set, so a candidate who enters their PIN between scans would
+  otherwise never get `pinDeliveryMethod` recorded or `CompliancePinSent`
+  fired; entry time is the last observation, at zero extra Peerly calls.
+  This is deliberately NOT solved by widening the scan's status filter to
+  `approved` — legacy `approved` records carry a null persisted CV status
+  and would flood the paced scan (the stale set this design evicts).
 
 ### `applyCvDetection` (ENG-10658, formerly `sweepPinDeliveryDetection`)
 

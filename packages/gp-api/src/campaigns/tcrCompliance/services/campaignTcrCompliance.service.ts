@@ -1978,24 +1978,27 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         'TCR compliance does not have a Peerly identity ID',
       )
     }
-    const { campaign } = await this.model.findFirstOrThrow({
+    const record = await this.model.findFirstOrThrow({
       where: { peerlyIdentityId },
       include: {
-        campaign: true,
+        campaign: { include: { user: true } },
       },
     })
+    const { campaign } = record
     // A PIN can only be consumed once: verify_pin rejects an already-VERIFIED
     // CV as an invalid PIN. If an earlier attempt verified the PIN but a
     // downstream Peerly step threw (stranding the record at `submitted`),
     // re-verifying would dead-end the retry with "Invalid PIN". When the CV is
     // already VERIFIED the candidate has proven control, so skip the re-check
-    // and mint the token so the retry can finish the flow.
-    const cvStatus =
-      await this.peerlyIdentityService.retrieveCampaignVerifyStatus(
+    // and mint the token so the retry can finish the flow. The enriched read
+    // (same retrieve_cv call as the status-only variant) also carries the PIN
+    // delivery channel for the detection below.
+    const details =
+      await this.peerlyIdentityService.retrieveCampaignVerifyDetails(
         peerlyIdentityId,
         campaign,
       )
-    if (cvStatus !== PeerlyCvVerificationStatus.VERIFIED) {
+    if (details.status !== PeerlyCvVerificationStatus.VERIFIED) {
       const pinIsValid =
         await this.peerlyIdentityService.verifyCampaignVerifyPin(
           peerlyIdentityId,
@@ -2024,6 +2027,25 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         cvInReviewEscalatedAt: null,
       },
     })
+
+    // The VERIFIED stamp above removes the record from the CV scan's poll
+    // set, so a candidate who enters their PIN between scans would otherwise
+    // never get pinDeliveryMethod recorded or the CompliancePinSent event
+    // fired. Run detection off the read this path already made (no extra
+    // Peerly call); the status passed is the post-verify truth. Detached +
+    // best-effort — Segment/HubSpot must not fail or slow the PIN entry, and
+    // the atomic pinSentDetectedAt claim makes a re-run safe.
+    void this.applyCvDetection(record, campaign, {
+      status: PeerlyCvVerificationStatus.VERIFIED,
+      pinDelivery: details.pinDelivery,
+    }).catch((err: Error) =>
+      this.logger.error(
+        { err, tcrComplianceId: record.id },
+        '[TCR Compliance] PIN-delivery detection failed after PIN entry; ' +
+          'the record has left the CV scan poll set so the PIN Sent event ' +
+          'may never fire for it',
+      ),
+    )
 
     return await this.peerlyIdentityService.createCampaignVerifyToken(
       peerlyIdentityId,
