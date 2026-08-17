@@ -650,7 +650,11 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         peerlyIdentityId: null,
         kickoffSentAt: null,
         campaign: {
-          user: { clerkId: 'clerk_stranded' },
+          user: {
+            clerkId: 'clerk_stranded',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          },
           campaignPositions: [],
         },
       }
@@ -716,7 +720,11 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_a' }, campaignPositions: [] },
+        campaign: { user: {
+            clerkId: 'clerk_a',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          }, campaignPositions: [] },
       }
       const b = {
         id: 'tcr-b',
@@ -724,7 +732,11 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_b' }, campaignPositions: [] },
+        campaign: { user: {
+            clerkId: 'clerk_b',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          }, campaignPositions: [] },
       }
       mockModel.findMany.mockResolvedValueOnce([a, b])
       mockQueue.sendMessage
@@ -762,7 +774,11 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_d' }, campaignPositions: [] },
+        campaign: { user: {
+            clerkId: 'clerk_d',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          }, campaignPositions: [] },
       }
       const completed = {
         id: 'tcr-completed',
@@ -770,7 +786,11 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_c' }, campaignPositions: [] },
+        campaign: { user: {
+            clerkId: 'clerk_c',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          }, campaignPositions: [] },
       }
       mockModel.findMany.mockResolvedValueOnce([deferred, completed])
       mockWebsites.getContentForCampaign.mockImplementation(
@@ -797,7 +817,11 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_x' }, campaignPositions: [] },
+        campaign: { user: {
+            clerkId: 'clerk_x',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          }, campaignPositions: [] },
       }
       const healthy = {
         id: 'tcr-healthy',
@@ -805,7 +829,11 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_y' }, campaignPositions: [] },
+        campaign: { user: {
+            clerkId: 'clerk_y',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          }, campaignPositions: [] },
       }
       mockModel.findMany.mockResolvedValueOnce([broken, healthy])
       mockWebsites.getContentForCampaign.mockImplementation(
