@@ -86,6 +86,11 @@ interface TurfDetailsSheetProps {
   // Unshadeable filters (age 65+) leave it a superset, exactly as the draw
   // step disclosed at that moment; knock-time evaluation stays canonical.
   listStats: PolygonStats | null
+  // The pack these are computed from is still decoding, so a null `listStats`
+  // does not yet mean "no doors in this shape" — without this the sheet reads
+  // 0 doors and 'Not knocked yet' until the pack lands, which is exactly the
+  // confident-but-wrong answer the locked branch already guards against.
+  listStatsPending: boolean
   onClose: () => void
   // The page holds its own references to this turf (map scope, camera focus),
   // which would otherwise keep masking the map to a list that no longer
@@ -96,6 +101,7 @@ interface TurfDetailsSheetProps {
 export default function TurfDetailsSheet({
   turf,
   listStats,
+  listStatsPending,
   onClose,
   onDeleted,
 }: TurfDetailsSheetProps) {
@@ -206,12 +212,25 @@ export default function TurfDetailsSheet({
   // can't disagree about the same shape. Only ever the unlocked answer: a
   // locked turf's own duration is on its way.
   const preRouteEstimate =
-    !liveTurf.locked && doors > 0 ? `About ${estimateWalkTime(doors)}` : null
+    !liveTurf.locked && !listStatsPending && doors > 0
+      ? `About ${estimateWalkTime(doors)}`
+      : null
+  // The unlocked mirror of routePending: an unlocked turf's numbers come from
+  // the pack, which decodes on its own schedule.
+  const preRoutePending = !liveTurf.locked && listStatsPending
   // A route-derived stat has three states before it has a value. Spread into
-  // Stat so all five agree about which one they're in.
+  // Stat so they agree about which one they're in.
   const routeStat = (value: string) => ({
     pending: routePending,
     value: routeFailed ? 'Unavailable' : value,
+  })
+  // Doors, people and the knocking estimate are read off the pack until a
+  // route exists, so they wait on it too. Route type and progress are known
+  // from lockedness alone — 'Not knocked yet' needs no data to be true — so
+  // they stay put rather than flickering a skeleton at every open.
+  const packBackedStat = (value: string) => ({
+    ...routeStat(value),
+    pending: routePending || preRoutePending,
   })
 
   return (
@@ -292,7 +311,7 @@ export default function TurfDetailsSheet({
                   authoritative counts are the frozen route's, so these wait
                   for it rather than showing the pack's answer and then
                   swapping it out mid-load. */}
-              <Stat label="Doors" {...routeStat(doors.toLocaleString())} />
+              <Stat label="Doors" {...packBackedStat(doors.toLocaleString())} />
               {/* Gated on the route existing, not on the count being
                   non-zero: ADR 0007 drops do-not-knock residents, so a route
                   whose every resident is flagged has 0 knockable people, and
@@ -300,7 +319,7 @@ export default function TurfDetailsSheet({
                   pre-route number instead of the frozen route's real 0. */}
               <Stat
                 label="People"
-                {...routeStat(
+                {...packBackedStat(
                   (route
                     ? targets.length
                     : (listStats?.people ?? 0)
@@ -319,7 +338,7 @@ export default function TurfDetailsSheet({
                   is still loading, so this label stays mode-free. */}
               <Stat
                 label={liveTurf.locked ? 'Travel time' : 'Knocking time'}
-                {...routeStat(
+                {...packBackedStat(
                   route
                     ? formatDuration(route.route.totalSeconds)
                     : (preRouteEstimate ?? 'Not knocked yet'),

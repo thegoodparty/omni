@@ -117,11 +117,13 @@ const renderSheet = ({
   prop = {},
   live,
   listStats = null,
+  listStatsPending = false,
   onDeleted = vi.fn(),
 }: {
   prop?: Partial<DoorKnockingTurf>
   live?: Partial<DoorKnockingTurf>
   listStats?: PolygonStats | null
+  listStatsPending?: boolean
   onDeleted?: () => void
 } = {}) => {
   api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
@@ -133,6 +135,7 @@ const renderSheet = ({
     <TurfDetailsSheet
       turf={turf(prop)}
       listStats={listStats}
+      listStatsPending={listStatsPending}
       onClose={vi.fn()}
       onDeleted={onDeleted}
     />,
@@ -402,6 +405,28 @@ describe('TurfDetailsSheet overview', () => {
 
     expect(screen.getByText('Knocking time')).toBeInTheDocument()
     expect(screen.queryByText(/^About /)).toBeNull()
+  })
+
+  // The unlocked mirror of the locked-route case: these numbers come from the
+  // pack, so before it decodes a null `listStats` means "not read yet", not
+  // "no doors here" — rendering 0 doors and 'Not knocked yet' is the same
+  // confident-but-wrong answer, and indistinguishable from the settled state.
+  it('waits for the pack instead of reporting an empty shape', () => {
+    renderSheet({ listStats: null, listStatsPending: true })
+
+    // Doors, people, and the knocking estimate.
+    expect(screen.getAllByText('Loading')).toHaveLength(3)
+    expect(screen.queryByText('0')).toBeNull()
+    expect(screen.queryByText(/doors an hour/)).toBeNull()
+  })
+
+  // Route type and progress are true from lockedness alone, so they must not
+  // flicker a skeleton every time the sheet opens.
+  it('still answers route type and progress while the pack loads', () => {
+    renderSheet({ listStats: null, listStatsPending: true })
+
+    expect(screen.getByText('Route type')).toBeInTheDocument()
+    expect(screen.getAllByText('Not knocked yet')).toHaveLength(2)
   })
 
   // Lockedness IS the frozen route row, so a locked list HAS been knocked.

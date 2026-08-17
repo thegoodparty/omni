@@ -568,6 +568,9 @@ export default function NativeDoorKnockingPage({
         <TurfDetailsSheet
           turf={detailsTurf}
           listStats={detailsListStats}
+          // The stats are computed from the pack, so a null `detailsListStats`
+          // means "not decoded yet" until this settles, not "nobody here".
+          listStatsPending={!packQuery.data && !packQuery.isError}
           onClose={() => setDetailsTurf(null)}
           onDeleted={(deleted) => {
             setDetailsTurf(null)
