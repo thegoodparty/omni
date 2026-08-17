@@ -24,6 +24,9 @@ import {
   SetDoNotKnock,
   SetDoNotKnockSchema,
   SetDoNotKnockResponseSchema,
+  SetNotAVoter,
+  SetNotAVoterSchema,
+  SetNotAVoterResponseSchema,
   DoorKnockingKnockRequest,
   DoorKnockingKnockRequestSchema,
   DoorKnockingKnockResponseSchema,
@@ -150,6 +153,21 @@ export class DoorKnockingController {
     input: SetDoNotKnock,
   ) {
     return this.interactionService.setDoNotKnock(organization, user.id, input)
+  }
+
+  // ADR 0008. Ungated alongside the rest of the pilot, same as do-not-knock:
+  // the reason a door is wrong is worth capturing from whoever is standing at
+  // it.
+  @Post('not-a-voter')
+  @UseOrganization()
+  @ResponseSchema(SetNotAVoterResponseSchema)
+  setNotAVoter(
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+    @Body(new ZodValidationPipe(SetNotAVoterSchema))
+    input: SetNotAVoter,
+  ) {
+    return this.interactionService.setNotAVoter(organization, user.id, input)
   }
 
   @Post('turfs/:id/knock')

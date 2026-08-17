@@ -99,9 +99,14 @@ export {
   type ContactStatuses,
   DoNotKnockStatusSchema,
   type DoNotKnockStatus,
+  NotAVoterStatusSchema,
+  type NotAVoterStatus,
+  NotAVoterReasonSchema,
+  type NotAVoterReason,
   VOTER_LIKELIHOOD_LABELS,
   SUPPORT_STATUS_ROLLUP_LABELS,
   DO_NOT_KNOCK_LABELS,
+  NOT_A_VOTER_LABELS,
   resolveContactStatusLabel,
 } from './people/ContactStatus.schema'
 
@@ -797,3 +802,10 @@ export {
   SetDoNotKnockResponseSchema,
   type SetDoNotKnockResponse,
 } from './doorKnocking/DoorKnockingDoNotKnock.schema'
+
+export {
+  SetNotAVoterSchema,
+  type SetNotAVoter,
+  SetNotAVoterResponseSchema,
+  type SetNotAVoterResponse,
+} from './doorKnocking/DoorKnockingNotAVoter.schema'

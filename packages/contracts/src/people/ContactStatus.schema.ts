@@ -6,6 +6,8 @@ import {
   type ContactStatusSource as GeneratedContactStatusSource,
   DoNotKnockStatusSchema as GeneratedDoNotKnockStatusSchema,
   type DoNotKnockStatus as GeneratedDoNotKnockStatus,
+  NotAVoterStatusSchema as GeneratedNotAVoterStatusSchema,
+  type NotAVoterStatus as GeneratedNotAVoterStatus,
   SupportStatusRollupSchema as GeneratedSupportStatusRollupSchema,
   type SupportStatusRollup as GeneratedSupportStatusRollup,
   VoterLikelihoodSchema as GeneratedVoterLikelihoodSchema,
@@ -31,6 +33,18 @@ export type ContactStatusSource = GeneratedContactStatusSource
 // do-not-knock is written through its own door-knocking endpoint instead.
 export const DoNotKnockStatusSchema = GeneratedDoNotKnockStatusSchema
 export type DoNotKnockStatus = GeneratedDoNotKnockStatus
+
+// ADR 0008. Written from the door only, for the same reason as do-not-knock,
+// and likewise absent from UpdateContactStatusInputSchema below.
+export const NotAVoterStatusSchema = GeneratedNotAVoterStatusSchema
+export type NotAVoterStatus = GeneratedNotAVoterStatus
+
+// The two answers that mean something happened, without the off switch —
+// derived from the full vocabulary so the two can't drift apart. This is the
+// shape every reader outside the write boundary wants: `cleared` is the
+// absence of a reason, not a reason.
+export const NotAVoterReasonSchema = NotAVoterStatusSchema.exclude(['cleared'])
+export type NotAVoterReason = z.infer<typeof NotAVoterReasonSchema>
 
 // Discriminated by `field` so each value validates against its own
 // vocabulary at the API boundary — a `support_status` value can't ride in on
@@ -96,6 +110,14 @@ export const DO_NOT_KNOCK_LABELS: Record<DoNotKnockStatus, string> = {
   cleared: 'Off',
 }
 
+// ADR 0008. Reads as "Not A Voter: — -> Moved away" in the feed. `cleared`
+// says the flag was lifted, not that anyone concluded the person is a voter.
+export const NOT_A_VOTER_LABELS: Record<NotAVoterStatus, string> = {
+  moved: 'Moved away',
+  deceased: 'Deceased',
+  cleared: 'Off',
+}
+
 // fromValue/toValue persist as a plain Prisma `String` on ContactStatusEvent
 // (each field's vocabulary is only Zod-enforced at write time, via
 // UpdateContactStatusInputSchema above) — a value outside today's map, from a
@@ -110,6 +132,7 @@ const LABELS_BY_FIELD: Record<ContactStatusField, Record<string, string>> = {
   voter_likelihood: VOTER_LIKELIHOOD_LABELS,
   support_status: SUPPORT_STATUS_ROLLUP_LABELS,
   do_not_knock: DO_NOT_KNOCK_LABELS,
+  not_a_voter: NOT_A_VOTER_LABELS,
 }
 
 export const resolveContactStatusLabel = (

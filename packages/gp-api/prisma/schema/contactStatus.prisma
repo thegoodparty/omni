@@ -23,6 +23,11 @@ enum ContactStatusField {
   // always `cleared`, so absence of a row reads as knockable like every other
   // field here.
   do_not_knock
+  // ADR 0008: why this person is not a voter to reach at this door. Written
+  // only by the follow-up question behind a `not_a_voter` outcome, and stored
+  // here rather than on the interaction because it has to be reversible and
+  // queryable as a set. Seed is `cleared`, same as do_not_knock.
+  not_a_voter
 }
 
 // ADR 0007. `cleared` is a real value rather than a deleted row so that
@@ -31,6 +36,18 @@ enum ContactStatusField {
 // matters.
 enum DoNotKnockStatus {
   active
+  cleared
+}
+
+// ADR 0008. One field rather than two booleans: `moved` and `deceased` are
+// mutually exclusive answers to one question asked at one door, so the latest
+// answer has to replace the previous one rather than sit beside it. `cleared`
+// carries the same reversibility argument as DoNotKnockStatus above — a
+// mis-tapped `deceased` is the worst mistake this feature can make, and
+// lifting it has to be recorded rather than erased.
+enum NotAVoterStatus {
+  moved
+  deceased
   cleared
 }
 

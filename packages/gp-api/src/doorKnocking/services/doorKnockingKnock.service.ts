@@ -19,6 +19,7 @@ import {
   ContactStatusField,
   DoNotKnockStatus,
   DoorKnockingRoute,
+  NotAVoterStatus,
   Organization,
   OutreachStatus,
   OutreachType,
@@ -96,15 +97,27 @@ export class DoorKnockingKnockService extends createPrismaBase(
     const districtId =
       await this.contacts.resolveEligibleDistrictId(organization)
 
-    // ADR 0007. Read outside the transaction, like the district resolution
-    // above: it touches a different table and adding it to the critical
-    // section would hold the turf lock across another round trip. The set is
-    // the org's own flagged people, small by construction.
-    const excludePersonIds = await this.contactStatus.personIdsByFieldValue(
-      organization.slug,
-      ContactStatusField.do_not_knock,
-      [DoNotKnockStatus.active],
-    )
+    // ADR 0007 and ADR 0008. Read outside the transaction, like the district
+    // resolution above: they touch a different table and adding them to the
+    // critical section would hold the turf lock across two more round trips.
+    // Both sets are the org's own flagged people, small by construction.
+    //
+    // One exclusion list, because evaluation has one job either way: leave
+    // this person's door out of the next route. Deduped because a person told
+    // "don't come back" who also moved is two facts about one door.
+    const [doNotKnockIds, notAVoterIds] = await Promise.all([
+      this.contactStatus.personIdsByFieldValue(
+        organization.slug,
+        ContactStatusField.do_not_knock,
+        [DoNotKnockStatus.active],
+      ),
+      this.contactStatus.personIdsByFieldValue(
+        organization.slug,
+        ContactStatusField.not_a_voter,
+        [NotAVoterStatus.moved, NotAVoterStatus.deceased],
+      ),
+    ])
+    const excludePersonIds = [...new Set([...doNotKnockIds, ...notAVoterIds])]
 
     return this.client.$transaction(
       async (tx) => {

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { NotAVoterReasonSchema } from '../people/ContactStatus.schema'
 import { DoorKnockingRouteHeaderSchema } from './DoorKnockingTurf.schema'
 
 // Knock statuses derived from the CRM door-knock vocabulary (outcome +
@@ -43,6 +44,15 @@ export const RoutePayloadTargetSchema = z.object({
   // morning is marked on a route frozen yesterday — turf evaluation keeps them
   // out of new routes, but it cannot reach back into one already built.
   doNotKnock: z.boolean(),
+  // ADR 0008. Why this person is not a voter to reach here, when someone at
+  // the door said so. Read live at serve time for the same reason doNotKnock
+  // is: evaluation keeps them out of new routes, but the frozen one in
+  // someone's hand already passed it.
+  //
+  // An absent key rather than a nullable one — `cleared` is the absence of a
+  // reason, and the marker is present or it isn't. Keeping it optional also
+  // means a payload snapshotted offline before this shipped still parses.
+  notAVoterReason: NotAVoterReasonSchema.optional(),
 })
 
 export type RoutePayloadTarget = z.infer<typeof RoutePayloadTargetSchema>
