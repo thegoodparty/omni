@@ -95,6 +95,15 @@ export const RoutePayloadTargetSchema = z.object({
   // here" is a thing the card says out loud. Optional for the same reason
   // notAVoterReason above is — a payload snapshotted offline before this
   // shipped has to keep parsing on a phone that cannot refetch.
+  //
+  // Deliberately not `.default([])`, which reads like the safer form and is
+  // not: nothing parses this schema at runtime in either direction
+  // (ZodResponseInterceptor isn't registered globally and DoorKnockingController
+  // doesn't apply it, so serveRoute's @ResponseSchema is inert; the webapp's
+  // clientRequest casts ofetch's JSON without parsing). A default would fill in
+  // nothing and only promise the compiler a non-optional array, so a service
+  // worker's pre-ship snapshot would hand a `.map()` undefined with no type
+  // error. Optional keeps that decision at the call site. See ADR 0009.
   history: z.array(RouteTargetActivitySchema).optional(),
 })
 

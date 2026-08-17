@@ -151,10 +151,22 @@ one way in Contacts and another at the door.
   already patches the route query cache on record, and history is now part of
   what it patches. The re-serve agrees, so leaving and re-entering the walk
   does not drop it.
-- `history` is `.default([])` rather than required. A payload snapshotted
-  before this shipped still parses as an empty feed instead of failing
-  validation on a phone that is offline and cannot refetch — the same argument
-  that made `notAVoterReason` optional in ADR 0008.
+- `history` is `.optional()` rather than required or `.default([])`. The
+  server always sends the array, empty included, but nothing on this path
+  enforces that at runtime in either direction: `ZodResponseInterceptor` is not
+  registered globally and `DoorKnockingController` does not apply it, so the
+  `@ResponseSchema(DoorKnockingRoutePayloadSchema)` on `serveRoute` is inert
+  (the same inertness `websites.controller.ts` documents on its own handlers),
+  and on the client `clientRequest` casts ofetch's JSON to the contract type
+  without parsing it. `.default([])` therefore fills in nothing anywhere; it
+  only widens the inferred type to a non-optional array, which is precisely the
+  guarantee no code is left to make. A route snapshotted by the service worker
+  before this shipped has no `history` key, so on a phone that is offline and
+  cannot refetch, the non-optional type would hand a consumer `undefined` while
+  telling the compiler it had an array. `.optional()` keeps
+  `RouteTargetActivity[] | undefined` and makes the compiler force each call
+  site to say what an absent feed renders as — the same argument that made
+  `notAVoterReason` optional in ADR 0008.
 - Adding a channel to the CRM feed does not automatically add it here; the
   union names its variants. That is deliberate — `OUTREACH` is exactly the
   variant that must not be added without a key to join on.
