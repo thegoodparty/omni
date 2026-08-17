@@ -330,6 +330,10 @@ export default function NativeDoorKnockingPage({
     setFilters({})
     setStatusFilter(new Set())
     setClearDrawToken((token) => token + 1)
+    // Same reason, for the phone sheet: the rail is unmounted while the flow is
+    // open, so a sheet left pulled up on the way in would spring back over the
+    // map on the way out with nobody having asked for it.
+    setRailOpen(false)
   }
   const handleSaved = (drawAnother: boolean) => {
     // Clear the ring in the same batch: the canvas effect that emits null
@@ -344,10 +348,9 @@ export default function NativeDoorKnockingPage({
       setStartDrawToken((token) => token + 1)
       setDrawHintDismissed(false)
     } else {
-      setFlowStep(null)
-      setFilters({})
-      setStatusFilter(new Set())
-      setClearDrawToken((token) => token + 1)
+      // Saving the last list leaves by the same door as cancelling — one
+      // definition of "back on the landing map" rather than two that drift.
+      closeFlow()
     }
   }
 

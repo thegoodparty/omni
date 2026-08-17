@@ -343,6 +343,26 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
     expect(rail).not.toHaveClass('hidden')
   })
 
+  // The rail is unmounted for the whole create flow, so its open state is the
+  // one piece of landing-map state that would come back on its own — the sheet
+  // would spring up over the map the moment the flow closed.
+  it('leaves the sheet closed on the way out of the create flow', async () => {
+    renderPage()
+    await screen.findByText(/voters in your district with a mapped address/)
+
+    const handle = screen.getByRole('button', { name: /Lists and legend/ })
+    fireEvent.click(handle)
+    expect(handle).toHaveAttribute('aria-expanded', 'true')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create list' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close list creation' }))
+
+    expect(
+      screen.getByRole('button', { name: /Lists and legend/ }),
+    ).toHaveAttribute('aria-expanded', 'false')
+    expect(document.getElementById('door-knocking-rail')).toHaveClass('hidden')
+  })
+
   it('keeps the rail a column at lg however the sheet is set', async () => {
     renderPage()
     await screen.findByText('Elm St & 5th')
