@@ -282,3 +282,66 @@ describe('NativeDoorKnockingPage landing rail', () => {
     expect(chip('Support unknown', 2)).toBeInTheDocument()
   })
 })
+
+// Below lg the rail is a sheet over a full-bleed map instead of a 384px column
+// beside it, which on a 390px phone left the map about six pixels wide. The
+// two-pane desktop layout is the same markup at lg, so the toggle only ever
+// swaps a display class — it never unmounts the lists or the legend, and
+// nothing reads the viewport to decide what to render.
+describe('NativeDoorKnockingPage small-screen shell', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+  })
+
+  it('peeks the rail over the map and opens it in one tap', async () => {
+    renderPage()
+
+    const handle = await screen.findByRole('button', {
+      name: /Lists and legend/,
+    })
+    const rail = document.getElementById('door-knocking-rail')
+    expect(handle).toHaveAttribute('aria-expanded', 'false')
+    expect(rail).toHaveClass('hidden')
+    // Over the map on a phone, in the flex row on a desktop.
+    expect(handle.parentElement).toHaveClass('absolute', 'lg:static')
+
+    fireEvent.click(handle)
+
+    expect(handle).toHaveAttribute('aria-expanded', 'true')
+    expect(rail).toHaveClass('flex')
+    expect(rail).not.toHaveClass('hidden')
+  })
+
+  it('keeps the rail a column at lg however the sheet is set', async () => {
+    renderPage()
+    await screen.findByText('Elm St & 5th')
+
+    const handle = screen.getByRole('button', {
+      name: /Lists and legend/,
+    })
+    const rail = document.getElementById('door-knocking-rail')
+    expect(rail).toHaveClass('lg:flex')
+    // The sheet's handle is the phone affordance only; the desktop rail has
+    // nothing to expand.
+    expect(handle).toHaveClass('lg:hidden')
+    // Collapsed on a phone is still mounted, so the desktop pane renders the
+    // saved lists and the legend without touching the toggle.
+    expect(screen.getByText('Elm St & 5th')).toBeInTheDocument()
+    expect(chip('Supporter', 1)).toBeInTheDocument()
+  })
+
+  // Drawing a turf is repeated taps on a WebGL canvas, so the draw step needs
+  // the whole map at any width — the rail is not merely narrower there, it is
+  // gone, and the flow's own chrome is a click-through overlay.
+  it('gives the draw step the whole map', async () => {
+    renderPage()
+
+    await screen.findByText(/voters in your district with a mapped address/)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create list' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(document.getElementById('door-knocking-rail')).toBeNull()
+    expect(screen.getByTestId('voter-map')).toBeInTheDocument()
+  })
+})
