@@ -50,6 +50,17 @@ export default function TurfList({
           >
             {turf.name}
           </button>
+          {/* Paper without opening the walk first. Only a locked list has a
+              route to print, and the file is built by a route handler — so
+              this is a plain link, and costs this bundle nothing. */}
+          {turf.locked && (
+            <a
+              href={`/dashboard/door-knocking/print/${turf.id}/pdf`}
+              className="rounded-full border border-border px-3 py-1.5 text-xs font-medium underline-offset-2 hover:bg-muted/50 hover:underline"
+            >
+              PDF
+            </a>
+          )}
           <Button
             size="small"
             variant="outline"

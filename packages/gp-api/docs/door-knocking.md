@@ -140,8 +140,8 @@ free while a genuine reversal earns its own row.
 
 Suppression happens at evaluation (step 3 above), which a **frozen route
 has already passed** — so the serve payload also carries a live
-`doNotKnock` per target, and the walk view and printed sheet show a skip
-instead of a logging form. Deliberately not gated on Pro: the pilot's
+`doNotKnock` per target, and the walk view, the printed sheet and the
+downloadable PDF walk list all show a skip instead of a logging form. Deliberately not gated on Pro: the pilot's
 whole point is that a candidate can honor the request at the door.
 
 ## The pack (exploration map, step 2)
@@ -212,8 +212,9 @@ therefore no number — never one belonging to whoever lives there now. Blank an
 NULL are not used consistently in the voter file, so both are normalized to
 null.
 
-The webapp renders them in `PersonSheet` and **not** on the printed walk sheet;
-paper leaves the building and stops being access-controlled when it does.
+The webapp renders them in `PersonSheet` and **not** on either paper surface —
+the printed walk sheet or the downloadable PDF walk list; paper leaves the
+building and stops being access-controlled when it does.
 
 Voter **email** is absent data, not a decision: there is no email column on the
 `Voter` model and no field on the `Person` contract.

@@ -14,25 +14,7 @@ import {
   WILL_VOTE_QUESTION,
 } from '../native/knockQuestions'
 import { STATUS_LABELS } from '../native/statusPresentation'
-import { formatDistance } from '../native/routeFormat'
-import { countDoors, knockableTargets } from '../routeCounts'
-
-const formatDuration = (seconds: number): string => {
-  const minutes = Math.round(seconds / 60)
-  if (minutes < 60) return `${minutes} min`
-  return `${Math.floor(minutes / 60)} hr ${minutes % 60} min`
-}
-
-// Age and party are the two things a canvasser uses to open a conversation,
-// and they're the only enrichment worth the ink.
-const describeTarget = (target: RoutePayloadTarget): string =>
-  [
-    target.age === null ? null : `${target.age}`,
-    target.politicalParty,
-    target.mayHaveMoved ? 'may have moved' : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
+import { describeTarget, formatDuration, walkSummary } from './walkFacts'
 
 // An empty square to tick. Printers drop background colors by default, so
 // every mark on this page has to be a border or text.
@@ -168,6 +150,7 @@ const StopBlock = ({ stop }: { stop: RoutePayloadStop }) => {
 }
 
 interface WalkSheetProps {
+  turfId: string
   turfName: string
   payload: DoorKnockingRoutePayload
 }
@@ -177,16 +160,12 @@ interface WalkSheetProps {
 // deliberately a server component with no interactivity — a canvasser hitting
 // this URL on a phone with one bar should get a printable page, not a
 // hydration wait.
-export default function WalkSheet({ turfName, payload }: WalkSheetProps) {
+export default function WalkSheet({
+  turfId,
+  turfName,
+  payload,
+}: WalkSheetProps) {
   const stops = payload.stops.slice().sort((a, b) => a.seq - b.seq)
-  // Doors, not people: this used to sum targets, so a sheet for the same route
-  // the app called "40 doors" printed a larger number in its own header.
-  const doorCount = countDoors(stops)
-  // ADR 0007. The header is what someone budgets their evening against, so it
-  // counts conversations that can actually happen — a flagged resident is a name
-  // on the page below, not one of them. Doors stay as-is: a household is
-  // normally only part-flagged, and the door is still walked past either way.
-  const personCount = knockableTargets(stops).length
 
   return (
     <div className="mx-auto max-w-3xl bg-white p-6 text-black print:max-w-none print:p-0">
@@ -199,17 +178,27 @@ export default function WalkSheet({ turfName, payload }: WalkSheetProps) {
           the list in the app and log each door — nothing on paper reaches your
           voter records on its own.
         </p>
+        {/* A plain link, not a button: the file is built by a route handler, so
+            downloading it costs this page no JavaScript at all and works with
+            scripting off. */}
+        <p className="mt-2">
+          <a
+            href={`/dashboard/door-knocking/print/${turfId}/pdf`}
+            className="font-semibold underline underline-offset-2"
+          >
+            Download PDF
+          </a>{' '}
+          for a landscape grid with a row per resident — easier to fill in on a
+          clipboard, and the version to hand a volunteer.
+        </p>
       </div>
 
       <header className="mb-3 border-b-2 border-black pb-2">
         <h1 className="text-lg font-bold">{turfName}</h1>
-        <p className="text-xs">
-          {stops.length} stops · {doorCount} doors · {personCount} people ·{' '}
-          {payload.route.mode === 'walk' ? 'Walking' : 'Driving'}
-          {payload.route.loop ? ' loop' : ''} ·{' '}
-          {formatDuration(payload.route.totalSeconds)} ·{' '}
-          {formatDistance(payload.route.totalMeters)}
-        </p>
+        {/* Stops, doors and people are three different numbers, and the PDF
+            quotes the same sentence from the same helper — the app and the
+            paper have reported different door counts for one route before. */}
+        <p className="text-xs">{walkSummary(stops, payload.route)}</p>
         {/* Deliberately no printed date. This renders in Node, whose clock is
             UTC, so an evening print anywhere in the US would be stamped
             tomorrow — and formatting it as UTC only makes the wrong date a
