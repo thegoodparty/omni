@@ -22,6 +22,8 @@ import {
   PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE,
 } from '../../../vendors/peerly/services/peerly.const'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
+import { AnalyticsService } from 'src/analytics/analytics.service'
+import { EVENTS } from '../../../vendors/segment/segment.types'
 import { PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES } from './campaignTcrCompliance.service'
 import { Nightly10DlcReportService } from './nightly10DlcReport.service'
 
@@ -156,6 +158,7 @@ describe('Nightly10DlcReportService', () => {
     retrieveCampaignVerifyStatus: ReturnType<typeof vi.fn>
     getIdentityProfile: ReturnType<typeof vi.fn>
   }
+  let mockAnalytics: { track: ReturnType<typeof vi.fn> }
 
   beforeEach(async () => {
     mockQueue = { sendMessage: vi.fn().mockResolvedValue(undefined) }
@@ -174,6 +177,7 @@ describe('Nightly10DlcReportService', () => {
       retrieveCampaignVerifyStatus: vi.fn().mockResolvedValue(null),
       getIdentityProfile: vi.fn().mockResolvedValue(null),
     }
+    mockAnalytics = { track: vi.fn().mockResolvedValue(undefined) }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -188,6 +192,7 @@ describe('Nightly10DlcReportService', () => {
         { provide: QueueProducerService, useValue: mockQueue },
         { provide: SlackService, useValue: mockSlack },
         { provide: PeerlyIdentityService, useValue: mockPeerlyIdentity },
+        { provide: AnalyticsService, useValue: mockAnalytics },
         { provide: PinoLogger, useValue: createMockLogger() },
         Nightly10DlcReportService,
       ],
@@ -612,6 +617,90 @@ describe('Nightly10DlcReportService', () => {
           peerlyCvStatusChangedAt: expect.any(Date),
         },
       })
+    })
+
+    // A CV rejected/withdrawn after submission never gets a PIN. Without the
+    // terminal transition the record matches neither the rejected section
+    // (`status` still `submitted`) nor the CV-in-flight query, so it goes
+    // invisible to every report section.
+    const rejectedPollRecord = () =>
+      pollRecord({
+        peerlyCvStatus: PeerlyCvVerificationStatus.IN_REVIEW,
+        campaign: {
+          id: 900,
+          slug: 'poll-camp',
+          isPro: true,
+          data: { hubspotId: 'hs-900' },
+          user: { id: 77 },
+        },
+      })
+
+    it.each([
+      [PeerlyCvVerificationStatus.REJECTED],
+      [PeerlyCvVerificationStatus.WITHDRAWN],
+    ])(
+      'stamps the terminal rejected status and fires the event once for %s',
+      async (cvStatus) => {
+        mockModel.findMany.mockResolvedValueOnce([rejectedPollRecord()])
+        mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
+          cvStatus,
+        )
+
+        await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+        expect(mockModel.updateMany).toHaveBeenCalledExactlyOnceWith({
+          where: {
+            id: 'tcr-poll',
+            status: { not: TcrComplianceStatus.rejected },
+          },
+          data: { status: TcrComplianceStatus.rejected },
+        })
+        expect(mockAnalytics.track).toHaveBeenCalledExactlyOnceWith(
+          77,
+          EVENTS.Outreach.ComplianceRejected,
+          {
+            rejection_source: 'cv_status_check',
+            peerly_identity_id: 'ident-900',
+            company_hubspot_id: 'hs-900',
+          },
+        )
+        // The observed CV status is still persisted so the rejected section
+        // and the candidate-facing state can say why.
+        expect(mockModel.update).toHaveBeenCalledExactlyOnceWith({
+          where: { id: 'tcr-poll' },
+          data: {
+            peerlyCvStatus: cvStatus,
+            peerlyCvStatusChangedAt: expect.any(Date),
+            cvInReviewEscalatedAt: null,
+          },
+        })
+      },
+    )
+
+    it('does not re-fire the rejection event when the claim was already taken', async () => {
+      mockModel.updateMany.mockResolvedValue({ count: 0 })
+      mockModel.findMany.mockResolvedValueOnce([rejectedPollRecord()])
+      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
+        PeerlyCvVerificationStatus.REJECTED,
+      )
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      expect(mockAnalytics.track).not.toHaveBeenCalled()
+    })
+
+    it('leaves a still-in-flight CV status alone', async () => {
+      mockModel.findMany.mockResolvedValueOnce([
+        pollRecord({ peerlyCvStatus: PeerlyCvVerificationStatus.REQUESTED }),
+      ])
+      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
+        PeerlyCvVerificationStatus.IN_REVIEW,
+      )
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      expect(mockModel.updateMany).not.toHaveBeenCalled()
+      expect(mockAnalytics.track).not.toHaveBeenCalled()
     })
 
     it('does not call getProfile for a non-VERIFIED CV status', async () => {

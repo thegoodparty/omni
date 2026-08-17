@@ -16,8 +16,11 @@ import {
   Prisma,
   TcrCompliance,
   TcrComplianceStatus,
+  User,
 } from '../../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { AnalyticsService } from 'src/analytics/analytics.service'
+import { EVENTS } from '../../../vendors/segment/segment.types'
 import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
 import {
   MessageGroup,
@@ -109,6 +112,12 @@ export const reportableCampaign = {
 
 type RecordWithCampaign = TcrCompliance & { campaign: Campaign }
 
+// The poll additionally needs the owner: a CV that flipped to
+// REJECTED/WITHDRAWN fires the rejection event, which is keyed by user.
+type PollRecord = TcrCompliance & {
+  campaign: Campaign & { user: User | null }
+}
+
 type ReportSection = {
   title: string
   lines: string[]
@@ -169,6 +178,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
     private readonly queueService: QueueProducerService,
     private readonly slack: SlackService,
     private readonly peerlyIdentityService: PeerlyIdentityService,
+    private readonly analytics: AnalyticsService,
   ) {
     super()
   }
@@ -229,7 +239,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
           in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
         },
       },
-      include: { campaign: true },
+      include: { campaign: { include: { user: true } } },
       // Oldest-touched first so records past the per-run poll cap (see
       // pollPeerlyStatuses) get their turn on a later night.
       orderBy: { updatedAt: Prisma.SortOrder.asc },
@@ -774,7 +784,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
   // race this one's (the FIFO deduplicationId only covers the enqueue).
   // Oldest records poll first (query orders by updatedAt asc), so records
   // past the cap get their turn on a later night.
-  private async pollPeerlyStatuses(records: RecordWithCampaign[]) {
+  private async pollPeerlyStatuses(records: PollRecord[]) {
     const capped = records.slice(0, POLL_RECORD_CAP)
     if (records.length > POLL_RECORD_CAP) {
       this.logger.warn(
@@ -795,7 +805,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
     }
   }
 
-  private async pollRecordStatus(record: RecordWithCampaign) {
+  private async pollRecordStatus(record: PollRecord) {
     const { peerlyIdentityId } = record
     if (!peerlyIdentityId) {
       return
@@ -810,6 +820,41 @@ export class Nightly10DlcReportService extends createPrismaBase(
         record.campaign,
         { suppressSlackAlert: true },
       )
+
+    // A CV that flipped to REJECTED or WITHDRAWN never yields a PIN, so the
+    // record has to leave the in-flight set and land in the report's rejected
+    // section — otherwise it matches neither that section (`status` still
+    // `submitted`) nor the CV-in-flight query, and goes invisible.
+    // `sweepPinDeliveryDetection` performs the same transition but only for
+    // records with no `pinDeliveryMethod` yet, so a CV withdrawn after the PIN
+    // went out is observable here and nowhere else. TcrComplianceStatus has no
+    // withdrawn value; rejected is the terminal mapping and keeps the record
+    // retryable via createAgentic. Claimed atomically so the rejection event
+    // fires once across both pollers.
+    if (
+      cvStatus === PeerlyCvVerificationStatus.REJECTED ||
+      cvStatus === PeerlyCvVerificationStatus.WITHDRAWN
+    ) {
+      const rejectedClaim = await this.model.updateMany({
+        where: {
+          id: record.id,
+          status: { not: TcrComplianceStatus.rejected },
+        },
+        data: { status: TcrComplianceStatus.rejected },
+      })
+      const { user, data: campaignData } = record.campaign
+      if (rejectedClaim.count > 0 && user) {
+        void this.analytics
+          .track(user.id, EVENTS.Outreach.ComplianceRejected, {
+            rejection_source: 'cv_status_check',
+            peerly_identity_id: peerlyIdentityId,
+            ...(campaignData.hubspotId
+              ? { company_hubspot_id: campaignData.hubspotId }
+              : {}),
+          })
+          .catch(() => undefined)
+      }
+    }
 
     const data: Prisma.TcrComplianceUpdateInput = {}
     if (cvStatus !== record.peerlyCvStatus) {

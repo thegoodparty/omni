@@ -341,6 +341,42 @@ describe('EnterPin — submit flow', () => {
     expect(router.push).not.toHaveBeenCalled()
   })
 
+  it('409 response: re-reads the CV status and replaces the form with the in-progress notice', async () => {
+    const user = userEvent.setup()
+    mockGetTcrCompliance.mockResolvedValue(tcrWith('submitted'))
+    // The gate's cached status is stale: it still says APPROVED, so the form
+    // renders, but CampaignVerify has since moved the CV back to IN_REVIEW —
+    // which is exactly what the server's 409 reports.
+    mockGetComplianceState.mockResolvedValue(
+      stateWith(PeerlyCvVerificationStatus.APPROVED),
+    )
+
+    api.mock(
+      'POST /v1/campaigns/tcr-compliance/:tcrComplianceId/submit-cv-pin',
+      { status: 409, data: { message: "CampaignVerify hasn't issued a PIN" } },
+    )
+
+    render(<EnterPin />)
+    await waitFor(() => expect(getDigitInputs()).toHaveLength(6))
+
+    mockGetComplianceState.mockResolvedValue(
+      stateWith(PeerlyCvVerificationStatus.IN_REVIEW),
+    )
+
+    await fillPin(user, '123456')
+    await user.click(screen.getByRole('button', { name: /submit/i }))
+
+    // The 409 invalidation re-fetches the gate query, so the form the
+    // candidate cannot satisfy goes away instead of sitting next to an error
+    // telling them there is nothing to submit.
+    await waitFor(() => expect(getDigitInputs()).toHaveLength(0))
+    expect(
+      screen.getByText(/your registration is being verified/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /submit/i })).toBeNull()
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
   it('500 response: renders generic verify error (does not claim PIN mismatch)', async () => {
     const user = userEvent.setup()
     mockGetTcrCompliance.mockResolvedValue(tcrWith('submitted'))

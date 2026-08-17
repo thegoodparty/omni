@@ -192,6 +192,14 @@ single-class `sweepStuckPeerlySubmissions` hourly digest (and its
     one does write, which bumps `updatedAt` too: **no report section may
     measure an age from `updatedAt`**, since any write to the row resets it
     (see the ENG-10866 clock note below).
+  - An observed `REJECTED`/`WITHDRAWN` CV also stamps the terminal
+    `status = rejected` (atomic claim) and fires `ComplianceRejected`
+    (`rejection_source: cv_status_check`) once, mirroring
+    `sweepPinDeliveryDetection`. That sweep only covers records with no
+    `pinDeliveryMethod` yet, so a CV withdrawn _after_ the PIN went out is
+    observable here and nowhere else — and without the transition such a
+    record matches neither the rejected section (`status` still `submitted`)
+    nor the CV-in-flight query, going invisible to the whole report.
   - Paced with the same `PEERLY_CV_READ_SPACING_MS` + sleep pattern as
     `sweepPinDeliveryDetection`. Each record's poll is wrapped individually —
     a thrown Peerly error logs + skips that record (keeping its stored
