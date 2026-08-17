@@ -137,4 +137,45 @@ describe('ActivityFeedCard', () => {
     expect(rendered.getByText('Robocall')).toBeInTheDocument()
     expect(rendered.getByText('No answer')).toBeInTheDocument()
   })
+
+  // Leaving the walk in the same tab unmounts WalkView, and with it the
+  // per-target replay keys that let a retried knock upsert rather than
+  // duplicate. Everything else that leaves this page opens a new tab.
+  it('offers no navigation out of the walk for outreach-linked rows', () => {
+    render(
+      <ActivityFeedCard
+        history={[
+          {
+            type: 'TEXT',
+            date: '2026-08-09T15:00:00.000Z',
+            data: {
+              activityId: 'tx-1',
+              respondedAt: null,
+              optedOutAt: null,
+              note: null,
+              manual: false,
+              outreachId: 412,
+            },
+          },
+          {
+            type: 'ROBOCALL',
+            date: '2026-08-08T15:00:00.000Z',
+            data: {
+              activityId: 'rc-1',
+              answeredAt: null,
+              voicemailLeftAt: null,
+              note: null,
+              manual: false,
+              outreachId: 412,
+            },
+          },
+        ]}
+      />,
+    )
+    const rendered = within(card())
+
+    expect(rendered.getByText('Text')).toBeInTheDocument()
+    expect(rendered.getByText('Robocall')).toBeInTheDocument()
+    expect(rendered.queryByRole('link')).toBeNull()
+  })
 })

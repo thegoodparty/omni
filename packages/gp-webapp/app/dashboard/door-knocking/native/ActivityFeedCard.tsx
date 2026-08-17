@@ -25,6 +25,33 @@ import {
 // the same house corroborating each other, in two different registers; one
 // event logged twice is what it would look like if the hint were forced into
 // the feed as a row.
+// The door's feed carries no navigation. `TextActivityRow` and
+// `RobocallActivityRow` render a "View outreach" link whenever `outreachId` is
+// set — the common case for a campaign text — and at a desk that is right,
+// while mid-walk it is a same-tab route change out of the walk. Everything
+// else that leaves this page opens in a new tab for that reason (the printed
+// sheet, Open in Maps), because unmounting `WalkView` discards the per-target
+// replay keys that let a retried knock upsert instead of duplicating.
+//
+// Dropping the id here rather than adding a prop to the shared row keeps the
+// Contacts view exactly as it was; the linked entry is one tap away there. The
+// id is presentational in these rows and nothing else on this surface reads
+// it, so this narrows what is drawn without inventing anything.
+// Narrowed one variant at a time: a combined `TEXT || ROBOCALL` test widens
+// `data` back to the union and the spread stops type-checking.
+const withoutOutreachLinks = (
+  activity: RouteTargetActivity,
+): RouteTargetActivity => {
+  switch (activity.type) {
+    case 'TEXT':
+      return { ...activity, data: { ...activity.data, outreachId: null } }
+    case 'ROBOCALL':
+      return { ...activity, data: { ...activity.data, outreachId: null } }
+    default:
+      return activity
+  }
+}
+
 export default function ActivityFeedCard({
   history,
 }: {
@@ -45,7 +72,7 @@ export default function ActivityFeedCard({
             No previous outreach to this resident.
           </p>
         ) : (
-          history.map((activity) => {
+          history.map(withoutOutreachLinks).map((activity) => {
             switch (activity.type) {
               case 'DOOR_KNOCK':
                 return (
