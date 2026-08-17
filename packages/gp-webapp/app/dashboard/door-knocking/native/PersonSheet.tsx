@@ -12,6 +12,7 @@ import DoorScript from './DoorScript'
 import { useDoorScript } from './useDoorScript'
 import DoNotKnockControl from './DoNotKnockControl'
 import NotAVoterControl from './NotAVoterControl'
+import ActivityFeedCard from './ActivityFeedCard'
 import {
   STATUS_DOT_COLORS,
   STATUS_LABELS,
@@ -239,6 +240,30 @@ export default function PersonSheet({
               ))}
             </div>
           </section>
+
+          {/* ADR 0009. Scoped to `target`, so switching resident switches the
+              feed — two people behind one door disagree, and attributing a
+              housemate's refusal to whoever answered is worse than showing
+              nothing.
+
+              Here in the scrolling body with the other reference cards, not in
+              the footer with the script and the form. That is what makes it
+              survive a flag: the footer is the acting half of the sheet and is
+              withheld for a do-not-knock or not-a-voter resident, while this
+              half describes the person and always renders. Deliberate, not
+              incidental — the feed is the only place the flag's own
+              STATUS_CHANGE row appears, naming who set it and when. Withholding
+              it on flagged residents would hide the provenance of the flag from
+              exactly the person standing there wondering whether it is right,
+              and a mis-tapped do-not-knock would then be unfalsifiable from the
+              door. Suppressing the form stops a knock; suppressing the history
+              stops someone noticing a mistake.
+
+              Being outside the footer fragment is also why it carries no key:
+              it has no mutating siblings to collide with. Moving it in there
+              would need one namespaced like `not-a-voter-` and `do-not-knock-`
+              are. */}
+          <ActivityFeedCard history={target.history ?? []} />
         </div>
 
         <div className="flex flex-col gap-3 border-t border-border p-4">

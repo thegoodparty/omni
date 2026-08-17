@@ -151,6 +151,16 @@ a canvasser a refusal belonging to the housemate who isn't standing there.
 person per source), because route serve runs on every walk and map open and
 must not scale with how much outreach the campaign has ever run.
 
+`PersonSheet` draws it as an `ActivityFeedCard` in the sheet's scrolling body,
+beside Contact information and Household rather than in the footer with the
+script and the log form. That placement is what keeps it visible for a resident
+flagged do-not-knock or not-a-voter, whose footer is withheld: the feed carries
+the flag's own `STATUS_CHANGE` row, so hiding it would hide who set the flag
+and when from the one person positioned to notice it was set on the wrong
+resident. One live gap — a knock logged during the walk does not join that
+resident's feed until the next serve; see ADR 0009's consequences for why the
+fix belongs in `RecordKnockForm`/`WalkView` rather than the card.
+
 ## Do-not-knock
 
 `POST /v1/door-knocking/do-not-knock` — see

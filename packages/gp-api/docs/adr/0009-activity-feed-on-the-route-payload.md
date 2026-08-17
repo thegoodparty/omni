@@ -147,10 +147,19 @@ one way in Contacts and another at the door.
 - The 100-stop payload grows 24.4 KB → 42.9 KB gzip worst case, ~29 KB at
   realistic coverage. Route serve costs four more index-served queries, run in
   the same `Promise.all` as the three status reads already there.
-- A knock logged mid-walk appears in the feed with no refetch: `WalkView`
-  already patches the route query cache on record, and history is now part of
-  what it patches. The re-serve agrees, so leaving and re-entering the walk
-  does not drop it.
+- **A knock logged mid-walk does not appear in that resident's own feed until
+  the route is served again.** `WalkView.patchPerson` writes the recorded
+  `knockStatus` into the route query cache and nothing else, so the status
+  everywhere else in the walk updates immediately while the feed keeps showing
+  what the payload was served with. The gap is in the callback, not the cache:
+  `RecordKnockForm` reports `onRecorded(personId, knockStatus)`, and
+  `knockStatus` is the *derived* rollup, not the `outcome`/`supportAnswer`/
+  `note`/`id` a `DOOR_KNOCK` row is made of. Closing this means widening that
+  callback to carry the created interaction and appending it in `patchPerson` —
+  a change to `RecordKnockForm` and `WalkView`, not to the card. Reconstructing
+  a row from `knockStatus` alone is the wrong fix: it would print an outcome
+  nobody chose, in a second vocabulary, that the next serve then silently
+  rewrites.
 - `history` is `.optional()` rather than required or `.default([])`. The
   server always sends the array, empty included, but nothing on this path
   enforces that at runtime in either direction: `ZodResponseInterceptor` is not
