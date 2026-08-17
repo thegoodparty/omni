@@ -107,6 +107,12 @@ export function useStreamingTurn(
   // Synchronous guard so a fast double-submit can't start two turns before the
   // async setSending re-renders.
   const sendingRef = useRef(false)
+  // The in-flight turn's controller, so unmount can free the stream. Without
+  // this a surface that unmounts mid-turn (a drawer closing, a step swapping)
+  // leaves the fetch running until the server finishes; a hung stream leaks
+  // until GC. Aborting on unmount is what stops it.
+  const abortRef = useRef<AbortController | null>(null)
+  useEffect(() => () => abortRef.current?.abort(), [])
   const { visibleSegments, revealedRef } = useSmoothReveal(
     liveSegments,
     sending,
@@ -166,6 +172,7 @@ export function useStreamingTurn(
 
       let errorSeen = false
       const abortController = new AbortController()
+      abortRef.current = abortController
       let stalled = false
       // Whether the server signaled a finished turn. Without it the turn may
       // still be generating server-side, so the commit poll waits much longer.
@@ -322,11 +329,16 @@ export function useStreamingTurn(
           }
         }
       } catch {
-        scope.onError?.('Something went wrong. Please try again.')
+        // An intentional abort (unmount, or a fresh turn superseding this one)
+        // is not a failure to report — the surface is gone or moving on.
+        if (!abortController.signal.aborted) {
+          scope.onError?.('Something went wrong. Please try again.')
+        }
       } finally {
         // Free the underlying stream/fetch (a no-op after a clean finish; frees
         // the socket when we bailed on a stall).
         abortController.abort()
+        if (abortRef.current === abortController) abortRef.current = null
         setLiveSegments([])
         scope.onTurnSettle?.()
         sendingRef.current = false
