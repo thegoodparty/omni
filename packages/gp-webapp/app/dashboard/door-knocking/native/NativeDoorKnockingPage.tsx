@@ -311,6 +311,10 @@ export default function NativeDoorKnockingPage({
         queryKey: voterPackQueryOptions.queryKey,
       })
     }
+    // The walk replaces the rail outright, so this is the other way a phone
+    // sheet gets stranded open: come back from a walk and it would spring up
+    // over the map. Same reset as closeFlow, same reason.
+    setRailOpen(false)
   }
 
   const changeFlowStep = (next: CreateFlowStep) => {

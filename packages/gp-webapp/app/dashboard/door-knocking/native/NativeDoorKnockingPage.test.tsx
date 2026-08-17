@@ -100,14 +100,30 @@ vi.mock('app/dashboard/shared/useDistrictResolution', () => ({
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => null,
 }))
-vi.mock('./useWalkSession', () => ({
-  useWalkSession: () => ({
-    turf: null,
-    start: vi.fn(),
-    end: vi.fn(),
-    recordDoor: vi.fn(),
-  }),
-}))
+// Real state rather than a null stub: the walk swaps the rail out for
+// WalkView, so anything the page has to reset on the way back needs a session
+// the test can actually start and end.
+vi.mock('./useWalkSession', async () => {
+  const { useState } = await import('react')
+  return {
+    useWalkSession: () => {
+      const [walkedTurf, setWalkedTurf] = useState<{
+        id: number
+        name: string
+      } | null>(null)
+      return {
+        turf: walkedTurf,
+        start: (started: { id: number; name: string }) =>
+          setWalkedTurf(started),
+        end: () => {
+          setWalkedTurf(null)
+          return 0
+        },
+        recordDoor: vi.fn(),
+      }
+    },
+  }
+})
 
 // A ring around dot 0 only, so person 3 falls outside the list.
 const turf: DoorKnockingTurf = {
@@ -356,6 +372,37 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Create list' }))
     fireEvent.click(screen.getByRole('button', { name: 'Close list creation' }))
+
+    expect(
+      screen.getByRole('button', { name: /Lists and legend/ }),
+    ).toHaveAttribute('aria-expanded', 'false')
+    expect(document.getElementById('door-knocking-rail')).toHaveClass('hidden')
+  })
+
+  // The walk replaces the rail outright, so it strands the sheet the same way
+  // the create flow does — and a canvasser coming back from a walk is looking
+  // at the map, not asking for half of it back.
+  it('leaves the sheet closed on the way back from a walk', async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [{ ...turf, locked: true }],
+    })
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+    api.mock('GET /v1/door-knocking/turfs/:id/route', { status: 500 })
+    render(
+      <NativeDoorKnockingPage
+        pathname="/dashboard/door-knocking"
+        campaign={null}
+      />,
+    )
+    await screen.findByText('Elm St & 5th')
+
+    fireEvent.click(screen.getByRole('button', { name: /Lists and legend/ }))
+    // A locked turf goes straight into its saved route, no confirm dialog.
+    fireEvent.click(screen.getByRole('button', { name: 'Knock' }))
+    expect(document.getElementById('door-knocking-rail')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to the map' }))
 
     expect(
       screen.getByRole('button', { name: /Lists and legend/ }),
