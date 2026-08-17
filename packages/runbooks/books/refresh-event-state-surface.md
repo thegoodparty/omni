@@ -71,7 +71,10 @@ case-insensitively.
   would change. Unchanged states are skipped, so a quiet week produces no task notifications.
   In CI every id but the API key is inlined in `analytics-governance.yml`'s job `env:` — they
   are not secrets, and gating the loop on seven admin-set repo variables is what stalled
-  DATA-2069. Set them locally in `scripts/.env` for a laptop run.
+  DATA-2069. The key comes from the existing `secrets.CLICKUP_API_TOKEN`, mapped onto the
+  `CLICKUP_API_KEY` name `clickup_api.py` reads. Set it locally in `scripts/.env` for a laptop
+  run; note `clickup_api.py` loads that file without `override=True`, so an empty
+  `CLICKUP_API_KEY` exported by your shell silently wins over it.
 - `uv run python question_intake.py` — reads the list into the registry.
   `GP_QUESTIONS_LIST_ID` + `CLICKUP_API_KEY`; `--dry-run` counts what it would add. It refuses
   to write on top of an invalid `behaviors:` block and exits non-zero listing every problem.

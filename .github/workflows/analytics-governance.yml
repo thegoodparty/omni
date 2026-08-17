@@ -57,10 +57,12 @@ jobs:
       # browse link falls back to the sheet's default tab (DATA-2151 Phase 3).
       GP_GAPS_TAB_GID: ${{ vars.GP_GAPS_TAB_GID }}
       # ClickUp object ids for the Analytics Questions list, inline rather than
-      # repo variables: they are not secrets (useless without CLICKUP_API_KEY),
+      # repo variables: they are not secrets (useless without the API token),
       # and making seven admin-only settings the price of the loop starting is
       # what stalled DATA-2069. The vars. lookups stay as an override so the
-      # list can be repointed without a deploy.
+      # list can be repointed without a deploy. The token itself is the existing
+      # secrets.CLICKUP_API_TOKEN, mapped to the CLICKUP_API_KEY name clickup_api.py
+      # reads.
       GP_QUESTIONS_LIST_ID: ${{ vars.GP_QUESTIONS_LIST_ID || '901328192602' }}
       GP_QUESTIONS_STATE_FIELD_ID: ${{ vars.GP_QUESTIONS_STATE_FIELD_ID || 'a70134c2-467d-4f9e-b14f-1530d796c35f' }}
       GP_QUESTIONS_CHECKED_FIELD_ID: ${{ vars.GP_QUESTIONS_CHECKED_FIELD_ID || 'e85b0387-00a5-4e24-9fed-08453ffcb7b3' }}
@@ -154,7 +156,7 @@ jobs:
       - name: Question intake
         working-directory: packages/runbooks/scripts/python
         env:
-          CLICKUP_API_KEY: ${{ secrets.CLICKUP_API_KEY }}
+          CLICKUP_API_KEY: ${{ secrets.CLICKUP_API_TOKEN }}
         run: |
           set -euo pipefail
           if [ -z "${CLICKUP_API_KEY:-}" ] || [ -z "${GP_QUESTIONS_LIST_ID:-}" ]; then
@@ -222,7 +224,7 @@ jobs:
       - name: Question answer-state write-back
         working-directory: packages/runbooks/scripts/python
         env:
-          CLICKUP_API_KEY: ${{ secrets.CLICKUP_API_KEY }}
+          CLICKUP_API_KEY: ${{ secrets.CLICKUP_API_TOKEN }}
         run: |
           set -euo pipefail
           # Skip while ANY of the seven ids is missing (in practice only the API key can be
