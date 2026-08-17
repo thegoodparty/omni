@@ -83,6 +83,42 @@ describe('useTotalConstituentsWithCellPhone — district gate', () => {
     expect(result.current.isUnavailable).toBe(true)
   })
 
+  // A 5xx is not a permanent data gap, so it must not be swallowed as one:
+  // retry first, and label it distinctly if it never recovers.
+  it('retries a transient failure instead of treating it as a data gap', async () => {
+    let attempts = 0
+    api.mock('GET /v1/contacts/stats', () => {
+      attempts += 1
+      return attempts === 1
+        ? { status: 503, data: { message: 'upstream unavailable' } }
+        : { status: 200, data: statsResponse }
+    })
+
+    const { result } = renderHook(() => useTotalConstituentsWithCellPhone(), {
+      wrapper,
+    })
+    await vi.waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(attempts).toBeGreaterThan(1)
+    expect(result.current.isUnavailable).toBe(false)
+  })
+
+  it('labels an unrecovered transient failure separately from a data gap', async () => {
+    api.mock('GET /v1/contacts/stats', {
+      status: 503,
+      data: { message: 'upstream unavailable' },
+    })
+
+    const { result } = renderHook(() => useTotalConstituentsWithCellPhone(), {
+      wrapper,
+    })
+    await vi.waitFor(() => expect(result.current.isError).toBe(true), {
+      timeout: 5000,
+    })
+
+    expect(result.current.unavailableReason).toBe('stats_error')
+  })
+
   // The district resolves, so the predicate says available — the missing
   // DistrictStats row only shows up in the response.
   it('reports unavailable when a resolvable district has no stats', async () => {

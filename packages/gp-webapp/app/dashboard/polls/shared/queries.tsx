@@ -1,5 +1,8 @@
 import { queryOptions, useQuery } from '@tanstack/react-query'
+import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
+import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
+import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from 'app/dashboard/contacts/crm/shared/constants'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 
 export type ContactStatsBucket = {
@@ -27,28 +30,39 @@ export const districtStatsQueryOptions = queryOptions({
   queryKey: ['contacts-stats'],
   queryFn: () =>
     clientRequest('GET /v1/contacts/stats', {}).then((res) => res.data),
-  // The unavailable states below are permanent for the org, not transient, so
-  // the global retry:2 default just triples a request we know will fail.
-  retry: false,
+  // VOTER_DATA_UNAVAILABLE is permanent for the org, so the global retry:2
+  // just triples a request that can never succeed. Everything else (5xx, a
+  // dropped connection) is transient and keeps the default retries.
+  retry: (failureCount, error) =>
+    !isVoterDataUnavailable(error) && failureCount < 2,
 })
 
-// Which of the two failures blocked the user. Reported on the block's
-// analytics event so the two populations stay separable: an unresolvable
-// district is usually a write-in office name (fixable by the user), while a
-// missing DistrictStats row is our data gap (fixable only by us).
+const isVoterDataUnavailable = (error: unknown): boolean =>
+  error instanceof FetchError &&
+  extractApiErrorInfo(error.data).errorCode ===
+    VOTER_DATA_UNAVAILABLE_ERROR_CODE
+
+// Why the user is blocked. Reported on the block's analytics event so the
+// populations stay separable: an unresolvable district is usually a write-in
+// office name (fixable by the user), a missing DistrictStats row is our data
+// gap, and `stats_error` is neither — a request that kept failing, which we
+// still have to block on because the flow can't price an unknown audience.
 export type DistrictStatsUnavailableReason =
   | 'unresolvable_district'
   | 'stats_unavailable'
+  | 'stats_error'
 
 export const districtStatsUnavailableReason = (
   isUnresolvable: boolean,
-  isError: boolean,
+  error: unknown,
 ): DistrictStatsUnavailableReason | null =>
   isUnresolvable
     ? 'unresolvable_district'
-    : isError
-      ? 'stats_unavailable'
-      : null
+    : !error
+      ? null
+      : isVoterDataUnavailable(error)
+        ? 'stats_unavailable'
+        : 'stats_error'
 
 // `isUnresolvable` only *predicts* that constituent data is missing, from the
 // org having no district. A district that resolves but has no DistrictStats
@@ -64,7 +78,7 @@ export const useDistrictStats = () => {
   })
   const unavailableReason = districtStatsUnavailableReason(
     isUnresolvable,
-    query.isError,
+    query.error,
   )
 
   return { ...query, isUnavailable: !!unavailableReason, unavailableReason }

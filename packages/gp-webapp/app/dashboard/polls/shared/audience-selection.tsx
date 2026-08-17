@@ -26,7 +26,7 @@ export const useTotalConstituentsWithCellPhone = () => {
 
   const unavailableReason = districtStatsUnavailableReason(
     isUnresolvable,
-    query.isError,
+    query.error,
   )
 
   return { ...query, isUnavailable: !!unavailableReason, unavailableReason }
