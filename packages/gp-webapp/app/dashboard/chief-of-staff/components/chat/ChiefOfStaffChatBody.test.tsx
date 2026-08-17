@@ -272,11 +272,12 @@ describe('<ChiefOfStaffChatBody>', () => {
     await user.type(screen.getByLabelText(/ask a question/i), 'go')
     await user.click(screen.getByRole('button', { name: /send/i }))
 
-    // A prefix appears first (the smooth reveal types the chunk out) before the
-    // whole thing lands — proving it isn't dumped in one paint. Asserting the
-    // full text is "not yet present" mid-reveal is timing-fragile under load, so
-    // gate on the prefix-then-full ordering instead.
+    // A prefix appears first (the smooth reveal types the chunk out) but the
+    // full text is NOT dumped in one paint. The negative assertion is what
+    // distinguishes a real gradual reveal from an immediate dump — `/^word/`
+    // alone also matches the full string, so it can't tell them apart.
     await waitFor(() => expect(screen.getByText(/^word/)).toBeInTheDocument())
+    expect(screen.queryByText(long)).not.toBeInTheDocument()
     await waitFor(() => expect(screen.getByText(long)).toBeInTheDocument(), {
       timeout: 6000,
     })
