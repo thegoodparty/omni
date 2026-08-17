@@ -93,10 +93,12 @@ interface Props {
    */
   disclaimer?: string
   /**
-   * Message contents to drop from a rendered transcript. Hides persisted
-   * sentinel USER turns (e.g. the story-kickoff sentinel) that exist only to
-   * keep the server-side history alternating; their assistant reply still
-   * renders. Default empty: no filtering.
+   * Message contents to drop from a rendered transcript, matched by exact
+   * content regardless of role: the sentinel USER turns that only keep the
+   * server history alternating (their assistant reply still renders), and a
+   * seeded ASSISTANT greeting that a kickoff's own reply supersedes (the story
+   * entry passes the general greeting so the manager doesn't double-greet).
+   * Default empty: no filtering.
    */
   hiddenMessageContents?: string[]
 }
@@ -217,10 +219,7 @@ export default function ChiefOfStaffChatBody({
     [hiddenMessageContents, hiddenSent],
   )
   const visibleMessages = useMemo(
-    () =>
-      messages.filter(
-        (m) => !(m.role === 'user' && hiddenContentSet.has(m.content)),
-      ),
+    () => messages.filter((m) => !hiddenContentSet.has(m.content)),
     [messages, hiddenContentSet],
   )
 
@@ -337,9 +336,7 @@ export default function ChiefOfStaffChatBody({
       // of dumped. Sentinel user turns are hidden but their replies count as
       // visible; segment-bearing turns render structured blocks the plain typed
       // playback can't, so those always dump.
-      const visible = msgs.filter(
-        (m) => !(m.role === 'user' && hiddenContentSet.has(m.content)),
-      )
+      const visible = msgs.filter((m) => !hiddenContentSet.has(m.content))
       const playable =
         visible.length > 0 &&
         visible.every(
