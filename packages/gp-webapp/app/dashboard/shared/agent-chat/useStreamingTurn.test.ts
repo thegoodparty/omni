@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
+import { StrictMode } from 'react'
+import { renderHook, act, waitFor } from '@testing-library/react'
 import type { ChatStreamEvent } from './chatClient'
 import { useStreamingTurn } from './useStreamingTurn'
 
@@ -377,5 +378,44 @@ describe('useStreamingTurn', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('settles a turn under StrictMode (mountedRef re-armed after the dev remount)', async () => {
+    // StrictMode runs effect setup→cleanup→setup. The cleanup flips mountedRef
+    // false; if it is not re-armed in setup, `canReconcile()` and the settle
+    // teardown are dead for the component's whole life — the first turn never
+    // commits and `sending` stays stuck true (composer disabled forever). Plain
+    // renderHook doesn't double-invoke, so this guard needs the StrictMode wrap.
+    const api = {
+      streamMessage: () =>
+        streamOf([
+          { type: 'text' as const, delta: 'hi' },
+          { type: 'done' as const, assistantMessageId: 'a1' },
+        ]),
+      listMessages: vi.fn().mockResolvedValue([
+        {
+          id: 'a1',
+          conversationId: 'c1',
+          role: 'assistant' as const,
+          content: 'hi',
+          createdAt: new Date().toISOString(),
+        },
+      ]),
+    }
+
+    const { result } = renderHook(
+      () => useStreamingTurn(api, { toolLabel: () => null }),
+      { wrapper: StrictMode },
+    )
+
+    act(() => {
+      void result.current.send('c1', 'hi')
+    })
+
+    // The turn settles: sending drops and it reconciles to history. With the
+    // stuck-false mountedRef bug the settle teardown never runs, so `sending`
+    // would stay true here forever.
+    await waitFor(() => expect(result.current.sending).toBe(false))
+    expect(result.current.messages.some((m) => m.id === 'a1')).toBe(true)
   })
 })

@@ -135,13 +135,16 @@ export function useStreamingTurn(
   // setState after unmount is at best a no-op warning and, once the test
   // environment is torn down, a hard `window is not defined` throw.
   const mountedRef = useRef(true)
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // Arm in the setup body, not just via useRef's initial value: StrictMode
+    // (dev) runs setup→cleanup→setup, and the cleanup below flips this false —
+    // without re-arming here it would stay false for the real lifetime.
+    mountedRef.current = true
+    return () => {
       mountedRef.current = false
       abortRef.current?.abort()
-    },
-    [],
-  )
+    }
+  }, [])
   // Drive the smooth reveal off the presence of live segments, not `sending`.
   // A turn drops `sending` the moment its stream is done (so the composer
   // re-enables for a follow-up send) while the reveal keeps typing out the tail
