@@ -165,7 +165,10 @@ export default function ChiefOfStaffChatBody({
     analyticsLabel,
   })
   const [loading, setLoading] = useState(false)
-  const [streamError, setStreamError] = useState<string | null>(null)
+  const [streamError, setStreamError] = useState<{
+    message: string
+    retryable: boolean
+  } | null>(null)
   const [introProgress, setIntroProgress] = useState(0)
   // True once anything has been sent this session (visible OR hidden). Gates the
   // with-greeting starter chips off after a hidden kickoff (which adds no user
@@ -207,7 +210,7 @@ export default function ChiefOfStaffChatBody({
     useStreamingTurn(chatApi, {
       toolLabel,
       onTurnStart: () => setStreamError(null),
-      onError: (message) => setStreamError(message),
+      onError: (message, retryable) => setStreamError({ message, retryable }),
     })
 
   const busy = sending || loading
@@ -354,7 +357,10 @@ export default function ChiefOfStaffChatBody({
         conversationIdOverride,
       })
       loadRequestedRef.current = false
-      setStreamError('Could not load this chat. Try again.')
+      setStreamError({
+        message: 'Could not load this chat. Try again.',
+        retryable: true,
+      })
     } finally {
       setLoading(false)
     }
@@ -420,7 +426,10 @@ export default function ChiefOfStaffChatBody({
       }
       const id = await ensureConversationId()
       if (!id) {
-        setStreamError('Could not start chat. Try again.')
+        setStreamError({
+          message: 'Could not start chat. Try again.',
+          retryable: true,
+        })
         return false
       }
       if (!opts?.hidden) {
@@ -651,16 +660,18 @@ export default function ChiefOfStaffChatBody({
             role="alert"
             className="flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
           >
-            <span>{streamError}</span>
-            <Button
-              type="button"
-              size="small"
-              variant="outline"
-              onClick={onRetry}
-              disabled={busy}
-            >
-              Retry
-            </Button>
+            <span>{streamError.message}</span>
+            {streamError.retryable && (
+              <Button
+                type="button"
+                size="small"
+                variant="outline"
+                onClick={onRetry}
+                disabled={busy}
+              >
+                Retry
+              </Button>
+            )}
           </div>
         )}
       </div>

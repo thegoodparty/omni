@@ -88,7 +88,6 @@ function ChatBody({
         annotationIdOverride={item.id}
         showInlineHeader={false}
         bodyClassName="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto"
-        composerVariant="block"
         active={active}
         onSendingChange={onSendingChange}
       />
@@ -229,7 +228,6 @@ export function BriefingAssistantSurface({
             anchor={pendingAnchor ?? EMPTY_ANCHOR}
             showInlineHeader={false}
             bodyClassName="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto"
-            composerVariant="block"
             active={open}
             onChatCreated={onChatCreated}
             onAnnotationIdReady={setEmptyStateMintedId}

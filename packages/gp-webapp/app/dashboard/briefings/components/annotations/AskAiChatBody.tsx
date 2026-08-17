@@ -58,11 +58,6 @@ type Props = {
     conversationId: string
   }) => void
   /**
-   * Composer layout. `block` renders a Textarea above an "Ask AI" Button,
-   * matching the notes/report sheet pattern.
-   */
-  composerVariant?: 'block'
-  /**
    * Fires when the chat's internal `sending || creating` flips. The host
    * surface uses this to disable destructive actions (e.g. Delete chat)
    * while a stream or chat-creation request is in flight.
@@ -367,6 +362,32 @@ export default function AskAiChatBody({
     void loadExistingChat()
   }, [deliver, loadExistingChat])
 
+  // Re-stream an existing user turn (interrupted-box or bare-user retry).
+  // Replays the original client-message id when retrying the most-recent turn
+  // (so the server's (conversation_id, client_message_id) index dedupes it) and
+  // keeps the retry refs consistent, so the error-box `onRetry` never replays a
+  // stale id afterward. An older turn — whose id we can't recover, since
+  // ChatMessageDto carries none and the transcript doesn't return it — mints a
+  // fresh id (repeated retries of it still dedupe via the stored ref).
+  const resendUserTurn = useCallback(
+    (content: string): void => {
+      if (!annotationId) return
+      const trimmed = content.trim()
+      if (!trimmed) return
+      // Content-match, not per-message tracking: if two user turns share the
+      // exact text and the OLDER is retried, this replays the newer turn's id —
+      // acceptable, since same-text turns dedupe to an indistinguishable result.
+      const clientMessageId =
+        trimmed === lastUserContentRef.current && lastClientMessageIdRef.current
+          ? lastClientMessageIdRef.current
+          : newClientMessageId()
+      lastUserContentRef.current = trimmed
+      lastClientMessageIdRef.current = clientMessageId
+      void send(annotationId, trimmed, { hidden: true, clientMessageId })
+    },
+    [annotationId, send],
+  )
+
   const onRetryInterrupted = useCallback(
     (interruptedId: string): void => {
       if (!annotationId || busy) return
@@ -375,9 +396,9 @@ export default function AskAiChatBody({
       const prior = messages[idx - 1]
       if (!prior || prior.role !== 'user') return
       setMessages((prev) => prev.filter((m) => m.id !== interruptedId))
-      void send(annotationId, prior.content, { hidden: true })
+      resendUserTurn(prior.content)
     },
-    [annotationId, busy, messages, setMessages, send],
+    [annotationId, busy, messages, setMessages, resendUserTurn],
   )
 
   const onRetryLastUser = useCallback((): void => {
@@ -385,11 +406,11 @@ export default function AskAiChatBody({
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i]
       if (m && m.role === 'user') {
-        void send(annotationId, m.content, { hidden: true })
+        resendUserTurn(m.content)
         return
       }
     }
-  }, [annotationId, busy, messages, send])
+  }, [annotationId, busy, messages, resendUserTurn])
 
   // Track whether the user is pinned to the bottom so we follow streaming text
   // only while they haven't scrolled up to read earlier content.
