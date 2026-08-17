@@ -29,10 +29,18 @@ The kit provides all streaming and rendering. A wrapper owns only: a client, a
 1. **Client** — a module-level `createAgentChatClient('<scope>', '<sentry-surface>')`
    singleton (see `ordinances/data/chat-api.ts`), or an existing surface's client
    passed in. Never build streaming by hand.
-2. **Engine** — `const { messages, setMessages, visibleSegments, sending, send } =
-   useStreamingTurn(chatApi, { toolLabel, onTurnStart, onTurnSettle, onError, onEvent })`.
+2. **Engine** — `const { messages, setMessages, visibleSegments, sending, send, isStreaming } =
+   useStreamingTurn(chatApi, { toolLabel, onTurnStart, onTurnSettle, onTurnSuccess, onError, onEvent })`.
    `toolLabel(name) => string | null` (null hides a tool). `onEvent` returns `true`
    to consume an event (drive a structured widget) or `false` to only side-effect.
+   `onError(message, retryable)` — gate a Retry affordance on `retryable`.
+   `onTurnSuccess` fires at stream-done, before the late-persistence commit poll —
+   use it for a prompt post-turn handoff (e.g. a deferred create's
+   cache-invalidation) that shouldn't wait out the poll. `sending` drops at
+   stream-done (so the composer re-enables and a follow-up send supersedes a
+   still-settling turn); use the synchronous `isStreaming()` — not `sending` — if
+   a wrapper pushes its own optimistic bubble and must drop a same-tick
+   double-submit without blocking that legitimate follow-up.
 3. **Render** — scroll container → `messages.map`: `UserBubble` for `role==='user'`,
    else `AssistantRow` + `InlineSegments segments={segmentsToLive(m.segments ?? [], m.content)}`.
    Then the live turn: `visibleSegments.length ? <AssistantRow><InlineSegments …/></AssistantRow> : null`,
