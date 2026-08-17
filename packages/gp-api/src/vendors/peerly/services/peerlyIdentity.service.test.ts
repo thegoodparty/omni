@@ -1629,7 +1629,7 @@ describe('PeerlyIdentityService', () => {
       const httpService = module.get(PeerlyHttpService)
       const slackService = module.get(SlackService)
       usersService.findByCampaign = vi.fn().mockResolvedValue(baseUser)
-      const circular: Record<string, unknown> = { Error: 'circular' }
+      const circular: { Error: string; self?: object } = { Error: 'circular' }
       circular.self = circular
       httpService.post = vi.fn().mockRejectedValueOnce({
         isAxiosError: true,

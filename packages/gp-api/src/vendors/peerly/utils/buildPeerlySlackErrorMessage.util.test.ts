@@ -2,28 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { userFactory } from '@/shared/test-utils'
 import { buildPeerlySlackErrorMessage } from './buildPeerlySlackErrorMessage.util'
 
-const collectTexts = (node: unknown): string[] =>
-  Array.isArray(node)
-    ? node.flatMap(collectTexts)
-    : node !== null && typeof node === 'object'
-      ? Object.entries(node).flatMap(([key, value]) =>
-          key === 'text' && typeof value === 'string'
-            ? [value]
-            : collectTexts(value),
-        )
-      : []
-
-const collectTypes = (node: unknown): string[] =>
-  Array.isArray(node)
-    ? node.flatMap(collectTypes)
-    : node !== null && typeof node === 'object'
-      ? Object.entries(node).flatMap(([key, value]) =>
-          key === 'type' && typeof value === 'string'
-            ? [value]
-            : collectTypes(value),
-        )
-      : []
-
 const user = userFactory({ id: 1 })
 
 const REQUEST_SUMMARY =
@@ -32,9 +10,16 @@ const RESPONSE_DATA =
   '{\n  "Error": "Campaign Verify Verify PIN API request failed.",\n' +
   '  "status_code": 422\n}'
 
+// JSON.stringify on the expected value gives the exact escaped, quoted form it
+// takes inside the serialized blocks, so these match a rendered `text` value.
+const quoted = (value: string) => JSON.stringify(value)
+
+const countOf = (haystack: string, needle: string) =>
+  haystack.split(needle).length - 1
+
 describe('buildPeerlySlackErrorMessage', () => {
   it('renders the request line and the Peerly response body', () => {
-    const texts = collectTexts(
+    const rendered = JSON.stringify(
       buildPeerlySlackErrorMessage({
         user,
         requestSummary: REQUEST_SUMMARY,
@@ -43,14 +28,15 @@ describe('buildPeerlySlackErrorMessage', () => {
       }),
     )
 
-    expect(texts).toContain(REQUEST_SUMMARY)
-    expect(texts).toContain(RESPONSE_DATA)
-    // The omitted fallback message must not render as an empty bullet.
-    expect(texts).not.toContain('')
+    expect(rendered).toContain(quoted(REQUEST_SUMMARY))
+    expect(rendered).toContain(quoted(RESPONSE_DATA))
+    // The omitted fallback message must not render as an empty bullet — Slack
+    // rejects a message carrying one.
+    expect(rendered).not.toContain('"text":""')
   })
 
-  it('puts the response body in a preformatted block so its indentation survives', () => {
-    const types = collectTypes(
+  it('puts the response body in a preformatted block so indentation survives', () => {
+    const rendered = JSON.stringify(
       buildPeerlySlackErrorMessage({
         user,
         requestSummary: REQUEST_SUMMARY,
@@ -58,7 +44,7 @@ describe('buildPeerlySlackErrorMessage', () => {
       }),
     )
 
-    expect(types).toContain('rich_text_preformatted')
+    expect(rendered).toContain('"type":"rich_text_preformatted"')
   })
 
   it('never renders request headers or an Authorization value', () => {
@@ -77,25 +63,22 @@ describe('buildPeerlySlackErrorMessage', () => {
   })
 
   it('falls back to the error message when there is no Axios context', () => {
-    const blocks = buildPeerlySlackErrorMessage({
-      user,
-      errorMessage: 'socket hang up',
-    })
-
-    expect(collectTexts(blocks)).toContain('socket hang up')
-    expect(collectTexts(blocks).some((t) => t.includes('undefined'))).toBe(
-      false,
+    const rendered = JSON.stringify(
+      buildPeerlySlackErrorMessage({ user, errorMessage: 'socket hang up' }),
     )
+
+    expect(rendered).toContain(quoted('socket hang up'))
+    expect(rendered).not.toContain('undefined')
     // Nothing to preformat, so no empty code block either.
-    expect(collectTypes(blocks)).not.toContain('rich_text_preformatted')
+    expect(rendered).not.toContain('"type":"rich_text_preformatted"')
   })
 
   it('omits the bullet list entirely when there is nothing to bullet', () => {
-    const types = collectTypes(
+    const rendered = JSON.stringify(
       buildPeerlySlackErrorMessage({ user, responseData: RESPONSE_DATA }),
     )
 
     // The user block still lists name/email/phone, so exactly one list remains.
-    expect(types.filter((type) => type === 'rich_text_list')).toHaveLength(1)
+    expect(countOf(rendered, '"type":"rich_text_list"')).toBe(1)
   })
 })

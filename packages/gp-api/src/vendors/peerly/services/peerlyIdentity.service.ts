@@ -79,6 +79,17 @@ import { PinoLogger } from 'nestjs-pino'
 // body's line count, so cut it here with a visible marker instead.
 const SLACK_RESPONSE_BODY_MAX_CHARS = 1500
 
+// Peerly's error bodies are the `Error`/`status_code` envelope the sibling
+// rejection utils read, except on gateway failures, which return an HTML or
+// plain-text string instead.
+type PeerlyErrorResponseBody =
+  | string
+  | {
+      Error?: string
+      status_code?: number
+      details?: string | null
+    }
+
 @Injectable()
 export class PeerlyIdentityService extends PeerlyBaseConfig {
   constructor(
@@ -976,7 +987,9 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     user: User,
     peerlyIdentityId?: string,
   ) {
-    const axiosError = isAxiosError<unknown>(error) ? error : null
+    const axiosError = isAxiosError<PeerlyErrorResponseBody>(error)
+      ? error
+      : null
     const status = axiosError?.response?.status ?? axiosError?.status
     const requestLine = [
       axiosError?.config?.method?.toUpperCase(),
@@ -1012,7 +1025,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
   // what makes the alert readable. Gateway errors arrive as HTML/text strings
   // instead — those pass through untouched rather than becoming an escaped,
   // quote-wrapped blob.
-  private formatSlackResponseBody(responseData: unknown): string {
+  private formatSlackResponseBody(responseData: PeerlyErrorResponseBody) {
     if (typeof responseData === 'string') {
       return this.truncateSlackResponseBody(responseData)
     }
