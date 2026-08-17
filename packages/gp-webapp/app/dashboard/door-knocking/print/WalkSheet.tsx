@@ -15,6 +15,7 @@ import {
 } from '../native/knockQuestions'
 import { STATUS_LABELS } from '../native/statusPresentation'
 import { formatDistance } from '../native/routeFormat'
+import { countDoors, knockableTargets } from '../routeCounts'
 
 const formatDuration = (seconds: number): string => {
   const minutes = Math.round(seconds / 60)
@@ -63,9 +64,6 @@ const QuestionRow = ({ children }: { children: React.ReactNode }) => (
   </div>
 )
 
-const targetsOf = (stop: RoutePayloadStop): RoutePayloadTarget[] =>
-  stop.addresses.flatMap((address) => address.targets)
-
 const TargetBlock = ({ target }: { target: RoutePayloadTarget }) => {
   const detail = describeTarget(target)
   // Already recorded in the app: print the answer instead of blank boxes, so
@@ -80,7 +78,17 @@ const TargetBlock = ({ target }: { target: RoutePayloadTarget }) => {
         </span>
         {detail && <span className="text-[10px]">{detail}</span>}
       </div>
-      {recorded ? (
+      {/* ADR 0007. Turf evaluation keeps flagged people off new lists, but it
+          cannot reach a route already frozen — and paper freezes again the
+          moment it prints. The name stays so the sheet still matches the app's
+          stop numbering; the tick-boxes go, because there is nothing to ask.
+          Checked before `recorded`: a flagged door is not to be knocked
+          whatever was logged there before. */}
+      {target.doNotKnock ? (
+        <div className="text-[10px] font-semibold">
+          Do not knock — skip this door
+        </div>
+      ) : recorded ? (
         <div className="text-[10px] italic">
           Already logged: {STATUS_LABELS[target.knockStatus]}
         </div>
@@ -171,7 +179,14 @@ interface WalkSheetProps {
 // hydration wait.
 export default function WalkSheet({ turfName, payload }: WalkSheetProps) {
   const stops = payload.stops.slice().sort((a, b) => a.seq - b.seq)
-  const doorCount = stops.reduce((sum, stop) => sum + targetsOf(stop).length, 0)
+  // Doors, not people: this used to sum targets, so a sheet for the same route
+  // the app called "40 doors" printed a larger number in its own header.
+  const doorCount = countDoors(stops)
+  // ADR 0007. The header is what someone budgets their evening against, so it
+  // counts conversations that can actually happen — a flagged resident is a name
+  // on the page below, not one of them. Doors stay as-is: a household is
+  // normally only part-flagged, and the door is still walked past either way.
+  const personCount = knockableTargets(stops).length
 
   return (
     <div className="mx-auto max-w-3xl bg-white p-6 text-black print:max-w-none print:p-0">
@@ -189,7 +204,7 @@ export default function WalkSheet({ turfName, payload }: WalkSheetProps) {
       <header className="mb-3 border-b-2 border-black pb-2">
         <h1 className="text-lg font-bold">{turfName}</h1>
         <p className="text-xs">
-          {stops.length} stops · {doorCount} doors ·{' '}
+          {stops.length} stops · {doorCount} doors · {personCount} people ·{' '}
           {payload.route.mode === 'walk' ? 'Walking' : 'Driving'}
           {payload.route.loop ? ' loop' : ''} ·{' '}
           {formatDuration(payload.route.totalSeconds)} ·{' '}

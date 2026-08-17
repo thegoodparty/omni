@@ -278,6 +278,7 @@ describe('<ChiefOfStaffChatBody>', () => {
     // alone also matches the full string, so it can't tell them apart.
     await waitFor(() => expect(screen.getByText(/^word/)).toBeInTheDocument())
     expect(screen.queryByText(long)).not.toBeInTheDocument()
+    // ...and finishes revealing shortly after.
     await waitFor(() => expect(screen.getByText(long)).toBeInTheDocument(), {
       timeout: 6000,
     })

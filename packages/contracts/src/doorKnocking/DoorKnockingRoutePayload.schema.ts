@@ -29,8 +29,20 @@ export const RoutePayloadTargetSchema = z.object({
   politicalParty: z
     .enum(['Independent', 'Democratic', 'Republican', 'Other'])
     .nullable(),
+  // For the door that doesn't answer. Live-only, like age and party: a
+  // mayHaveMoved target has no live row, so it carries no number rather than a
+  // number belonging to whoever lives there now. Screen only — the printed
+  // walk sheet deliberately omits these, since paper leaves the building.
+  cellPhone: z.string().nullable(),
+  landline: z.string().nullable(),
   knockStatus: DoorKnockStatusSchema,
   mayHaveMoved: z.boolean(),
+  // ADR 0007. A flag rather than a DoorKnockStatus member: a knock status is
+  // derived from an interaction, and this comes from the contact-status
+  // projection instead. Read live at serve time, so a person flagged this
+  // morning is marked on a route frozen yesterday — turf evaluation keeps them
+  // out of new routes, but it cannot reach back into one already built.
+  doNotKnock: z.boolean(),
 })
 
 export type RoutePayloadTarget = z.infer<typeof RoutePayloadTargetSchema>

@@ -113,6 +113,7 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     WeeklyTasksDigestHandlerService,
     Nightly10DlcReportService,
     EligibilityService,
+    ComplianceStateService,
   ],
 })
 export class CampaignsModule {}

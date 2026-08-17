@@ -5,9 +5,11 @@ import {
   Prisma,
 } from '../../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ComplianceStage } from '@goodparty_org/contracts'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { ComplianceStateService } from '@/campaigns/tcrCompliance/services/complianceState.service'
 import { AdminAgentRunsService } from './adminAgentRuns.service'
 
 const makeRun = (overrides: Partial<ExperimentRun> = {}): ExperimentRun => ({
@@ -47,6 +49,7 @@ describe('AdminAgentRunsService', () => {
   }
   const s3 = { getFile: vi.fn() }
   const experimentRuns = { dispatchRun: vi.fn() }
+  const complianceState = { getStageForCampaign: vi.fn() }
   const logger = createMockLogger()
 
   beforeEach(() => {
@@ -58,9 +61,14 @@ describe('AdminAgentRunsService', () => {
       findUniqueOrThrow: vi.fn(),
     }
 
+    complianceState.getStageForCampaign.mockResolvedValue(
+      ComplianceStage.awaiting_pin,
+    )
+
     service = new AdminAgentRunsService(
       s3 as unknown as S3Service,
       experimentRuns as unknown as ExperimentRunsService,
+      complianceState as unknown as ComplianceStateService,
     )
     Object.defineProperty(service, 'model', {
       get: () => mockModel,
@@ -344,6 +352,74 @@ describe('AdminAgentRunsService', () => {
         expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
       },
     )
+
+    it('rejects with 409 and never dispatches when the campaign is at tcr_rejected', async () => {
+      // The agent refuses to resubmit at this stage, so dispatching would burn
+      // a paid run that fails identically. FAILED is the realistic status here:
+      // the operator is looking at the failed run and clicking Retry.
+      mockModel.findUniqueOrThrow.mockResolvedValue(
+        makeRun({ status: ExperimentRunStatus.FAILED }),
+      )
+      complianceState.getStageForCampaign.mockResolvedValue(
+        ComplianceStage.tcr_rejected,
+      )
+
+      await expect(service.retry('run-1')).rejects.toBeInstanceOf(
+        ConflictException,
+      )
+      expect(complianceState.getStageForCampaign).toHaveBeenCalledWith(42)
+      expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+    })
+
+    it('names the recovery runbook in the tcr_rejected refusal so the operator knows the next step', async () => {
+      mockModel.findUniqueOrThrow.mockResolvedValue(
+        makeRun({ status: ExperimentRunStatus.FAILED }),
+      )
+      complianceState.getStageForCampaign.mockResolvedValue(
+        ComplianceStage.tcr_rejected,
+      )
+
+      await expect(service.retry('run-1')).rejects.toThrow(
+        'recover-rejected-10dlc-compliance',
+      )
+    })
+
+    it('still re-dispatches a FAILED run whose campaign is not rejected', async () => {
+      const newRun = makeRun({ runId: 'run-2' })
+      mockModel.findUniqueOrThrow.mockResolvedValue(
+        makeRun({ status: ExperimentRunStatus.FAILED }),
+      )
+      complianceState.getStageForCampaign.mockResolvedValue(
+        ComplianceStage.pending_website_live,
+      )
+      experimentRuns.dispatchRun.mockResolvedValue(newRun)
+
+      const result = await service.retry('run-1')
+
+      expect(experimentRuns.dispatchRun).toHaveBeenCalledTimes(1)
+      expect(result).toBe(newRun)
+    })
+
+    it('dispatches without a compliance read when params carry no campaign_id', async () => {
+      // Nothing to derive a stage from, so the guard deliberately abstains
+      // rather than blocking a retry it cannot evaluate.
+      mockModel.findUniqueOrThrow.mockResolvedValue(
+        makeRun({
+          params: {
+            candidate_first_name: 'Ada',
+            candidate_last_name: 'Lovelace',
+            clerk_user_id: 'user_abc',
+            trigger: 'initial',
+          } as Prisma.JsonValue,
+        }),
+      )
+      experimentRuns.dispatchRun.mockResolvedValue(makeRun({ runId: 'run-2' }))
+
+      await service.retry('run-1')
+
+      expect(complianceState.getStageForCampaign).not.toHaveBeenCalled()
+      expect(experimentRuns.dispatchRun).toHaveBeenCalledTimes(1)
+    })
 
     it('rejects with 400 (wrong-type message) for a realistic non-retryable run, never dispatching', async () => {
       // A real meeting_briefing run carries no clerk_user_id; the type guard

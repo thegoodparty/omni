@@ -559,6 +559,17 @@ describe('tool description — score semantics follows the scope', () => {
     expect(tool.description).not.toContain(HS_SCORE_SEMANTICS)
     expect(tool.description).not.toMatch(/percentile rank/i)
   })
+
+  // QR-08: a threshold share reported with no mandated denominator name
+  // reads as a survey result ("over known responses"). Asserted on the
+  // constant directly so districtInsights.tool.ts inherits the guarantee.
+  // The ban has to name the words it forbids, so this checks for the ban
+  // statement and the old buggy phrasing's absence, not word absence.
+  it('names the share denominator and bans survey language (QR-08)', () => {
+    expect(HS_SCORE_SEMANTICS).toMatch(/scored/i)
+    expect(HS_SCORE_SEMANTICS).toMatch(/survey language/i)
+    expect(HS_SCORE_SEMANTICS).not.toContain('state the coverage alongside')
+  })
 })
 
 describe('tool description — partisan guidance follows the scope', () => {

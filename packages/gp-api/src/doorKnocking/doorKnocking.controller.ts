@@ -21,6 +21,9 @@ import {
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionSchema,
   RecordDoorKnockInteractionResponseSchema,
+  SetDoNotKnock,
+  SetDoNotKnockSchema,
+  SetDoNotKnockResponseSchema,
   DoorKnockingKnockRequest,
   DoorKnockingKnockRequestSchema,
   DoorKnockingKnockResponseSchema,
@@ -34,7 +37,8 @@ import { UseOrganization } from '@/organizations/decorators/UseOrganization.deco
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
 import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
 import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
-import { Campaign, Organization } from '../generated/prisma'
+import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
+import { Campaign, Organization, User } from '../generated/prisma'
 import { DoorKnockingTurfService } from './services/doorKnockingTurf.service'
 import { DoorKnockingKnockService } from './services/doorKnockingKnock.service'
 import { DoorKnockingServeService } from './services/doorKnockingServe.service'
@@ -131,6 +135,21 @@ export class DoorKnockingController {
     input: RecordDoorKnockInteraction,
   ) {
     return this.interactionService.record(organization, input)
+  }
+
+  // ADR 0007. Deliberately not the CRM's PATCH /contacts/:personId/status,
+  // which is Pro-gated — the flagged pilot is not, and a candidate who cannot
+  // honor "don't come back" is worse than one who never had the button.
+  @Post('do-not-knock')
+  @UseOrganization()
+  @ResponseSchema(SetDoNotKnockResponseSchema)
+  setDoNotKnock(
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+    @Body(new ZodValidationPipe(SetDoNotKnockSchema))
+    input: SetDoNotKnock,
+  ) {
+    return this.interactionService.setDoNotKnock(organization, user.id, input)
   }
 
   @Post('turfs/:id/knock')

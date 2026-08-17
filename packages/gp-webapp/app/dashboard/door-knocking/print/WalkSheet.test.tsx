@@ -27,8 +27,11 @@ const stop = (overrides: Partial<RoutePayloadStop> = {}): RoutePayloadStop => ({
           name: 'Dorian Fen',
           age: 31,
           politicalParty: 'Independent',
+          cellPhone: '(312) 555-0101',
+          landline: null,
           knockStatus: 'unknown',
           mayHaveMoved: false,
+          doNotKnock: false,
         },
       ],
       otherResidents: [],
@@ -63,7 +66,75 @@ describe('WalkSheet', () => {
       screen.getByRole('heading', { name: 'Elm & Cedar' }),
     ).toBeInTheDocument()
     expect(
-      screen.getByText(/2 stops · 2 doors · Walking loop · 31 min · 2\.0 mi/),
+      screen.getByText(
+        /2 stops · 2 doors · 2 people · Walking loop · 31 min · 2\.0 mi/,
+      ),
+    ).toBeInTheDocument()
+  })
+
+  // Doors are addresses. A single stop covering a three-unit building is one
+  // stop, three doors, and however many voters live across them — the header
+  // used to report the people count under the "doors" label.
+  it('counts doors as addresses, not people', () => {
+    const multiUnit = stop({
+      addresses: [
+        {
+          addressKey: '105|elm|st|1a',
+          address: '105 Elm St Apt 1A',
+          targets: [
+            {
+              stopTargetId: 31,
+              personId: 'person-a',
+              name: 'Ada One',
+              age: 40,
+              politicalParty: 'Democratic',
+              cellPhone: null,
+              landline: null,
+              knockStatus: 'unknown',
+              mayHaveMoved: false,
+              doNotKnock: false,
+            },
+            {
+              stopTargetId: 32,
+              personId: 'person-b',
+              name: 'Bo Two',
+              age: 42,
+              politicalParty: 'Democratic',
+              cellPhone: null,
+              landline: null,
+              knockStatus: 'unknown',
+              mayHaveMoved: false,
+              doNotKnock: false,
+            },
+          ],
+          otherResidents: [],
+        },
+        {
+          addressKey: '105|elm|st|1b',
+          address: '105 Elm St Apt 1B',
+          targets: [
+            {
+              stopTargetId: 33,
+              personId: 'person-c',
+              name: 'Cy Three',
+              age: 44,
+              politicalParty: 'Republican',
+              cellPhone: null,
+              landline: null,
+              knockStatus: 'unknown',
+              mayHaveMoved: false,
+              doNotKnock: false,
+            },
+          ],
+          otherResidents: [],
+        },
+      ],
+    })
+
+    renderSheet([multiUnit])
+
+    expect(
+      screen.getByText(/1 stops · 2 doors · 3 people · Walking loop/),
     ).toBeInTheDocument()
   })
 
@@ -103,6 +174,18 @@ describe('WalkSheet', () => {
     expect(within(person).getByText('Notes')).toBeInTheDocument()
   })
 
+  // Phones are on the route payload for the app's person sheet, but paper
+  // leaves the building and is not access-controlled once it does. The sheet
+  // omits them deliberately — this asserts the omission rather than trusting it,
+  // since the fixture above carries a cell number.
+  it('never prints a phone number', () => {
+    renderSheet([stop()])
+
+    expect(screen.queryByText(/555-0101/)).toBeNull()
+    expect(screen.queryByText(/Cell phone/i)).toBeNull()
+    expect(screen.queryByText(/Landline/i)).toBeNull()
+  })
+
   // A door already logged in the app must not come back as a blank form —
   // that's how a knock gets repeated, or an answer overwritten on transcription.
   it('prints the recorded answer instead of blank boxes', () => {
@@ -119,8 +202,11 @@ describe('WalkSheet', () => {
                 name: 'Marisol Vega',
                 age: 44,
                 politicalParty: 'Democratic',
+                cellPhone: '(312) 555-0102',
+                landline: '(312) 555-0103',
                 knockStatus: 'supporter',
                 mayHaveMoved: false,
+                doNotKnock: false,
               },
             ],
             otherResidents: [],
@@ -134,6 +220,90 @@ describe('WalkSheet', () => {
       within(person).getByText('Already logged: Supporter'),
     ).toBeInTheDocument()
     expect(within(person).queryByText('Did they answer?')).toBeNull()
+  })
+
+  // ADR 0007. Turf evaluation keeps flagged people off new lists, but paper
+  // freezes the moment it prints, so the sheet has to carry the instruction
+  // itself — otherwise the one surface used without the app is the one that
+  // ignores it.
+  it('prints a skip instead of a form for a flagged door', () => {
+    renderSheet([
+      stop({
+        addresses: [
+          {
+            addressKey: '105|elm|st',
+            address: '105 Elm St',
+            targets: [
+              {
+                stopTargetId: 21,
+                personId: 'person-1',
+                name: 'Dorian Fen',
+                age: 31,
+                politicalParty: 'Independent',
+                cellPhone: null,
+                landline: null,
+                // Previously knocked, and flagged since: the instruction wins
+                // over what was logged at the door before.
+                knockStatus: 'supporter',
+                mayHaveMoved: false,
+                doNotKnock: true,
+              },
+            ],
+            otherResidents: [],
+          },
+        ],
+      }),
+    ])
+
+    const person = screen.getByRole('listitem')
+    // The name stays, so the sheet still matches the app's stop numbering.
+    expect(within(person).getByText('Dorian Fen')).toBeInTheDocument()
+    expect(
+      within(person).getByText('Do not knock — skip this door'),
+    ).toBeInTheDocument()
+    expect(within(person).queryByText('Did they answer?')).toBeNull()
+    expect(within(person).queryByText('Notes')).toBeNull()
+    expect(within(person).queryByText('Already logged: Supporter')).toBeNull()
+  })
+
+  // The header is what an evening gets budgeted against, so it counts
+  // conversations that can happen — while the rows below still list the flagged
+  // name, because that is how paper carries the instruction.
+  it('leaves flagged residents out of the header count but not the page', () => {
+    const resident = {
+      personId: 'person-1',
+      name: 'Dorian Fen',
+      age: 31,
+      politicalParty: 'Independent' as const,
+      cellPhone: null,
+      landline: null,
+      knockStatus: 'unknown' as const,
+      mayHaveMoved: false,
+    }
+    renderSheet([
+      stop({
+        addresses: [
+          {
+            addressKey: '105|elm|st',
+            address: '105 Elm St',
+            targets: [
+              { ...resident, stopTargetId: 21, doNotKnock: false },
+              {
+                ...resident,
+                stopTargetId: 22,
+                personId: 'person-2',
+                name: 'Marisol Vega',
+                doNotKnock: true,
+              },
+            ],
+            otherResidents: [],
+          },
+        ],
+      }),
+    ])
+
+    expect(screen.getByText(/1 stops · 1 doors · 1 people/)).toBeInTheDocument()
+    expect(screen.getByText('Marisol Vega')).toBeInTheDocument()
   })
 
   // A walkable multi-unit building routes as one stop with an address per
@@ -154,8 +324,11 @@ describe('WalkSheet', () => {
                 name: 'Priya Raman',
                 age: 29,
                 politicalParty: null,
+                cellPhone: null,
+                landline: null,
                 knockStatus: 'unknown',
                 mayHaveMoved: false,
+                doNotKnock: false,
               },
             ],
             otherResidents: [{ name: 'Anil Raman' }],
@@ -170,8 +343,11 @@ describe('WalkSheet', () => {
                 name: 'Walter Boone',
                 age: 68,
                 politicalParty: 'Republican',
+                cellPhone: null,
+                landline: null,
                 knockStatus: 'unknown',
                 mayHaveMoved: false,
+                doNotKnock: false,
               },
             ],
             otherResidents: [],
@@ -204,8 +380,11 @@ describe('WalkSheet', () => {
                 name: 'Dorian Fen',
                 age: null,
                 politicalParty: null,
+                cellPhone: null,
+                landline: null,
                 knockStatus: 'unknown',
                 mayHaveMoved: true,
+                doNotKnock: false,
               },
             ],
             otherResidents: [{ name: 'Ruben Vega' }],

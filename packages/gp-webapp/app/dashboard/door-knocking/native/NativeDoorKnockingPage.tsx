@@ -25,19 +25,23 @@ import {
   turfsQueryOptions,
 } from './turfQueries'
 import CreateListFlow, { CreateFlowStep } from './createFlow/CreateListFlow'
-import { filtersToDimSelections } from './createFlow/voterFilterPreview'
+import {
+  filtersToDimSelections,
+  unpreviewableFilterKeys,
+} from './createFlow/voterFilterPreview'
 import KnockTurfDialog from './KnockTurfDialog'
 import TurfDetailsSheet from './TurfDetailsSheet'
 import TurfList from './TurfList'
 import WalkView from './WalkView'
 import { useWalkSession } from './useWalkSession'
 import {
-  rollupStatuses,
+  rollupStopStatus,
   STATUS_DOT_COLORS,
   STATUS_LABELS,
 } from './statusPresentation'
 import type { PolygonRing } from './VoterMapCanvas'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
+import { useOrganization } from '@shared/organization-picker'
 
 const VoterMapCanvas = dynamic(() => import('./VoterMapCanvas'), {
   ssr: false,
@@ -58,6 +62,11 @@ export default function NativeDoorKnockingPage({
   campaign,
 }: NativeDoorKnockingPageProps) {
   const queryClient = useQueryClient()
+  // Win-only filters are hidden for an elected-office org, matching the CRM
+  // wizard — gp-api rejects a contacts-made selection from one outright, so
+  // offering it here would only surface as a 400 at knock time.
+  const organization = useOrganization()
+  const isElectedOfficial = Boolean(organization?.electedOfficeId)
   // The pack and every turf read resolve a district server-side
   // (resolveEligibleDistrictId), so without one they can only 400 — and a turf
   // cannot be drawn against a district we can't identify.
@@ -77,6 +86,7 @@ export default function NativeDoorKnockingPage({
   const [ring, setRing] = useState<PolygonRing | null>(null)
   const [startDrawToken, setStartDrawToken] = useState(0)
   const [clearDrawToken, setClearDrawToken] = useState(0)
+  const [undoDrawToken, setUndoDrawToken] = useState(0)
   const [drawPointCount, setDrawPointCount] = useState(0)
   const [drawHintDismissed, setDrawHintDismissed] = useState(false)
   // Landing-map legend filter: chip clicks narrow the dots to those
@@ -91,6 +101,15 @@ export default function NativeDoorKnockingPage({
   const [selectedTurf, setSelectedTurf] = useState<DoorKnockingTurf | null>(
     null,
   )
+  // Renaming from the details sheet only invalidates the turfs query, and
+  // `selectedTurf` is the snapshot captured when the row was clicked — read the
+  // heading's name off the live row or the rail would keep showing the old one
+  // after the sheet closes. Same rule TurfDetailsSheet's `liveTurf` follows:
+  // the query for anything editable, the snapshot for identity and geometry.
+  const selectedTurfName = selectedTurf
+    ? (turfsQuery.data?.find((candidate) => candidate.id === selectedTurf.id)
+        ?.name ?? selectedTurf.name)
+    : null
   const savedListsQuery = useQuery(savedListsQueryOptions)
   const [knockTurf, setKnockTurf] = useState<DoorKnockingTurf | null>(null)
   const [detailsTurf, setDetailsTurf] = useState<DoorKnockingTurf | null>(null)
@@ -165,6 +184,16 @@ export default function NativeDoorKnockingPage({
     }
     return result
   }, [packQuery.data, selections, flowStep, selectedTurf])
+  // Selections the pack's buckets can't express, so the drawn preview is a
+  // superset of what the list will really target. Surfaced in the create flow
+  // instead of leaving the map quietly disagreeing with the filters above it.
+  const unpreviewableKeys = useMemo(
+    () =>
+      packQuery.data
+        ? unpreviewableFilterKeys(filters, packQuery.data.manifest)
+        : [],
+    [packQuery.data, filters],
+  )
   // Unfiltered (empty selections) area stats for turf details: doors/voters
   // inside the saved polygon, regardless of the list's own filters.
   const detailsAreaStats = useMemo(
@@ -216,11 +245,7 @@ export default function NativeDoorKnockingPage({
             seq: stop.seq,
             lat: stop.lat,
             lng: stop.lng,
-            status: rollupStatuses(
-              stop.addresses.flatMap((address) =>
-                address.targets.map((target) => target.knockStatus),
-              ),
-            ),
+            status: rollupStopStatus(stop),
           }))
         : [],
     [walkTurf, walkRouteQuery.data],
@@ -303,14 +328,19 @@ export default function NativeDoorKnockingPage({
         <section className="flex flex-col gap-2">
           <div>
             <h2 className="text-sm font-semibold">
-              {selectedTurf ? selectedTurf.name : 'District voters'}
+              {selectedTurfName ?? 'District voters'}
             </h2>
             {filterResult && (
               <p className="text-xs text-muted-foreground">
+                {/* The pack is rooftop-geocoded rows only (MAPPABLE_ONLY,
+                    >90% of the file), so this is not the district's full
+                    registration total and shouldn't read as though it were —
+                    a candidate comparing it against an official count needs
+                    to know why it's short. */}
                 {filterResult.people.toLocaleString()}{' '}
                 {selectedTurf
                   ? 'voters in this list'
-                  : 'voters in your district'}
+                  : 'voters in your district with a mapped address'}
                 {selectedTurf && (
                   <button
                     type="button"
@@ -430,6 +460,7 @@ export default function NativeDoorKnockingPage({
                 focusTurf={focusTurf}
                 startDrawToken={startDrawToken}
                 clearDrawToken={clearDrawToken}
+                undoDrawToken={undoDrawToken}
                 onPolygonChange={setRing}
                 onDrawPointCount={setDrawPointCount}
               />
@@ -471,7 +502,18 @@ export default function NativeDoorKnockingPage({
               districtHouseholds={filterResult?.households ?? 0}
               ring={ring}
               turfStats={turfStats}
+              drawPointCount={drawPointCount}
+              onUndoPoint={() => setUndoDrawToken((token) => token + 1)}
+              // Clear is a fresh drawing session: the start-draw effect
+              // already empties the ring and stays in draw mode, which is the
+              // initial state Clear returns to. The instruction card stays
+              // dismissed on purpose — it is a first-run coach mark that
+              // covers the whole map, and someone who just cleared has
+              // already learned the gesture.
+              onClearPoints={() => setStartDrawToken((token) => token + 1)}
               onSaved={handleSaved}
+              isElectedOfficial={isElectedOfficial}
+              unpreviewableKeys={unpreviewableKeys}
             />
           )}
         </div>

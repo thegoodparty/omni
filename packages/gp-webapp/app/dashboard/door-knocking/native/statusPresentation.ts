@@ -1,4 +1,8 @@
-import { DOOR_KNOCK_STATUSES, DoorKnockStatus } from '@goodparty_org/contracts'
+import {
+  DOOR_KNOCK_STATUSES,
+  DoorKnockStatus,
+  RoutePayloadStop,
+} from '@goodparty_org/contracts'
 
 // 'unknown' is not "never knocked" — it also covers answered-but-unsure
 // (deriveKnockStatus), so the label matches the filter vocabulary.
@@ -41,7 +45,7 @@ export const STATUS_DOT_COLORS: Record<DoorKnockStatus, string> =
 // Most-actionable-first rollup, mirroring the server's rollupStopStatus:
 // an 'unknown' person keeps the whole stop knockable, and an empty stop
 // rolls up to 'unknown' — no seed value, so no divergence from the server.
-export const rollupStatuses = (statuses: DoorKnockStatus[]): DoorKnockStatus =>
+const rollupStatuses = (statuses: DoorKnockStatus[]): DoorKnockStatus =>
   statuses.length === 0
     ? 'unknown'
     : statuses.reduce((best, status) =>
@@ -49,3 +53,21 @@ export const rollupStatuses = (statuses: DoorKnockStatus[]): DoorKnockStatus =>
           ? status
           : best,
       )
+
+// The one place a stop's color is decided, so the walk list and the map pins
+// can't drift apart.
+//
+// ADR 0007. Flagged residents are left out because `unknown` outranks every
+// other status above: one do-not-knock neighbor would otherwise hold the stop on
+// the grey "still to knock" color however much of the household had been logged.
+// A stop with nobody left to knock rolls up from an empty list, so it stays
+// `unknown` — both surfaces pair the color with a "Do not knock" label, which is
+// what tells those two cases apart.
+export const rollupStopStatus = (stop: RoutePayloadStop): DoorKnockStatus =>
+  rollupStatuses(
+    stop.addresses.flatMap((address) =>
+      address.targets
+        .filter((target) => !target.doNotKnock)
+        .map((target) => target.knockStatus),
+    ),
+  )

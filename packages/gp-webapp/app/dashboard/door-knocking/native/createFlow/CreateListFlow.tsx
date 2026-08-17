@@ -18,7 +18,7 @@ import {
   transformVoterFileFiltersForBackend,
   type VoterFileFilters,
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
-import { TURF_COLORS } from '../turfQueries'
+import { MAX_TURF_NAME_LENGTH, TURF_COLORS } from '../turfQueries'
 import type { PolygonRing } from '../VoterMapCanvas'
 import type { PolygonStats } from '../filterEngine'
 
@@ -27,13 +27,26 @@ import type { PolygonStats } from '../filterEngine'
 const PILL_CLASSNAME =
   'rounded-full border border-components-input-border bg-transparent px-3.5 py-1.5 text-sm font-normal text-foreground data-[state=on]:border-tertiary-dark data-[state=on]:bg-tertiary-dark data-[state=on]:text-tertiary-foreground data-[state=on]:hover:bg-tertiary-dark/90'
 
-// Contacts made resolves to an id-set override rather than a column
-// predicate, and voterDoorKnocking.evaluate doesn't pass overrides — a
-// selection here would be recorded on the filter but silently ignored when
-// the route freezes. It also counts contact_interaction_door_knock rows, so
-// knocking moves the value it filters on. Excluded until evaluate carries
-// the overrides.
+// Contacts made is how a candidate says "only doors I haven't been to yet",
+// which is the whole point of a second walk. It resolves to an id-set clause
+// rather than a column predicate, so it stayed hidden while
+// voterDoorKnocking.evaluate dropped those clauses and a selection here would
+// have been saved and then silently ignored at freeze time. Evaluate carries
+// them now. Win-only, exactly as the CRM wizard treats it: campaign activity
+// has no Serve equivalent, and gp-api rejects the selection outright for an
+// elected-office org.
+//
+// It counts contact_interaction_door_knock rows, so logging a knock moves the
+// value it filters on. That only matters when cutting a NEW turf — an
+// existing route's roster is frozen — and "give me the doors I haven't done"
+// is the behavior a candidate wants there anyway.
 const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
+// Every other group's option labels stand on their own ("65+", "Renter"), so
+// the unpreviewable disclosure names the option. Contacts made's are the bare
+// counts '0'…'5+', which turned the sentence into "the map can't shade by 0
+// yet" — a sentence that reads like a bug. Name the group instead, once
+// however many of its buckets are selected.
+const CONTACTS_MADE_DISCLOSURE_LABEL = 'Prior contacts made'
 
 // The POC's rate, and what the walking estimate is worth: 45 doors an hour is
 // a canvasser's sustained pace with the walk between doors included. The
@@ -45,8 +58,8 @@ const DOORS_PER_HOUR = 45
 const SOFT_STOP_LIMIT = 100
 const HARD_STOP_LIMIT = 150
 
-const estimateWalkTime = (stops: number): string => {
-  const minutes = Math.round((stops / DOORS_PER_HOUR) * 60)
+const estimateWalkTime = (doors: number): string => {
+  const minutes = Math.round((doors / DOORS_PER_HOUR) * 60)
   if (minutes < 60) return `${minutes} min`
   return `${Math.floor(minutes / 60)} hr ${minutes % 60} min`
 }
@@ -66,8 +79,23 @@ interface CreateListFlowProps {
   ring: PolygonRing | null
   // In-polygon counts for the drawn shape, computed by the page from the pack.
   turfStats: PolygonStats | null
+  // Boundary points placed so far. `ring` only exists from three points, so
+  // this is the only thing that knows there is a one- or two-point shape to
+  // undo — and it counts adds, not drags, which never change the total.
+  drawPointCount: number
+  // Drop the last placed point / empty the shape. The canvas owns the ring,
+  // so both are requests, not edits made here.
+  onUndoPoint: () => void
+  onClearPoints: () => void
   // Saved-flow completion: clear the drawing (and optionally exit).
   onSaved: (drawAnother: boolean) => void
+  // Hides the Win-only filters, same contract as the CRM wizard's
+  // VoterFileStep. A prop rather than a context read so this stays a plain
+  // presentational flow and its tests don't need an organization provider.
+  isElectedOfficial: boolean
+  // Selected filter option keys the map preview can't narrow by, so the drawn
+  // shape shows more people than the list will target.
+  unpreviewableKeys: string[]
 }
 
 const STEP_META: Record<CreateFlowStep, { title: string; caption: string }> = {
@@ -142,7 +170,12 @@ export default function CreateListFlow({
   districtHouseholds,
   ring,
   turfStats,
+  drawPointCount,
+  onUndoPoint,
+  onClearPoints,
   onSaved,
+  isElectedOfficial,
+  unpreviewableKeys,
 }: CreateListFlowProps) {
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
@@ -274,9 +307,30 @@ export default function CreateListFlow({
     },
   })
 
+  // Stops are what the router and its 150-stop cap are denominated in; doors
+  // (households) are what the candidate walks and what the time estimate is
+  // worth. At a multi-unit building one stop is many doors, so reporting stops
+  // as doors understated the evening exactly where buildings are densest.
   const stops = turfStats?.stops ?? 0
+  const doors = turfStats?.households ?? 0
   const overCap = stops > HARD_STOP_LIMIT
   const longWalk = stops > SOFT_STOP_LIMIT && !overCap
+
+  const unpreviewableLabels = [
+    ...new Set(
+      unpreviewableKeys
+        .map((key) => {
+          const field = filterSections
+            .flatMap((section) => section.fields)
+            .find((entry) => entry.options.some((option) => option.key === key))
+          if (!field) return undefined
+          if (field.key === CONTACTS_MADE_FIELD_KEY)
+            return CONTACTS_MADE_DISCLOSURE_LABEL
+          return field.options.find((option) => option.key === key)?.label
+        })
+        .filter((label): label is string => Boolean(label)),
+    ),
+  ]
 
   const toggleGroupValues = (
     options: Array<{ key: string; label: string }>,
@@ -308,6 +362,38 @@ export default function CreateListFlow({
           />
         </div>
         <div className="flex-1" />
+        {/* Bottom-right of the live map band, in flow directly above the
+            stats bar (and in its column, so they line up over Continue) —
+            a taller bar from a cap warning pushes them up instead of
+            covering them. Only the buttons take pointer events; the rest of
+            the row stays a tappable part of the map. */}
+        <div className="px-6 pb-3">
+          <div className="mx-auto flex w-full max-w-2xl justify-end">
+            <div className="pointer-events-auto flex items-center gap-2">
+              {drawPointCount > 0 && (
+                <Button
+                  size="small"
+                  variant="secondary"
+                  className="shadow-md"
+                  aria-label="Undo last boundary point"
+                  onClick={onUndoPoint}
+                >
+                  Undo
+                </Button>
+              )}
+              <Button
+                size="small"
+                variant="secondary"
+                className="shadow-md"
+                aria-label="Clear the boundary"
+                disabled={drawPointCount === 0}
+                onClick={onClearPoints}
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+        </div>
         <div className="pointer-events-auto border-t border-border bg-background px-6 py-4">
           <div className="mx-auto flex w-full max-w-2xl items-center gap-4">
             {/* Everything here describes the drawn shape, not the district —
@@ -315,18 +401,29 @@ export default function CreateListFlow({
             <div className="min-w-0 flex-1">
               <p className="text-sm">
                 <span className="font-semibold tabular-nums">
+                  {doors.toLocaleString()}
+                </span>{' '}
+                doors ·{' '}
+                <span className="font-semibold tabular-nums">
                   {stops.toLocaleString()}
                 </span>{' '}
-                selected doors ·{' '}
+                stops ·{' '}
                 <span className="font-semibold tabular-nums">
-                  {(turfStats?.households ?? 0).toLocaleString()}
+                  {(turfStats?.people ?? 0).toLocaleString()}
                 </span>{' '}
-                matching households
+                people
               </p>
-              {stops > 0 && (
+              {doors > 0 && (
                 <p className="text-xs text-muted-foreground">
-                  About {estimateWalkTime(stops)} of knocking, at{' '}
+                  About {estimateWalkTime(doors)} of knocking, at{' '}
                   {DOORS_PER_HOUR} doors an hour
+                </p>
+              )}
+              {unpreviewableLabels.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  The map can&rsquo;t shade by {unpreviewableLabels.join(', ')}{' '}
+                  yet, so these counts include people that filter will exclude.
+                  Your saved list still applies it when you knock.
                 </p>
               )}
               {(turfStats?.partyMix.length ?? 0) > 0 && (
@@ -355,7 +452,7 @@ export default function CreateListFlow({
               disabled={!ring || stops === 0 || overCap}
               onClick={() => onStepChange('confirm')}
             >
-              Continue ({stops.toLocaleString()} doors)
+              Continue ({doors.toLocaleString()} doors)
             </Button>
           </div>
         </div>
@@ -398,7 +495,10 @@ export default function CreateListFlow({
           {step === 'filters' &&
             filterSections.map((section) =>
               section.fields
-                .filter((field) => field.key !== CONTACTS_MADE_FIELD_KEY)
+                .filter(
+                  (field) =>
+                    !isElectedOfficial || field.key !== CONTACTS_MADE_FIELD_KEY,
+                )
                 .map((field) => (
                   <div key={field.key} className="flex flex-col gap-2">
                     <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
@@ -439,7 +539,7 @@ export default function CreateListFlow({
                 <Input
                   id="turf-name"
                   value={name}
-                  maxLength={120}
+                  maxLength={MAX_TURF_NAME_LENGTH}
                   placeholder="Name this list"
                   onChange={(e) => setName(e.target.value)}
                 />
@@ -467,10 +567,10 @@ export default function CreateListFlow({
                 </div>
               </div>
               <div className="flex items-baseline justify-between border-t border-border pt-4">
-                <span className="text-sm font-semibold">Stops</span>
+                <span className="text-sm font-semibold">This list</span>
                 <span className="text-sm tabular-nums text-muted-foreground">
-                  {(turfStats?.stops ?? 0).toLocaleString()} doors ·{' '}
-                  {(turfStats?.people ?? 0).toLocaleString()} voters
+                  {doors.toLocaleString()} doors · {stops.toLocaleString()}{' '}
+                  stops · {(turfStats?.people ?? 0).toLocaleString()} voters
                 </span>
               </div>
               {save.isError && (

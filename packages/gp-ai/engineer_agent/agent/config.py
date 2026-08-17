@@ -1,7 +1,42 @@
+import math
 import os
 from dataclasses import dataclass
 
 BOT_PREFIX = "[GP-Bot]"
+
+# Per-run ceilings. Until now a run had neither: max_turns=200 on Opus with no
+# budget and no clock, which was survivable while a human hand-applied
+# gpbot-work one ticket at a time. Every bug reported now launches a run
+# automatically, so an unbounded worst case is no longer a worst case anyone
+# would notice — it is a recurring bill.
+#
+# Both are ceilings, not targets. A normal fix lands far under either; these
+# exist to bound the pathological run that has stopped making progress and is
+# re-reading the same files.
+DEFAULT_MAX_BUDGET_USD = 15.0
+DEFAULT_DEADLINE_SECONDS = 45 * 60
+
+
+def _positive_float_from_env(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        value = None
+    # isfinite + positive, not just "float() parsed": float() accepts
+    # 'nan'/'inf', and either would silently disable the ceiling it was set to
+    # enforce — NaN because every comparison against it is False, inf because
+    # nothing exceeds it. A typo must fall back to the default loudly enough to
+    # find in the log, not quietly remove the guard rail.
+    if value is not None and math.isfinite(value) and value > 0:
+        return value
+    print(f"Invalid {name} env value; using default {default}")
+    return default
+
+
+ANALYZE_LABEL = "analyze"
 
 
 @dataclass
@@ -11,6 +46,15 @@ class AgentConfig:
     environment: str = "dev"
     workspace_dir: str = "/workspace"
     model: str = "opus"
+    max_budget_usd: float = DEFAULT_MAX_BUDGET_USD
+    deadline_seconds: float = DEFAULT_DEADLINE_SECONDS
+    # Which kind of run this is ("analyze" / "implement"), set by the ClickUp
+    # bot's container override. Defaults to empty rather than to "analyze": an
+    # unset label means we are running somewhere that does not set it (a local
+    # invocation, an older task definition), and the escalation path must stay
+    # closed in that case rather than treating an unknown run as an analysis
+    # allowed to queue implementation work.
+    label: str = ""
 
     @classmethod
     def from_env(cls) -> "AgentConfig":
@@ -20,6 +64,9 @@ class AgentConfig:
             environment=os.environ.get("ENVIRONMENT", "dev"),
             workspace_dir=os.environ.get("WORKSPACE_DIR", "/workspace"),
             model=os.environ.get("AGENT_MODEL", "opus"),
+            max_budget_usd=_positive_float_from_env("AGENT_MAX_BUDGET_USD", DEFAULT_MAX_BUDGET_USD),
+            deadline_seconds=_positive_float_from_env("AGENT_DEADLINE_SECONDS", DEFAULT_DEADLINE_SECONDS),
+            label=os.environ.get("AGENT_LABEL", ""),
         )
 
 
@@ -37,18 +84,21 @@ def build_capability_prompt() -> str:
 
 **GitHub org**: thegoodparty
 
-Product code lives in the **thegoodparty/omni** monorepo (default branch `develop`):
+Product code lives in the **thegoodparty/omni** monorepo (default branch `main`):
 ```bash
 git clone --depth 1 https://x-access-token:$GITHUB_TOKEN@github.com/thegoodparty/omni.git /workspace/omni
 ```
-Packages live under `packages/`: gp-webapp, gp-api, election-api, people-api,
-gp-admin, candidate-sites, gp-sdk, contracts. Open PRs against omni's `develop`.
+Packages live under `packages/`: gp-webapp, gp-api, election-api,
+gp-admin, candidate-sites, gp-sdk, contracts, gp-ai. Open PRs against omni's `main`.
 
-The old standalone product repos (gp-webapp, gp-api, people-api, election-api) are
-**archived** (read-only) — never clone them and never open a PR against them.
-gp-ai-projects and gp-data-platform remain separate live repos:
+Your own code (this agent, the ClickUp bot) lives in omni at `packages/gp-ai` —
+it is NOT a separate repo.
+
+The old standalone repos (gp-webapp, gp-api, people-api, election-api,
+gp-ai-projects) are **archived** (read-only) — never clone them and never open a
+PR against them. gp-data-platform remains a separate live repo:
 ```bash
-git clone --depth 1 https://x-access-token:$GITHUB_TOKEN@github.com/thegoodparty/{repo}.git /workspace/{repo}
+git clone --depth 1 https://x-access-token:$GITHUB_TOKEN@github.com/thegoodparty/gp-data-platform.git /workspace/gp-data-platform
 ```
 
 **Databricks** (read-only): `python -m engineer_agent.scripts.query_db --help`
