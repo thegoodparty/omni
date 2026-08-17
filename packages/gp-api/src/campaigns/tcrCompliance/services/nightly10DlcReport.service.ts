@@ -610,11 +610,19 @@ export class Nightly10DlcReportService extends createPrismaBase(
     const cvWaitingSince = (record: RecordWithCampaign) =>
       record.peerlySubmissionStartedAt ?? record.createdAt
 
-    const agingAwaitingPin = agingCvInFlight.filter(
-      (record) =>
-        record.peerlyCvStatus === PeerlyCvVerificationStatus.APPROVED &&
-        isBefore(pinSentAt(record) ?? record.createdAt, nudgeCutoff),
-    )
+    // A record carrying neither timestamp gives us no basis for "PIN out Nd".
+    // Falling back to createdAt would report the campaign's own age, so a
+    // months-old campaign reads as months of PIN delay that never happened —
+    // the same class of wrong number the updatedAt clock produced. Drop it
+    // from the nudge rather than print an age we can't stand behind.
+    const agingAwaitingPin = agingCvInFlight.flatMap((record) => {
+      const sentAt = pinSentAt(record)
+      return record.peerlyCvStatus === PeerlyCvVerificationStatus.APPROVED &&
+        sentAt !== null &&
+        isBefore(sentAt, nudgeCutoff)
+        ? [{ record, sentAt }]
+        : []
+    })
     const agingCvUnissued = agingCvInFlight.filter(
       (record) =>
         record.peerlyCvStatus !== PeerlyCvVerificationStatus.APPROVED &&
@@ -624,12 +632,9 @@ export class Nightly10DlcReportService extends createPrismaBase(
     const nudgeSection: ReportSection = {
       title: `⏳ Awaiting PIN >${AWAITING_PIN_NUDGE_DAYS}d (candidate nudge)`,
       lines: agingAwaitingPin.map(
-        (record) =>
+        ({ record, sentAt }) =>
           `${campaignRef(record)} — identity ${record.peerlyIdentityId}, ` +
-          `PIN out ${differenceInCalendarDays(
-            now,
-            pinSentAt(record) ?? record.createdAt,
-          )}d`,
+          `PIN out ${differenceInCalendarDays(now, sentAt)}d`,
       ),
     }
 

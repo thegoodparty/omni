@@ -1077,6 +1077,45 @@ describe('Nightly10DlcReportService', () => {
       expect(blocksText([nudge!])).not.toContain('PIN out 1d')
     })
 
+    // With both timestamps null there is no honest answer for "PIN out Nd" —
+    // a createdAt fallback would report the campaign's age (90d here) as PIN
+    // delay. Omit the record instead of inventing a number.
+    it('omits an APPROVED record with no PIN-sent clock at all', async () => {
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+          proRecord('tcr-noclock', 'no-clock-camp', 806, {
+            peerlyIdentityId: 'ident-806',
+            peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
+            pinSentDetectedAt: null,
+            peerlyCvStatusChangedAt: null,
+            createdAt: subDays(new Date(), 90),
+            updatedAt: subDays(new Date(), 1),
+          }),
+        ],
+        [],
+        [],
+        [],
+        [],
+      ])
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+        { blocks: SlackMessageBlock[] },
+      ]
+      const nudge = blocks.find((block) =>
+        blocksText([block]).includes('Awaiting PIN >7d'),
+      )
+
+      expect(blocksText(blocks)).not.toContain('ident-806')
+      expect(nudge).toBeUndefined()
+    })
+
     it('counts neither section toward the stuck total', async () => {
       queueFindManyResults(mockModel.findMany, [
         [],
