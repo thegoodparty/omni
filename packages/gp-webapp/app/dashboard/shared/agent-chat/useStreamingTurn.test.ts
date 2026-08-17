@@ -37,7 +37,7 @@ describe('useStreamingTurn', () => {
       await result.current.send('c1', 'hello')
     })
 
-    expect(onError).toHaveBeenCalledWith('boom')
+    expect(onError).toHaveBeenCalledWith('boom', false)
     expect(result.current.sending).toBe(false)
   })
 
@@ -87,6 +87,7 @@ describe('useStreamingTurn', () => {
 
     expect(onError).toHaveBeenCalledWith(
       'Something went wrong. Please try again.',
+      true,
     )
     expect(result.current.sending).toBe(false)
   })
@@ -135,6 +136,7 @@ describe('useStreamingTurn', () => {
 
     expect(onError).toHaveBeenCalledWith(
       'Something went wrong. Please try again.',
+      true,
     )
     expect(result.current.sending).toBe(false)
     expect(result.current.liveSegments).toEqual([])
@@ -191,6 +193,64 @@ describe('useStreamingTurn', () => {
       })
 
       expect(result.current.messages.some((m) => m.id === 'srv-1')).toBe(true)
+      expect(
+        result.current.messages.some((m) => m.id.startsWith('local-')),
+      ).toBe(false)
+      expect(result.current.sending).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps polling for late persistence after a real idle-watchdog stall', async () => {
+    // Regression: the idle watchdog self-aborts the dead stream, so the commit
+    // poll must reconcile on THAT abort (a stall) while still bailing on an
+    // external abort (unmount/supersede). A prior version guarded the poll on
+    // the raw abort signal, so a genuine stall skipped the poll and froze the
+    // local partial mid-sentence until refresh.
+    vi.useFakeTimers()
+    try {
+      const start = Date.now()
+      const persisted = {
+        id: 'srv-stall',
+        conversationId: 'c1',
+        role: 'assistant' as const,
+        content: 'The finished draft — persisted long after the stall',
+        createdAt: new Date().toISOString(),
+      }
+      // The turn persists 90s after send — well past the 60s idle watchdog, so
+      // recovery only finds it if it keeps polling AFTER the stall abort.
+      const listMessages = vi.fn(async () =>
+        Date.now() - start >= 90_000 ? [persisted] : [],
+      )
+      const api = {
+        // Emit a lead-in then hang forever (never ends, never `done`): the
+        // client never sees end-of-stream, so the idle watchdog fires.
+        streamMessage: () =>
+          (async function* (): AsyncGenerator<ChatStreamEvent> {
+            yield { type: 'text', delta: 'The finished' }
+            await new Promise<void>(() => undefined)
+          })(),
+        listMessages,
+      }
+
+      const { result } = renderHook(() =>
+        useStreamingTurn(api, { toolLabel: () => null }),
+      )
+
+      let sendPromise!: Promise<void>
+      act(() => {
+        sendPromise = result.current.send('c1', 'draft it')
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200_000)
+        await sendPromise
+      })
+
+      // The poll ran past the stall abort and swapped in the persisted turn.
+      expect(result.current.messages.some((m) => m.id === 'srv-stall')).toBe(
+        true,
+      )
       expect(
         result.current.messages.some((m) => m.id.startsWith('local-')),
       ).toBe(false)

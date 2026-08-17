@@ -16,6 +16,7 @@ import {
   useSmoothReveal,
   type LiveSegment,
 } from './streaming'
+import { friendlyError } from './chatHelpers'
 
 // How often send polls the smooth-reveal counter while draining the tail after
 // the network stream ends, plus a backstop tick cap so an unmount mid-drain can
@@ -68,8 +69,15 @@ export interface StreamingTurnHandlers {
   onTurnStart?: () => void
   // Clear scope-specific live state after a turn settles (success or failure).
   onTurnSettle?: () => void
-  // Report a stream/network error. Omit to swallow (the user can retry).
-  onError?: (message: string) => void
+  // Fires once the turn's stream finishes without error, BEFORE the
+  // late-persistence commit poll. Use for a post-turn handoff that must run
+  // promptly on success (e.g. a deferred create's cache-invalidation callback)
+  // rather than waiting out the poll window.
+  onTurnSuccess?: () => void
+  // Report a stream/network error. `retryable` is false for terminal errors
+  // (e.g. a missing conversation) so the consumer can hide the Retry button.
+  // Omit to swallow (the user can retry).
+  onError?: (message: string, retryable: boolean) => void
 }
 
 export interface StreamingTurn {
@@ -85,6 +93,12 @@ export interface StreamingTurn {
     content: string,
     opts?: { hidden?: boolean },
   ) => Promise<void>
+  // Synchronous "a turn is actively streaming" check (false once the stream is
+  // done and the turn is merely settling). Consumers that push their own
+  // optimistic bubble before calling `send` use this — instead of the
+  // render-time `sending` — to drop a same-tick double-submit without also
+  // blocking a legitimate follow-up send during the settle window.
+  isStreaming: () => boolean
 }
 
 // The shared streaming-turn driver: optimistic user push, interleaved
@@ -107,15 +121,23 @@ export function useStreamingTurn(
   // Synchronous guard so a fast double-submit can't start two turns before the
   // async setSending re-renders.
   const sendingRef = useRef(false)
+  // True only once a turn's stream is done and it is merely reconciling
+  // persisted history. A new send supersedes a settling turn (aborts its
+  // background poll and starts) rather than being dropped by the guard above.
+  const settlingRef = useRef(false)
   // The in-flight turn's controller, so unmount can free the stream. Without
   // this a surface that unmounts mid-turn (a drawer closing, a step swapping)
   // leaves the fetch running until the server finishes; a hung stream leaks
   // until GC. Aborting on unmount is what stops it.
   const abortRef = useRef<AbortController | null>(null)
   useEffect(() => () => abortRef.current?.abort(), [])
+  // Drive the smooth reveal off the presence of live segments, not `sending`.
+  // A turn drops `sending` the moment its stream is done (so the composer
+  // re-enables for a follow-up send) while the reveal keeps typing out the tail
+  // until the turn commits to history and `liveSegments` clears.
   const { visibleSegments, revealedRef } = useSmoothReveal(
     liveSegments,
-    sending,
+    liveSegments.length > 0,
   )
 
   // Keep send stable while always calling the latest api/handlers (both are
@@ -134,10 +156,18 @@ export function useStreamingTurn(
       opts?: { hidden?: boolean },
     ): Promise<void> => {
       const trimmed = content.trim()
-      if (!conversationId || !trimmed || sendingRef.current) return
+      if (!conversationId || !trimmed) return
+      // A turn already in flight: drop this send if it is actively streaming
+      // (one turn at a time), but supersede it if it is only settling — abort
+      // its background persistence poll and start the new turn now.
+      if (sendingRef.current) {
+        if (!settlingRef.current) return
+        abortRef.current?.abort()
+      }
       const chatApi = apiRef.current
       const scope = handlersRef.current
       sendingRef.current = true
+      settlingRef.current = false
       setSending(true)
       setLiveSegments([])
       scope.onTurnStart?.()
@@ -253,7 +283,12 @@ export function useStreamingTurn(
           } else if (event.type === 'error') {
             // An aborted turn is intentional (the surface closed / a new turn
             // superseded it), not a failure to surface to the user.
-            if (event.code !== 'aborted') scope.onError?.(event.message)
+            if (event.code !== 'aborted') {
+              scope.onError?.(
+                event.message || friendlyError(event.code),
+                event.retryable,
+              )
+            }
             errorSeen = true
             break
           }
@@ -261,15 +296,37 @@ export function useStreamingTurn(
         // On an error the server has no new persisted turn to swap in, and
         // reloading would revert the optimistic user message; skip the handoff.
         if (!errorSeen) {
-          // On a clean finish, hold the swap until the smooth reveal has typed
-          // out the tail so the last words don't snap in. On a stall there is
-          // nothing left to type out — reconcile immediately.
+          // Reconcile with persisted history only while this turn still owns the
+          // stream AND hasn't been externally abandoned:
+          //   - a STALL self-aborts to kill the dead stream but must still
+          //     reconcile (and keep POLLING for a late-persisted turn) — that is
+          //     the whole point of stall recovery;
+          //   - an unmount or a superseding send (which reassigns abortRef) must
+          //     stop, so we don't touch state or fire a stray listMessages after
+          //     the surface is gone (which, in tests, bleeds into the next case).
+          const canReconcile = (): boolean =>
+            abortRef.current === abortController &&
+            (!abortController.signal.aborted || stalled)
+          // The turn produced its content without error — fire the success
+          // handoff now, before the (possibly long) commit poll below.
+          scope.onTurnSuccess?.()
+          // The stream is done: drop `sending` so the composer re-enables for a
+          // follow-up send, and mark the turn settling so that send supersedes
+          // the drain + reconcile below instead of being blocked by it.
+          // `sendingRef` stays set (the internal guard) until this turn settles.
+          if (canReconcile()) setSending(false)
+          settlingRef.current = true
+          // On a clean finish, let the smooth reveal type out the tail (off
+          // `liveSegments`, not `sending`) before committing, so the last words
+          // don't snap in. A supersede/unmount aborts it. On a stall there is
+          // nothing left to type out — commit immediately.
           if (!stalled) {
             const total = segmentsTextLength(segments)
             let ticks = 0
             while (
               revealedRef.current < total &&
-              ticks < REVEAL_DRAIN_MAX_TICKS
+              ticks < REVEAL_DRAIN_MAX_TICKS &&
+              !abortController.signal.aborted
             ) {
               await new Promise((resolve) =>
                 setTimeout(resolve, REVEAL_DRAIN_POLL_MS),
@@ -277,77 +334,99 @@ export function useStreamingTurn(
               ticks += 1
             }
           }
-          // Swap to persisted history only once it actually contains this turn.
-          // The live turn stays rendered (sending is still true) while we poll,
-          // so a refetch that lands before the server has persisted the turn
-          // never blanks it. Match on the server-assigned id when we have it,
-          // else on any assistant turn that wasn't already in the transcript.
+          // Match the finished turn in persisted history on the server-assigned
+          // id when we have it, else on any assistant turn not already in the
+          // transcript before this turn.
           const priorIds = new Set(messagesRef.current.map((m) => m.id))
           const hasTurn = (h: ChatMessageDto[]): boolean =>
             doneMessageId !== null
               ? h.some((m) => m.id === doneMessageId)
               : h.some((m) => m.role === 'assistant' && !priorIds.has(m.id))
-          let history = await chatApi.listMessages(conversationId)
-          // Poll for late persistence only when this turn actually produced
-          // content. A degenerate/empty stream (no text, no tools) has no turn
-          // to wait for, so polling would just burn the whole window.
-          if (segments.length > 0) {
-            const pollMs = doneSeen ? COMMIT_POLL_MS : DONELESS_COMMIT_POLL_MS
-            const maxTries = doneSeen
-              ? COMMIT_MAX_TRIES
-              : DONELESS_COMMIT_MAX_TRIES
-            let commitTries = 0
-            while (!hasTurn(history) && commitTries < maxTries) {
-              await new Promise((resolve) => setTimeout(resolve, pollMs))
-              history = await chatApi.listMessages(conversationId)
-              commitTries += 1
-            }
+          // Commit the finished turn to messages (with the server id when known)
+          // and clear the live render, so a follow-up send — which supersedes
+          // this turn while it is only settling — can never blank the answer.
+          // The reconcile below swaps it for the canonical transcript when ready.
+          if (segments.length > 0 && canReconcile()) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: doneMessageId ?? `local-${crypto.randomUUID()}`,
+                conversationId,
+                role: 'assistant',
+                content: segments.reduce(
+                  (acc, s) => (s.kind === 'text' ? acc + s.text : acc),
+                  '',
+                ),
+                createdAt: new Date().toISOString(),
+                segments: segments.map((s) =>
+                  s.kind === 'text'
+                    ? { kind: 'text' as const, text: s.text }
+                    : { kind: 'tool' as const, toolName: s.toolName },
+                ),
+              },
+            ])
           }
-          if (segments.length > 0 && !hasTurn(history)) {
-            // Persistence lagged past the poll window (rare — the server
-            // normally has the turn immediately). `finally` is about to clear
-            // the live render, so swapping in a transcript that lacks this turn
-            // would blank it. Instead keep the finished turn on screen by
-            // appending what streamed (text + pills); a later transcript load
-            // reconciles with the server's authoritative copy.
-            const streamed: ChatMessageDto = {
-              id: `local-${crypto.randomUUID()}`,
-              conversationId,
-              role: 'assistant',
-              content: segments.reduce(
-                (acc, s) => (s.kind === 'text' ? acc + s.text : acc),
-                '',
-              ),
-              createdAt: new Date().toISOString(),
-              segments: segments.map((s) =>
-                s.kind === 'text'
-                  ? { kind: 'text' as const, text: s.text }
-                  : { kind: 'tool' as const, toolName: s.toolName },
-              ),
+          // Reconcile with persisted history unless externally aborted (a stall
+          // still reconciles — see above).
+          if (canReconcile()) {
+            setLiveSegments([])
+            // Poll for late persistence only when this turn produced content. A
+            // degenerate/empty stream has no turn to wait for.
+            let history = await chatApi.listMessages(conversationId)
+            if (segments.length > 0) {
+              const pollMs = doneSeen ? COMMIT_POLL_MS : DONELESS_COMMIT_POLL_MS
+              const maxTries = doneSeen
+                ? COMMIT_MAX_TRIES
+                : DONELESS_COMMIT_MAX_TRIES
+              let commitTries = 0
+              while (
+                !hasTurn(history) &&
+                commitTries < maxTries &&
+                canReconcile()
+              ) {
+                await new Promise((resolve) => setTimeout(resolve, pollMs))
+                if (!canReconcile()) break
+                history = await chatApi.listMessages(conversationId)
+                commitTries += 1
+              }
             }
-            setMessages((prev) => [...prev, streamed])
-          } else {
-            setMessages(history)
+            // Swap to the canonical transcript once it contains this turn (or
+            // for an empty stream, which has no local turn to preserve). If
+            // persistence lagged the window, keep the appended turn above — a
+            // later transcript load reconciles.
+            if (canReconcile() && (segments.length === 0 || hasTurn(history))) {
+              setMessages(history)
+            }
           }
         }
       } catch {
         // An intentional abort (unmount, or a fresh turn superseding this one)
         // is not a failure to report — the surface is gone or moving on.
         if (!abortController.signal.aborted) {
-          scope.onError?.('Something went wrong. Please try again.')
+          scope.onError?.('Something went wrong. Please try again.', true)
         }
       } finally {
         // Free the underlying stream/fetch (a no-op after a clean finish; frees
-        // the socket when we bailed on a stall).
+        // the socket when we bailed on a stall). Only clear the shared turn
+        // state if THIS turn is still the current one — a follow-up send that
+        // superseded us mid-settle already owns sendingRef/liveSegments/sending.
         abortController.abort()
-        if (abortRef.current === abortController) abortRef.current = null
-        setLiveSegments([])
-        scope.onTurnSettle?.()
-        sendingRef.current = false
-        setSending(false)
+        if (abortRef.current === abortController) {
+          abortRef.current = null
+          setLiveSegments([])
+          scope.onTurnSettle?.()
+          settlingRef.current = false
+          sendingRef.current = false
+          setSending(false)
+        }
       }
     },
     [revealedRef],
+  )
+
+  const isStreaming = useCallback(
+    () => sendingRef.current && !settlingRef.current,
+    [],
   )
 
   return {
@@ -357,5 +436,6 @@ export function useStreamingTurn(
     visibleSegments,
     sending,
     send,
+    isStreaming,
   }
 }

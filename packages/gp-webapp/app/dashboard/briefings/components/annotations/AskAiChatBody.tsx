@@ -119,11 +119,17 @@ export default function AskAiChatBody({
   const [annotationId, setAnnotationId] = useState<string | null>(null)
   const [composer, setComposer] = useState('')
   const [loading, setLoading] = useState(false)
-  const [streamError, setStreamError] = useState<string | null>(null)
+  const [streamError, setStreamError] = useState<{
+    message: string
+    retryable: boolean
+  } | null>(null)
 
   const loadRequestedRef = useRef(false)
   const creatingRef = useRef(false)
-  const turnErroredRef = useRef(false)
+  // Synchronous send latch: `busy` is render-time state, so two `deliver`
+  // calls in the same tick (a pill click racing an Enter submit) both read it
+  // stale and both push an optimistic bubble. This ref bails the second one.
+  const deliveringRef = useRef(false)
   const lastUserContentRef = useRef('')
   const pendingChatCreatedRef = useRef<{
     annotationId: string
@@ -163,16 +169,25 @@ export default function AskAiChatBody({
     [],
   )
 
-  const { messages, setMessages, visibleSegments, sending, send } =
+  const { messages, setMessages, visibleSegments, sending, send, isStreaming } =
     useStreamingTurn(streamingApi, {
       toolLabel,
       onTurnStart: () => {
-        turnErroredRef.current = false
         setStreamError(null)
       },
-      onError: (message) => {
-        turnErroredRef.current = true
-        setStreamError(message)
+      onError: (message, retryable) => {
+        setStreamError({ message, retryable })
+      },
+      // Fire the deferred create's cache-invalidation callback once the first
+      // stream lands cleanly (before the commit poll). Guarded by the pending
+      // ref so it runs only for the create turn, and never on an errored turn
+      // (the engine skips onTurnSuccess when the stream errors).
+      onTurnSuccess: () => {
+        const pending = pendingChatCreatedRef.current
+        if (pending) {
+          pendingChatCreatedRef.current = null
+          onChatCreated?.(pending)
+        }
       },
     })
 
@@ -202,7 +217,10 @@ export default function AskAiChatBody({
         annotationIdOverride,
       })
       loadRequestedRef.current = false
-      setStreamError('Could not load this chat. Try again.')
+      setStreamError({
+        message: 'Could not load this chat. Try again.',
+        retryable: true,
+      })
     } finally {
       setLoading(false)
     }
@@ -258,39 +276,54 @@ export default function AskAiChatBody({
   const deliver = useCallback(
     async (content: string, opts?: { hidden?: boolean }): Promise<boolean> => {
       const trimmed = content.trim()
-      if (!trimmed || busy) return false
-      setStreamError(null)
-      if (!opts?.hidden) lastUserContentRef.current = trimmed
-      let id = annotationId
-      if (!id) {
-        id = await ensureAnnotationId()
-        if (!id) {
-          setStreamError('Could not start chat. Try again.')
-          return false
+      // `isStreaming()` (synchronous) drops a same-tick double-submit while a
+      // turn is actively streaming, but — unlike the render-time `busy` — lets
+      // a follow-up send through once the prior turn is only settling.
+      // `deliveringRef` covers the async create window before `send` is called.
+      if (!trimmed || isStreaming() || deliveringRef.current) return false
+      deliveringRef.current = true
+      try {
+        setStreamError(null)
+        if (!opts?.hidden) lastUserContentRef.current = trimmed
+        // Push the optimistic bubble BEFORE the deferred create so it stays
+        // visible through the create round-trip and survives a create failure
+        // (the composer is already cleared, so this is the only copy of the
+        // user's message). A retry re-streams with `hidden`, so it is never
+        // duplicated.
+        if (!opts?.hidden) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `pending-${crypto.randomUUID()}`,
+              conversationId: annotationId ?? '',
+              role: 'user',
+              content: trimmed,
+              createdAt: new Date().toISOString(),
+            },
+          ])
         }
+        let id = annotationId
+        if (!id) {
+          id = await ensureAnnotationId()
+          if (!id) {
+            setStreamError({
+              message: 'Could not start chat. Try again.',
+              retryable: true,
+            })
+            return false
+          }
+        }
+        // Fire-and-forget: `send` owns the turn from here (its own sendingRef
+        // guards it), and the onChatCreated handoff runs via onTurnSuccess.
+        // Awaiting would hold deliveringRef across the whole settle window and
+        // block a legitimate follow-up send.
+        void send(id, trimmed, { hidden: true })
+        return true
+      } finally {
+        deliveringRef.current = false
       }
-      if (!opts?.hidden) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `pending-${crypto.randomUUID()}`,
-            conversationId: id,
-            role: 'user',
-            content: trimmed,
-            createdAt: new Date().toISOString(),
-          },
-        ])
-      }
-      turnErroredRef.current = false
-      await send(id, trimmed, { hidden: true })
-      if (!turnErroredRef.current && pendingChatCreatedRef.current) {
-        const pending = pendingChatCreatedRef.current
-        pendingChatCreatedRef.current = null
-        onChatCreated?.(pending)
-      }
-      return true
     },
-    [busy, annotationId, ensureAnnotationId, send, setMessages, onChatCreated],
+    [isStreaming, annotationId, ensureAnnotationId, send, setMessages],
   )
 
   const onSend = useCallback((): void => {
@@ -304,18 +337,17 @@ export default function AskAiChatBody({
   const onRetry = useCallback((): void => {
     setStreamError(null)
     const content = lastUserContentRef.current
-    if (content && annotationId) {
-      void send(annotationId, content, { hidden: true })
-      return
-    }
     if (content) {
-      void deliver(content, { hidden: false })
+      // Re-stream through `deliver` (hidden — the optimistic bubble already
+      // exists) so a post-create retry still fires the deferred onChatCreated
+      // handoff, and a create-on-send failure re-attempts the create.
+      void deliver(content, { hidden: true })
       return
     }
     // No user turn to replay — a load error. Reload the conversation.
     loadRequestedRef.current = false
     void loadExistingChat()
-  }, [annotationId, send, deliver, loadExistingChat])
+  }, [deliver, loadExistingChat])
 
   const onRetryInterrupted = useCallback(
     (interruptedId: string): void => {
@@ -408,7 +440,13 @@ export default function AskAiChatBody({
     )
   }, [messages])
 
-  const working = sending && visibleSegments.length === 0
+  // ThinkingRow shows while streaming, and also through the deferred-create
+  // gap (loading, with the optimistic user bubble already on screen) so the
+  // user isn't left staring at their message with no sign of progress. The
+  // `messages.length > 0` guard keeps it off the initial override-path load.
+  const working =
+    (sending || (loading && messages.length > 0)) &&
+    visibleSegments.length === 0
   const lastItem = items[items.length - 1]
   const showBareUserRetry =
     !sending && !loading && !streamError && lastItem?.kind === 'user'
@@ -504,16 +542,18 @@ export default function AskAiChatBody({
               role="alert"
               className="flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
             >
-              <span>{streamError}</span>
-              <Button
-                type="button"
-                size="small"
-                variant="outline"
-                onClick={onRetry}
-                disabled={busy}
-              >
-                Retry
-              </Button>
+              <span>{streamError.message}</span>
+              {streamError.retryable && (
+                <Button
+                  type="button"
+                  size="small"
+                  variant="outline"
+                  onClick={onRetry}
+                  disabled={busy}
+                >
+                  Retry
+                </Button>
+              )}
             </div>
           )}
         </div>
