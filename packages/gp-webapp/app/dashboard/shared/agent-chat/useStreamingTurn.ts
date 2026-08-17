@@ -312,14 +312,14 @@ export function useStreamingTurn(
           scope.onTurnSuccess?.()
           // The stream is done: drop `sending` so the composer re-enables for a
           // follow-up send, and mark the turn settling so that send supersedes
-          // the drain + reconcile below instead of being blocked by it.
-          // `sendingRef` stays set (the internal guard) until this turn settles.
+          // the drain + reconcile below instead of being blocked by it. The live
+          // render stays up (off `liveSegments`, not `sending`) so it never
+          // blanks while we poll; `sendingRef` stays set until this turn settles.
           if (canReconcile()) setSending(false)
           settlingRef.current = true
-          // On a clean finish, let the smooth reveal type out the tail (off
-          // `liveSegments`, not `sending`) before committing, so the last words
-          // don't snap in. A supersede/unmount aborts it. On a stall there is
-          // nothing left to type out — commit immediately.
+          // On a clean finish, let the smooth reveal type out the tail before
+          // committing, so the last words don't snap in. A supersede/unmount
+          // aborts it. On a stall there is nothing left to type out.
           if (!stalled) {
             const total = segmentsTextLength(segments)
             let ticks = 0
@@ -342,34 +342,10 @@ export function useStreamingTurn(
             doneMessageId !== null
               ? h.some((m) => m.id === doneMessageId)
               : h.some((m) => m.role === 'assistant' && !priorIds.has(m.id))
-          // Commit the finished turn to messages (with the server id when known)
-          // and clear the live render, so a follow-up send — which supersedes
-          // this turn while it is only settling — can never blank the answer.
-          // The reconcile below swaps it for the canonical transcript when ready.
-          if (segments.length > 0 && canReconcile()) {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: doneMessageId ?? `local-${crypto.randomUUID()}`,
-                conversationId,
-                role: 'assistant',
-                content: segments.reduce(
-                  (acc, s) => (s.kind === 'text' ? acc + s.text : acc),
-                  '',
-                ),
-                createdAt: new Date().toISOString(),
-                segments: segments.map((s) =>
-                  s.kind === 'text'
-                    ? { kind: 'text' as const, text: s.text }
-                    : { kind: 'tool' as const, toolName: s.toolName },
-                ),
-              },
-            ])
-          }
           // Reconcile with persisted history unless externally aborted (a stall
-          // still reconciles — see above).
+          // still reconciles — see above). The live turn stays rendered
+          // throughout so a refetch that predates persistence can't blank it.
           if (canReconcile()) {
-            setLiveSegments([])
             // Poll for late persistence only when this turn produced content. A
             // degenerate/empty stream has no turn to wait for.
             let history = await chatApi.listMessages(conversationId)
@@ -390,12 +366,35 @@ export function useStreamingTurn(
                 commitTries += 1
               }
             }
-            // Swap to the canonical transcript once it contains this turn (or
-            // for an empty stream, which has no local turn to preserve). If
-            // persistence lagged the window, keep the appended turn above — a
-            // later transcript load reconciles.
-            if (canReconcile() && (segments.length === 0 || hasTurn(history))) {
-              setMessages(history)
+            // Commit only if this turn is still current. Swap to the canonical
+            // transcript once it contains the turn (or for an empty stream); if
+            // persistence lagged the whole window, keep the finished turn on
+            // screen by appending what streamed. Clear the live render in the
+            // same tick so the swap never double-renders or blanks.
+            if (canReconcile()) {
+              if (segments.length === 0 || hasTurn(history)) {
+                setMessages(history)
+              } else {
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: doneMessageId ?? `local-${crypto.randomUUID()}`,
+                    conversationId,
+                    role: 'assistant',
+                    content: segments.reduce(
+                      (acc, s) => (s.kind === 'text' ? acc + s.text : acc),
+                      '',
+                    ),
+                    createdAt: new Date().toISOString(),
+                    segments: segments.map((s) =>
+                      s.kind === 'text'
+                        ? { kind: 'text' as const, text: s.text }
+                        : { kind: 'tool' as const, toolName: s.toolName },
+                    ),
+                  },
+                ])
+              }
+              setLiveSegments([])
             }
           }
         }
