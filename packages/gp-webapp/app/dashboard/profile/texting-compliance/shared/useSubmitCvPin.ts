@@ -7,7 +7,10 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useUser } from '@shared/hooks/useUser'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
-import { TCR_COMPLIANCE_QUERY_KEY } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
+import {
+  COMPLIANCE_STATE_QUERY_KEY,
+  TCR_COMPLIANCE_QUERY_KEY,
+} from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import type { TcrCompliance } from 'helpers/types'
 
 // gp-api answers 409 when CampaignVerify has not issued a PIN at all — the
@@ -84,6 +87,16 @@ export function useSubmitCvPin(
       setSubmitting(false)
       onSuccess?.()
     } catch (e) {
+      // A 409 means the gate's cached status is stale — it let the form render
+      // for a candidate CampaignVerify has issued nothing to. Without this the
+      // form stays up alongside an error saying there is nothing to submit, and
+      // a hard refresh is the only way out. Paired with the gate's staleTime 0,
+      // invalidating re-fetches immediately and swaps in the in-progress notice.
+      if (e instanceof FetchError && e.status === 409) {
+        await queryClient.invalidateQueries({
+          queryKey: COMPLIANCE_STATE_QUERY_KEY,
+        })
+      }
       setError(messageForError(e))
       setSubmitting(false)
     }

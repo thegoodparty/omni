@@ -894,6 +894,20 @@ describe('Nightly10DlcReportService', () => {
   // records too, which sent staff to chase candidates who had no PIN — and
   // straight into the PIN box that then rejected whatever they typed.
   describe('handleNightlyReport — awaiting-PIN nudge split (ENG-10866)', () => {
+    // These assert exact day counts ("PIN out 21d"). Fixtures and the service's
+    // own `new Date()` would otherwise be read either side of a calendar
+    // midnight, making differenceInCalendarDays off by one at random. Pin the
+    // clock and derive every fixture from it, as the escalation tests below do.
+    const FIXED_NOW = new Date('2026-07-10T12:00:00-04:00')
+
+    beforeEach(() => {
+      vi.useFakeTimers({ now: FIXED_NOW, shouldAdvanceTime: true })
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
     // 9 days in flight, with the row written last night — the shape the
     // nightly poll leaves behind every time it observes anything.
     const cvInFlight = (
