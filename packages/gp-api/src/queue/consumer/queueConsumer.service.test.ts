@@ -18,6 +18,7 @@ import { CampaignTasksService } from '@/campaigns/tasks/services/campaignTasks.s
 import { CampaignTrackerTasksService } from '@/campaigns/campaignTracker/services/campaignTrackerTasks.service'
 import { WeeklyTasksDigestHandlerService } from '@/campaigns/tasks/services/weeklyTasksDigestHandler.service'
 import { Nightly10DlcReportService } from '@/campaigns/tcrCompliance/services/nightly10DlcReport.service'
+import { CvStatusPollService } from '@/campaigns/tcrCompliance/services/cvStatusPoll.service'
 import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.service'
@@ -236,6 +237,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       electedOfficeService as never,
       contactsService as never,
       s3Service as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1009,6 +1011,7 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
     )
   })
@@ -1203,6 +1206,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
     )
   })
@@ -1335,6 +1339,10 @@ describe('QueueConsumerService - message type routing', () => {
         {
           provide: Nightly10DlcReportService,
           useValue: { handleNightlyReport: vi.fn().mockResolvedValue(true) },
+        },
+        {
+          provide: CvStatusPollService,
+          useValue: { handleCvStatusPoll: vi.fn().mockReturnValue(true) },
         },
         { provide: ExperimentRunsService, useValue: {} },
         {
@@ -1759,6 +1767,7 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: AnalyticsService, useValue: {} },
         { provide: WeeklyTasksDigestHandlerService, useValue: {} },
         { provide: Nightly10DlcReportService, useValue: {} },
+        { provide: CvStatusPollService, useValue: {} },
         { provide: ExperimentRunsService, useValue: mockExperimentRuns },
         {
           provide: MeetingBriefingsService,
@@ -1919,6 +1928,7 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       { handleStep } as never,
       {} as never,
       createMockLogger(),
@@ -1965,6 +1975,7 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
 describe('QueueConsumerService - RECOMMENDED_LISTS_RECOMPUTE', () => {
   const buildService = (handleRecompute: ReturnType<typeof vi.fn>) =>
     new QueueConsumerService(
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

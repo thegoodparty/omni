@@ -842,6 +842,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
   async retrieveCampaignVerifyDetails(
     peerlyIdentityId: string,
     campaign: Campaign,
+    options?: { suppressSlackAlert?: boolean },
   ): Promise<{
     status: PeerlyCvVerificationStatus | null
     pinDelivery: DerivedPinDelivery | null
@@ -865,7 +866,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           return { status: null, pinDelivery: null }
         }
       }
-      return await this.handleApiError(e, { campaign, peerlyIdentityId })
+      return await this.handleApiError(e, {
+        campaign,
+        peerlyIdentityId,
+        suppressSlackAlert: options?.suppressSlackAlert,
+      })
     }
   }
 

@@ -2245,7 +2245,10 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
     submitCampaignVerifyTokenToBrand: ReturnType<typeof vi.fn>
     retrieveCampaignVerifyStatus: ReturnType<typeof vi.fn>
   }
-  let mockModel: { findFirstOrThrow: ReturnType<typeof vi.fn> }
+  let mockModel: {
+    findFirstOrThrow: ReturnType<typeof vi.fn>
+    updateMany: ReturnType<typeof vi.fn>
+  }
   let mockPrisma: { tcrCompliance: typeof mockModel }
 
   const tcrCompliance = {
@@ -2262,7 +2265,10 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
       submitCampaignVerifyTokenToBrand: vi.fn(),
       retrieveCampaignVerifyStatus: vi.fn(),
     }
-    mockModel = { findFirstOrThrow: vi.fn() }
+    mockModel = {
+      findFirstOrThrow: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    }
     mockPrisma = { tcrCompliance: mockModel }
 
     const module: TestingModule = await Test.createTestingModule({
@@ -2402,6 +2408,20 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
         '123456',
         { id: 1 },
       )
+      // A verified PIN means the CV is VERIFIED — the persisted mirror must
+      // stamp so sweepUnsubmittedUsecases picks the record up without
+      // waiting for the next CV status scan.
+      expect(mockModel.updateMany).toHaveBeenCalledWith({
+        where: {
+          peerlyIdentityId: 'peerly-1',
+          NOT: { peerlyCvStatus: 'VERIFIED' },
+        },
+        data: {
+          peerlyCvStatus: 'VERIFIED',
+          peerlyCvStatusChangedAt: expect.any(Date),
+          cvInReviewEscalatedAt: null,
+        },
+      })
     })
   })
 
@@ -2415,6 +2435,7 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
         service.retrieveCampaignVerifyToken('000000', tcrWithIdentity),
       ).rejects.toThrow(UnprocessableEntityException)
       expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
+      expect(mockModel.updateMany).not.toHaveBeenCalled()
     })
   })
 
@@ -2761,9 +2782,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     service = module.get(CampaignTcrComplianceService)
   })
 
-  it('mints a token and submits the usecase when CV is VERIFIED', async () => {
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('VERIFIED')
-
+  it('mints a token and submits the usecase for a swept (VERIFIED) record', async () => {
     await withEnv('prod', async () => {
       await submitUsecaseIfVerified(service, stuckRecord)
     })
@@ -2782,22 +2801,6 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     })
   })
 
-  it('does not submit or advance when CV is APPROVED (candidate still owes a PIN)', async () => {
-    // APPROVED can be reached by the CV authority before the candidate enters
-    // their PIN, so the sweep must leave the record in `submitted`. Advancing
-    // it to `pending` would flip the candidate to the "in review" screen and
-    // strand them with a PIN they can no longer enter.
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('APPROVED')
-
-    await withEnv('prod', async () => {
-      await submitUsecaseIfVerified(service, stuckRecord)
-    })
-
-    expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-    expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
-    expect(mockModel.update).not.toHaveBeenCalled()
-  })
-
   it.each(['waiting_to_finalize', 'finalized'])(
     'skips when the profile is already past pending (status %s)',
     async (status) => {
@@ -2807,21 +2810,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
 
       await submitUsecaseIfVerified(service, stuckRecord)
 
-      expect(mockPeerly.retrieveCampaignVerifyStatus).not.toHaveBeenCalled()
       expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-      expect(mockModel.update).not.toHaveBeenCalled()
-    },
-  )
-
-  it.each(['REQUESTED', 'IN_REVIEW', 'REJECTED', 'WITHDRAWN'])(
-    'skips (no token, no Slack-spamming approve) when CV is %s',
-    async (status) => {
-      mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce(status)
-
-      await submitUsecaseIfVerified(service, stuckRecord)
-
-      expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-      expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
       expect(mockModel.update).not.toHaveBeenCalled()
     },
   )
@@ -2859,16 +2848,6 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     expect(mockModel.update).not.toHaveBeenCalled()
   })
 
-  it('skips when CV status is null (no CV request exists for the identity)', async () => {
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce(null)
-
-    await submitUsecaseIfVerified(service, stuckRecord)
-
-    expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-    expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
-    expect(mockModel.update).not.toHaveBeenCalled()
-  })
-
   it('skips (no rethrow) when the Peerly identity 404s (orphaned/deleted)', async () => {
     mockPeerly.getIdentityProfile.mockRejectedValueOnce(
       new NotFoundException('identity not found'),
@@ -2878,7 +2857,6 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       submitUsecaseIfVerified(service, stuckRecord),
     ).resolves.toBeUndefined()
 
-    expect(mockPeerly.retrieveCampaignVerifyStatus).not.toHaveBeenCalled()
     expect(mockModel.update).not.toHaveBeenCalled()
   })
 
@@ -2903,7 +2881,11 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     expect(mockModel.update).not.toHaveBeenCalled()
   })
 
-  it('sweeps submitted records that have a Peerly identity', async () => {
+  // The persisted-VERIFIED filter is what keeps APPROVED records (candidate
+  // still owes a PIN) out of the sweep — auto-submitting on APPROVED would
+  // race the candidate past the PIN screen. It also removed the per-record
+  // retrieve_cv read Peerly's rate-limit complaint was about (2026-08-17).
+  it('sweeps only submitted records whose persisted CV status is VERIFIED', async () => {
     mockModel.findMany.mockResolvedValueOnce([])
 
     await sweep(service)
@@ -2912,6 +2894,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       where: {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: { not: null },
+        peerlyCvStatus: 'VERIFIED',
       },
     })
   })

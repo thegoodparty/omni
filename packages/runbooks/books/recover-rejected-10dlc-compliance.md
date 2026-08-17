@@ -68,7 +68,8 @@ Peerly, so a clean resubmit is possible. Continue to Step 1.
 
 **`peerly_identity_id IS NOT NULL` → stop; this is a Peerly-side problem.** The CV was
 accepted at submit and later flipped `REJECTED`/`WITHDRAWN`, and
-`sweepPinDeliveryDetection` stamped the record (`rejection_source: cv_status_check`).
+the CV status scan's `applyCvDetection` stamped the record
+(`rejection_source: cv_status_check`).
 A status reset here is a **no-op**: `submitToPeerlyForAgent` short-circuits on a
 non-null `peerly_identity_id` and returns the persisted response without calling
 Peerly at all. Nulling the identity column doesn't rescue it either — the resubmit
@@ -157,8 +158,8 @@ than loosening the `WHERE`.
 exactly the precondition `submit-to-peerly` enforces.
 
 Side effects of returning to `submitted`, all intended: the record re-enters
-`sweepPinDeliveryDetection` (so the PIN gets detected and `CompliancePinSent` fires),
-and it becomes eligible again for the nightly 10DLC report's stuck sections.
+the twice-daily CV status scan (so the PIN gets detected and `CompliancePinSent`
+fires), and it becomes eligible again for the nightly 10DLC report's stuck sections.
 
 ## Step 3 — verify the derived stage before spending a run
 
@@ -231,7 +232,7 @@ the failed submission is adopted rather than duplicated. A second identity appea
 for the same committee means the identity name changed between attempts — flag it,
 Peerly has to clean those up by hand.
 
-Then the normal flow resumes: Peerly issues the PIN, `sweepPinDeliveryDetection`
+Then the normal flow resumes: Peerly issues the PIN, the CV status scan
 records the channel and fires `CompliancePinSent`, and the candidate enters the PIN in
 the app.
 
