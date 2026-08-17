@@ -20,8 +20,12 @@ ClickUp comment OR GitHub PR
 
 | Tag | Label | Model | Result |
 |-----|-------|-------|--------|
-| `gpbot-analyze` | analyze | opus | Posts bug analysis as [GP-Bot] comment |
+| `gpbot-analyze` | analyze | opus | Posts bug analysis as [GP-Bot] comment, and may queue an implementation run — see "Analyze before implement" |
 | `gpbot-work` | implement | opus | Creates PR and posts link to ClickUp |
+
+`gpbot-analyze` is the front door. `gpbot-work` is normally applied by an
+analysis that concluded there is a fix worth making, though applying it by hand
+still works and skips straight to the PR.
 
 ## Flow
 
@@ -61,9 +65,12 @@ ClickUp comment OR GitHub PR
    - Atomic dedup claim: conditional DynamoDB write on `{task_id}#{label}` —
      exactly one concurrent worker wins; losers skip quietly. See "Dedup
      semantics" below.
-   - Triggers Fargate, passing `CLICKUP_TASK_ID`, `INSTRUCTION`, and
-     `AGENT_MODEL` as container-override env vars (the instruction encodes the
-     analyze-vs-implement contract; there is no `OUTPUT_ACTION`)
+   - Triggers Fargate, passing `CLICKUP_TASK_ID`, `INSTRUCTION`, `AGENT_MODEL`
+     and `AGENT_LABEL` as container-override env vars (the instruction encodes
+     the analyze-vs-implement contract; there is no `OUTPUT_ACTION`).
+     `AGENT_LABEL` is what the agent gates escalation on — see "Analyze before
+     implement" — and is passed as a value so a prompt edit cannot silently
+     change whether a run may open a PR
    - Posts the `[GP-Bot] Processing started (...)` comment — which also tells
      the user the re-tag cooldown — only after the Fargate task actually
      launched. In the async worker it is retried once on failure (this comment
@@ -76,6 +83,9 @@ ClickUp comment OR GitHub PR
      only fail-loud channel — no caller receives an HTTP error) and attempt a
      failure comment.
 5. engineer_agent executes based on action type
+6. After an **analyze** run succeeds, the agent parses its own `GPBOT-VERDICT`
+   line and, on `fix` only, tags the ticket `gpbot-work` — re-entering at step 2.
+   Off by default; see "Analyze before implement"
 
 There is no feature flag and no logging-only mode. A matched tag always attempts the
 Fargate trigger. If the trigger fails for any reason (missing `ECS_*` env vars, IAM
@@ -123,9 +133,85 @@ Two consequences worth knowing:
   from Jul 31 to Aug 14 the last time it happened. A delivery we *know* is
   tagged still 500s so ClickUp redelivers. The outage itself still alarms.
 
-If real `taskCreated` payloads turn out to include tags in `history_items`, the
-free path already handles them (`find_matched_tag` runs first) and both the
-lookup and this exposure can be removed.
+**The lookup is not optional** (confirmed 2026-08-17 against a live delivery).
+A real `taskCreated` payload's `history_items` carries only `status` and
+`task_creation` entries — there is no `tag` field to read, even on a task created
+with tags:
+
+```json
+"history_items": [
+  {"field": "status",        "after": {"status": "to do", "type": "open"}},
+  {"field": "task_creation", "data": {"via": "api"}}
+]
+```
+
+`find_matched_tag` still runs first because it costs nothing and would catch a
+future payload change, but do not remove the `GET /task` fallback on the theory
+that the tag might be in the delta. It is not.
+
+## Analyze before implement
+
+Every reported bug gets an **analysis**. Only an analysis that concludes there is
+a real, bounded code defect queues an **implementation**.
+
+The reason is measured, not theoretical. The five bugs reported 2026-08-14..17
+analyzed out as:
+
+| Ticket | What it actually was |
+|--------|----------------------|
+| ENG-10892 | Real code bug: stale `did_win=false` fails `isActiveCampaign()` → `NO_ACTIVE_CAMPAIGN` on Pro checkout |
+| ENG-10890 | **The same bug as ENG-10892** |
+| ENG-10893 | Real code bug: Know Your Opponent silently drops opponents with zero collected sources |
+| ENG-10891 | Upstream L2 voter-file gap — nothing to fix in omni |
+| ENG-10889 | A feature request, not a bug |
+
+Pointing an implement agent at all five produces two PRs that should never have
+been written, plus a duplicate of a third. Two of five reported "bugs" not being
+code bugs at all is the normal state of an inbox fed by support tickets, so the
+filter has to exist somewhere — and the only thing cheap enough to run on
+everything, and informed enough to tell a vendor data gap from a defect, is a
+read-only agent with the codebase in front of it.
+
+**How it works.** The analyze prompt requires a final line:
+
+```
+GPBOT-VERDICT: fix | no-code-change | needs-human
+```
+
+After a successful analyze run, `engineer_agent/agent/escalation.py` parses that
+line and, on `fix` only, adds `gpbot-work` to the ticket. That re-enters through
+the ordinary webhook path — the same route a human tagging by hand takes — so the
+scope guard, both dedup layers, and the PR triage workflow all still apply. The
+judgement is the model's; the action is deterministic code, which is where the
+guard rails live:
+
+| Guard | Why |
+|---|---|
+| Only from an `analyze` run (`AGENT_LABEL`) | An implement run cannot queue another implement run |
+| Only on `status: success` | A budget-capped or deadline-killed run can leave a confident-looking partial analysis |
+| Only on a recognized `fix` verdict | Missing, malformed or unknown → leave the ticket alone |
+| Skipped if `gpbot-work` is already present | Re-adding an existing tag emits no webhook anyway |
+| Never raises | It runs after the analysis is already posted; failing here would turn a useful run into a task-failure alarm |
+
+The verdict is read from the **last** match in the response, because a model
+routinely restates the instructions it was given before answering.
+
+**Ramp switch.** `GPBOT_ESCALATE_TO_WORK` on the engineer-agent task definition,
+default **false** (`escalate_analysis_to_work` in
+`infrastructure/modules/engineer-agent-fargate`). While it is off the agent still
+logs the verdict it *would* have acted on, which is how you judge whether the
+verdicts are trustworthy before handing them the trigger. Grep for
+`escalation disabled` to see the queue that would have formed.
+
+Before flipping it on: set `vars.GPBOT_PR_CHANNEL_ID` (otherwise bot PRs arrive
+as a GitHub review request with no Slack context) and tell the team that bot PRs
+are coming, that a bot approval does **not** merge them, and that closing a weak
+one is the expected outcome.
+
+**Cost.** A ticket that escalates pays for two runs, each capped independently at
+`AGENT_MAX_BUDGET_USD` (default $15). Observed analyze runs have cost $1.73–$4.79.
+The ceiling per escalated ticket is therefore $30, not $15 — budget for the
+two-phase flow, not the single run.
 
 ## Scope guard
 
