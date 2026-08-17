@@ -12,7 +12,18 @@ import NativeDoorKnockingPage from './NativeDoorKnockingPage'
 // turf below. So the district reads 3 unknown / 1 supporter and the turf reads
 // 2 unknown / 1 supporter — the two numbers the rail has to tell apart — while
 // the party plane gives a saved list something of its own to narrow by.
-const { packFixture } = vi.hoisted(() => ({
+// A triangle around both dots, tapped one vertex at a time, so the draw step
+// can be walked the way a canvasser walks it: the stub reports each tap the
+// way the canvas does, including its three-point gate on the ring.
+const { drawSession, packFixture } = vi.hoisted(() => ({
+  drawSession: {
+    placed: [] as Array<[number, number]>,
+    taps: [
+      [-87.67, 41.885],
+      [-87.63, 41.885],
+      [-87.65, 41.95],
+    ] as Array<[number, number]>,
+  },
   packFixture: {
     manifest: {
       version: 1,
@@ -48,15 +59,35 @@ vi.mock('./VoterMapCanvas', () => ({
   default: ({
     filterResult,
     initialZoom,
+    onPolygonChange,
+    onDrawPointCount,
   }: {
     filterResult: { people: number }
     initialZoom?: number
+    onPolygonChange: (ring: Array<[number, number]> | null) => void
+    onDrawPointCount?: (count: number) => void
   }) => (
     <div
       data-testid="voter-map"
       data-people={String(filterResult.people)}
       data-initial-zoom={String(initialZoom)}
-    />
+    >
+      <button
+        type="button"
+        onClick={() => {
+          const tap = drawSession.taps[drawSession.placed.length]
+          if (!tap) return
+          const next = [...drawSession.placed, tap]
+          drawSession.placed = next
+          onDrawPointCount?.(next.length)
+          // The canvas's own gate: a ring exists from three points, and the
+          // shape closes itself rather than waiting for a finish gesture.
+          onPolygonChange(next.length >= 3 ? next : null)
+        }}
+      >
+        tap the map
+      </button>
+    </div>
   ),
 }))
 vi.mock('app/dashboard/shared/DashboardLayout', () => ({
@@ -343,5 +374,42 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
 
     expect(document.getElementById('door-knocking-rail')).toBeNull()
     expect(screen.getByTestId('voter-map')).toBeInTheDocument()
+  })
+
+  // The whole draw step as a canvasser meets it: no Done button anywhere, a
+  // three-point minimum nothing used to name, and a Continue that has to turn
+  // into the finish gesture on the third tap.
+  it('walks filters → three taps → confirm', async () => {
+    drawSession.placed = []
+    renderPage()
+    await screen.findByText(/voters in your district with a mapped address/)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create list' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    expect(
+      screen.getByRole('button', { name: 'Tap 3 points to continue' }),
+    ).toBeDisabled()
+
+    fireEvent.click(tapMap)
+    expect(
+      screen.getByRole('button', { name: '2 more points to continue' }),
+    ).toBeDisabled()
+
+    fireEvent.click(tapMap)
+    expect(
+      screen.getByRole('button', { name: '1 more point to continue' }),
+    ).toBeDisabled()
+
+    fireEvent.click(tapMap)
+    const advance = await screen.findByRole('button', {
+      name: /Continue \(\d+ doors\)/,
+    })
+    expect(advance).toBeEnabled()
+
+    fireEvent.click(advance)
+
+    expect(screen.getByLabelText('Route name')).toBeInTheDocument()
   })
 })
