@@ -30,12 +30,16 @@ export const districtStatsQueryOptions = queryOptions({
   queryKey: ['contacts-stats'],
   queryFn: () =>
     clientRequest('GET /v1/contacts/stats', {}).then((res) => res.data),
-  // VOTER_DATA_UNAVAILABLE is permanent for the org, so the global retry:2
-  // just triples a request that can never succeed. Everything else (5xx, a
-  // dropped connection) is transient and keeps the default retries.
-  retry: (failureCount, error) =>
-    !isVoterDataUnavailable(error) && failureCount < 2,
 })
+
+// Only the polls gate needs this: it branches on the failure, so a
+// VOTER_DATA_UNAVAILABLE (permanent for the org) must not be retried into a
+// slow dead-end, while a 5xx must be. It lives on the hooks rather than on
+// districtStatsQueryOptions because a `retry` there would override the
+// client-level policy for every other consumer of these options — the
+// contacts stat cards and lists included, which just want the default.
+const pollsGateRetry = (failureCount: number, error: unknown): boolean =>
+  !isVoterDataUnavailable(error) && failureCount < 2
 
 const isVoterDataUnavailable = (error: unknown): boolean =>
   error instanceof FetchError &&
@@ -51,6 +55,8 @@ export type DistrictStatsUnavailableReason =
   | 'unresolvable_district'
   | 'stats_unavailable'
   | 'stats_error'
+
+export { pollsGateRetry }
 
 export const districtStatsUnavailableReason = (
   isUnresolvable: boolean,
@@ -75,6 +81,7 @@ export const useDistrictStats = () => {
   const query = useQuery({
     ...districtStatsQueryOptions,
     enabled: !isUnresolvable,
+    retry: pollsGateRetry,
   })
   const unavailableReason = districtStatsUnavailableReason(
     isUnresolvable,

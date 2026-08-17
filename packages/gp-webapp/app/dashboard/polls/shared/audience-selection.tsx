@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query'
 import {
   districtStatsQueryOptions,
   districtStatsUnavailableReason,
+  pollsGateRetry,
 } from './queries'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 
@@ -19,6 +20,7 @@ export const useTotalConstituentsWithCellPhone = () => {
   const query = useQuery({
     ...districtStatsQueryOptions,
     enabled: !isUnresolvable,
+    retry: pollsGateRetry,
     select: (data) => ({
       totalConstituents: data.totalConstituentsWithCellPhone,
     }),
