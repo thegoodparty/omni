@@ -319,11 +319,12 @@ describe('useStreamingTurn', () => {
     }
   })
 
-  it('does NOT fire onTurnSuccess on a stall (the server is still generating)', async () => {
+  it('defers onTurnSuccess on a stall until the poll proves the server finished', async () => {
     // The success handoff (e.g. a deferred create's onChatCreated) can swap the
-    // host surface and unmount the body. On a stall the server hasn't finished,
-    // so firing it would unmount mid-generation. It must wait; the turn still
-    // reconciles via the doneless commit poll.
+    // host surface and unmount the body. On a stall the server may still be
+    // generating, so firing it then would unmount mid-generation. It must wait
+    // for the doneless commit poll to find the turn (server provably done), then
+    // fire exactly once.
     vi.useFakeTimers()
     try {
       const onTurnSuccess = vi.fn()
@@ -356,13 +357,19 @@ describe('useStreamingTurn', () => {
       act(() => {
         sendPromise = result.current.send('c1', 'draft it')
       })
+      // Past the 60s idle watchdog but before the turn persists (90s): the
+      // stall is detected and the poll is running, but the handoff must wait.
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(200_000)
+        await vi.advanceTimersByTimeAsync(70_000)
+      })
+      expect(onTurnSuccess).not.toHaveBeenCalled()
+
+      // Past persistence — the poll finds the turn, so the handoff fires once.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(130_000)
         await sendPromise
       })
-
-      // Handoff suppressed on the stall, but the turn still reconciled.
-      expect(onTurnSuccess).not.toHaveBeenCalled()
+      expect(onTurnSuccess).toHaveBeenCalledTimes(1)
       expect(result.current.messages.some((m) => m.id === 'srv-stall2')).toBe(
         true,
       )
