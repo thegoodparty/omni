@@ -1,6 +1,40 @@
 import { z } from 'zod'
+import {
+  DoorKnockConstituentActivitySchema,
+  RobocallConstituentActivitySchema,
+  StatusChangeConstituentActivitySchema,
+  TextConstituentActivitySchema,
+} from '../people/ContactActivity.schema'
 import { NotAVoterReasonSchema } from '../people/ContactStatus.schema'
 import { DoorKnockingRouteHeaderSchema } from './DoorKnockingTurf.schema'
+
+// ADR 0009. Previous outreach to one resident, riding the route payload so
+// the walk keeps working on the bad signal it was designed around.
+//
+// The variants are the CRM's own ConstituentActivity members, not a
+// door-knocking copy of them: the same event has to read the same way in
+// Contacts and at the door, and reusing the schemas means the webapp's
+// existing feed rows render this without a fork.
+//
+// Two of the CRM's six variants are deliberately absent. POLL_INTERACTIONS
+// is elected-office only and door knocking is Win-only. OUTREACH (the
+// deprecated VoterOutreachActivity rows) is keyed on lalVoterId, and
+// door_knocking_stop_target stores a people-db personId precisely so no raw
+// LALVOTERID is frozen into a route — so the door cannot join to them.
+export const RouteTargetActivitySchema = z.discriminatedUnion('type', [
+  DoorKnockConstituentActivitySchema,
+  TextConstituentActivitySchema,
+  RobocallConstituentActivitySchema,
+  StatusChangeConstituentActivitySchema,
+])
+
+export type RouteTargetActivity = z.infer<typeof RouteTargetActivitySchema>
+
+// Most-recent-first, capped server-side. The cap is what makes the payload's
+// cost independent of how long a person's CRM history runs: a person with two
+// hundred rows costs the same bytes as one with five. Full history lives in
+// the CRM person view, which pages.
+export const ROUTE_TARGET_ACTIVITY_LIMIT = 5
 
 // Knock statuses derived from the CRM door-knock vocabulary (outcome +
 // supportAnswer). 'unknown' covers never-knocked, answered-but-unsure, and
@@ -53,6 +87,15 @@ export const RoutePayloadTargetSchema = z.object({
   // reason, and the marker is present or it isn't. Keeping it optional also
   // means a payload snapshotted offline before this shipped still parses.
   notAVoterReason: NotAVoterReasonSchema.optional(),
+  // ADR 0009. This resident's own recent outreach, newest first — never the
+  // household's. Two people behind one door disagree, and attributing a
+  // neighbor's refusal to the person answering is worse than showing nothing.
+  //
+  // The server always sends the array, empty included: "we have never been
+  // here" is a thing the card says out loud. Optional for the same reason
+  // notAVoterReason above is — a payload snapshotted offline before this
+  // shipped has to keep parsing on a phone that cannot refetch.
+  history: z.array(RouteTargetActivitySchema).optional(),
 })
 
 export type RoutePayloadTarget = z.infer<typeof RoutePayloadTargetSchema>

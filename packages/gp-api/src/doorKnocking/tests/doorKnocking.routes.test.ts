@@ -2,6 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DoorKnockingPackRequest,
   GeoJsonPolygon,
+  ROUTE_TARGET_ACTIVITY_LIMIT,
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
@@ -1145,6 +1146,212 @@ describe('door-knocking routes', () => {
       ).toHaveLength(0)
     })
 
+    // ADR 0009. The feed rides the route payload rather than a per-person
+    // fetch, so these assertions are what the walk has to work from when the
+    // canvasser is a block into a dead zone.
+    describe('per-resident activity feed (ADR 0009)', () => {
+      const historyFor = (
+        res: { data: { stops: unknown } },
+        personId: string,
+      ) =>
+        (
+          res.data.stops as Array<{
+            addresses: Array<{
+              targets: Array<{
+                personId: string
+                history: Array<{ type: string; date: string }>
+              }>
+            }>
+          }>
+        )
+          .flatMap((stop) => stop.addresses)
+          .flatMap((address) => address.targets)
+          .find((target) => target.personId === personId)?.history
+
+      it('serves an empty feed for a resident nobody has contacted', async () => {
+        const { res } = await knockAndServe()
+
+        expect(res.status).toBe(200)
+        expect(historyFor(res, PERSON_2)).toEqual([])
+      })
+
+      it('orders several attempts newest first', async () => {
+        await service.prisma.contactInteractionDoorKnock.createMany({
+          data: [
+            {
+              organizationSlug: orgSlug,
+              personId: PERSON_1,
+              occurredAt: new Date('2026-06-01T10:00:00Z'),
+              outcome: 'not_home',
+            },
+            {
+              organizationSlug: orgSlug,
+              personId: PERSON_1,
+              occurredAt: new Date('2026-07-01T10:00:00Z'),
+              outcome: 'refused_to_engage',
+            },
+            {
+              organizationSlug: orgSlug,
+              personId: PERSON_1,
+              occurredAt: new Date('2026-06-15T10:00:00Z'),
+              outcome: 'answered',
+              supportAnswer: 'supporter',
+              note: 'Wants a yard sign',
+            },
+          ],
+        })
+
+        const { res } = await knockAndServe()
+
+        expect(historyFor(res, PERSON_1)).toEqual([
+          {
+            type: 'DOOR_KNOCK',
+            date: '2026-07-01T10:00:00.000Z',
+            data: expect.objectContaining({ outcome: 'refused_to_engage' }),
+          },
+          {
+            type: 'DOOR_KNOCK',
+            date: '2026-06-15T10:00:00.000Z',
+            data: expect.objectContaining({
+              outcome: 'answered',
+              supportAnswer: 'supporter',
+              note: 'Wants a yard sign',
+            }),
+          },
+          {
+            type: 'DOOR_KNOCK',
+            date: '2026-06-01T10:00:00.000Z',
+            data: expect.objectContaining({ outcome: 'not_home' }),
+          },
+        ])
+      })
+
+      // The whole reason this is keyed by personId. Two people behind one
+      // door disagree, and reading a housemate's refusal onto whoever opens
+      // it is worse than showing nothing at all.
+      it('scopes the feed to the resident, not the household', async () => {
+        await service.prisma.contactInteractionDoorKnock.createMany({
+          data: [
+            {
+              organizationSlug: orgSlug,
+              personId: PERSON_1,
+              occurredAt: new Date('2026-07-01T10:00:00Z'),
+              outcome: 'answered',
+              supportAnswer: 'supporter',
+            },
+            {
+              organizationSlug: orgSlug,
+              personId: PERSON_2,
+              occurredAt: new Date('2026-07-02T10:00:00Z'),
+              outcome: 'refused_to_engage',
+            },
+          ],
+        })
+
+        const { res } = await knockAndServe()
+
+        // PERSON_1 and PERSON_2 share PIPED_KEY — one address, one door.
+        expect(historyFor(res, PERSON_1)).toMatchObject([
+          { data: { outcome: 'answered' } },
+        ])
+        expect(historyFor(res, PERSON_2)).toMatchObject([
+          { data: { outcome: 'refused_to_engage' } },
+        ])
+      })
+
+      it('merges the other CRM channels in the same vocabulary', async () => {
+        await service.prisma.contactInteractionText.create({
+          data: {
+            organizationSlug: orgSlug,
+            personId: PERSON_1,
+            occurredAt: new Date('2026-07-03T10:00:00Z'),
+            respondedAt: new Date('2026-07-03T11:00:00Z'),
+          },
+        })
+        await service.prisma.contactInteractionRobocall.create({
+          data: {
+            organizationSlug: orgSlug,
+            personId: PERSON_1,
+            occurredAt: new Date('2026-07-02T10:00:00Z'),
+            voicemailLeftAt: new Date('2026-07-02T10:01:00Z'),
+          },
+        })
+        await service.prisma.contactStatusEvent.create({
+          data: {
+            organizationSlug: orgSlug,
+            personId: PERSON_1,
+            field: 'do_not_knock',
+            fromValue: 'cleared',
+            toValue: 'active',
+            source: 'door_knock',
+            actorUserId: service.user.id,
+            createdAt: new Date('2026-07-04T10:00:00Z'),
+          },
+        })
+
+        const { res } = await knockAndServe()
+
+        const history = historyFor(res, PERSON_1)
+        expect(history?.map((entry) => entry.type)).toEqual([
+          'STATUS_CHANGE',
+          'TEXT',
+          'ROBOCALL',
+        ])
+        // The labels are resolveContactStatusLabel's, the same ones the CRM
+        // person view renders — not a door-knocking translation of the enum.
+        expect(history?.[0]).toMatchObject({
+          data: { fromLabel: 'Off', toLabel: 'On' },
+        })
+      })
+
+      // The cap is what keeps the payload's cost independent of how long a
+      // person's CRM history runs — see ADR 0009's measurements.
+      it(`caps a long history at ${ROUTE_TARGET_ACTIVITY_LIMIT} rows, keeping the newest`, async () => {
+        await service.prisma.contactInteractionText.createMany({
+          data: Array.from({ length: 12 }, (_, index) => ({
+            organizationSlug: orgSlug,
+            personId: PERSON_1,
+            occurredAt: new Date(
+              `2026-07-${String(index + 1).padStart(2, '0')}T10:00:00Z`,
+            ),
+          })),
+        })
+
+        const { res } = await knockAndServe()
+
+        const history = historyFor(res, PERSON_1)
+        expect(history).toHaveLength(ROUTE_TARGET_ACTIVITY_LIMIT)
+        expect(history?.[0]?.date).toBe('2026-07-12T10:00:00.000Z')
+        expect(history?.[ROUTE_TARGET_ACTIVITY_LIMIT - 1]?.date).toBe(
+          '2026-07-08T10:00:00.000Z',
+        )
+      })
+
+      it("never leaks another organization's history", async () => {
+        const otherSlug = `campaign-elsewhere-${Date.now()}`
+        await service.prisma.organization.create({
+          data: {
+            slug: otherSlug,
+            ownerId: service.user.id,
+            overrideDistrictId: DISTRICT_ID,
+          },
+        })
+        await service.prisma.contactInteractionDoorKnock.create({
+          data: {
+            organizationSlug: otherSlug,
+            personId: PERSON_1,
+            occurredAt: new Date('2026-07-01T10:00:00Z'),
+            outcome: 'answered',
+            supportAnswer: 'supporter',
+          },
+        })
+
+        const { res } = await knockAndServe()
+
+        expect(historyFor(res, PERSON_1)).toEqual([])
+      })
+    })
+
     it('404s for a turf that has not been knocked', async () => {
       const turf = await createTurf()
       const res = await service.client.get(
@@ -1360,6 +1567,52 @@ describe('door-knocking routes', () => {
       expect(
         targets.find((t) => t.personId === target.personId)?.knockStatus,
       ).toBe('non_supporter')
+    })
+
+    // ADR 0009. The walk patches its own cache so the card updates without a
+    // refetch; this is the other half — a re-serve agrees with what the phone
+    // already showed, so leaving and re-entering the walk doesn't drop it.
+    it("the recorded knock shows up in that resident's feed on the next serve", async () => {
+      const turf = await createTurf()
+      stubVendors({ residents: { addresses: [] } })
+      await knock(turf.id)
+      const target =
+        await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+          orderBy: { id: 'asc' },
+        })
+      await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'answered',
+        supportAnswer: 'supporter',
+        note: 'Back after six',
+      })
+
+      const res = await service.client.get(
+        `/v1/door-knocking/turfs/${turf.id}/route`,
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+
+      const history = (
+        res.data.stops as Array<{
+          addresses: Array<{
+            targets: Array<{
+              personId: string
+              history: Array<{ type: string; data: { note: string | null } }>
+            }>
+          }>
+        }>
+      )
+        .flatMap((s) => s.addresses)
+        .flatMap((a) => a.targets)
+        .find((t) => t.personId === target.personId)?.history
+
+      expect(history).toMatchObject([
+        {
+          type: 'DOOR_KNOCK',
+          data: { outcome: 'answered', note: 'Back after six' },
+        },
+      ])
     })
     describe('willVote -> voter_likelihood override events (ENG-10841)', () => {
       const recordWillVote = async (willVote: string) => {
