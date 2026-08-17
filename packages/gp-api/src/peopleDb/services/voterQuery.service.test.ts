@@ -64,7 +64,6 @@ describe('VoterQueryService', () => {
     findDistrictById: ReturnType<typeof vi.fn>
   }
   let mockStatsService: {
-    getTotalCounts: ReturnType<typeof vi.fn>
     findTotalCounts: ReturnType<typeof vi.fn>
     findTotalConstituents: ReturnType<typeof vi.fn>
   }
@@ -87,10 +86,6 @@ describe('VoterQueryService', () => {
       }),
     }
     mockStatsService = {
-      getTotalCounts: vi.fn().mockResolvedValue({
-        totalConstituents: 120,
-        totalConstituentsWithCellPhone: 80,
-      }),
       findTotalCounts: vi.fn().mockResolvedValue({
         totalConstituents: 120,
         totalConstituentsWithCellPhone: 80,

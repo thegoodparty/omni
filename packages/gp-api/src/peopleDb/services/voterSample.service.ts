@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
+import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from '@/shared/constants/voterData.consts'
 import { Prisma } from '../../generated/people-prisma'
 import { createPeopleDbBase, PEOPLE_MODELS } from '../peopleDbBase.util'
 import { samplePeopleSchema } from '../schemas/people.schema'
@@ -56,8 +57,14 @@ export class VoterSampleService extends createPeopleDbBase(
     targetSampleSize: number,
     hasCellPhone: boolean,
   ) {
-    const { totalConstituentsWithCellPhone, totalConstituents } =
-      await this.statsService.getTotalCounts(districtId)
+    const totalCounts = await this.statsService.findTotalCounts(districtId)
+    if (!totalCounts) {
+      throw new BadRequestException({
+        message: `District stats not available for districtId=${districtId}`,
+        errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE,
+      })
+    }
+    const { totalConstituentsWithCellPhone, totalConstituents } = totalCounts
     const poolConstituentCount = hasCellPhone
       ? totalConstituentsWithCellPhone
       : totalConstituents
