@@ -115,6 +115,23 @@ describe('VoterDoorKnockingService', () => {
       expect(sql.values.flat()).toContain(OTHER_ID)
     })
 
+    // ADR 0008. Do-not-knock and not-a-voter arrive through this one slot,
+    // unioned by the caller — the query has no idea which reason produced
+    // which id, and does not need one. Still a single conjunct, so the same
+    // no-filters guarantee covers both.
+    it('excludes the union of every suppression reason in one conjunct', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([])
+
+      await service.evaluate({
+        ...dto,
+        excludePersonIds: [TARGET_ID, OTHER_ID],
+      } as never)
+
+      const sql = lastQuerySql()
+      expect(sql.strings.join('?').match(/!= ALL\(/g)).toHaveLength(1)
+      expect(sql.values).toContainEqual([TARGET_ID, OTHER_ID])
+    })
+
     // Not cosmetic: `!= ALL('{}')` is always true, so emitting the clause
     // anyway would change the SQL of every request from an org that has
     // flagged nobody, for no behavioral gain.

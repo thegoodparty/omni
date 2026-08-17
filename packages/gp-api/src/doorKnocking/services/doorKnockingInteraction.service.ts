@@ -4,6 +4,8 @@ import {
   RecordDoorKnockInteractionResponse,
   SetDoNotKnock,
   SetDoNotKnockResponse,
+  SetNotAVoter,
+  SetNotAVoterResponse,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ContactInteractionDoorKnockService } from '@/contactInteraction/services/contactInteractionDoorKnock.service'
@@ -12,6 +14,7 @@ import {
   ContactStatusField,
   ContactStatusSource,
   DoNotKnockStatus,
+  NotAVoterStatus,
   Organization,
 } from '../../generated/prisma'
 import { deriveKnockStatus } from '../utils/knockStatus.util'
@@ -94,6 +97,45 @@ export class DoorKnockingInteractionService extends createPrismaBase(
       personId,
       doNotKnock: input.value === DoNotKnockStatus.active,
     }
+  }
+
+  // ADR 0008. The answer to "What happened?" behind a `not_a_voter` outcome.
+  // Recorded, never acted on destructively: no person is deleted, no address
+  // is unlinked, and nothing is written back to the L2-derived voter data. The
+  // consequence is suppression from future turf evaluation, which the knock
+  // path applies from the projection this writes.
+  //
+  // No sourceId, for the same reason do-not-knock has none: this is a person
+  // pressing a button, not a replayed sync, and a correction made on a later
+  // visit has to be able to reach the value a first visit set.
+  async setNotAVoter(
+    organization: Organization,
+    actorUserId: number,
+    input: SetNotAVoter,
+  ): Promise<SetNotAVoterResponse> {
+    const personId = await this.personIdForTarget(
+      organization.slug,
+      input.stopTargetId,
+    )
+
+    await this.contactStatus.changeStatus({
+      organizationSlug: organization.slug,
+      personId,
+      field: ContactStatusField.not_a_voter,
+      toValue: input.value,
+      source: ContactStatusSource.door_knock,
+      actorUserId,
+      // Nobody is born flagged, so the seed is `cleared` — same as
+      // do-not-knock, and it keeps clearing an unflagged person a no-op rather
+      // than a logged transition that never happened.
+      fallbackFromValue: NotAVoterStatus.cleared,
+    })
+
+    // `cleared` is the absence of a reason, so it echoes back as an absent
+    // key — the same shape the route payload marks this person with.
+    return input.value === NotAVoterStatus.cleared
+      ? { personId }
+      : { personId, notAVoterReason: input.value }
   }
 
   // Resolving through the route -> turf -> filter chain is the authorization:

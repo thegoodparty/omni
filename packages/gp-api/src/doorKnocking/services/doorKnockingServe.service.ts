@@ -3,6 +3,8 @@ import {
   DoorKnockingResidentsResponse,
   DoorKnockingRoutePayload,
   DoorKnockStatus,
+  NotAVoterReason,
+  NotAVoterReasonSchema,
   RoutePayloadAddress,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
@@ -105,10 +107,12 @@ export class DoorKnockingServeService extends createPrismaBase(
       residents.addresses.map((address) => [address.addressKey, address]),
     )
 
-    const [statusByPersonId, doNotKnockPersonIds] = await Promise.all([
-      this.latestKnockStatuses(organization.slug, targetPersonIds),
-      this.doNotKnockPersonIds(organization.slug, targetPersonIds),
-    ])
+    const [statusByPersonId, doNotKnockPersonIds, notAVoterReasons] =
+      await Promise.all([
+        this.latestKnockStatuses(organization.slug, targetPersonIds),
+        this.doNotKnockPersonIds(organization.slug, targetPersonIds),
+        this.notAVoterReasons(organization.slug, targetPersonIds),
+      ])
 
     return {
       route: {
@@ -129,6 +133,7 @@ export class DoorKnockingServeService extends createPrismaBase(
           liveByAddressKey,
           statusByPersonId,
           doNotKnockPersonIds,
+          notAVoterReasons,
         )
         return {
           id: stop.id,
@@ -138,15 +143,17 @@ export class DoorKnockingServeService extends createPrismaBase(
           displayAddress: stop.displayAddress,
           legSeconds: stop.legSeconds,
           legMeters: stop.legMeters,
-          // ADR 0007. Flagged residents are left out because `unknown` outranks
-          // every other status in the rollup, so one do-not-knock neighbor would
-          // report the whole stop as still-to-knock however much of the
-          // household had been logged. The webapp's rollup drops them for the
-          // same reason.
+          // ADR 0007 and ADR 0008. Suppressed residents are left out because
+          // `unknown` outranks every other status in the rollup, so one
+          // do-not-knock or moved-away neighbor would report the whole stop as
+          // still-to-knock however much of the household had been logged. The
+          // webapp's rollup drops them for the same reason.
           knockStatus: rollupStopStatus(
             addresses.flatMap((address) =>
               address.targets
-                .filter((target) => !target.doNotKnock)
+                .filter(
+                  (target) => !target.doNotKnock && !target.notAVoterReason,
+                )
                 .map((target) => target.knockStatus),
             ),
           ),
@@ -162,6 +169,7 @@ export class DoorKnockingServeService extends createPrismaBase(
     liveByAddressKey: Map<string, LiveAddress>,
     statusByPersonId: Map<string, DoorKnockStatus>,
     doNotKnockPersonIds: Set<string>,
+    notAVoterReasons: Map<string, NotAVoterReason>,
   ): RoutePayloadAddress[] {
     const byAddressKey = new Map<string, DoorKnockingStopTarget[]>()
     for (const target of targets) {
@@ -199,8 +207,13 @@ export class DoorKnockingServeService extends createPrismaBase(
             cellPhone: livePerson?.cellPhone ?? null,
             landline: livePerson?.landline ?? null,
             knockStatus: statusByPersonId.get(target.personId) ?? 'unknown',
+            // mayHaveMoved is the voter file disagreeing with the frozen
+            // snapshot; notAVoterReason is a person at the door saying so.
+            // They are independent on purpose — the file lags, and a mover's
+            // live row is still where phone numbers come from.
             mayHaveMoved: !livePerson,
             doNotKnock: doNotKnockPersonIds.has(target.personId),
+            notAVoterReason: notAVoterReasons.get(target.personId),
           }
         }),
         otherResidents: (live?.otherResidents ?? []).map((person) => ({
@@ -290,6 +303,28 @@ export class DoorKnockingServeService extends createPrismaBase(
       [...byPersonId.entries()]
         .filter(([, value]) => value === DoNotKnockStatus.active)
         .map(([personId]) => personId),
+    )
+  }
+
+  // ADR 0008. Same live read as the do-not-knock flag above and for the same
+  // reason: the route in someone's hand was frozen before this was recorded.
+  // `cleared` (and any value a future writer adds) parses out, so only a real
+  // reason reaches the payload.
+  private async notAVoterReasons(
+    organizationSlug: string,
+    personIds: string[],
+  ): Promise<Map<string, NotAVoterReason>> {
+    if (personIds.length === 0) return new Map()
+    const byPersonId = await this.contactStatus.currentStatusForPeople(
+      organizationSlug,
+      ContactStatusField.not_a_voter,
+      personIds,
+    )
+    return new Map(
+      [...byPersonId.entries()].flatMap(([personId, value]) => {
+        const reason = NotAVoterReasonSchema.safeParse(value)
+        return reason.success ? [[personId, reason.data] as const] : []
+      }),
     )
   }
 }

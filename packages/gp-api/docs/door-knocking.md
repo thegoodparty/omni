@@ -68,8 +68,9 @@ interactive transaction:
    `idOverrides`/`contactsMadeIdOverrides` clauses that travel beside them +
    bbox; exact point-in-polygon ray-cast in-process — see "Interim geo"
    below), dedupe to unique lat/lng stops, re-check the 150-stop cap. The
-   org's do-not-knock set is read _before_ the transaction and passed
-   separately as `excludePersonIds` (see "Do-not-knock").
+   org's suppressed people — do-not-knock plus not-a-voter — are read
+   _before_ the transaction and passed as one deduped `excludePersonIds`
+   (see "Do-not-knock" and "'Not a voter'").
 5. Check the daily waypoint budget (`waypointQuota.util.ts`): 500 stops per
    organization per rolling 24 hours, summed from the
    `door_knocking_route_planner_spend` ledger. Over budget → 429 and no vendor
@@ -144,6 +145,39 @@ has already passed** — so the serve payload also carries a live
 instead of a logging form. Deliberately not gated on Pro: the pilot's
 whole point is that a candidate can honor the request at the door.
 
+## "Not a voter" — the reason, captured
+
+`POST /v1/door-knocking/not-a-voter` — see
+[ADR 0008](adr/0008-not-a-voter-reason.md). The follow-up question behind a
+`not_a_voter` outcome ("What happened?", answered **Moved** or **Deceased**)
+lands as a fourth `ContactStatusField`, `not_a_voter`, values
+`moved` / `deceased` / `cleared`. One field rather than two, because they
+are mutually exclusive answers to one question and the projection is unique
+per `(org, personId, field)`; not a column on the interaction, because the
+outcome already ships without a reason and a correction made on a later
+visit could never reach the replay-idempotent row it needs to change.
+
+**Nothing is removed.** The prototype's phrasing ("remove this address from
+that person's voter record") is deliberately not implemented: no person is
+deleted, no address is unlinked, and nothing is written back to the
+L2-derived voter data — which the next file refresh would overwrite anyway.
+
+Both reasons suppress, through the same `excludePersonIds` conjunct
+do-not-knock uses (step 3 above), unioned and deduped. "Moved" suppresses
+the person rather than the address because there is no address in the
+status projection and, more to the point, no second door to preserve:
+people_db carries one residence per voter, so excluding them removes
+exactly the door they were reported to have left. Live enrichment is
+untouched — a flagged person still resolves residents and phones, and
+`mayHaveMoved` (the voter file catching up) stays an independent signal
+from a canvasser's report, which is ahead of it.
+
+Frozen routes carry `notAVoterReason` per target, read live like
+`doNotKnock`, present only when there is a reason. Reversible: posting
+`cleared` records the lift with an actor and a timestamp rather than
+deleting the row, because a mis-tapped **Deceased** is exactly the mistake
+whose correction someone will later want to trace.
+
 ## The pack (exploration map, step 2)
 
 `GET /v1/door-knocking/pack` (gp-api), served in-process by `src/peopleDb/`.
@@ -191,8 +225,10 @@ which is a separate instruction from an observed refusal and gets its own ADR.
 ## Scope guardrails (v1)
 
 Out: precinct / top-issue / district filters, recommended lists, canvasser
-identity (candidate-only), voter removal (`not_a_voter` is stored, not
-acted on), sharable URLs, tagging, arbitrary questions, UI turf-splitting
+identity (candidate-only), **voter record mutation** — `not_a_voter` now
+captures a reason and suppresses the person from future evaluation
+(ADR 0008), but no person, address, or L2-derived field is ever deleted or
+edited — sharable URLs, tagging, arbitrary questions, UI turf-splitting
 (the schema already supports N turfs). Feature flag: `native-door-knocking`
 gates all FE surfaces; backend lands dark.
 
