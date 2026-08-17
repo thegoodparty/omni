@@ -351,6 +351,59 @@ header's stuck total.
   Peerly asked about (`filing_url_instructions` in `peerlyIdentity.service.ts`) are a
   separate, still-sent field — the mismatch was the URL value, not the instructions.
 
+## Recovering a rejected record (`tcr_rejected`)
+
+Three layers disagree about whether `rejected` is recoverable, and the disagreement
+is load-bearing — read this before touching a rejected record.
+
+| Layer                                                  | Treats `rejected` as | Where                                                           |
+| ------------------------------------------------------ | -------------------- | --------------------------------------------------------------- |
+| `createAgentic`                                        | retryable            | `error`/`rejected` → delete + recreate the row                  |
+| Admin retry (`POST /v1/admin/agent-runs/:runId/retry`) | retryable            | queues a real run, 201, costs money                             |
+| The `compliance_setup` agent                           | terminal             | `instruction.md` Step 1 — refuses to resubmit at `tcr_rejected` |
+
+The agent is right to refuse: resubmitting an uncorrected record just re-fails and
+spams CampaignVerify. But the record is not necessarily dead — the **operator**
+recovery path is to correct the data and then clear the rejection. Until the
+rejection is cleared there is nothing for a retry to do, so **the admin retry
+endpoint refuses with 409 while the derived stage is `tcr_rejected`**
+(`AdminAgentRunsService.retry`). It keys on the stage, not `status === 'rejected'`,
+so `error` is covered too. Before that guard the retry silently succeeded, queued a
+real run, and billed for it (~$0.43 on campaign 325819, Aug 2026) — the run read the
+state, wrote `stage: "failed"`, and exited indistinguishably from a real failure.
+
+**Correcting the data is not sufficient.** `deriveComplianceStage` maps both
+`rejected` and `error` to `tcr_rejected` _before_ any domain/website check, and
+`submitToPeerlyForAgent` gates on stage `awaiting_pin`. So a record with a fixed
+`filingUrl` still derives `tcr_rejected` and still can't submit. The status has to
+move too.
+
+Which recovery applies depends entirely on `peerlyIdentityId`:
+
+| `peerlyIdentityId` | What happened                                                                                                                                                                                                | Recoverable by us                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| NULL               | CV rejected the submission synchronously (`PeerlyCvRejectionException`, `rejection_source: cv_submit`). The rollback stamped `rejected` and never persisted the identity, so no CV request exists at Peerly. | **Yes.** Correct the data, then `status` → `submitted`. The next run re-walks the full submit: it finds the orphaned Peerly identity by `identity_name` and reuses it (no duplicate), and mints a fresh CV request with the corrected values.                                                                                                                                                                                                                                                                                                                     |
+| set                | The CV was accepted at submit and later flipped `REJECTED`/`WITHDRAWN`; `sweepPinDeliveryDetection` stamped `rejected` (`rejection_source: cv_status_check`). Or it's a legacy `create()`-path record.       | **No — a status flip is a no-op.** `submitToPeerlyForAgent` short-circuits on a non-null `peerlyIdentityId` and returns the persisted response without calling Peerly. Nulling the identity locally doesn't help either: the resubmit reuses the identity and then `getCampaignVerifyRequest` returns the existing rejected CV with a `verification_status`, so the helper **skips** CV submission and the corrected filing URL never reaches CampaignVerify. Escalate to Peerly (`SlackChannel.sharedGoodpartyPeerly10Dlc`) to withdraw/recreate the CV request. |
+
+All three currently-`rejected` prod rows (Aug 2026) are the second kind. The
+incident that produced this section (campaign 325819) was the first.
+
+**The rejection reason is not on the record.** There is no reason column and
+`ComplianceStateOutput` carries no `rejection_reason`. Read it from the
+`ComplianceRejected` Segment event, the `bot-10dlc-compliance` Slack alert, or the
+FAILED run's blocker `detail`.
+
+**`peerlyCvStatus` reads null while `rejected`.** The nightly Peerly poll only
+covers `submitted`/`pending`, and `resolvePeerlyCvState` only fires `retrieve_cv` at
+`awaiting_pin` — so the compliance-state read shows `peerlyCvStatus: null` at
+`tcr_rejected` no matter what Peerly thinks. After the reset flips the stage to
+`awaiting_pin`, the same read _does_ hit Peerly: a live `REJECTED` coming back there
+means the reset was wrong and this is the second row above.
+
+Operator procedure, verification, and the exact SQL:
+`packages/runbooks/books/recover-rejected-10dlc-compliance.md`. There is **no admin
+endpoint that resets the status** — recovery is a direct DB write today.
+
 ## Peerly 10DLC finalization — always token-backed
 
 The PIN flow ends by _finalizing_ the 10DLC brand so it reaches the carrier (MNO)
@@ -428,6 +481,9 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
   firing the `CompliancePinSent` event is the background `sweepPinDeliveryDetection`'s
   job (see the sweeps table), **not** this read — the read only displays, so a candidate
   who never opens the app is still detected + nudged.
+- **A `rejected` record is not necessarily dead, and the admin Retry button is a
+  silent no-op on one** — see "Recovering a rejected record" above before touching
+  one.
 - **`createAgentic` retries:** an existing record in `error`/`rejected` is retryable
   (deleted + recreated in one serializable tx); any other existing status returns the
   current record with `created: false`.
@@ -448,4 +504,6 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
 - `src/payments/CLAUDE.md` — the `checkout.session.completed` webhook that triggers deferred dispatch.
 - `src/queue/CLAUDE.md` — the FIFO consumer that runs `handleAgenticKickoff`.
 - `src/agentExperiments/CLAUDE.md` — `dispatchRun` and the experiment-run lifecycle.
+- `packages/runbooks/books/recover-rejected-10dlc-compliance.md` — the operator
+  procedure for clearing a rejected record.
 - Epic plan (local): `~/.claude/plans/86ah2ezny-plan.md` — full task-by-task history.
