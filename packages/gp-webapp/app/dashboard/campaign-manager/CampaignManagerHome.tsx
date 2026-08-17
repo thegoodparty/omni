@@ -5,14 +5,22 @@ import { CampaignUpdateHistoryProvider } from '@shared/hooks/CampaignUpdateHisto
 import CampaignManagerTasks from './CampaignManagerTasks'
 import ProUpgradeBanner from '../components/campaignManager/ProUpgradeBanner'
 import TextingSetupBanner from '../components/campaignManager/TextingSetupBanner'
+import ProUpgrade3ComplianceCard from '../components/campaignManager/ProUpgrade3ComplianceCard'
 import ProgressSection from '../components/campaignManager/ProgressSection'
 import { useCampaignManagerChat } from './CampaignManagerChatProvider'
 import type { TcrCompliance } from 'helpers/types'
 
 /**
  * The Campaign Manager dashboard home for the campaign-story cohort: the Pro
- * banner, the progress section, the first-run "meet your campaign manager"
- * card, and the top tracker tasks.
+ * banner, the texting-compliance surfaces, the progress section, the first-run
+ * "meet your campaign manager" card, and the top tracker tasks.
+ *
+ * The compliance pair mirrors the legacy home (components/campaignManager/
+ * CampaignManager.tsx): TextingSetupBanner prompts the candidates who never
+ * started 10DLC, and ProUpgrade3ComplianceCard carries every post-start state
+ * (PIN entry, in review, approved, denied). Both are required — the banner
+ * hides itself once a TCR record exists, so shipping it alone leaves a
+ * candidate awaiting their PIN with no compliance surface here at all.
  *
  * The persistent footer chat bar and the chat surface are NOT rendered here —
  * they live in the always-present dock (CampaignManagerChatProvider, mounted in
@@ -32,6 +40,7 @@ export default function CampaignManagerHome({
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-6">
         <ProUpgradeBanner />
         <TextingSetupBanner tcrCompliance={tcrCompliance} />
+        <ProUpgrade3ComplianceCard />
         <VoterContactsProvider>
           <CampaignUpdateHistoryProvider>
             <ProgressSection />
