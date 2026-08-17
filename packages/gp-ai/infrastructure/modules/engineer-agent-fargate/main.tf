@@ -41,10 +41,15 @@ variable "escalate_analysis_to_work" {
     it would have acted on ("escalation disabled"), which is how you judge whether
     the verdicts are trustworthy before handing them the trigger.
 
-    Before enabling: vars.GPBOT_PR_CHANNEL_ID must be set (or bot PRs get a
-    GitHub review request with no Slack context) and the team should know bot PRs
-    are coming, that a bot approval does not merge them, and that closing a weak
-    one is the expected outcome.
+    Before enabling: vars.GPBOT_PR_CHANNEL_ID must be set AND
+    secrets.GPBOT_SLACK_BOT_TOKEN must hold an app that can post to that channel
+    (Slack refuses with not_in_channel otherwise), and the team should know bot
+    PRs are coming, that a bot approval does not merge them, and that closing a
+    weak one is the expected outcome.
+
+    This doubles as the kill switch. Setting it back to false and applying stops
+    the bot opening PRs without reverting any code, and leaves the analyze half
+    running.
   EOT
   type        = bool
   default     = false

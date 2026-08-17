@@ -83,9 +83,14 @@ module "engineer_agent_fargate" {
   # same reason failure_notification_email is pinned above: this is the switch
   # that decides whether the bot can open PRs unprompted, and an operator asking
   # "is that on in prod?" should find the answer here rather than by inferring a
-  # module default. Flip to true only after GPBOT_PR_CHANNEL_ID is set and the
-  # team has been told bot PRs are coming.
-  escalate_analysis_to_work = false
+  # module default.
+  #
+  # ON since 2026-08-17. The two preconditions it was waiting on are met:
+  # vars.GPBOT_PR_CHANNEL_ID points at #bugs and the triage workflow carries an
+  # app that can actually post there. To turn the bot off, set this to false and
+  # apply — that is the kill switch, and it is faster than reverting code because
+  # it does not wait on a release train.
+  escalate_analysis_to_work = true
 }
 
 output "cluster_name" {

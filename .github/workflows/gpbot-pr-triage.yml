@@ -39,7 +39,12 @@ jobs:
     # that step's `if` condition, so the Slack guard below would always be
     # true and the step would fail on an empty channel instead of skipping.
     env:
-      SLACK_TOKEN: ${{ secrets.SLACK_APP_BOT_TOKEN }}
+      # gp_ai_bot, not the analytics app behind SLACK_APP_BOT_TOKEN. Slack
+      # refuses chat.postMessage with not_in_channel unless the app is either a
+      # member of the channel or holds chat:write.public, and the analytics app
+      # is a member of #product-analytics only — it cannot reach #bugs, which is
+      # where the humans who triage these PRs actually are.
+      SLACK_TOKEN: ${{ secrets.GPBOT_SLACK_BOT_TOKEN }}
       CHANNEL: ${{ vars.GPBOT_PR_CHANNEL_ID }}
     steps:
       - uses: actions/checkout@v5

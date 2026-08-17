@@ -196,17 +196,46 @@ guard rails live:
 The verdict is read from the **last** match in the response, because a model
 routinely restates the instructions it was given before answering.
 
-**Ramp switch.** `GPBOT_ESCALATE_TO_WORK` on the engineer-agent task definition,
-default **false** (`escalate_analysis_to_work` in
-`infrastructure/modules/engineer-agent-fargate`). While it is off the agent still
-logs the verdict it *would* have acted on, which is how you judge whether the
-verdicts are trustworthy before handing them the trigger. Grep for
-`escalation disabled` to see the queue that would have formed.
+**Ramp switch / kill switch.** `GPBOT_ESCALATE_TO_WORK` on the engineer-agent task
+definition (`escalate_analysis_to_work` in `environments/prod/engineer-agent-fargate`).
+The module still defaults to **false**, so a new environment stays closed until
+someone opts in; prod has been **on since 2026-08-17**.
 
-Before flipping it on: set `vars.GPBOT_PR_CHANNEL_ID` (otherwise bot PRs arrive
-as a GitHub review request with no Slack context) and tell the team that bot PRs
-are coming, that a bot approval does **not** merge them, and that closing a weak
-one is the expected outcome.
+To stop the bot opening PRs, set it back to `false` and apply. Prefer that over
+reverting code: it is one variable, it does not wait on a release train, and the
+analyze half keeps working while you decide. While it is off the agent still logs
+the verdict it *would* have acted on — grep `escalation disabled` to see the queue
+that would have formed.
+
+Turning it on has two hard prerequisites, both now met: `vars.GPBOT_PR_CHANNEL_ID`
+must be set (bot PRs otherwise arrive as a bare GitHub review request with no
+Slack context), and `secrets.GPBOT_SLACK_BOT_TOKEN` must carry an app that can
+actually post to that channel. Slack answers `not_in_channel` unless the app is a
+member or holds `chat:write.public`, so the app and the channel are one decision,
+not two — see "Slack wiring" below.
+
+The team also needs to know bot PRs are coming, that a bot approval does **not**
+merge them, and that closing a weak one is the expected outcome.
+
+## Slack wiring
+
+| Setting | Value | Why |
+|---|---|---|
+| `vars.GPBOT_PR_CHANNEL_ID` | `C022VR6PRQC` (`#bugs`) | Where the people who triage these bugs already are, and the home of the `@serve-bugs` / `@win-bugs` groups the message mentions |
+| `secrets.GPBOT_SLACK_BOT_TOKEN` | `gp_ai_bot` | A member of `#bugs` with `chat:write` |
+
+It is deliberately **not** `secrets.SLACK_APP_BOT_TOKEN`. That is the analytics
+app, which is a member of `#product-analytics` only; pointing it at `#bugs` fails
+every post with `not_in_channel`. Both gpbot workflows must carry the same app,
+since they post to the same channel.
+
+If you move the channel, check the new one against the app first — a token without
+`chat:write.public` can only post where it has been invited:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://slack.com/api/conversations.info?channel=<channel_id>" | jq '.channel.is_member'
+```
 
 **Cost.** A ticket that escalates pays for two runs, each capped independently at
 `AGENT_MAX_BUDGET_USD` (default $15). Observed analyze runs have cost $1.73–$4.79.
