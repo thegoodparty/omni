@@ -108,6 +108,27 @@ export class PeopleDbService implements OnModuleInit, OnModuleDestroy {
     // Queries that take longer than 60 seconds will be cancelled.
     url.searchParams.set('socket_timeout', '60')
 
+    // Postgres plans a prepared statement custom for its first 5 executions,
+    // then may switch to a generic plan built without the parameter values.
+    // Every filter value here is a bound parameter (see filters.sql.util.ts),
+    // and for a range filter the generic plan assumes default selectivity: it
+    // estimated ~116k rows and inverted the join, scanning every voter in the
+    // state's age/income band and THEN checking district membership instead of
+    // driving from DistrictVoter for the one district. Measured on prod
+    // 2026-08-16 against a 7,828-voter district: executions 1-5 ~140ms,
+    // execution 6 onward ~17,700ms — a ~130x cliff that blows the 25s
+    // statement timeout and was the mechanism behind the list-detail 504s. It
+    // reads as intermittent because it depends on how many times a POOLED
+    // connection has run that statement shape. force_custom_plan re-plans
+    // every execution: single-digit ms of planning against a 17s tail.
+    // Set by hand rather than via searchParams because URLSearchParams encodes
+    // the space in `-c plan_cache_mode=...` as `+`, which libpq does not read
+    // as a space.
+    const search = url.searchParams.toString()
+    url.search = `${search}&options=${encodeURIComponent(
+      '-c plan_cache_mode=force_custom_plan',
+    )}`
+
     const client = new PrismaClient<Prisma.PrismaClientOptions, 'query'>({
       log: PRISMA_LOG_LEVELS.map((level) => ({
         emit: 'event',
