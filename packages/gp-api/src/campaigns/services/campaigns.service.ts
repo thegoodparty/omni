@@ -1107,6 +1107,13 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         // own election date. No override equivalent, so drop it rather
         // than pass the wrong district's through.
         projectedVoterTurnout: null,
+        // Same for the prediction interval: it brackets the race district's
+        // projection, so carrying it over would print a range that does not
+        // contain the override district's point values.
+        projectedTurnoutLower: null,
+        projectedTurnoutUpper: null,
+        winNumberLower: null,
+        winNumberUpper: null,
       }
     }
 
