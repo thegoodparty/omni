@@ -131,6 +131,12 @@ export default function NativeDoorKnockingPage({
     new Set(),
   )
   const [focusTurf, setFocusTurf] = useState<DoorKnockingTurf | null>(null)
+  // Below lg the rail is a bottom sheet over a full-bleed map, and this is
+  // whether it is pulled up. Purely a class switch, never a mount: the rail's
+  // content renders at every width, so the desktop two-pane column is
+  // unaffected by it and nothing has to read the viewport to decide what to
+  // render (no matchMedia, no hydration mismatch).
+  const [railOpen, setRailOpen] = useState(false)
   // Landing-map turf scope: selecting a saved list shows only its dots —
   // the list's saved filters recolor, the polygon masks everything else.
   const [selectedTurf, setSelectedTurf] = useState<DoorKnockingTurf | null>(
@@ -305,6 +311,10 @@ export default function NativeDoorKnockingPage({
         queryKey: voterPackQueryOptions.queryKey,
       })
     }
+    // The walk replaces the rail outright, so this is the other way a phone
+    // sheet gets stranded open: come back from a walk and it would spring up
+    // over the map. Same reset as closeFlow, same reason.
+    setRailOpen(false)
   }
 
   const changeFlowStep = (next: CreateFlowStep) => {
@@ -324,6 +334,10 @@ export default function NativeDoorKnockingPage({
     setFilters({})
     setStatusFilter(new Set())
     setClearDrawToken((token) => token + 1)
+    // Same reason, for the phone sheet: the rail is unmounted while the flow is
+    // open, so a sheet left pulled up on the way in would spring back over the
+    // map on the way out with nobody having asked for it.
+    setRailOpen(false)
   }
   const handleSaved = (drawAnother: boolean) => {
     // Clear the ring in the same batch: the canvas effect that emits null
@@ -338,10 +352,9 @@ export default function NativeDoorKnockingPage({
       setStartDrawToken((token) => token + 1)
       setDrawHintDismissed(false)
     } else {
-      setFlowStep(null)
-      setFilters({})
-      setStatusFilter(new Set())
-      setClearDrawToken((token) => token + 1)
+      // Saving the last list leaves by the same door as cancelling — one
+      // definition of "back on the landing map" rather than two that drift.
+      closeFlow()
     }
   }
 
@@ -351,93 +364,130 @@ export default function NativeDoorKnockingPage({
     }
     // The create flow renders as a full-width overlay, not a rail.
     if (flowStep) return null
+    const savedListCount = turfsQuery.data?.length ?? 0
     return (
-      <aside className="flex h-full w-96 shrink-0 flex-col gap-5 overflow-y-auto border-l border-border bg-background p-4">
-        <TurfList
-          selectedTurfId={selectedTurf?.id ?? null}
-          onFocusTurf={(turf) => {
-            const next = selectedTurf?.id === turf.id ? null : turf
-            setSelectedTurf(next)
-            // A chip narrows within the selected list, so every scope change
-            // opens unfiltered — entering one and leaving it alike. The count
-            // under the heading and the legend below it then describe the same
-            // audience until a chip is pressed. Carrying a chip across the
-            // boundary would silently re-narrow whatever it landed in.
-            setStatusFilter(new Set())
-            setFocusTurf(turf)
-          }}
-          onShowDetails={setDetailsTurf}
-          onKnockTurf={(turf) => {
-            // Knock is idempotent: a knocked turf opens its existing route,
-            // an unknocked one confirms mode/loop and builds it.
-            if (turf.locked)
-              walk.start({ id: turf.id, name: turf.name }, 'existingRoute')
-            else setKnockTurf(turf)
-          }}
-        />
-        <section className="flex flex-col gap-2">
-          <div>
-            <h2 className="text-sm font-semibold">
-              {selectedTurfName ?? 'District voters'}
-            </h2>
-            {filterResult && (
-              <p className="text-xs text-muted-foreground">
-                {/* The pack is rooftop-geocoded rows only (MAPPABLE_ONLY,
+      // Below lg the rail is a bottom sheet over a full-bleed map, on the same
+      // breakpoint PersonSheet switches on. It can't simply be hidden there —
+      // it holds the saved lists, the legend and the scope the map is showing
+      // — but a 384px column beside a 390px viewport left the map about six
+      // pixels wide. Peeked it is one tap from open, and open it stops well
+      // short of the top so pressing a status chip still recolors dots the
+      // canvasser can see.
+      <aside className="absolute inset-x-0 bottom-0 z-20 flex max-h-[60dvh] flex-col rounded-t-xl border-t border-border bg-background shadow-lg lg:static lg:h-full lg:max-h-none lg:w-96 lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none">
+        <button
+          type="button"
+          aria-expanded={railOpen}
+          aria-controls="door-knocking-rail"
+          // Deliberately not `items-center`: globals.css carries an unlayered
+          // legacy rule (`button.flex.items-center:not([data-slot])`) that
+          // pins display:flex and flex-direction:row, which outranks any
+          // layered utility — the pair would leave this handle laid out in a
+          // row and, worse, still displayed at lg. Centering comes off the
+          // children instead.
+          className="flex shrink-0 flex-col gap-1.5 px-4 py-2.5 lg:hidden"
+          onClick={() => setRailOpen((open) => !open)}
+        >
+          {/* The grab handle the create flow's drag-down sheet already uses,
+              so the two sheets read as the same object. */}
+          <span className="mx-auto h-1.5 w-12 rounded-full bg-muted" />
+          <span className="text-center text-sm font-medium">
+            {railOpen
+              ? 'Hide lists and legend'
+              : `Lists and legend${savedListCount > 0 ? ` · ${savedListCount}` : ''}`}
+          </span>
+        </button>
+        <div
+          id="door-knocking-rail"
+          className={`min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4 pt-0 lg:flex lg:pt-4 ${
+            railOpen ? 'flex' : 'hidden'
+          }`}
+        >
+          <TurfList
+            selectedTurfId={selectedTurf?.id ?? null}
+            onFocusTurf={(turf) => {
+              const next = selectedTurf?.id === turf.id ? null : turf
+              setSelectedTurf(next)
+              // A chip narrows within the selected list, so every scope change
+              // opens unfiltered — entering one and leaving it alike. The count
+              // under the heading and the legend below it then describe the same
+              // audience until a chip is pressed. Carrying a chip across the
+              // boundary would silently re-narrow whatever it landed in.
+              setStatusFilter(new Set())
+              setFocusTurf(turf)
+            }}
+            onShowDetails={setDetailsTurf}
+            onKnockTurf={(turf) => {
+              // Knock is idempotent: a knocked turf opens its existing route,
+              // an unknocked one confirms mode/loop and builds it.
+              if (turf.locked)
+                walk.start({ id: turf.id, name: turf.name }, 'existingRoute')
+              else setKnockTurf(turf)
+            }}
+          />
+          <section className="flex flex-col gap-2">
+            <div>
+              <h2 className="text-sm font-semibold">
+                {selectedTurfName ?? 'District voters'}
+              </h2>
+              {filterResult && (
+                <p className="text-xs text-muted-foreground">
+                  {/* The pack is rooftop-geocoded rows only (MAPPABLE_ONLY,
                     >90% of the file), so this is not the district's full
                     registration total and shouldn't read as though it were —
                     a candidate comparing it against an official count needs
                     to know why it's short. */}
-                {filterResult.people.toLocaleString()}{' '}
-                {selectedTurf
-                  ? 'voters in this list'
-                  : 'voters in your district with a mapped address'}
-                {selectedTurf && (
-                  <button
-                    type="button"
-                    className="ml-2 underline"
-                    onClick={() => {
-                      setSelectedTurf(null)
-                      setStatusFilter(new Set())
-                    }}
-                  >
-                    Show all
-                  </button>
-                )}
-              </p>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {DOOR_KNOCK_STATUSES.map((status) => (
-              <button
-                key={status}
-                type="button"
-                aria-pressed={statusFilter.has(status)}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${
-                  statusFilter.has(status)
-                    ? 'border-tertiary-dark bg-tertiary-dark/10 font-medium'
-                    : 'border-border'
-                }`}
-                onClick={() =>
-                  setStatusFilter((current) => {
-                    const next = new Set(current)
-                    if (next.has(status)) next.delete(status)
-                    else next.add(status)
-                    return next
-                  })
-                }
-              >
-                <span
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: STATUS_DOT_COLORS[status] }}
-                />
-                {STATUS_LABELS[status]}
-                <span className="font-semibold tabular-nums">
-                  {(statusCounts[status] ?? 0).toLocaleString()}
-                </span>
-              </button>
-            ))}
-          </div>
-        </section>
+                  {filterResult.people.toLocaleString()}{' '}
+                  {selectedTurf
+                    ? 'voters in this list'
+                    : 'voters in your district with a mapped address'}
+                  {selectedTurf && (
+                    <button
+                      type="button"
+                      className="ml-2 underline"
+                      onClick={() => {
+                        setSelectedTurf(null)
+                        setStatusFilter(new Set())
+                      }}
+                    >
+                      Show all
+                    </button>
+                  )}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {DOOR_KNOCK_STATUSES.map((status) => (
+                <button
+                  key={status}
+                  type="button"
+                  aria-pressed={statusFilter.has(status)}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${
+                    statusFilter.has(status)
+                      ? 'border-tertiary-dark bg-tertiary-dark/10 font-medium'
+                      : 'border-border'
+                  }`}
+                  onClick={() =>
+                    setStatusFilter((current) => {
+                      const next = new Set(current)
+                      if (next.has(status)) next.delete(status)
+                      else next.add(status)
+                      return next
+                    })
+                  }
+                >
+                  <span
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: STATUS_DOT_COLORS[status] }}
+                  />
+                  {STATUS_LABELS[status]}
+                  <span className="font-semibold tabular-nums">
+                    {(statusCounts[status] ?? 0).toLocaleString()}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
       </aside>
     )
   }
@@ -534,13 +584,18 @@ export default function NativeDoorKnockingPage({
                   className="absolute inset-0 z-10 flex cursor-default items-center justify-center"
                   onClick={() => setDrawHintDismissed(true)}
                 >
-                  <div className="max-w-sm rounded-xl border border-border bg-background p-5 text-center shadow-lg">
+                  <div className="mx-4 max-w-sm rounded-xl border border-border bg-background p-5 text-center shadow-lg">
                     <p className="font-semibold">
                       Draw your knocking boundaries.
                     </p>
+                    {/* Both facts a tester hunting for a Done button needs:
+                        three points is the minimum, and the shape closes
+                        itself. The Continue button carries them too, for
+                        whoever dismissed this card on their first tap. */}
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Tap on the map to drop boundary points, then drag any
-                      point to outline the doors you want to knock.
+                      Tap three or more points around the doors you want to
+                      knock — the shape closes itself. Drag any point to adjust
+                      it.
                     </p>
                     <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-info">
                       Tap the map to get started

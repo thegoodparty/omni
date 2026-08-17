@@ -53,6 +53,12 @@ const CONTACTS_MADE_DISCLOSURE_LABEL = 'Prior contacts made'
 // saying out loud. The hard cap at 150 is what actually blocks.
 const SOFT_STOP_LIMIT = 100
 const HARD_STOP_LIMIT = 150
+// The canvas closes the shape itself and only emits a ring from three points
+// (VoterMapCanvas's onPolygonChange gate), so there is no Done to press and
+// Continue cannot enable before then. Mirrored here rather than imported: the
+// canvas module carries maplibre and deck.gl, and this flow is deliberately
+// outside that chunk.
+const MIN_POLYGON_POINTS = 3
 
 export type CreateFlowStep = 'filters' | 'draw' | 'confirm'
 
@@ -117,7 +123,7 @@ const StepHeader = ({
   const stepIndex = STEP_ORDER.indexOf(step)
   const meta = STEP_META[step]
   return (
-    <div className="border-b border-border bg-background px-6 py-4">
+    <div className="border-b border-border bg-background px-4 py-4 sm:px-6">
       <div className="mx-auto w-full max-w-2xl">
         <div className="flex items-start gap-3">
           {onBack && (
@@ -305,6 +311,20 @@ export default function CreateListFlow({
   const doors = turfStats?.households ?? 0
   const overCap = stops > HARD_STOP_LIMIT
   const longWalk = stops > SOFT_STOP_LIMIT && !overCap
+  // Continue is the finish gesture, so while it is disabled it says what it
+  // is waiting for. The three-point minimum was otherwise undiscoverable —
+  // someone who placed two points had a dead button, no Done anywhere, and
+  // nothing on screen naming the rule.
+  const pointsNeeded = MIN_POLYGON_POINTS - drawPointCount
+  let continueLabel = `Continue (${doors.toLocaleString()} doors)`
+  if (pointsNeeded > 0) {
+    continueLabel =
+      drawPointCount === 0
+        ? `Tap ${MIN_POLYGON_POINTS} points to continue`
+        : `${pointsNeeded} more point${pointsNeeded === 1 ? '' : 's'} to continue`
+  } else if (stops === 0) {
+    continueLabel = 'No doors in this area'
+  }
 
   const unpreviewableLabels = [
     ...new Set(
@@ -357,7 +377,7 @@ export default function CreateListFlow({
             a taller bar from a cap warning pushes them up instead of
             covering them. Only the buttons take pointer events; the rest of
             the row stays a tappable part of the map. */}
-        <div className="px-6 pb-3">
+        <div className="px-4 pb-3 sm:px-6">
           <div className="mx-auto flex w-full max-w-2xl justify-end">
             <div className="pointer-events-auto flex items-center gap-2">
               {drawPointCount > 0 && (
@@ -384,8 +404,10 @@ export default function CreateListFlow({
             </div>
           </div>
         </div>
-        <div className="pointer-events-auto border-t border-border bg-background px-6 py-4">
-          <div className="mx-auto flex w-full max-w-2xl items-center gap-4">
+        <div className="pointer-events-auto border-t border-border bg-background px-4 py-4 sm:px-6">
+          {/* Stacked on a phone: side by side, the stats wrap to four lines in
+              a sliver of a column while the button squeezes to nothing. */}
+          <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
             {/* Everything here describes the drawn shape, not the district —
                 these numbers are what the candidate commits to. */}
             <div className="min-w-0 flex-1">
@@ -442,7 +464,7 @@ export default function CreateListFlow({
               disabled={!ring || stops === 0 || overCap}
               onClick={() => onStepChange('confirm')}
             >
-              Continue ({doors.toLocaleString()} doors)
+              {continueLabel}
             </Button>
           </div>
         </div>
@@ -480,7 +502,7 @@ export default function CreateListFlow({
         onBack={step === 'confirm' ? () => onStepChange('draw') : null}
         onClose={onClose}
       />
-      <div className="flex-1 overflow-y-auto px-6 py-6">
+      <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
           {step === 'filters' &&
             filterSections.map((section) =>
@@ -572,8 +594,8 @@ export default function CreateListFlow({
           )}
         </div>
       </div>
-      <div className="border-t border-border bg-background px-6 py-4">
-        <div className="mx-auto flex w-full max-w-2xl justify-center gap-3">
+      <div className="border-t border-border bg-background px-4 py-4 sm:px-6">
+        <div className="mx-auto flex w-full max-w-2xl flex-wrap justify-center gap-3">
           {step === 'filters' && (
             <>
               {/* No polygon exists yet, so district-wide is the only honest

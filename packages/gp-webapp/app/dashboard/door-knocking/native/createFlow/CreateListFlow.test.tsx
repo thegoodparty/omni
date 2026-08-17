@@ -176,10 +176,11 @@ describe('CreateListFlow', () => {
         step="draw"
         ring={null}
         turfStats={null}
+        drawPointCount={0}
       />,
     )
     expect(
-      screen.getByRole('button', { name: /Continue \(0 doors\)/ }),
+      screen.getByRole('button', { name: /Tap 3 points to continue/ }),
     ).toBeDisabled()
 
     rerender(
@@ -208,6 +209,62 @@ describe('CreateListFlow', () => {
     expect(
       screen.getByRole('button', { name: /Continue \(9 doors\)/ }),
     ).toBeEnabled()
+  })
+
+  // The canvas has no Done: it closes the shape itself and only reports a ring
+  // from three points. A tester who placed two and went looking for a confirm
+  // button found a dead Continue and nothing on screen naming the rule.
+  it('says how many more points the disabled Continue is waiting for', () => {
+    const drawing = (drawPointCount: number) => (
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        ring={null}
+        turfStats={null}
+        drawPointCount={drawPointCount}
+      />
+    )
+    const { rerender } = render(drawing(1))
+    expect(
+      screen.getByRole('button', { name: '2 more points to continue' }),
+    ).toBeDisabled()
+
+    rerender(drawing(2))
+    expect(
+      screen.getByRole('button', { name: '1 more point to continue' }),
+    ).toBeDisabled()
+
+    // Third point placed: the shape exists, so the same button turns into the
+    // finish gesture rather than staying dead with no explanation.
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        ring={OPEN_RING}
+        turfStats={turfStats(14, 9)}
+        drawPointCount={3}
+      />,
+    )
+    expect(
+      screen.getByRole('button', { name: /Continue \(9 doors\)/ }),
+    ).toBeEnabled()
+  })
+
+  // The other way to a disabled Continue with three points down: a shape drawn
+  // somewhere with nothing in it.
+  it('says when the drawn shape holds no doors', () => {
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        ring={OPEN_RING}
+        turfStats={turfStats(0, 0)}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'No doors in this area' }),
+    ).toBeDisabled()
   })
 
   // The regression this footer shipped with: households came from a

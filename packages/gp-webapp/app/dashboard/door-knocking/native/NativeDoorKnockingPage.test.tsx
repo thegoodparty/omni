@@ -12,7 +12,18 @@ import NativeDoorKnockingPage from './NativeDoorKnockingPage'
 // turf below. So the district reads 3 unknown / 1 supporter and the turf reads
 // 2 unknown / 1 supporter — the two numbers the rail has to tell apart — while
 // the party plane gives a saved list something of its own to narrow by.
-const { packFixture } = vi.hoisted(() => ({
+// A triangle around both dots, tapped one vertex at a time, so the draw step
+// can be walked the way a canvasser walks it: the stub reports each tap the
+// way the canvas does, including its three-point gate on the ring.
+const { drawSession, packFixture } = vi.hoisted(() => ({
+  drawSession: {
+    placed: [] as Array<[number, number]>,
+    taps: [
+      [-87.67, 41.885],
+      [-87.63, 41.885],
+      [-87.65, 41.95],
+    ] as Array<[number, number]>,
+  },
   packFixture: {
     manifest: {
       version: 1,
@@ -48,15 +59,35 @@ vi.mock('./VoterMapCanvas', () => ({
   default: ({
     filterResult,
     initialZoom,
+    onPolygonChange,
+    onDrawPointCount,
   }: {
     filterResult: { people: number }
     initialZoom?: number
+    onPolygonChange: (ring: Array<[number, number]> | null) => void
+    onDrawPointCount?: (count: number) => void
   }) => (
     <div
       data-testid="voter-map"
       data-people={String(filterResult.people)}
       data-initial-zoom={String(initialZoom)}
-    />
+    >
+      <button
+        type="button"
+        onClick={() => {
+          const tap = drawSession.taps[drawSession.placed.length]
+          if (!tap) return
+          const next = [...drawSession.placed, tap]
+          drawSession.placed = next
+          onDrawPointCount?.(next.length)
+          // The canvas's own gate: a ring exists from three points, and the
+          // shape closes itself rather than waiting for a finish gesture.
+          onPolygonChange(next.length >= 3 ? next : null)
+        }}
+      >
+        tap the map
+      </button>
+    </div>
   ),
 }))
 vi.mock('app/dashboard/shared/DashboardLayout', () => ({
@@ -69,14 +100,30 @@ vi.mock('app/dashboard/shared/useDistrictResolution', () => ({
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => null,
 }))
-vi.mock('./useWalkSession', () => ({
-  useWalkSession: () => ({
-    turf: null,
-    start: vi.fn(),
-    end: vi.fn(),
-    recordDoor: vi.fn(),
-  }),
-}))
+// Real state rather than a null stub: the walk swaps the rail out for
+// WalkView, so anything the page has to reset on the way back needs a session
+// the test can actually start and end.
+vi.mock('./useWalkSession', async () => {
+  const { useState } = await import('react')
+  return {
+    useWalkSession: () => {
+      const [walkedTurf, setWalkedTurf] = useState<{
+        id: number
+        name: string
+      } | null>(null)
+      return {
+        turf: walkedTurf,
+        start: (started: { id: number; name: string }) =>
+          setWalkedTurf(started),
+        end: () => {
+          setWalkedTurf(null)
+          return 0
+        },
+        recordDoor: vi.fn(),
+      }
+    },
+  }
+})
 
 // A ring around dot 0 only, so person 3 falls outside the list.
 const turf: DoorKnockingTurf = {
@@ -280,5 +327,161 @@ describe('NativeDoorKnockingPage landing rail', () => {
     )
     expect(chip('Supporter', 1)).toBeInTheDocument()
     expect(chip('Support unknown', 2)).toBeInTheDocument()
+  })
+})
+
+// Below lg the rail is a sheet over a full-bleed map instead of a 384px column
+// beside it, which on a 390px phone left the map about six pixels wide. The
+// two-pane desktop layout is the same markup at lg, so the toggle only ever
+// swaps a display class — it never unmounts the lists or the legend, and
+// nothing reads the viewport to decide what to render.
+describe('NativeDoorKnockingPage small-screen shell', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+  })
+
+  it('peeks the rail over the map and opens it in one tap', async () => {
+    renderPage()
+
+    const handle = await screen.findByRole('button', {
+      name: /Lists and legend/,
+    })
+    const rail = document.getElementById('door-knocking-rail')
+    expect(handle).toHaveAttribute('aria-expanded', 'false')
+    expect(rail).toHaveClass('hidden')
+    // Over the map on a phone, in the flex row on a desktop.
+    expect(handle.parentElement).toHaveClass('absolute', 'lg:static')
+
+    fireEvent.click(handle)
+
+    expect(handle).toHaveAttribute('aria-expanded', 'true')
+    expect(rail).toHaveClass('flex')
+    expect(rail).not.toHaveClass('hidden')
+  })
+
+  // The rail is unmounted for the whole create flow, so its open state is the
+  // one piece of landing-map state that would come back on its own — the sheet
+  // would spring up over the map the moment the flow closed.
+  it('leaves the sheet closed on the way out of the create flow', async () => {
+    renderPage()
+    await screen.findByText(/voters in your district with a mapped address/)
+
+    const handle = screen.getByRole('button', { name: /Lists and legend/ })
+    fireEvent.click(handle)
+    expect(handle).toHaveAttribute('aria-expanded', 'true')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create list' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close list creation' }))
+
+    expect(
+      screen.getByRole('button', { name: /Lists and legend/ }),
+    ).toHaveAttribute('aria-expanded', 'false')
+    expect(document.getElementById('door-knocking-rail')).toHaveClass('hidden')
+  })
+
+  // The walk replaces the rail outright, so it strands the sheet the same way
+  // the create flow does — and a canvasser coming back from a walk is looking
+  // at the map, not asking for half of it back.
+  it('leaves the sheet closed on the way back from a walk', async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [{ ...turf, locked: true }],
+    })
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+    // The walk view's own content is not what this asserts, only that leaving
+    // it puts the sheet back the way the canvasser left the landing map.
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 500,
+      data: { message: 'no route in this test' },
+    })
+    render(
+      <NativeDoorKnockingPage
+        pathname="/dashboard/door-knocking"
+        campaign={null}
+      />,
+    )
+    await screen.findByText('Elm St & 5th')
+
+    fireEvent.click(screen.getByRole('button', { name: /Lists and legend/ }))
+    // A locked turf goes straight into its saved route, no confirm dialog.
+    fireEvent.click(screen.getByRole('button', { name: 'Knock' }))
+    expect(document.getElementById('door-knocking-rail')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to the map' }))
+
+    expect(
+      screen.getByRole('button', { name: /Lists and legend/ }),
+    ).toHaveAttribute('aria-expanded', 'false')
+    expect(document.getElementById('door-knocking-rail')).toHaveClass('hidden')
+  })
+
+  it('keeps the rail a column at lg however the sheet is set', async () => {
+    renderPage()
+    await screen.findByText('Elm St & 5th')
+
+    const handle = screen.getByRole('button', {
+      name: /Lists and legend/,
+    })
+    const rail = document.getElementById('door-knocking-rail')
+    expect(rail).toHaveClass('lg:flex')
+    // The sheet's handle is the phone affordance only; the desktop rail has
+    // nothing to expand.
+    expect(handle).toHaveClass('lg:hidden')
+    // Collapsed on a phone is still mounted, so the desktop pane renders the
+    // saved lists and the legend without touching the toggle.
+    expect(screen.getByText('Elm St & 5th')).toBeInTheDocument()
+    expect(chip('Supporter', 1)).toBeInTheDocument()
+  })
+
+  // Drawing a turf is repeated taps on a WebGL canvas, so the draw step needs
+  // the whole map at any width — the rail is not merely narrower there, it is
+  // gone, and the flow's own chrome is a click-through overlay.
+  it('gives the draw step the whole map', async () => {
+    renderPage()
+
+    await screen.findByText(/voters in your district with a mapped address/)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create list' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(document.getElementById('door-knocking-rail')).toBeNull()
+    expect(screen.getByTestId('voter-map')).toBeInTheDocument()
+  })
+
+  // The whole draw step as a canvasser meets it: no Done button anywhere, a
+  // three-point minimum nothing used to name, and a Continue that has to turn
+  // into the finish gesture on the third tap.
+  it('walks filters → three taps → confirm', async () => {
+    drawSession.placed = []
+    renderPage()
+    await screen.findByText(/voters in your district with a mapped address/)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create list' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    expect(
+      screen.getByRole('button', { name: 'Tap 3 points to continue' }),
+    ).toBeDisabled()
+
+    fireEvent.click(tapMap)
+    expect(
+      screen.getByRole('button', { name: '2 more points to continue' }),
+    ).toBeDisabled()
+
+    fireEvent.click(tapMap)
+    expect(
+      screen.getByRole('button', { name: '1 more point to continue' }),
+    ).toBeDisabled()
+
+    fireEvent.click(tapMap)
+    const advance = await screen.findByRole('button', {
+      name: /Continue \(\d+ doors\)/,
+    })
+    expect(advance).toBeEnabled()
+
+    fireEvent.click(advance)
+
+    expect(screen.getByLabelText('Route name')).toBeInTheDocument()
   })
 })
