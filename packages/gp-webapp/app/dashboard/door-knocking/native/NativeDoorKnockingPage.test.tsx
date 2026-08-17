@@ -45,8 +45,18 @@ vi.mock('./useVoterPack', () => ({
 // against the rail's own copy.
 vi.mock('./VoterMapCanvas', () => ({
   __esModule: true,
-  default: ({ filterResult }: { filterResult: { people: number } }) => (
-    <div data-testid="voter-map" data-people={String(filterResult.people)} />
+  default: ({
+    filterResult,
+    initialZoom,
+  }: {
+    filterResult: { people: number }
+    initialZoom?: number
+  }) => (
+    <div
+      data-testid="voter-map"
+      data-people={String(filterResult.people)}
+      data-initial-zoom={String(initialZoom)}
+    />
   ),
 }))
 vi.mock('app/dashboard/shared/DashboardLayout', () => ({
@@ -159,6 +169,15 @@ describe('NativeDoorKnockingPage landing rail', () => {
       screen.queryByRole('button', { name: /Support unknown\s*3/ }),
     ).toBeNull()
     expect(chip('Supporter', 1)).toBeInTheDocument()
+  })
+
+  // Left to fitBounds the map opens at district zoom, where there is nothing
+  // to orient against. 16 is where street names appear.
+  it('opens the map at street-level zoom', async () => {
+    renderPage()
+
+    const map = await screen.findByTestId('voter-map')
+    expect(map).toHaveAttribute('data-initial-zoom', '16')
   })
 
   // A list is its filters as well as its polygon, which is the whole reason

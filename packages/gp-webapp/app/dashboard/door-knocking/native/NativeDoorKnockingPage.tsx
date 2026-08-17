@@ -476,6 +476,11 @@ export default function NativeDoorKnockingPage({
                   walkTurf ? (walkRouteQuery.data?.pathGeometry ?? null) : null
                 }
                 focusTurf={focusTurf}
+                // Street level, where neighborhood street names first appear:
+                // fitBounds to the whole district opens too far out to orient
+                // against, and the map's job at mount is to say where you are.
+                // Only the opening view — panning and turf focus own it after.
+                initialZoom={16}
                 startDrawToken={startDrawToken}
                 clearDrawToken={clearDrawToken}
                 undoDrawToken={undoDrawToken}
