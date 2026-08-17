@@ -3,7 +3,7 @@
 import type { Ref, ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { cn, IconButton, Textarea } from '@styleguide'
+import { cn, GoodPartyOrgLogo, IconButton, Textarea } from '@styleguide'
 import {
   SearchIcon,
   SendIcon,
@@ -51,10 +51,12 @@ export const ASSISTANT_BUBBLE =
   '[&_th]:!border-foreground/30 [&_td]:!table-cell [&_td]:px-2 [&_td]:py-1.5 ' +
   '[&_td]:align-top'
 
+// The agent's face is the GoodParty mark, not a generic AI glyph. Neutral
+// circle (not the primary tint) so the multicolor logo reads cleanly.
 export function AssistantAvatar(): React.JSX.Element {
   return (
-    <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-      <SparklesIcon className="size-3.5" aria-hidden />
+    <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border border-border bg-background">
+      <GoodPartyOrgLogo className="h-3 w-3.5" />
     </span>
   )
 }

@@ -1,8 +1,13 @@
 'use client'
 
 import { useEffect, useState, type RefObject } from 'react'
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@styleguide'
-import { SparklesIcon } from '@styleguide/components/ui/icons'
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  GoodPartyOrgLogo,
+} from '@styleguide'
 import ChiefOfStaffChatBody, {
   type ChatSuggestion,
 } from './ChiefOfStaffChatBody'
@@ -91,8 +96,8 @@ export default function ChiefOfStaffChatSurface({
         aria-describedby={undefined}
       >
         <DrawerHeader className="flex flex-row items-center gap-2 border-b border-border p-4 pr-12">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-            <SparklesIcon className="size-4" aria-hidden />
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full border border-border bg-background">
+            <GoodPartyOrgLogo className="h-4 w-5" />
           </span>
           <div className="flex flex-col text-left">
             <DrawerTitle>{title}</DrawerTitle>

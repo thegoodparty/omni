@@ -21,6 +21,7 @@ import {
 import { SparklesIcon } from '@styleguide/components/ui/icons'
 import {
   ASSISTANT_BUBBLE,
+  AssistantAvatar,
   AssistantMarkdown,
   ChatMarkdown,
   ToolPillRow,
@@ -1018,9 +1019,7 @@ export default function ChiefOfStaffChatBody({
               key={i}
               className="flex max-w-full items-start gap-2 self-start"
             >
-              <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <SparklesIcon className="size-3.5" aria-hidden />
-              </span>
+              <AssistantAvatar />
               <div className={ASSISTANT_BUBBLE}>{text}</div>
             </div>
           ))}
@@ -1030,9 +1029,7 @@ export default function ChiefOfStaffChatBody({
             key={`pb-${i}`}
             className="flex max-w-full items-start gap-2 self-start"
           >
-            <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <SparklesIcon className="size-3.5" aria-hidden />
-            </span>
+            <AssistantAvatar />
             <AssistantMarkdown>{text}</AssistantMarkdown>
           </div>
         ))}
@@ -1053,9 +1050,7 @@ export default function ChiefOfStaffChatBody({
               key={item.id}
               className="flex max-w-full items-start gap-2 self-start"
             >
-              <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <SparklesIcon className="size-3.5" aria-hidden />
-              </span>
+              <AssistantAvatar />
               {item.segments && item.segments.length > 0 ? (
                 // Reloaded turn that used tools: replay the persisted ordered
                 // text/tool blocks, matching the in-progress layout.
@@ -1084,9 +1079,7 @@ export default function ChiefOfStaffChatBody({
 
         {streaming !== null && (
           <div className="flex max-w-full items-start gap-2 self-start">
-            <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <SparklesIcon className="size-3.5" aria-hidden />
-            </span>
+            <AssistantAvatar />
             <div className="flex min-w-0 max-w-full flex-col gap-2">
               {visibleSegments.length === 0 && (
                 <div className={ASSISTANT_BUBBLE}>
