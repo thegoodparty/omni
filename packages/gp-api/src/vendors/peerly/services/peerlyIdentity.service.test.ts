@@ -1,4 +1,8 @@
-import { BadGatewayException, BadRequestException } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  UnprocessableEntityException,
+} from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 import { AxiosError, AxiosHeaders } from 'axios'
 import {
@@ -1393,6 +1397,111 @@ describe('PeerlyIdentityService', () => {
 
       expect(slackService.message).not.toHaveBeenCalled()
       expect(errorHandling.handleApiError).toHaveBeenCalled()
+    })
+  })
+
+  describe('CampaignVerify PIN rejections', () => {
+    const campaign = campaignFactory({ id: 1 }) as Campaign
+
+    // Peerly collapses CV's answer into HTTP 400 with CV's own status nested
+    // in `status_code`. These are the exact bodies prod returns.
+    const cvPinError = (
+      endpoint: string,
+      message: string,
+      nestedStatus: number,
+    ) => ({
+      isAxiosError: true,
+      status: 400,
+      config: { url: `/v2/tdlc/peerly-1/${endpoint}`, method: 'post' },
+      response: {
+        status: 400,
+        data: { Error: message, status_code: nestedStatus },
+      },
+    })
+
+    const wrongPin = () =>
+      cvPinError(
+        'verify_pin',
+        'Campaign Verify Verify PIN API request failed.',
+        422,
+      )
+
+    const declinedResend = () =>
+      cvPinError(
+        'resend_pin',
+        'Campaign Verify Resend PIN API request failed.',
+        422,
+      )
+
+    it('does not page the 10DLC channel when a candidate mistypes their PIN', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const usersService = module.get(UsersService)
+      const slackService = module.get(SlackService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      usersService.findByCampaign = vi.fn().mockResolvedValue(baseUser)
+      httpService.post = vi.fn().mockRejectedValueOnce(wrongPin())
+
+      await service.verifyCampaignVerifyPin('peerly-1', '000000', campaign)
+
+      expect(slackService.message).not.toHaveBeenCalled()
+      // Still a 422 to the candidate — only the alert is suppressed.
+      expect(errorHandling.handleApiError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          context: expect.objectContaining({
+            httpExceptionClass: UnprocessableEntityException,
+            suppressSlackAlert: true,
+          }),
+        }),
+      )
+    })
+
+    it('does not page the 10DLC channel when CampaignVerify declines a resend', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const usersService = module.get(UsersService)
+      const slackService = module.get(SlackService)
+      usersService.findByCampaign = vi.fn().mockResolvedValue(baseUser)
+      httpService.post = vi.fn().mockRejectedValueOnce(declinedResend())
+
+      await service.resendCampaignVerifyPin('peerly-1', campaign)
+
+      expect(slackService.message).not.toHaveBeenCalled()
+    })
+
+    it('still pages when CampaignVerify itself is down (nested 5xx)', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const usersService = module.get(UsersService)
+      const slackService = module.get(SlackService)
+      usersService.findByCampaign = vi.fn().mockResolvedValue(baseUser)
+      httpService.post = vi
+        .fn()
+        .mockRejectedValueOnce(
+          cvPinError(
+            'verify_pin',
+            'Campaign Verify Verify PIN API request failed.',
+            500,
+          ),
+        )
+
+      await service.verifyCampaignVerifyPin('peerly-1', '000000', campaign)
+
+      expect(slackService.message).toHaveBeenCalledTimes(1)
+    })
+
+    it('still pages on a Peerly 400 that is not a CV passthrough', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const usersService = module.get(UsersService)
+      const slackService = module.get(SlackService)
+      usersService.findByCampaign = vi.fn().mockResolvedValue(baseUser)
+      httpService.post = vi.fn().mockRejectedValueOnce({
+        isAxiosError: true,
+        status: 400,
+        config: { url: '/v2/tdlc/peerly-1/verify_pin', method: 'post' },
+        response: { status: 400, data: { Error: 'Invalid identity id' } },
+      })
+
+      await service.verifyCampaignVerifyPin('peerly-1', '000000', campaign)
+
+      expect(slackService.message).toHaveBeenCalledTimes(1)
     })
   })
 })
