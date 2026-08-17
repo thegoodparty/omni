@@ -164,7 +164,17 @@ import { dirname, join, relative } from 'node:path'
 // createFlow/CreateListFlow (filter/draw/confirm step state) replace inline
 // expansions; all are interactive surfaces inside the client-only map page.
 // Net +2 after deleting SaveTurfDialog.
-const BASELINE = 563
+// 2026-08-13: 563 -> 564 for native/EditTurfDialog.tsx — the rename/recolor
+// dialog holds draft name and color state and runs the PUT mutation, and it is
+// opened from TurfDetailsSheet, itself a client component inside the client-only
+// map page. Nothing here can render on the server.
+// 2026-08-13: 564 -> 565 for door-knocking/native/DoorScript.tsx. The door
+// script collapses on tap so it doesn't push the answer pills off a phone
+// screen, and it renders inside PersonSheet, which is already client-only.
+// 2026-08-13: 565 -> 566 for door-knocking/native/DoNotKnockControl.tsx — a
+// mutating button pair (flag / undo) rendered inside the client-only
+// PersonSheet, peer to RecordKnockForm.tsx, so it can't render on the server.
+const BASELINE = 566
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

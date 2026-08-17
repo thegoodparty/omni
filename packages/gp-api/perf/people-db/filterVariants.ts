@@ -4,6 +4,9 @@ export type FilterVariant = { name: string; payload: PeopleFilters }
 
 export const FILTER_VARIANTS: readonly FilterVariant[] = [
   { name: 'none', payload: {} },
+  // Doubles as the sms/polls tile of the list-detail reachability grid —
+  // ContactsService.fetchListDetailAggregates fans out to three
+  // channel-restricted getAggregates calls, and this is the first of them.
   { name: 'single-boolean', payload: { hasCellPhone: true } },
   {
     name: 'single-multivalue',
@@ -40,4 +43,9 @@ export const FILTER_VARIANTS: readonly FilterVariant[] = [
       estimatedIncomeAmountInt: { gte: 25000, lte: 75000 },
     },
   },
+  // The other two channel tiles. Same membership scan as the base aggregate
+  // plus one has-contact-method predicate, so they measure whether the extra
+  // predicate changes the plan on the join path.
+  { name: 'channel-landline', payload: { hasLandline: true } },
+  { name: 'channel-address', payload: { hasAddress: true } },
 ]

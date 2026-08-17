@@ -456,6 +456,49 @@ resource "aws_cloudwatch_metric_alarm" "handler_errors" {
   }
 }
 
+# SILENCE ALARM. The handler_errors alarm above can only fire if the handler
+# RUNS, so it is blind to the one failure mode that has actually happened:
+# ClickUp stopping delivery altogether. Deliveries stopped on 2026-07-31 —
+# zero requests reached the ALB target group and zero invocations followed —
+# and nothing alarmed for 12 days, because a webhook that never fires produces
+# no error logs. "A suspended webhook is indistinguishable from a quiet one"
+# was in the runbook as something to check by hand; this makes it check itself.
+#
+# treat_missing_data = "breaching" is the entire point. Lambda metrics are
+# SPARSE: no invocations means no datapoint at all, not a datapoint of zero, so
+# the default (missing = ignore) would leave this alarm permanently INSUFFICIENT
+# _DATA during exactly the outage it exists to catch.
+#
+# Four days, not one. The webhook fires on taskTagUpdated for the whole
+# workspace, so weekday traffic is 5-35/day, but a quiet Saturday legitimately
+# reaches zero (2026-07-25 did). Four consecutive silent days is well past any
+# observed gap, including a long weekend, and still turns a 12-day blind spot
+# into a 4-day one.
+resource "aws_cloudwatch_metric_alarm" "no_deliveries" {
+  alarm_name          = "clickup-bot-no-deliveries-${var.environment}"
+  alarm_description   = "clickup-bot ${var.environment} has received NO webhook deliveries for 4 days. The bot is not broken — it is not being called. Check the ClickUp webhook's health status and that its owning token still has workspace access (see clickup_bot/README.md, 'After an outage'). A webhook registered with a personal token dies when that person loses workspace access, which is how deliveries stopped on 2026-07-31."
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = 4
+  datapoints_to_alarm = 4
+  metric_name         = "Invocations"
+  namespace           = "AWS/Lambda"
+  period              = 86400
+  statistic           = "Sum"
+  threshold           = 1
+  treat_missing_data  = "breaching"
+  alarm_actions       = [aws_sns_topic.bot_failures.arn]
+  ok_actions          = [aws_sns_topic.bot_failures.arn]
+
+  dimensions = {
+    FunctionName = aws_lambda_function.clickup_bot.function_name
+  }
+
+  tags = {
+    Environment = var.environment
+    Service     = "clickup-bot"
+  }
+}
+
 output "lambda_function_arn" {
   value       = aws_lambda_function.clickup_bot.arn
   description = "Lambda function ARN"

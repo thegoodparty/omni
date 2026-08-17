@@ -428,6 +428,23 @@ describe('OrdinanceFlowToolsService', () => {
     expect(row.draftBody).toBe('The fee is $75.')
   })
 
+  it('acceptDraftChanges does not blank an all-deletion draft', async () => {
+    // All-deletion markup with whitespace collapses to '\n\n' (not ''); keep
+    // the current text rather than write a blank draft (mirrors saveDraft).
+    const body = '{-Section 1.-}\n\n{-Section 2.-}'
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: { draftBody: body },
+    })
+    expect(
+      await tools.acceptDraftChanges(ordinanceId, electedOfficeId),
+    ).toEqual({ accepted: true })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe(body)
+  })
+
   it('acceptDraftChanges reports no_changes when nothing is redlined', async () => {
     await service.prisma.ordinance.update({
       where: { id: ordinanceId },
@@ -686,6 +703,67 @@ describe('ordinance-flow present_* tool builders', () => {
     const read = await tools.readSection(ordinanceId, electedOfficeId, 'draft')
     const draft = read.draft as { sources: OrdinanceSource[] }
     expect(draft.sources).toEqual([{ id: 's1', title: 'Source one' }])
+  })
+
+  it('saveDraft collapses stray redline on a new (non-amendment) draft', async () => {
+    // The drafting model sometimes wraps a from-scratch draft in {+inserted+}
+    // markup; a new ordinance has no baseline, so it must persist plain.
+    await tools.saveDraft(ordinanceId, electedOfficeId, {
+      title: 'New ordinance',
+      body: '{+Section 1. Cameras shall be sited by data.+}',
+    })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe('Section 1. Cameras shall be sited by data.')
+  })
+
+  it('saveDraft does not blank a new draft when a body would collapse to blank', async () => {
+    // All-deletion markup with inter-segment whitespace collapses to '\n\n'
+    // (not ''), so a plain `|| draft.body` fallback would still persist blank —
+    // fall back to the model's text when the collapse has no real content.
+    const body = '{-Section 1.-}\n\n{-Section 2.-}'
+    await tools.saveDraft(ordinanceId, electedOfficeId, { title: 'Odd', body })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe(body)
+  })
+
+  it('saveDraft keeps redline on an amendment draft (the deliverable)', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: { sourceLink: 'https://example.gov/code/chapter-5' },
+    })
+    const redline = 'Section 5-1. {-old rule-}{+new rule+}'
+    await tools.saveDraft(ordinanceId, electedOfficeId, {
+      title: 'Amendment',
+      body: redline,
+    })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe(redline)
+  })
+
+  it('saveDraft keeps redline on an amendment with a verbatim baseline (no sourceLink)', async () => {
+    // The flow reaches amendments without a user-pasted link: it researches the
+    // code and stores existingLaw.verbatimText but no sourceLink, so the
+    // verbatimText arm of isAmendmentRecord must also protect the redline.
+    await tools.saveExistingLaw(ordinanceId, electedOfficeId, {
+      sourceUrl: 'https://library.municode.com/nc/hendersonville/ch12',
+      text: 'Current law summary.',
+      verbatimText: 'Sec. 12-1. The fee shall be $50.',
+    })
+    const redline = 'Sec. 12-1. The fee shall be {-$50-}{+$75+}.'
+    await tools.saveDraft(ordinanceId, electedOfficeId, {
+      title: 'Amendment via verbatim baseline',
+      body: redline,
+    })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.draftBody).toBe(redline)
   })
 
   describe('quality loop hooks', () => {

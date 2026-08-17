@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import analytics_event_health as aeh
+import behavior_registry as br
 from databricks_oauth import run_query as execute_query
 
 # Read through the mart_analytics exposure so access is granted at the mart schema.
@@ -24,7 +25,7 @@ select event_type, govern_display_name, family, first_seen_date, last_seen_date,
 from {CATALOG_TABLE}
 """
 
-# 21 columns, render order. See the design doc for the rationale behind the set.
+# 22 columns, render order. See the design doc for the rationale behind the set.
 # `event` renders the Amplitude display name when one is set, so it can diverge
 # from the name in code; `event_type` carries the ingested name alongside it so a
 # reader can always map a row back to the string in the codebase, the provenance
@@ -51,6 +52,7 @@ COLUMNS = [
     "retired_author_email",
     "watchlist_status",
     "okr",
+    "questions",
 ]
 
 
@@ -82,10 +84,24 @@ def _num(value: Any) -> Any:
     return value
 
 
+def questions_by_event(behaviors: Sequence[Mapping[str, Any]]) -> dict[str, list[str]]:
+    """{event_type: sorted questions it helps answer}. This answers "why do we track this" in
+    the place people already have open, which is why it belongs on the events tab and not
+    only on the questions tab."""
+    out: dict[str, set[str]] = {}
+    for b in behaviors:
+        qs = {str(b["question"])} if b.get("question") else set()
+        qs |= {str(a) for a in (b.get("answers") or [])}
+        for name in br.instrumenting_events(b):
+            out.setdefault(name, set()).update(qs)
+    return {name: sorted(qs) for name, qs in out.items()}
+
+
 def build_rows(
     records: Sequence[Mapping[str, Any]],
     catalog_by_type: Mapping[str, Mapping[str, Any]],
     code_map: Mapping[str, Mapping[str, Any]],
+    questions_by_type: Mapping[str, Sequence[str]] | None = None,
 ) -> list[dict]:
     """Project reconcile records + catalog + provenance into COLUMNS rows, most-recently
     touched-in-code first (rows with no provenance date sort last; 30d volume breaks ties)."""
@@ -123,6 +139,7 @@ def build_rows(
                 "retired_author_email": _blank(prov.get("retired_author_email")),
                 "watchlist_status": rec.get("watchlist_status", "—"),
                 "okr": _blank(rec.get("okr")),
+                "questions": "; ".join((questions_by_type or {}).get(event_type, [])),
                 "_sort_date": prov.get("last_code_change_date") or "",
             }
         )
@@ -185,7 +202,7 @@ def assemble(
     overrides: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict:
     """Load the catalog + provenance, derive status via the shared reconcile(), and project
-    into the 19-column table. weekly_rows=[] skips the monitor's anomaly query — irrelevant
+    into the 22-column table. weekly_rows=[] skips the monitor's anomaly query — irrelevant
     to this surface — while still yielding the authoritative status for every event.
     ``overrides`` maps event_type -> {govern_*} to overlay Amplitude-direct metadata onto
     (or inject rows into) the Databricks catalog (DATA-2053)."""
@@ -203,7 +220,10 @@ def assemble(
         dismissed_events=dismissed_events, okr_by_event=okr_by_event,
     )
     catalog_by_type = {row["event_type"]: row for row in catalog}
-    rows = build_rows(reconciled["records"], catalog_by_type, code_map)
+    behaviors = br.load_behaviors(aeh.WATCHLIST)
+    rows = build_rows(
+        reconciled["records"], catalog_by_type, code_map, questions_by_event(behaviors)
+    )
     return {
         "rows": rows,
         "meta": {

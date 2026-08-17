@@ -8,6 +8,9 @@ const links = ({
   campaignStoryEnabled = false,
   communityIssuesEnabled = true,
   ordinancesEnabled = false,
+  ecanvasserConnected = false,
+  nativeEnabled = false,
+  districtResolvable = true,
 }: {
   serveAccessEnabled?: boolean
   isElectedOffice?: boolean
@@ -15,6 +18,9 @@ const links = ({
   campaignStoryEnabled?: boolean
   communityIssuesEnabled?: boolean
   ordinancesEnabled?: boolean
+  ecanvasserConnected?: boolean
+  nativeEnabled?: boolean
+  districtResolvable?: boolean
 } = {}) =>
   getDashboardMenuItems(
     serveAccessEnabled,
@@ -24,7 +30,11 @@ const links = ({
     campaignStoryEnabled,
     communityIssuesEnabled,
     ordinancesEnabled,
+    { ecanvasserConnected, nativeEnabled, districtResolvable },
   )
+
+const hasDoorKnocking = (options: Parameters<typeof links>[0] = {}): boolean =>
+  links(options).some((item) => item.id === 'door-knocking-dashboard')
 
 describe('getDashboardMenuItems — Win Contacts gating', () => {
   it('shows the Contacts item for a Win campaign, pro or not', () => {
@@ -252,5 +262,51 @@ describe('getDashboardMenuItems — Ordinances tab gating', () => {
       ordinancesEnabled: true,
     })
     expect(items.some((i) => i.id === 'ordinances-dashboard')).toBe(false)
+  })
+})
+
+describe('getDashboardMenuItems — Door Knocking nav gating', () => {
+  // The regression this gating fixes: the link used to be pushed only for orgs
+  // with an eCanvasser integration record, so a pilot candidate on the native
+  // flag had no way to reach the feature at all.
+  it('shows the item on the native flag without an eCanvasser record', () => {
+    expect(hasDoorKnocking({ nativeEnabled: true })).toBe(true)
+  })
+
+  it('hides the item with neither the flag nor an eCanvasser record', () => {
+    expect(hasDoorKnocking()).toBe(false)
+  })
+
+  it('still shows the legacy item for an integrated org with the flag off', () => {
+    expect(hasDoorKnocking({ ecanvasserConnected: true })).toBe(true)
+  })
+
+  // Every pack and turf read resolves a district server-side and 400s without
+  // one, so the native map would render an error, not a walk list.
+  it('hides the item on the native flag when the district is unresolvable', () => {
+    expect(
+      hasDoorKnocking({ nativeEnabled: true, districtResolvable: false }),
+    ).toBe(false)
+  })
+
+  // Flag on means the route renders the native map regardless of eCanvasser, so
+  // an integrated org with no district would land on the same error page.
+  it('does not let an eCanvasser record rescue the item on the native flag', () => {
+    expect(
+      hasDoorKnocking({
+        nativeEnabled: true,
+        ecanvasserConnected: true,
+        districtResolvable: false,
+      }),
+    ).toBe(false)
+  })
+
+  // While the flag is unsettled the page renders the eCanvasser dashboard, so
+  // the nav must match rather than flashing a link that changes meaning.
+  it('ignores district resolution while the flag is unsettled', () => {
+    expect(hasDoorKnocking({ districtResolvable: true })).toBe(false)
+    expect(
+      hasDoorKnocking({ ecanvasserConnected: true, districtResolvable: false }),
+    ).toBe(true)
   })
 })

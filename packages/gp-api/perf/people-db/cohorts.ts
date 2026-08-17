@@ -1,4 +1,4 @@
-export type Band = 'small' | 'medium' | 'large' | 'statewide'
+export type Band = 'small' | 'medium' | 'large' | 'mega' | 'statewide'
 
 export type Cohort = {
   band: Band
@@ -29,6 +29,24 @@ export const COHORTS: readonly Cohort[] = [
     expectedMin: 150000,
     expectedMax: 500000,
   }, // US Congressional District 29 (399907)
+  // Pinned 2026-08-16. The only NON-CA cohort, and that is the point: every
+  // other band is a California district, so the suite could not separate
+  // "big district" from "big state partition". Orange County FL has 2.3x the
+  // membership of `large` yet the unfiltered getAggregates measured 1.7s warm
+  // against `large`'s 18.7s (and a 25s timeout cold) — DistrictVoter_CA is
+  // 429M rows / 63GB vs FL's 116M / 17GB. Membership size is not the driver;
+  // per-member probe cost into the state partition is. Keep this cell so a
+  // regression in one can never be mistaken for the other.
+  {
+    band: 'mega',
+    districtId: '0d75291d-7cfe-8ebf-c604-a68e95f6f66d',
+    expectedMin: 600_000,
+    expectedMax: 1_500_000,
+  }, // County ORANGE FL (898598)
+  // NOT the heaviest cell despite the row count: resolveDistrict.util.ts sets
+  // useVoterOnlyPath when type === 'State' && name === state, which nulls the
+  // districtId and drops the DistrictVoter join for a single partition-pruned
+  // Voter scan. Keep it as the no-join control, not as the worst case.
   {
     band: 'statewide',
     districtId: '84ff95bb-f3a4-f6ea-b802-4f7cd4b5ac6c',

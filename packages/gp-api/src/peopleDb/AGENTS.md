@@ -76,6 +76,43 @@ service pointed at a disconnected client after a URL swap.
 the whole people-db surface; don't reach for individual services from other
 modules directly.
 
+## `plan_cache_mode=force_custom_plan` — do not remove it
+
+`buildClient` appends `options=-c plan_cache_mode=force_custom_plan` to the
+connection URL. This is load-bearing, not tuning.
+
+Every filter value in `filters.sql.util.ts` is a **bound parameter**. Postgres
+plans a prepared statement custom for its first 5 executions, then may switch to
+a generic plan built without knowing the values. For a range filter it then
+assumes default selectivity and **inverts the join**: instead of driving from
+`DistrictVoter` for the one district, it bitmap-scans every voter in the state's
+age/income band (~116k estimated rows) and checks district membership after.
+
+Measured on prod 2026-08-16, a 7,828-voter district with an age + income range,
+through the real Prisma client:
+
+| execution | without the option | with it |
+| --------- | ------------------ | ------- |
+| 1–5       | ~140ms             | ~140ms  |
+| 6+        | **~17,700ms**      | ~150ms  |
+
+That ~130x cliff blew the 25s statement timeout and was the mechanism behind the
+`GET /v1/contacts/list-detail` 504s. It reads as intermittent because it depends
+on how many times a **pooled** connection has run that statement shape, so a
+fresh connection looks fine and a well-used one times out. It also inverts the
+usual cache intuition — the first hit is fast and later ones are slow — which is
+why it hid inside the benchmark's warm p95.
+
+Two traps when touching this:
+
+- **`psql` with inlined literals cannot reproduce it.** A literal always gets a
+  custom plan. Reproduce through Prisma (or `PREPARE`/`EXECUTE` 6+ times).
+- **Do not set it via `url.searchParams.set`.** `URLSearchParams` encodes the
+  space in `-c plan_cache_mode=...` as `+`, which libpq does not decode back to
+  a space; the option is then silently ignored and the cliff returns with
+  nothing to show it. It is written by hand with `%20` for this reason, and
+  `peopleDb.service.test.ts` asserts the encoding.
+
 ## The state-literal partition-pruning invariant
 
 `utils/buildVoterWhereSql.util.ts`'s `stateEquals()` inlines the US state code

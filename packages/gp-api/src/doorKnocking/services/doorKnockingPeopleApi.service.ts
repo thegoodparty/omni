@@ -4,6 +4,7 @@ import {
   DoorKnockingEvaluateResponse,
   DoorKnockingPackRequest,
   DoorKnockingResidentsResponse,
+  IdOverrides,
 } from '@goodparty_org/contracts'
 import { FilterObject } from '@/contacts/utils/voterFileFilter.utils'
 import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
@@ -33,13 +34,24 @@ export class DoorKnockingPeopleApiService {
     districtId: string
     bbox: Bbox
     filters: FilterObject
+    idOverrides?: IdOverrides
+    contactsMadeIdOverrides?: IdOverrides
+    excludePersonIds?: string[]
   }): Promise<DoorKnockingEvaluateResponse> {
     return this.voterDoorKnocking.evaluate(
       DoorKnockingEvaluateDTO.create({
         districtId: args.districtId,
         bbox: args.bbox,
         filters: args.filters,
+        idOverrides: args.idOverrides,
+        contactsMadeIdOverrides: args.contactsMadeIdOverrides,
         maxPeople: EVALUATE_MAX_PEOPLE,
+        // Omitted rather than sent empty: the schema tolerates [], but keeping
+        // the key absent leaves the request byte-identical for an org that has
+        // flagged nobody.
+        ...(args.excludePersonIds?.length
+          ? { excludePersonIds: args.excludePersonIds }
+          : {}),
       }),
     )
   }

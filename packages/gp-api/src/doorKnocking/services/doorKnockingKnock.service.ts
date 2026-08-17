@@ -10,12 +10,14 @@ import {
   GeoJsonPolygon,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { convertVoterFileFilterToFilters } from '@/contacts/utils/voterFileFilter.utils'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { GeoapifyRoutePlannerService } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
 import type { LngLat } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
 import {
   Campaign,
+  ContactStatusField,
+  DoNotKnockStatus,
   DoorKnockingRoute,
   Organization,
   OutreachStatus,
@@ -24,7 +26,10 @@ import {
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { pointInPolygon, polygonBbox } from '../utils/geo.util'
 import { lockTurf } from '../utils/turfLock.util'
-import { assertWaypointQuota } from '../utils/waypointQuota.util'
+import {
+  assertWaypointQuota,
+  recordWaypointSpend,
+} from '../utils/waypointQuota.util'
 
 // Leadership-approved hard cap; the DB CHECK on stop.seq enforces the same
 // bound.
@@ -75,6 +80,7 @@ export class DoorKnockingKnockService extends createPrismaBase(
     private readonly peopleApi: DoorKnockingPeopleApiService,
     private readonly geoapify: GeoapifyRoutePlannerService,
     private readonly contacts: ContactsService,
+    private readonly contactStatus: ContactStatusService,
   ) {
     super()
   }
@@ -90,6 +96,16 @@ export class DoorKnockingKnockService extends createPrismaBase(
     const districtId =
       await this.contacts.resolveEligibleDistrictId(organization)
 
+    // ADR 0007. Read outside the transaction, like the district resolution
+    // above: it touches a different table and adding it to the critical
+    // section would hold the turf lock across another round trip. The set is
+    // the org's own flagged people, small by construction.
+    const excludePersonIds = await this.contactStatus.personIdsByFieldValue(
+      organization.slug,
+      ContactStatusField.do_not_knock,
+      [DoNotKnockStatus.active],
+    )
+
     return this.client.$transaction(
       async (tx) => {
         await lockTurf(tx, turfId)
@@ -102,7 +118,12 @@ export class DoorKnockingKnockService extends createPrismaBase(
             id: turfId,
             voterFileFilter: { organizationSlug: organization.slug },
           },
-          include: { voterFileFilter: true },
+          // activityConditions is a relation, so it has to be pulled in
+          // explicitly — without it the resolution below sees a list with no
+          // conditions and knocks the unfiltered roster.
+          include: {
+            voterFileFilter: { include: { activityConditions: true } },
+          },
         })
         if (!turf) {
           throw new NotFoundException('Turf not found')
@@ -120,10 +141,31 @@ export class DoorKnockingKnockService extends createPrismaBase(
           }
         }
 
+        // The turf's own saved list, resolved exactly as the CRM resolves it.
+        // Anything less and the list's activity conditions, support-status,
+        // contacts-made, and voter-likelihood overrides stop applying the
+        // moment it's knocked — the roster the candidate previewed in
+        // Contacts and the roster they walk would quietly disagree.
+        const resolved = await this.contacts.resolveSavedFilterForQuery(
+          organization,
+          filter,
+        )
+        if (resolved.empty) {
+          // Nobody survives the list's own filters, so there is nothing to
+          // route. Same failure the polygon miss below reports, raised before
+          // paying for a people-db scan that can only come back empty.
+          throw new BadRequestException(
+            'No matching voters inside this turf — widen the area or the filters',
+          )
+        }
+
         const { people } = await this.peopleApi.evaluate({
           districtId,
           bbox: polygonBbox(turf.geoPoly),
-          filters: convertVoterFileFilterToFilters(filter),
+          filters: resolved.filters,
+          idOverrides: resolved.idOverrides,
+          contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+          excludePersonIds,
         })
         const stops = this.buildStops(people, turf.geoPoly)
 
@@ -139,6 +181,12 @@ export class DoorKnockingKnockService extends createPrismaBase(
         await assertWaypointQuota(tx, organization.slug, stops.length)
 
         const plan = await this.planStops(stops, request)
+
+        // The vendor has been paid. Record it before anything below can fail,
+        // and on `this.client` rather than `tx` so the ledger row survives a
+        // rollback of the freeze — otherwise the budget forgets a call that
+        // really happened and hands the same allowance out again.
+        await this.recordSpend(organization.slug, turfId, stops.length)
 
         const route = await tx.doorKnockingRoute.create({
           data: {
@@ -203,6 +251,30 @@ export class DoorKnockingKnockService extends createPrismaBase(
       },
       { timeout: KNOCK_TX_TIMEOUT_MS },
     )
+  }
+
+  // A failed ledger write must not fail a knock the vendor already billed, so
+  // this logs and continues. The consequence of losing a row is an under-count
+  // of the daily budget — the same failure mode the old stop-row read had for
+  // every rolled-back knock, and far cheaper than rejecting paid work.
+  private async recordSpend(
+    organizationSlug: string,
+    turfId: number,
+    stops: number,
+  ): Promise<void> {
+    try {
+      await recordWaypointSpend(this.client, {
+        organizationSlug,
+        doorKnockingTurfId: turfId,
+        waypoints: stops,
+        credits: stops * GEOAPIFY_CREDITS_PER_LOCATION,
+      })
+    } catch (error) {
+      this.logger.error(
+        { error, organizationSlug, turfId, stops },
+        'failed to record door-knocking route planner spend',
+      )
+    }
   }
 
   private buildStops(

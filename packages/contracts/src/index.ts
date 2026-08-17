@@ -97,8 +97,11 @@ export {
   type UpdateContactStatusInput,
   ContactStatusesSchema,
   type ContactStatuses,
+  DoNotKnockStatusSchema,
+  type DoNotKnockStatus,
   VOTER_LIKELIHOOD_LABELS,
   SUPPORT_STATUS_ROLLUP_LABELS,
+  DO_NOT_KNOCK_LABELS,
   resolveContactStatusLabel,
 } from './people/ContactStatus.schema'
 
@@ -787,3 +790,10 @@ export {
   RecordDoorKnockInteractionResponseSchema,
   type RecordDoorKnockInteractionResponse,
 } from './doorKnocking/DoorKnockingInteraction.schema'
+
+export {
+  SetDoNotKnockSchema,
+  type SetDoNotKnock,
+  SetDoNotKnockResponseSchema,
+  type SetDoNotKnockResponse,
+} from './doorKnocking/DoorKnockingDoNotKnock.schema'

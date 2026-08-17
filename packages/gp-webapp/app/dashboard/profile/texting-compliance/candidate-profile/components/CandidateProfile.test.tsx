@@ -121,6 +121,17 @@ describe('CandidateProfile — bio editor mounts with no website yet (ENG-10283)
     expect(await screen.findByTestId('rich-editor')).toBeInTheDocument()
   })
 
+  it('renders the "Your why" editor when getUserWebsite rejects', async () => {
+    // getUserWebsite throws on a failed read rather than degrading to null, so
+    // the seeding effect must treat an error as settled. Gating on isSuccess
+    // alone left initialBio null forever and the editor never mounted — a
+    // blank, unusable form.
+    getUserWebsite.mockRejectedValue(new Error('Failed to load website: 500'))
+    render(<CandidateProfile />)
+
+    expect(await screen.findByTestId('rich-editor')).toBeInTheDocument()
+  })
+
   it('seeds issues to [] so submit surfaces the policy-priority error', async () => {
     // Guards the null-website seeding path: `setIssues(normalizeIssues(undefined))`
     // must produce an empty array. If it ever seeded a phantom priority, the

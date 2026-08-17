@@ -4,6 +4,8 @@ import {
   type ContactStatusField as GeneratedContactStatusField,
   ContactStatusSourceSchema as GeneratedContactStatusSourceSchema,
   type ContactStatusSource as GeneratedContactStatusSource,
+  DoNotKnockStatusSchema as GeneratedDoNotKnockStatusSchema,
+  type DoNotKnockStatus as GeneratedDoNotKnockStatus,
   SupportStatusRollupSchema as GeneratedSupportStatusRollupSchema,
   type SupportStatusRollup as GeneratedSupportStatusRollup,
   VoterLikelihoodSchema as GeneratedVoterLikelihoodSchema,
@@ -23,6 +25,12 @@ export type ContactStatusField = GeneratedContactStatusField
 
 export const ContactStatusSourceSchema = GeneratedContactStatusSourceSchema
 export type ContactStatusSource = GeneratedContactStatusSource
+
+// ADR 0007. Not a member of UpdateContactStatusInputSchema below: the CRM's
+// status PATCH is Pro-gated, and the flagged door-knocking pilot is not, so
+// do-not-knock is written through its own door-knocking endpoint instead.
+export const DoNotKnockStatusSchema = GeneratedDoNotKnockStatusSchema
+export type DoNotKnockStatus = GeneratedDoNotKnockStatus
 
 // Discriminated by `field` so each value validates against its own
 // vocabulary at the API boundary — a `support_status` value can't ride in on
@@ -81,19 +89,30 @@ export const SUPPORT_STATUS_ROLLUP_LABELS: Record<
   refused: 'Refused',
 }
 
+// ADR 0007. Read as "Do Not Knock: — -> On" in the feed, so the values carry
+// the on/off reading and the field name carries the meaning.
+export const DO_NOT_KNOCK_LABELS: Record<DoNotKnockStatus, string> = {
+  active: 'On',
+  cleared: 'Off',
+}
+
 // fromValue/toValue persist as a plain Prisma `String` on ContactStatusEvent
 // (each field's vocabulary is only Zod-enforced at write time, via
 // UpdateContactStatusInputSchema above) — a value outside today's map, from a
 // future enum member or a not-yet-built write source, must render as itself
 // rather than throw or go blank (mirrors the fallback convention
 // ActivityFeedEntry.tsx already uses for DOOR_KNOCK outcome labels).
+// Keyed by field rather than a ternary chain: the previous two-armed version
+// routed any field it did not recognize to the support-status labels, so a new
+// field's values silently rendered as raw strings. A Record fails to compile
+// instead.
+const LABELS_BY_FIELD: Record<ContactStatusField, Record<string, string>> = {
+  voter_likelihood: VOTER_LIKELIHOOD_LABELS,
+  support_status: SUPPORT_STATUS_ROLLUP_LABELS,
+  do_not_knock: DO_NOT_KNOCK_LABELS,
+}
+
 export const resolveContactStatusLabel = (
   field: ContactStatusField,
   value: string,
-): string => {
-  const labels: Record<string, string> =
-    field === 'voter_likelihood'
-      ? VOTER_LIKELIHOOD_LABELS
-      : SUPPORT_STATUS_ROLLUP_LABELS
-  return labels[value] ?? value
-}
+): string => LABELS_BY_FIELD[field][value] ?? value

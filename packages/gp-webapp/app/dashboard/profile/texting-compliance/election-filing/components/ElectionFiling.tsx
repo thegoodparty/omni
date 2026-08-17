@@ -40,19 +40,29 @@ export default function ElectionFiling(): React.JSX.Element {
   const [loading, setLoading] = useState(false)
   const [hasSubmissionError, setHasSubmissionError] = useState(false)
 
-  const { data: website, isSuccess: websiteLoaded } = useQuery<Website | null>({
+  const {
+    data: website,
+    isSuccess,
+    isError: isWebsiteError,
+  } = useQuery<Website | null>({
     queryKey: USER_WEBSITE_QUERY_KEY,
     queryFn: getUserWebsite,
   })
+  // Settled, not succeeded: getUserWebsite throws on a non-ok response, so
+  // gating on isSuccess alone leaves needsProfile null and strands the page on
+  // its Loading… spinner forever. A failed read falls back to collecting the
+  // profile, which is the safe direction — the fields render and the form's
+  // own validators still gate the save.
+  const websiteSettled = isSuccess || isWebsiteError
   // Captured once when the website query settles, not derived live: the
   // profile save invalidates the website query, and a live derivation would
   // unmount the half-submitted section mid-flight on the refetch. `null`
   // means "not settled yet" and gates `ready` below.
   const [needsProfile, setNeedsProfile] = useState<boolean | null>(null)
   useEffect(() => {
-    if (needsProfile !== null || !websiteLoaded) return
+    if (needsProfile !== null || !websiteSettled) return
     setNeedsProfile(!isCandidateProfileComplete(website))
-  }, [needsProfile, websiteLoaded, website])
+  }, [needsProfile, websiteSettled, website])
 
   // onSaved is a no-op: the save is chained inside handleFormSubmit (via the
   // boolean handleSubmit result), not followed by navigation like the other

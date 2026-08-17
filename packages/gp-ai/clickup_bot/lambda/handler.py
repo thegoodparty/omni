@@ -234,6 +234,28 @@ or the reporter may have been incorrect.
 - State explicitly when something could not be verified.
 
 Post your analysis to ClickUp when done. Be concise.
+
+## VERDICT (required, last line of your final response)
+
+End your final response with exactly one of these lines, and nothing after it:
+
+```
+GPBOT-VERDICT: fix
+GPBOT-VERDICT: no-code-change
+GPBOT-VERDICT: needs-human
+```
+
+- `fix` — a real defect in omni code, you found the root cause, and the change
+  is small and bounded enough that a competent PR could be opened from what you
+  already know. **This one automatically queues an implementation run, so only
+  use it when you would be comfortable reviewing that PR yourself.**
+- `no-code-change` — not a code defect: works as designed, a feature request,
+  an upstream/vendor data gap, bad input data, or already fixed.
+- `needs-human` — a real defect, but the fix is broad, risky, ambiguous, needs a
+  product decision, or you could not establish the root cause.
+
+Pick the conservative verdict when torn. `needs-human` costs a human a read;
+`fix` on a bug you have not actually understood costs a human a wrong PR.
 """
 
 IMPLEMENT_INSTRUCTION = """## YOUR TASK: Implement and Create PR
@@ -241,6 +263,18 @@ IMPLEMENT_INSTRUCTION = """## YOUR TASK: Implement and Create PR
 **Approach this ticket with healthy skepticism.** It may be out of date - the issue
 could have been fixed, the data may have changed, the description may be incomplete,
 or the reporter may have been incorrect.
+
+## START FROM THE EXISTING ANALYSIS
+
+Read the ticket's comments first. An analyze run has usually already been here
+and posted a `[GP-Bot] Analysis` comment with the root cause and `file:line`
+citations. Build on it — re-deriving what it already established is paying twice
+for the same investigation.
+
+Treat it as a strong lead, not as proof: it was written by a run that could not
+edit code. Confirm the cited lines still say what the comment claims before you
+change them. If your own reading contradicts the analysis, trust the code, say so
+in the PR description, and stop if the disagreement means the fix is wrong.
 
 **BEFORE writing any code**, you MUST:
 1. Find all files that use/import the function or component you plan to modify
@@ -266,15 +300,69 @@ your findings and recommend a human handle the implementation.
 
 Branch naming: `<custom_id>/gp-bot_<description-slug>` (use the task's custom_id like ENG-1234, not the internal ID)
 PR title format: `[GP-Bot] <custom_id> <description>`
-PRs target omni's `develop` branch.
+PRs target omni's `main` branch.
 
 Post the PR link to ClickUp when done.
 """
 
+ANALYZE_LABEL = "analyze"
+IMPLEMENT_LABEL = "implement"
+
+ANALYZE_TAG = "gpbot-analyze"
+IMPLEMENT_TAG = "gpbot-work"
+
 TAG_CONFIG = {
-    "gpbot-analyze": {"instruction": ANALYZE_INSTRUCTION, "label": "analyze", "model": "opus"},
-    "gpbot-work": {"instruction": IMPLEMENT_INSTRUCTION, "label": "implement", "model": "opus"},
+    ANALYZE_TAG: {"instruction": ANALYZE_INSTRUCTION, "label": ANALYZE_LABEL, "model": "opus"},
+    IMPLEMENT_TAG: {"instruction": IMPLEMENT_INSTRUCTION, "label": IMPLEMENT_LABEL, "model": "opus"},
 }
+
+# Precedence for reading a tag off a task SNAPSHOT (see find_task_tag), where
+# both gpbot tags can be present at once. Analyze wins: it only posts a
+# comment, while implement opens a PR, so when the snapshot is ambiguous the
+# cheap reversible action is the safe one to pick.
+#
+# Deliberately NOT applied to find_matched_tag, which reads a tag DELTA: there
+# the tag a human just added is the instruction, and preferring analyze would
+# silently downgrade someone deliberately applying gpbot-work to a ticket that
+# already carries gpbot-analyze.
+TAG_PRECEDENCE = (ANALYZE_TAG, IMPLEMENT_TAG)
+
+# Events worth waking up for. taskCreated is here because of a race that cost
+# us real bugs: the tag is applied by the HubSpot integration, and whether it
+# lands INSIDE the create call or as a follow-up edit is not deterministic. On
+# 2026-08-14/17, three of five reported bugs arrived as a separate edit and
+# fired taskTagUpdated normally, while two had the tag in the create payload —
+# so ClickUp only ever emitted taskCreated, no tag delta existed, and both
+# tickets sat tagged and silently un-analyzed. Subscribing to both events makes
+# the trigger independent of which path ClickUp happens to take.
+TRIGGER_EVENTS = frozenset({"taskTagUpdated", "taskCreated"})
+TASK_CREATED_EVENT = "taskCreated"
+
+# SCOPE GUARD for the implement agent. gpbot-work used to be applied by hand,
+# one ticket at a time, so "is this a code bug?" was answered by the human
+# doing the tagging. It is now applied by two ClickUp Automations — one on the
+# bug lists, one workspace-wide on `production-bug` — so nothing upstream
+# answers that question any more and this is the only place that does.
+#
+# Data tickets are the sharp edge: DATA-* work is a voter-file or
+# district-assignment problem rather than an omni code change, and they carry
+# `production-bug` as heavily as ENG tickets do, so without this guard the
+# workspace-wide automation points a code agent at every data bug reported.
+#
+# IMPLEMENT ONLY (deliberate): gpbot-analyze stays in scope everywhere. It
+# posts an investigation comment, it is used on data tickets constantly, and
+# it is trusted. Only opening a code PR against a data ticket is wrong.
+DATA_BACKLOG_LIST_ID = "901326391561"
+# Growth-Bugs is marketing-site work that does not live in omni at all, so the
+# agent would burn a full run and produce nothing.
+GROWTH_BUGS_LIST_ID = "901326170992"
+
+OUT_OF_SCOPE_LIST_IDS = frozenset({DATA_BACKLOG_LIST_ID, GROWTH_BUGS_LIST_ID})
+OUT_OF_SCOPE_CUSTOM_ID_PREFIXES = ("DATA-",)
+# The data team's own marker for district/voter-file problems. Catches data
+# work that was filed into (or triaged into) an ENG list, where neither the
+# custom_id nor the list id would flag it.
+OUT_OF_SCOPE_TAG_NAMES = frozenset({"bug: district-assignment"})
 
 
 def clickup_request(method: str, endpoint: str, data: dict | None = None) -> dict:
@@ -294,6 +382,51 @@ def clickup_request(method: str, endpoint: str, data: dict | None = None) -> dic
 def get_task_comments(task_id: str) -> list[dict]:
     result = clickup_request("GET", f"/task/{task_id}/comment")
     return result.get("comments", [])
+
+
+def get_task(task_id: str) -> dict:
+    return clickup_request("GET", f"/task/{task_id}")
+
+
+def out_of_scope_reason(task: Any) -> str | None:
+    # Short human-readable reason when the implement agent must NOT run for
+    # this task, else None. See the SCOPE GUARD note on OUT_OF_SCOPE_LIST_IDS.
+    #
+    # Shape-defensive throughout, in both directions. A ClickUp response drift
+    # must not crash the worker — but it must not silently WIDEN scope either,
+    # so every check is an explicit isinstance match: an unreadable field
+    # simply fails to match and falls through to the caller's documented
+    # fail-open, rather than being coerced into a comparison that accidentally
+    # passes.
+    if not isinstance(task, dict):
+        return None
+
+    custom_id = task.get("custom_id")
+    if isinstance(custom_id, str):
+        # Upper-cased before matching: the prefix is a human-typed convention
+        # and ClickUp echoes back whatever case the workspace configured.
+        normalized_custom_id = custom_id.upper()
+        for prefix in OUT_OF_SCOPE_CUSTOM_ID_PREFIXES:
+            if normalized_custom_id.startswith(prefix):
+                return f"custom_id {custom_id} is not omni code work"
+
+    task_list = task.get("list")
+    if isinstance(task_list, dict):
+        list_id = task_list.get("id")
+        if isinstance(list_id, str) and list_id in OUT_OF_SCOPE_LIST_IDS:
+            list_name = task_list.get("name")
+            return f"list {list_name if isinstance(list_name, str) else list_id} is not omni code work"
+
+    tags = task.get("tags")
+    if isinstance(tags, list):
+        for tag in tags:
+            if not isinstance(tag, dict):
+                continue
+            tag_name = tag.get("name")
+            if isinstance(tag_name, str) and tag_name.lower() in OUT_OF_SCOPE_TAG_NAMES:
+                return f"tag '{tag_name}' marks this as data work"
+
+    return None
 
 
 def has_processing_started_comment(comments: list[dict], label: str, now: float | None = None) -> bool:
@@ -453,6 +586,39 @@ def find_matched_tag(history_items: Any) -> str | None:
     return None
 
 
+def find_task_tag(task: Any) -> str | None:
+    # Read a target tag off a task SNAPSHOT (GET /task/{id}), for taskCreated
+    # deliveries where the tag arrived inside the create call and there is
+    # therefore no tag delta to read (see TRIGGER_EVENTS).
+    #
+    # Shape-defensive for the same reason as out_of_scope_reason: a ClickUp
+    # response drift must neither crash the worker nor be coerced into a match.
+    # Unlike out_of_scope_reason, an unreadable field here fails CLOSED — no
+    # recognizable tag means no run, which is the safe direction.
+    if not isinstance(task, dict):
+        return None
+
+    tags = task.get("tags")
+    if not isinstance(tags, list):
+        return None
+
+    present = set()
+    for tag in tags:
+        if not isinstance(tag, dict):
+            continue
+        tag_name = tag.get("name")
+        if isinstance(tag_name, str) and tag_name.lower() in TAG_CONFIG:
+            present.add(tag_name.lower())
+
+    # Fixed precedence rather than "first one seen": ClickUp does not promise
+    # tag ordering, and a snapshot carrying both tags must not pick a different
+    # action depending on how the array happened to come back.
+    for candidate in TAG_PRECEDENCE:
+        if candidate in present:
+            return candidate
+    return None
+
+
 # ClientError codes that PROVE the Lambda control plane REFUSED the Event
 # invoke — a structured rejection means nothing was queued, so processing
 # inline cannot double-run the work. Only provably-rejected failures may take
@@ -470,7 +636,7 @@ DETERMINISTIC_ENQUEUE_FAILURE_CODES = frozenset(
 )
 
 
-def enqueue_async_processing(task_id: str, matched_tag: str) -> Literal["accepted", "fallback", "ambiguous"]:
+def enqueue_async_processing(task_id: str, matched_tag: str | None) -> Literal["accepted", "fallback", "ambiguous"]:
     # FAST-ACK (2026-07-14 incident): ClickUp's webhook delivery has a short
     # response timeout. When the handler did dedup GET + run_task + ack POST
     # in-path (7.6-20.5s during a ClickUp slowdown), every delivery timed out:
@@ -503,11 +669,21 @@ def enqueue_async_processing(task_id: str, matched_tag: str) -> Literal["accepte
     if not function_name:
         print("Async self-invoke unavailable, processing synchronously: AWS_LAMBDA_FUNCTION_NAME not set")
         return "fallback"
+    # An UNRESOLVED tag travels as its own explicit flag rather than as
+    # matched_tag=None. handle_async_processing refuses a payload whose
+    # matched_tag is not in TAG_CONFIG — a deliberate fail-loud guard against a
+    # bug or a hand-rolled direct invoke — and overloading None would turn that
+    # guard into a silent "go look the tag up yourself".
+    payload: dict[str, Any] = {"gpbot_async": True, "task_id": task_id}
+    if matched_tag is None:
+        payload["resolve_tag_from_task"] = True
+    else:
+        payload["matched_tag"] = matched_tag
     try:
         get_lambda_client().invoke(
             FunctionName=function_name,
             InvocationType="Event",
-            Payload=json.dumps({"gpbot_async": True, "task_id": task_id, "matched_tag": matched_tag}),
+            Payload=json.dumps(payload),
         )
         return "accepted"
     except ClientError as e:
@@ -648,7 +824,7 @@ def release_dedup_lock(task_id: str, label: str) -> None:
         print(f"Failed to release dedup lock for task {task_id}: {e}")
 
 
-def dedup_check_then_trigger(task_id: str, matched_tag: str, from_async_worker: bool = False) -> dict:
+def dedup_check_then_trigger(task_id: str, matched_tag: str | None, from_async_worker: bool = False) -> dict:
     # Shared by the async worker and the synchronous fallback so the two paths
     # cannot drift: whichever path runs, the dedup semantics and the trigger
     # behavior are identical. from_async_worker is the one deliberate
@@ -656,6 +832,66 @@ def dedup_check_then_trigger(task_id: str, matched_tag: str, from_async_worker: 
     # its 200 (ack retry with a pause; see trigger_fargate_task) and behavior
     # that only makes sense when nobody receives the HTTP response (the
     # comment-fetch failure handling below).
+    #
+    # matched_tag=None means "a taskCreated delivery carried no tag delta —
+    # resolve the tag from the task itself" (see TRIGGER_EVENTS). Resolving
+    # here rather than in handler() is what keeps the sync and async paths on
+    # one implementation, and the fetched task is threaded into the scope guard
+    # below so the taskCreated path costs one GET /task, not two.
+    task = None
+    if matched_tag is None:
+        try:
+            task = get_task(task_id)
+        except Exception as e:
+            # FAIL CLOSED here, unlike the scope guard's fail-open below: with
+            # no tag we have no instruction, so there is nothing to proceed
+            # with. Alarm-matching ("Failed to") because a persistent failure
+            # silently returns us to the pre-fix state where created-and-tagged
+            # tickets are never analyzed.
+            #
+            # No failure COMMENT, deliberately: taskCreated fires for every
+            # task created anywhere in the workspace, the overwhelming majority
+            # of which have nothing to do with this bot. Commenting here would
+            # scatter "[GP-Bot] Failed to start processing" onto unrelated
+            # tickets every time ClickUp blips.
+            print(f"Failed to fetch created task {task_id} for tag resolution: {e}")
+            return {"statusCode": 500, "body": json.dumps({"error": "failed to resolve tag"})}
+        matched_tag = find_task_tag(task)
+        if matched_tag is None:
+            # The common case by a wide margin: an ordinary task was created and
+            # nobody asked the bot for anything. Quiet, and no ClickUp writes.
+            print(f"Skipping created task {task_id}: no target tag on the task")
+            return {"statusCode": 200, "body": json.dumps({"skipped": "not a target tag"})}
+
+    config = TAG_CONFIG[matched_tag]
+
+    # SCOPE GUARD runs FIRST — before the comments GET and before the dedup
+    # claim. Both orderings are load-bearing: a claim written for a task we
+    # then refuse would outlive this delivery and suppress a legitimate re-tag
+    # for the whole TTL, and an out-of-scope task must never receive an ack
+    # comment. Rejecting here also keeps the entire out-of-scope path down to
+    # one ClickUp call, which matters once a workspace-wide automation is
+    # feeding it every data ticket in the workspace.
+    if config["label"] == IMPLEMENT_LABEL:
+        if task is None:
+            try:
+                task = get_task(task_id)
+            except Exception as e:
+                # FAIL OPEN, the same trade try_acquire_dedup_lock makes: one
+                # wasted agent run costs a few dollars and a closeable PR, while
+                # refusing every bug during a ClickUp blip is a silent outage.
+                # Alarm-matching ("Failed to") on purpose — a persistent failure
+                # here disables the data boundary without changing any behavior an
+                # operator would otherwise notice.
+                print(f"Failed to fetch task {task_id} for scope check, proceeding: {e}")
+        if task is not None:
+            skip_reason = out_of_scope_reason(task)
+            if skip_reason:
+                # Quiet (no "ERROR"/"Failed to"): this is the guard working as
+                # designed, and it fires on every data ticket in the workspace.
+                print(f"Task {task_id} out of scope for {IMPLEMENT_LABEL}: {skip_reason}")
+                return {"statusCode": 200, "body": json.dumps({"skipped": "out of scope"})}
+
     try:
         comments = get_task_comments(task_id)
     except Exception as e:
@@ -686,7 +922,6 @@ def dedup_check_then_trigger(task_id: str, matched_tag: str, from_async_worker: 
             post_failure_comment(task_id, f"{type(e).__name__} fetching ClickUp comments (see CloudWatch logs)")
             return {"statusCode": 500, "body": json.dumps({"error": "failed to get comments"})}
 
-    config = TAG_CONFIG[matched_tag]
     if has_processing_started_comment(comments, config["label"]):
         print(f"Task {task_id} already has a recent {PROCESSING_STARTED_PREFIX} ({config['label']}) comment, skipping")
         return {"statusCode": 200, "body": json.dumps({"skipped": "already processed"})}
@@ -721,6 +956,14 @@ def handle_async_processing(event: dict) -> dict:
     task_id = None
     try:
         task_id = event.get("task_id")
+        # taskCreated with no tag delta: the tag is resolved from the task
+        # itself inside dedup_check_then_trigger (see TRIGGER_EVENTS). Only
+        # task_id can be validated here — the tag is not knowable yet.
+        if event.get("resolve_tag_from_task"):
+            if not task_id:
+                print("ERROR: Async processing failed: invalid internal payload (missing task_id)")
+                return {"statusCode": 400, "body": json.dumps({"error": "invalid async payload"})}
+            return dedup_check_then_trigger(task_id, None, from_async_worker=True)
         matched_tag = event.get("matched_tag")
         # Defensive re-validation: the payload is self-generated, so a miss
         # here means a bug (or a direct invoke by something with AWS creds) —
@@ -791,14 +1034,31 @@ def handler(event: dict, context: Any) -> dict:
     # outage is fixed (see README, "After an outage"). Skipping these
     # unverified is safe: the skip branches perform no action.
     event_type = body.get("event")
-    if event_type != "taskTagUpdated":
-        print("Skipping delivery: not a taskTagUpdated event")
-        return {"statusCode": 200, "body": json.dumps({"skipped": "not a tag update"})}
+    if event_type not in TRIGGER_EVENTS:
+        print("Skipping delivery: not an event we trigger on")
+        return {"statusCode": 200, "body": json.dumps({"skipped": "not a triggering event"})}
 
     matched_tag = find_matched_tag(body.get("history_items", []))
-    if not matched_tag:
+    if not matched_tag and event_type != TASK_CREATED_EVENT:
         print("Skipping delivery: no target tag in history_items")
         return {"statusCode": 200, "body": json.dumps({"skipped": "not a target tag"})}
+
+    # WIDENED PRE-VERIFICATION EXPOSURE (deliberate, and the reason the filter
+    # above still runs first at all): a taskCreated delivery whose tags landed
+    # inside the create call carries no tag delta, and the only way to tell a
+    # gpbot ticket from any other new task in the workspace is GET /task —
+    # which needs the API key, which needs Secrets Manager. So this class of
+    # delivery cannot be filtered before verification, and during a Secrets
+    # Manager outage every created task now 500s alongside the tagged ones,
+    # pushing harder on ClickUp's consecutive-failure counter (see README,
+    # "After an outage"). Accepted because the alternative is the bug this
+    # replaces: silently never analyzing a reported bug.
+    #
+    # And it is NOT tightenable by reading the delta instead: a live taskCreated
+    # payload (captured 2026-08-17) carries only `status` and `task_creation`
+    # history_items — there is no tag field in it at all. find_matched_tag above
+    # still runs first because it is free and would catch a future payload
+    # change, but the GET is the load-bearing path, not a fallback.
 
     # Direct invocations (console/tests) can pass body as an already-parsed
     # dict; verifying a dict would raise AttributeError inside
@@ -814,6 +1074,19 @@ def handler(event: dict, context: Any) -> dict:
         # distinguishable from a signature mismatch, and must NOT be cached:
         # the next invocation retries the fetch.
         print(f"ERROR: Secrets unavailable, cannot verify webhook signature: {e}")
+        if matched_tag is None:
+            # Reachable only for a taskCreated delivery with no tag delta —
+            # every other shape has already returned above. We cannot tell
+            # whether this task is even a gpbot ticket without the API key we
+            # just failed to load, and taskCreated fires for every task created
+            # anywhere in the workspace. 500-ing all of them is what suspends
+            # the webhook (README, "After an outage"), and a suspended webhook
+            # is a silent multi-week outage — the July 31 one ran until Aug 14.
+            # Dropping instead costs at most one un-analyzed bug, recoverable
+            # by re-tagging, so 200 here and let the alarm above carry the
+            # signal. A delivery we KNOW is relevant still 500s below, because
+            # for those the redelivery is worth the counter.
+            return {"statusCode": 200, "body": json.dumps({"skipped": "secrets unavailable, relevance unknown"})}
         return {"statusCode": 500, "body": json.dumps({"error": "secrets unavailable"})}
 
     if not signature_valid:
@@ -840,9 +1113,14 @@ def handler(event: dict, context: Any) -> dict:
     # See enqueue_async_processing for the incident rationale.
     enqueue_outcome = enqueue_async_processing(task_id, matched_tag)
     if enqueue_outcome == "accepted":
+        # label is reported as "unresolved" rather than omitted for the
+        # taskCreated-without-delta case: the field is what an operator greps
+        # when reconstructing what the bot decided, and a missing key reads as
+        # a bug where an explicit value reads as the state it is.
+        label = TAG_CONFIG[matched_tag]["label"] if matched_tag else "unresolved"
         return {
             "statusCode": 200,
-            "body": json.dumps({"status": "accepted", "task_id": task_id, "label": TAG_CONFIG[matched_tag]["label"]}),
+            "body": json.dumps({"status": "accepted", "task_id": task_id, "label": label}),
         }
 
     if enqueue_outcome == "ambiguous":
@@ -904,6 +1182,13 @@ def trigger_fargate_task(
                             {"name": "CLICKUP_TASK_ID", "value": task_id},
                             {"name": "INSTRUCTION", "value": instruction},
                             {"name": "AGENT_MODEL", "value": model},
+                            # Which KIND of run this is, as a value rather than
+                            # something inferred from the instruction prose. The
+                            # agent gates its post-run escalation on it, and
+                            # sniffing the instruction text for "analyze" would
+                            # make an unrelated prompt edit silently change
+                            # whether a run can queue an implementation.
+                            {"name": "AGENT_LABEL", "value": label},
                         ],
                     }
                 ]

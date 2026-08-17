@@ -98,6 +98,42 @@ describe('VoterDoorKnockingService', () => {
       expect(lastQuerySql().values.flat()).not.toContain(DISTRICT_ID)
     })
 
+    // ADR 0007. The one property that matters: an unconditional conjunct, not
+    // an override hung off some other filter's clause. This dto carries no
+    // filters at all, which is exactly the case where the idOverrides slot
+    // would have dropped the exclusion on the floor.
+    it('excludes do-not-knock ids unconditionally, with no filters present', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([])
+
+      await service.evaluate({
+        ...dto,
+        excludePersonIds: [OTHER_ID],
+      } as never)
+
+      const sql = lastQuerySql()
+      expect(sql.strings.join('?')).toContain('!= ALL(')
+      expect(sql.values.flat()).toContain(OTHER_ID)
+    })
+
+    // Not cosmetic: `!= ALL('{}')` is always true, so emitting the clause
+    // anyway would change the SQL of every request from an org that has
+    // flagged nobody, for no behavioral gain.
+    it('leaves the query untouched when nobody is flagged', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([])
+      await service.evaluate(dto as never)
+      const baseline = lastQuerySql().strings.join('?')
+
+      mockClient = { $queryRaw: vi.fn().mockResolvedValueOnce([]) }
+      ;(service as unknown as { _peopleDb: PeopleDbService })._peopleDb = {
+        get instance() {
+          return mockClient
+        },
+      } as unknown as PeopleDbService
+      await service.evaluate({ ...dto, excludePersonIds: [] } as never)
+
+      expect(lastQuerySql().strings.join('?')).toBe(baseline)
+    })
+
     it('rejects instead of truncating when the cap is exceeded', async () => {
       mockClient.$queryRaw.mockResolvedValueOnce([
         evaluateRow(TARGET_ID),
@@ -126,6 +162,8 @@ describe('VoterDoorKnockingService', () => {
       Age: '47',
       Age_Int: 47,
       Parties_Description: 'Non-Partisan',
+      cellPhone: '(615) 555-0142',
+      landline: null,
       addressKey,
     })
 
@@ -146,11 +184,38 @@ describe('VoterDoorKnockingService', () => {
           lastName: 'Vega',
           age: 47,
           politicalParty: 'Independent',
+          cellPhone: '(615) 555-0142',
+          landline: null,
         },
       ])
+      // Household context stays name-only: a non-target resident is context for
+      // the conversation, not someone the candidate asked to contact.
       expect(address?.otherResidents).toEqual([
         { personId: OTHER_ID, firstName: 'Marisol', lastName: 'Vega' },
       ])
+    })
+
+    // The voter file is inconsistent about blank vs NULL, and an empty string
+    // would render as an empty phone row at the door.
+    it('normalizes a blank phone column to null', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([
+        { ...residentRow(TARGET_ID), cellPhone: '', landline: '   ' },
+      ])
+
+      const result = await service.residents(dto as never)
+
+      expect(result.addresses[0]?.targets[0]?.cellPhone).toBeNull()
+      expect(result.addresses[0]?.targets[0]?.landline).toBeNull()
+    })
+
+    it('selects both phone columns', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([residentRow(TARGET_ID)])
+
+      await service.residents(dto as never)
+
+      const sql = mockClient.$queryRaw.mock.calls[0]?.[0]?.strings?.join(' ')
+      expect(sql).toContain('VoterTelephones_CellPhoneFormatted')
+      expect(sql).toContain('VoterTelephones_LandlineFormatted')
     })
 
     it('emits null party for a target with no party data, not Other', async () => {

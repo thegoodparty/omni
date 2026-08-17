@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { apiRoutes } from 'gpApi/routes'
 import type { Website } from 'helpers/types'
-import { saveAboutFields } from './website.util'
+import { getUserWebsite, saveAboutFields } from './website.util'
 
 const mockClientFetch = vi.fn()
 
@@ -36,6 +36,31 @@ const buildWebsite = (
 const flush = async () => {
   for (let i = 0; i < 5; i++) await Promise.resolve()
 }
+
+describe('getUserWebsite', () => {
+  beforeEach(() => {
+    mockClientFetch.mockReset()
+  })
+
+  it('returns the website when the read succeeds', async () => {
+    const website = buildWebsite({ bio: 'a real bio' })
+    mockClientFetch.mockResolvedValueOnce(okResponse(website))
+
+    await expect(getUserWebsite()).resolves.toEqual(website)
+  })
+
+  it('returns null when the campaign genuinely has no website', async () => {
+    mockClientFetch.mockResolvedValueOnce(okResponse(null))
+
+    await expect(getUserWebsite()).resolves.toBeNull()
+  })
+
+  it('throws on a failed read instead of degrading to null', async () => {
+    mockClientFetch.mockResolvedValueOnce(errorResponse())
+
+    await expect(getUserWebsite()).rejects.toThrow('Failed to load website')
+  })
+})
 
 describe('saveAboutFields', () => {
   beforeEach(() => {
@@ -89,6 +114,16 @@ describe('saveAboutFields', () => {
     const result = await saveAboutFields({ bio: 'new' })
 
     expect(result).toBe(false)
+  })
+
+  it('returns false without writing when the get responds not-ok', async () => {
+    mockClientFetch.mockResolvedValueOnce(errorResponse())
+
+    const result = await saveAboutFields({ bio: 'new' })
+
+    expect(result).toBe(false)
+    // No create, no update — a failed read must never become the merge base.
+    expect(mockClientFetch).toHaveBeenCalledTimes(1)
   })
 
   it('returns false when the get call rejects (queue is not poisoned)', async () => {

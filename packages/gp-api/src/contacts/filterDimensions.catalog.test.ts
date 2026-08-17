@@ -4,7 +4,10 @@ import { ACTIVITY_CONDITION_CHANNEL_ACTIONS } from '@/shared/schemas/activityCon
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { PinoLogger } from 'nestjs-pino'
 import type { Organization } from '../generated/prisma'
-import { FILTER_DIMENSIONS } from './filterDimensions.catalog'
+import {
+  FILTER_DIMENSIONS,
+  type FilterDimensionProvenance,
+} from './filterDimensions.catalog'
 import { ContactsService } from './services/contacts.service'
 import {
   INCOME_RANGE_MAPPING,
@@ -113,6 +116,78 @@ describe('FILTER_DIMENSIONS catalog', () => {
   })
 })
 
+// No confirmed source for these two yet: serve/output/l2_haystaq_codebook
+// (the L2 National Models User Guide) only documents hs_* opinion-score
+// models, not these base demographic columns. Deliberately left unmarked
+// rather than guessed — see the code comments at their catalog entries.
+const UNCLASSIFIED_PROVENANCE_DIMENSIONS = new Set([
+  'children',
+  'languageCodes',
+])
+
+describe('FILTER_DIMENSIONS provenance', () => {
+  const validProvenance: ReadonlySet<FilterDimensionProvenance> = new Set([
+    'observed',
+    'modeled',
+    'derived',
+  ])
+
+  it('declares a valid provenance value or is a known-unclassified dimension', () => {
+    const invalid = FILTER_DIMENSIONS.filter((d) =>
+      d.provenance === undefined
+        ? !UNCLASSIFIED_PROVENANCE_DIMENSIONS.has(d.key)
+        : !validProvenance.has(d.provenance),
+    ).map((d) => d.key)
+    expect(invalid).toEqual([])
+  })
+
+  it('never lists a classified dimension as unclassified', () => {
+    const overlap = FILTER_DIMENSIONS.filter(
+      (d) =>
+        UNCLASSIFIED_PROVENANCE_DIMENSIONS.has(d.key) &&
+        d.provenance !== undefined,
+    ).map((d) => d.key)
+    expect(overlap).toEqual([])
+  })
+
+  // Pinned so a quiet downgrade (e.g. ethnicity -> observed) fails here with
+  // a readable diff instead of silently reaching the model.
+  it('pins the modeled set', () => {
+    const modeled = FILTER_DIMENSIONS.filter(
+      (d) => d.provenance === 'modeled',
+    ).map((d) => d.key)
+    expect(modeled.sort()).toEqual(
+      [
+        'audience',
+        'businessOwner',
+        'education',
+        'ethnicity',
+        'homeowner',
+        'income',
+        'incomeRanges',
+        'maritalStatus',
+        'veteran',
+        'voterStatus',
+      ].sort(),
+    )
+  })
+
+  // audience and voterStatus both read Voter_Status under different keys; a
+  // split mark would let the model launder a modeled figure by picking the
+  // other route.
+  it('audience and voterStatus agree (same Voter_Status column)', () => {
+    const audience = FILTER_DIMENSIONS.find((d) => d.key === 'audience')
+    const voterStatus = FILTER_DIMENSIONS.find((d) => d.key === 'voterStatus')
+    expect(audience?.provenance).toBe(voterStatus?.provenance)
+  })
+
+  it('incomeRanges and income agree (same Estimated_Income_Amount_Int column)', () => {
+    const incomeRanges = FILTER_DIMENSIONS.find((d) => d.key === 'incomeRanges')
+    const income = FILTER_DIMENSIONS.find((d) => d.key === 'income')
+    expect(incomeRanges?.provenance).toBe(income?.provenance)
+  })
+})
+
 describe('ContactsService.getFilterDimensions', () => {
   const buildService = () =>
     new ContactsService(
@@ -161,5 +236,21 @@ describe('ContactsService.getFilterDimensions', () => {
       .getFilterDimensions(organization('eo-city-council'))
       .map((d) => d.key)
     expect(winKeys.filter((key) => !winOnlyKeys.has(key))).toEqual(serveKeys)
+  })
+
+  // Guards against a future .map() in the mode filter that reshapes
+  // dimensions and drops the field.
+  it('preserves provenance on every classified dimension for a Serve org', () => {
+    const dimensions = buildService().getFilterDimensions(
+      organization('eo-city-council'),
+    )
+    expect(dimensions.length).toBeGreaterThan(0)
+    const classified = dimensions.filter(
+      (d) => !UNCLASSIFIED_PROVENANCE_DIMENSIONS.has(d.key),
+    )
+    expect(classified.every((d) => typeof d.provenance === 'string')).toBe(true)
+    expect(dimensions.find((d) => d.key === 'ethnicity')?.provenance).toBe(
+      'modeled',
+    )
   })
 })

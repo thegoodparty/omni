@@ -109,9 +109,12 @@ const blocksText = (blocks: SlackMessageBlock[]): string =>
 // doesn't count), Friday->Thursday is 4 — a test using calendar days instead
 // would wrongly escalate the Monday case (3 calendar days) and would compute
 // the wrong count for Thursday (6 calendar days).
+// Anchors are noon ET, not midnight: `differenceInBusinessDays` counts local
+// calendar days, so a midnight-ET instant lands on the previous day in any
+// timezone west of Eastern and the count comes out one short.
 const FRIDAY_6PM_ET = new Date('2026-07-24T18:00:00-04:00')
-const MONDAY_MIDNIGHT_ET = new Date('2026-07-27T00:00:00-04:00')
-const THURSDAY_MIDNIGHT_ET = new Date('2026-07-30T00:00:00-04:00')
+const MONDAY_NOON_ET = new Date('2026-07-27T12:00:00-04:00')
+const THURSDAY_NOON_ET = new Date('2026-07-30T12:00:00-04:00')
 
 const inReviewRecord = (overrides: object = {}) =>
   proRecord('tcr-in-review', 'in-review-camp', 950, {
@@ -989,7 +992,7 @@ describe('Nightly10DlcReportService', () => {
 
   describe('handleNightlyReport — vendor escalation, CV IN_REVIEW (case 2, ENG-10796)', () => {
     it('does not escalate 1 business day after entering IN_REVIEW (Friday -> Monday)', async () => {
-      vi.useFakeTimers({ now: MONDAY_MIDNIGHT_ET })
+      vi.useFakeTimers({ now: MONDAY_NOON_ET })
       queueFindManyResults(mockModel.findMany, [
         [],
         [],
@@ -1010,7 +1013,7 @@ describe('Nightly10DlcReportService', () => {
     })
 
     it('escalates once 4 business days after entering IN_REVIEW (Friday -> Thursday)', async () => {
-      vi.useFakeTimers({ now: THURSDAY_MIDNIGHT_ET })
+      vi.useFakeTimers({ now: THURSDAY_NOON_ET })
       const record = inReviewRecord({ peerlyCvStatusChangedAt: FRIDAY_6PM_ET })
       queueFindManyResults(mockModel.findMany, [
         [],
@@ -1177,8 +1180,8 @@ describe('Nightly10DlcReportService', () => {
   describe('handleNightlyReport — vendor escalation, waiting_to_finalize (case 3b, ENG-10796)', () => {
     it('does not escalate at 2 business days (no weekend crossed)', async () => {
       const mondaySixPm = new Date('2026-07-20T18:00:00-04:00')
-      const wednesdayMidnight = new Date('2026-07-22T00:00:00-04:00')
-      vi.useFakeTimers({ now: wednesdayMidnight })
+      const wednesdayNoon = new Date('2026-07-22T12:00:00-04:00')
+      vi.useFakeTimers({ now: wednesdayNoon })
       queueFindManyResults(mockModel.findMany, [
         [],
         [],
@@ -1202,7 +1205,7 @@ describe('Nightly10DlcReportService', () => {
     })
 
     it('escalates once 4 business days after entering waiting_to_finalize (Friday -> Thursday)', async () => {
-      vi.useFakeTimers({ now: THURSDAY_MIDNIGHT_ET })
+      vi.useFakeTimers({ now: THURSDAY_NOON_ET })
       const record = waitingToFinalizeRecord({
         peerlyProfileStatusChangedAt: FRIDAY_6PM_ET,
       })
