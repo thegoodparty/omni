@@ -103,8 +103,14 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
     },
   })
 
+  // Guards against a stale in-flight generate (superseded by Back-and-edit
+  // invalidation) landing late and overwriting assets for the new platform
+  // set — the same sequencing the draft mutation uses.
+  const generateRequestRef = useRef(0)
+
   const generateMutation = useMutation({
     mutationFn: async () => {
+      const requestId = ++generateRequestRef.current
       const { data } = await clientRequest(
         'POST /v1/outreach/social/generate',
         {
@@ -113,9 +119,12 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
           platforms,
         },
       )
-      return data
+      return { requestId, assets: data.assets }
     },
-    onSuccess: (data) => setAssets(data.assets),
+    onSuccess: ({ requestId, assets: generated }) => {
+      if (requestId !== generateRequestRef.current) return
+      setAssets(generated)
+    },
   })
 
   const saveMutation = useMutation({
@@ -171,6 +180,7 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
   const stepIndex = STEP_ORDER.indexOf(stepId)
 
   const invalidateAssets = () => {
+    generateRequestRef.current += 1
     setAssets(null)
     resetGenerate()
   }
@@ -232,10 +242,15 @@ export const SocialFlow = ({ open, onClose, onSaved }: SocialFlowProps) => {
       setTone(nextTone)
       return
     }
+    // A blank draft (first generation still in flight) must neither be
+    // cached for the outgoing tone nor treated as a memory hit for the
+    // incoming one — restoring '' would blank the editor and skip the fetch.
     const remembered = toneDrafts[nextTone]
-    setToneDrafts((prev) => ({ ...prev, [tone]: draft }))
+    if (draft.trim().length > 0) {
+      setToneDrafts((prev) => ({ ...prev, [tone]: draft }))
+    }
     setTone(nextTone)
-    if (remembered !== undefined) {
+    if (remembered !== undefined && remembered.trim().length > 0) {
       // Supersede any in-flight call so a slow response for another tone
       // can't overwrite the restored text.
       draftRequestRef.current += 1
