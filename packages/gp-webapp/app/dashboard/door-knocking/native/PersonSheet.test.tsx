@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, within } from '@testing-library/react'
 import { RoutePayloadStop, RoutePayloadTarget } from '@goodparty_org/contracts'
@@ -46,18 +47,28 @@ const stop = (targets: RoutePayloadTarget[]): RoutePayloadStop => ({
   ],
 })
 
-const renderSheet = (targets: RoutePayloadTarget[]) =>
-  render(
+// The selection lives in WalkView, so switching resident only works here if
+// the harness holds it the same way the walk does.
+const Harness = ({ targets }: { targets: RoutePayloadTarget[] }) => {
+  const [selectedTargetId, setSelectedTargetId] = useState(
+    targets[0]!.stopTargetId,
+  )
+  return (
     <PersonSheet
       stop={stop(targets)}
-      initialTargetId={targets[0]!.stopTargetId}
+      selectedTargetId={selectedTargetId}
+      onSelectTarget={setSelectedTargetId}
       statusFor={(candidate) => candidate.knockStatus}
       clientKeyFor={() => 'key'}
       onRecorded={vi.fn()}
       onDoNotKnockChanged={vi.fn()}
       onClose={vi.fn()}
-    />,
+    />
   )
+}
+
+const renderSheet = (targets: RoutePayloadTarget[]) =>
+  render(<Harness targets={targets} />)
 
 const contactCard = () =>
   screen.getByRole('heading', { name: 'Contact information' }).parentElement!

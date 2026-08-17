@@ -119,6 +119,44 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
     ? (stops.find((stop) => stop.id === sheet.stopId) ?? null)
     : null
 
+  // Every target in walk order, flattened: the unit the canvasser actually
+  // moves through is a person at a door, not a stop.
+  const walkOrder = useMemo(
+    () =>
+      stops.flatMap((stop) =>
+        stop.addresses.flatMap((address) =>
+          address.targets.map((target) => ({ stop, target })),
+        ),
+      ),
+    [stops],
+  )
+
+  // "Always show the next door so there is no thinking between houses."
+  // Forward only: jumping backward to a door the canvasser walked past would
+  // send them back up the street, so anything skipped is left for the list.
+  const advanceFrom = (loggedTargetId: number) => {
+    const position = walkOrder.findIndex(
+      (entry) => entry.target.stopTargetId === loggedTargetId,
+    )
+    const next = walkOrder.slice(position + 1).find(
+      ({ target }) =>
+        // This closure still sees the pre-patch cache, so the just-logged
+        // target reads as unknown — excluded by id rather than by status.
+        target.stopTargetId !== loggedTargetId &&
+        target.knockStatus === 'unknown' &&
+        !target.doNotKnock,
+    )
+    if (!next) {
+      setSheet(null)
+      return
+    }
+    openSheet(
+      next.stop.id,
+      targetsForStop(next.stop).map((t) => t.stopTargetId),
+      next.target.stopTargetId,
+    )
+  }
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto bg-background px-4 py-4">
       {routeQuery.isPending && (
@@ -345,7 +383,10 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
       {sheetStop && sheet && (
         <PersonSheet
           stop={sheetStop}
-          initialTargetId={sheet.targetId}
+          selectedTargetId={sheet.targetId}
+          onSelectTarget={(targetId) =>
+            setSheet({ stopId: sheet.stopId, targetId })
+          }
           statusFor={(target) => target.knockStatus}
           clientKeyFor={clientKeyFor}
           onRecorded={(targetId, personId, knockStatus) => {
@@ -356,7 +397,7 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
               next.delete(targetId)
               return next
             })
-            setSheet(null)
+            advanceFrom(targetId)
           }}
           onDoNotKnockChanged={applyDoNotKnock}
           onClose={() => setSheet(null)}
