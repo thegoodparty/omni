@@ -120,3 +120,84 @@ describe('CronLockService.tryClaimDailyRun', () => {
     ).toBe(false)
   })
 })
+
+describe('CronLockService.tryClaimHourlyRun', () => {
+  beforeEach(async () => {
+    await service.prisma.cronRun.deleteMany({})
+  })
+
+  it('grants one caller per UTC hour and denies the rest', async () => {
+    const lock = service.app.get(CronLockService)
+
+    expect(
+      await lock.tryClaimHourlyRun(JOB, new Date('2026-05-29T07:00:00.000Z')),
+    ).toBe(true)
+    // Within the staleness window, so the active claim is not takeable.
+    expect(
+      await lock.tryClaimHourlyRun(JOB, new Date('2026-05-29T07:10:13.000Z')),
+    ).toBe(false)
+  })
+
+  it('lets only one of two concurrent replicas win the same hour', async () => {
+    const lock = service.app.get(CronLockService)
+
+    // The whole point of the lease: both ECS replicas fire the same @Cron
+    // within milliseconds of each other and exactly one may do the work.
+    const now = new Date('2026-05-29T07:00:00.000Z')
+    const results = await Promise.all([
+      lock.tryClaimHourlyRun(JOB, now),
+      lock.tryClaimHourlyRun(JOB, now),
+    ])
+
+    expect(results.filter(Boolean)).toHaveLength(1)
+  })
+
+  it('grants the next hour, so the cadence stays hourly not daily', async () => {
+    const lock = service.app.get(CronLockService)
+    const hour = new Date('2026-05-29T07:00:00.000Z')
+
+    expect(await lock.tryClaimHourlyRun(JOB, hour)).toBe(true)
+    await lock.markHourlyCompleted(JOB, hour)
+
+    // A daily-keyed lease would deny this until the next UTC midnight.
+    expect(
+      await lock.tryClaimHourlyRun(JOB, new Date('2026-05-29T08:00:00.000Z')),
+    ).toBe(true)
+  })
+
+  it('does not disturb a daily claim for the same job name', async () => {
+    const lock = service.app.get(CronLockService)
+    const now = new Date('2026-05-29T00:00:00.000Z')
+
+    // The midnight hour slot and the day slot are the same instant, so a job
+    // must not mix the two claim periods under one name.
+    expect(await lock.tryClaimHourlyRun(JOB, now)).toBe(true)
+    expect(await lock.tryClaimDailyRun(JOB, now)).toBe(false)
+  })
+
+  it('takes over a stale claim after the hourly window', async () => {
+    const lock = service.app.get(CronLockService)
+
+    expect(
+      await lock.tryClaimHourlyRun(JOB, new Date('2026-05-29T07:00:00.000Z')),
+    ).toBe(true)
+
+    // 31 minutes later, same hour slot, never completed: the claimer crashed,
+    // so a retry within the hour is allowed (the daily 6h window would not).
+    expect(
+      await lock.tryClaimHourlyRun(JOB, new Date('2026-05-29T07:31:00.000Z')),
+    ).toBe(true)
+  })
+
+  it('never takes over a completed hourly claim', async () => {
+    const lock = service.app.get(CronLockService)
+    const now = new Date('2026-05-29T07:00:00.000Z')
+
+    expect(await lock.tryClaimHourlyRun(JOB, now)).toBe(true)
+    await lock.markHourlyCompleted(JOB, now)
+
+    expect(
+      await lock.tryClaimHourlyRun(JOB, new Date('2026-05-29T07:59:00.000Z')),
+    ).toBe(false)
+  })
+})

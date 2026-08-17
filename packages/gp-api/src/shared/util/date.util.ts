@@ -70,6 +70,19 @@ export const getMidnightForDate = (date: Date) =>
     Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
   )
 
+// Mirrors getMidnightForDate one period down: truncation must be UTC-absolute
+// (not date-fns' local-time startOfHour) so replicas in different zones — and
+// tests on a half-hour-offset machine — bucket the same instant identically.
+export const getUtcHourStart = (date: Date) =>
+  new Date(
+    Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      date.getUTCDate(),
+      date.getUTCHours(),
+    ),
+  )
+
 export const parseIsoDateString = (dateString: string) =>
   parse(dateString, DateFormats.isoDate, new Date())
 

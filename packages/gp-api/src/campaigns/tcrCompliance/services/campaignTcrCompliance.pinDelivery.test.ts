@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PinoLogger } from 'nestjs-pino'
 import { PrismaService } from '@/prisma/prisma.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
@@ -18,6 +18,8 @@ import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { SlackService } from '../../../vendors/slack/services/slack.service'
+import { CronLockService } from '../../../cron/services/cronLock.service'
+import { getUtcHourStart } from '../../../shared/util/date.util'
 
 describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
   const user = createMockUser({ id: 55 })
@@ -42,6 +44,10 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
   let mockCampaigns: { findUnique: ReturnType<typeof vi.fn> }
   let mockTrack: ReturnType<typeof vi.fn>
   let mockTrackCampaign: ReturnType<typeof vi.fn>
+  let mockCronLock: {
+    tryClaimHourlyRun: ReturnType<typeof vi.fn>
+    markHourlyCompleted: ReturnType<typeof vi.fn>
+  }
 
   beforeEach(async () => {
     mockModel = {
@@ -52,6 +58,20 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
     mockCampaigns = { findUnique: vi.fn().mockResolvedValue(campaignWithUser) }
     mockTrack = vi.fn().mockResolvedValue(undefined)
     mockTrackCampaign = vi.fn().mockResolvedValue(undefined)
+
+    // Stands in for the (jobName, runDate) unique constraint CronLockService
+    // relies on, so a second caller in the same UTC hour loses the claim
+    // exactly as a second ECS replica would.
+    const claimedSlots = new Set<string>()
+    mockCronLock = {
+      tryClaimHourlyRun: vi.fn(async (jobName: string, now: Date) => {
+        const slot = `${jobName}@${getUtcHourStart(now).toISOString()}`
+        if (claimedSlots.has(slot)) return false
+        claimedSlots.add(slot)
+        return true
+      }),
+      markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+    }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -72,6 +92,7 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
         { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: CronLockService, useValue: mockCronLock },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -299,5 +320,70 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
     // regression that skipped it would leave the record claimed-but-never-fired
     // and permanently excluded by the pinDeliveryMethod IS NULL filter.
     expect(mockModel.updateMany).toHaveBeenCalledTimes(2)
+  })
+
+  describe('hourly cluster-wide cadence', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('executes once when both replicas fire in the same hour', async () => {
+      // Only Date is faked — the sweep's PEERLY_CV_READ_SPACING_MS sleep still
+      // uses the real timer.
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date('2026-08-17T14:42:00.000Z'))
+      mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
+        status: 'APPROVED',
+        pinDelivery: { method: 'text', destination: '3126851162' },
+      })
+
+      await Promise.all([
+        service.sweepPinDeliveryDetection(),
+        service.sweepPinDeliveryDetection(),
+      ])
+
+      expect(mockCronLock.tryClaimHourlyRun).toHaveBeenCalledTimes(2)
+      expect(mockModel.findMany).toHaveBeenCalledTimes(1)
+      expect(mockPeerly.retrieveCampaignVerifyDetails).toHaveBeenCalledTimes(1)
+      expect(mockTrack).toHaveBeenCalledTimes(1)
+    })
+
+    it('executes again in the next hour', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
+        status: 'APPROVED',
+        pinDelivery: { method: 'text', destination: '3126851162' },
+      })
+
+      vi.setSystemTime(new Date('2026-08-17T14:42:00.000Z'))
+      await service.sweepPinDeliveryDetection()
+      vi.setSystemTime(new Date('2026-08-17T15:42:00.000Z'))
+      await service.sweepPinDeliveryDetection()
+
+      // A daily-keyed lease would have skipped the second pass until midnight,
+      // stretching PIN-delivery detection latency from an hour to a day.
+      expect(mockModel.findMany).toHaveBeenCalledTimes(2)
+    })
+
+    it('does no work when another replica holds the claim', async () => {
+      mockCronLock.tryClaimHourlyRun.mockResolvedValue(false)
+
+      await service.sweepPinDeliveryDetection()
+
+      expect(mockModel.findMany).not.toHaveBeenCalled()
+      expect(mockCronLock.markHourlyCompleted).not.toHaveBeenCalled()
+    })
+
+    it('seals the lease when the candidate query throws', async () => {
+      mockModel.findMany.mockRejectedValue(new Error('DB down'))
+
+      await expect(service.sweepPinDeliveryDetection()).rejects.toThrow(
+        'DB down',
+      )
+
+      // Without this the claim sits incomplete and blocks the job until the
+      // staleness window elapses.
+      expect(mockCronLock.markHourlyCompleted).toHaveBeenCalledTimes(1)
+    })
   })
 })

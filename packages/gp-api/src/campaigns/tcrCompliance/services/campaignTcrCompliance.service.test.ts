@@ -18,7 +18,7 @@ import {
 } from '../../../generated/prisma'
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
 import { PinoLogger } from 'nestjs-pino'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import { CampaignTcrComplianceService } from './campaignTcrCompliance.service'
 import { ComplianceStateService } from './complianceState.service'
@@ -35,10 +35,28 @@ import { EVENTS } from '@/vendors/segment/segment.types'
 import { PrismaService } from '@/prisma/prisma.service'
 import { MessageGroup, QueueType } from '../../../queue/queue.types'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { CronLockService } from '@/cron/services/cronLock.service'
+import { getUtcHourStart } from '@/shared/util/date.util'
 import {
   createMockUser,
   createMockCampaign,
 } from '@/shared/test-utils/mockData.util'
+
+// Stands in for the (jobName, runDate) unique constraint CronLockService
+// relies on, so a second caller in the same UTC hour loses the claim exactly
+// as a second ECS replica would.
+const createCronLockMock = () => {
+  const claimedSlots = new Set<string>()
+  return {
+    tryClaimHourlyRun: vi.fn(async (jobName: string, now: Date) => {
+      const slot = `${jobName}@${getUtcHourStart(now).toISOString()}`
+      if (claimedSlots.has(slot)) return false
+      claimedSlots.add(slot)
+      return true
+    }),
+    markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+  }
+}
 
 // Passes the dispatch gate's publishability check: genuine bio (over
 // MIN_BIO_LENGTH plain chars, not the template) + one genuine issue.
@@ -163,6 +181,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
+        { provide: CronLockService, useValue: createCronLockMock() },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -921,6 +940,7 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
+        { provide: CronLockService, useValue: createCronLockMock() },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -1519,6 +1539,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
+        { provide: CronLockService, useValue: createCronLockMock() },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -2214,6 +2235,7 @@ describe('CampaignTcrComplianceService - create (legacy) placeId guard', () => {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
+        { provide: CronLockService, useValue: createCronLockMock() },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -2302,6 +2324,7 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
+        { provide: CronLockService, useValue: createCronLockMock() },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -2489,6 +2512,7 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
+        { provide: CronLockService, useValue: createCronLockMock() },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -2678,6 +2702,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     update: ReturnType<typeof vi.fn>
   }
   let mockPrisma: { tcrCompliance: typeof mockModel }
+  let cronLock: ReturnType<typeof createCronLockMock>
 
   const campaign = createMockCampaign({ id: 555 })
   const stuckRecord = {
@@ -2754,11 +2779,13 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
+        { provide: CronLockService, useValue: createCronLockMock() },
         CampaignTcrComplianceService,
       ],
     }).compile()
 
     service = module.get(CampaignTcrComplianceService)
+    cronLock = module.get(CronLockService)
   })
 
   it('mints a token and submits the usecase when CV is VERIFIED', async () => {
@@ -2935,6 +2962,57 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       data: { status: TcrComplianceStatus.pending },
     })
   })
+
+  describe('hourly cluster-wide cadence', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('executes once when both replicas fire in the same hour', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date('2026-08-17T14:17:00.000Z'))
+      mockModel.findMany.mockResolvedValue([stuckRecord])
+
+      await Promise.all([sweep(service), sweep(service)])
+
+      expect(cronLock.tryClaimHourlyRun).toHaveBeenCalledTimes(2)
+      expect(mockModel.findMany).toHaveBeenCalledTimes(1)
+      expect(mockPeerly.getIdentityProfile).toHaveBeenCalledTimes(1)
+    })
+
+    it('executes again in the next hour', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      mockModel.findMany.mockResolvedValue([])
+
+      vi.setSystemTime(new Date('2026-08-17T14:17:00.000Z'))
+      await sweep(service)
+      vi.setSystemTime(new Date('2026-08-17T15:17:00.000Z'))
+      await sweep(service)
+
+      // A daily-keyed lease would have skipped the second pass until midnight,
+      // leaving a stranded "loading" identity unhealed for up to a day.
+      expect(mockModel.findMany).toHaveBeenCalledTimes(2)
+    })
+
+    it('does no work when another replica holds the claim', async () => {
+      cronLock.tryClaimHourlyRun.mockResolvedValue(false)
+
+      await sweep(service)
+
+      expect(mockModel.findMany).not.toHaveBeenCalled()
+      expect(cronLock.markHourlyCompleted).not.toHaveBeenCalled()
+    })
+
+    it('seals the lease when the candidate query throws', async () => {
+      mockModel.findMany.mockRejectedValue(new Error('DB down'))
+
+      await expect(sweep(service)).rejects.toThrow('DB down')
+
+      // Without this the claim sits incomplete and blocks the job until the
+      // staleness window elapses.
+      expect(cronLock.markHourlyCompleted).toHaveBeenCalledTimes(1)
+    })
+  })
 })
 
 describe('CampaignTcrComplianceService - internal testing approval', () => {
@@ -2978,6 +3056,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
+        { provide: CronLockService, useValue: createCronLockMock() },
         CampaignTcrComplianceService,
       ],
     }).compile()

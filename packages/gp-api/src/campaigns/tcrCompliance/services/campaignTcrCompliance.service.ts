@@ -7,7 +7,7 @@ import {
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common'
-import { Interval } from '@nestjs/schedule'
+import { Cron, Interval } from '@nestjs/schedule'
 import { formatISO, isAfter, isValid, parseISO, subMinutes } from 'date-fns'
 import { setTimeout as sleep } from 'timers/promises'
 import {
@@ -65,6 +65,8 @@ import {
 import { DerivedPinDelivery } from '../../../vendors/peerly/utils/peerlyPinDelivery.util'
 import { isGenericComplianceContent } from '../../../websites/util/genericContent.util'
 import { AnalyticsService } from 'src/analytics/analytics.service'
+import { CronLockService } from 'src/cron/services/cronLock.service'
+import { EASTERN_TIMEZONE } from 'src/shared/util/date.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { AgenticComplianceKickoffMessage } from '../../../queue/queue.types'
@@ -86,11 +88,12 @@ const AGENTIC_KICKOFF_SWEEP_INTERVAL =
 
 const AGENTIC_KICKOFF_STALENESS_MINUTES = 10
 
-const UNSUBMITTED_USECASE_SWEEP_INTERVAL =
-  parseInt(process.env.UNSUBMITTED_USECASE_SWEEP_INTERVAL ?? '') || 60 * 60 // hourly
+// CronRun lease keys for the two hourly Peerly sweeps. Both call Peerly once
+// per in-flight record, so they must run once per hour cluster-wide, not once
+// per hour per replica.
+const UNSUBMITTED_USECASE_CRON_JOB = 'tcr-unsubmitted-usecase-sweep'
 
-const PIN_DELIVERY_DETECTION_SWEEP_INTERVAL =
-  parseInt(process.env.PIN_DELIVERY_DETECTION_SWEEP_INTERVAL ?? '') || 60 * 60 // hourly
+const PIN_DELIVERY_DETECTION_CRON_JOB = 'tcr-pin-delivery-detection-sweep'
 
 // Spacing between per-identity retrieve_cv calls in the PIN-delivery sweep.
 // Peerly throttles bulk CV retrieval (429/400), so space the reads out rather
@@ -158,6 +161,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     private queueService: QueueProducerService,
     private readonly experimentRunsService: ExperimentRunsService,
     private readonly analytics: AnalyticsService,
+    private readonly cronLock: CronLockService,
   ) {
     super()
   }
@@ -280,24 +284,42 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   // (submitUsecaseIfVerified). Only `submitted` records are candidates —
   // `pending` means the usecase was already submitted (status advances after
   // approve).
-  @Interval(UNSUBMITTED_USECASE_SWEEP_INTERVAL * 1000)
+  @Cron('17 * * * *', {
+    name: 'sweepUnsubmittedUsecases',
+    timeZone: EASTERN_TIMEZONE,
+  })
   async sweepUnsubmittedUsecases() {
-    const candidates = await this.model.findMany({
-      where: {
-        status: TcrComplianceStatus.submitted,
-        peerlyIdentityId: { not: null },
-      },
-    })
+    // Pin one timestamp so the claim and the completion mark resolve to the
+    // same hour slot even if the pass crosses the top of the hour.
+    const now = new Date()
+    const claimed = await this.cronLock.tryClaimHourlyRun(
+      UNSUBMITTED_USECASE_CRON_JOB,
+      now,
+    )
+    if (!claimed) return
 
-    for (const record of candidates) {
-      try {
-        await this.submitUsecaseIfVerified(record)
-      } catch (err) {
-        this.logger.error(
-          { err, tcrComplianceId: record.id },
-          '[TCR Compliance] Failed to submit usecase for verified record',
-        )
+    try {
+      const candidates = await this.model.findMany({
+        where: {
+          status: TcrComplianceStatus.submitted,
+          peerlyIdentityId: { not: null },
+        },
+      })
+
+      for (const record of candidates) {
+        try {
+          await this.submitUsecaseIfVerified(record)
+        } catch (err) {
+          this.logger.error(
+            { err, tcrComplianceId: record.id },
+            '[TCR Compliance] Failed to submit usecase for verified record',
+          )
+        }
       }
+    } finally {
+      // Seal the lease even if the candidate query threw, or the claim would
+      // sit incomplete and be taken over on a later pass.
+      await this.cronLock.markHourlyCompleted(UNSUBMITTED_USECASE_CRON_JOB, now)
     }
   }
 
@@ -412,32 +434,53 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   // without the wider set their channel + the event would be dropped forever.
   // These statuses always mean the PIN went out, so this never fires for a
   // record whose PIN never did (`rejected`/`error` are failure states, excluded).
-  @Interval(PIN_DELIVERY_DETECTION_SWEEP_INTERVAL * 1000)
+  @Cron('42 * * * *', {
+    name: 'sweepPinDeliveryDetection',
+    timeZone: EASTERN_TIMEZONE,
+  })
   async sweepPinDeliveryDetection() {
-    const candidates = await this.model.findMany({
-      where: {
-        status: {
-          in: [
-            TcrComplianceStatus.submitted,
-            TcrComplianceStatus.pending,
-            TcrComplianceStatus.approved,
-          ],
-        },
-        peerlyIdentityId: { not: null },
-        pinDeliveryMethod: null,
-      },
-    })
+    // Pin one timestamp so the claim and the completion mark resolve to the
+    // same hour slot even if the paced pass crosses the top of the hour.
+    const now = new Date()
+    const claimed = await this.cronLock.tryClaimHourlyRun(
+      PIN_DELIVERY_DETECTION_CRON_JOB,
+      now,
+    )
+    if (!claimed) return
 
-    for (const record of candidates) {
-      try {
-        await this.detectAndRecordPinDelivery(record)
-      } catch (err) {
-        this.logger.error(
-          { err, tcrComplianceId: record.id },
-          '[TCR Compliance] PIN-delivery detection failed for record',
-        )
+    try {
+      const candidates = await this.model.findMany({
+        where: {
+          status: {
+            in: [
+              TcrComplianceStatus.submitted,
+              TcrComplianceStatus.pending,
+              TcrComplianceStatus.approved,
+            ],
+          },
+          peerlyIdentityId: { not: null },
+          pinDeliveryMethod: null,
+        },
+      })
+
+      for (const record of candidates) {
+        try {
+          await this.detectAndRecordPinDelivery(record)
+        } catch (err) {
+          this.logger.error(
+            { err, tcrComplianceId: record.id },
+            '[TCR Compliance] PIN-delivery detection failed for record',
+          )
+        }
+        await sleep(PEERLY_CV_READ_SPACING_MS)
       }
-      await sleep(PEERLY_CV_READ_SPACING_MS)
+    } finally {
+      // Seal the lease even if the candidate query threw, or the claim would
+      // sit incomplete and be taken over on a later pass.
+      await this.cronLock.markHourlyCompleted(
+        PIN_DELIVERY_DETECTION_CRON_JOB,
+        now,
+      )
     }
   }
 
