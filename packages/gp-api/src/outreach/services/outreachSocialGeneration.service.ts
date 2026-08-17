@@ -5,12 +5,15 @@ import {
 } from '@nestjs/common'
 import {
   SOCIAL_DRAFT_MESSAGE_MAX_LENGTH,
+  SOCIAL_POST_COPY_MAX_LENGTH,
+  SOCIAL_VIDEO_SCRIPT_MAX_LENGTH,
   SocialAsset,
   SocialAssetPlatformSchema,
   SocialDraftRequest,
   SocialGenerateRequest,
   SocialPurpose,
   SocialTone,
+  socialAssetKindForPlatform,
 } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
@@ -122,13 +125,25 @@ const SYSTEM_PROMPT = [
   '  caption in "caption". For copy platforms, omit "caption".',
 ].join('\n')
 
+// Length caps live HERE, at the LLM boundary: an over-cap generation must
+// fail jsonCompletion (caught below as a retryable 502), not pass through
+// and get rejected by the response interceptor as an unretryable 500.
 const GeneratedAssetsSchema = z.object({
   assets: z.array(
-    z.object({
-      platform: SocialAssetPlatformSchema,
-      text: z.string(),
-      caption: z.string().optional(),
-    }),
+    z
+      .object({
+        platform: SocialAssetPlatformSchema,
+        text: z.string().min(1),
+        caption: z.string().max(SOCIAL_POST_COPY_MAX_LENGTH).optional(),
+      })
+      .refine(
+        (asset) =>
+          asset.text.length <=
+          (socialAssetKindForPlatform(asset.platform) === 'video_script'
+            ? SOCIAL_VIDEO_SCRIPT_MAX_LENGTH
+            : SOCIAL_POST_COPY_MAX_LENGTH),
+        { message: 'Generated text exceeds the platform cap' },
+      ),
   ),
 })
 
