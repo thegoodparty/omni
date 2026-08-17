@@ -337,6 +337,35 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
   })
 
+  it('hides the Retry button for a non-retryable stream error', async () => {
+    const user = userEvent.setup()
+    createMock.mockResolvedValue({ conversationId: 'conv_1' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        {
+          type: 'error',
+          code: 'conversation_not_found',
+          message: 'This chat is no longer available.',
+          retryable: false,
+        },
+      ]),
+    )
+
+    render(<ChiefOfStaffChatBody active />)
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'hi')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+    // The message shows, but a terminal error offers no (guaranteed-failing) retry.
+    expect(
+      screen.getByText('This chat is no longer available.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /retry/i }),
+    ).not.toBeInTheDocument()
+  })
+
   it('renders custom suggestions alongside a seeded greeting when showSuggestionsWithGreeting is set', async () => {
     const user = userEvent.setup()
     const onSelect = vi.fn()

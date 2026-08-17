@@ -395,10 +395,11 @@ export function useStreamingTurn(
               if (segments.length === 0 || hasTurn(history)) {
                 setMessages(history)
                 // A stalled turn deferred its success handoff (we skipped it
-                // above because the server might still be generating). The turn
-                // has now landed in persisted history, so the server is
-                // provably finished — fire the handoff here instead.
-                if (stalled && hasTurn(history)) scope.onTurnSuccess?.()
+                // above because the server might still be generating). We are
+                // now committing the canonical transcript — fire the deferred
+                // handoff. (A stall whose turn never persisted takes the append
+                // branch below and correctly does not fire it.)
+                if (stalled) scope.onTurnSuccess?.()
               } else {
                 setMessages((prev) => [
                   ...prev,
