@@ -11,13 +11,20 @@ Flag on renders the v2 hub (`v2/`); flag off (or unsettled — respect `ready`)
 renders the legacy `components/OutreachPage.tsx` unchanged. The two UIs never
 mix; turning the flag off restores the legacy page exactly.
 
+Inside the v2 hub, each channel's tile target is its own swap flag:
+`voter-outreach-v2-social` (`@shared/experiments/voterOutreachV2SocialFlag.ts`)
+gates the social tile — on opens the new `SocialFlow`, off (or unsettled)
+launches the legacy socialMedia TaskFlow. So the hub can ship with 100%
+legacy behavior underneath and channels flip individually; later phases add
+their own swap flags the same way.
+
 ## v2/ — the Voter Outreach 2.0 hub (phase 1)
 
 | File | Role |
 |------|------|
 | `v2/OutreachPageGate.tsx` | Whole-page flag gate (exposure fires here for both arms) |
 | `v2/OutreachHubPage.tsx` | Flag-on page: tile grid + unified history + details drawer; consumes the `?outreachId=` deep link (opens the drawer) and mounts `OutreachComposeDeepLink` so `?compose=`/`?listId=` keep feeding the legacy flow launch |
-| `v2/ChannelTileGrid.tsx` | Channel tiles (styleguide `ChannelCard`). Social opens the new flow; SMS/robocall/phone banking launch the EXISTING legacy `TaskFlow` with the same gates as the legacy cards (text gate, Pro modal, consume-once `preselectedListId`); door knocking navigates to `/dashboard/door-knocking`. Pricing sub-copy comes from `OUTREACH_OPTIONS` in `components/OutreachCreateCards.tsx` |
+| `v2/ChannelTileGrid.tsx` | Channel tiles (styleguide `ChannelCard`). Social opens the new flow behind `voter-outreach-v2-social` (off → legacy socialMedia TaskFlow); SMS/robocall/phone banking launch the EXISTING legacy `TaskFlow` with the same gates as the legacy cards (text gate, Pro modal, consume-once `preselectedListId`); door knocking navigates to `/dashboard/door-knocking`. Pricing sub-copy comes from `OUTREACH_OPTIONS` in `components/OutreachCreateCards.tsx` |
 | `v2/OutreachHistoryTable.tsx` | Unified history (legacy + new rows): channel badge, per-channel metric (social = "N platforms" from the detail fetch), Results column (em-dash placeholder until the per-channel result sweeps land in phases 2-4), `StatusText` status, client-side channel/status filter popover, 10-row pagination. The prototype's Archive toggle is deliberately absent: no `archived` concept exists on the data model yet |
 | `v2/historyStatus.util.ts` | The two legacy status vocabularies (p2p vs non-p2p), relocated from `components/OutreachTable.tsx`; the legacy table keeps its own copy until deletion at the final tile swap |
 | `v2/OutreachDetailsDrawer.tsx` | Row-click drawer over `GET /v1/outreach/:id`: overview metrics, audience chips, and for social the persisted per-platform assets with re-copy |
