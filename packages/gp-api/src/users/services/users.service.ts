@@ -608,7 +608,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     firstName: string
     lastName: string
     expiresInSeconds?: number
-  }): Promise<{ user: User; token: string; clerkId: string }> {
+  }): Promise<{ user: User; token: string; clerkId: string; expiresAt: Date }> {
     const email = toLowerAndTrim(data.email)
 
     // Reject the magic link for any account the person actually controls. A
@@ -701,16 +701,21 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     // target), not only the just-created lead.
     await this.assertReusableForMagicLink(user)
 
+    // Sales-sent invites are not redeemed immediately — give the lead a week.
+    const expiresInSeconds = data.expiresInSeconds ?? 60 * 60 * 24 * 7
     const signInToken = await this.clerkClient.signInTokens.createSignInToken({
       userId: clerkId,
-      // Sales-sent invites are not redeemed immediately — give the lead a week.
-      expiresInSeconds: data.expiresInSeconds ?? 60 * 60 * 24 * 7,
+      expiresInSeconds,
     })
     if (!signInToken.token) {
       throw new BadGatewayException('Clerk did not return a sign-in token')
     }
 
-    return { user, token: signInToken.token, clerkId }
+    // Expiry of the emailed link, derived from the token TTL, so the sales card
+    // can show the link only while it is still redeemable.
+    const expiresAt = new Date(Date.now() + expiresInSeconds * 1000)
+
+    return { user, token: signInToken.token, clerkId, expiresAt }
   }
 
   async flushLastVisited(

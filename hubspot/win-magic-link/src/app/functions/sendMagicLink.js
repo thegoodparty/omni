@@ -22,6 +22,24 @@
 // The function is invoked from the card via `hubspot.serverless()`, so contact
 // properties arrive on `context.propertiesToSend`. The returned `body` is an
 // object (not a JSON string); the card reads `result.body`.
+//
+// Three actions are supported via `context.parameters.action`:
+//   - 'generate' (default): provision the candidate, mint a new link, email it.
+//     When `phone` is also supplied, gp-api texts the link in the same call and
+//     the response carries `smsSent` / `smsError` alongside `sent` / `sendError`.
+//   - 'fetch': return the lead's CURRENT redemption URL from gp-db without
+//     minting a new one. The URL is never mirrored to HubSpot (it carries a
+//     live sign-in ticket), so this is how the card retrieves it on demand for
+//     the rep's "copy link" action. gp-api only returns a URL while the link is
+//     still redeemable; a consumed/expired link comes back as { url: null }.
+//   - 'sms': text the lead's CURRENT link without minting a new one, for when
+//     the rep emailed it and the lead says it never arrived. Minting a fresh
+//     link would rotate the short-link slug and kill the one already in the
+//     lead's inbox.
+//
+// SMS itself is sent by gp-api via Sinch, not from here: the serve and win cards
+// are two separate HubSpot projects, so building it here would mean two
+// implementations and provider credentials duplicated into both.
 
 const DEFAULT_GP_API_URL = 'https://gp-api.goodparty.org'
 const SINGLE_SEND_URL =
@@ -72,6 +90,113 @@ async function sendMagicLinkEmail({ email, firstName, lastName, url, userId }) {
   }
 }
 
+// Fetches the lead's current redemption URL from gp-db (read-only; never mints
+// a new link). Returns { url, status } where url is null when the link is
+// consumed, expired, or absent.
+async function fetchExistingMagicLink({ gpApiUrl, token, email }) {
+  try {
+    const res = await fetch(
+      `${gpApiUrl}/v1/admin/campaign/magic-link?email=${encodeURIComponent(email)}`,
+      {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    )
+
+    const text = await res.text()
+    if (!res.ok) {
+      let message = `gp-api returned ${res.status}.`
+      try {
+        const parsed = JSON.parse(text)
+        message =
+          (typeof parsed.message === 'string' && parsed.message) ||
+          (typeof parsed.error === 'string' && parsed.error) ||
+          message
+      } catch (_) {
+        if (text) message = `${message} ${text}`
+      }
+      return { statusCode: res.status, body: { error: message } }
+    }
+
+    let data = {}
+    try {
+      data = JSON.parse(text)
+    } catch (_) {
+      return { statusCode: 502, body: { error: 'gp-api returned a non-JSON response.' } }
+    }
+
+    return {
+      statusCode: 200,
+      body: { url: data.url || null, status: data.status || null },
+    }
+  } catch (e) {
+    return {
+      statusCode: 502,
+      body: { error: `Failed to reach gp-api: ${e && e.message ? e.message : String(e)}` },
+    }
+  }
+}
+
+// Texts the lead's current link via gp-api (which sends through Sinch). Used by
+// the 'sms' action; consent is enforced server-side in gp-api, so passing
+// smsConsent here is a claim to record, not the gate itself.
+async function textExistingMagicLink({
+  gpApiUrl,
+  token,
+  email,
+  phone,
+  smsConsent,
+  consentSource,
+}) {
+  try {
+    const res = await fetch(`${gpApiUrl}/v1/admin/campaign/magic-link/sms`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ email, phone, smsConsent, consentSource }),
+    })
+
+    const text = await res.text()
+    if (!res.ok) {
+      let message = `gp-api returned ${res.status}.`
+      try {
+        const parsed = JSON.parse(text)
+        message =
+          (typeof parsed.message === 'string' && parsed.message) ||
+          (typeof parsed.error === 'string' && parsed.error) ||
+          message
+      } catch (_) {
+        if (text) message = `${message} ${text}`
+      }
+      return { statusCode: res.status, body: { error: message } }
+    }
+
+    let data = {}
+    try {
+      data = JSON.parse(text)
+    } catch (_) {
+      return {
+        statusCode: 502,
+        body: { error: 'gp-api returned a non-JSON response.' },
+      }
+    }
+
+    return {
+      statusCode: 200,
+      body: { smsSent: Boolean(data.smsSent), smsError: data.smsError || null },
+    }
+  } catch (e) {
+    return {
+      statusCode: 502,
+      body: {
+        error: `Failed to reach gp-api: ${e && e.message ? e.message : String(e)}`,
+      },
+    }
+  }
+}
+
 exports.main = async (context = {}) => {
   const token = process.env.GP_API_M2M_TOKEN
   if (!token) {
@@ -95,10 +220,41 @@ exports.main = async (context = {}) => {
     }
   }
 
+  const params = context.parameters || {}
+  const action = params.action || 'generate'
+  if (action === 'fetch') {
+    return fetchExistingMagicLink({ gpApiUrl, token, email })
+  }
+  if (action === 'sms') {
+    if (!params.phone) {
+      return {
+        statusCode: 400,
+        body: { error: 'This contact has no phone number, so it cannot be texted.' },
+      }
+    }
+    return textExistingMagicLink({
+      gpApiUrl,
+      token,
+      email,
+      phone: String(params.phone),
+      smsConsent: Boolean(params.smsConsent),
+      consentSource: params.consentSource ? String(params.consentSource) : undefined,
+    })
+  }
+
   const payload = {
     email,
     firstName: props.firstname || '',
     lastName: props.lastname || '',
+  }
+  // When the rep supplied a phone, gp-api texts the freshly minted link as part
+  // of this same call — the rep clicked one button.
+  if (params.phone) {
+    payload.phone = String(params.phone)
+    payload.smsConsent = Boolean(params.smsConsent)
+    if (params.consentSource) {
+      payload.consentSource = String(params.consentSource)
+    }
   }
 
   try {
@@ -157,10 +313,16 @@ exports.main = async (context = {}) => {
       userId: data.userId,
     })
 
-    return {
-      statusCode: 200,
-      body: sendError ? { url: data.url, sent, sendError } : { url: data.url, sent },
+    const body = { url: data.url, sent }
+    if (sendError) body.sendError = sendError
+    // Only report SMS state when the rep actually asked for a text, so the card
+    // can tell "not requested" apart from "requested and failed".
+    if (payload.phone) {
+      body.smsSent = Boolean(data.smsSent)
+      if (data.smsError) body.smsError = data.smsError
     }
+
+    return { statusCode: 200, body }
   } catch (e) {
     return {
       statusCode: 502,

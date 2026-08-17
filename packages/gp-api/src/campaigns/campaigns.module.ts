@@ -1,5 +1,6 @@
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
+import { MagicLinkModule } from '@/magicLink/magicLink.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.module'
 import { CronModule } from '@/cron/cron.module'
@@ -71,6 +72,7 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     SlackModule,
     AgentExperimentsModule,
     ElectedOfficeModule,
+    MagicLinkModule,
     CronModule,
   ],
   controllers: [

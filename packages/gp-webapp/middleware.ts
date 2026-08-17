@@ -24,6 +24,10 @@ const isPublicRoute = createRouteMatcher([
   // /serve/welcome; only this landing page is public, onboarding still needs a
   // session.
   '/win/welcome(.*)',
+  // Texted magic-link short link. The lead has no session when they tap it, and
+  // the handler only exchanges the slug for the redemption URL before redirecting
+  // to /serve/welcome or /win/welcome (both public above).
+  '/s/(.*)',
   // Machine endpoint: gated by its own REVALIDATE_SECRET (see
   // app/api/revalidate/route.ts), not a Clerk user session.
   '/api/revalidate',

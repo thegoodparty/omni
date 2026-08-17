@@ -14,17 +14,28 @@ function makeController() {
     provisionMagicLinkUser: vi.fn().mockResolvedValue({
       user: { id: 1 },
       token: 'tok',
+      clerkId: 'clerk_1',
+      expiresAt: new Date('2026-01-08T00:00:00.000Z'),
     }),
   }
   const analytics = { track: vi.fn().mockResolvedValue(undefined) }
+  const magicLink = {
+    recordSent: vi.fn().mockResolvedValue(undefined),
+    getByEmail: vi.fn().mockResolvedValue(null),
+  }
+  const magicLinkDelivery = {
+    textActiveLink: vi.fn().mockResolvedValue({ smsSent: true }),
+  }
   const logger = { setContext: vi.fn(), info: vi.fn(), warn: vi.fn() }
 
   const controller = new AdminCampaignMagicLinkController(
     usersService as never,
     analytics as never,
+    magicLink as never,
+    magicLinkDelivery as never,
     logger as never,
   )
-  return { controller, usersService, analytics }
+  return { controller, usersService, analytics, magicLink, magicLinkDelivery }
 }
 
 const dto = (
@@ -78,5 +89,86 @@ describe('AdminCampaignMagicLinkController.createMagicLink', () => {
       'Onboarding - Magic Link Sent',
       expect.objectContaining({ email: 'candidate@example.com', type: 'win' }),
     )
+  })
+
+  it('records the sent lifecycle as a WIN link with the URL + expiry', async () => {
+    await ctx.controller.createMagicLink(
+      dto({ email: 'candidate@example.com' }),
+    )
+    expect(ctx.magicLink.recordSent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 1,
+        email: 'candidate@example.com',
+        url: expect.stringContaining('/win/welcome?__clerk_ticket=tok'),
+        expiresAt: new Date('2026-01-08T00:00:00.000Z'),
+        kind: 'WIN',
+      }),
+    )
+  })
+
+  it('does not fail link creation when recording the lifecycle throws', async () => {
+    ctx.magicLink.recordSent.mockRejectedValueOnce(new Error('db down'))
+    await expect(ctx.controller.createMagicLink(dto({}))).resolves.toEqual(
+      expect.objectContaining({ userId: 1 }),
+    )
+  })
+})
+
+describe('AdminCampaignMagicLinkController.getMagicLink', () => {
+  let ctx: ReturnType<typeof makeController>
+  const FUTURE = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+  const PAST = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+
+  beforeEach(() => {
+    ctx = makeController()
+  })
+
+  it('returns null url + status when no link exists for the email', async () => {
+    ctx.magicLink.getByEmail.mockResolvedValueOnce(null)
+    await expect(
+      ctx.controller.getMagicLink({ email: 'nobody@example.com' } as never),
+    ).resolves.toEqual({ url: null, status: null })
+  })
+
+  it('returns the URL only while the link is still redeemable (sent)', async () => {
+    ctx.magicLink.getByEmail.mockResolvedValueOnce({
+      kind: 'WIN',
+      url: 'https://gp/win/welcome?__clerk_ticket=tok',
+      expiresAt: FUTURE,
+      redeemedAt: null,
+      onboardingCompletedAt: null,
+    })
+    await expect(
+      ctx.controller.getMagicLink({ email: 'candidate@example.com' } as never),
+    ).resolves.toEqual({
+      url: 'https://gp/win/welcome?__clerk_ticket=tok',
+      status: 'sent',
+    })
+  })
+
+  it('withholds the URL once the link is redeemed (consumed token)', async () => {
+    ctx.magicLink.getByEmail.mockResolvedValueOnce({
+      kind: 'WIN',
+      url: 'https://gp/win/welcome?__clerk_ticket=tok',
+      expiresAt: FUTURE,
+      redeemedAt: PAST,
+      onboardingCompletedAt: null,
+    })
+    await expect(
+      ctx.controller.getMagicLink({ email: 'candidate@example.com' } as never),
+    ).resolves.toEqual({ url: null, status: 'redeemed' })
+  })
+
+  it('withholds the URL once the link has expired', async () => {
+    ctx.magicLink.getByEmail.mockResolvedValueOnce({
+      kind: 'WIN',
+      url: 'https://gp/win/welcome?__clerk_ticket=tok',
+      expiresAt: PAST,
+      redeemedAt: null,
+      onboardingCompletedAt: null,
+    })
+    await expect(
+      ctx.controller.getMagicLink({ email: 'candidate@example.com' } as never),
+    ).resolves.toEqual({ url: null, status: 'expired' })
   })
 })

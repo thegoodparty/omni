@@ -27,6 +27,18 @@ model User {
   phone                 String?
   zip                   String?
   roles                 UserRole[]              @default([])
+
+  // SMS consent, captured by the rep on the HubSpot card when the lead agrees on
+  // a call to be texted their magic link. Lives on the user rather than on the
+  // link because consent outlives any single link, and because "did this person
+  // agree to be texted" has to be answerable without joining through a link.
+  // `smsConsentSource` records who claimed it (e.g. "hubspot_card:<repEmail>").
+  smsConsentAt          DateTime?               @map("sms_consent_at")
+  smsConsentSource      String?                 @map("sms_consent_source")
+  // Set from Sinch's inbound STOP callback. Checked before every send, so an
+  // opt-out is enforced by us and not only by the carrier.
+  smsOptedOutAt         DateTime?               @map("sms_opted_out_at")
+
   /// [UserMetaData]
   metaData              Json?                   @map("meta_data") @db.JsonB
   campaignUpdateHistory CampaignUpdateHistory[]
@@ -35,6 +47,7 @@ model User {
   passwordResetToken    String?                 @map("password_reset_token")
   aiChats               AiChat[]
   electedOffices        ElectedOffice[]
+  magicLink             MagicLink?
   annotations           Annotation[]
   chatConversations     ChatConversation[]
   artifactFeedbacks     ArtifactFeedback[]

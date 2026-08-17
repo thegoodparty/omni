@@ -1,0 +1,58 @@
+// Sales-initiated onboarding magic links (HubSpot App Card → gp-api admin
+// endpoint). One row per lead (User), upserted on (re)send. This is the
+// server-side source of truth for the link's lifecycle; gp-api mirrors the
+// derived status onto HubSpot contact properties so the sales card can show
+// persistent state (link present until expired/consumed, redeemed, onboarded)
+// across card close/reopen. Status itself is derived from the timestamps +
+// expiresAt (see magicLinkStatus.util), never stored.
+enum MagicLinkKind {
+  SERVE
+  WIN
+}
+
+model MagicLink {
+  id     String        @id @default(uuid(7))
+  user   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId Int           @unique @map("user_id")
+  kind   MagicLinkKind @default(SERVE)
+  email  String
+
+  // The persisted redemption URL (carries the single-use Clerk sign-in ticket).
+  // Re-shown in the card until the link expires or is consumed. Already emailed
+  // to the lead in plaintext, so persisting it server-side adds no exposure.
+  url String
+
+  // Short-link slug behind /s/<slug>, which exists because the ticketed `url`
+  // runs to ~743 characters — five SMS segments. Rotates with `url` on resend,
+  // so the previous slug dies with the upsert. A bearer credential like `url`,
+  // so it is likewise never mirrored to HubSpot.
+  slug String? @unique
+
+  sentAt    DateTime @map("sent_at")
+  expiresAt DateTime @map("expires_at")
+
+  // SMS delivery metadata, null when the link was only emailed. `smsMessageId` is
+  // the Conversation API's message id — with Sinch's thinner error vocabulary
+  // that id is the only handle for tracing a text a rep reports as never
+  // arriving.
+  phone        String?   @map("phone")
+  smsSentAt    DateTime? @map("sms_sent_at")
+  smsMessageId String?   @map("sms_message_id")
+
+  // Lifecycle transitions, set once (idempotent). Null until they happen.
+  redeemedAt            DateTime? @map("redeemed_at")
+  onboardingCompletedAt DateTime? @map("onboarding_completed_at")
+
+  // Cached HubSpot contact id (resolved by email on first mirror) so repeat
+  // mirrors skip the search.
+  crmContactId String? @map("crm_contact_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([email])
+  // Every inbound Sinch STOP/START callback resolves the sender through this
+  // column, and Sinch retries a callback it considers failed.
+  @@index([phone])
+  @@map("magic_link")
+}

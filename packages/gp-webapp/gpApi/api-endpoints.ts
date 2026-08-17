@@ -461,6 +461,32 @@ export type APIEndpoints = {
     Response: ElectedOffice
   }
 
+  // Pinged by the /serve/welcome redemption page once the lead activates their
+  // own session via the magic-link ticket, so gp-api can mark the link redeemed
+  // and the sales HubSpot card reflects it. Session-authed (the just-signed-in
+  // lead); no body.
+  'POST /v1/elected-office/magic-link/redeemed': {
+    Request: {}
+    Response: { ok: boolean }
+  }
+
+  // Pinged by the /win/welcome redemption page once the candidate lead activates
+  // their own session via the magic-link ticket, so gp-api can mark the link
+  // redeemed and the Win sales HubSpot card reflects it. Session-authed (the
+  // just-signed-in lead, who has no campaign yet); no body.
+  'POST /v1/campaigns/magic-link/redeemed': {
+    Request: {}
+    Response: { ok: boolean }
+  }
+
+  // Resolves the texted /s/<slug> short link to its full redemption URL. Public
+  // (the lead has no session yet) and rate-limited in gp-api. `url` is null once
+  // the link is redeemed or expired, so a consumed ticket is never handed back.
+  'GET /v1/magic-link/resolve/:slug': {
+    Request: {}
+    Response: { url: string | null; status: string | null }
+  }
+
   'POST /v1/meetings/briefings/dispatch': {
     Request: {
       electedOfficeId: string

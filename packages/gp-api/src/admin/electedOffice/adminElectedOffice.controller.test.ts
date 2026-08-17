@@ -13,6 +13,8 @@ function makeController() {
     provisionMagicLinkUser: vi.fn().mockResolvedValue({
       user: { id: 1 },
       token: 'tok',
+      clerkId: 'clerk_1',
+      expiresAt: new Date('2026-01-08T00:00:00.000Z'),
     }),
   }
   const electedOfficeService = {
@@ -23,6 +25,13 @@ function makeController() {
     resolveInternalPositionId: vi.fn(),
   }
   const analytics = { track: vi.fn().mockResolvedValue(undefined) }
+  const magicLink = {
+    recordSent: vi.fn().mockResolvedValue(undefined),
+    getByEmail: vi.fn().mockResolvedValue(null),
+  }
+  const magicLinkDelivery = {
+    textActiveLink: vi.fn().mockResolvedValue({ smsSent: true }),
+  }
   const logger = { setContext: vi.fn(), info: vi.fn(), warn: vi.fn() }
 
   const controller = new AdminElectedOfficeController(
@@ -31,6 +40,8 @@ function makeController() {
     ballotReadyService as never,
     elections as never,
     analytics as never,
+    magicLink as never,
+    magicLinkDelivery as never,
     logger as never,
   )
   return {
@@ -39,6 +50,8 @@ function makeController() {
     electedOfficeService,
     ballotReadyService,
     elections,
+    magicLink,
+    magicLinkDelivery,
     analytics,
   }
 }
@@ -81,6 +94,25 @@ describe('AdminElectedOfficeController.createMagicLink', () => {
     )
   })
 
+  it('records the sent magic-link lifecycle with the redemption URL + expiry', async () => {
+    await ctx.controller.createMagicLink(dto({ email: 'eo@example.com' }))
+    expect(ctx.magicLink.recordSent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 1,
+        email: 'eo@example.com',
+        url: expect.stringContaining('/serve/welcome?__clerk_ticket=tok'),
+        expiresAt: new Date('2026-01-08T00:00:00.000Z'),
+      }),
+    )
+  })
+
+  it('does not fail link creation when recording the lifecycle throws', async () => {
+    ctx.magicLink.recordSent.mockRejectedValueOnce(new Error('db down'))
+    await expect(ctx.controller.createMagicLink(dto({}))).resolves.toEqual(
+      expect.objectContaining({ userId: 1 }),
+    )
+  })
+
   it('tracks the magic-link-sent event tagged as a serve link', async () => {
     await ctx.controller.createMagicLink(dto({}))
     expect(ctx.analytics.track).toHaveBeenCalledWith(
@@ -116,5 +148,64 @@ describe('AdminElectedOfficeController.createMagicLink', () => {
         orgData: expect.objectContaining({ positionId: 'pos-internal-1' }),
       }),
     )
+  })
+})
+
+describe('AdminElectedOfficeController.getMagicLink', () => {
+  let ctx: ReturnType<typeof makeController>
+  const FUTURE = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+  const PAST = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+
+  beforeEach(() => {
+    ctx = makeController()
+  })
+
+  it('returns null url + status when no link exists for the email', async () => {
+    ctx.magicLink.getByEmail.mockResolvedValueOnce(null)
+    await expect(
+      ctx.controller.getMagicLink({ email: 'nobody@example.com' } as never),
+    ).resolves.toEqual({ url: null, status: null })
+  })
+
+  it('returns the URL only while the link is still redeemable (sent)', async () => {
+    ctx.magicLink.getByEmail.mockResolvedValueOnce({
+      kind: 'SERVE',
+      url: 'https://gp/serve/welcome?__clerk_ticket=tok',
+      expiresAt: FUTURE,
+      redeemedAt: null,
+      onboardingCompletedAt: null,
+    })
+    await expect(
+      ctx.controller.getMagicLink({ email: 'eo@example.com' } as never),
+    ).resolves.toEqual({
+      url: 'https://gp/serve/welcome?__clerk_ticket=tok',
+      status: 'sent',
+    })
+  })
+
+  it('withholds the URL once the link is redeemed (consumed token)', async () => {
+    ctx.magicLink.getByEmail.mockResolvedValueOnce({
+      kind: 'SERVE',
+      url: 'https://gp/serve/welcome?__clerk_ticket=tok',
+      expiresAt: FUTURE,
+      redeemedAt: PAST,
+      onboardingCompletedAt: null,
+    })
+    await expect(
+      ctx.controller.getMagicLink({ email: 'eo@example.com' } as never),
+    ).resolves.toEqual({ url: null, status: 'redeemed' })
+  })
+
+  it('withholds the URL once the link has expired', async () => {
+    ctx.magicLink.getByEmail.mockResolvedValueOnce({
+      kind: 'SERVE',
+      url: 'https://gp/serve/welcome?__clerk_ticket=tok',
+      expiresAt: PAST,
+      redeemedAt: null,
+      onboardingCompletedAt: null,
+    })
+    await expect(
+      ctx.controller.getMagicLink({ email: 'eo@example.com' } as never),
+    ).resolves.toEqual({ url: null, status: 'expired' })
   })
 })

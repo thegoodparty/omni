@@ -8,6 +8,7 @@ import { ArrowRight } from 'lucide-react'
 import { Button, GoodPartyOrgLogoWordmark } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { SERVE_ONBOARDING_PATH } from 'helpers/resolvePostAuthRedirectPath.util'
+import { clientRequest } from 'gpApi/typed-request'
 
 /**
  * Magic-link redemption landing page. A sales-sent link carries a Clerk
@@ -242,6 +243,17 @@ export default function ServeWelcomeContent() {
           }
         }
       }
+
+      // Tell gp-api the link was redeemed so the sales HubSpot card reflects it.
+      // Best-effort and non-blocking: `keepalive` lets the request outlive the
+      // navigation below, and any failure is swallowed (the redemption itself
+      // already succeeded). Fires here, after setActive, so the request carries
+      // the lead's freshly-activated session.
+      void clientRequest(
+        'POST /v1/elected-office/magic-link/redeemed',
+        {},
+        { keepalive: true },
+      ).catch(() => undefined)
 
       window.location.href = POST_AUTH_REDIRECT
     } catch (err) {

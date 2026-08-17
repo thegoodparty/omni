@@ -42,6 +42,98 @@ secrets are missing or HubSpot rejects the send, the function still returns the
 card always shows the copyable link as a fallback. This requires two secrets,
 `HUBSPOT_TRANSACTIONAL_TOKEN` and `WIN_MAGIC_LINK_EMAIL_ID` (see setup below).
 
+## Texting the link
+
+Reps are usually on a call when they send a link, so the card can text it as well
+as email it. Two buttons drive this:
+
+- **Generate & text link** — mints a link and texts it in the same call, by
+  passing `phone` / `smsConsent` / `consentSource` through to
+  `POST /v1/admin/campaign/magic-link`.
+- **Text link** — texts the lead's *current* link via
+  `POST /v1/admin/campaign/magic-link/sms`, for when they never received the
+  email. This deliberately does not mint a new link: doing so would rotate the
+  short-link slug and kill the one already in their inbox.
+
+Both require the consent checkbox ("agreed on this call to be texted"), and both
+prefer `mobilephone` over `phone` — a landline in `phone` accepts the send and
+never delivers. Like email, the send is **best-effort and non-fatal**: the
+response carries `smsSent` and an optional `smsError`, and the copyable link
+remains as a fallback.
+
+Two things are worth knowing about the design:
+
+- **SMS is sent by gp-api via Sinch, not from this function.** The serve and win
+  cards are two separate HubSpot projects, so sending here would mean two
+  implementations and provider credentials duplicated into both. It also needs
+  database access for the short link, which only gp-api has. No `secretKeys`
+  change is therefore needed — the function still only talks to gp-api.
+- **The texted link is a short link, not the redemption URL.** The ticketed URL
+  measures ~743 characters (Clerk sign-in tokens are RS256 JWTs), which is five
+  SMS segments and a query string carrier filters read as phishing. gp-api mints
+  a 12-character slug and texts `https://app.goodparty.org/s/<slug>`, which the
+  webapp resolves and forwards.
+
+Consent is **enforced in gp-api, not by this checkbox**: it is recorded on the
+`User` (so it outlives any single link), and a lead who has replied STOP is
+refused regardless of what the card sends. The checkbox is the capture point,
+not the control.
+
+## Persistent lifecycle state on the card
+
+The card shows the magic link's lifecycle and keeps it across card close/reopen.
+gp-api is the source of truth (a `magic_link` row keyed to the lead, `kind=WIN`)
+and **mirrors** the derived status onto custom **contact properties**, which the
+card reads (read-only) via `useCrmProperties`:
+
+| Property | Type | Written when |
+|---|---|---|
+| `win_magic_link_status` | single-line text | every transition (`sent` / `redeemed` / `onboarding_completed` / `expired`) |
+| `win_magic_link_sent_at` | date picker (datetime) | link sent |
+| `win_magic_link_expires_at` | date picker (datetime) | link sent |
+| `win_magic_link_redeemed_at` | date picker (datetime) | lead redeems the link |
+| `win_onboarding_completed_at` | date picker (datetime) | candidate launches their campaign |
+
+### The redemption URL is never mirrored to HubSpot
+
+The link carries a **live single-use Clerk sign-in ticket** — a bearer
+credential. Mirroring it to a contact property would put that credential at rest
+in the CRM, readable by any connected integration with contacts-read. So the URL
+lives **only in gp-db**. When a rep needs to copy an active link, the card pulls
+it on demand through the serverless function (which holds the M2M token) via
+`GET /v1/admin/campaign/magic-link?email=…` (action `fetch`). gp-api only returns
+the URL while the link is still redeemable (`sent`); a redeemed, expired, or
+completed link returns `url: null`, so a consumed token is never handed back out.
+The card derives the `active` state from `win_magic_link_sent_at` +
+`win_magic_link_expires_at` rather than the URL.
+
+Lifecycle transitions are driven entirely by gp-api (not this app — it only has
+`crm.objects.contacts.read`):
+
+- **sent** — `POST /v1/admin/campaign/magic-link` persists the row (including the
+  URL) and mirrors `sent` + the timestamps (no URL).
+- **redeemed** — the `/win/welcome` redemption page pings
+  `POST /v1/campaigns/magic-link/redeemed` (session-authed) after the lead
+  activates their session; gp-api marks it redeemed and re-mirrors.
+- **onboarding_completed** — gp-api hooks `POST /v1/campaigns/launch` (the
+  candidate's "finished onboarding" milestone — the analog of an
+  `ElectedOffice`'s `onboardingCompletedAt`) and re-mirrors.
+
+gp-api writes these via its own private-app token (`HUBSPOT_TOKEN`, which already
+has `crm.objects.contacts.write`), so **no extra scope is needed on this app**.
+The `status` value is recomputed from the timestamps at read time (so an
+unredeemed link flips to `expired` without any write), and the card re-derives it
+client-side as well.
+
+### One-time HubSpot setup (custom contact properties)
+
+Create the five properties above on the **Contact** object (Settings → Properties
+→ Contacts → Create property). Use a date-picker (date & time) type for the
+`*_at` properties and single-line text for `win_magic_link_status`. Group them
+under e.g. "Candidate Magic Link". No workflow is required — gp-api writes them
+directly. (There is intentionally **no** `win_magic_link_url` property — see
+above.)
+
 ## Platform version
 
 This is a developer **Project** targeting platform version **`2026.03`**

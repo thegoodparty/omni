@@ -4,6 +4,7 @@ import { OrganizationsModule } from '@/organizations/organizations.module'
 import { MeetingsModule } from '@/meetings/meetings.module'
 import { PrioritiesModule } from '@/priorities/priorities.module'
 import { ElectionsModule } from '@/elections/elections.module'
+import { MagicLinkModule } from '@/magicLink/magicLink.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { HttpModule } from '@nestjs/axios'
 import { Module, forwardRef } from '@nestjs/common'
@@ -22,6 +23,7 @@ import { ElectedOfficeSupportApiService } from './services/electedOfficeSupportA
     forwardRef(() => MeetingsModule),
     forwardRef(() => PrioritiesModule),
     ElectionsModule,
+    MagicLinkModule,
     HttpModule,
     ClerkModule,
   ],

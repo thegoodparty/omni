@@ -35,6 +35,9 @@ const mockUser: User = {
   metaData: null,
   passwordResetToken: null,
   clerkId: null,
+  smsConsentAt: null,
+  smsConsentSource: null,
+  smsOptedOutAt: null,
   personId: null,
 }
 

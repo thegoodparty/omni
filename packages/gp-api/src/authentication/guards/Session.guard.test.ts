@@ -25,6 +25,9 @@ const baseUser: User = {
   metaData: null,
   passwordResetToken: null,
   clerkId: 'user_subject_123',
+  smsConsentAt: null,
+  smsConsentSource: null,
+  smsOptedOutAt: null,
   personId: null,
 }
 

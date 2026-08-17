@@ -12,13 +12,18 @@ const meta = pageMetaData({
 })
 export const metadata = meta
 
+// Mirrors CONSUMED_TICKET_MESSAGE on the /serve/welcome and /win/welcome pages.
+// The /s/<slug> short-link handler sends leads here with `magicLinkExpired=1`
+// when their texted link is already used, expired, or unknown — without it they
+// would land on a bare sign-in form with no idea why.
+const MAGIC_LINK_EXPIRED_MESSAGE =
+  'This sign-in link has already been used or has expired. Request a new link, or sign in below.'
+
 export default async function LoginPage({
   searchParams,
 }: PageProps<any>): Promise<React.JSX.Element> {
-  const [{ userId }, { redirect_url: redirectUrlParam }] = await Promise.all([
-    auth(),
-    searchParams,
-  ])
+  const [{ userId }, { redirect_url: redirectUrlParam, magicLinkExpired }] =
+    await Promise.all([auth(), searchParams])
 
   // When the middleware bounces an unauthenticated deep link (e.g.
   // /dashboard/briefings from a marketing email) through here, it preserves
@@ -66,7 +71,12 @@ export default async function LoginPage({
       }
 
   return (
-    <div className="flex items-center justify-center min-h-[calc(100vh-64px)] py-8">
+    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-64px)] gap-6 py-8">
+      {magicLinkExpired ? (
+        <p className="max-w-md rounded-lg border border-base-border px-4 py-3 text-center text-sm leading-relaxed text-muted-foreground">
+          {MAGIC_LINK_EXPIRED_MESSAGE}
+        </p>
+      ) : null}
       <SignIn {...redirectProps} routing="hash" />
     </div>
   )
