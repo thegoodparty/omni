@@ -99,7 +99,16 @@ describe('CvStatusPollService', () => {
   })
 
   describe('triggerScan', () => {
-    it('enqueues once with a slot-keyed FIFO deduplicationId', async () => {
+    it('does nothing outside prod so dev/qa never call Peerly', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
+
+      await service.triggerScan()
+
+      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    })
+
+    it('enqueues once with a slot-keyed FIFO deduplicationId in prod', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
       const scanKey = formatInTimeZone(
         new Date(),
         EASTERN_TIMEZONE,
@@ -122,6 +131,7 @@ describe('CvStatusPollService', () => {
     })
 
     it('logs but does not throw when the enqueue fails', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
       mockQueue.sendMessage.mockRejectedValueOnce(new Error('sqs down'))
 
       await expect(service.triggerScan()).resolves.toBeUndefined()

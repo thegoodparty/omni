@@ -158,8 +158,10 @@ Cadence, set size, and pacing were agreed with Peerly (James/Patrick,
 (~5,100 retrieve_cv calls/day for ~88 identities, doubled by the two prod
 replicas' independent `@Interval` timers):
 
-- **Schedule:** `@Cron('0 8,20 * * *', { timeZone: EASTERN_TIMEZONE })` —
-  every replica's cron fires, and the slot-keyed FIFO `deduplicationId`
+- **Schedule:** `@Cron('0 8,20 * * *', { timeZone: EASTERN_TIMEZONE })`,
+  **prod-only** (dev/qa would burn vendor-budgeted calls on their own queue,
+  and non-prod Peerly flows are stubbed anyway) — every replica's cron
+  fires, and the slot-keyed FIFO `deduplicationId`
   (`cvStatusPoll-<yyyy-MM-dd-HH>`) collapses them so exactly one replica
   scans (nightly10DlcReport pattern).
 - **Detached from the consumer:** the SQS handler acks immediately and runs

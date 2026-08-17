@@ -89,6 +89,13 @@ export class CvStatusPollService extends createPrismaBase(
     timeZone: EASTERN_TIMEZONE,
   })
   async triggerScan() {
+    // Prod-only (mirrors triggerNightlyReport): dev/qa would run real
+    // retrieve_cv calls against their own SQS queue, and every call counts
+    // against the vendor budget this scan exists to respect. Non-prod Peerly
+    // flows are stubbed anyway, so there is nothing meaningful to poll.
+    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') {
+      return
+    }
     const scanKey = formatInTimeZone(
       new Date(),
       EASTERN_TIMEZONE,
