@@ -485,18 +485,206 @@ def test_missing_webhook_secret_returns_401(fake_clickup, fake_ecs, ecs_env, cap
 
 
 # ---------------------------------------------------------------------------
-# 3. Non-taskTagUpdated events are skipped
+# 3. Events the bot does not trigger on are skipped
 # ---------------------------------------------------------------------------
 
 
 def test_other_event_type_returns_200_without_side_effects(fake_clickup, fake_ecs, ecs_env):
-    body = {"event": "taskCreated", "task_id": "abc123", "history_items": []}
+    body = {"event": "taskUpdated", "task_id": "abc123", "history_items": []}
     event = make_event(body)
 
     resp = handler.handler(event, None)
 
     assert resp["statusCode"] == 200
     assert_no_side_effects(fake_clickup, fake_ecs)
+
+
+# ---------------------------------------------------------------------------
+# 3b. taskCreated: the tag-in-the-create-call race.
+#
+# The tag that summons this bot is applied by the HubSpot integration, and
+# whether it lands inside the create call or as a follow-up edit is not
+# deterministic. When it lands inside the create, ClickUp emits taskCreated and
+# NO tag delta ever exists — on 2026-08-14/17 that silently swallowed two of
+# five reported bugs (ENG-10890, ENG-10891), which sat tagged and un-analyzed
+# until someone re-tagged them by hand. So a created task must be judged on the
+# tags it actually carries, not on a delta that may never arrive.
+# ---------------------------------------------------------------------------
+
+
+def created_body(task_id: str | None = "abc123", history_items: list | None = None) -> dict:
+    body: dict = {"event": "taskCreated", "history_items": history_items if history_items is not None else []}
+    if task_id is not None:
+        body["task_id"] = task_id
+    return body
+
+
+def task_get_calls(fake_clickup: FakeUrlopen) -> list:
+    """Every GET /task/{id} (the tag lookup and the scope guard share these)."""
+    return [c for c in fake_clickup.calls if c[0] == "GET" and "/task/" in c[1] and "/comment" not in c[1]]
+
+
+def test_created_task_tagged_inside_the_create_call_still_launches(fake_clickup, fake_ecs, ecs_env):
+    # The regression that started all this: no tag delta at all, the tag is
+    # only visible on the task itself.
+    fake_clickup.task_response = {
+        "custom_id": "ENG-10890",
+        "list": {"id": "901321761872", "name": "Bugs"},
+        "tags": [{"name": "hs ticket"}, {"name": "production-bug"}, {"name": "gpbot-analyze"}],
+    }
+    event = make_event(created_body())
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 200
+    assert response_body(resp)["fargate_task_arn"] == TASK_ARN
+    assert len(fake_ecs.run_task_calls) == 1
+    assert engineer_agent_env(fake_ecs.run_task_calls[0])["CLICKUP_TASK_ID"] == "abc123"
+
+
+def test_created_task_without_a_gpbot_tag_is_silent(fake_clickup, fake_ecs, ecs_env, capsys):
+    # taskCreated fires for EVERY task created anywhere in the workspace, so
+    # the overwhelming majority of these deliveries are none of the bot's
+    # business. They must cost one lookup and produce no launch, no comment,
+    # and no alarm noise.
+    fake_clickup.task_response = {"custom_id": "ENG-1", "list": {"id": "901321761872"}, "tags": [{"name": "hs ticket"}]}
+    event = make_event(created_body())
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 200
+    assert_no_side_effects(fake_clickup, fake_ecs)
+    assert_no_alarm_log_emitted(capsys)
+
+
+def test_created_task_carrying_both_tags_analyzes_rather_than_opening_a_pr(fake_clickup, fake_ecs, ecs_env):
+    # Tag order in a ClickUp response is not promised, and the two actions are
+    # not equally reversible: analyze posts a comment, implement opens a PR. An
+    # ambiguous snapshot must always resolve to the cheap one.
+    fake_clickup.task_response = {
+        "custom_id": "ENG-7497",
+        "list": {"id": "901321761872", "name": "Bugs"},
+        "tags": [{"name": "gpbot-work"}, {"name": "gpbot-analyze"}],
+    }
+    event = make_event(created_body())
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 200
+    assert "analyze" in fake_clickup.posted_comment_texts[0]
+    assert "Analyze and Report" in engineer_agent_env(fake_ecs.run_task_calls[0])["INSTRUCTION"]
+
+
+def test_created_task_lookup_failure_never_comments_on_an_unrelated_ticket(fake_clickup, fake_ecs, ecs_env, capsys):
+    # The failure-comment habit everywhere else in this handler would, on this
+    # path, scatter "[GP-Bot] Failed to start processing" across every ticket
+    # anyone creates during a ClickUp blip — tickets that never asked for the
+    # bot. Loud in the logs, silent on the ticket.
+    fake_clickup.get_task_error = URLError("clickup unreachable")
+    event = make_event(created_body())
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 500
+    assert_no_side_effects(fake_clickup, fake_ecs)
+    assert_alarm_log_emitted(capsys)
+
+
+def test_created_task_with_tag_in_the_delta_skips_the_lookup(fake_clickup, fake_ecs, ecs_env):
+    # If ClickUp does include the tag in the create payload, the free path must
+    # be taken: no GET /task for an analyze run. This is also what would let
+    # the lookup (and the secrets exposure it forces) be removed later.
+    event = make_event(created_body(history_items=[{"field": "tag", "after": [{"name": "gpbot-analyze"}]}]))
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 200
+    assert len(fake_ecs.run_task_calls) == 1
+    assert task_get_calls(fake_clickup) == []
+
+
+def test_created_task_resolution_and_scope_guard_share_one_lookup(fake_clickup, fake_ecs, ecs_env):
+    # A created DATA ticket tagged gpbot-work has to be refused, and the tag
+    # lookup already fetched the task — re-fetching it for the scope guard
+    # would double the ClickUp calls on a path fed by every task in the
+    # workspace.
+    fake_clickup.task_response = {
+        "custom_id": "DATA-2108",
+        "list": {"id": "901326391561", "name": "Data Backlog"},
+        "tags": [{"name": "gpbot-work"}],
+    }
+    event = make_event(created_body())
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 200
+    assert response_body(resp)["skipped"] == "out of scope"
+    assert_no_side_effects(fake_clickup, fake_ecs)
+    assert len(task_get_calls(fake_clickup)) == 1
+
+
+def test_created_task_defers_tag_resolution_to_the_async_worker(
+    fake_clickup, fake_ecs, fake_lambda, ecs_env, self_invoke_env
+):
+    # Fast-ack must stay fast: resolving the tag needs a ClickUp round trip, so
+    # it belongs in the worker, not on the path ClickUp is waiting on. The
+    # payload says "resolve it" rather than carrying a null tag, so the worker's
+    # fail-loud check on an unknown matched_tag keeps its teeth.
+    fake_clickup.task_response = {
+        "custom_id": "ENG-10891",
+        "list": {"id": "901321761872", "name": "Bugs"},
+        "tags": [{"name": "gpbot-analyze"}],
+    }
+    event = make_event(created_body())
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 200
+    assert response_body(resp)["status"] == "accepted"
+    assert response_body(resp)["label"] == "unresolved"
+    payload = fake_lambda.invoke_payloads[0]
+    assert payload["resolve_tag_from_task"] is True
+    assert "matched_tag" not in payload
+    assert task_get_calls(fake_clickup) == []
+    assert fake_ecs.run_task_calls == []
+
+    # The worker then does the lookup and launches.
+    worker_resp = handler.handler(payload, None)
+
+    assert worker_resp["statusCode"] == 200
+    assert len(fake_ecs.run_task_calls) == 1
+
+
+def test_async_resolve_payload_without_task_id_is_refused(fake_clickup, fake_ecs, ecs_env, capsys):
+    resp = handler.handler({"gpbot_async": True, "resolve_tag_from_task": True}, None)
+
+    assert resp["statusCode"] == 400
+    assert_no_side_effects(fake_clickup, fake_ecs)
+    assert_alarm_log_emitted(capsys)
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        None,
+        "not-a-dict",
+        {},
+        {"tags": None},
+        {"tags": "gpbot-analyze"},
+        {"tags": [None, "gpbot-analyze"]},
+        {"tags": [{"name": None}]},
+        {"tags": [{"name": "needs-grooming"}]},
+    ],
+)
+def test_find_task_tag_fails_closed_on_unusable_shapes(task):
+    # Mirror of out_of_scope_reason's shape defensiveness, but failing the other
+    # way: no readable tag means no run. Coercing a drifted shape into a match
+    # would launch an agent — or open a PR — off a response nobody can parse.
+    assert handler.find_task_tag(task) is None
+
+
+def test_find_task_tag_matches_case_insensitively():
+    assert handler.find_task_tag({"tags": [{"name": "GPBot-Analyze"}]}) == "gpbot-analyze"
 
 
 # ---------------------------------------------------------------------------
@@ -1894,6 +2082,32 @@ def secrets_outage_client_factory(secrets: FakeSecretsManagerClient, ecs: FakeEC
 
 
 def test_secrets_outage_non_target_event_returns_200(fake_clickup, fake_ecs, ecs_env, monkeypatch):
+    # taskUpdated, not taskCreated: taskCreated became a triggering event when
+    # the tag-in-create-call race was fixed, so it is no longer an example of a
+    # delivery the bot would ignore. The property under test is unchanged —
+    # a delivery the bot would never act on must not even reach Secrets Manager.
+    handler._secrets_cache = None
+    secrets = FakeSecretsManagerClient()
+    secrets.exception = RuntimeError("AccessDeniedException")
+    monkeypatch.setattr(handler.boto3, "client", secrets_outage_client_factory(secrets, fake_ecs))
+    event = make_event({"event": "taskUpdated", "task_id": "abc123", "history_items": []})
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 200
+    assert secrets.calls == 0
+    assert_no_side_effects(fake_clickup, fake_ecs)
+
+
+def test_secrets_outage_unresolved_created_task_returns_200_to_protect_the_webhook(
+    fake_clickup, fake_ecs, ecs_env, monkeypatch, capsys
+):
+    # A taskCreated delivery with no tag delta cannot be classified without the
+    # API key, and it fires for every task created anywhere in the workspace.
+    # 500-ing all of them during a secrets outage is what drives ClickUp's
+    # consecutive-failure counter into suspending the webhook, which is a silent
+    # outage lasting until a human notices (Jul 31 -> Aug 14, last time). So the
+    # delivery is dropped with a 200 and the operator signal comes from the alarm.
     handler._secrets_cache = None
     secrets = FakeSecretsManagerClient()
     secrets.exception = RuntimeError("AccessDeniedException")
@@ -1903,7 +2117,30 @@ def test_secrets_outage_non_target_event_returns_200(fake_clickup, fake_ecs, ecs
     resp = handler.handler(event, None)
 
     assert resp["statusCode"] == 200
-    assert secrets.calls == 0
+    assert_no_side_effects(fake_clickup, fake_ecs)
+    # Dropping the delivery silently would make a secrets outage invisible.
+    assert_alarm_log_emitted(capsys)
+
+
+def test_secrets_outage_still_fails_a_created_task_we_know_is_tagged(fake_clickup, fake_ecs, ecs_env, monkeypatch):
+    # The counterpart to the test above: when the create payload DOES carry a
+    # gpbot tag, the delivery is known-relevant and rare, so the redelivery a
+    # 500 buys is worth the failure count.
+    handler._secrets_cache = None
+    secrets = FakeSecretsManagerClient()
+    secrets.exception = RuntimeError("AccessDeniedException")
+    monkeypatch.setattr(handler.boto3, "client", secrets_outage_client_factory(secrets, fake_ecs))
+    body = {
+        "event": "taskCreated",
+        "task_id": "abc123",
+        "history_items": [{"field": "tag", "after": [{"name": "gpbot-analyze"}]}],
+    }
+    event = make_event(body)
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 500
+    assert response_body(resp)["error"] == "secrets unavailable"
     assert_no_side_effects(fake_clickup, fake_ecs)
 
 

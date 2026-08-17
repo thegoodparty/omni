@@ -25,14 +25,21 @@ ClickUp comment OR GitHub PR
 
 ## Flow
 
-1. User adds tag to a ClickUp task (e.g., `gpbot-analyze`)
-2. ClickUp sends `taskTagUpdated` webhook to Lambda
+1. A tag lands on a ClickUp task (e.g., `gpbot-analyze`) — applied by hand, by a
+   ClickUp Automation, or by the HubSpot integration as it files the ticket
+2. ClickUp sends a `taskTagUpdated` **or** `taskCreated` webhook to Lambda. Both
+   are subscribed, and the reason is a race — see "Why both events" below
 3. Webhook invocation (ClickUp's critical path — must answer in well under
    ClickUp's webhook response timeout):
    - Verify the signature, validate `task_id`, resolve the tag in `TAG_CONFIG`
    - Self-invoke the same Lambda asynchronously with
      `{"gpbot_async": true, "task_id": ..., "matched_tag": ...}` and return
      `200 {"status": "accepted"}` immediately — zero ClickUp API calls in-path
+   - A `taskCreated` delivery with no tag delta cannot be resolved without a
+     ClickUp call, so the payload instead carries
+     `{"resolve_tag_from_task": true}` and the worker does the lookup. The flag
+     is explicit rather than a null `matched_tag` so the worker's fail-loud
+     check on an unknown tag keeps working
    - If the self-invoke is unavailable (missing IAM — the initial state until
      the follow-up terraform lands — or any invoke error), fall back to running
      the worker steps inline, exactly the pre-fast-ack behavior
@@ -40,6 +47,12 @@ ClickUp comment OR GitHub PR
    by a top-level `gpbot_async` key with no ALB envelope keys, which an
    internet request cannot produce — an ALB-wrapped body stays a string inside
    `event["body"]`):
+   - Tag resolution (`taskCreated` without a tag delta only): `GET /task/{id}`
+     and read the tag off the task itself, preferring `gpbot-analyze` when both
+     tags are present. No recognizable tag → skip quietly, which is the common
+     case since `taskCreated` fires for every task created in the workspace.
+     The fetched task is reused by the scope guard below, so this path costs one
+     `GET /task`, not two.
    - Scope guard (`implement` only): `GET /task/{id}` and skip when the task is
      not omni code work. See "Scope guard" below.
    - Dedup check: does the task already have a **recent** `[GP-Bot] Processing
@@ -71,6 +84,48 @@ on the task and returns HTTP 500.
 
 To retry after a failure (e.g. once the config is fixed): remove and re-add the tag.
 Failure comments do not mark the task as processed, so the retry re-triggers.
+
+## Why both events (`taskTagUpdated` and `taskCreated`)
+
+Subscribing to `taskTagUpdated` alone loses bugs, and it loses them silently.
+
+The tag that summons this bot is applied by the HubSpot integration as it files
+the ticket, and whether it lands **inside** the create call or as a **follow-up
+edit** is not deterministic. Measured over the five bugs reported 2026-08-14 to
+2026-08-17:
+
+| Ticket | Tag arrived as | `taskTagUpdated` fired? | Analyzed? |
+|--------|----------------|------------------------|-----------|
+| ENG-10889, ENG-10892, ENG-10893 | separate edit | yes | yes |
+| ENG-10890, ENG-10891 | inside the create call | **no** | **no** |
+
+Two of five — a 40% miss rate — sat tagged and un-analyzed until someone
+re-tagged them by hand. Nothing looked broken from the outside: the webhook was
+`active` with `fail_count: 0`, no delivery was dropped, and no error was logged,
+because from ClickUp's side there was simply never an event to send. The tell is
+`date_updated` sitting 0–1s after `date_created` (nothing ever edited the task)
+while the task plainly carries the tag.
+
+`taskCreated` closes it: a created task is judged on the tags it actually
+carries, so the trigger no longer depends on which path ClickUp happens to take.
+
+Two consequences worth knowing:
+
+- **Volume.** `taskCreated` fires for every task created anywhere in the
+  workspace, so most deliveries now cost one `GET /task` and skip. Cheap, but it
+  is the busiest path in the handler — keep it free of ClickUp writes.
+- **Widened secrets exposure.** A `taskCreated` delivery with no tag delta
+  cannot be classified without the API key, so it can no longer be filtered
+  *before* signature verification. During a Secrets Manager outage those
+  deliveries return **200 and are dropped** rather than 500ing, because 500ing
+  every created task is what drives ClickUp's consecutive-failure counter into
+  suspending the webhook — and a suspended webhook is a silent outage that ran
+  from Jul 31 to Aug 14 the last time it happened. A delivery we *know* is
+  tagged still 500s so ClickUp redelivers. The outage itself still alarms.
+
+If real `taskCreated` payloads turn out to include tags in `history_items`, the
+free path already handles them (`find_matched_tag` runs first) and both the
+lookup and this exposure can be removed.
 
 ## Scope guard
 
@@ -244,7 +299,8 @@ are sparse) as the only thing that will tell you the bot has gone quiet.
 
 During a Secrets Manager outage the Lambda cannot verify signatures for gpbot-tagged
 deliveries and returns 500 for them (irrelevant deliveries are filtered before
-signature verification and still return 200). A rotated or mismatched
+signature verification and still return 200; unclassifiable `taskCreated`
+deliveries also return 200 — see "Why both events"). A rotated or mismatched
 `CLICKUP_WEBHOOK_SECRET` behaves the same way with 401s. ClickUp tracks consecutive
 delivery failures per webhook and auto-suspends the webhook after sustained failures.
 A suspended webhook stays suspended after the outage is fixed: the bot receives
@@ -267,10 +323,16 @@ curl -s -H "Authorization: $CLICKUP_API_KEY" "https://api.clickup.com/api/v2/tea
 curl -s -H "Authorization: $CLICKUP_API_KEY" \
   "https://api.clickup.com/api/v2/team/<team_id>/webhook" | jq '.webhooks[] | {id, endpoint, health}'
 
-# re-enable a suspended webhook
+# re-enable a suspended webhook. Both events are required — dropping
+# taskCreated here silently reopens the tag-in-create-call race and the bot
+# starts missing ~40% of reported bugs with nothing in the logs.
 curl -s -X PUT -H "Authorization: $CLICKUP_API_KEY" -H "Content-Type: application/json" \
-  -d '{"endpoint": "https://ai.goodparty.org/clickup/webhook", "events": ["taskTagUpdated"], "status": "active"}' \
+  -d '{"endpoint": "https://ai.goodparty.org/clickup/webhook", "events": ["taskTagUpdated", "taskCreated"], "status": "active"}' \
   "https://api.clickup.com/api/v2/webhook/<webhook_id>"
+
+# confirm the subscription still covers both events (a PUT replaces the list)
+curl -s -H "Authorization: $CLICKUP_API_KEY" \
+  "https://api.clickup.com/api/v2/team/<team_id>/webhook" | jq '.webhooks[].events'
 ```
 
 ## Environment Variables
@@ -359,7 +421,9 @@ terraform apply
 1. Go to ClickUp Settings → Integrations → Webhooks
 2. Create webhook with:
    - Endpoint: `https://ai.goodparty.org/clickup/webhook`
-   - Events: `taskTagUpdated`
+   - Events: `taskTagUpdated` **and** `taskCreated` — both, or the bot silently
+     misses every bug whose tag arrives inside the create call (see "Why both
+     events")
    - Scope: whole workspace (omit `space_id`). The handler filters non-target
      deliveries *before* signature verification precisely because it receives the
      entire workspace's tag updates — a space-scoped webhook would break the outage
