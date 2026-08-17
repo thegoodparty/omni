@@ -1,7 +1,12 @@
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, within } from '@testing-library/react'
-import { RoutePayloadStop, RoutePayloadTarget } from '@goodparty_org/contracts'
+import {
+  DoorKnockOutcome,
+  RoutePayloadStop,
+  RoutePayloadTarget,
+  RouteTargetActivity,
+} from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import PersonSheet from './PersonSheet'
 
@@ -270,5 +275,130 @@ describe('PersonSheet flagged residents', () => {
 
     expect(screen.getByText('Not a voter — what happened?')).toBeInTheDocument()
     expect(screen.getByTestId('record-knock-form')).toBeInTheDocument()
+  })
+})
+
+// ADR 0009.
+describe('PersonSheet activity feed', () => {
+  const feed = () =>
+    screen.getByRole('heading', { name: 'Activity feed' }).parentElement!
+
+  const knock = (
+    activityId: string,
+    date: string,
+    outcome: DoorKnockOutcome = 'answered',
+  ): RouteTargetActivity => ({
+    type: 'DOOR_KNOCK',
+    date,
+    data: {
+      activityId,
+      outcome,
+      supportAnswer: null,
+      note: null,
+      manual: false,
+    },
+  })
+
+  it('reports an untouched resident rather than leaving the card blank', () => {
+    renderSheet([target({ history: [] })])
+
+    expect(
+      within(feed()).getByText('No previous outreach to this resident.'),
+    ).toBeInTheDocument()
+  })
+
+  // The feed belongs to the person, not the door. Two people behind one door
+  // disagree, and a housemate's refusal attributed to whoever answered is
+  // worse than showing nothing at all.
+  it('follows the selected resident rather than the household', () => {
+    renderSheet([
+      target({ history: [knock('dk-1', '2026-08-10T15:00:00.000Z')] }),
+      target({
+        stopTargetId: 22,
+        personId: 'person-2',
+        name: 'Marisol Vega',
+        history: [
+          knock('dk-2', '2026-08-09T15:00:00.000Z', 'refused_to_engage'),
+        ],
+      }),
+    ])
+
+    expect(within(feed()).getByText('Door Knock: Answered')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Marisol Vega/ }))
+
+    const switched = within(feed())
+    expect(
+      switched.getByText('Door Knock: Refused to Engage'),
+    ).toBeInTheDocument()
+    expect(switched.queryByText('Door Knock: Answered')).toBeNull()
+  })
+
+  // Deliberate, and the opposite of the rule the footer follows. Withholding
+  // the form stops a knock; withholding the history would stop someone
+  // noticing that the flag was applied to the wrong resident — and the feed is
+  // the only surface at the door that carries the flag's own status-change row.
+  it('keeps the feed for a flagged resident whose form is withheld', () => {
+    renderSheet([
+      target({
+        doNotKnock: true,
+        history: [knock('dk-1', '2026-08-10T15:00:00.000Z')],
+      }),
+    ])
+
+    expect(screen.queryByTestId('record-knock-form')).toBeNull()
+    expect(within(feed()).getByText('Door Knock: Answered')).toBeInTheDocument()
+  })
+
+  // A data-quality hint about the file and a canvasser's firsthand report are
+  // separate observations that can land on the same person. The hint has no
+  // date and no author, so it stays a line in Contact information instead of
+  // becoming a second timeline row that reads like the same event logged
+  // twice.
+  it('leaves mayHaveMoved out of the timeline when both are present', () => {
+    renderSheet([
+      target({
+        mayHaveMoved: true,
+        notAVoterReason: 'moved',
+        history: [
+          {
+            type: 'STATUS_CHANGE',
+            date: '2026-08-11T15:00:00.000Z',
+            data: {
+              activityId: 'se-1',
+              field: 'not_a_voter',
+              fromLabel: null,
+              toLabel: 'Moved away',
+              actorName: 'Rosa Iyer',
+              actorUserId: 77,
+              source: 'manual',
+            },
+          },
+        ],
+      }),
+    ])
+
+    expect(
+      within(contactCard()).getByText(
+        'May have moved since this route was built.',
+      ),
+    ).toBeInTheDocument()
+    const timeline = within(feed())
+    expect(
+      timeline.getByText("Rosa Iyer set Not A Voter to 'Moved away'"),
+    ).toBeInTheDocument()
+    expect(
+      timeline.queryByText('May have moved since this route was built.'),
+    ).toBeNull()
+  })
+
+  // A route snapshotted by the service worker before this shipped has no
+  // history key at all, and it has to render on a phone that cannot refetch.
+  it('treats a payload with no history field as an empty feed', () => {
+    renderSheet([target()])
+
+    expect(
+      within(feed()).getByText('No previous outreach to this resident.'),
+    ).toBeInTheDocument()
   })
 })
