@@ -6,6 +6,7 @@ import {
   NotAVoterReason,
   NotAVoterReasonSchema,
   RoutePayloadAddress,
+  RouteTargetActivity,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
@@ -17,6 +18,7 @@ import {
   Organization,
   Prisma,
 } from '../../generated/prisma'
+import { DoorKnockingActivityService } from './doorKnockingActivity.service'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import {
   deriveKnockStatus,
@@ -61,6 +63,7 @@ export class DoorKnockingServeService extends createPrismaBase(
     private readonly peopleApi: DoorKnockingPeopleApiService,
     private readonly contacts: ContactsService,
     private readonly contactStatus: ContactStatusService,
+    private readonly activity: DoorKnockingActivityService,
   ) {
     super()
   }
@@ -107,12 +110,17 @@ export class DoorKnockingServeService extends createPrismaBase(
       residents.addresses.map((address) => [address.addressKey, address]),
     )
 
-    const [statusByPersonId, doNotKnockPersonIds, notAVoterReasons] =
-      await Promise.all([
-        this.latestKnockStatuses(organization.slug, targetPersonIds),
-        this.doNotKnockPersonIds(organization.slug, targetPersonIds),
-        this.notAVoterReasons(organization.slug, targetPersonIds),
-      ])
+    const [
+      statusByPersonId,
+      doNotKnockPersonIds,
+      notAVoterReasons,
+      historyByPersonId,
+    ] = await Promise.all([
+      this.latestKnockStatuses(organization.slug, targetPersonIds),
+      this.doNotKnockPersonIds(organization.slug, targetPersonIds),
+      this.notAVoterReasons(organization.slug, targetPersonIds),
+      this.activity.historyByPersonId(organization.slug, targetPersonIds),
+    ])
 
     return {
       route: {
@@ -134,6 +142,7 @@ export class DoorKnockingServeService extends createPrismaBase(
           statusByPersonId,
           doNotKnockPersonIds,
           notAVoterReasons,
+          historyByPersonId,
         )
         return {
           id: stop.id,
@@ -170,6 +179,7 @@ export class DoorKnockingServeService extends createPrismaBase(
     statusByPersonId: Map<string, DoorKnockStatus>,
     doNotKnockPersonIds: Set<string>,
     notAVoterReasons: Map<string, NotAVoterReason>,
+    historyByPersonId: Map<string, RouteTargetActivity[]>,
   ): RoutePayloadAddress[] {
     const byAddressKey = new Map<string, DoorKnockingStopTarget[]>()
     for (const target of targets) {
@@ -214,6 +224,11 @@ export class DoorKnockingServeService extends createPrismaBase(
             mayHaveMoved: !livePerson,
             doNotKnock: doNotKnockPersonIds.has(target.personId),
             notAVoterReason: notAVoterReasons.get(target.personId),
+            // ADR 0009. Keyed by personId, so it is this resident's history
+            // and not the household's — the two people behind one door often
+            // answered differently, and merging them at the door attributes a
+            // neighbor's refusal to whoever opens it.
+            history: historyByPersonId.get(target.personId) ?? [],
           }
         }),
         otherResidents: (live?.otherResidents ?? []).map((person) => ({

@@ -6,6 +6,7 @@ import { OrganizationsModule } from '@/organizations/organizations.module'
 import { GeoapifyModule } from '@/vendors/geoapify/geoapify.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { DoorKnockingController } from './doorKnocking.controller'
+import { DoorKnockingActivityService } from './services/doorKnockingActivity.service'
 import { DoorKnockingTurfService } from './services/doorKnockingTurf.service'
 import { DoorKnockingKnockService } from './services/doorKnockingKnock.service'
 import { DoorKnockingPeopleApiService } from './services/doorKnockingPeopleApi.service'
@@ -24,6 +25,7 @@ import { DoorKnockingPackService } from './services/doorKnockingPack.service'
   ],
   controllers: [DoorKnockingController],
   providers: [
+    DoorKnockingActivityService,
     DoorKnockingTurfService,
     DoorKnockingKnockService,
     DoorKnockingPeopleApiService,

@@ -120,9 +120,36 @@ re-attempt rather than a retraction of support already given. Pure
 last-write-wins made the door and Contacts disagree about the same person, and
 made a hand correction invisible at the door. `undecided` has no map member and
 reads as unknown (still worth knocking). The route
-payload ships `stopTargetId` per target (the interaction write key), no
+payload ships `stopTargetId` per target (the interaction write key), that
+target's own recent outreach history (see below), no
 `navigate` block (phone builds deep links from lat/lng + a per-route
 locale), and is snapshotted offline on the phone.
+
+## Previous outreach, at the door
+
+Each target carries `history`: its own recent outreach, newest first, capped
+at five rows — see [ADR 0009](adr/0009-activity-feed-on-the-route-payload.md)
+for why this rides the route payload instead of a per-person fetch. Short
+version: the walk is frozen and fetched once so it survives bad signal, and a
+round trip at the moment a canvasser is standing at a door fails exactly where
+the product is most valuable. Capped at five, a 100-stop payload grows 24.4 KB
+→ 42.9 KB gzip worst case (~29 KB at realistic coverage); uncapped it passes
+7x, because text and robocall rows accrue one per recipient per launched
+outreach.
+
+The entries are the CRM's own `ConstituentActivity` variants — `DOOR_KNOCK`,
+`TEXT`, `ROBOCALL`, `STATUS_CHANGE` — reused from contracts rather than
+redeclared, so `do_not_knock` and `not_a_voter` read the same here as in the
+Contacts person view. `POLL_INTERACTIONS` is elected-office only and door
+knocking is Win-only; the legacy `OUTREACH` rows are keyed on `lalVoterId`,
+which stop targets deliberately don't store.
+
+**Keyed by `personId`, never by address.** Two registered voters behind one
+front door often answered differently, and merging their histories would show
+a canvasser a refusal belonging to the housemate who isn't standing there.
+`DoorKnockingActivityService` applies the cap in SQL (`ROW_NUMBER()` per
+person per source), because route serve runs on every walk and map open and
+must not scale with how much outreach the campaign has ever run.
 
 ## Do-not-knock
 
