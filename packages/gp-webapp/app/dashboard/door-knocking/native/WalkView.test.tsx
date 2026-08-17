@@ -928,6 +928,264 @@ describe('WalkView auto-advance', () => {
 
   // Each door needs its own replay key, so advancing has to mint for the
   // stop it lands on rather than reusing the one just cleared.
+  // ADR 0009. The feed is served with the route, so the door just logged is
+  // missing from it until the route is served again. Reopening the resident is
+  // where that shows, and is therefore where the fresh serve is asked for.
+  it('shows a door logged this walk in the feed when the resident is reopened', async () => {
+    const stops = [stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')])]
+    let serves = 0
+    api.mock('GET /v1/door-knocking/turfs/:id/route', () => {
+      serves += 1
+      // The second serve is the one that has the knock, exactly as the server
+      // builds it — the row is never assembled from the rollup on the client.
+      return {
+        status: 200,
+        data:
+          serves === 1
+            ? payload(stops)
+            : payload([
+                stop(11, 1, '105 Elm St', [
+                  target(21, 'Dorian Fen', {
+                    knockStatus: 'not_home',
+                    history: [
+                      {
+                        type: 'DOOR_KNOCK',
+                        date: '2026-08-17T18:00:00.000Z',
+                        data: {
+                          activityId: 'dk-1',
+                          outcome: 'not_home',
+                          supportAnswer: null,
+                          note: null,
+                          manual: false,
+                        },
+                      },
+                    ],
+                  }),
+                ]),
+              ]),
+      }
+    })
+    logNotHome('person-21')
+
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
+    expect(
+      screen.getByText('No previous outreach to this resident.'),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    // Nothing ahead, so the sheet closes on the logged door.
+    await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
+    expect(serves).toBe(1)
+
+    fireEvent.click(screen.getByText('105 Elm St'))
+    await waitFor(() =>
+      expect(screen.getByText(/Door Knock:/)).toBeInTheDocument(),
+    )
+    expect(serves).toBe(2)
+  })
+
+  // The cost is only paid where the staleness is visible: walking the list
+  // forward never lands on a door already logged, so a whole route's worth of
+  // doors costs the one serve the walk opened with.
+  it('does not re-serve the route for a door it merely advances onto', async () => {
+    let serves = 0
+    api.mock('GET /v1/door-knocking/turfs/:id/route', () => {
+      serves += 1
+      return {
+        status: 200,
+        data: payload([
+          stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
+          stop(12, 2, '210 Cedar Row', [target(22, 'Marisol Vega')]),
+        ]),
+      }
+    })
+    logNotHome('person-21')
+
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
+    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Marisol Vega' }),
+      ).toBeInTheDocument(),
+    )
+
+    expect(serves).toBe(1)
+  })
+
+  // The knock is already saved by the time the refresh is asked for, so a
+  // serve the walk can't reach must leave the walk exactly as it was. The old
+  // banner fired on any error with data still in cache, which put "the route
+  // could not load" beside a door that had just saved fine.
+  it('keeps a logged door intact when the feed refresh fails', async () => {
+    let serves = 0
+    api.mock('GET /v1/door-knocking/turfs/:id/route', () => {
+      serves += 1
+      if (serves > 1) return { status: 500, data: {} }
+      return {
+        status: 200,
+        data: payload([stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')])]),
+      }
+    })
+    logNotHome('person-21')
+
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
+    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
+    expect(screen.getByText('1/1 logged')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('105 Elm St'))
+    // The serve count is ofetch's business (it retries a 500 on its own), so
+    // the settled query state is what says the refresh really did fail.
+    await waitFor(() =>
+      expect(
+        testQueryClient.getQueryState(['door-knocking-route', 3])?.status,
+      ).toBe('error'),
+    )
+
+    // No alarm, and the door stays logged on the payload already in hand.
+    expect(screen.queryByText(/The route could not load/)).toBeNull()
+    expect(screen.getByText('1/1 logged')).toBeInTheDocument()
+    expect(
+      screen.getByText('No previous outreach to this resident.'),
+    ).toBeInTheDocument()
+  })
+
+  // A serve built before a knock lands after it and would put the door back to
+  // unknown. It is cancelled by the patch, so the status the canvasser is
+  // looking at is never walked backwards by a refresh they didn't ask for.
+  it('does not let an in-flight serve undo a knock logged while it was open', async () => {
+    const stops = [
+      stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
+      stop(12, 2, '210 Cedar Row', [target(22, 'Marisol Vega')]),
+    ]
+    let serves = 0
+    let releaseSecondServe: (() => void) | null = null
+    api.mock('GET /v1/door-knocking/turfs/:id/route', async () => {
+      serves += 1
+      if (serves > 1) {
+        await new Promise<void>((resolve) => {
+          releaseSecondServe = resolve
+        })
+      }
+      return { status: 200, data: payload(stops) }
+    })
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => ({
+      status: 200,
+      data: {
+        personId:
+          (body as { stopTargetId: number }).stopTargetId === 21
+            ? 'person-21'
+            : 'person-22',
+        knockStatus: 'not_home',
+      },
+    }))
+
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
+    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Marisol Vega' }),
+      ).toBeInTheDocument(),
+    )
+
+    // Back to the logged resident: that reopen starts the serve, which is
+    // held open while the second door is logged.
+    await closePersonSheet()
+    fireEvent.click(screen.getByText('105 Elm St'))
+    await waitFor(() => expect(serves).toBe(2))
+    await closePersonSheet()
+
+    fireEvent.click(screen.getByText('210 Cedar Row'))
+    await waitFor(() =>
+      expect(screen.getByText('Log this door')).toBeInTheDocument(),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    await waitFor(() => expect(screen.getByText('2/2 logged')).toBeTruthy())
+
+    // The held serve carries neither knock; arriving now it must be discarded.
+    releaseSecondServe!()
+    await waitFor(() => expect(screen.getByText('2/2 logged')).toBeTruthy())
+  })
+
+  // The replay keys live in component state and the refreshed payload keys the
+  // form by stopTargetId, so a serve arriving mid-walk must not remount the
+  // form or lose the key a failed knock has to be retried under — that key is
+  // the whole of what makes the retry upsert instead of duplicating.
+  it('keeps a failed knock replayable across a feed refresh', async () => {
+    let serves = 0
+    api.mock('GET /v1/door-knocking/turfs/:id/route', () => {
+      serves += 1
+      return {
+        status: 200,
+        data: payload([
+          stop(11, 1, '105 Elm St', [
+            target(
+              21,
+              'Dorian Fen',
+              serves === 1 ? {} : { knockStatus: 'not_home' },
+            ),
+            target(24, 'Winnie Fen'),
+          ]),
+        ]),
+      }
+    })
+    const keys: string[] = []
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      const { stopTargetId, clientKey } = body as {
+        stopTargetId: number
+        clientKey: string
+      }
+      keys.push(`${stopTargetId}:${clientKey}`)
+      if (stopTargetId === 24 && keys.length === 2) {
+        return { status: 500, data: {} }
+      }
+      return {
+        status: 200,
+        data: { personId: `person-${stopTargetId}`, knockStatus: 'not_home' },
+      }
+    })
+
+    render(<WalkView turfId={3} />)
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+    fireEvent.click(screen.getByText('105 Elm St'))
+    await waitFor(() =>
+      expect(screen.getAllByText('Dorian Fen')).toHaveLength(2),
+    )
+    fireEvent.click(screen.getAllByText('Dorian Fen').pop()!)
+    await waitFor(() =>
+      expect(screen.getByText('Log this door')).toBeInTheDocument(),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    // Advances to the housemate, whose knock then fails.
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Winnie Fen' }),
+      ).toBeInTheDocument(),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    await waitFor(() => expect(screen.getByText(/Saving failed/)).toBeTruthy())
+
+    // Back to the logged housemate, which is what asks for the fresh serve,
+    // and then forward again to retry the door that failed.
+    fireEvent.click(screen.getByRole('button', { name: 'Dorian Fen' }))
+    await waitFor(() => expect(serves).toBe(2))
+    fireEvent.click(screen.getByRole('button', { name: 'Winnie Fen' }))
+    await waitFor(() =>
+      expect(screen.getByText('Log this door')).toBeInTheDocument(),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+
+    await waitFor(() => expect(keys).toHaveLength(3))
+    expect(keys[2]).toBe(keys[1])
+  })
+
   it('gives the door it advances to a distinct clientKey', async () => {
     const keys: string[] = []
     mockRoute([

@@ -47,6 +47,14 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
     personId: string,
     patch: (target: RoutePayloadTarget) => RoutePayloadTarget,
   ) => {
+    // A serve already in flight was built before this patch and would
+    // overwrite it on arrival, putting a logged door back to unknown — so it
+    // is cancelled first, the standard order for an optimistic write. A
+    // cancelled query keeps its data and reports no error, so nothing about
+    // this reaches the canvasser.
+    void queryClient.cancelQueries({
+      queryKey: ['door-knocking-route', turfId],
+    })
     queryClient.setQueryData<DoorKnockingRoutePayload>(
       ['door-knocking-route', turfId],
       (old) =>
@@ -82,6 +90,35 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
     stopId: number
     targetId: number
   } | null>(null)
+  // ADR 0009. A resident's activity feed rides the route payload, so a door
+  // logged during the walk is missing from that resident's own feed until the
+  // next serve — while the status it produced updates everywhere else in the
+  // panel, which makes the feed read as broken rather than as stale. The row
+  // is the server's to build (its id, its outcome, its wording), so the fix is
+  // to ask for it, never to assemble a second one here from the rollup.
+  //
+  // Whose feed the served payload predates. Refetching after every door would
+  // put a serve-sized request at every doorstep, on the one connection this
+  // feature exists to work without; asking for it when a resident logged this
+  // session is opened *again* pays it only where the staleness is on screen. A
+  // straight walk down the list never advances onto a logged door, so it never
+  // pays it at all, and the canvasser checking "did that save?" pays once.
+  const [loggedPersonIds, setLoggedPersonIds] = useState<Set<string>>(new Set())
+  const personIdForTarget = (targetId: number): string | undefined =>
+    routeQuery.data?.stops
+      .flatMap((stop) => stop.addresses.flatMap((address) => address.targets))
+      .find((target) => target.stopTargetId === targetId)?.personId
+  const refreshFeedFor = (targetId: number) => {
+    const personId = personIdForTarget(targetId)
+    if (!personId || !loggedPersonIds.has(personId)) return
+    // Never awaited and never surfaced: the knock is already saved, so a serve
+    // this walk cannot reach has to leave the feed showing what it was served
+    // with rather than turn a successful door into a visible failure. Nothing
+    // is tracked as "refreshed" either — a reopen after a failed serve simply
+    // asks again. `cancelRefetch: false` so flicking between two logged
+    // housemates reuses the serve in flight instead of restarting it.
+    void routeQuery.refetch({ cancelRefetch: false })
+  }
   // One replay key per target, minted when its form first opens and kept
   // across close→reopen (a remounted form must retry with the SAME key or
   // the server-side upsert can't dedupe). Cleared on success so a later,
@@ -98,6 +135,7 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
       return next
     })
     setSheet({ stopId, targetId })
+    refreshFeedFor(targetId)
   }
   const clientKeyFor = (targetId: number): string =>
     clientKeys.get(targetId) ?? ''
@@ -189,7 +227,11 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
           <LoadingAnimation />
         </div>
       )}
-      {routeQuery.isError && (
+      {/* Only when there is no route to walk. A background serve that fails —
+          the feed refresh below, or a window-focus refetch — leaves the walk
+          fully usable on the payload already in cache, and announcing it
+          beside a door that saved fine reads as the knock having failed. */}
+      {routeQuery.isError && !routeQuery.data && (
         <p className="text-sm text-destructive">
           The route could not load. Refresh to try again.
         </p>
@@ -430,13 +472,19 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
         <PersonSheet
           stop={sheetStop}
           selectedTargetId={sheet.targetId}
-          onSelectTarget={(targetId) =>
+          onSelectTarget={(targetId) => {
             setSheet({ stopId: sheet.stopId, targetId })
-          }
+            // The other way back to a resident already logged: the switcher
+            // inside the sheet, which never goes through openSheet.
+            refreshFeedFor(targetId)
+          }}
           statusFor={(target) => target.knockStatus}
           clientKeyFor={clientKeyFor}
           onRecorded={(targetId, personId, knockStatus) => {
             applyKnockStatus(personId, knockStatus)
+            // ADR 0009. The served payload now predates this resident's own
+            // history, so reopening them asks for a fresh one.
+            setLoggedPersonIds((current) => new Set(current).add(personId))
             onKnockRecorded?.()
             setClientKeys((current) => {
               const next = new Map(current)
