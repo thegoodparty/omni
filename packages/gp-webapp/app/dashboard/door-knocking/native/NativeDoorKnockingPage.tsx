@@ -18,7 +18,12 @@ import {
   type VoterFileFilters,
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import { voterPackQueryOptions } from './useVoterPack'
-import { maskToPolygon, polygonStats, runFilter } from './filterEngine'
+import {
+  canvassStatusCounts,
+  maskToPolygon,
+  polygonStats,
+  runFilter,
+} from './filterEngine'
 import {
   routeQueryOptions,
   savedListsQueryOptions,
@@ -89,9 +94,9 @@ export default function NativeDoorKnockingPage({
   const [undoDrawToken, setUndoDrawToken] = useState(0)
   const [drawPointCount, setDrawPointCount] = useState(0)
   const [drawHintDismissed, setDrawHintDismissed] = useState(false)
-  // Landing-map legend filter: chip clicks narrow the dots to those
-  // statuses. Deliberately inert while the create flow is open — the flow's
-  // own filter draft drives the preview there.
+  // Landing-map legend filter: chip clicks narrow the dots to those statuses,
+  // within the selected list when there is one. Deliberately inert while the
+  // create flow is open — the flow's own filter draft drives the preview there.
   const [statusFilter, setStatusFilter] = useState<Set<DoorKnockStatus>>(
     new Set(),
   )
@@ -115,75 +120,76 @@ export default function NativeDoorKnockingPage({
   const [detailsTurf, setDetailsTurf] = useState<DoorKnockingTurf | null>(null)
   const walkTurf = walk.turf
 
-  // The filter draft narrows the preview only while the create flow is open;
-  // the landing map always shows the whole district.
+  const selectedTurfRing = useMemo(
+    () =>
+      selectedTurf
+        ? ((selectedTurf.geoPoly.coordinates[0] ?? []) as [number, number][])
+        : null,
+    [selectedTurf],
+  )
+  // The scope the rail heading names: the selected list's own saved filters,
+  // or the whole district. Status chips narrow the map on top of this, and the
+  // legend counts underneath describe the scope itself.
+  const scopeSelections = useMemo(() => {
+    if (!packQuery.data || !selectedTurf) return new Map<string, Set<number>>()
+    const list = savedListsQuery.data?.find(
+      (candidate) => candidate.id === selectedTurf.voterFileFilterId,
+    )
+    const listFilters = Object.fromEntries(
+      Object.entries(list ?? {}).filter(
+        ([, value]) => typeof value === 'boolean',
+      ),
+    ) as Record<string, boolean>
+    // The backend stores income/language selections as string arrays, not
+    // booleans — re-expand them to option keys or the scoped preview
+    // silently ignores those filters.
+    const rangeToKey = Object.fromEntries(
+      Object.entries(INCOME_KEY_TO_RANGE).map(([key, range]) => [range, key]),
+    )
+    for (const range of (list?.incomeRanges as string[] | undefined) ?? []) {
+      const key = rangeToKey[range]
+      if (key) listFilters[key] = true
+    }
+    const codeToKey = Object.fromEntries(
+      Object.entries(LANGUAGE_KEY_TO_CODE).map(([key, code]) => [code, key]),
+    )
+    for (const code of (list?.languageCodes as string[] | undefined) ?? []) {
+      const key = codeToKey[code]
+      if (key) listFilters[key] = true
+    }
+    return filtersToDimSelections(listFilters, packQuery.data.manifest)
+  }, [packQuery.data, savedListsQuery.data, selectedTurf])
+  // The filter draft narrows the preview only while the create flow is open.
   const selections = useMemo(() => {
     if (!packQuery.data) return new Map<string, Set<number>>()
     if (flowStep) {
       return filtersToDimSelections(filters, packQuery.data.manifest)
     }
-    if (selectedTurf) {
-      const list = savedListsQuery.data?.find(
-        (candidate) => candidate.id === selectedTurf.voterFileFilterId,
-      )
-      const listFilters = Object.fromEntries(
-        Object.entries(list ?? {}).filter(
-          ([, value]) => typeof value === 'boolean',
-        ),
-      ) as Record<string, boolean>
-      // The backend stores income/language selections as string arrays, not
-      // booleans — re-expand them to option keys or the scoped preview
-      // silently ignores those filters.
-      const rangeToKey = Object.fromEntries(
-        Object.entries(INCOME_KEY_TO_RANGE).map(([key, range]) => [range, key]),
-      )
-      for (const range of (list?.incomeRanges as string[] | undefined) ?? []) {
-        const key = rangeToKey[range]
-        if (key) listFilters[key] = true
-      }
-      const codeToKey = Object.fromEntries(
-        Object.entries(LANGUAGE_KEY_TO_CODE).map(([key, code]) => [code, key]),
-      )
-      for (const code of (list?.languageCodes as string[] | undefined) ?? []) {
-        const key = codeToKey[code]
-        if (key) listFilters[key] = true
-      }
-      return filtersToDimSelections(listFilters, packQuery.data.manifest)
-    }
-    if (statusFilter.size > 0) {
-      const dim = packQuery.data.manifest.dims.find(
-        (d) => d.key === 'canvassStatus',
-      )
-      const indexes = new Set(
-        [...statusFilter]
-          .map((status) => dim?.values.indexOf(status) ?? -1)
-          .filter((index) => index >= 0),
-      )
-      if (indexes.size > 0) {
-        return new Map<string, Set<number>>([['canvassStatus', indexes]])
-      }
-    }
-    return new Map<string, Set<number>>()
-  }, [
-    flowStep,
-    filters,
-    statusFilter,
-    selectedTurf,
-    savedListsQuery.data,
-    packQuery.data,
-  ])
+    const dim = packQuery.data.manifest.dims.find(
+      (d) => d.key === 'canvassStatus',
+    )
+    const indexes = new Set(
+      [...statusFilter]
+        .map((status) => dim?.values.indexOf(status) ?? -1)
+        .filter((index) => index >= 0),
+    )
+    if (indexes.size === 0) return scopeSelections
+    // No saved-list filter maps onto canvassStatus, so a chip narrows the
+    // scope rather than replacing it — "the not-home doors in THIS list" is
+    // the reading a canvasser wants, and the chip was previously pressed-but-
+    // inert whenever a list was selected.
+    const narrowed = new Map(scopeSelections)
+    narrowed.set('canvassStatus', indexes)
+    return narrowed
+  }, [flowStep, filters, statusFilter, scopeSelections, packQuery.data])
   const filterResult = useMemo(() => {
     if (!packQuery.data) return null
     const result = runFilter(packQuery.data, selections)
-    if (!flowStep && selectedTurf) {
-      return maskToPolygon(
-        packQuery.data,
-        result,
-        (selectedTurf.geoPoly.coordinates[0] ?? []) as [number, number][],
-      )
+    if (!flowStep && selectedTurfRing) {
+      return maskToPolygon(packQuery.data, result, selectedTurfRing)
     }
     return result
-  }, [packQuery.data, selections, flowStep, selectedTurf])
+  }, [packQuery.data, selections, flowStep, selectedTurfRing])
   // Selections the pack's buckets can't express, so the drawn preview is a
   // superset of what the list will really target. Surfaced in the create flow
   // instead of leaving the map quietly disagreeing with the filters above it.
@@ -214,23 +220,25 @@ export default function NativeDoorKnockingPage({
         : null,
     [packQuery.data, selections, ring],
   )
-  // Landing-rail status chips: person-level counts over the whole district.
+  // Landing-rail status chips: person-level counts over the scope the heading
+  // names, so selecting a list rescopes them with it. Memoized on the scope
+  // and not on `selections`, so pressing a chip doesn't recompute them — and
+  // doesn't zero out the six counts it would then be impossible to press.
   const statusCounts = useMemo(() => {
     const counts: Partial<Record<DoorKnockStatus, number>> = {}
     const pack = packQuery.data
     const dim = pack?.manifest.dims.find((d) => d.key === 'canvassStatus')
-    const plane = pack?.dimPlanes.get('canvassStatus')
-    if (!pack || !dim || !plane) return counts
-    const perValue = new Array<number>(dim.values.length).fill(0)
-    for (let i = 0; i < plane.length; i++) {
-      const value = plane[i] as number
-      if (value < perValue.length) perValue[value] = (perValue[value] ?? 0) + 1
-    }
+    if (!pack || !dim) return counts
+    const perValue = canvassStatusCounts(
+      pack,
+      scopeSelections,
+      selectedTurfRing,
+    )
     dim.values.forEach((value, index) => {
       counts[value as DoorKnockStatus] = perValue[index] ?? 0
     })
     return counts
-  }, [packQuery.data])
+  }, [packQuery.data, scopeSelections, selectedTurfRing])
 
   const walkRouteQuery = useQuery({
     ...routeQueryOptions(walkTurf?.id ?? 0),
@@ -309,10 +317,9 @@ export default function NativeDoorKnockingPage({
           onFocusTurf={(turf) => {
             const next = selectedTurf?.id === turf.id ? null : turf
             setSelectedTurf(next)
-            // The scoped branch of `selections` returns the list's own filters
-            // and never reaches statusFilter, but the chips keep reading it for
-            // their pressed state. Leaving it set would render a pressed chip
-            // that does nothing, then silently re-narrow the map on "Show all".
+            // A chip narrows within the selected list, so a scope opens
+            // unfiltered: the count under the heading and the legend below it
+            // then describe the same audience until a chip is pressed.
             if (next) setStatusFilter(new Set())
             setFocusTurf(turf)
           }}

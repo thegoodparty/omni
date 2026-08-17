@@ -267,14 +267,17 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                       setOpenStopId(openStopId === stop.id ? null : stop.id)
                     }}
                   >
+                    {/* The stop's rolled-up status, and only that: the
+                        sequence number came out of the list view (Aug 14
+                        walkthrough) because the list is not walked in order —
+                        the map pins and the printed sheet are where an
+                        ordering is the point. */}
                     <span
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-semibold tabular-nums text-primary-foreground"
+                      className="h-7 w-7 shrink-0 rounded-full"
                       style={{
                         backgroundColor: STATUS_DOT_COLORS[stopStatus(stop)],
                       }}
-                    >
-                      {stop.seq}
-                    </span>
+                    />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">
                         {primaryTargetName(stop) ?? stop.displayAddress}

@@ -89,9 +89,6 @@ export default function PersonSheet({
       />
       <div className="fixed z-40 flex flex-col bg-background shadow-xl max-lg:inset-x-0 max-lg:bottom-0 max-lg:max-h-[85dvh] max-lg:rounded-t-xl lg:bottom-0 lg:right-0 lg:top-0 lg:w-[430px] lg:border-l lg:border-border">
         <div className="flex items-start gap-3 border-b border-border p-4">
-          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-info text-sm font-semibold text-primary-foreground">
-            {stop.seq}
-          </span>
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-xl font-semibold">
               {target.name ?? 'Name unavailable'}

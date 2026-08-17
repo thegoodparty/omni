@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { decodePack } from './packDecoder'
 import {
+  canvassStatusCounts,
   DimSelections,
   maskToPolygon,
   polygonStats,
@@ -230,6 +231,76 @@ describe('polygonStats', () => {
       households: 0,
       partyMix: [],
     })
+  })
+})
+
+describe('canvassStatusCounts', () => {
+  // Fixture statuses: person 0 is a supporter, persons 1-3 are unknown. Dot 0
+  // holds persons 0-2; person 3 lives at dot 1, outside the ring below.
+  const dotZeroRing: Array<[number, number]> = [
+    [-87.655, 41.895],
+    [-87.645, 41.895],
+    [-87.645, 41.905],
+    [-87.655, 41.905],
+    [-87.655, 41.895],
+  ]
+
+  it('counts the whole pack when there is no turf selected', () => {
+    const pack = decodePack(buildFixture())
+
+    // Dim order is ['unknown', 'not_home', 'supporter'].
+    expect(canvassStatusCounts(pack, new Map(), null)).toEqual([3, 0, 1])
+  })
+
+  // The bug this exists to prevent: the rail's heading and its "N voters in
+  // this list" line rescoped to the selected turf while the seven legend
+  // counts underneath stayed district-wide.
+  it('rescopes to the selected turf rather than reporting the district', () => {
+    const pack = decodePack(buildFixture())
+
+    const scoped = canvassStatusCounts(pack, new Map(), dotZeroRing)
+
+    // Person 3 is unknown and sits outside the ring, so unknown drops 3 -> 2.
+    expect(scoped).toEqual([2, 0, 1])
+  })
+
+  // The legend has to add up to the number printed above it, or one of the two
+  // is lying about the same audience.
+  it('sums to the people count the rail heading reports for that turf', () => {
+    const pack = decodePack(buildFixture())
+    const demsOnly: DimSelections = new Map([['party', new Set([1])]])
+
+    const scoped = canvassStatusCounts(pack, new Map(), dotZeroRing)
+    const railPeople = maskToPolygon(
+      pack,
+      runFilter(pack, new Map()),
+      dotZeroRing,
+    ).people
+    expect(scoped.reduce((sum, count) => sum + count, 0)).toBe(railPeople)
+
+    // And again once the list carries filters of its own: only person 0 (the
+    // supporter) is Democratic.
+    const filtered = canvassStatusCounts(pack, demsOnly, dotZeroRing)
+    expect(filtered).toEqual([0, 0, 1])
+    expect(filtered.reduce((sum, count) => sum + count, 0)).toBe(
+      maskToPolygon(pack, runFilter(pack, demsOnly), dotZeroRing).people,
+    )
+  })
+
+  // A status chip narrows the map WITHIN the selected list, which only works
+  // because no saved-list filter maps onto canvassStatus — the page merges the
+  // chip into the list's own selections rather than replacing them.
+  it('intersects with a turf ring when a status chip narrows inside it', () => {
+    const pack = decodePack(buildFixture())
+    const unknownOnly: DimSelections = new Map([
+      ['canvassStatus', new Set([0])],
+    ])
+
+    // District-wide there are 3 unknowns; inside the turf there are 2.
+    expect(runFilter(pack, unknownOnly).people).toBe(3)
+    expect(
+      maskToPolygon(pack, runFilter(pack, unknownOnly), dotZeroRing).people,
+    ).toBe(2)
   })
 })
 
