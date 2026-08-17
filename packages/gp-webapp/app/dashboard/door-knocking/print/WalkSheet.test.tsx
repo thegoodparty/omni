@@ -56,7 +56,9 @@ const payload = (stops: RoutePayloadStop[]): DoorKnockingRoutePayload => ({
 })
 
 const renderSheet = (stops: RoutePayloadStop[]) =>
-  render(<WalkSheet turfName="Elm & Cedar" payload={payload(stops)} />)
+  render(
+    <WalkSheet turfId="3" turfName="Elm & Cedar" payload={payload(stops)} />,
+  )
 
 describe('WalkSheet', () => {
   it('heads the sheet with the turf and what the walk costs', () => {
@@ -423,5 +425,17 @@ describe('WalkSheet', () => {
     renderSheet([])
 
     expect(screen.getByText('This route has no stops.')).toBeInTheDocument()
+  })
+
+  // The grid version of the same list, built server-side. A link rather than a
+  // button keeps this page free of client JavaScript, which is the whole point
+  // of rendering it on the server in the first place.
+  it('offers the PDF, and only on screen', () => {
+    renderSheet([stop()])
+
+    const link = screen.getByRole('link', { name: 'Download PDF' })
+    expect(link).toHaveAttribute('href', '/dashboard/door-knocking/print/3/pdf')
+    // Both live in the instructions block, which is hidden when printed.
+    expect(link.closest('.print\\:hidden')).not.toBeNull()
   })
 })

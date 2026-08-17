@@ -75,4 +75,30 @@ describe('TurfList', () => {
       expect.objectContaining({ id: 2, locked: true }),
     )
   })
+
+  // The walk list on paper used to be reachable only from inside a walk, which
+  // meant finding it required already having done the thing you wanted paper
+  // for. Only a locked list has a route to put on paper.
+  it('offers the PDF on a locked list and not on an unknocked one', async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [
+        turf({ id: 1, name: 'Elm St & 5th' }),
+        turf({ id: 2, name: 'Riverside loop', locked: true }),
+      ],
+    })
+
+    render(
+      <TurfList
+        selectedTurfId={null}
+        onFocusTurf={vi.fn()}
+        onShowDetails={vi.fn()}
+        onKnockTurf={vi.fn()}
+      />,
+    )
+
+    const link = await screen.findByRole('link', { name: 'PDF' })
+    expect(link).toHaveAttribute('href', '/dashboard/door-knocking/print/2/pdf')
+    expect(screen.getAllByRole('link')).toHaveLength(1)
+  })
 })
