@@ -76,6 +76,63 @@ describe('TurfList', () => {
     )
   })
 
+  // The literal first screen a new candidate sees. Rendering nothing left the
+  // rail with a heading, status chips and no account of what a list is.
+  it('explains how to get a list when there are none', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+
+    render(
+      <TurfList
+        selectedTurfId={null}
+        onFocusTurf={vi.fn()}
+        onShowDetails={vi.fn()}
+        onKnockTurf={vi.fn()}
+      />,
+    )
+
+    expect(await screen.findByText(/No lists yet/)).toBeInTheDocument()
+    expect(screen.getByText('Saved lists')).toBeInTheDocument()
+  })
+
+  it('shows a placeholder while the lists load', () => {
+    // Never settles, so the rail stays in its pending state.
+    api.mock('GET /v1/door-knocking/turfs', () => new Promise(() => undefined))
+
+    render(
+      <TurfList
+        selectedTurfId={null}
+        onFocusTurf={vi.fn()}
+        onShowDetails={vi.fn()}
+        onKnockTurf={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Loading your saved lists')).toBeInTheDocument()
+    // "No lists yet" during the fetch is a guess about an account we haven't
+    // read yet.
+    expect(screen.queryByText(/No lists yet/)).toBeNull()
+  })
+
+  // A failed fetch is not an empty account, and the page explains a map that
+  // could not load — so this stays quiet rather than doubling up on it.
+  it('stays out of the way when the fetch fails', async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+
+    const { container } = render(
+      <TurfList
+        selectedTurfId={null}
+        onFocusTurf={vi.fn()}
+        onShowDetails={vi.fn()}
+        onKnockTurf={vi.fn()}
+      />,
+    )
+
+    await waitFor(() => expect(container).toBeEmptyDOMElement())
+  })
+
   // The walk list on paper used to be reachable only from inside a walk, which
   // meant finding it required already having done the thing you wanted paper
   // for. Only a locked list has a route to put on paper.

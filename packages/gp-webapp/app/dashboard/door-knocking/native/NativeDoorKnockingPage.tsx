@@ -17,6 +17,7 @@ import {
   LANGUAGE_KEY_TO_CODE,
   type VoterFileFilters,
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import { voterPackQueryOptions } from './useVoterPack'
 import {
   canvassStatusCounts,
@@ -60,6 +61,35 @@ const VoterMapCanvas = dynamic(() => import('./VoterMapCanvas'), {
 interface NativeDoorKnockingPageProps {
   pathname: string
   campaign: Campaign | null
+}
+
+// A saved list's own selections, as the boolean option keys the pack preview
+// speaks. The backend stores income and language as string arrays rather than
+// booleans, so both have to be re-expanded or a scoped preview silently
+// ignores those filters.
+const savedListFilterKeys = (
+  list: SegmentResponse | undefined,
+): Record<string, boolean> => {
+  const keys = Object.fromEntries(
+    Object.entries(list ?? {}).filter(
+      ([, value]) => typeof value === 'boolean',
+    ),
+  ) as Record<string, boolean>
+  const rangeToKey = Object.fromEntries(
+    Object.entries(INCOME_KEY_TO_RANGE).map(([key, range]) => [range, key]),
+  )
+  for (const range of (list?.incomeRanges as string[] | undefined) ?? []) {
+    const key = rangeToKey[range]
+    if (key) keys[key] = true
+  }
+  const codeToKey = Object.fromEntries(
+    Object.entries(LANGUAGE_KEY_TO_CODE).map(([key, code]) => [code, key]),
+  )
+  for (const code of (list?.languageCodes as string[] | undefined) ?? []) {
+    const key = codeToKey[code]
+    if (key) keys[key] = true
+  }
+  return keys
 }
 
 export default function NativeDoorKnockingPage({
@@ -135,29 +165,10 @@ export default function NativeDoorKnockingPage({
     const list = savedListsQuery.data?.find(
       (candidate) => candidate.id === selectedTurf.voterFileFilterId,
     )
-    const listFilters = Object.fromEntries(
-      Object.entries(list ?? {}).filter(
-        ([, value]) => typeof value === 'boolean',
-      ),
-    ) as Record<string, boolean>
-    // The backend stores income/language selections as string arrays, not
-    // booleans — re-expand them to option keys or the scoped preview
-    // silently ignores those filters.
-    const rangeToKey = Object.fromEntries(
-      Object.entries(INCOME_KEY_TO_RANGE).map(([key, range]) => [range, key]),
+    return filtersToDimSelections(
+      savedListFilterKeys(list),
+      packQuery.data.manifest,
     )
-    for (const range of (list?.incomeRanges as string[] | undefined) ?? []) {
-      const key = rangeToKey[range]
-      if (key) listFilters[key] = true
-    }
-    const codeToKey = Object.fromEntries(
-      Object.entries(LANGUAGE_KEY_TO_CODE).map(([key, code]) => [code, key]),
-    )
-    for (const code of (list?.languageCodes as string[] | undefined) ?? []) {
-      const key = codeToKey[code]
-      if (key) listFilters[key] = true
-    }
-    return filtersToDimSelections(listFilters, packQuery.data.manifest)
   }, [packQuery.data, savedListsQuery.data, selectedTurf])
   // The filter draft narrows the preview only while the create flow is open.
   const selections = useMemo(() => {
@@ -200,18 +211,30 @@ export default function NativeDoorKnockingPage({
         : [],
     [packQuery.data, filters],
   )
-  // Unfiltered (empty selections) area stats for turf details: doors/voters
-  // inside the saved polygon, regardless of the list's own filters.
-  const detailsAreaStats = useMemo(
+  // The details sheet's pre-route stats: doors/voters inside the saved polygon
+  // that the list's OWN filters keep. Computed with empty selections these
+  // described everyone in the polygon while sitting right above the sheet's
+  // "Applied filters" pills — a Democrats-only list reporting every person
+  // inside its ring. This is the same computation the draw step ran on the
+  // same shape, so Details now reproduces the number the list was saved
+  // against instead of a larger one.
+  const detailsListStats = useMemo(
     () =>
       packQuery.data && detailsTurf
         ? polygonStats(
             packQuery.data,
-            new Map(),
+            filtersToDimSelections(
+              savedListFilterKeys(
+                savedListsQuery.data?.find(
+                  (candidate) => candidate.id === detailsTurf.voterFileFilterId,
+                ),
+              ),
+              packQuery.data.manifest,
+            ),
             (detailsTurf.geoPoly.coordinates[0] ?? []) as [number, number][],
           )
         : null,
-    [packQuery.data, detailsTurf],
+    [packQuery.data, detailsTurf, savedListsQuery.data],
   )
   const turfStats = useMemo(
     () =>
@@ -544,7 +567,7 @@ export default function NativeDoorKnockingPage({
       {detailsTurf && (
         <TurfDetailsSheet
           turf={detailsTurf}
-          areaStats={detailsAreaStats}
+          listStats={detailsListStats}
           onClose={() => setDetailsTurf(null)}
           onDeleted={(deleted) => {
             setDetailsTurf(null)

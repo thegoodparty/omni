@@ -24,7 +24,44 @@ export default function TurfList({
   const turfsQuery = useQuery(turfsQueryOptions)
 
   const turfs = turfsQuery.data ?? []
-  if (turfsQuery.isPending || turfs.length === 0) return null
+
+  if (turfsQuery.isPending) {
+    return (
+      <section className="flex flex-col gap-1.5" aria-busy="true">
+        <h2 className="text-sm font-semibold">Saved lists</h2>
+        <span className="sr-only">Loading your saved lists</span>
+        {[0, 1].map((row) => (
+          <span
+            key={row}
+            aria-hidden="true"
+            className="h-11 animate-pulse rounded-md bg-muted"
+          />
+        ))}
+      </section>
+    )
+  }
+
+  // A failed fetch is not an empty account, and the page already explains a
+  // map that couldn't load — inventing a second error here would double up on
+  // it, and "No lists yet" would be a guess about why.
+  if (turfsQuery.isError) return null
+
+  // The first screen a new candidate sees. Rendering nothing left the rail
+  // with a heading, status chips and no explanation of what a list is or how
+  // to get one — the only way forward being a button in the page header that
+  // nothing on this side pointed at.
+  if (turfs.length === 0) {
+    return (
+      <section className="flex flex-col gap-1.5">
+        <h2 className="text-sm font-semibold">Saved lists</h2>
+        <p className="rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
+          No lists yet. Use <span className="font-medium">Create list</span>{' '}
+          above to pick who you want to reach and draw the streets you want to
+          walk — saved lists show up here, ready to knock.
+        </p>
+      </section>
+    )
+  }
 
   return (
     <section className="flex flex-col gap-1.5">

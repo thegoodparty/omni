@@ -19,6 +19,7 @@ import {
   type VoterFileFilters,
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import { MAX_TURF_NAME_LENGTH, TURF_COLORS } from '../turfQueries'
+import { DOORS_PER_HOUR, estimateWalkTime } from '../walkEstimate'
 import type { PolygonRing } from '../VoterMapCanvas'
 import type { PolygonStats } from '../filterEngine'
 
@@ -48,21 +49,10 @@ const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
 // however many of its buckets are selected.
 const CONTACTS_MADE_DISCLOSURE_LABEL = 'Prior contacts made'
 
-// The POC's rate, and what the walking estimate is worth: 45 doors an hour is
-// a canvasser's sustained pace with the walk between doors included. The
-// vendor's own duration only exists once the route is built server-side, which
-// is after the point where this decision is made.
-const DOORS_PER_HOUR = 45
 // Informational, not a gate: past this the evening is long enough to be worth
 // saying out loud. The hard cap at 150 is what actually blocks.
 const SOFT_STOP_LIMIT = 100
 const HARD_STOP_LIMIT = 150
-
-const estimateWalkTime = (doors: number): string => {
-  const minutes = Math.round((doors / DOORS_PER_HOUR) * 60)
-  if (minutes < 60) return `${minutes} min`
-  return `${Math.floor(minutes / 60)} hr ${minutes % 60} min`
-}
 
 export type CreateFlowStep = 'filters' | 'draw' | 'confirm'
 

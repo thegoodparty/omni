@@ -23,6 +23,7 @@ import {
   savedListsQueryOptions,
   turfsQueryOptions,
 } from './turfQueries'
+import { DOORS_PER_HOUR, estimateWalkTime } from './walkEstimate'
 import type { PolygonStats } from './filterEngine'
 import { countDoors, knockableTargets } from '../routeCounts'
 
@@ -50,18 +51,41 @@ const formatDuration = (seconds: number): string => {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
-const Stat = ({ label, value }: { label: string; value: string }) => (
+const Stat = ({
+  label,
+  value,
+  hint,
+  pending,
+}: {
+  label: string
+  value: string
+  hint?: string
+  pending?: boolean
+}) => (
   <div className="rounded-lg border border-border p-3">
     <p className="text-xs text-muted-foreground">{label}</p>
-    <p className="text-sm font-semibold">{value}</p>
+    {pending ? (
+      <p className="py-0.5">
+        <span className="block h-4 w-20 animate-pulse rounded bg-muted" />
+        <span className="sr-only">Loading</span>
+      </p>
+    ) : (
+      <p className="text-sm font-semibold">{value}</p>
+    )}
+    {hint && !pending && (
+      <p className="text-xs text-muted-foreground">{hint}</p>
+    )}
   </div>
 )
 
 interface TurfDetailsSheetProps {
   turf: DoorKnockingTurf
-  // Doors/voters inside the turf polygon, computed by the page from the
-  // full (unfiltered) pack.
-  areaStats: PolygonStats | null
+  // This list's own audience inside its polygon — the page runs the same
+  // computation the draw step ran against the same shape and the same saved
+  // filters, so these reproduce the numbers the list was committed against.
+  // Unshadeable filters (age 65+) leave it a superset, exactly as the draw
+  // step disclosed at that moment; knock-time evaluation stays canonical.
+  listStats: PolygonStats | null
   onClose: () => void
   // The page holds its own references to this turf (map scope, camera focus),
   // which would otherwise keep masking the map to a list that no longer
@@ -71,7 +95,7 @@ interface TurfDetailsSheetProps {
 
 export default function TurfDetailsSheet({
   turf,
-  areaStats,
+  listStats,
   onClose,
   onDeleted,
 }: TurfDetailsSheetProps) {
@@ -156,9 +180,39 @@ export default function TurfDetailsSheet({
 
   const route = routeQuery.data
   const targets = knockableTargets(route?.stops ?? [])
-  const reached = targets.filter(
+  // Every non-'unknown' status is an outcome somebody recorded, but three of
+  // them (not home, inaccessible, refused) are doors where no conversation
+  // happened — so these are the knockable people LOGGED, and calling them
+  // reached would credit the walk with conversations it didn't have.
+  const logged = targets.filter(
     (target) => target.knockStatus !== 'unknown',
   ).length
+  // Lockedness IS the frozen route row, so a locked turf has a route by
+  // construction: until it arrives, every route-derived stat is loading or
+  // broken — never 'Not knocked yet'. Rendering the pre-route copy through
+  // the fetch told a candidate their walked list had never been touched, and
+  // on a failed fetch it said so permanently.
+  const routePending = liveTurf.locked && !route && !routeQuery.isError
+  const routeFailed = liveTurf.locked && routeQuery.isError
+  // Doors are addresses, so both branches count households rather than the
+  // coordinates the router visits: the frozen route's addresses once it
+  // exists, otherwise the ones the pack puts inside the polygon. A stop at a
+  // multi-unit building is many doors.
+  const doors = route ? countDoors(route.stops) : (listStats?.households ?? 0)
+  // The one number a candidate wants while deciding whether a saved list is a
+  // reasonable evening — and it has to be answerable before the route exists,
+  // because building one is a billed, irreversible Geoapify call. Same rule of
+  // thumb the draw step quotes, off the same door count, so the two surfaces
+  // can't disagree about the same shape. Only ever the unlocked answer: a
+  // locked turf's own duration is on its way.
+  const preRouteEstimate =
+    !liveTurf.locked && doors > 0 ? `About ${estimateWalkTime(doors)}` : null
+  // A route-derived stat has three states before it has a value. Spread into
+  // Stat so all five agree about which one they're in.
+  const routeStat = (value: string) => ({
+    pending: routePending,
+    value: routeFailed ? 'Unavailable' : value,
+  })
 
   return (
     <div className="absolute inset-0 z-20 flex flex-col bg-background">
@@ -174,6 +228,18 @@ export default function TurfDetailsSheet({
               Overview of this list, its route, and applied filters.
             </p>
           </div>
+          {/* Paper without opening the walk first, same rule and same markup
+              as the TurfList row: only a locked list has a route to print, so
+              the link would 404 on an unknocked one — and the file is built by
+              a route handler, so a plain link costs this bundle nothing. */}
+          {liveTurf.locked && (
+            <a
+              href={`/dashboard/door-knocking/print/${turf.id}/pdf`}
+              className="shrink-0 rounded-full border border-border px-3 py-1.5 text-xs font-medium underline-offset-2 hover:bg-muted/50 hover:underline"
+            >
+              PDF
+            </a>
+          )}
           {/* Same lock rule as Delete, for the same reason: gp-api's update
               asserts not-locked because the endpoint also accepts geoPoly, and
               the polygon is what the frozen route was computed from. */}
@@ -218,48 +284,59 @@ export default function TurfDetailsSheet({
               Overview
             </h3>
             <div className="grid grid-cols-2 gap-3">
-              {/* Doors are addresses, so both branches count households, not
-                  the coordinates the router visits: the frozen route's
-                  addresses once it exists, otherwise the households inside the
-                  polygon. A stop at a multi-unit building is many doors.
-
-                  The pre-route branch is computed with EMPTY filter selections
-                  (detailsAreaStats), so it describes the whole polygon, not
-                  this list's audience — and it sits right above the "Applied
-                  filters" list, which is exactly where an unqualified "Doors"
-                  reads as "doors this list will knock". The label carries the
-                  distinction until a route exists to give a real number. */}
+              {/* Both branches describe this list's audience now that the
+                  pre-route one is computed with the turf's saved filters, so
+                  the labels no longer have to hedge about which population
+                  they mean — which is the whole point, sitting as they do
+                  directly above the "Applied filters" pills. A locked turf's
+                  authoritative counts are the frozen route's, so these wait
+                  for it rather than showing the pack's answer and then
+                  swapping it out mid-load. */}
+              <Stat label="Doors" {...routeStat(doors.toLocaleString())} />
               <Stat
-                label={route ? 'Doors' : 'Doors in this area'}
-                value={(route
-                  ? countDoors(route.stops)
-                  : (areaStats?.households ?? 0)
-                ).toLocaleString()}
+                label="People"
+                {...routeStat(
+                  (targets.length > 0
+                    ? targets.length
+                    : (listStats?.people ?? 0)
+                  ).toLocaleString(),
+                )}
               />
+              {/* Two different quantities, so two labels rather than one that
+                  is a lie for one of them. Geoapify's totalSeconds is the
+                  agent plan's travel time and the jobs we send it carry no
+                  per-stop duration, so it is the walk between doors with zero
+                  time spent AT them — "Estimated time" read as the cost of the
+                  evening and undersold it by more than half. The pre-route
+                  number is the opposite: 45 doors an hour is a sustained
+                  knocking pace, conversations included. Mode is already on the
+                  "Route type" stat next door, and is unknown while the route
+                  is still loading, so this label stays mode-free. */}
               <Stat
-                label={targets.length > 0 ? 'People' : 'People in this area'}
-                value={(targets.length > 0
-                  ? targets.length
-                  : (areaStats?.people ?? 0)
-                ).toLocaleString()}
-              />
-              <Stat
-                label="Estimated time"
-                value={
+                label={liveTurf.locked ? 'Travel time' : 'Knocking time'}
+                {...routeStat(
                   route
                     ? formatDuration(route.route.totalSeconds)
-                    : 'Not knocked yet'
+                    : (preRouteEstimate ?? 'Not knocked yet'),
+                )}
+                // Naming the rate is what keeps the pre-route number a rule of
+                // thumb rather than a promise; Geoapify's own duration needs
+                // no caveat beyond its label.
+                hint={
+                  preRouteEstimate
+                    ? `at ${DOORS_PER_HOUR} doors an hour`
+                    : undefined
                 }
               />
               <Stat
                 label="Route type"
-                value={
+                {...routeStat(
                   route
-                    ? route.route.mode === 'walk'
-                      ? `Walk route${route.route.loop ? ' · loop' : ''}`
-                      : `Drive route${route.route.loop ? ' · loop' : ''}`
-                    : 'Not knocked yet'
-                }
+                    ? `${route.route.mode === 'walk' ? 'Walk' : 'Drive'} route${
+                        route.route.loop ? ' · loop' : ''
+                      }`
+                    : 'Not knocked yet',
+                )}
               />
               <Stat
                 label="Created"
@@ -269,19 +346,28 @@ export default function TurfDetailsSheet({
                   year: 'numeric',
                 })}
               />
+              {/* Logged, not reached: not-home, inaccessible and refused all
+                  count here, and none of them is a conversation. */}
               <Stat
-                label="Progress"
-                value={
+                label="People logged"
+                {...routeStat(
                   route
-                    ? `${reached} of ${targets.length} · ${
+                    ? `${logged} of ${targets.length} · ${
                         targets.length > 0
-                          ? Math.round((reached / targets.length) * 100)
+                          ? Math.round((logged / targets.length) * 100)
                           : 0
                       }%`
-                    : 'Not knocked yet'
-                }
+                    : 'Not knocked yet',
+                )}
               />
             </div>
+            {routeFailed && (
+              <p className="text-sm text-destructive">
+                This list&rsquo;s route could not be loaded, so the numbers
+                above are unavailable. Refresh to try again — nothing about the
+                route or the knocks logged against it has changed.
+              </p>
+            )}
           </section>
           <section className="flex flex-col gap-2">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-info">
