@@ -90,8 +90,8 @@ describe('useTotalConstituentsWithCellPhone — district gate', () => {
     api.mock('GET /v1/contacts/stats', () => {
       attempts += 1
       return attempts === 1
-        ? { status: 503, data: { message: 'upstream unavailable' } }
-        : { status: 200, data: statsResponse }
+        ? ({ status: 500, data: { message: 'upstream unavailable' } } as const)
+        : ({ status: 200, data: statsResponse } as const)
     })
 
     const { result } = renderHook(() => useTotalConstituentsWithCellPhone(), {
@@ -105,7 +105,7 @@ describe('useTotalConstituentsWithCellPhone — district gate', () => {
 
   it('labels an unrecovered transient failure separately from a data gap', async () => {
     api.mock('GET /v1/contacts/stats', {
-      status: 503,
+      status: 500,
       data: { message: 'upstream unavailable' },
     })
 
