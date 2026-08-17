@@ -1504,4 +1504,101 @@ describe('PeerlyIdentityService', () => {
       expect(slackService.message).toHaveBeenCalledTimes(1)
     })
   })
+
+  describe('Slack error alert payload', () => {
+    const campaign = campaignFactory({ id: 1 }) as Campaign
+    const peerlyToken = 'JWT header.fake-peerly-token-value.signature'
+    const submittedPin = '654321'
+
+    // Mirrors the prod failure shape: the thrown Axios error carries the
+    // outbound Authorization header and the submitted PIN on its config.
+    const pinVerifyFailure = () => {
+      const requestConfig = {
+        url: 'https://app.peerly.com/api/v2/tdlc/11540328/verify_pin',
+        method: 'post',
+        headers: new AxiosHeaders({ Authorization: peerlyToken }),
+        data: JSON.stringify({ code: submittedPin }),
+      }
+      return new AxiosError(
+        'Request failed with status code 400',
+        'ERR_BAD_REQUEST',
+        requestConfig as AxiosError['config'],
+        {},
+        {
+          data: {
+            Error: 'Campaign Verify Verify PIN API request failed.',
+            // Nested 5xx: CV itself is down, so this one does alert.
+            status_code: 500,
+          },
+          status: 400,
+          statusText: 'Bad Request',
+          headers: {},
+          config: requestConfig,
+        } as AxiosError['response'],
+      )
+    }
+
+    const postedAlert = async () => {
+      const usersService = module.get(UsersService)
+      const httpService = module.get(PeerlyHttpService)
+      const slackService = module.get(SlackService)
+      usersService.findByCampaign = vi.fn().mockResolvedValue(baseUser)
+      httpService.post = vi.fn().mockRejectedValueOnce(pinVerifyFailure())
+
+      await service.verifyCampaignVerifyPin('11540328', submittedPin, campaign)
+
+      const call = vi.mocked(slackService.message).mock.calls[0]
+      // Guards the negative assertions below from passing vacuously when no
+      // alert was posted at all.
+      expect(call).toBeDefined()
+      return JSON.stringify(call?.[0])
+    }
+
+    it('posts the request line and the Peerly response body', async () => {
+      const alert = await postedAlert()
+
+      expect(alert).toContain(
+        'POST https://app.peerly.com/api/v2/tdlc/11540328/verify_pin → 400',
+      )
+      expect(alert).toContain('Campaign Verify Verify PIN API request failed.')
+      expect(alert).toContain('status_code')
+    })
+
+    it('never posts the Peerly bearer token, headers, or the PIN', async () => {
+      const alert = await postedAlert()
+
+      expect(alert).not.toContain('Authorization')
+      expect(alert).not.toContain('fake-peerly-token-value')
+      expect(alert).not.toContain('headers')
+      expect(alert).not.toContain(submittedPin)
+      expect(alert).not.toContain('ERR_BAD_REQUEST')
+    })
+
+    it('falls back to the error message on an empty response body', async () => {
+      const usersService = module.get(UsersService)
+      const httpService = module.get(PeerlyHttpService)
+      const slackService = module.get(SlackService)
+      usersService.findByCampaign = vi.fn().mockResolvedValue(baseUser)
+      httpService.post = vi.fn().mockRejectedValueOnce(
+        Object.assign(new Error('socket hang up'), {
+          isAxiosError: true,
+          config: {
+            url: 'https://app.peerly.com/api/v2/tdlc/11540328/verify_pin',
+            method: 'post',
+          },
+          response: { status: 502, data: '' },
+        }),
+      )
+
+      await service.verifyCampaignVerifyPin('11540328', '000000', campaign)
+
+      const call = vi.mocked(slackService.message).mock.calls[0]
+      expect(call).toBeDefined()
+      const alert = JSON.stringify(call?.[0])
+      expect(alert).toContain('→ 502')
+      expect(alert).toContain('socket hang up')
+      // An empty bullet makes Slack reject the whole message.
+      expect(alert).not.toContain('"text":""')
+    })
+  })
 })

@@ -949,9 +949,8 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     if (context.campaign && !context.suppressSlackAlert) {
       const user = await this.usersService.findByCampaign(context.campaign)
       if (user) {
-        const formattedError = (isAxiosError(error) && format(error)) || error
         await this.sendSlackErrorNotification(
-          formattedError,
+          error,
           user,
           context.peerlyIdentityId,
         )
@@ -964,19 +963,45 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     })
   }
 
+  // Only the request line and Peerly's parsed response body reach Slack. The
+  // serialized Axios error carries config.headers.Authorization (a live Peerly
+  // bearer token) and the request body (the candidate's CV PIN in cleartext),
+  // and #bot-10dlc-compliance is broadly readable — never widen this payload.
   private async sendSlackErrorNotification(
-    formattedError: unknown,
+    error: unknown,
     user: User,
     peerlyIdentityId?: string,
   ) {
-    const errorString =
-      typeof formattedError === 'string'
-        ? formattedError
-        : JSON.stringify(formattedError)
+    const axiosError = isAxiosError<unknown>(error) ? error : null
+    const status = axiosError?.response?.status ?? axiosError?.status
+    const requestLine = [
+      axiosError?.config?.method?.toUpperCase(),
+      axiosError?.config?.url,
+    ]
+      .filter(Boolean)
+      .join(' ')
+    const responseData = axiosError?.response?.data
+    // Axios reports an empty response body as '', which would render as an
+    // empty bullet — Slack rejects the whole message on those.
+    const hasResponseData =
+      responseData !== undefined && responseData !== null && responseData !== ''
+    const responseBody =
+      typeof responseData === 'string'
+        ? responseData
+        : JSON.stringify(responseData)
+    const fallbackMessage = error instanceof Error ? error.message : ''
 
     const blocks = buildPeerlySlackErrorMessage({
       user,
-      formattedError: errorString,
+      requestSummary: axiosError
+        ? [requestLine || 'Peerly request', status].filter(Boolean).join(' → ')
+        : undefined,
+      // Truncated so an unexpectedly large body (e.g. an HTML gateway page)
+      // can't blow past Slack's per-block character limit and drop the alert.
+      responseData: hasResponseData ? responseBody.slice(0, 1000) : undefined,
+      errorMessage: hasResponseData
+        ? undefined
+        : fallbackMessage || 'Unknown Peerly API error',
       peerlyIdentityId,
     })
 

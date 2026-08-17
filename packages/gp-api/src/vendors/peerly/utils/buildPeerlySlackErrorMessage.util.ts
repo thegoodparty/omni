@@ -2,15 +2,23 @@ import { User } from '../../../generated/prisma'
 import { getUserFullName } from '../../../users/util/users.util'
 import { SlackMessageType } from '../../slack/slackService.types'
 
+// Deliberately narrow fields instead of a stringified error: the full Axios
+// error carries config.headers.Authorization (a live Peerly bearer token) and
+// the request body (a Campaign Verify PIN in cleartext), and this message goes
+// to a broadly-readable Slack channel.
 interface BuildPeerlySlackErrorMessageParams {
   user: User
-  formattedError: string
+  requestSummary?: string
+  responseData?: string
+  errorMessage?: string
   peerlyIdentityId?: string
 }
 
 export const buildPeerlySlackErrorMessage = ({
   user,
-  formattedError,
+  requestSummary,
+  responseData,
+  errorMessage,
   peerlyIdentityId,
 }: BuildPeerlySlackErrorMessageParams) => [
   {
@@ -137,17 +145,17 @@ export const buildPeerlySlackErrorMessage = ({
       {
         type: SlackMessageType.RICH_TEXT_LIST,
         style: 'bullet',
-        elements: [
-          {
+        elements: [requestSummary, responseData, errorMessage]
+          .filter((text): text is string => Boolean(text))
+          .map((text) => ({
             type: SlackMessageType.RICH_TEXT_SECTION,
             elements: [
               {
                 type: SlackMessageType.TEXT,
-                text: String(formattedError),
+                text,
               },
             ],
-          },
-        ].filter((elem) => elem !== undefined),
+          })),
       },
     ],
   },
