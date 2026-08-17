@@ -92,6 +92,17 @@ export const RaceTargetMetricsSchema = z.object({
    * baseline for the campaign-plan template.
    */
   projectedVoterTurnout: z.number().nullable(),
+  /**
+   * 70% prediction interval around `projectedTurnout`, measured from how far
+   * the model's past projections landed from actual results, and the same
+   * interval carried through the win-number math. Null where the model has no
+   * projection for the race, and the win-number pair is also null when
+   * `winNumber` came from the civics archive rather than the projection.
+   */
+  projectedTurnoutLower: z.number().nullable(),
+  projectedTurnoutUpper: z.number().nullable(),
+  winNumberLower: z.number().nullable(),
+  winNumberUpper: z.number().nullable(),
   candidates: z.array(RaceCandidateSchema),
   generalElectionDate: z.string().nullable(),
   primaryElectionDate: z.string().nullable(),

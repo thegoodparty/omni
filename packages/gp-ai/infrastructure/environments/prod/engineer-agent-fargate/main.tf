@@ -78,6 +78,14 @@ module "engineer_agent_fargate" {
   docker_image_tag                 = var.docker_image_tag
   shared_slack_notifier_lambda_arn = data.terraform_remote_state.shared_slack_notifier.outputs.lambda_function_arn
   failure_notification_email       = var.failure_notification_email
+
+  # Passed explicitly even though the module already defaults to false, for the
+  # same reason failure_notification_email is pinned above: this is the switch
+  # that decides whether the bot can open PRs unprompted, and an operator asking
+  # "is that on in prod?" should find the answer here rather than by inferring a
+  # module default. Flip to true only after GPBOT_PR_CHANNEL_ID is set and the
+  # team has been told bot PRs are coming.
+  escalate_analysis_to_work = false
 }
 
 output "cluster_name" {

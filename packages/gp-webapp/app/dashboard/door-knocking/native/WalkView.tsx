@@ -11,11 +11,12 @@ import {
 } from '@goodparty_org/contracts'
 import { ChevronDownIcon, ChevronRightIcon } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
+import { countDoors, knockableTargets } from '../routeCounts'
 import PersonSheet from './PersonSheet'
 import { formatDistance } from './routeFormat'
 import { routeQueryOptions } from './turfQueries'
 import {
-  rollupStatuses,
+  rollupStopStatus,
   STATUS_DOT_COLORS,
   STATUS_LABELS,
 } from './statusPresentation'
@@ -40,7 +41,10 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
   // Recorded statuses patch the route query cache itself (not component
   // state), so they survive leaving and re-opening the walk view within the
   // cache window; a real refetch replaces them with the server's derivation.
-  const applyKnockStatus = (personId: string, knockStatus: DoorKnockStatus) => {
+  const patchPerson = (
+    personId: string,
+    patch: (target: RoutePayloadTarget) => RoutePayloadTarget,
+  ) => {
     queryClient.setQueryData<DoorKnockingRoutePayload>(
       ['door-knocking-route', turfId],
       (old) =>
@@ -51,15 +55,19 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
             addresses: stop.addresses.map((address) => ({
               ...address,
               targets: address.targets.map((target) =>
-                target.personId === personId
-                  ? { ...target, knockStatus }
-                  : target,
+                target.personId === personId ? patch(target) : target,
               ),
             })),
           })),
         },
     )
   }
+  const applyKnockStatus = (personId: string, knockStatus: DoorKnockStatus) =>
+    patchPerson(personId, (target) => ({ ...target, knockStatus }))
+  // ADR 0007. Same cache patch as a knock, so the marker sticks while the
+  // canvasser moves down the list; the server is the truth on refetch.
+  const applyDoNotKnock = (personId: string, doNotKnock: boolean) =>
+    patchPerson(personId, (target) => ({ ...target, doNotKnock }))
   const [openStopId, setOpenStopId] = useState<number | null>(null)
   const [sheet, setSheet] = useState<{
     stopId: number
@@ -89,24 +97,19 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
     () => (routeQuery.data?.stops ?? []).slice().sort((a, b) => a.seq - b.seq),
     [routeQuery.data],
   )
-  const allTargets = (stopList: RoutePayloadStop[]) =>
-    stopList.flatMap((stop) =>
-      stop.addresses.flatMap((address) => address.targets),
-    )
+  // Progress is over knockable doors only (see routeCounts). A flagged door
+  // would otherwise sit under the `unknown` chip as outstanding work; its
+  // recorded history, if any, still lives in the CRM.
   const targetCount = (stopList: RoutePayloadStop[]) =>
-    allTargets(stopList).length
+    knockableTargets(stopList).length
   const reachedCount = (stopList: RoutePayloadStop[]) =>
-    allTargets(stopList).filter((target) => target.knockStatus !== 'unknown')
-      .length
+    knockableTargets(stopList).filter(
+      (target) => target.knockStatus !== 'unknown',
+    ).length
   const statusCount = (stopList: RoutePayloadStop[], status: DoorKnockStatus) =>
-    allTargets(stopList).filter((target) => target.knockStatus === status)
+    knockableTargets(stopList).filter((target) => target.knockStatus === status)
       .length
-  const stopStatus = (stop: RoutePayloadStop): DoorKnockStatus =>
-    rollupStatuses(
-      stop.addresses.flatMap((address) =>
-        address.targets.map((target) => target.knockStatus),
-      ),
-    )
+  const stopStatus = rollupStopStatus
   const primaryTargetName = (stop: RoutePayloadStop): string | null =>
     stop.addresses[0]?.targets[0]?.name ?? null
   const targetsForStop = (stop: RoutePayloadStop): RoutePayloadTarget[] =>
@@ -115,6 +118,44 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
   const sheetStop = sheet
     ? (stops.find((stop) => stop.id === sheet.stopId) ?? null)
     : null
+
+  // Every target in walk order, flattened: the unit the canvasser actually
+  // moves through is a person at a door, not a stop.
+  const walkOrder = useMemo(
+    () =>
+      stops.flatMap((stop) =>
+        stop.addresses.flatMap((address) =>
+          address.targets.map((target) => ({ stop, target })),
+        ),
+      ),
+    [stops],
+  )
+
+  // "Always show the next door so there is no thinking between houses."
+  // Forward only: jumping backward to a door the canvasser walked past would
+  // send them back up the street, so anything skipped is left for the list.
+  const advanceFrom = (loggedTargetId: number) => {
+    const position = walkOrder.findIndex(
+      (entry) => entry.target.stopTargetId === loggedTargetId,
+    )
+    const next = walkOrder.slice(position + 1).find(
+      ({ target }) =>
+        // This closure still sees the pre-patch cache, so the just-logged
+        // target reads as unknown — excluded by id rather than by status.
+        target.stopTargetId !== loggedTargetId &&
+        target.knockStatus === 'unknown' &&
+        !target.doNotKnock,
+    )
+    if (!next) {
+      setSheet(null)
+      return
+    }
+    openSheet(
+      next.stop.id,
+      targetsForStop(next.stop).map((t) => t.stopTargetId),
+      next.target.stopTargetId,
+    )
+  }
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto bg-background px-4 py-4">
@@ -199,7 +240,8 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
             <div className="flex items-baseline justify-between border-b border-border px-4 py-3">
               <h3 className="text-sm font-semibold">Stops</h3>
               <span className="text-sm tabular-nums text-muted-foreground">
-                {routeQuery.data.route.stopCount} doors ·{' '}
+                {routeQuery.data.route.stopCount} stops ·{' '}
+                {countDoors(routeQuery.data.stops)} doors ·{' '}
                 {formatDuration(routeQuery.data.route.totalSeconds)} ·{' '}
                 {formatDistance(routeQuery.data.route.totalMeters)}
               </span>
@@ -244,21 +286,43 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                         <span className="tabular-nums">
                           {targetsForStop(stop).length}
                         </span>
-                        {targetsForStop(stop).map((target) => (
-                          <span
-                            key={target.stopTargetId}
-                            className="h-1.5 w-1.5 rounded-full"
-                            style={{
-                              backgroundColor:
-                                STATUS_DOT_COLORS[target.knockStatus],
-                            }}
-                          />
-                        ))}
+                        {/* ADR 0007. A flagged resident knocked before this
+                            was set still carries a status, and its dot would
+                            sit next to the "Do not knock" label saying the
+                            opposite. The expanded row drops it for the same
+                            reason. */}
+                        {targetsForStop(stop)
+                          .filter((target) => !target.doNotKnock)
+                          .map((target) => (
+                            <span
+                              key={target.stopTargetId}
+                              className="h-1.5 w-1.5 rounded-full"
+                              style={{
+                                backgroundColor:
+                                  STATUS_DOT_COLORS[target.knockStatus],
+                              }}
+                            />
+                          ))}
+                        {/* ADR 0007. On the collapsed row, because a
+                            single-resident stop opens the sheet instead of
+                            expanding — without this, the common case shows an
+                            ordinary dot and the canvasser walks up to the
+                            door. */}
+                        {targetsForStop(stop).some(
+                          (target) => target.doNotKnock,
+                        ) && (
+                          <span className="font-medium text-warning">
+                            Do not knock
+                          </span>
+                        )}
                       </span>
                     </span>
                     {stop.legSeconds > 0 && (
                       <span className="shrink-0 text-xs text-muted-foreground">
-                        {formatDuration(stop.legSeconds)} walk
+                        {formatDuration(stop.legSeconds)}{' '}
+                        {routeQuery.data.route.mode === 'walk'
+                          ? 'walk'
+                          : 'drive'}
                       </span>
                     )}
                     {targetsForStop(stop).length > 1 &&
@@ -286,16 +350,25 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                           <span className="min-w-0 flex-1 truncate">
                             {target.name ?? 'Name unavailable'}
                           </span>
-                          <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-                            <span
-                              className="h-2 w-2 rounded-full"
-                              style={{
-                                backgroundColor:
-                                  STATUS_DOT_COLORS[target.knockStatus],
-                              }}
-                            />
-                            {STATUS_LABELS[target.knockStatus]}
-                          </span>
+                          {/* ADR 0007. Read before walking up, not after
+                              opening the sheet, so the marker replaces the
+                              knock status rather than sitting beside it. */}
+                          {target.doNotKnock ? (
+                            <span className="shrink-0 text-xs font-medium text-warning">
+                              Do not knock
+                            </span>
+                          ) : (
+                            <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                              <span
+                                className="h-2 w-2 rounded-full"
+                                style={{
+                                  backgroundColor:
+                                    STATUS_DOT_COLORS[target.knockStatus],
+                                }}
+                              />
+                              {STATUS_LABELS[target.knockStatus]}
+                            </span>
+                          )}
                           <ChevronRightIcon size={14} className="shrink-0" />
                         </button>
                       ))}
@@ -310,7 +383,10 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
       {sheetStop && sheet && (
         <PersonSheet
           stop={sheetStop}
-          initialTargetId={sheet.targetId}
+          selectedTargetId={sheet.targetId}
+          onSelectTarget={(targetId) =>
+            setSheet({ stopId: sheet.stopId, targetId })
+          }
           statusFor={(target) => target.knockStatus}
           clientKeyFor={clientKeyFor}
           onRecorded={(targetId, personId, knockStatus) => {
@@ -321,8 +397,9 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
               next.delete(targetId)
               return next
             })
-            setSheet(null)
+            advanceFrom(targetId)
           }}
+          onDoNotKnockChanged={applyDoNotKnock}
           onClose={() => setSheet(null)}
         />
       )}

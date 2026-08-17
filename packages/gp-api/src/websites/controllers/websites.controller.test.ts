@@ -98,6 +98,7 @@ describe('WebsitesController', () => {
       findUniqueOrThrow: vi.fn().mockResolvedValue({
         content: completeContent,
         hasEverBeenPublished: false,
+        status: WebsiteStatus.unpublished,
         domain: { status: DomainStatus.submitted },
       }),
       findUnique: vi.fn(),
@@ -373,10 +374,11 @@ describe('WebsitesController', () => {
       expect(mockWebsitesService.update).toHaveBeenCalled()
     })
 
-    it('does not gate content-only edits (no status change)', async () => {
+    it('does not gate content-only edits to an unpublished site', async () => {
       mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
         content: {},
         hasEverBeenPublished: false,
+        status: WebsiteStatus.unpublished,
         domain: null,
       })
 
@@ -728,6 +730,103 @@ describe('WebsitesController', () => {
 
       expect(mockS3Service.uploadFile).not.toHaveBeenCalled()
       expect(mockWebsitesService.update).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('updateWebsite - edits to an already-published site', () => {
+    // Cloned because updateWebsite's merge() mutates the content it is handed,
+    // and completeContent is shared with every other suite in this file.
+    const publishedSite = (content: PrismaJson.WebsiteContent) => ({
+      content: structuredClone(content),
+      hasEverBeenPublished: true,
+      status: WebsiteStatus.published,
+      domain: { status: DomainStatus.registered },
+    })
+
+    it('blocks an edit that blanks about.bio on a published site', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue(
+        publishedSite(completeContent),
+      )
+
+      const body = new UpdateWebsiteSchema()
+      body.about = { bio: '' }
+
+      await expect(
+        controller.updateWebsite(mockUser, mockCampaign, body),
+      ).rejects.toMatchObject({ status: HttpStatus.BAD_REQUEST })
+
+      expect(mockWebsitesService.update).not.toHaveBeenCalled()
+    })
+
+    it('names about.bio as the missing field', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue(
+        publishedSite(completeContent),
+      )
+
+      const body = new UpdateWebsiteSchema()
+      body.about = { bio: '' }
+
+      await expect(
+        controller.updateWebsite(mockUser, mockCampaign, body),
+      ).rejects.toMatchObject({ message: expect.stringContaining('about.bio') })
+    })
+
+    it('blocks an edit that empties about.issues on a published site', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue(
+        publishedSite(completeContent),
+      )
+
+      const body = new UpdateWebsiteSchema()
+      body.about = { issues: [] }
+
+      await expect(
+        controller.updateWebsite(mockUser, mockCampaign, body),
+      ).rejects.toMatchObject({ status: HttpStatus.BAD_REQUEST })
+
+      expect(mockWebsitesService.update).not.toHaveBeenCalled()
+    })
+
+    it('allows an edit that leaves required fields populated', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue(
+        publishedSite(completeContent),
+      )
+
+      const body = new UpdateWebsiteSchema()
+      body.main = { tagline: 'A fresh start for our district' }
+
+      await controller.updateWebsite(mockUser, mockCampaign, body)
+
+      expect(mockWebsitesService.update).toHaveBeenCalled()
+    })
+
+    it('does not re-gate the attached domain on a content-only edit', async () => {
+      // Deliberate asymmetry with the content gate: a Domain row sits at
+      // `pending` for the duration of an async registrar purchase, and gating
+      // edits on it would lock the candidate out of their own editor.
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        content: structuredClone(completeContent),
+        hasEverBeenPublished: true,
+        status: WebsiteStatus.published,
+        domain: { status: DomainStatus.pending },
+      })
+
+      const body = new UpdateWebsiteSchema()
+      body.main = { tagline: 'Still editable while the domain settles' }
+
+      await controller.updateWebsite(mockUser, mockCampaign, body)
+
+      expect(mockWebsitesService.update).toHaveBeenCalled()
+    })
+
+    it('allows unpublishing a site whose content is incomplete', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue(publishedSite({}))
+
+      const body = new UpdateWebsiteSchema()
+      body.status = WebsiteStatus.unpublished
+
+      await controller.updateWebsite(mockUser, mockCampaign, body)
+
+      expect(mockWebsitesService.update).toHaveBeenCalled()
     })
   })
 

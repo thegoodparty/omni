@@ -1,0 +1,115 @@
+name: gpbot stale PR alert
+
+# Bot PRs die quietly. Ten of them sat in the archived gp-webapp repo for
+# months and nobody noticed, because an unreviewed PR produces no notification
+# after the day it opens — the triage ping scrolls away and nothing follows up.
+#
+# This is the follow-up. Once a day it names every [GP-Bot] PR that has been
+# open past the threshold with no human having looked at it.
+#
+# Reads only. Like gpbot-pr-triage.yml, this must never merge or close
+# anything: the point is to make a human decision happen, not to make it
+# automatically.
+
+on:
+  schedule:
+    # 15:00 UTC — mid-morning US, so the nag lands during the working day
+    # rather than overnight where it joins yesterday's unread notifications.
+    - cron: '0 15 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: gpbot-stale-pr-alert
+  cancel-in-progress: false
+
+env:
+  STALE_HOURS: '48'
+  # Reviews from these accounts do not count as human attention. delegate
+  # reviews every PR automatically, so counting it would mean no bot PR is
+  # ever stale — the alert would be permanently silent, which looks identical
+  # to everything being fine.
+  #
+  # No `[bot]` suffix: these are matched against `gh pr list --json reviews`,
+  # which reads GraphQL, where a Bot's login is bare. Only REST returns
+  # `cursor[bot]`. Adding the suffix here would match nothing.
+  BOT_REVIEWERS: 'delegate-reviewer cursor'
+
+jobs:
+  alert:
+    name: Find unreviewed bot PRs
+    runs-on: ubuntu-latest
+    env:
+      SLACK_TOKEN: ${{ secrets.SLACK_APP_BOT_TOKEN }}
+      CHANNEL: ${{ vars.GPBOT_PR_CHANNEL_ID }}
+    steps:
+      - name: Collect stale bot PRs
+        id: scan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cutoff="$(date -u -d "$STALE_HOURS hours ago" '+%Y-%m-%dT%H:%M:%SZ')"
+
+          gh pr list --repo "$REPO" --state open --limit 200 \
+            --json number,title,url,createdAt,headRefName,reviews > prs.json
+
+          # jq builds the human-readable lines directly: a PR is stale when it
+          # is bot-authored, older than the cutoff, and every review on it (if
+          # any) came from an excluded account.
+          #
+          # The `!= null` guard is load-bearing. A review whose author account
+          # was deleted reports `author.login` as null, and `$bots | index(null)`
+          # is null, so `not` keeps it — a deleted account would otherwise count
+          # as human attention and quietly drop the PR from the alert, which is
+          # the exact miss this job exists to catch.
+          bots="$(jq -cn --arg b "$BOT_REVIEWERS" '$b | split(" ")')"
+          stale="$(jq -r --arg cutoff "$cutoff" --argjson bots "$bots" '
+            .[]
+            | select((.title | startswith("[GP-Bot]")) or (.headRefName | contains("/gp-bot_")))
+            | select(.createdAt <= $cutoff)
+            | select([.reviews[]?.author.login] | map(select(. != null and (. as $l | $bots | index($l) | not))) | length == 0)
+            | "• <\(.url)|#\(.number)> \(.title)"
+          ' prs.json)"
+
+          count="$(printf '%s' "$stale" | grep -c '^•' || true)"
+          echo "found $count stale bot PR(s)"
+          printf '%s\n' "$stale"
+
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          {
+            echo 'list<<STALE_EOF'
+            printf '%s\n' "$stale"
+            echo 'STALE_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      # Silent when there is nothing to say. A daily "0 stale PRs" post trains
+      # people to ignore the channel, which costs exactly the attention this
+      # alert is trying to buy.
+      - name: Post to Slack
+        if: steps.scan.outputs.count != '0' && env.SLACK_TOKEN != '' && env.CHANNEL != ''
+        env:
+          STALE_LIST: ${{ steps.scan.outputs.list }}
+          COUNT: ${{ steps.scan.outputs.count }}
+        run: |
+          set -euo pipefail
+          # chat.postMessage answers 200 even when it refuses the message, so
+          # -f proves nothing: a revoked token or a channel the app was never
+          # invited to arrives as {"ok": false, "error": ...}. Without the -e
+          # check this step goes green while nobody is told anything, which is
+          # the same silence the alert is meant to break.
+          jq -n \
+            --arg channel "$CHANNEL" \
+            --arg header "*${COUNT} bot PR(s) open past ${STALE_HOURS}h with no human review.* Closing one is a perfectly good outcome — leaving it open is not." \
+            --arg list "$STALE_LIST" \
+            '{channel: $channel, text: ($header + "\n" + $list)}' \
+            | curl -sSf -X POST https://slack.com/api/chat.postMessage \
+                -H "Authorization: Bearer $SLACK_TOKEN" \
+                -H 'Content-type: application/json; charset=utf-8' \
+                --data @- \
+            | tee /dev/stderr \
+            | jq -e '.ok' > /dev/null

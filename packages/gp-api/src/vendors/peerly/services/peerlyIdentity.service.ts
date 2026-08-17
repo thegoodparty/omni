@@ -72,6 +72,7 @@ import {
   isPeerlyCvRejection,
   PeerlyCvRejectionException,
 } from '../utils/peerlyCvRejection.util'
+import { isPeerlyCvPinRejection } from '../utils/peerlyCvPinRejection.util'
 import { PinoLogger } from 'nestjs-pino'
 
 @Injectable()
@@ -893,6 +894,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           campaign,
           peerlyIdentityId,
           httpExceptionClass: UnprocessableEntityException,
+          suppressSlackAlert: isPeerlyCvPinRejection(e),
         })
       } else {
         return await this.handleApiError(e, { campaign, peerlyIdentityId })
@@ -912,7 +914,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
         `/v2/tdlc/${peerlyIdentityId}/resend_pin`,
       )
     } catch (e) {
-      await this.handleApiError(e, { campaign, peerlyIdentityId })
+      await this.handleApiError(e, {
+        campaign,
+        peerlyIdentityId,
+        suppressSlackAlert: isPeerlyCvPinRejection(e),
+      })
     }
   }
 

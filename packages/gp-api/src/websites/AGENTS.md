@@ -25,6 +25,7 @@ A longer narrative lives in `README.md` (data model, endpoint catalogue). This f
 - **Forward Email is the inbound mail provider** for custom-domain campaign emails. New email-related domain features go through `ForwardEmailModule`, not direct DNS edits.
 - Website creation auto-seeds content from the campaign's positions and user data — see `WebsitesService.createForCampaign`.
 - `WebsitesModule` has a non-trivial constructor that wires `PurchaseService` for the domain purchase flow — uncommon for a Nest module class; if you're adding logic here, prefer pushing it into a service.
+- **`assertReadyToPublish` gates the status the site will HAVE, not the publish transition.** `PUT /websites/mine` validates `REQUIRED_PUBLISH_FIELDS` whenever `body.status ?? currentStatus` is `published`, so an edit that omits `status` on a live site is validated too. Gating on `body.status === published` alone let a body carrying `about: { bio: '' }` empty a required field on a published site (lodash `merge` overwrites with an explicit empty string), leaving it live with content that would fail this same check on republish — and silently disqualifying the candidate from 10DLC submission.
 
 ## Gotchas
 

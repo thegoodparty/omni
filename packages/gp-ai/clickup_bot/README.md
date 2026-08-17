@@ -20,19 +20,30 @@ ClickUp comment OR GitHub PR
 
 | Tag | Label | Model | Result |
 |-----|-------|-------|--------|
-| `gpbot-analyze` | analyze | opus | Posts bug analysis as [GP-Bot] comment |
+| `gpbot-analyze` | analyze | opus | Posts bug analysis as [GP-Bot] comment, and may queue an implementation run — see "Analyze before implement" |
 | `gpbot-work` | implement | opus | Creates PR and posts link to ClickUp |
+
+`gpbot-analyze` is the front door. `gpbot-work` is normally applied by an
+analysis that concluded there is a fix worth making, though applying it by hand
+still works and skips straight to the PR.
 
 ## Flow
 
-1. User adds tag to a ClickUp task (e.g., `gpbot-analyze`)
-2. ClickUp sends `taskTagUpdated` webhook to Lambda
+1. A tag lands on a ClickUp task (e.g., `gpbot-analyze`) — applied by hand, by a
+   ClickUp Automation, or by the HubSpot integration as it files the ticket
+2. ClickUp sends a `taskTagUpdated` **or** `taskCreated` webhook to Lambda. Both
+   are subscribed, and the reason is a race — see "Why both events" below
 3. Webhook invocation (ClickUp's critical path — must answer in well under
    ClickUp's webhook response timeout):
    - Verify the signature, validate `task_id`, resolve the tag in `TAG_CONFIG`
    - Self-invoke the same Lambda asynchronously with
      `{"gpbot_async": true, "task_id": ..., "matched_tag": ...}` and return
      `200 {"status": "accepted"}` immediately — zero ClickUp API calls in-path
+   - A `taskCreated` delivery with no tag delta cannot be resolved without a
+     ClickUp call, so the payload instead carries
+     `{"resolve_tag_from_task": true}` and the worker does the lookup. The flag
+     is explicit rather than a null `matched_tag` so the worker's fail-loud
+     check on an unknown tag keeps working
    - If the self-invoke is unavailable (missing IAM — the initial state until
      the follow-up terraform lands — or any invoke error), fall back to running
      the worker steps inline, exactly the pre-fast-ack behavior
@@ -40,15 +51,26 @@ ClickUp comment OR GitHub PR
    by a top-level `gpbot_async` key with no ALB envelope keys, which an
    internet request cannot produce — an ALB-wrapped body stays a string inside
    `event["body"]`):
+   - Tag resolution (`taskCreated` without a tag delta only): `GET /task/{id}`
+     and read the tag off the task itself, preferring `gpbot-analyze` when both
+     tags are present. No recognizable tag → skip quietly, which is the common
+     case since `taskCreated` fires for every task created in the workspace.
+     The fetched task is reused by the scope guard below, so this path costs one
+     `GET /task`, not two.
+   - Scope guard (`implement` only): `GET /task/{id}` and skip when the task is
+     not omni code work. See "Scope guard" below.
    - Dedup check: does the task already have a **recent** `[GP-Bot] Processing
      started` comment **for the same label**? → Skip. Analyze and implement
      dedup independently. See "Dedup semantics" below.
    - Atomic dedup claim: conditional DynamoDB write on `{task_id}#{label}` —
      exactly one concurrent worker wins; losers skip quietly. See "Dedup
      semantics" below.
-   - Triggers Fargate, passing `CLICKUP_TASK_ID`, `INSTRUCTION`, and
-     `AGENT_MODEL` as container-override env vars (the instruction encodes the
-     analyze-vs-implement contract; there is no `OUTPUT_ACTION`)
+   - Triggers Fargate, passing `CLICKUP_TASK_ID`, `INSTRUCTION`, `AGENT_MODEL`
+     and `AGENT_LABEL` as container-override env vars (the instruction encodes
+     the analyze-vs-implement contract; there is no `OUTPUT_ACTION`).
+     `AGENT_LABEL` is what the agent gates escalation on — see "Analyze before
+     implement" — and is passed as a value so a prompt edit cannot silently
+     change whether a run may open a PR
    - Posts the `[GP-Bot] Processing started (...)` comment — which also tells
      the user the re-tag cooldown — only after the Fargate task actually
      launched. In the async worker it is retried once on failure (this comment
@@ -61,6 +83,9 @@ ClickUp comment OR GitHub PR
      only fail-loud channel — no caller receives an HTTP error) and attempt a
      failure comment.
 5. engineer_agent executes based on action type
+6. After an **analyze** run succeeds, the agent parses its own `GPBOT-VERDICT`
+   line and, on `fix` only, tags the ticket `gpbot-work` — re-entering at step 2.
+   Off by default; see "Analyze before implement"
 
 There is no feature flag and no logging-only mode. A matched tag always attempts the
 Fargate trigger. If the trigger fails for any reason (missing `ECS_*` env vars, IAM
@@ -69,6 +94,155 @@ on the task and returns HTTP 500.
 
 To retry after a failure (e.g. once the config is fixed): remove and re-add the tag.
 Failure comments do not mark the task as processed, so the retry re-triggers.
+
+## Why both events (`taskTagUpdated` and `taskCreated`)
+
+Subscribing to `taskTagUpdated` alone loses bugs, and it loses them silently.
+
+The tag that summons this bot is applied by the HubSpot integration as it files
+the ticket, and whether it lands **inside** the create call or as a **follow-up
+edit** is not deterministic. Measured over the five bugs reported 2026-08-14 to
+2026-08-17:
+
+| Ticket | Tag arrived as | `taskTagUpdated` fired? | Analyzed? |
+|--------|----------------|------------------------|-----------|
+| ENG-10889, ENG-10892, ENG-10893 | separate edit | yes | yes |
+| ENG-10890, ENG-10891 | inside the create call | **no** | **no** |
+
+Two of five — a 40% miss rate — sat tagged and un-analyzed until someone
+re-tagged them by hand. Nothing looked broken from the outside: the webhook was
+`active` with `fail_count: 0`, no delivery was dropped, and no error was logged,
+because from ClickUp's side there was simply never an event to send. The tell is
+`date_updated` sitting 0–1s after `date_created` (nothing ever edited the task)
+while the task plainly carries the tag.
+
+`taskCreated` closes it: a created task is judged on the tags it actually
+carries, so the trigger no longer depends on which path ClickUp happens to take.
+
+Two consequences worth knowing:
+
+- **Volume.** `taskCreated` fires for every task created anywhere in the
+  workspace, so most deliveries now cost one `GET /task` and skip. Cheap, but it
+  is the busiest path in the handler — keep it free of ClickUp writes.
+- **Widened secrets exposure.** A `taskCreated` delivery with no tag delta
+  cannot be classified without the API key, so it can no longer be filtered
+  *before* signature verification. During a Secrets Manager outage those
+  deliveries return **200 and are dropped** rather than 500ing, because 500ing
+  every created task is what drives ClickUp's consecutive-failure counter into
+  suspending the webhook — and a suspended webhook is a silent outage that ran
+  from Jul 31 to Aug 14 the last time it happened. A delivery we *know* is
+  tagged still 500s so ClickUp redelivers. The outage itself still alarms.
+
+**The lookup is not optional** (confirmed 2026-08-17 against a live delivery).
+A real `taskCreated` payload's `history_items` carries only `status` and
+`task_creation` entries — there is no `tag` field to read, even on a task created
+with tags:
+
+```json
+"history_items": [
+  {"field": "status",        "after": {"status": "to do", "type": "open"}},
+  {"field": "task_creation", "data": {"via": "api"}}
+]
+```
+
+`find_matched_tag` still runs first because it costs nothing and would catch a
+future payload change, but do not remove the `GET /task` fallback on the theory
+that the tag might be in the delta. It is not.
+
+## Analyze before implement
+
+Every reported bug gets an **analysis**. Only an analysis that concludes there is
+a real, bounded code defect queues an **implementation**.
+
+The reason is measured, not theoretical. The five bugs reported 2026-08-14..17
+analyzed out as:
+
+| Ticket | What it actually was |
+|--------|----------------------|
+| ENG-10892 | Real code bug: stale `did_win=false` fails `isActiveCampaign()` → `NO_ACTIVE_CAMPAIGN` on Pro checkout |
+| ENG-10890 | **The same bug as ENG-10892** |
+| ENG-10893 | Real code bug: Know Your Opponent silently drops opponents with zero collected sources |
+| ENG-10891 | Upstream L2 voter-file gap — nothing to fix in omni |
+| ENG-10889 | A feature request, not a bug |
+
+Pointing an implement agent at all five produces two PRs that should never have
+been written, plus a duplicate of a third. Two of five reported "bugs" not being
+code bugs at all is the normal state of an inbox fed by support tickets, so the
+filter has to exist somewhere — and the only thing cheap enough to run on
+everything, and informed enough to tell a vendor data gap from a defect, is a
+read-only agent with the codebase in front of it.
+
+**How it works.** The analyze prompt requires a final line:
+
+```
+GPBOT-VERDICT: fix | no-code-change | needs-human
+```
+
+After a successful analyze run, `engineer_agent/agent/escalation.py` parses that
+line and, on `fix` only, adds `gpbot-work` to the ticket. That re-enters through
+the ordinary webhook path — the same route a human tagging by hand takes — so the
+scope guard, both dedup layers, and the PR triage workflow all still apply. The
+judgement is the model's; the action is deterministic code, which is where the
+guard rails live:
+
+| Guard | Why |
+|---|---|
+| Only from an `analyze` run (`AGENT_LABEL`) | An implement run cannot queue another implement run |
+| Only on `status: success` | A budget-capped or deadline-killed run can leave a confident-looking partial analysis |
+| Only on a recognized `fix` verdict | Missing, malformed or unknown → leave the ticket alone |
+| Skipped if `gpbot-work` is already present | Re-adding an existing tag emits no webhook anyway |
+| Never raises | It runs after the analysis is already posted; failing here would turn a useful run into a task-failure alarm |
+
+The verdict is read from the **last** match in the response, because a model
+routinely restates the instructions it was given before answering.
+
+**Ramp switch.** `GPBOT_ESCALATE_TO_WORK` on the engineer-agent task definition,
+default **false** (`escalate_analysis_to_work` in
+`infrastructure/modules/engineer-agent-fargate`). While it is off the agent still
+logs the verdict it *would* have acted on, which is how you judge whether the
+verdicts are trustworthy before handing them the trigger. Grep for
+`escalation disabled` to see the queue that would have formed.
+
+Before flipping it on: set `vars.GPBOT_PR_CHANNEL_ID` (otherwise bot PRs arrive
+as a GitHub review request with no Slack context) and tell the team that bot PRs
+are coming, that a bot approval does **not** merge them, and that closing a weak
+one is the expected outcome.
+
+**Cost.** A ticket that escalates pays for two runs, each capped independently at
+`AGENT_MAX_BUDGET_USD` (default $15). Observed analyze runs have cost $1.73–$4.79.
+The ceiling per escalated ticket is therefore $30, not $15 — budget for the
+two-phase flow, not the single run.
+
+## Scope guard
+
+`gpbot-work` used to be applied by hand, one ticket at a time, so a human
+decided "is this omni code work?" before the agent ever ran. ClickUp Automations
+now apply it — including one that is workspace-wide on `production-bug` — so
+nothing upstream answers that question and this guard is the only thing that
+does.
+
+Applies to the **implement label only**. `gpbot-analyze` is deliberately
+unrestricted: analyzing a data bug is useful and it is used on DATA tickets
+constantly. Only opening a code PR against one is wrong.
+
+An implement trigger is skipped (200, `{"skipped": "out of scope"}`) when any of:
+
+| Signal | Value | Why |
+|---|---|---|
+| `custom_id` prefix | `DATA-` | Voter-file/district work, not an omni code change |
+| `list.id` | `901326391561` (Data Backlog) | Catches DATA-list tasks with no custom ID |
+| `list.id` | `901326170992` (Growth-Bugs) | Marketing-site work; does not live in omni |
+| tag | `bug: district-assignment` | The data team's marker, for data work sitting in an ENG list |
+
+Two orderings are load-bearing. The guard runs **before the comments GET**, so a
+rejected task costs one ClickUp call rather than two — it now fires on every
+data ticket in the workspace. And it runs **before the dedup claim**, because a
+claim written for a task we then refuse would outlive the delivery and suppress
+a legitimate re-tag for the whole TTL.
+
+If the lookup itself fails the guard **fails open** and the run proceeds, with
+an alarm-matching log line. One wasted run costs a few dollars and a closeable
+PR; refusing every bug during a ClickUp blip is a silent outage.
 
 ## Dedup semantics
 
@@ -190,11 +364,29 @@ containing "ERROR" would let anyone fire the alarm). Both sides are locked by
 `clickup_bot/tests/test_handler.py`; reword log lines and the terraform pattern
 together.
 
+**Silence is the failure the error alarm cannot see.** Every alarm above needs the
+handler to RUN. A webhook that stops delivering produces no logs, no errors, and
+no alarm — the bot looks healthy because it looks like nothing happened.
+
+That is not hypothetical. Deliveries stopped on **2026-07-31** and nothing
+noticed for 12 days: zero requests to the ALB target group, zero invocations,
+zero errors before or after. The `CLICKUP_API_KEY` in `AI_SECRETS_PROD` was a
+**personal token belonging to someone who is no longer a workspace member** — it
+still authenticates (`GET /user` returns their account) but has lost all
+workspace access, so `GET /team` and every task read 404. A webhook registered
+with that token dies with it.
+
+Two consequences worth internalizing: **prefer a service account over a personal
+token**, and treat the `clickup-bot-no-deliveries-prod` alarm (4 consecutive days
+with no invocations, `treat_missing_data = "breaching"` because Lambda metrics
+are sparse) as the only thing that will tell you the bot has gone quiet.
+
 ### After an outage: check webhook health
 
 During a Secrets Manager outage the Lambda cannot verify signatures for gpbot-tagged
 deliveries and returns 500 for them (irrelevant deliveries are filtered before
-signature verification and still return 200). A rotated or mismatched
+signature verification and still return 200; unclassifiable `taskCreated`
+deliveries also return 200 — see "Why both events"). A rotated or mismatched
 `CLICKUP_WEBHOOK_SECRET` behaves the same way with 401s. ClickUp tracks consecutive
 delivery failures per webhook and auto-suspends the webhook after sustained failures.
 A suspended webhook stays suspended after the outage is fixed: the bot receives
@@ -208,14 +400,25 @@ retried delivery. A nonzero fail_count that keeps climbing means deliveries are 
 failing (or timing out) and the webhook is walking toward suspension:
 
 ```bash
+# FIRST: confirm the token itself still has workspace access. "Workspace not
+# authorized" (OAUTH_192) from the call below, or a 404 from /team, means the
+# token is the problem and no webhook check will be meaningful.
+curl -s -H "Authorization: $CLICKUP_API_KEY" "https://api.clickup.com/api/v2/team" | jq .
+
 # health.status must be "active"; a climbing health.fail_count is a warning even before suspension
 curl -s -H "Authorization: $CLICKUP_API_KEY" \
   "https://api.clickup.com/api/v2/team/<team_id>/webhook" | jq '.webhooks[] | {id, endpoint, health}'
 
-# re-enable a suspended webhook
+# re-enable a suspended webhook. Both events are required — dropping
+# taskCreated here silently reopens the tag-in-create-call race and the bot
+# starts missing ~40% of reported bugs with nothing in the logs.
 curl -s -X PUT -H "Authorization: $CLICKUP_API_KEY" -H "Content-Type: application/json" \
-  -d '{"endpoint": "https://ai.goodparty.org/clickup/webhook", "events": ["taskTagUpdated"], "status": "active"}' \
+  -d '{"endpoint": "https://ai.goodparty.org/clickup/webhook", "events": ["taskTagUpdated", "taskCreated"], "status": "active"}' \
   "https://api.clickup.com/api/v2/webhook/<webhook_id>"
+
+# confirm the subscription still covers both events (a PUT replaces the list)
+curl -s -H "Authorization: $CLICKUP_API_KEY" \
+  "https://api.clickup.com/api/v2/team/<team_id>/webhook" | jq '.webhooks[].events'
 ```
 
 ## Environment Variables
@@ -260,38 +463,25 @@ It previously worked the other way — Terraform seeded the code and
 checkouts and a stale one could roll prod back. CI-only applies from the promoted
 SHA removed that risk, and that workflow did not survive the move to omni.
 
-**Rollout ordering — code first, then config.** When a change touches both the
-handler and terraform, merge/push to `prod` and confirm the deploy workflow succeeded
-BEFORE running `terraform apply`. The previous (pre-fail-loud) handler gates on
-`ENABLE_FARGATE` and silently no-ops when it is absent; the module keeps
-`ENABLE_FARGATE = "true"` in the env map as transition compatibility so an
-out-of-order apply cannot re-create the silent no-op, but do not rely on that:
-terraform cannot deploy code anymore (`lifecycle.ignore_changes`), so an apply alone
-never ships a handler fix.
+**Code and config ship together, in one apply.** Since terraform reclaimed the
+code there is no ordering problem left to manage: the release train's
+`prod/clickup-bot` apply (`release.yml`) updates the handler and the env vars in
+the same run, from the same promoted SHA. A change touching both halves needs no
+sequencing.
 
-The fast-ack + atomic-dedup rollout follows exactly that ordering, and the handler
-is written so each half is safe alone:
+This was not always true. While `deploy-clickup-bot.yml` owned the code and
+terraform owned everything else, the two could land out of order, and the
+pre-fail-loud handler silently no-op'd when `ENABLE_FARGATE` was absent — which
+is why the module still carries `ENABLE_FARGATE = "true"` in its env map as
+transition compatibility. Keep it until a deploy is confirmed on a handler that
+no longer reads it.
 
-1. Merge/deploy the code first. Without the terraform it is a safe no-op on both
-   new paths: the async self-invoke lacks IAM and quietly falls back to the old
-   synchronous flow, and `DEDUP_TABLE_NAME` is unset so the atomic claim is a quiet
-   no-op (comment-based dedup only).
-2. Then `terraform apply` in `infrastructure/environments/prod/clickup-bot`. This
-   creates the dedup table, grants `dynamodb:PutItem`/`DeleteItem` and the
-   self-invoke `lambda:InvokeFunction`, sets `DEDUP_TABLE_NAME` on the Lambda, and
-   pins async `maximum_retry_attempts = 0`. The apply is what ACTIVATES both
-   fast-ack and atomic dedup — until then the bot runs exactly the old flow.
+There is no `clickup-bot-dev` Lambda — only `clickup-bot-prod` exists — so `prod`
+is the only environment this deploys.
 
-**Code** deploys with the promotion train (Terraform owns it; see above)
-to `prod` (paths: `clickup_bot/**`). The workflow runs `clickup_bot/tests/` first and
-blocks the deploy if they fail. No manual zip/upload. There is no `clickup-bot-dev`
-Lambda — only `clickup-bot-prod` exists, so the workflow deploys prod only.
-
-**Config and IAM** (env vars, role policies, log group) are managed by terraform in
-`infrastructure/environments/prod/clickup-bot/`. Terraform seeds the function code
-once at creation and then ignores it (`lifecycle.ignore_changes` on
-`filename`/`source_code_hash` in the module), so a `terraform apply` can never roll
-back code that CI deployed:
+**Applying by hand** (`infrastructure/environments/prod/clickup-bot/`) is still
+possible and is now genuinely dangerous, because an apply from a stale checkout
+rolls the handler back along with everything else. Prefer the release train:
 
 ```bash
 cd infrastructure/environments/prod/clickup-bot
@@ -303,8 +493,8 @@ terraform apply
 > **Warning**
 > - Do not run `aws lambda update-function-configuration` by hand. Terraform will
 >   revert your change on the next apply (drift).
-> - Do not run `aws lambda update-function-code` by hand either. Push to `prod` and
->   let the workflow deploy.
+> - Do not run `aws lambda update-function-code` by hand either. Terraform owns
+>   the code now; merge to `main` and let the release train apply it.
 > - A `terraform apply` from a checkout without the correct variables previously
 >   disabled the bot in prod: `enable_fargate_trigger` defaulted to `false` and the
 >   real value lived only in a gitignored local `terraform.tfvars`, so an apply
@@ -317,7 +507,9 @@ terraform apply
 1. Go to ClickUp Settings → Integrations → Webhooks
 2. Create webhook with:
    - Endpoint: `https://ai.goodparty.org/clickup/webhook`
-   - Events: `taskTagUpdated`
+   - Events: `taskTagUpdated` **and** `taskCreated` — both, or the bot silently
+     misses every bug whose tag arrives inside the create call (see "Why both
+     events")
    - Scope: whole workspace (omit `space_id`). The handler filters non-target
      deliveries *before* signature verification precisely because it receives the
      entire workspace's tag updates — a space-scoped webhook would break the outage

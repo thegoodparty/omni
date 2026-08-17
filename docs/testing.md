@@ -34,3 +34,28 @@ npx vitest run --testNamePattern "name"                 # by test name
 ```
 
 CI runs each package's validate job (lint, typecheck, test) on PRs that touch it.
+
+## Docker for testcontainers (OrbStack, macOS)
+
+`useTestService()` suites need Docker. Under OrbStack two exports are required, and
+**non-interactive shells — agent shells, subagent shells, anything that isn't a
+login shell — never inherit them**:
+
+```bash
+export PATH="$HOME/.orbstack/bin:$PATH"
+export DOCKER_HOST="unix://$HOME/.orbstack/run/docker.sock"
+```
+
+The `docker` CLI lives in `~/.orbstack/bin`, and OrbStack has no
+`/var/run/docker.sock` — testcontainers-node cannot resolve the OrbStack docker
+context on its own.
+
+Without them, docker and testcontainers **hang for minutes instead of failing
+fast**, so an agent run just burns its watchdog timeout with no error to read.
+Other symptoms: `Could not find a working container runtime strategy`, or
+`docker info` reporting a missing socket. The same hang shows up after the machine
+sleeps. **Don't restart OrbStack** — it is already running and `orb start` will
+say so; exporting `DOCKER_HOST` fixes it immediately.
+
+`ECONNREFUSED 127.0.0.1:5432` is a different failure — that suite wants a _local_
+Postgres, not a testcontainer.

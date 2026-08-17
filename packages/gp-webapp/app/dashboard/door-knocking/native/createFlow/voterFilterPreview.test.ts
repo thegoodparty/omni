@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { DoorKnockingPackManifest } from '@goodparty_org/contracts'
-import { filtersToDimSelections } from './voterFilterPreview'
+import {
+  filtersToDimSelections,
+  unpreviewableFilterKeys,
+} from './voterFilterPreview'
 
 const manifest = {
   version: 1,
@@ -36,6 +39,35 @@ describe('filtersToDimSelections', () => {
   it('65+ does not narrow: the legacy buckets cannot express it', () => {
     const selections = filtersToDimSelections({ age65Plus: true }, manifest)
     expect(selections.has('age')).toBe(false)
+  })
+
+  // The other half of the 65+ case: silently previewing a superset is the bug,
+  // so the keys that can't narrow are reportable rather than just dropped.
+  describe('unpreviewableFilterKeys', () => {
+    it('reports selections the pack has no bucket for', () => {
+      expect(
+        unpreviewableFilterKeys(
+          { partyDemocrat: true, age65Plus: true },
+          manifest,
+        ),
+      ).toEqual(['age65Plus'])
+    })
+
+    it('ignores unselected options and reports nothing when all map', () => {
+      expect(
+        unpreviewableFilterKeys(
+          { partyDemocrat: true, age65Plus: false, genderFemale: true },
+          manifest,
+        ),
+      ).toEqual([])
+    })
+
+    // A dim missing from the manifest entirely, not just a missing bucket.
+    it('reports a selection whose whole dim is absent from the pack', () => {
+      expect(unpreviewableFilterKeys({ veteranYes: true }, manifest)).toEqual([
+        'veteranYes',
+      ])
+    })
   })
 
   it('maps income pills through the shared range names', () => {

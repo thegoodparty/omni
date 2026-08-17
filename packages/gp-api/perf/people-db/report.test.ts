@@ -66,6 +66,30 @@ describe('report', () => {
     expect(matrix).toContain('1500/1600')
   })
 
+  it('leads each cell with the cold time, not just the warm summary', () => {
+    // Cold is the production failure shape (fresh cluster, empty buffer pool),
+    // so it must be visible in the printed matrix — not only in the artifact.
+    const matrix = formatMatrix([mk({ cold: 24980 })])
+    expect(matrix).toContain('24980|38/45')
+    expect(matrix).toContain('cold')
+  })
+
+  it('shows ERR for a cold run that failed while warm runs passed', () => {
+    // The exact large-district case: cold blows the 25s statement timeout,
+    // warm runs come back. Reporting only the warm number would hide it.
+    const matrix = formatMatrix([mk({ cold: null, failures: 1 })])
+    expect(matrix).toContain('ERR|38/45')
+    // ERR already reports that failure; !1 would double-count it and read as
+    // "a warm run failed too"
+    expect(matrix).not.toContain('!1')
+  })
+
+  it('still reports warm failures alongside a failed cold run', () => {
+    // cold + 2 warm failed: ERR covers the cold one, !2 the warm ones
+    const matrix = formatMatrix([mk({ cold: null, failures: 3 })])
+    expect(matrix).toContain('ERR|38/45!2')
+  })
+
   it('matrix appends * when a cell has fewer than 4 warm samples', () => {
     const base = mk({}).warm
     const marked = formatMatrix([

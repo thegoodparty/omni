@@ -35,12 +35,15 @@ const SUPPORT_ANSWER_LABELS: Record<SupportAnswer, string> = {
   non_supporter: 'Non-supporter',
 }
 
-// The field's own display name — a fixed 2-value title, not part of what
+// The field's own display name — a fixed title per field, not part of what
 // resolveContactStatusLabel resolves server-side (that's the fromValue/
-// toValue vocabulary, a different and larger axis).
+// toValue vocabulary, a different and larger axis). Do Not Knock is written
+// from the door rather than edited here (ADR 0007), but it lands in the same
+// event log, so the feed has to name it.
 const STATUS_CHANGE_FIELD_LABELS: Record<ContactStatusField, string> = {
   voter_likelihood: 'Voter Likelihood',
   support_status: 'Support Status',
+  do_not_knock: 'Do Not Knock',
 }
 
 // No per-outreach detail route exists in this app (app/dashboard/outreach has
