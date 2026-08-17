@@ -280,9 +280,14 @@ export default function NativeDoorKnockingPage({
     setFlowStep(next)
     setSelectedTurf(null)
   }
+  // Leaving the create flow lands back on the landing map, which is a scope
+  // change like any other — the chips are hidden and short-circuited while the
+  // flow is open, so one left pressed on the way in would re-narrow the
+  // district on the way out.
   const closeFlow = () => {
     setFlowStep(null)
     setFilters({})
+    setStatusFilter(new Set())
     setClearDrawToken((token) => token + 1)
   }
   const handleSaved = (drawAnother: boolean) => {
@@ -300,6 +305,7 @@ export default function NativeDoorKnockingPage({
     } else {
       setFlowStep(null)
       setFilters({})
+      setStatusFilter(new Set())
       setClearDrawToken((token) => token + 1)
     }
   }

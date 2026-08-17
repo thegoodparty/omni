@@ -194,6 +194,35 @@ describe('NativeDoorKnockingPage landing rail', () => {
     expect(chip('Support unknown', 3)).toHaveAttribute('aria-pressed', 'false')
   })
 
+  // The create flow hides the chips and short-circuits `selections` while it
+  // is open, so a chip left pressed on the way in is invisible until the flow
+  // closes and the district quietly comes back narrowed.
+  it('returns to an unfiltered district when the create flow closes', async () => {
+    renderPage()
+    await screen.findByText(/voters in your district with a mapped address/)
+
+    fireEvent.click(chip('Support unknown', 3))
+    await waitFor(() =>
+      expect(screen.getByTestId('voter-map')).toHaveAttribute(
+        'data-people',
+        '3',
+      ),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create list' }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Close list creation' }),
+    )
+
+    const line = await screen.findByText(
+      /voters in your district with a mapped address/,
+    )
+    expect(line).toHaveTextContent(
+      '4 voters in your district with a mapped address',
+    )
+    expect(chip('Support unknown', 3)).toHaveAttribute('aria-pressed', 'false')
+  })
+
   // A legend that narrowed with its own chip would zero the other six counts
   // and leave nothing to press back.
   it('keeps the legend counts describing the list, not the pressed chip', async () => {
