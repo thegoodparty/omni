@@ -157,9 +157,20 @@ script and the log form. That placement is what keeps it visible for a resident
 flagged do-not-knock or not-a-voter, whose footer is withheld: the feed carries
 the flag's own `STATUS_CHANGE` row, so hiding it would hide who set the flag
 and when from the one person positioned to notice it was set on the wrong
-resident. One live gap — a knock logged during the walk does not join that
-resident's feed until the next serve; see ADR 0009's consequences for why the
-fix belongs in `RecordKnockForm`/`WalkView` rather than the card.
+resident.
+
+**A door logged mid-walk joins its own feed on the next serve, and `WalkView`
+asks for one when a resident logged this session is opened again** — from the
+stop list or the sheet's resident switcher. The refresh is what makes the feed
+match the status the same knock already updated everywhere else in the panel;
+without it the card reads as broken rather than as stale. It is asked for on
+reopen rather than after every door because the serve is the feature's heaviest
+read and a walk is meant to survive on the payload it opened with, so walking
+the list forward pays nothing and only the canvasser checking "did that save?"
+pays a serve. The row itself is always the server's — nothing reconstructs a
+`DOOR_KNOCK` entry from the derived `knockStatus`. A refresh that fails is
+silent: the knock is already saved, so the feed keeps showing what it was
+served with.
 
 ## Do-not-knock
 

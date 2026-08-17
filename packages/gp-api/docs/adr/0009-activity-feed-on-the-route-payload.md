@@ -142,24 +142,73 @@ of the per-source top Ns. Same-instant rows break on type then id, the tiebreak
 `ContactEngagementService` already uses, so one person's history cannot order
 one way in Contacts and another at the door.
 
+### Refreshing the feed mid-walk
+
+The payload is served once, so a door logged during the walk is missing from
+its own resident's feed until the route is served again. Two ways to close
+that, and they differ in who owns the row.
+
+Widening `RecordKnockForm`'s callback to carry the created interaction, so
+`patchPerson` can append it, means the client assembling a `DOOR_KNOCK` entry
+the server already knows how to build — a second construction of one row, with
+its own idea of the id, the wording, and which fields are present, that the
+next serve then silently replaces with the real one. It also puts the change
+inside the save path, next to the per-target replay keys that make a retried
+knock upsert rather than duplicate. Two sources of truth for one row is the
+cost; the risk sits on the most delicate mechanism in the feature.
+
+**So the walk asks the server for the row instead: `WalkView` refetches the
+route serve when a resident logged this session is opened again** — from the
+stop list, or from the sheet's own resident switcher. The feed then updates
+from the only thing that knows the row's real shape, id and vocabulary, and
+`RecordKnockForm`, the knock mutation and the replay-key lifecycle are all
+untouched.
+
+Refetching after **every** door was the obvious version and is the wrong one.
+The serve is this feature's heaviest read (the route, three status reads and
+four windowed activity queries) and the payload it returns is the 24-43 KB
+measured above; firing it at every doorstep would put a serve-sized request on
+the one connection the whole design exists to work without, and turn a
+per-walk read into a per-door one. Tying it to reopening a logged resident
+costs nothing on a walk that goes forward — `advanceFrom` never lands on a door
+that already has a status — and one serve for the canvasser who goes back to
+check that a door saved, which is the only moment the staleness is on screen.
+Nothing is tracked as "already refreshed": a reopen after a failed serve simply
+asks again.
+
+Two properties this has to keep, both about not turning a saved knock into a
+visible failure:
+
+- **A failed refresh is silent.** It is never awaited and never surfaced; the
+  feed keeps showing what it was served with. `WalkView`'s "The route could not
+  load" banner is therefore conditioned on having no route at all, not on the
+  query's error state — with data in cache that banner would appear beside a
+  door that saved perfectly well.
+- **A serve in flight cannot walk a knock backwards.** It was built before the
+  patch and would overwrite it on arrival, so `patchPerson` cancels the route
+  query before writing. A cancelled query keeps its data and reports no error,
+  so this is invisible; it also covers the flag patches and any refetch this
+  code didn't start.
+
+The residual gap is narrow and deliberate: a resident whose sheet stays open
+across their own knock — the `not_a_voter` case, which holds the sheet so the
+ADR 0008 follow-up can be answered — still sees the feed they were served
+with. Refreshing underneath that prompt would rebuild the control being
+answered, which is a worse trade than one stale card.
+
 ## Consequences
 
 - The 100-stop payload grows 24.4 KB → 42.9 KB gzip worst case, ~29 KB at
   realistic coverage. Route serve costs four more index-served queries, run in
   the same `Promise.all` as the three status reads already there.
-- **A knock logged mid-walk does not appear in that resident's own feed until
-  the route is served again.** `WalkView.patchPerson` writes the recorded
-  `knockStatus` into the route query cache and nothing else, so the status
-  everywhere else in the walk updates immediately while the feed keeps showing
-  what the payload was served with. The gap is in the callback, not the cache:
-  `RecordKnockForm` reports `onRecorded(personId, knockStatus)`, and
-  `knockStatus` is the *derived* rollup, not the `outcome`/`supportAnswer`/
-  `note`/`id` a `DOOR_KNOCK` row is made of. Closing this means widening that
-  callback to carry the created interaction and appending it in `patchPerson` —
-  a change to `RecordKnockForm` and `WalkView`, not to the card. Reconstructing
-  a row from `knockStatus` alone is the wrong fix: it would print an outcome
-  nobody chose, in a second vocabulary, that the next serve then silently
-  rewrites.
+- **A knock logged mid-walk reaches that resident's own feed on the next serve,
+  which `WalkView` asks for when the resident is opened again.**
+  `WalkView.patchPerson` writes the recorded `knockStatus` into the route query
+  cache and nothing else, so the status everywhere else in the walk updates
+  immediately while the feed keeps showing what the payload was served with.
+  Left alone that reads as a broken feature rather than a stale cache, because
+  the same knock visibly landed everywhere else in the panel. See "Refreshing
+  the feed mid-walk" below.
 - `history` is `.optional()` rather than required or `.default([])`. The
   server always sends the array, empty included, but nothing on this path
   enforces that at runtime in either direction: `ZodResponseInterceptor` is not
