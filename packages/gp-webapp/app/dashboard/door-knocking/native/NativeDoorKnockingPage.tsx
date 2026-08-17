@@ -568,9 +568,15 @@ export default function NativeDoorKnockingPage({
         <TurfDetailsSheet
           turf={detailsTurf}
           listStats={detailsListStats}
-          // The stats are computed from the pack, so a null `detailsListStats`
-          // means "not decoded yet" until this settles, not "nobody here".
-          listStatsPending={!packQuery.data && !packQuery.isError}
+          // Both inputs, not just the pack: the saved lists carry the filters,
+          // and `savedListFilterKeys(undefined)` is `{}` — which `polygonStats`
+          // reads as "no filters" and answers with every door in the ring.
+          // That is the unfiltered count this PR exists to remove, arriving by
+          // race instead of by design, and the pack is the slower of the two
+          // often enough to hide it.
+          listStatsPending={
+            (!packQuery.data && !packQuery.isError) || savedListsQuery.isPending
+          }
           onClose={() => setDetailsTurf(null)}
           onDeleted={(deleted) => {
             setDetailsTurf(null)
