@@ -69,7 +69,7 @@ describe('WalkSheet', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        /2 stops · 2 doors · 2 people · Walking loop · 31 min · 2\.0 mi/,
+        /2 stops · 2 doors · 2 people · Walking loop · 31 min travel · 2\.0 mi/,
       ),
     ).toBeInTheDocument()
   })
