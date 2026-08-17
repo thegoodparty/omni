@@ -266,6 +266,46 @@ describe('WalkSheet', () => {
     expect(within(person).queryByText('Already logged: Supporter')).toBeNull()
   })
 
+  // The header is what an evening gets budgeted against, so it counts
+  // conversations that can happen — while the rows below still list the flagged
+  // name, because that is how paper carries the instruction.
+  it('leaves flagged residents out of the header count but not the page', () => {
+    const resident = {
+      personId: 'person-1',
+      name: 'Dorian Fen',
+      age: 31,
+      politicalParty: 'Independent' as const,
+      cellPhone: null,
+      landline: null,
+      knockStatus: 'unknown' as const,
+      mayHaveMoved: false,
+    }
+    renderSheet([
+      stop({
+        addresses: [
+          {
+            addressKey: '105|elm|st',
+            address: '105 Elm St',
+            targets: [
+              { ...resident, stopTargetId: 21, doNotKnock: false },
+              {
+                ...resident,
+                stopTargetId: 22,
+                personId: 'person-2',
+                name: 'Marisol Vega',
+                doNotKnock: true,
+              },
+            ],
+            otherResidents: [],
+          },
+        ],
+      }),
+    ])
+
+    expect(screen.getByText(/1 stops · 1 doors · 1 people/)).toBeInTheDocument()
+    expect(screen.getByText('Marisol Vega')).toBeInTheDocument()
+  })
+
   // A walkable multi-unit building routes as one stop with an address per
   // unit. Without the unit line a canvasser has names but no door to knock,
   // and "this address" would be the building rather than where the person is.

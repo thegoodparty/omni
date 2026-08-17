@@ -257,6 +257,15 @@ describe('WalkView', () => {
     expect(seqBadge).toHaveStyle({
       backgroundColor: STATUS_DOT_COLORS.supporter,
     })
+
+    // ADR 0007. The flagged resident gets no per-person dot either — a status
+    // dot beside the "Do not knock" label would say the opposite of the label.
+    const row = screen.getAllByRole('listitem')[0] as HTMLElement
+    const personDots = Array.from(row.querySelectorAll('span.h-1\\.5'))
+    expect(personDots).toHaveLength(1)
+    expect(personDots[0]).toHaveStyle({
+      backgroundColor: STATUS_DOT_COLORS.supporter,
+    })
   })
 
   it('records an answered knock through the person sheet', async () => {

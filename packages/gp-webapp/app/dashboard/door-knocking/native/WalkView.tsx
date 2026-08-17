@@ -248,16 +248,23 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                         <span className="tabular-nums">
                           {targetsForStop(stop).length}
                         </span>
-                        {targetsForStop(stop).map((target) => (
-                          <span
-                            key={target.stopTargetId}
-                            className="h-1.5 w-1.5 rounded-full"
-                            style={{
-                              backgroundColor:
-                                STATUS_DOT_COLORS[target.knockStatus],
-                            }}
-                          />
-                        ))}
+                        {/* ADR 0007. A flagged resident knocked before this
+                            was set still carries a status, and its dot would
+                            sit next to the "Do not knock" label saying the
+                            opposite. The expanded row drops it for the same
+                            reason. */}
+                        {targetsForStop(stop)
+                          .filter((target) => !target.doNotKnock)
+                          .map((target) => (
+                            <span
+                              key={target.stopTargetId}
+                              className="h-1.5 w-1.5 rounded-full"
+                              style={{
+                                backgroundColor:
+                                  STATUS_DOT_COLORS[target.knockStatus],
+                              }}
+                            />
+                          ))}
                         {/* ADR 0007. On the collapsed row, because a
                             single-resident stop opens the sheet instead of
                             expanding — without this, the common case shows an
