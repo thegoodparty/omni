@@ -1564,6 +1564,92 @@ describe('PeerlyIdentityService', () => {
       expect(alert).toContain('status_code')
     })
 
+    it('pretty-prints the response body inside a preformatted block', async () => {
+      const alert = await postedAlert()
+
+      expect(alert).toContain('rich_text_preformatted')
+      // Pretty-printed: newline + two-space indent ahead of each field.
+      expect(alert).toContain(
+        '{\\n  \\"Error\\": \\"Campaign Verify Verify PIN API request failed.\\"',
+      )
+      expect(alert).toContain('\\n  \\"status_code\\": 500\\n}')
+    })
+
+    it('passes a non-JSON response body through unescaped', async () => {
+      const usersService = module.get(UsersService)
+      const httpService = module.get(PeerlyHttpService)
+      const slackService = module.get(SlackService)
+      usersService.findByCampaign = vi.fn().mockResolvedValue(baseUser)
+      httpService.post = vi.fn().mockRejectedValueOnce({
+        isAxiosError: true,
+        status: 502,
+        config: {
+          url: 'https://app.peerly.com/api/v2/tdlc/11540328/verify_pin',
+          method: 'post',
+        },
+        response: { status: 502, data: '<html>Bad Gateway</html>' },
+      })
+
+      await service.verifyCampaignVerifyPin('11540328', '000000', campaign)
+
+      const call = vi.mocked(slackService.message).mock.calls[0]
+      expect(call).toBeDefined()
+      const alert = JSON.stringify(call?.[0])
+      // Not re-stringified into a quote-wrapped blob.
+      expect(alert).toContain('<html>Bad Gateway</html>')
+      expect(alert).not.toContain('\\"<html>')
+    })
+
+    it('truncates an oversized response body with a visible marker', async () => {
+      const usersService = module.get(UsersService)
+      const httpService = module.get(PeerlyHttpService)
+      const slackService = module.get(SlackService)
+      usersService.findByCampaign = vi.fn().mockResolvedValue(baseUser)
+      httpService.post = vi.fn().mockRejectedValueOnce({
+        isAxiosError: true,
+        status: 502,
+        config: {
+          url: 'https://app.peerly.com/api/v2/tdlc/11540328/verify_pin',
+          method: 'post',
+        },
+        response: { status: 502, data: 'x'.repeat(5000) },
+      })
+
+      await service.verifyCampaignVerifyPin('11540328', '000000', campaign)
+
+      const call = vi.mocked(slackService.message).mock.calls[0]
+      expect(call).toBeDefined()
+      const alert = JSON.stringify(call?.[0])
+      expect(alert).toContain('(truncated)')
+      expect(alert.length).toBeLessThan(3000)
+    })
+
+    it('survives a response body that cannot be serialized', async () => {
+      const usersService = module.get(UsersService)
+      const httpService = module.get(PeerlyHttpService)
+      const slackService = module.get(SlackService)
+      usersService.findByCampaign = vi.fn().mockResolvedValue(baseUser)
+      const circular: Record<string, unknown> = { Error: 'circular' }
+      circular.self = circular
+      httpService.post = vi.fn().mockRejectedValueOnce({
+        isAxiosError: true,
+        status: 400,
+        config: {
+          url: 'https://app.peerly.com/api/v2/tdlc/11540328/verify_pin',
+          method: 'post',
+        },
+        response: { status: 400, data: circular },
+      })
+
+      await service.verifyCampaignVerifyPin('11540328', '000000', campaign)
+
+      const call = vi.mocked(slackService.message).mock.calls[0]
+      expect(call).toBeDefined()
+      expect(JSON.stringify(call?.[0])).toContain(
+        'unserializable response body',
+      )
+    })
+
     it('never posts the Peerly bearer token, headers, or the PIN', async () => {
       const alert = await postedAlert()
 

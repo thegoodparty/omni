@@ -472,6 +472,11 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
   else.** `sendSlackErrorNotification` (`vendors/peerly/services/peerlyIdentity.service.ts`)
   passes `requestSummary` (`METHOD url → status`) and the parsed `response.data` into
   `buildPeerlySlackErrorMessage`; a non-Axios failure falls back to the error message.
+  An object body is pretty-printed and rendered in a `rich_text_preformatted` block
+  (a plain rich-text section collapses the indentation); a body that is already a
+  string — Peerly's gateway errors return HTML — passes through as-is, and an
+  oversized one is cut at 1500 chars with a `… (truncated)` marker so Slack doesn't
+  silently drop the tail.
   It used to `JSON.stringify` the whole serialized Axios error, which posted
   `config.headers.Authorization` — a live Peerly bearer token — plus the request body
   (the candidate's CV PIN in cleartext) into `bot-10dlc-compliance` on every alert.

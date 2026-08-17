@@ -75,6 +75,10 @@ import {
 import { isPeerlyCvPinRejection } from '../utils/peerlyCvPinRejection.util'
 import { PinoLogger } from 'nestjs-pino'
 
+// Slack truncates long blocks silently; pretty-printing roughly doubles a
+// body's line count, so cut it here with a visible marker instead.
+const SLACK_RESPONSE_BODY_MAX_CHARS = 1500
+
 @Injectable()
 export class PeerlyIdentityService extends PeerlyBaseConfig {
   constructor(
@@ -982,13 +986,9 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       .join(' ')
     const responseData = axiosError?.response?.data
     // Axios reports an empty response body as '', which would render as an
-    // empty bullet — Slack rejects the whole message on those.
+    // empty block — Slack rejects the whole message on those.
     const hasResponseData =
       responseData !== undefined && responseData !== null && responseData !== ''
-    const responseBody =
-      typeof responseData === 'string'
-        ? responseData
-        : JSON.stringify(responseData)
     const fallbackMessage = error instanceof Error ? error.message : ''
 
     const blocks = buildPeerlySlackErrorMessage({
@@ -996,9 +996,9 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       requestSummary: axiosError
         ? [requestLine || 'Peerly request', status].filter(Boolean).join(' → ')
         : undefined,
-      // Truncated so an unexpectedly large body (e.g. an HTML gateway page)
-      // can't blow past Slack's per-block character limit and drop the alert.
-      responseData: hasResponseData ? responseBody.slice(0, 1000) : undefined,
+      responseData: hasResponseData
+        ? this.formatSlackResponseBody(responseData)
+        : undefined,
       errorMessage: hasResponseData
         ? undefined
         : fallbackMessage || 'Unknown Peerly API error',
@@ -1006,5 +1006,32 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     })
 
     await this.slackService.message({ blocks }, SlackChannel.bot10DlcCompliance)
+  }
+
+  // Peerly's error bodies are small JSON objects, so pretty-printing them is
+  // what makes the alert readable. Gateway errors arrive as HTML/text strings
+  // instead — those pass through untouched rather than becoming an escaped,
+  // quote-wrapped blob.
+  private formatSlackResponseBody(responseData: unknown): string {
+    if (typeof responseData === 'string') {
+      return this.truncateSlackResponseBody(responseData)
+    }
+    let serialized: string | undefined
+    try {
+      serialized = JSON.stringify(responseData, null, 2)
+    } catch {
+      // A circular or otherwise unserializable body must not throw here — that
+      // would take down the alert along with it.
+      serialized = undefined
+    }
+    return this.truncateSlackResponseBody(
+      serialized ?? '<unserializable response body>',
+    )
+  }
+
+  private truncateSlackResponseBody(body: string): string {
+    return body.length > SLACK_RESPONSE_BODY_MAX_CHARS
+      ? `${body.slice(0, SLACK_RESPONSE_BODY_MAX_CHARS)}\n… (truncated)`
+      : body
   }
 }
