@@ -12,7 +12,6 @@ import * as http from 'node:http'
 import * as https from 'node:https'
 import ipaddr from 'ipaddr.js'
 import { CampaignWith } from 'src/campaigns/campaigns.types'
-import { getUserFullName } from 'src/users/util/users.util'
 import {
   VerifyLiveReason,
   VerifyLiveResponse,
@@ -33,14 +32,6 @@ type WebsiteIssue = NonNullable<
 const hasText = (value?: string | null): boolean =>
   typeof value === 'string' && value.trim().length > 0
 
-// getUserFullName is '' when firstName and name are both null — a real case
-// for legacy-Pro candidates who skipped the profile step. Without this the
-// generated copy is "Vote For " / "<p> is a candidate…".
-const getDisplayName = (user: User): string => {
-  const fullName = getUserFullName(user)
-  return hasText(fullName) ? fullName : 'The Candidate'
-}
-
 // Map a campaign's positions to publishable issues, keeping only complete ones
 // (real title AND description). Placeholder copy like "Issue 1" would survive
 // the publish-readiness check and ship literally to a candidate's site.
@@ -59,32 +50,23 @@ const realIssuesFromCampaign = (
 // The compliance_setup agent publishes an existing website but cannot author
 // missing copy. Legacy-Pro candidates reach the agentic flow without the
 // pre-payment candidate-profile step that creates the site, so the agent's
-// publish call would 400 on the empty publish-gated fields. Backfill the
-// mechanical fields (main.title, contact.email) and seed about.issues from
-// real campaign positions when present, but never invent a bio or a default
-// issue — Peerly rejects templated content as "not genuine". A site with no
-// genuine bio/issues simply stays unpublishable (the publish gate rejects it;
-// the agent fails profile_incomplete). Returns patched content, or null when
-// nothing needed filling.
+// publish call would 400 on the empty publish-gated fields. Backfill
+// contact.email and seed about.issues from real campaign positions when
+// present, but never invent a bio or a default issue — Peerly rejects
+// templated content as "not genuine". A site with no genuine bio/issues
+// simply stays unpublishable (the publish gate rejects it; the agent fails
+// profile_incomplete). Returns patched content, or null when nothing needed
+// filling.
 export const applyCompliancePublishFallbacks = (
   content: PrismaJson.WebsiteContent,
   user: User,
   campaign: CampaignWith<'campaignPositions'>,
 ): PrismaJson.WebsiteContent | null => {
-  const displayName = getDisplayName(user)
-
   const about = content.about ?? {}
   const nextAbout = { ...about }
-  const main = content.main ?? {}
-  const nextMain = { ...main }
   const contact = content.contact ?? {}
   const nextContact = { ...contact }
   let changed = false
-
-  if (!hasText(main.title)) {
-    nextMain.title = `Vote For ${displayName}`
-    changed = true
-  }
 
   // Only real candidate-authored issues or real campaign positions ship.
   // isGenuineIssue drops malformed AND default-title entries (the publish gate
@@ -110,9 +92,7 @@ export const applyCompliancePublishFallbacks = (
     changed = true
   }
 
-  return changed
-    ? { ...content, main: nextMain, about: nextAbout, contact: nextContact }
-    : null
+  return changed ? { ...content, about: nextAbout, contact: nextContact } : null
 }
 
 // Whether an agentic kickoff for this campaign would produce a publishable
@@ -147,9 +127,6 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
         vanityPath: campaign.slug,
         content: {
           theme: 'light',
-          main: {
-            title: `Vote For ${getDisplayName(user)}`,
-          },
           about: {
             issues,
           },

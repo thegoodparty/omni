@@ -478,18 +478,16 @@ describe('applyCompliancePublishFallbacks', () => {
     campaignPositions: [],
   }
 
-  it('backfills title and email but not bio or issues', () => {
+  it('backfills email but not bio or issues', () => {
     const patched = applyCompliancePublishFallbacks({}, user, campaign)
 
-    expect(patched?.main?.title).toBe('Vote For Rick Bennett')
     expect(patched?.contact?.email).toBe(user.email)
     expect(patched?.about?.bio ?? '').toBe('')
     expect(patched?.about?.issues ?? []).toEqual([])
   })
 
-  it('does not write empty issues when title+email are set and there is nothing to seed', () => {
+  it('does not write empty issues when email is set and there is nothing to seed', () => {
     const content = {
-      main: { title: 'Vote For Rick Bennett' },
       contact: { email: 'rick@example.com' },
     }
 
@@ -500,7 +498,6 @@ describe('applyCompliancePublishFallbacks', () => {
 
   it('strips a lone default-title issue instead of retaining it', () => {
     const content = {
-      main: { title: 'Vote For Rick Bennett' },
       contact: { email: 'rick@example.com' },
       about: {
         bio: '<p>A real candidate bio.</p>',
@@ -522,7 +519,6 @@ describe('applyCompliancePublishFallbacks', () => {
 
   it('returns null when all publish-gated fields are already present', () => {
     const content = {
-      main: { title: 'Vote For Rick Bennett' },
       about: {
         bio: '<p>A candidate-authored biography that the agent must keep.</p>',
         issues: [{ title: 'Housing', description: 'More affordable homes' }],
@@ -535,7 +531,6 @@ describe('applyCompliancePublishFallbacks', () => {
 
   it('never backfills a bio, even with existing issues present', () => {
     const content = {
-      main: { title: 'Set' },
       contact: { email: 'x@example.com' },
       about: { issues: [{ title: 'Housing', description: 'More homes' }] },
     }
@@ -580,16 +575,14 @@ describe('applyCompliancePublishFallbacks', () => {
     ])
   })
 
-  it('backfills main.title and contact.email when they are empty', () => {
+  it('backfills contact.email when it is empty', () => {
     const patched = applyCompliancePublishFallbacks({}, user, campaign)
 
-    expect(patched?.main?.title).toBe('Vote For Rick Bennett')
     expect(patched?.contact?.email).toBe(user.email)
   })
 
-  it('keeps an existing main.title and contact.email', () => {
+  it('keeps an existing contact.email', () => {
     const content = {
-      main: { title: 'Rick Bennett for Council' },
       about: {
         bio: '<p>Real bio.</p>',
         issues: [{ title: 'Housing', description: 'More homes' }],
@@ -600,21 +593,12 @@ describe('applyCompliancePublishFallbacks', () => {
     expect(applyCompliancePublishFallbacks(content, user, campaign)).toBeNull()
   })
 
-  it('falls back to a placeholder name when the user has no name', () => {
-    const namelessUser = createMockUser({ firstName: null, name: null })
-
-    const patched = applyCompliancePublishFallbacks({}, namelessUser, campaign)
-
-    expect(patched?.main?.title).toBe('Vote For The Candidate')
-  })
-
   it('drops issues with blank title or description, seeding none by default', () => {
     const content = {
       about: {
         bio: '<p>Real bio.</p>',
         issues: [{ title: 'Housing', description: '   ' }],
       },
-      main: { title: 'Set' },
       contact: { email: 'x@example.com' },
     }
 
@@ -632,7 +616,6 @@ describe('applyCompliancePublishFallbacks', () => {
           { title: 'Roads', description: '' },
         ],
       },
-      main: { title: 'Set' },
       contact: { email: 'x@example.com' },
     }
 
@@ -730,7 +713,6 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
       id: 5,
       campaignId: 99,
       content: {
-        main: { title: 'Vote For Rick Bennett' },
         about: { issues: [] },
         contact: { email: 'rick@example.com' },
       },
@@ -747,7 +729,6 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
       id: 5,
       campaignId: 99,
       content: {
-        main: { title: 'Vote For Rick Bennett' },
         about: {
           bio: '<p>A real candidate bio that should be left alone.</p>',
           issues: [{ title: 'Housing', description: 'More homes' }],
@@ -760,23 +741,6 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
 
     expect(mockPrisma.website.create).not.toHaveBeenCalled()
     expect(mockPrisma.website.update).not.toHaveBeenCalled()
-  })
-
-  it('creates a website with a placeholder title when the user has no name', async () => {
-    const namelessUser = createMockUser({ firstName: null, name: null })
-    mockPrisma.website.findUnique.mockResolvedValue(null)
-    mockPrisma.website.create.mockImplementation(
-      ({ data }: { data: { content: PrismaJson.WebsiteContent } }) => ({
-        id: 8,
-        campaignId: 99,
-        content: data.content,
-      }),
-    )
-
-    await service.ensureCompliancePublishableWebsite(namelessUser, campaign)
-
-    const createArg = firstOrThrow(mockPrisma.website.create.mock.calls)[0]
-    expect(createArg.data.content.main.title).toBe('Vote For The Candidate')
   })
 
   it('drops incomplete positions, leaving issues empty rather than a default', async () => {
@@ -830,7 +794,6 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
     expect(mockPrisma.website.update).toHaveBeenCalledTimes(1)
     const updateArg = firstOrThrow(mockPrisma.website.update.mock.calls)[0]
     expect(updateArg.where).toEqual({ campaignId: 99 })
-    expect(updateArg.data.content.main.title).toBe('Vote For Rick Bennett')
     expect(updateArg.data.content.contact.email).toBe(user.email)
     expect(updateArg.data.content.about.issues).toEqual([])
   })
@@ -861,12 +824,11 @@ describe('WebsitesService.createByCampaign', () => {
     service = module.get<WebsitesService>(WebsitesService)
   })
 
-  it('seeds empty issues and no tagline when the campaign has no positions', () => {
+  it('seeds empty issues when the campaign has no positions', () => {
     service.createByCampaign(user, campaign)
 
     const createArg = firstOrThrow(mockPrisma.website.create.mock.calls)[0]
-    expect(createArg.data.content.main.title).toBe('Vote For Rick Bennett')
-    expect(createArg.data.content.main.tagline).toBeUndefined()
+    expect(createArg.data.content.main).toBeUndefined()
     expect(createArg.data.content.about.issues).toEqual([])
     expect(createArg.data.content.contact.email).toBe(user.email)
   })

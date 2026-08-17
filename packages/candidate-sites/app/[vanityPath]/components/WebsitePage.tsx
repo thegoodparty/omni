@@ -15,6 +15,7 @@ import SmsTermsModal from './SmsTermsModal'
 import WebsiteFooter from './WebsiteFooter'
 import ContactSection from './ContactSection'
 import { getUserFullName } from '@/app/shared/utils/getUserFullName'
+import { getCandidateHeadline } from '@/app/shared/utils/getCandidateHeadline'
 import WebsiteViewTracker from './WebsiteViewTracker'
 import { ImageDimensions } from '@/app/shared/utils/getImageDimensions'
 
@@ -85,6 +86,7 @@ export default function WebsitePage({
       <HeroSection
         activeTheme={activeTheme}
         content={content}
+        headline={getCandidateHeadline(website.campaign?.user)}
         imageDimensions={imageDimensions}
       />
       <AboutSection activeTheme={activeTheme} content={content} />
@@ -100,11 +102,13 @@ export default function WebsitePage({
       <PrivacyPolicyModal
         open={privacyPolicy || false}
         content={content}
+        campaignName={candidateName}
         activeTheme={activeTheme}
       />
       <SmsTermsModal
         open={smsTerms || false}
         content={content}
+        campaignName={candidateName}
         activeTheme={activeTheme}
       />
     </div>

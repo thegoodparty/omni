@@ -9,7 +9,6 @@ const WebsiteContentSchema = z
     theme: z.string().optional(),
     main: z
       .object({
-        title: z.string().optional(),
         tagline: z.string().optional(),
         image: z.string().optional(),
       })

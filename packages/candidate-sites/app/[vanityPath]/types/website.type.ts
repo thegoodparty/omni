@@ -18,7 +18,6 @@ export type Website = {
   content: {
     main: {
       image: string
-      title: string
       tagline: string
     }
     logo: string

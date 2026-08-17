@@ -1,4 +1,4 @@
-export const getUserFullName = (user: {
+export const getUserFullName = (user?: {
   firstName: string
   lastName: string
 }) =>

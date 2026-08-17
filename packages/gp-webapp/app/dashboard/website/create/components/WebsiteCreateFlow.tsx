@@ -48,8 +48,6 @@ export const cantSaveReasons = (website: Website | null): string => {
     cantSaveReason = 'Invalid email'
   } else if (!isValidPhone(website.content?.contact?.phone || '')) {
     cantSaveReason = 'Invalid phone'
-  } else if (website.content?.main?.title == '') {
-    cantSaveReason = 'Missing title'
   } else if (website.vanityPath == '') {
     cantSaveReason = 'Missing vanity path'
   }
@@ -193,21 +191,6 @@ export default function WebsiteCreateFlow({
           }
         : null,
     )
-  }
-
-  function handleTitleChange(value: string): void {
-    setWebsite((current) =>
-      current
-        ? {
-            ...current,
-            content: {
-              ...current.content,
-              main: { ...current.content?.main, title: value },
-            },
-          }
-        : null,
-    )
-    setIsValid(value.length > 0)
   }
 
   function handleTaglineChange(value: string): void {
@@ -401,7 +384,6 @@ export default function WebsiteCreateFlow({
     website &&
     isValidEmail(website.content?.contact?.email || '') &&
     isValidPhone(website.content?.contact?.phone || '') &&
-    website.content?.main?.title != '' &&
     website.vanityPath != ''
 
   const cantSaveReason = cantSaveReasons(website)
@@ -464,10 +446,8 @@ export default function WebsiteCreateFlow({
 
             {step === 4 && (
               <HeroStep
-                title={website.content?.main?.title}
                 tagline={website.content?.main?.tagline}
                 image={website.content?.main?.image}
-                onTitleChange={handleTitleChange}
                 onTaglineChange={handleTaglineChange}
                 onImageChange={handleHeroChange}
               />

@@ -60,7 +60,6 @@ const GENUINE_BIO =
   'ones with the loudest voices or the deepest pockets backing them.'
 
 const completeContent: PrismaJson.WebsiteContent = {
-  main: { title: 'Smith for City Council' },
   about: {
     bio: GENUINE_BIO,
     issues: [{ title: 'Issue 1', description: 'Description 1' }],
@@ -412,6 +411,28 @@ describe('WebsitesController', () => {
       expect(mockWebsitesService.update).not.toHaveBeenCalled()
     })
 
+    it('blocks publish when the campaign owner has no name', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        content: completeContent,
+        hasEverBeenPublished: false,
+        domain: { status: DomainStatus.submitted },
+      })
+      const namelessUser = createMockUser({
+        firstName: null,
+        lastName: null,
+        name: null,
+      })
+
+      await expect(
+        controller.updateWebsite(namelessUser, mockCampaign, publishBody()),
+      ).rejects.toMatchObject({
+        status: HttpStatus.BAD_REQUEST,
+        message: expect.stringContaining('no first or last name'),
+      })
+
+      expect(mockWebsitesService.update).not.toHaveBeenCalled()
+    })
+
     it('reports every missing required field in the error message', async () => {
       mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
         content: {},
@@ -423,11 +444,6 @@ describe('WebsitesController', () => {
         controller.updateWebsite(mockUser, mockCampaign, publishBody()),
       ).rejects.toMatchObject({
         status: HttpStatus.BAD_REQUEST,
-        message: expect.stringContaining('main.title'),
-      })
-      await expect(
-        controller.updateWebsite(mockUser, mockCampaign, publishBody()),
-      ).rejects.toMatchObject({
         message: expect.stringContaining('about.bio'),
       })
       await expect(
