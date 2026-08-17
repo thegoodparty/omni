@@ -130,7 +130,18 @@ export function useStreamingTurn(
   // leaves the fetch running until the server finishes; a hung stream leaks
   // until GC. Aborting on unmount is what stops it.
   const abortRef = useRef<AbortController | null>(null)
-  useEffect(() => () => abortRef.current?.abort(), [])
+  // A turn settles asynchronously (reveal drain + commit poll), so its state
+  // updates can resolve after the surface unmounts. Skip them then — a
+  // setState after unmount is at best a no-op warning and, once the test
+  // environment is torn down, a hard `window is not defined` throw.
+  const mountedRef = useRef(true)
+  useEffect(
+    () => () => {
+      mountedRef.current = false
+      abortRef.current?.abort()
+    },
+    [],
+  )
   // Drive the smooth reveal off the presence of live segments, not `sending`.
   // A turn drops `sending` the moment its stream is done (so the composer
   // re-enables for a follow-up send) while the reveal keeps typing out the tail
@@ -307,6 +318,7 @@ export function useStreamingTurn(
           //     stop, so we don't touch state or fire a stray listMessages after
           //     the surface is gone (which, in tests, bleeds into the next case).
           const canReconcile = (): boolean =>
+            mountedRef.current &&
             abortRef.current === abortController &&
             (!abortController.signal.aborted || stalled)
           // The turn produced its content without error — fire the success
@@ -415,7 +427,10 @@ export function useStreamingTurn(
         // state if THIS turn is still the current one — a follow-up send that
         // superseded us mid-settle already owns sendingRef/liveSegments/sending.
         abortController.abort()
-        if (abortRef.current === abortController) {
+        // Skip the state teardown after unmount (the setState calls would throw
+        // once the environment is gone) or when a follow-up send has superseded
+        // us and already owns this state.
+        if (mountedRef.current && abortRef.current === abortController) {
           abortRef.current = null
           setLiveSegments([])
           scope.onTurnSettle?.()
