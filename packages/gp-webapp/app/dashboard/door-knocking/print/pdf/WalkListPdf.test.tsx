@@ -183,6 +183,28 @@ describe('WalkListPdf', () => {
     expect(text).not.toContain('Already logged: Supporter')
   })
 
+  // ADR 0008. Same rule, different words: paper is the only surface used
+  // without the app, so it carries the reason rather than a blank form.
+  it('prints a reason as its skip instruction and leaves it out of the header count', async () => {
+    const text = await renderText([
+      oneDoor([
+        target({ stopTargetId: 21, name: 'Dorian Fen' }),
+        target({
+          stopTargetId: 22,
+          personId: 'person-2',
+          name: 'Marisol Vega',
+          notAVoterReason: 'deceased',
+        }),
+      ]),
+    ])
+
+    expect(text).toContain('1 stops · 1 doors · 1 people')
+    expect(text).toContain('Marisol Vega')
+    expect(text).toContain(
+      'Deceased — skip this resident, and do not ask for them by name',
+    )
+  })
+
   // A household is one door however many people answer it, so the grid draws
   // its address once. Both residents still get their own row and their own form.
   it('prints a multi-resident household under one address', async () => {

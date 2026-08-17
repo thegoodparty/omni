@@ -8,6 +8,8 @@ import type {
   RecordDoorKnockInteractionResponse,
   SetDoNotKnock,
   SetDoNotKnockResponse,
+  SetNotAVoter,
+  SetNotAVoterResponse,
   UpdateDoorKnockingTurf,
   CreateOrdinanceRequest,
   ExperimentVariantsResponse,
@@ -776,6 +778,13 @@ export type APIEndpoints = {
   'POST /v1/door-knocking/do-not-knock': {
     Request: SetDoNotKnock
     Response: SetDoNotKnockResponse
+  }
+  // ADR 0008. The reason behind a `not_a_voter` outcome, asked as a follow-up
+  // and written separately: the interaction row is replay-idempotent on
+  // clientKey, so a correction made on a later visit could never reach it.
+  'POST /v1/door-knocking/not-a-voter': {
+    Request: SetNotAVoter
+    Response: SetNotAVoterResponse
   }
   'GET /v1/contacts/list-detail': {
     // Omitted segment = the universe row's detail (ENG-10778): the whole

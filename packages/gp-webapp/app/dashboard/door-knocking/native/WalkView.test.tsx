@@ -126,7 +126,7 @@ describe('WalkView', () => {
     })
   })
 
-  it('renders stops in seq order with totals and the reached counter', async () => {
+  it('renders stops in seq order with totals and the logged counter', async () => {
     render(<WalkView turfId={3} />)
 
     await waitFor(() =>
@@ -134,7 +134,7 @@ describe('WalkView', () => {
     )
     // Distance comes from the same route payload as the duration; 2400m.
     expect(screen.getByText(/2 doors · 31m · 1.5 mi/)).toBeInTheDocument()
-    expect(screen.getByText('1/2 reached')).toBeInTheDocument()
+    expect(screen.getByText('1/2 logged')).toBeInTheDocument()
     const items = screen.getAllByRole('listitem')
     expect(within(items[0] as HTMLElement).getByText('Dorian Fen')).toBeTruthy()
     expect(
@@ -231,7 +231,7 @@ describe('WalkView', () => {
     render(<WalkView turfId={3} />)
     // Dorian is the unreached door of the two; Marisol is already a supporter.
     await waitFor(() =>
-      expect(screen.getByText('1/2 reached')).toBeInTheDocument(),
+      expect(screen.getByText('1/2 logged')).toBeInTheDocument(),
     )
     expect(unknownChip()).toHaveTextContent('Support unknown 1')
 
@@ -242,7 +242,7 @@ describe('WalkView', () => {
     await screen.findByRole('button', { name: 'Undo' })
     await closePersonSheet()
 
-    expect(screen.getByText('1/1 reached')).toBeInTheDocument()
+    expect(screen.getByText('1/1 logged')).toBeInTheDocument()
     expect(unknownChip()).toHaveTextContent('Support unknown 0')
   })
 
@@ -341,9 +341,9 @@ describe('WalkView', () => {
     )
     expect(posted[0]).not.toHaveProperty('willVote')
 
-    // Sheet closes and the reached counter reflects the new status.
+    // Sheet closes and the logged counter reflects the new status.
     await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
-    expect(screen.getByText('2/2 reached')).toBeInTheDocument()
+    expect(screen.getByText('2/2 logged')).toBeInTheDocument()
 
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
       outcome: 'answered',
@@ -480,6 +480,227 @@ describe('WalkView', () => {
   })
 })
 
+// ADR 0008. The reason behind a `not_a_voter` outcome: optional, asked after
+// the door is already saved, and suppressing the resident once it is given.
+describe('WalkView not-a-voter reason', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+    vi.mocked(trackEvent).mockClear()
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: routePayload,
+    })
+  })
+
+  const logNotAVoter = () =>
+    api.mock('POST /v1/door-knocking/interactions', {
+      status: 200,
+      data: { personId: 'person-1', knockStatus: 'not_a_voter' },
+    })
+
+  // The two-tap claim is the whole reason the quick chips exist, and it is
+  // measured by `logMode` — so the follow-up must sit behind the save, never in
+  // front of it.
+  it('logs the door on the single quick tap, with no reason attached', async () => {
+    const posted: unknown[] = []
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      posted.push(body)
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'not_a_voter' },
+      }
+    })
+
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
+    fireEvent.click(screen.getByRole('button', { name: 'Not a voter' }))
+
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({
+      stopTargetId: 21,
+      outcome: 'not_a_voter',
+    })
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
+      outcome: 'not_a_voter',
+      knockStatus: 'not_a_voter',
+      hasNote: false,
+      logMode: 'quick',
+    })
+    // Nothing about a reason reaches the knock write — it is a different field
+    // on a different endpoint.
+    expect(JSON.stringify(posted[0])).not.toContain('moved')
+  })
+
+  // Advancing here would ask "what happened?" and take the answer away in the
+  // same frame. The door is saved either way, so walking off costs nothing.
+  it('holds the sheet on the logged door so the follow-up can be answered', async () => {
+    logNotAVoter()
+
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
+    fireEvent.click(screen.getByRole('button', { name: 'Not a voter' }))
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('Not a voter — what happened?'),
+      ).toBeInTheDocument(),
+    )
+    expect(
+      screen.getByRole('heading', { name: 'Dorian Fen' }),
+    ).toBeInTheDocument()
+  })
+
+  it('marks the resident and withholds the form once a reason is given', async () => {
+    logNotAVoter()
+    api.mock('POST /v1/door-knocking/not-a-voter', {
+      status: 200,
+      data: { personId: 'person-1', notAVoterReason: 'deceased' },
+    })
+
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
+    fireEvent.click(screen.getByRole('button', { name: 'Not a voter' }))
+    await screen.findByText('Not a voter — what happened?')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Deceased' }))
+
+    await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
+    expect(screen.getByText(/do not ask for them by name/)).toBeInTheDocument()
+
+    // The marker has to survive walking on, so it patches the route cache the
+    // way a recorded knock does.
+    await closePersonSheet()
+    const elmRow = screen.getAllByRole('listitem')[0] as HTMLElement
+    expect(within(elmRow).getByText('Deceased')).toBeInTheDocument()
+  })
+
+  // A flagged resident is not a conversation anyone can have, so they leave the
+  // denominator rather than holding a canvasser who correctly skipped them
+  // below 100%.
+  it('drops a flagged resident out of the progress counts', async () => {
+    logNotAVoter()
+    api.mock('POST /v1/door-knocking/not-a-voter', {
+      status: 200,
+      data: { personId: 'person-1', notAVoterReason: 'moved' },
+    })
+
+    render(<WalkView turfId={3} />)
+    await waitFor(() =>
+      expect(screen.getByText('1/2 logged')).toBeInTheDocument(),
+    )
+
+    await openPersonSheet('105 Elm St')
+    fireEvent.click(screen.getByRole('button', { name: 'Not a voter' }))
+    await screen.findByText('Not a voter — what happened?')
+    fireEvent.click(screen.getByRole('button', { name: 'Moved' }))
+    await screen.findByRole('button', { name: 'Undo' })
+    await closePersonSheet()
+
+    expect(screen.getByText('1/1 logged')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Not a voter/, { selector: 'span' }),
+    ).toHaveTextContent('Not a voter 0')
+  })
+
+  it('lifts the flag on undo, reflecting the cleared echo', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: {
+        ...routePayload,
+        stops: routePayload.stops.map((stop) =>
+          stop.id !== 11
+            ? stop
+            : {
+                ...stop,
+                addresses: stop.addresses.map((address) => ({
+                  ...address,
+                  targets: address.targets.map((target) => ({
+                    ...target,
+                    notAVoterReason: 'moved' as const,
+                  })),
+                })),
+              },
+        ),
+      },
+    })
+    api.mock('POST /v1/door-knocking/not-a-voter', {
+      status: 200,
+      data: { personId: 'person-1' },
+    })
+
+    render(<WalkView turfId={3} />)
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+    // Only Marisol is knockable while Dorian is flagged.
+    expect(screen.getByText('1/1 logged')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('105 Elm St'))
+    await screen.findByRole('button', { name: 'Undo' })
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+
+    // The form comes back only because the server said the flag is gone.
+    await waitFor(() =>
+      expect(screen.getByText('Log this door')).toBeInTheDocument(),
+    )
+    await closePersonSheet()
+    expect(screen.getByText('1/2 logged')).toBeInTheDocument()
+  })
+
+  // The stop rolls up from an empty list of knockable residents, which is the
+  // same grey as still-to-knock — so without a marker of its own a household
+  // nobody can knock reads as an evening's work nobody has started.
+  it('says a fully flagged household has nobody to knock', async () => {
+    const base = routePayload.stops[0]!.addresses[0]!.targets[0]!
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: {
+        ...routePayload,
+        stops: [
+          {
+            ...routePayload.stops[0]!,
+            addresses: [
+              {
+                addressKey: '210|cedar|row',
+                address: '210 Cedar Row',
+                otherResidents: [],
+                targets: [
+                  { ...base, notAVoterReason: 'deceased' as const },
+                  {
+                    ...base,
+                    stopTargetId: 23,
+                    personId: 'person-3',
+                    name: 'Ruben Vega',
+                    notAVoterReason: 'moved' as const,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    })
+
+    render(<WalkView turfId={3} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('210 Cedar Row')).toBeInTheDocument(),
+    )
+    const row = screen.getAllByRole('listitem')[0] as HTMLElement
+    expect(within(row).getByText('Nobody to knock here')).toBeInTheDocument()
+    // Both reasons are named once each — three deceased residents would still
+    // be one thing to read.
+    expect(within(row).getByText('Deceased')).toBeInTheDocument()
+    expect(within(row).getByText('Moved away')).toBeInTheDocument()
+    // No per-person dots, and no work left in the totals.
+    expect(row.querySelectorAll('span.h-1\\.5')).toHaveLength(0)
+    expect(screen.getByText('0/0 logged')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Support unknown/, { selector: 'span' }),
+    ).toHaveTextContent('Support unknown 0')
+  })
+})
+
 // "Always show the next door so there is no thinking between houses." The
 // fixture above ends with nothing unlogged ahead, so advancing needs its own.
 describe('WalkView auto-advance', () => {
@@ -610,6 +831,29 @@ describe('WalkView auto-advance', () => {
       stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
       stop(12, 2, '210 Cedar Row', [
         target(22, 'Marisol Vega', { doNotKnock: true }),
+      ]),
+      stop(13, 3, '318 Birch Ave', [target(23, 'Ruben Cole')]),
+    ])
+    logNotHome('person-21')
+
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
+    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Ruben Cole' }),
+      ).toBeInTheDocument(),
+    )
+  })
+
+  // ADR 0008. Same dead end as a do-not-knock door: advancing onto a resident
+  // who moved away parks the canvasser on a door with nothing to log.
+  it('skips a resident flagged with a reason', async () => {
+    mockRoute([
+      stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
+      stop(12, 2, '210 Cedar Row', [
+        target(22, 'Marisol Vega', { notAVoterReason: 'deceased' }),
       ]),
       stop(13, 3, '318 Birch Ave', [target(23, 'Ruben Cole')]),
     ])

@@ -2,6 +2,7 @@
 
 import {
   DoorKnockStatus,
+  NotAVoterReason,
   RoutePayloadStop,
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
@@ -10,13 +11,28 @@ import RecordKnockForm from './RecordKnockForm'
 import DoorScript from './DoorScript'
 import { useDoorScript } from './useDoorScript'
 import DoNotKnockControl from './DoNotKnockControl'
-import { STATUS_DOT_COLORS, STATUS_LABELS } from './statusPresentation'
+import NotAVoterControl from './NotAVoterControl'
+import {
+  STATUS_DOT_COLORS,
+  STATUS_LABELS,
+  targetMarker,
+} from './statusPresentation'
 
 const StatusDot = ({ status }: { status: DoorKnockStatus }) => (
   <span
     className="h-2 w-2 shrink-0 rounded-full"
     style={{ backgroundColor: STATUS_DOT_COLORS[status] }}
   />
+)
+
+// ADR 0007 and 0008. Both rosters below list a flagged resident alongside
+// people who are still to knock, so both replace the status with the marker —
+// the same rule the walk list follows. Without it the stop list says "Do not
+// knock" and this sheet, one tap later, says "Support unknown" about the same
+// person: two answers to the same question, which is the contradiction the
+// marker exists to prevent.
+const ResidentMarker = ({ marker }: { marker: string }) => (
+  <span className="shrink-0 text-xs font-medium text-warning">{marker}</span>
 )
 
 interface PersonSheetProps {
@@ -34,6 +50,10 @@ interface PersonSheetProps {
     knockStatus: DoorKnockStatus,
   ) => void
   onDoNotKnockChanged: (personId: string, doNotKnock: boolean) => void
+  onNotAVoterChanged: (
+    personId: string,
+    reason: NotAVoterReason | undefined,
+  ) => void
   onClose: () => void
 }
 
@@ -67,6 +87,7 @@ export default function PersonSheet({
   clientKeyFor,
   onRecorded,
   onDoNotKnockChanged,
+  onNotAVoterChanged,
   onClose,
 }: PersonSheetProps) {
   const targets = stop.addresses.flatMap((address) => address.targets)
@@ -110,22 +131,31 @@ export default function PersonSheet({
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {targets.length > 1 && (
             <div className="mb-4 flex gap-1.5 overflow-x-auto rounded-lg bg-muted p-1.5">
-              {targets.map((candidate) => (
-                <button
-                  key={candidate.stopTargetId}
-                  type="button"
-                  aria-pressed={candidate.stopTargetId === target.stopTargetId}
-                  className={`flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm ${
-                    candidate.stopTargetId === target.stopTargetId
-                      ? 'border border-border bg-background font-medium shadow-sm'
-                      : ''
-                  }`}
-                  onClick={() => onSelectTarget(candidate.stopTargetId)}
-                >
-                  {candidate.name ?? 'Unnamed'}
-                  <StatusDot status={statusFor(candidate)} />
-                </button>
-              ))}
+              {targets.map((candidate) => {
+                const marker = targetMarker(candidate)
+                return (
+                  <button
+                    key={candidate.stopTargetId}
+                    type="button"
+                    aria-pressed={
+                      candidate.stopTargetId === target.stopTargetId
+                    }
+                    className={`flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm ${
+                      candidate.stopTargetId === target.stopTargetId
+                        ? 'border border-border bg-background font-medium shadow-sm'
+                        : ''
+                    }`}
+                    onClick={() => onSelectTarget(candidate.stopTargetId)}
+                  >
+                    {candidate.name ?? 'Unnamed'}
+                    {marker ? (
+                      <ResidentMarker marker={marker} />
+                    ) : (
+                      <StatusDot status={statusFor(candidate)} />
+                    )}
+                  </button>
+                )
+              })}
             </div>
           )}
 
@@ -175,20 +205,27 @@ export default function PersonSheet({
               Household
             </h3>
             <div className="flex flex-col gap-2 p-4 text-sm">
-              {targets.map((member) => (
-                <div
-                  key={member.stopTargetId}
-                  className="flex items-center justify-between"
-                >
-                  <span className="truncate">
-                    {member.name ?? 'Name unavailable'}
-                  </span>
-                  <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-                    <StatusDot status={statusFor(member)} />
-                    {STATUS_LABELS[statusFor(member)]}
-                  </span>
-                </div>
-              ))}
+              {targets.map((member) => {
+                const marker = targetMarker(member)
+                return (
+                  <div
+                    key={member.stopTargetId}
+                    className="flex items-center justify-between"
+                  >
+                    <span className="truncate">
+                      {member.name ?? 'Name unavailable'}
+                    </span>
+                    {marker ? (
+                      <ResidentMarker marker={marker} />
+                    ) : (
+                      <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                        <StatusDot status={statusFor(member)} />
+                        {STATUS_LABELS[statusFor(member)]}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
               {otherResidents.map((resident, index) => (
                 <div
                   key={`${resident.name ?? 'resident'}-${index}`}
@@ -205,15 +242,23 @@ export default function PersonSheet({
         </div>
 
         <div className="flex flex-col gap-3 border-t border-border p-4">
-          {/* ADR 0007. The script and the form are withheld rather than
-              disabled: a flagged door has nothing to say and nothing to log,
-              and an inert set of pills invites someone to work out why they
-              don't respond. */}
+          {/* ADR 0007 and 0008. The script and the form are withheld rather
+              than disabled: a flagged door has nothing to say and nothing to
+              log, and an inert set of pills invites someone to work out why
+              they don't respond. Do-not-knock is checked first because it is
+              the stronger instruction — it is about the door, not the
+              resident. */}
           {target.doNotKnock ? (
             <DoNotKnockControl
               key={target.stopTargetId}
               target={target}
               onChanged={onDoNotKnockChanged}
+            />
+          ) : target.notAVoterReason ? (
+            <NotAVoterControl
+              key={target.stopTargetId}
+              target={target}
+              onChanged={onNotAVoterChanged}
             />
           ) : (
             <>
@@ -229,10 +274,18 @@ export default function PersonSheet({
                   onRecorded(target.stopTargetId, personId, knockStatus)
                 }
               />
+              {/* Below the form, because it is a follow-up to what the form
+                  just recorded — it renders nothing until this door is logged
+                  as `not_a_voter`. */}
+              <NotAVoterControl
+                key={`not-a-voter-${target.stopTargetId}`}
+                target={target}
+                onChanged={onNotAVoterChanged}
+              />
               {/* Namespaced: a bare stopTargetId would collide with the
                   form's key above, and React reconciles same-key siblings as
-                  one child. Both still need a key so each resets its mutation
-                  state when the canvasser switches resident. */}
+                  one child. All three still need a key so each resets its
+                  mutation state when the canvasser switches resident. */}
               <DoNotKnockControl
                 key={`do-not-knock-${target.stopTargetId}`}
                 target={target}

@@ -62,6 +62,7 @@ const Harness = ({ targets }: { targets: RoutePayloadTarget[] }) => {
       clientKeyFor={() => 'key'}
       onRecorded={vi.fn()}
       onDoNotKnockChanged={vi.fn()}
+      onNotAVoterChanged={vi.fn()}
       onClose={vi.fn()}
     />
   )
@@ -167,19 +168,107 @@ describe('PersonSheet phone numbers', () => {
   })
 })
 
-// The knock form and the do-not-knock control are siblings that both key off the
-// selected target so each resets when the canvasser switches resident. Keyed on
-// the bare id they collide, and React reconciles same-key siblings as one child
-// — it only says so through a console warning, which a passing suite hides.
+// The knock form, the not-a-voter follow-up and the do-not-knock control are
+// siblings that all key off the selected target so each resets when the
+// canvasser switches resident. Keyed on the bare id they collide, and React
+// reconciles same-key siblings as one child — it only says so through a console
+// warning, which a passing suite hides.
 describe('PersonSheet reconciliation', () => {
-  it('keys its two mutating children apart', () => {
+  it('keys its three mutating children apart', () => {
     const warn = vi.spyOn(console, 'error').mockImplementation(vi.fn())
 
-    renderSheet([target()])
+    // A logged not-a-voter door is the one state where all three render at
+    // once, so it is the only one that can surface the collision.
+    renderSheet([target({ knockStatus: 'not_a_voter' })])
 
     expect(warn.mock.calls.flat().join(' ')).not.toMatch(
       /two children with the same key/,
     )
     warn.mockRestore()
+  })
+})
+
+// ADR 0007 and 0008. A flagged resident reads "Do not knock" in the walk list
+// and used to read "Support unknown" here one tap later — two answers to the
+// same question about the same person. Both rosters replace the status with the
+// marker for the same reason the list does.
+describe('PersonSheet flagged residents', () => {
+  const household = () =>
+    screen.getByRole('heading', { name: 'Household' }).parentElement!
+
+  const switcher = (name: RegExp) => screen.getByRole('button', { name })
+
+  it('replaces the status with the marker in the household roster', () => {
+    renderSheet([
+      target({ doNotKnock: true }),
+      target({
+        stopTargetId: 22,
+        personId: 'person-2',
+        name: 'Marisol Vega',
+        notAVoterReason: 'deceased',
+      }),
+      target({
+        stopTargetId: 23,
+        personId: 'person-3',
+        name: 'Ruben Cole',
+        notAVoterReason: 'moved',
+      }),
+    ])
+    const roster = within(household())
+
+    expect(roster.getByText('Do not knock')).toBeInTheDocument()
+    expect(roster.getByText('Deceased')).toBeInTheDocument()
+    expect(roster.getByText('Moved away')).toBeInTheDocument()
+    expect(roster.queryByText('Support unknown')).toBeNull()
+  })
+
+  it('replaces the status dot with the marker in the resident switcher', () => {
+    renderSheet([
+      target(),
+      target({
+        stopTargetId: 22,
+        personId: 'person-2',
+        name: 'Marisol Vega',
+        notAVoterReason: 'deceased',
+      }),
+    ])
+
+    expect(switcher(/Marisol Vega/)).toHaveTextContent('Deceased')
+    // The knockable resident keeps their dot, so the marker reads as a
+    // difference rather than as how everyone is rendered.
+    expect(switcher(/Dorian Fen/).querySelector('span.h-2')).toBeTruthy()
+    expect(switcher(/Marisol Vega/).querySelector('span.h-2')).toBeNull()
+  })
+
+  // A flagged door has nothing to say and nothing to log, so the script and the
+  // form go rather than sitting there inert.
+  it('withholds the log form behind the reason marker', () => {
+    renderSheet([target({ notAVoterReason: 'moved' })])
+
+    expect(screen.queryByTestId('record-knock-form')).toBeNull()
+    expect(
+      screen.getByText(/no longer lives at this address/),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+  })
+
+  // Do-not-knock is an instruction about the door; a reason is a fact about one
+  // of the people behind it, so the instruction is what gets shown.
+  it('shows do-not-knock ahead of a reason when a person carries both', () => {
+    renderSheet([target({ doNotKnock: true, notAVoterReason: 'moved' })])
+
+    expect(
+      screen.getByText(/asked not to be visited again/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Moved away')).toBeNull()
+  })
+
+  // The door is logged by then; the question is a follow-up to it, and the form
+  // stays so a mis-tapped outcome is still correctable.
+  it('asks for a reason once a door is logged as not a voter', () => {
+    renderSheet([target({ knockStatus: 'not_a_voter' })])
+
+    expect(screen.getByText('Not a voter — what happened?')).toBeInTheDocument()
+    expect(screen.getByTestId('record-knock-form')).toBeInTheDocument()
   })
 })

@@ -6,12 +6,13 @@ import {
   DOOR_KNOCK_STATUSES,
   DoorKnockingRoutePayload,
   DoorKnockStatus,
+  NotAVoterReason,
   RoutePayloadStop,
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
 import { ChevronDownIcon, ChevronRightIcon } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
-import { countDoors, knockableTargets } from '../routeCounts'
+import { countDoors, isKnockable, knockableTargets } from '../routeCounts'
 import PersonSheet from './PersonSheet'
 import { formatDistance } from './routeFormat'
 import { routeQueryOptions } from './turfQueries'
@@ -19,6 +20,7 @@ import {
   rollupStopStatus,
   STATUS_DOT_COLORS,
   STATUS_LABELS,
+  targetMarker,
 } from './statusPresentation'
 
 const formatDuration = (seconds: number): string => {
@@ -68,6 +70,13 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
   // canvasser moves down the list; the server is the truth on refetch.
   const applyDoNotKnock = (personId: string, doNotKnock: boolean) =>
     patchPerson(personId, (target) => ({ ...target, doNotKnock }))
+  // ADR 0008. `cleared` arrives from the server as an absent reason, which is
+  // how the route payload spells it too — so undoing a flag patches the same
+  // key back to nothing rather than needing a second notion of "not flagged".
+  const applyNotAVoter = (
+    personId: string,
+    notAVoterReason: NotAVoterReason | undefined,
+  ) => patchPerson(personId, (target) => ({ ...target, notAVoterReason }))
   const [openStopId, setOpenStopId] = useState<number | null>(null)
   const [sheet, setSheet] = useState<{
     stopId: number
@@ -102,7 +111,12 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
   // recorded history, if any, still lives in the CRM.
   const targetCount = (stopList: RoutePayloadStop[]) =>
     knockableTargets(stopList).length
-  const reachedCount = (stopList: RoutePayloadStop[]) =>
+  // "Logged", not "reached": `not_home`, `inaccessible` and `refused` all
+  // satisfy this predicate, so a canvasser who knocked forty doors and spoke to
+  // nobody would read "40/40 reached" — a claim about conversations that never
+  // happened. What the bar actually measures is doors with an answer written
+  // down, which is the thing a canvasser is working through.
+  const loggedCount = (stopList: RoutePayloadStop[]) =>
     knockableTargets(stopList).filter(
       (target) => target.knockStatus !== 'unknown',
     ).length
@@ -114,6 +128,17 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
     stop.addresses[0]?.targets[0]?.name ?? null
   const targetsForStop = (stop: RoutePayloadStop): RoutePayloadTarget[] =>
     stop.addresses.flatMap((address) => address.targets)
+  const stopKnockable = (stop: RoutePayloadStop): RoutePayloadTarget[] =>
+    targetsForStop(stop).filter(isKnockable)
+  // Distinct markers only: three deceased residents at one stop is one thing to
+  // read, not three.
+  const stopMarkers = (stop: RoutePayloadStop): string[] => [
+    ...new Set(
+      targetsForStop(stop)
+        .map(targetMarker)
+        .filter((marker): marker is string => marker !== null),
+    ),
+  ]
 
   const sheetStop = sheet
     ? (stops.find((stop) => stop.id === sheet.stopId) ?? null)
@@ -144,7 +169,7 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
         // target reads as unknown — excluded by id rather than by status.
         target.stopTargetId !== loggedTargetId &&
         target.knockStatus === 'unknown' &&
-        !target.doNotKnock,
+        isKnockable(target),
     )
     if (!next) {
       setSheet(null)
@@ -199,9 +224,9 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                 In this list
               </span>
               <span className="rounded-full bg-tertiary-dark px-3 py-1 text-xs font-semibold tabular-nums text-tertiary-foreground">
-                {`${reachedCount(routeQuery.data.stops)}/${targetCount(
+                {`${loggedCount(routeQuery.data.stops)}/${targetCount(
                   routeQuery.data.stops,
-                )} reached`}
+                )} logged`}
               </span>
             </div>
             <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
@@ -211,7 +236,7 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                   width: `${
                     targetCount(routeQuery.data.stops) > 0
                       ? Math.round(
-                          (reachedCount(routeQuery.data.stops) /
+                          (loggedCount(routeQuery.data.stops) /
                             targetCount(routeQuery.data.stops)) *
                             100,
                         )
@@ -286,38 +311,50 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                         {stop.displayAddress}
                       </span>
                       <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <span className="tabular-nums">
-                          {targetsForStop(stop).length}
-                        </span>
-                        {/* ADR 0007. A flagged resident knocked before this
-                            was set still carries a status, and its dot would
-                            sit next to the "Do not knock" label saying the
-                            opposite. The expanded row drops it for the same
-                            reason. */}
-                        {targetsForStop(stop)
-                          .filter((target) => !target.doNotKnock)
-                          .map((target) => (
-                            <span
-                              key={target.stopTargetId}
-                              className="h-1.5 w-1.5 rounded-full"
-                              style={{
-                                backgroundColor:
-                                  STATUS_DOT_COLORS[target.knockStatus],
-                              }}
-                            />
-                          ))}
-                        {/* ADR 0007. On the collapsed row, because a
-                            single-resident stop opens the sheet instead of
-                            expanding — without this, the common case shows an
-                            ordinary dot and the canvasser walks up to the
-                            door. */}
-                        {targetsForStop(stop).some(
-                          (target) => target.doNotKnock,
-                        ) && (
+                        {/* ADR 0007 and 0008. The count is knockable people,
+                            like every other people figure (routeCounts), and a
+                            flagged resident knocked before the flag was set
+                            still carries a status whose dot would sit next to a
+                            marker saying the opposite. A stop with nobody left
+                            says so outright rather than reading as an empty
+                            house — its rollup color is the same grey as
+                            still-to-knock, and the marker is the only thing
+                            that tells those two apart. */}
+                        {stopKnockable(stop).length === 0 ? (
                           <span className="font-medium text-warning">
-                            Do not knock
+                            Nobody to knock here
                           </span>
+                        ) : (
+                          <>
+                            <span className="tabular-nums">
+                              {stopKnockable(stop).length}
+                            </span>
+                            {stopKnockable(stop).map((target) => (
+                              <span
+                                key={target.stopTargetId}
+                                className="h-1.5 w-1.5 rounded-full"
+                                style={{
+                                  backgroundColor:
+                                    STATUS_DOT_COLORS[target.knockStatus],
+                                }}
+                              />
+                            ))}
+                          </>
                         )}
+                        {/* On the collapsed row, because a single-resident stop
+                            opens the sheet instead of expanding — without this,
+                            the common case shows an ordinary dot and the
+                            canvasser walks up to the door. Distinct markers
+                            only: three deceased residents is one thing to
+                            read. */}
+                        {stopMarkers(stop).map((marker) => (
+                          <span
+                            key={marker}
+                            className="font-medium text-warning"
+                          >
+                            {marker}
+                          </span>
+                        ))}
                       </span>
                     </span>
                     {stop.legSeconds > 0 && (
@@ -353,12 +390,12 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                           <span className="min-w-0 flex-1 truncate">
                             {target.name ?? 'Name unavailable'}
                           </span>
-                          {/* ADR 0007. Read before walking up, not after
-                              opening the sheet, so the marker replaces the
-                              knock status rather than sitting beside it. */}
-                          {target.doNotKnock ? (
+                          {/* ADR 0007 and 0008. Read before walking up, not
+                              after opening the sheet, so the marker replaces
+                              the knock status rather than sitting beside it. */}
+                          {targetMarker(target) ? (
                             <span className="shrink-0 text-xs font-medium text-warning">
-                              Do not knock
+                              {targetMarker(target)}
                             </span>
                           ) : (
                             <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
@@ -400,9 +437,16 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
               next.delete(targetId)
               return next
             })
+            // ADR 0008. Every other outcome walks on; this one has a follow-up
+            // waiting in the sheet, and advancing would ask "what happened?"
+            // and take the answer away in the same frame. The door is already
+            // saved either way, so a canvasser who ignores the question and
+            // taps the next stop has still logged it.
+            if (knockStatus === 'not_a_voter') return
             advanceFrom(targetId)
           }}
           onDoNotKnockChanged={applyDoNotKnock}
+          onNotAVoterChanged={applyNotAVoter}
           onClose={() => setSheet(null)}
         />
       )}

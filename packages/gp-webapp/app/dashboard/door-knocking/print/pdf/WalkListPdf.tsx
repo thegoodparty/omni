@@ -176,7 +176,7 @@ const AnswerCells = ({ row }: { row: WalkListRow }) => {
         ]}
       >
         {row.answer.kind === 'skip' ? (
-          <Text style={styles.instruction}>Do not knock — skip this door</Text>
+          <Text style={styles.instruction}>{row.answer.instruction}</Text>
         ) : (
           <Text style={styles.logged}>Already logged: {row.answer.label}</Text>
         )}
