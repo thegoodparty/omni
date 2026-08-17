@@ -369,21 +369,59 @@ describe('POST /v1/outreach/social', () => {
     expect(spine.social?.assets).toHaveLength(2)
   })
 
-  it('derives kind from platform and drops captions on copy assets', async () => {
+  it('rejects a kind that does not match its platform', async () => {
+    // The schema derives kind from platform: a mismatched client kind is a
+    // 400 (previously it was silently corrected, which let a post_copy
+    // platform dodge the shorter length cap by claiming video_script).
     const res = await postSave({
       ...validSaveBody(),
       assets: [
         {
-          platform: SocialAssetPlatform.tiktok,
-          kind: SocialAssetKind.post_copy,
-          text: 'Script',
-          caption: 'Caption',
-        },
-        {
           platform: SocialAssetPlatform.facebook,
           kind: SocialAssetKind.video_script,
           text: 'Copy',
+        },
+      ],
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(await countAllSocialRows()).toEqual({
+      outreach: 0,
+      social: 0,
+      assets: 0,
+    })
+  })
+
+  it('rejects post copy over the copy cap even when labeled video_script', async () => {
+    const res = await postSave({
+      ...validSaveBody(),
+      assets: [
+        {
+          platform: SocialAssetPlatform.facebook,
+          kind: SocialAssetKind.video_script,
+          text: 'x'.repeat(5000),
+        },
+      ],
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
+
+  it('drops captions on copy assets', async () => {
+    const res = await postSave({
+      ...validSaveBody(),
+      assets: [
+        {
+          platform: SocialAssetPlatform.facebook,
+          kind: SocialAssetKind.post_copy,
+          text: 'Copy',
           caption: 'Should be dropped',
+        },
+        {
+          platform: SocialAssetPlatform.tiktok,
+          kind: SocialAssetKind.video_script,
+          text: 'Script',
+          caption: 'Caption',
         },
       ],
     })

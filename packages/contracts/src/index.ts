@@ -717,6 +717,8 @@ export {
   SOCIAL_DRAFT_MESSAGE_MAX_LENGTH,
   SOCIAL_POST_COPY_MAX_LENGTH,
   SOCIAL_VIDEO_SCRIPT_MAX_LENGTH,
+  SOCIAL_VIDEO_PLATFORMS,
+  socialAssetKindForPlatform,
   SocialAssetSchema,
   type SocialAsset,
   SocialGenerateRequestSchema,

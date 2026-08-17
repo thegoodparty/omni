@@ -4,6 +4,8 @@ import {
   OutreachTypeSchema,
   SocialAssetKindSchema,
   SocialAssetPlatformSchema,
+  type SocialAssetKind,
+  type SocialAssetPlatform,
 } from '../generated/enums'
 import { zCoerceDate } from '../shared/Date.schema'
 
@@ -32,6 +34,19 @@ export const SOCIAL_DRAFT_MESSAGE_MAX_LENGTH = 2000
 export const SOCIAL_POST_COPY_MAX_LENGTH = 4000
 export const SOCIAL_VIDEO_SCRIPT_MAX_LENGTH = 8000
 
+// Kind is a function of platform, not a client choice: the server persists
+// the derived kind, so validation must run against the derivation too — a
+// client-supplied mismatch (e.g. post_copy platform labeled video_script to
+// dodge the shorter length cap) is rejected, not silently corrected.
+export const SOCIAL_VIDEO_PLATFORMS = ['tiktok', 'youtube_shorts'] as const
+
+export const socialAssetKindForPlatform = (
+  platform: SocialAssetPlatform,
+): SocialAssetKind =>
+  (SOCIAL_VIDEO_PLATFORMS as readonly string[]).includes(platform)
+    ? 'video_script'
+    : 'post_copy'
+
 export const SocialAssetSchema = z
   .object({
     platform: SocialAssetPlatformSchema,
@@ -44,8 +59,14 @@ export const SocialAssetSchema = z
       .transform((val) => val ?? null),
   })
   .refine(
+    (asset) => asset.kind === socialAssetKindForPlatform(asset.platform),
+    {
+      message: 'Asset kind does not match its platform',
+    },
+  )
+  .refine(
     (asset) =>
-      asset.kind !== 'post_copy' ||
+      socialAssetKindForPlatform(asset.platform) !== 'post_copy' ||
       asset.text.length <= SOCIAL_POST_COPY_MAX_LENGTH,
     {
       message: `Post copy cannot exceed ${SOCIAL_POST_COPY_MAX_LENGTH} characters`,

@@ -197,6 +197,32 @@ describe('SocialFlow', () => {
     )
   })
 
+  it('re-generates with the updated platform set after Back-and-edit from share', async () => {
+    mockDraft()
+    const generateCalls = mockGenerate()
+    openFlow()
+    await advanceToPlatforms()
+
+    // Reach the share step: one generate call with all six platforms.
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await waitFor(() => expect(generateCalls).toHaveLength(1))
+    expect(generateCalls[0]?.platforms).toHaveLength(6)
+    expect(await screen.findByText('Adapted for facebook')).toBeInTheDocument()
+
+    // Back to platforms, drop one platform (invalidateAssets clears the
+    // generated set), continue again: a SECOND generate call fires with the
+    // reduced platform list — the assets never go stale silently.
+    await user.click(
+      screen.getAllByRole('button', { name: 'Back' })[0] as HTMLElement,
+    )
+    const onCard = screen.getAllByRole('button', { pressed: true })[0]
+    await user.click(onCard as HTMLElement)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(generateCalls).toHaveLength(2))
+    expect(generateCalls[1]?.platforms).toHaveLength(5)
+  })
+
   it('disables Continue on the platforms step until at least one platform is on', async () => {
     mockDraft()
     mockGenerate()
