@@ -11,6 +11,7 @@ import {
 } from '../../../shared/agent-chat/chatUI'
 import { segmentsToLive } from '../../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
+import { newClientMessageId } from '../../../shared/agent-chat/chatHelpers'
 import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
 import { useDictationAppend } from '../../shared/useDictationAppend'
 import { DictationMicButton } from '../../shared/DictationMicButton'
@@ -131,6 +132,10 @@ export default function AskAiChatBody({
   // stale and both push an optimistic bubble. This ref bails the second one.
   const deliveringRef = useRef(false)
   const lastUserContentRef = useRef('')
+  // The client-message id of the last user turn, replayed on retry so the
+  // server dedupes on (conversation_id, client_message_id) instead of inserting
+  // a duplicate turn.
+  const lastClientMessageIdRef = useRef('')
   const pendingChatCreatedRef = useRef<{
     annotationId: string
     conversationId: string
@@ -274,7 +279,10 @@ export default function AskAiChatBody({
   // optimistic user bubble (a retry re-streams an existing turn). Fires the
   // deferred onChatCreated once the turn completes without error.
   const deliver = useCallback(
-    async (content: string, opts?: { hidden?: boolean }): Promise<boolean> => {
+    async (
+      content: string,
+      opts?: { hidden?: boolean; clientMessageId?: string },
+    ): Promise<boolean> => {
       const trimmed = content.trim()
       // `isStreaming()` (synchronous) drops a same-tick double-submit while a
       // turn is actively streaming, but — unlike the render-time `busy` — lets
@@ -284,7 +292,13 @@ export default function AskAiChatBody({
       deliveringRef.current = true
       try {
         setStreamError(null)
-        if (!opts?.hidden) lastUserContentRef.current = trimmed
+        // A retry replays the original id (so the server dedupes); a fresh send
+        // mints one and remembers it for its own retry.
+        const clientMessageId = opts?.clientMessageId ?? newClientMessageId()
+        if (!opts?.hidden) {
+          lastUserContentRef.current = trimmed
+          lastClientMessageIdRef.current = clientMessageId
+        }
         // Push the optimistic bubble BEFORE the deferred create so it stays
         // visible through the create round-trip and survives a create failure
         // (the composer is already cleared, so this is the only copy of the
@@ -317,7 +331,7 @@ export default function AskAiChatBody({
         // guards it), and the onChatCreated handoff runs via onTurnSuccess.
         // Awaiting would hold deliveringRef across the whole settle window and
         // block a legitimate follow-up send.
-        void send(id, trimmed, { hidden: true })
+        void send(id, trimmed, { hidden: true, clientMessageId })
         return true
       } finally {
         deliveringRef.current = false
@@ -340,8 +354,12 @@ export default function AskAiChatBody({
     if (content) {
       // Re-stream through `deliver` (hidden — the optimistic bubble already
       // exists) so a post-create retry still fires the deferred onChatCreated
-      // handoff, and a create-on-send failure re-attempts the create.
-      void deliver(content, { hidden: true })
+      // handoff, and a create-on-send failure re-attempts the create. Replay
+      // the original client-message id so the server dedupes the turn.
+      void deliver(content, {
+        hidden: true,
+        clientMessageId: lastClientMessageIdRef.current || undefined,
+      })
       return
     }
     // No user turn to replay — a load error. Reload the conversation.

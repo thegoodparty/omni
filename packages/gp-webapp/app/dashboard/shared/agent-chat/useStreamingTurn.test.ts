@@ -259,4 +259,116 @@ describe('useStreamingTurn', () => {
       vi.useRealTimers()
     }
   })
+
+  it('supersedes a settling turn when a second send arrives during the commit poll', async () => {
+    // The in-flight guard drops a second send only while the first is actively
+    // streaming. Once the first turn's stream is done and it is merely settling
+    // (reconciling persisted history), a follow-up must SUPERSEDE it — abort the
+    // poll and start a new turn — not be dropped.
+    vi.useFakeTimers()
+    try {
+      const streamMessage = vi
+        .fn()
+        .mockImplementationOnce(
+          async function* (): AsyncGenerator<ChatStreamEvent> {
+            yield { type: 'text', delta: 'first' }
+            yield { type: 'done', assistantMessageId: 'a1' }
+          },
+        )
+        .mockImplementationOnce(
+          async function* (): AsyncGenerator<ChatStreamEvent> {
+            yield { type: 'text', delta: 'second' }
+            yield { type: 'done', assistantMessageId: 'a2' }
+          },
+        )
+      // The turn never persists, so the first send sits in the commit poll
+      // (settling) instead of finishing — exactly when a follow-up should win.
+      const listMessages = vi.fn().mockResolvedValue([])
+      const api = { streamMessage, listMessages }
+      const { result } = renderHook(() =>
+        useStreamingTurn(api, { toolLabel: () => null }),
+      )
+
+      let first!: Promise<void>
+      act(() => {
+        first = result.current.send('c1', 'first')
+      })
+      // Drain the stream + reveal so the turn drops `sending` and enters the
+      // poll — settlingRef is now true while sendingRef stays set.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500)
+      })
+      expect(streamMessage).toHaveBeenCalledTimes(1)
+      expect(result.current.sending).toBe(false)
+
+      // A second send now supersedes the settling turn rather than being dropped.
+      let second!: Promise<void>
+      act(() => {
+        second = result.current.send('c1', 'second')
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000)
+        await Promise.all([first, second])
+      })
+
+      expect(streamMessage).toHaveBeenCalledTimes(2)
+      expect(streamMessage.mock.calls[1]?.[0]?.content).toBe('second')
+      expect(result.current.sending).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does NOT fire onTurnSuccess on a stall (the server is still generating)', async () => {
+    // The success handoff (e.g. a deferred create's onChatCreated) can swap the
+    // host surface and unmount the body. On a stall the server hasn't finished,
+    // so firing it would unmount mid-generation. It must wait; the turn still
+    // reconciles via the doneless commit poll.
+    vi.useFakeTimers()
+    try {
+      const onTurnSuccess = vi.fn()
+      const start = Date.now()
+      const persisted = {
+        id: 'srv-stall2',
+        conversationId: 'c1',
+        role: 'assistant' as const,
+        content: 'The turn the server finished after the client gave up.',
+        createdAt: new Date().toISOString(),
+      }
+      const listMessages = vi.fn(async () =>
+        Date.now() - start >= 90_000 ? [persisted] : [],
+      )
+      const api = {
+        // Lead-in then hang forever — the idle watchdog stalls the dead stream.
+        streamMessage: () =>
+          (async function* (): AsyncGenerator<ChatStreamEvent> {
+            yield { type: 'text', delta: 'Working on it' }
+            await new Promise<void>(() => undefined)
+          })(),
+        listMessages,
+      }
+
+      const { result } = renderHook(() =>
+        useStreamingTurn(api, { toolLabel: () => null, onTurnSuccess }),
+      )
+
+      let sendPromise!: Promise<void>
+      act(() => {
+        sendPromise = result.current.send('c1', 'draft it')
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200_000)
+        await sendPromise
+      })
+
+      // Handoff suppressed on the stall, but the turn still reconciled.
+      expect(onTurnSuccess).not.toHaveBeenCalled()
+      expect(result.current.messages.some((m) => m.id === 'srv-stall2')).toBe(
+        true,
+      )
+      expect(result.current.sending).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
