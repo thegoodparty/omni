@@ -66,8 +66,17 @@ const voterDensityDuration = meter.createHistogram(
   },
 )
 
-/** Render-gate outcome for a public profile fetch. */
-export type PublicProfileResult = 'live' | 'not_found' | 'gone' | 'removed'
+/**
+ * Render-gate outcome for a public profile fetch. `unpublished` used to be
+ * folded into `not_found`, which hid how often an owner's draft was being
+ * served as if the person had never claimed anything.
+ */
+export type PublicProfileResult =
+  | 'live'
+  | 'not_found'
+  | 'gone'
+  | 'removed'
+  | 'unpublished'
 
 /** Owner-initiated change to a profile. */
 export type ProfileMutation =
