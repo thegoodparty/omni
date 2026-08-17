@@ -95,6 +95,37 @@ const patched = await client.organizations.patch('campaign-123', {
   overrideDistrictId: 'district-uuid',
 })
 
+// Person profile privacy takedowns (admin / M2M)
+//
+// A privacy request names a public URL, not a UUID. Resolve it first so the
+// operator can confirm the subject — a mis-keyed personId silently takes down
+// the wrong person's page.
+const subject = await client.personProfiles.lookupPerson(
+  'https://goodparty.org/people/jordan-reyes-a1b2c3d4',
+)
+// => { personId, fullName, state, office }
+
+// appliedBy / clearedBy are required: gp-api sees only a shared M2M token on
+// these routes and cannot derive who acted. Use an email for a person, or
+// `system:<name>` for automation.
+await client.personProfiles.setRemoval({
+  personId: subject.personId,
+  appliedBy: 'ops@goodparty.org',
+  note: 'CA privacy request',
+})
+
+// Active takedowns by default; pass includeCleared for the reverted ones too.
+const removals = await client.personProfiles.listRemovals()
+const withHistory = await client.personProfiles.listRemovals({
+  includeCleared: true,
+})
+
+// Reverting preserves the record (clearedAt / clearedBy) rather than deleting it.
+await client.personProfiles.clearRemoval({
+  personId: subject.personId,
+  clearedBy: 'ops@goodparty.org',
+})
+
 // Ecanvasser
 const ecanvasser = await client.ecanvasser.create({
   apiKey: 'ecanvasser-api-key',
