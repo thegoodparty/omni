@@ -218,6 +218,11 @@ export default function TurfDetailsSheet({
   // The unlocked mirror of routePending: an unlocked turf's numbers come from
   // the pack, which decodes on its own schedule.
   const preRoutePending = !liveTurf.locked && listStatsPending
+  // And of routeFailed. Settled with nothing to show means one of the two
+  // inputs never arrived — or the list was deleted out from under the turf —
+  // so there is no audience to report. `0 doors` would be a real answer to a
+  // question we cannot answer.
+  const preRouteFailed = !liveTurf.locked && !listStatsPending && !listStats
   // A route-derived stat has three states before it has a value. Spread into
   // Stat so they agree about which one they're in.
   const routeStat = (value: string) => ({
@@ -229,8 +234,8 @@ export default function TurfDetailsSheet({
   // from lockedness alone — 'Not knocked yet' needs no data to be true — so
   // they stay put rather than flickering a skeleton at every open.
   const packBackedStat = (value: string) => ({
-    ...routeStat(value),
     pending: routePending || preRoutePending,
+    value: routeFailed || preRouteFailed ? 'Unavailable' : value,
   })
 
   return (
@@ -390,6 +395,13 @@ export default function TurfDetailsSheet({
                 This list&rsquo;s route could not be loaded, so the numbers
                 above are unavailable. Refresh to try again — nothing about the
                 route or the knocks logged against it has changed.
+              </p>
+            )}
+            {preRouteFailed && (
+              <p className="text-sm text-destructive">
+                This list&rsquo;s audience could not be counted, so the numbers
+                above are unavailable. Refresh to try again — the filters below
+                are what the list will target either way.
               </p>
             )}
           </section>

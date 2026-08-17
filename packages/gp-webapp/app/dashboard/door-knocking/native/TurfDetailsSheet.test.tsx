@@ -420,6 +420,22 @@ describe('TurfDetailsSheet overview', () => {
     expect(screen.queryByText(/doors an hour/)).toBeNull()
   })
 
+  // Settled with nothing to show is a different claim from still loading: the
+  // pack failed, the saved lists failed, or the list was deleted in the CRM.
+  // savedListFilterKeys(undefined) is {}, which polygonStats reads as "no
+  // filters" — so the tempting 0 here is really the unfiltered whole-polygon
+  // count wearing a plausible face.
+  it('says so when the audience settles without a count', () => {
+    renderSheet({ listStats: null, listStatsPending: false })
+
+    expect(screen.getAllByText('Unavailable')).toHaveLength(3)
+    expect(
+      screen.getByText(/audience could not be counted/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('0')).toBeNull()
+    expect(screen.queryByText(/doors an hour/)).toBeNull()
+  })
+
   // Route type and progress are true from lockedness alone, so they must not
   // flicker a skeleton every time the sheet opens.
   it('still answers route type and progress while the pack loads', () => {

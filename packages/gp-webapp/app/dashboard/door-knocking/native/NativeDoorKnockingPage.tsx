@@ -218,23 +218,35 @@ export default function NativeDoorKnockingPage({
   // inside its ring. This is the same computation the draw step ran on the
   // same shape, so Details now reproduces the number the list was saved
   // against instead of a larger one.
+  // The list carrying this turf's filters, which can be missing for three
+  // unrelated reasons — still loading, the request failed, or it was deleted
+  // in the CRM. None of them means "no filters", but
+  // `savedListFilterKeys(undefined)` is `{}`, which `polygonStats` reads as
+  // exactly that and answers with every door in the ring. Resolving it here
+  // makes all three produce no stats rather than the unfiltered count this
+  // whole change exists to stop reporting.
+  const detailsList = useMemo(
+    () =>
+      detailsTurf
+        ? savedListsQuery.data?.find(
+            (candidate) => candidate.id === detailsTurf.voterFileFilterId,
+          )
+        : undefined,
+    [savedListsQuery.data, detailsTurf],
+  )
   const detailsListStats = useMemo(
     () =>
-      packQuery.data && detailsTurf
+      packQuery.data && detailsTurf && detailsList
         ? polygonStats(
             packQuery.data,
             filtersToDimSelections(
-              savedListFilterKeys(
-                savedListsQuery.data?.find(
-                  (candidate) => candidate.id === detailsTurf.voterFileFilterId,
-                ),
-              ),
+              savedListFilterKeys(detailsList),
               packQuery.data.manifest,
             ),
             (detailsTurf.geoPoly.coordinates[0] ?? []) as [number, number][],
           )
         : null,
-    [packQuery.data, detailsTurf, savedListsQuery.data],
+    [packQuery.data, detailsTurf, detailsList],
   )
   const turfStats = useMemo(
     () =>
@@ -568,12 +580,9 @@ export default function NativeDoorKnockingPage({
         <TurfDetailsSheet
           turf={detailsTurf}
           listStats={detailsListStats}
-          // Both inputs, not just the pack: the saved lists carry the filters,
-          // and `savedListFilterKeys(undefined)` is `{}` — which `polygonStats`
-          // reads as "no filters" and answers with every door in the ring.
-          // That is the unfiltered count this PR exists to remove, arriving by
-          // race instead of by design, and the pack is the slower of the two
-          // often enough to hide it.
+          // Both inputs, since either one still in flight leaves the stats
+          // null for a reason that resolves itself. A settled null is a
+          // different claim, and the sheet makes it rather than printing 0.
           listStatsPending={
             (!packQuery.data && !packQuery.isError) || savedListsQuery.isPending
           }
