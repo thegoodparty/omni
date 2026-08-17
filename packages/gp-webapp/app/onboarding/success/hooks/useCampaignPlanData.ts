@@ -117,6 +117,10 @@ export const useCampaignPlanData = (
   const registeredVoters = metrics?.registeredVoters ?? null
   const uniqueCellphones = metrics?.uniqueCellphones ?? null
   const uniqueLandlines = metrics?.uniqueLandlines ?? null
+  const projectedTurnoutLower = metrics?.projectedTurnoutLower ?? null
+  const projectedTurnoutUpper = metrics?.projectedTurnoutUpper ?? null
+  const winNumberLower = metrics?.winNumberLower ?? null
+  const winNumberUpper = metrics?.winNumberUpper ?? null
   const raceCandidatesRef = metrics?.candidates
   const milestonesRef = metrics?.milestones ?? null
   // 30-90s first generation, instant on cache hit. Hook returns
@@ -250,6 +254,10 @@ export const useCampaignPlanData = (
       registeredVoters,
       uniqueCellphones,
       uniqueLandlines,
+      projectedTurnoutLower,
+      projectedTurnoutUpper,
+      winNumberLower,
+      winNumberUpper,
       raceCandidates: raceCandidatesRef ?? [],
       milestones: milestonesRef,
       strategicLandscape: strategy.data,
@@ -280,6 +288,10 @@ export const useCampaignPlanData = (
     registeredVoters,
     uniqueCellphones,
     uniqueLandlines,
+    projectedTurnoutLower,
+    projectedTurnoutUpper,
+    winNumberLower,
+    winNumberUpper,
     raceCandidatesRef,
     milestonesRef,
     strategy.data,

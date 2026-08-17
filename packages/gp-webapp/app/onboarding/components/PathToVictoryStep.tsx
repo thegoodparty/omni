@@ -31,7 +31,6 @@ const CHECKLIST_ITEMS = [
   'Calculating the votes you need to win',
 ] as const
 
-const WIN_NUMBER_RANGE_PCT = 0.15
 const REVEAL_INTERVAL_MS = 700
 const RESULTS_HOLD_MS = 600
 
@@ -258,18 +257,18 @@ const MetricsUnavailable = (): React.JSX.Element => (
 
 interface WinNumberHeroCardProps {
   winNumber: number
+  winNumberLower: number | null
+  winNumberUpper: number | null
   officeName: string
 }
 
 const WinNumberHeroCard = ({
   winNumber,
+  winNumberLower,
+  winNumberUpper,
   officeName,
 }: WinNumberHeroCardProps): React.JSX.Element => {
-  const lowEstimate = Math.max(
-    0,
-    Math.round(winNumber * (1 - WIN_NUMBER_RANGE_PCT)),
-  )
-  const highEstimate = Math.round(winNumber * (1 + WIN_NUMBER_RANGE_PCT))
+  const hasRange = winNumberLower !== null && winNumberUpper !== null
 
   return (
     <Card className="overflow-hidden rounded-2xl border-blue-100 bg-linear-to-b from-blue-50 to-white shadow-none">
@@ -281,13 +280,16 @@ const WinNumberHeroCard = ({
           Projected votes needed to win
         </p>
         <p className="text-base font-semibold text-foreground">{officeName}</p>
-        <p className="pt-2 text-xs text-muted-foreground">
-          Projected range:{' '}
-          <span className="font-semibold">
-            {numberFormatter(lowEstimate)}–{numberFormatter(highEstimate)}
-          </span>{' '}
-          (~95% confidence)
-        </p>
+        {hasRange && (
+          <p className="pt-2 text-xs text-muted-foreground">
+            Projected range:{' '}
+            <span className="font-semibold">
+              {numberFormatter(winNumberLower)}–
+              {numberFormatter(winNumberUpper)}
+            </span>{' '}
+            (70% prediction interval)
+          </p>
+        )}
       </CardContent>
     </Card>
   )
@@ -419,6 +421,8 @@ export const PathToVictoryStep = ({
   const officeName = officeNameProp || formatOfficeName(campaign)
   const metrics = campaign?.raceTargetMetrics ?? null
   const winNumber = metrics?.winNumber ?? 0
+  const winNumberLower = metrics?.winNumberLower ?? null
+  const winNumberUpper = metrics?.winNumberUpper ?? null
   // Prefer the general-election-anchored voter-turnout baseline (the number
   // win-number and contact targets are sized against on election-api) over
   // the race's own election-code turnout — for a primary or off-cycle
@@ -455,7 +459,12 @@ export const PathToVictoryStep = ({
 
   return (
     <div className="space-y-6 text-left">
-      <WinNumberHeroCard winNumber={winNumber} officeName={officeName} />
+      <WinNumberHeroCard
+        winNumber={winNumber}
+        winNumberLower={winNumberLower}
+        winNumberUpper={winNumberUpper}
+        officeName={officeName}
+      />
       <ProjectionExplanation
         registeredVoters={registeredVoters}
         projectedTurnout={projectedTurnout}

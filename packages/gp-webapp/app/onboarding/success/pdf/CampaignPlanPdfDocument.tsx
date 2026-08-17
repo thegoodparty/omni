@@ -1333,12 +1333,12 @@ export const CampaignPlanPdfDocument = ({
         <Text style={styles.h3}>Key Assumptions</Text>
         <Bullets items={plan.keyAssumptions} />
 
-        <Text style={styles.h3}>Confidence & Standard Error</Text>
+        <Text style={styles.h3}>Prediction Intervals</Text>
         <PlanTable
           columns={[
             { key: 'estimate', header: 'Estimate', flex: 1.6 },
             { key: 'pointValue', header: 'Point Value', width: 90, bold: true },
-            { key: 'range', header: 'Range (95% CI)', width: 110 },
+            { key: 'range', header: '70% prediction interval', width: 130 },
             { key: 'notes', header: 'Notes', flex: 1.6 },
           ]}
           rows={plan.confidenceEstimates.map((c) => ({
