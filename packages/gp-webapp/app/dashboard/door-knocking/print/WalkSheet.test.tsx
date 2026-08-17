@@ -308,6 +308,64 @@ describe('WalkSheet', () => {
     expect(screen.getByText('Marisol Vega')).toBeInTheDocument()
   })
 
+  // ADR 0008. Paper freezes at print time and is the surface used without the
+  // app, so a resident who moved away or died carries their instruction on the
+  // page — a blank form beside their name is how a door gets knocked anyway.
+  it('prints the reason instead of a form, and words the two reasons apart', () => {
+    const resident = {
+      personId: 'person-1',
+      name: 'Dorian Fen',
+      age: 31,
+      politicalParty: 'Independent' as const,
+      cellPhone: null,
+      landline: null,
+      knockStatus: 'unknown' as const,
+      mayHaveMoved: false,
+      doNotKnock: false,
+    }
+    renderSheet([
+      stop({
+        addresses: [
+          {
+            addressKey: '105|elm|st',
+            address: '105 Elm St',
+            targets: [
+              {
+                ...resident,
+                stopTargetId: 21,
+                notAVoterReason: 'moved' as const,
+              },
+              {
+                ...resident,
+                stopTargetId: 22,
+                personId: 'person-2',
+                name: 'Marisol Vega',
+                notAVoterReason: 'deceased' as const,
+              },
+            ],
+            otherResidents: [],
+          },
+        ],
+      }),
+    ])
+
+    const person = screen.getByRole('listitem')
+    expect(
+      within(person).getByText('Moved away — skip this resident'),
+    ).toBeInTheDocument()
+    expect(
+      within(person).getByText(
+        'Deceased — skip this resident, and do not ask for them by name',
+      ),
+    ).toBeInTheDocument()
+    // Both names stay on the page; neither gets tick-boxes.
+    expect(within(person).getByText('Marisol Vega')).toBeInTheDocument()
+    expect(within(person).queryByText('Did they answer?')).toBeNull()
+    // Nobody knockable at this stop, so the header's evening is empty while the
+    // rows below still carry the two instructions.
+    expect(screen.getByText(/1 stops · 1 doors · 0 people/)).toBeInTheDocument()
+  })
+
   // A walkable multi-unit building routes as one stop with an address per
   // unit. Without the unit line a canvasser has names but no door to knock,
   // and "this address" would be the building rather than where the person is.

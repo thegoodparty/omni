@@ -1,13 +1,19 @@
 import type { DoorKnockingRoutePayload } from '@goodparty_org/contracts'
-import { STATUS_LABELS } from '../../native/statusPresentation'
+import { skipInstruction, STATUS_LABELS } from '../../native/statusPresentation'
 import { describeTarget } from '../walkFacts'
 
 // What the three answer columns hold for one resident. `skip` and `logged`
 // replace the tick-boxes entirely — there is nothing to ask at either door.
+//
+// `skip` carries its own wording because the three reasons to skip are not the
+// same instruction: don't knock this door, this person moved away, this person
+// died. The renderers print what the model decided rather than deriving it
+// again, which is what keeps the printable page and the PDF saying the same
+// thing.
 export type WalkListAnswer =
   | { kind: 'form' }
   | { kind: 'logged'; label: string }
-  | { kind: 'skip' }
+  | { kind: 'skip'; instruction: string }
 
 export interface WalkListRow {
   key: string
@@ -42,6 +48,7 @@ export const walkListRows = (
       let firstInHousehold = true
 
       return address.targets.map((target) => {
+        const skip = skipInstruction(target)
         const row: WalkListRow = {
           key: String(target.stopTargetId),
           seq: stop.seq,
@@ -51,11 +58,10 @@ export const walkListRows = (
             .filter((name): name is string => Boolean(name)),
           name: target.name ?? 'Name unavailable',
           meta: describeTarget(target),
-          // ADR 0007. Checked before the logged branch: a flagged door is not
-          // to be knocked whatever was recorded there before, and paper freezes
-          // at download time, so the instruction has to travel on the page.
-          answer: target.doNotKnock
-            ? { kind: 'skip' }
+          // Checked before the logged branch: a flagged resident is not to be
+          // knocked whatever was recorded there before.
+          answer: skip
+            ? { kind: 'skip', instruction: skip }
             : target.knockStatus === 'unknown'
               ? { kind: 'form' }
               : { kind: 'logged', label: STATUS_LABELS[target.knockStatus] },

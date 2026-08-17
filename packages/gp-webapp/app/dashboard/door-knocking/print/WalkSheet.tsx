@@ -13,7 +13,7 @@ import {
   WILL_VOTE_OPTIONS,
   WILL_VOTE_QUESTION,
 } from '../native/knockQuestions'
-import { STATUS_LABELS } from '../native/statusPresentation'
+import { skipInstruction, STATUS_LABELS } from '../native/statusPresentation'
 import { describeTarget, formatDuration, walkSummary } from './walkFacts'
 
 // An empty square to tick. Printers drop background colors by default, so
@@ -51,6 +51,7 @@ const TargetBlock = ({ target }: { target: RoutePayloadTarget }) => {
   // Already recorded in the app: print the answer instead of blank boxes, so
   // a door isn't knocked twice and a transcriber doesn't overwrite it.
   const recorded = target.knockStatus !== 'unknown'
+  const skip = skipInstruction(target)
 
   return (
     <div className="break-inside-avoid px-2 py-1.5">
@@ -60,16 +61,14 @@ const TargetBlock = ({ target }: { target: RoutePayloadTarget }) => {
         </span>
         {detail && <span className="text-[10px]">{detail}</span>}
       </div>
-      {/* ADR 0007. Turf evaluation keeps flagged people off new lists, but it
-          cannot reach a route already frozen — and paper freezes again the
-          moment it prints. The name stays so the sheet still matches the app's
-          stop numbering; the tick-boxes go, because there is nothing to ask.
-          Checked before `recorded`: a flagged door is not to be knocked
-          whatever was logged there before. */}
-      {target.doNotKnock ? (
-        <div className="text-[10px] font-semibold">
-          Do not knock — skip this door
-        </div>
+      {/* ADR 0007 and 0008. Turf evaluation keeps flagged people off new
+          lists, but it cannot reach a route already frozen — and paper freezes
+          again the moment it prints. The name stays so the sheet still matches
+          the app's stop numbering; the tick-boxes go, because there is nothing
+          to ask. Checked before `recorded`: a flagged resident is not to be
+          knocked whatever was logged there before. */}
+      {skip ? (
+        <div className="text-[10px] font-semibold">{skip}</div>
       ) : recorded ? (
         <div className="text-[10px] italic">
           Already logged: {STATUS_LABELS[target.knockStatus]}

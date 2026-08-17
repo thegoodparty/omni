@@ -767,6 +767,12 @@ export const EVENTS = {
     // their minds.
     DoNotKnockSet: 'Door Knocking - Do Not Knock Set',
     DoNotKnockCleared: 'Door Knocking - Do Not Knock Cleared',
+    // ADR 0008. Both directions for the same reason, and the Set event carries
+    // which reason was given: the follow-up is optional, so how often it is
+    // answered at all — and how the two answers split — is the only way to tell
+    // whether the question is worth asking.
+    NotAVoterReasonSet: 'Door Knocking - Not A Voter Reason Set',
+    NotAVoterReasonCleared: 'Door Knocking - Not A Voter Reason Cleared',
   },
 } as const
 

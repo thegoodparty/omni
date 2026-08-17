@@ -4,7 +4,11 @@ import {
   RoutePayloadStop,
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
-import { rollupStopStatus } from './statusPresentation'
+import {
+  rollupStopStatus,
+  skipInstruction,
+  targetMarker,
+} from './statusPresentation'
 
 const target = (
   knockStatus: DoorKnockStatus,
@@ -64,5 +68,55 @@ describe('rollupStopStatus', () => {
 
   it('reports an empty stop as unknown', () => {
     expect(rollupStopStatus(stop([]))).toBe('unknown')
+  })
+
+  // ADR 0008 makes the same claim as 0007 about this rollup, and gp-api's serve
+  // service says the webapp's rollup drops both fields — it now does.
+  it('ignores a resident flagged with a reason', () => {
+    const moved = { ...target('unknown'), notAVoterReason: 'moved' as const }
+    expect(rollupStopStatus(stop([moved, target('supporter')]))).toBe(
+      'supporter',
+    )
+  })
+
+  it('reports a fully flagged household as unknown, marker and all', () => {
+    const deceased = {
+      ...target('unknown'),
+      notAVoterReason: 'deceased' as const,
+    }
+    // The color alone cannot tell "nobody to knock" from "nobody knocked yet",
+    // which is why every surface pairs it with the marker.
+    expect(rollupStopStatus(stop([deceased]))).toBe('unknown')
+    expect(targetMarker(deceased)).toBe('Deceased')
+  })
+})
+
+// The short marker and the paper instruction are the same decision at two
+// densities, and four surfaces read them — so the precedence and the wording
+// are asserted here rather than through each one.
+describe('flag markers', () => {
+  it('leaves a knockable resident unmarked', () => {
+    expect(targetMarker(target('unknown'))).toBeNull()
+    expect(skipInstruction(target('unknown'))).toBeNull()
+  })
+
+  it('reuses the CRM feed vocabulary for the two reasons', () => {
+    expect(
+      targetMarker({ ...target('unknown'), notAVoterReason: 'moved' }),
+    ).toBe('Moved away')
+    expect(
+      targetMarker({ ...target('unknown'), notAVoterReason: 'deceased' }),
+    ).toBe('Deceased')
+  })
+
+  // Do-not-knock is an instruction about the door, so it outranks a reason
+  // about one of the people behind it.
+  it('shows do-not-knock ahead of a reason', () => {
+    const both = {
+      ...target('unknown', true),
+      notAVoterReason: 'moved' as const,
+    }
+    expect(targetMarker(both)).toBe('Do not knock')
+    expect(skipInstruction(both)).toBe('Do not knock — skip this door')
   })
 })

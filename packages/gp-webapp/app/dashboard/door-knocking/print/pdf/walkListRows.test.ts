@@ -114,9 +114,67 @@ describe('walkListRows', () => {
       }),
     ])
 
-    expect(rows[0]?.answer).toEqual({ kind: 'skip' })
+    expect(rows[0]?.answer).toEqual({
+      kind: 'skip',
+      instruction: 'Do not knock — skip this door',
+    })
     // The name stays, so the grid still matches the app's stop numbering.
     expect(rows[0]?.name).toBe('Dorian Fen')
+  })
+
+  // ADR 0008. Without this a resident who moved away or died got a blank
+  // tick-box form on paper — an invitation to knock a door we already know not
+  // to, on the one surface that cannot be corrected after it prints.
+  it('prints the reason as the skip instruction, worded per reason', () => {
+    const rows = walkListRows([
+      stop({
+        addresses: [
+          household('105 Elm St', [
+            target({ stopTargetId: 21, notAVoterReason: 'moved' }),
+            target({
+              stopTargetId: 22,
+              personId: 'person-2',
+              name: 'Marisol Vega',
+              knockStatus: 'supporter',
+              notAVoterReason: 'deceased',
+            }),
+          ]),
+        ],
+      }),
+    ])
+
+    expect(rows[0]?.answer).toEqual({
+      kind: 'skip',
+      instruction: 'Moved away — skip this resident',
+    })
+    // A death is read at a door the rest of the household still answers, so it
+    // says what not to do rather than only what happened — and it outranks the
+    // supporter answer logged there before.
+    expect(rows[1]?.answer).toEqual({
+      kind: 'skip',
+      instruction:
+        'Deceased — skip this resident, and do not ask for them by name',
+    })
+    expect(rows[1]?.name).toBe('Marisol Vega')
+  })
+
+  // Do-not-knock is an instruction about the door; a reason is a fact about one
+  // of the people behind it.
+  it('prints do-not-knock ahead of a reason when a resident carries both', () => {
+    const rows = walkListRows([
+      stop({
+        addresses: [
+          household('105 Elm St', [
+            target({ doNotKnock: true, notAVoterReason: 'moved' }),
+          ]),
+        ],
+      }),
+    ])
+
+    expect(rows[0]?.answer).toEqual({
+      kind: 'skip',
+      instruction: 'Do not knock — skip this door',
+    })
   })
 
   it('carries household context under the address, not as a row of its own', () => {
