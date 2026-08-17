@@ -17,7 +17,10 @@ import {
   VerifyLiveResponse,
 } from '../schemas/VerifyLive.schema'
 import { isGenuineIssue } from '@goodparty_org/contracts'
-import { isGenericComplianceContent } from '../util/genericContent.util'
+import {
+  hasRenderableName,
+  isGenericComplianceContent,
+} from '../util/genericContent.util'
 
 const dnsLookup = promisify(dns.lookup)
 
@@ -109,7 +112,7 @@ export const wouldBePublishableAfterFallbacks = (
 ): boolean => {
   const base = content ?? {}
   const patched = applyCompliancePublishFallbacks(base, user, campaign)
-  return !isGenericComplianceContent(patched ?? base)
+  return hasRenderableName(user) && !isGenericComplianceContent(patched ?? base)
 }
 
 @Injectable()

@@ -62,8 +62,8 @@ export type Website = {
       priorElectionDates: string[]
     }
     user: {
-      firstName: string
-      lastName: string
+      firstName: string | null
+      lastName: string | null
     }
   }
 }

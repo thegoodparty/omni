@@ -25,7 +25,6 @@ import { ReqCampaign } from 'src/campaigns/decorators/ReqCampaign.decorator'
 import { UseCampaign } from 'src/campaigns/decorators/UseCampaign.decorator'
 import { CampaignWith } from 'src/campaigns/campaigns.types'
 import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
-import { getUserFullName } from 'src/users/util/users.util'
 import { PublicAccess } from 'src/authentication/decorators/PublicAccess.decorator'
 import { ContactFormSchema } from '../schemas/ContactForm.schema'
 import { ZodValidationPipe } from 'nestjs-zod'
@@ -58,6 +57,7 @@ import {
 import { VerifyLiveResponseSchema } from '../schemas/VerifyLive.schema'
 import { serializeWebsiteWithDomain } from '../util/serializeWebsite.util'
 import {
+  hasRenderableName,
   isBioPublishable,
   isGenericComplianceContent,
   isGenuineIssue,
@@ -142,7 +142,11 @@ const assertReadyToPublish = (
   // The site's headline and page title are derived from the candidate's name at
   // render time, so a nameless user publishes an empty hero — and verify-live's
   // candidate-identity check then fails against a page carrying no name.
-  if (!isNonEmpty(getUserFullName(user))) {
+  // Checked against firstName/lastName specifically, NOT getUserFullName: that
+  // helper falls back to the legacy `user.name`, which the public website
+  // response does not carry and candidate-sites therefore cannot render. A
+  // name-only user would pass this gate and still ship a blank headline.
+  if (!hasRenderableName(user)) {
     throw new BadRequestException(
       'Cannot publish: the campaign owner has no first or last name set.',
     )

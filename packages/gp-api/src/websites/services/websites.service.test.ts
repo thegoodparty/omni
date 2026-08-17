@@ -890,6 +890,27 @@ describe('wouldBePublishableAfterFallbacks', () => {
   }
   const genuineBio = `<p>${'a'.repeat(250)}</p>`
 
+  it('defers dispatch when the owner has no renderable name', () => {
+    // The publish gate rejects a nameless owner, so a run dispatched for one
+    // dies at publish_website and burns a kickoff. This gate mirrors it.
+    const namelessUser = createMockUser({
+      firstName: null,
+      lastName: null,
+      name: 'Legacy Candidate',
+    })
+    const content = {
+      about: {
+        bio: '<p>A genuine, candidate-authored biography of real length.</p>',
+        issues: [{ title: 'Housing', description: 'More affordable homes' }],
+      },
+      contact: { email: 'x@example.com' },
+    }
+
+    expect(
+      wouldBePublishableAfterFallbacks(content, namelessUser, noPositions),
+    ).toBe(false)
+  })
+
   it('rejects empty content with no positions to seed', () => {
     expect(wouldBePublishableAfterFallbacks({}, user, noPositions)).toBe(false)
     expect(wouldBePublishableAfterFallbacks(null, user, noPositions)).toBe(

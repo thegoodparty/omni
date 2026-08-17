@@ -411,6 +411,46 @@ describe('WebsitesController', () => {
       expect(mockWebsitesService.update).not.toHaveBeenCalled()
     })
 
+    it('blocks publish when the owner has only the legacy name field', async () => {
+      // getUserFullName would accept this user, but the public website response
+      // carries only firstName/lastName, so candidate-sites renders a blank
+      // headline. The gate must agree with the renderer, not with the helper.
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        content: completeContent,
+        hasEverBeenPublished: false,
+        status: WebsiteStatus.unpublished,
+        domain: { status: DomainStatus.submitted },
+      })
+      const nameOnlyUser = createMockUser({
+        firstName: null,
+        lastName: null,
+        name: 'Legacy Candidate',
+      })
+
+      await expect(
+        controller.updateWebsite(nameOnlyUser, mockCampaign, publishBody()),
+      ).rejects.toMatchObject({
+        status: HttpStatus.BAD_REQUEST,
+        message: expect.stringContaining('no first or last name'),
+      })
+
+      expect(mockWebsitesService.update).not.toHaveBeenCalled()
+    })
+
+    it('allows publish when only lastName is set', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        content: completeContent,
+        hasEverBeenPublished: false,
+        status: WebsiteStatus.unpublished,
+        domain: { status: DomainStatus.submitted },
+      })
+      const lastNameOnly = createMockUser({ firstName: null, name: null })
+
+      await controller.updateWebsite(lastNameOnly, mockCampaign, publishBody())
+
+      expect(mockWebsitesService.update).toHaveBeenCalled()
+    })
+
     it('blocks publish when the campaign owner has no name', async () => {
       mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
         content: completeContent,

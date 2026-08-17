@@ -5,8 +5,8 @@ import { getUserFullName } from './getUserFullName'
 // immediately. Returns '' when the account carries no name — better a missing
 // headline than a dangling "Vote For ".
 export const getCandidateHeadline = (user?: {
-  firstName: string
-  lastName: string
+  firstName: string | null
+  lastName: string | null
 }) => {
   const name = getUserFullName(user)
   return name ? `Vote For ${name}` : ''
