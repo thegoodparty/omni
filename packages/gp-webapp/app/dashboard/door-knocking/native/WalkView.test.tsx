@@ -133,7 +133,12 @@ describe('WalkView', () => {
       expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
     )
     // Distance comes from the same route payload as the duration; 2400m.
-    expect(screen.getByText(/2 doors · 31m · 1.5 mi/)).toBeInTheDocument()
+    // "travel" and not the bare duration: Geoapify times the movement between
+    // stops and nothing at them, so unqualified it read as the cost of the
+    // outing. The details sheet labels the same number the same way.
+    expect(
+      screen.getByText(/2 doors · 31m travel · 1.5 mi/),
+    ).toBeInTheDocument()
     expect(screen.getByText('1/2 logged')).toBeInTheDocument()
     const items = screen.getAllByRole('listitem')
     expect(within(items[0] as HTMLElement).getByText('Dorian Fen')).toBeTruthy()

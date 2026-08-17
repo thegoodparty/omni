@@ -267,7 +267,13 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
               <span className="text-sm tabular-nums text-muted-foreground">
                 {routeQuery.data.route.stopCount} stops ·{' '}
                 {countDoors(routeQuery.data.stops)} doors ·{' '}
-                {formatDuration(routeQuery.data.route.totalSeconds)} ·{' '}
+                {/* "travel", because that is all Geoapify measures: the jobs
+                    we send it carry no per-stop duration, so this is the
+                    movement between doors with zero time spent AT them. Bare,
+                    in a row of route facts, it read as the cost of the outing
+                    and undersold it by more than half. The per-leg number
+                    below already names its mode for the same reason. */}
+                {formatDuration(routeQuery.data.route.totalSeconds)} travel ·{' '}
                 {formatDistance(routeQuery.data.route.totalMeters)}
               </span>
             </div>

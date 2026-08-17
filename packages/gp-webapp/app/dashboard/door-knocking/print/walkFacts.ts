@@ -36,6 +36,11 @@ export const walkSummary = (
     `${countDoors(stops)} doors`,
     `${knockableTargets(stops).length} people`,
     `${route.mode === 'walk' ? 'Walking' : 'Driving'}${route.loop ? ' loop' : ''}`,
-    formatDuration(route.totalSeconds),
+    // Geoapify times the movement between stops and nothing at them — the jobs
+    // we send it carry no per-stop duration. On paper, in a row that already
+    // says how many doors there are, an unqualified duration reads as the cost
+    // of the whole walk; at our own 45 doors an hour it is under half of it.
+    // Naming it costs one word and is the same word the app's two screens use.
+    `${formatDuration(route.totalSeconds)} travel`,
     formatDistance(route.totalMeters),
   ].join(' · ')

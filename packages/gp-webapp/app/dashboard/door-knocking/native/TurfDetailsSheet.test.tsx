@@ -8,6 +8,7 @@ import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import type { PolygonStats } from './filterEngine'
 import TurfDetailsSheet from './TurfDetailsSheet'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -63,15 +64,66 @@ const routePayload: DoorKnockingRoutePayload = {
   stops: [],
 }
 
+const resident = {
+  personId: 'person-1',
+  name: 'Dorian Fen',
+  age: 31,
+  politicalParty: null,
+  cellPhone: null,
+  landline: null,
+  mayHaveMoved: false,
+  knockStatus: 'unknown' as const,
+  doNotKnock: false,
+}
+
+// One stop, two doors behind it, three people — the three counts a route
+// reports separately, all distinct so a test can tell which one is rendered.
+const routeWithDoors: DoorKnockingRoutePayload = {
+  ...routePayload,
+  stops: [
+    {
+      id: 10,
+      seq: 1,
+      lat: 36.16,
+      lng: -86.78,
+      displayAddress: '105 Elm St',
+      legSeconds: 0,
+      legMeters: 0,
+      knockStatus: 'unknown',
+      addresses: [
+        {
+          addressKey: '105|elm|st|1',
+          address: '105 Elm St Apt 1',
+          otherResidents: [],
+          targets: [{ ...resident, stopTargetId: 21 }],
+        },
+        {
+          addressKey: '105|elm|st|2',
+          address: '105 Elm St Apt 2',
+          otherResidents: [],
+          targets: [
+            { ...resident, stopTargetId: 22, personId: 'person-2' },
+            { ...resident, stopTargetId: 23, personId: 'person-3' },
+          ],
+        },
+      ],
+    },
+  ],
+}
+
 // `live` is what GET /turfs reports, which is what the affordance reads —
 // separate from the prop so the stale-snapshot case is expressible.
 const renderSheet = ({
   prop = {},
   live,
+  listStats = null,
+  listStatsPending = false,
   onDeleted = vi.fn(),
 }: {
   prop?: Partial<DoorKnockingTurf>
   live?: Partial<DoorKnockingTurf>
+  listStats?: PolygonStats | null
+  listStatsPending?: boolean
   onDeleted?: () => void
 } = {}) => {
   api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
@@ -82,7 +134,8 @@ const renderSheet = ({
   render(
     <TurfDetailsSheet
       turf={turf(prop)}
-      areaStats={null}
+      listStats={listStats}
+      listStatsPending={listStatsPending}
       onClose={vi.fn()}
       onDeleted={onDeleted}
     />,
@@ -124,11 +177,12 @@ describe('TurfDetailsSheet delete', () => {
     })
     renderSheet({ prop: { locked: false }, live: { locked: true } })
 
-    await waitFor(() =>
-      expect(screen.queryByText('Not knocked yet')).toBeNull(),
-    )
-    // 1860s of walking, rendered by the sheet's duration formatter.
-    expect(screen.getByText('31m')).toBeInTheDocument()
+    // 1860s of travel, rendered by the sheet's duration formatter. Anchored on
+    // the duration arriving rather than on 'Not knocked yet' disappearing:
+    // that copy is now absent for the whole fetch, so waiting for it to go
+    // would pass before the route had loaded at all.
+    expect(await screen.findByText('31m')).toBeInTheDocument()
+    expect(screen.queryByText('Not knocked yet')).toBeNull()
   })
 
   // ADR 0007. Progress counts knockable doors, so a canvasser who correctly
@@ -250,6 +304,224 @@ describe('TurfDetailsSheet delete', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/Try again/)
     expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
     expect(errorSnackbar).not.toHaveBeenCalled()
+  })
+})
+
+const listStats = (overrides: Partial<PolygonStats> = {}): PolygonStats => ({
+  stops: 41,
+  households: 68,
+  people: 213,
+  partyMix: [],
+  ...overrides,
+})
+
+describe('TurfDetailsSheet overview', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+  })
+
+  // The number a candidate wants while deciding whether a list is a
+  // reasonable evening — and building the route that would answer it exactly
+  // is a billed, irreversible Geoapify call, so a saved list can't be made to
+  // pay for its own estimate.
+  it('estimates the evening from doors before a route exists', () => {
+    renderSheet({ listStats: listStats() })
+
+    // 68 doors at 45 an hour, the draw step's own rule of thumb.
+    expect(screen.getByText('About 1 hr 31 min')).toBeInTheDocument()
+    // Named, so it reads as a rule of thumb rather than a computed promise.
+    expect(screen.getByText('at 45 doors an hour')).toBeInTheDocument()
+    // 45 doors an hour is a knocking pace, conversations included.
+    expect(screen.getByText('Knocking time')).toBeInTheDocument()
+  })
+
+  // Geoapify's own duration is the real answer once it has been paid for —
+  // the rule of thumb retires rather than sitting beside it. It is also only
+  // the travel between doors (the jobs we send carry no per-stop duration),
+  // so it must not go on claiming to be the cost of the evening.
+  it('labels the vendor duration as travel once the route is built', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: routeWithDoors,
+    })
+    renderSheet({ prop: { locked: true }, listStats: listStats() })
+
+    expect(await screen.findByText('31m')).toBeInTheDocument()
+    expect(screen.getByText('Travel time')).toBeInTheDocument()
+    expect(screen.queryByText('Knocking time')).toBeNull()
+    expect(screen.queryByText(/doors an hour/)).toBeNull()
+    expect(screen.queryByText(/^About /)).toBeNull()
+    // The frozen route's two addresses, not the pack's 68 households.
+    expect(screen.getByText('2')).toBeInTheDocument()
+    expect(screen.queryByText('68')).toBeNull()
+  })
+
+  // ADR 0007 drops do-not-knock residents, so a route whose every resident is
+  // flagged really does have 0 knockable people. Falling back on the count
+  // being empty rather than on the route existing answered that with the
+  // pack's pre-route number.
+  it('reports zero people for a route whose residents are all flagged', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: {
+        ...routeWithDoors,
+        stops: routeWithDoors.stops.map((stop) => ({
+          ...stop,
+          addresses: stop.addresses.map((address) => ({
+            ...address,
+            targets: address.targets.map((target) => ({
+              ...target,
+              doNotKnock: true,
+            })),
+          })),
+        })),
+      } satisfies DoorKnockingRoutePayload,
+    })
+    renderSheet({ prop: { locked: true }, listStats: listStats() })
+
+    // The duration is what tells us the route landed — the labels are static.
+    expect(await screen.findByText('31m')).toBeInTheDocument()
+    expect(screen.getByText('0 of 0 · 0%')).toBeInTheDocument()
+    expect(screen.queryByText('213')).toBeNull()
+  })
+
+  // Not home, inaccessible and refused all count as logged, and none of them
+  // is a conversation — so the stat must not say anyone was reached.
+  it('counts logged doors rather than claiming people were reached', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: routeWithDoors,
+    })
+    renderSheet({ prop: { locked: true } })
+
+    expect(await screen.findByText('People logged')).toBeInTheDocument()
+    expect(screen.queryByText(/reached/i)).toBeNull()
+  })
+
+  // An empty shape has no evening to estimate, so the stat keeps its old copy
+  // rather than promising "about 0 min".
+  it('says not knocked yet when the shape holds no doors', () => {
+    renderSheet({ listStats: null })
+
+    expect(screen.getByText('Knocking time')).toBeInTheDocument()
+    expect(screen.queryByText(/^About /)).toBeNull()
+  })
+
+  // The unlocked mirror of the locked-route case: these numbers come from the
+  // pack, so before it decodes a null `listStats` means "not read yet", not
+  // "no doors here" — rendering 0 doors and 'Not knocked yet' is the same
+  // confident-but-wrong answer, and indistinguishable from the settled state.
+  it('waits for the pack instead of reporting an empty shape', () => {
+    renderSheet({ listStats: null, listStatsPending: true })
+
+    // Doors, people, and the knocking estimate.
+    expect(screen.getAllByText('Loading')).toHaveLength(3)
+    expect(screen.queryByText('0')).toBeNull()
+    expect(screen.queryByText(/doors an hour/)).toBeNull()
+  })
+
+  // Settled with nothing to show is a different claim from still loading: the
+  // pack failed, the saved lists failed, or the list was deleted in the CRM.
+  // savedListFilterKeys(undefined) is {}, which polygonStats reads as "no
+  // filters" — so the tempting 0 here is really the unfiltered whole-polygon
+  // count wearing a plausible face.
+  it('says so when the audience settles without a count', () => {
+    renderSheet({ listStats: null, listStatsPending: false })
+
+    expect(screen.getAllByText('Unavailable')).toHaveLength(3)
+    expect(
+      screen.getByText(/audience could not be counted/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('0')).toBeNull()
+    expect(screen.queryByText(/doors an hour/)).toBeNull()
+  })
+
+  // Route type and progress are true from lockedness alone, so they must not
+  // flicker a skeleton every time the sheet opens.
+  it('still answers route type and progress while the pack loads', () => {
+    renderSheet({ listStats: null, listStatsPending: true })
+
+    expect(screen.getByText('Route type')).toBeInTheDocument()
+    expect(screen.getAllByText('Not knocked yet')).toHaveLength(2)
+  })
+
+  // Lockedness IS the frozen route row, so a locked list HAS been knocked.
+  // Saying otherwise for the length of the fetch is a lie that resolves.
+  it('waits for a locked list route instead of saying it was never knocked', async () => {
+    // Never settles, so the sheet stays in its pending state.
+    api.mock(
+      'GET /v1/door-knocking/turfs/:id/route',
+      () => new Promise(() => undefined),
+    )
+    renderSheet({ prop: { locked: true }, listStats: listStats() })
+
+    await waitFor(() =>
+      expect(screen.getAllByText('Loading').length).toBeGreaterThan(0),
+    )
+    expect(screen.queryByText('Not knocked yet')).toBeNull()
+    // Nor the pack's pre-route answers, which would then swap out mid-load.
+    expect(screen.queryByText('68')).toBeNull()
+    expect(screen.queryByText('213')).toBeNull()
+    expect(screen.queryByText(/doors an hour/)).toBeNull()
+  })
+
+  // The same lie, except this one never resolves.
+  it('says the route is unavailable when it fails to load', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+    renderSheet({ prop: { locked: true }, listStats: listStats() })
+
+    expect(await screen.findByText(/could not be loaded/)).toBeInTheDocument()
+    expect(screen.queryByText('Not knocked yet')).toBeNull()
+    expect(screen.getAllByText('Unavailable').length).toBeGreaterThan(0)
+    expect(screen.queryByText(/doors an hour/)).toBeNull()
+  })
+
+  // These sit directly above the "Applied filters" pills, so an unqualified
+  // count has to be the filtered one — the page computes them with the turf's
+  // saved filters rather than with empty selections.
+  it('reports the doors and people the list targets', () => {
+    renderSheet({ listStats: listStats() })
+
+    expect(screen.getByText('Doors')).toBeInTheDocument()
+    expect(screen.getByText('68')).toBeInTheDocument()
+    expect(screen.getByText('People')).toBeInTheDocument()
+    expect(screen.getByText('213')).toBeInTheDocument()
+    expect(screen.queryByText('Doors in this area')).toBeNull()
+    expect(screen.queryByText('People in this area')).toBeNull()
+  })
+
+  // Same rule as the TurfList row: only a locked list has a route to print,
+  // so the link would 404 on an unknocked one.
+  it('offers the PDF on a locked list', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: routePayload,
+    })
+    renderSheet({ prop: { locked: true } })
+
+    const link = await screen.findByRole('link', { name: 'PDF' })
+    expect(link).toHaveAttribute('href', '/dashboard/door-knocking/print/1/pdf')
+  })
+
+  it('hides the PDF on an unknocked list', () => {
+    renderSheet()
+
+    expect(screen.queryByRole('link', { name: 'PDF' })).toBeNull()
+  })
+
+  // The prop is the snapshot the page captured when the row was clicked, so a
+  // turf knocked since then has paper to offer.
+  it('offers the PDF when the live row is locked but the prop is stale', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: routePayload,
+    })
+    renderSheet({ prop: { locked: false }, live: { locked: true } })
+
+    expect(await screen.findByRole('link', { name: 'PDF' })).toBeInTheDocument()
   })
 })
 
