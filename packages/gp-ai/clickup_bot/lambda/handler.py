@@ -1052,10 +1052,13 @@ def handler(event: dict, context: Any) -> dict:
     # Manager outage every created task now 500s alongside the tagged ones,
     # pushing harder on ClickUp's consecutive-failure counter (see README,
     # "After an outage"). Accepted because the alternative is the bug this
-    # replaces: silently never analyzing a reported bug. Tightenable later —
-    # if real taskCreated payloads turn out to carry tags in history_items,
-    # find_matched_tag above already catches them for free and the GET (with
-    # this exposure) can go away.
+    # replaces: silently never analyzing a reported bug.
+    #
+    # And it is NOT tightenable by reading the delta instead: a live taskCreated
+    # payload (captured 2026-08-17) carries only `status` and `task_creation`
+    # history_items — there is no tag field in it at all. find_matched_tag above
+    # still runs first because it is free and would catch a future payload
+    # change, but the GET is the load-bearing path, not a fallback.
 
     # Direct invocations (console/tests) can pass body as an already-parsed
     # dict; verifying a dict would raise AttributeError inside

@@ -133,9 +133,21 @@ Two consequences worth knowing:
   from Jul 31 to Aug 14 the last time it happened. A delivery we *know* is
   tagged still 500s so ClickUp redelivers. The outage itself still alarms.
 
-If real `taskCreated` payloads turn out to include tags in `history_items`, the
-free path already handles them (`find_matched_tag` runs first) and both the
-lookup and this exposure can be removed.
+**The lookup is not optional** (confirmed 2026-08-17 against a live delivery).
+A real `taskCreated` payload's `history_items` carries only `status` and
+`task_creation` entries — there is no `tag` field to read, even on a task created
+with tags:
+
+```json
+"history_items": [
+  {"field": "status",        "after": {"status": "to do", "type": "open"}},
+  {"field": "task_creation", "data": {"via": "api"}}
+]
+```
+
+`find_matched_tag` still runs first because it costs nothing and would catch a
+future payload change, but do not remove the `GET /task` fallback on the theory
+that the tag might be in the delta. It is not.
 
 ## Analyze before implement
 
