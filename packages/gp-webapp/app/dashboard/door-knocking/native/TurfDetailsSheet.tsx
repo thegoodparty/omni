@@ -293,10 +293,15 @@ export default function TurfDetailsSheet({
                   for it rather than showing the pack's answer and then
                   swapping it out mid-load. */}
               <Stat label="Doors" {...routeStat(doors.toLocaleString())} />
+              {/* Gated on the route existing, not on the count being
+                  non-zero: ADR 0007 drops do-not-knock residents, so a route
+                  whose every resident is flagged has 0 knockable people, and
+                  falling back on emptiness would answer that with the pack's
+                  pre-route number instead of the frozen route's real 0. */}
               <Stat
                 label="People"
                 {...routeStat(
-                  (targets.length > 0
+                  (route
                     ? targets.length
                     : (listStats?.people ?? 0)
                   ).toLocaleString(),

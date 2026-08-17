@@ -353,6 +353,35 @@ describe('TurfDetailsSheet overview', () => {
     expect(screen.queryByText('68')).toBeNull()
   })
 
+  // ADR 0007 drops do-not-knock residents, so a route whose every resident is
+  // flagged really does have 0 knockable people. Falling back on the count
+  // being empty rather than on the route existing answered that with the
+  // pack's pre-route number.
+  it('reports zero people for a route whose residents are all flagged', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: {
+        ...routeWithDoors,
+        stops: routeWithDoors.stops.map((stop) => ({
+          ...stop,
+          addresses: stop.addresses.map((address) => ({
+            ...address,
+            targets: address.targets.map((target) => ({
+              ...target,
+              doNotKnock: true,
+            })),
+          })),
+        })),
+      } satisfies DoorKnockingRoutePayload,
+    })
+    renderSheet({ prop: { locked: true }, listStats: listStats() })
+
+    // The duration is what tells us the route landed — the labels are static.
+    expect(await screen.findByText('31m')).toBeInTheDocument()
+    expect(screen.getByText('0 of 0 · 0%')).toBeInTheDocument()
+    expect(screen.queryByText('213')).toBeNull()
+  })
+
   // Not home, inaccessible and refused all count as logged, and none of them
   // is a conversation — so the stat must not say anyone was reached.
   it('counts logged doors rather than claiming people were reached', async () => {
