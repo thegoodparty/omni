@@ -41,7 +41,7 @@ const stop = (targets: RoutePayloadTarget[]): RoutePayloadStop => ({
   ],
 })
 
-// Both the walk list's seq badge and the landing map's pins read this, so the
+// Both the walk list's stop dot and the landing map's pins read this, so the
 // rule is asserted here once rather than through either surface.
 describe('rollupStopStatus', () => {
   it('keeps a stop knockable while any resident is unlogged', () => {

@@ -73,6 +73,24 @@ const renderSheet = (targets: RoutePayloadTarget[]) =>
 const contactCard = () =>
   screen.getByRole('heading', { name: 'Contact information' }).parentElement!
 
+// Aug 14 walkthrough: no step numbers in the list view. Unlike the walk list's
+// circle, this one's fill was a constant `bg-info` — the stop's seq was the
+// only thing it carried, so the circle went with the numeral.
+describe('PersonSheet header', () => {
+  it('leads with the person rather than a stop number', () => {
+    renderSheet([target()])
+
+    const header = screen.getByRole('heading', { name: 'Dorian Fen' })
+      .parentElement!.parentElement!
+    // The badge was a span whose entire text was the seq; the age line reads
+    // "31 years old · Independent", so it can't be mistaken for one.
+    expect(within(header).queryByText('1')).toBeNull()
+    expect(
+      within(header).getByText('31 years old · Independent'),
+    ).toBeInTheDocument()
+  })
+})
+
 describe('PersonSheet phone numbers', () => {
   it('shows both numbers as tappable tel links', () => {
     renderSheet([

@@ -142,6 +142,39 @@ describe('WalkView', () => {
     ).toBeTruthy()
   })
 
+  // Aug 14 walkthrough: the list view shows housing information, not step
+  // numbers. Ordering stays where it's actually walked — the map pins and the
+  // printed sheet — while the circle keeps carrying the stop's status color.
+  it('renders each stop as a status circle with no sequence number', async () => {
+    render(<WalkView turfId={3} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+    const rows = screen.getAllByRole('listitem')
+
+    const elmDot = (rows[0] as HTMLElement).querySelector('span.h-7')
+    expect(elmDot).toHaveTextContent('')
+    expect(elmDot).toHaveStyle({ backgroundColor: STATUS_DOT_COLORS.unknown })
+    const cedarDot = (rows[1] as HTMLElement).querySelector('span.h-7')
+    expect(cedarDot).toHaveTextContent('')
+    expect(cedarDot).toHaveStyle({
+      backgroundColor: STATUS_DOT_COLORS.supporter,
+    })
+
+    // The seq numeral lived inside the colored circle, so a colored element
+    // carrying a digit anywhere in either row means it came back.
+    for (const row of rows) {
+      const numbered = Array.from(
+        (row as HTMLElement).querySelectorAll<HTMLElement>('span[style]'),
+      ).filter(
+        (element) =>
+          element.style.backgroundColor && /\d/.test(element.textContent ?? ''),
+      )
+      expect(numbered).toHaveLength(0)
+    }
+  })
+
   // The offline story: paper is reached from the walk, and the sheet has to
   // open in its own tab so the walk in progress isn't navigated away from.
   it('links out to the printable list for this turf', async () => {
@@ -256,18 +289,15 @@ describe('WalkView', () => {
     await waitFor(() =>
       expect(screen.getByText('210 Cedar Row')).toBeInTheDocument(),
     )
-    // The seq badge is the "2" that carries a color; the other is the
-    // household's resident count.
-    const seqBadge = screen
-      .getAllByText('2')
-      .find((element) => element.style.backgroundColor)
-    expect(seqBadge).toHaveStyle({
+    const row = screen.getAllByRole('listitem')[0] as HTMLElement
+    // The stop's own circle, the one the rollup colors — no longer identifiable
+    // by a sequence number, since the list view doesn't print one.
+    expect(row.querySelector('span.h-7')).toHaveStyle({
       backgroundColor: STATUS_DOT_COLORS.supporter,
     })
 
     // ADR 0007. The flagged resident gets no per-person dot either — a status
     // dot beside the "Do not knock" label would say the opposite of the label.
-    const row = screen.getAllByRole('listitem')[0] as HTMLElement
     const personDots = Array.from(row.querySelectorAll('span.h-1\\.5'))
     expect(personDots).toHaveLength(1)
     expect(personDots[0]).toHaveStyle({
