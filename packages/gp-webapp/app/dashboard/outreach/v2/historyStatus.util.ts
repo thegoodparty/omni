@@ -2,7 +2,11 @@ import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 
 // Relocated from components/OutreachTable.tsx (the legacy table keeps its own
 // copy until it is deleted at the final tile swap): the two legacy status
-// vocabularies the unified history has to keep rendering.
+// vocabularies the unified history has to keep rendering. One DELIBERATE
+// divergence from the legacy copy: `completed` renders "Done" here (the v2
+// design's vocabulary, per the prototype's history table) while the legacy
+// table keeps "Sent" — the surfaces are never shown together, and the v2
+// wording is a product call, not drift.
 
 export interface HistoryRow extends Outreach {
   p2pJob?: { status?: string }
