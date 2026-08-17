@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -258,8 +258,24 @@ describe('SocialFlow', () => {
     await user.click(screen.getByText('Introduce myself'))
     await user.keyboard('{Escape}')
     expect(await screen.findByText('Discard changes?')).toBeInTheDocument()
+
+    // While the confirm is up, further drawer dismiss attempts are swallowed
+    // (a real pointerdown on the confirm lands outside the vaul content and
+    // fires one) — the loop that made Keep editing reopen the confirm
+    // forever. The sheet's own Close button is such a dismiss; it's
+    // aria-hidden behind the modal confirm, so fireEvent reaches it the way
+    // a real outside pointerdown does.
+    const sheetClose = Array.from(document.querySelectorAll('button')).find(
+      (b) =>
+        b.getAttribute('aria-label') === 'Close' ||
+        b.textContent?.trim() === 'Close',
+    )
+    fireEvent.click(sheetClose as HTMLElement)
+    expect(screen.getAllByText('Discard changes?')).toHaveLength(1)
+
     await user.click(screen.getByRole('button', { name: 'Keep editing' }))
     expect(onClose).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('Discard changes?')).not.toBeInTheDocument()
 
     // Discard actually closes.
     await user.keyboard('{Escape}')

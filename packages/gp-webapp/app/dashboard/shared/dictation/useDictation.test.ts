@@ -488,6 +488,27 @@ describe('useDictation', () => {
     expect(MockWebSocket.instances).toHaveLength(0)
   })
 
+  it('accepts goodparty.org hosts that differ from the API host', async () => {
+    // Preview webapps talk to a per-PR API alias while that API's
+    // PUBLIC_API_URL names the environment's canonical goodparty.org host.
+    clientRequestMock.mockResolvedValue({
+      data: {
+        sessionId: 'sess-1',
+        wsUrl:
+          'wss://gp-api-dev.goodparty.org/v1/speech/transcribe/stream?ticket=t',
+        maxDurationSeconds: 600,
+      },
+    })
+    const { result } = renderHook(() => useDictation())
+
+    await act(async () => {
+      await result.current.start()
+    })
+
+    expect(result.current.error).toBeNull()
+    expect(MockWebSocket.instances).toHaveLength(1)
+  })
+
   it('accepts absolute WebSocket URLs that match the API host', async () => {
     clientRequestMock.mockResolvedValue({
       data: {

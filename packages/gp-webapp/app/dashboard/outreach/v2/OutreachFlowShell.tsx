@@ -72,6 +72,11 @@ export const OutreachFlowShell = ({
 
   const requestClose = (nextOpen: boolean) => {
     if (nextOpen) return
+    // While the discard confirm is up, every pointerdown on it lands
+    // OUTSIDE the vaul drawer's content, so the drawer fires another
+    // dismiss — un-swallowed, that re-opened the confirm the instant
+    // "Keep editing" closed it, an infinite loop on real pointers.
+    if (confirmOpen) return
     if (dirty) {
       setConfirmOpen(true)
       return
