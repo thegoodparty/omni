@@ -95,7 +95,56 @@ on the task and returns HTTP 500.
 To retry after a failure (e.g. once the config is fixed): remove and re-add the tag.
 Failure comments do not mark the task as processed, so the retry re-triggers.
 
+## The sweep (why webhooks are not enough)
+
+**Subscribing to events does not catch every bug, and no subscription can.**
+
+On 2026-08-17, after `taskCreated` went live, 53 tasks were created workspace-wide.
+52 produced a webhook delivery. The one that did not was `DATA-2336` — the only
+HubSpot-filed ticket in the set, carrying `gpbot-analyze` from the moment it was
+created. It emitted **nothing all day**: no `taskCreated`, no `taskTagUpdated`, no
+delivery of any kind reached the Lambda.
+
+| | Tasks created | Delivered | Missed |
+|---|---|---|---|
+| Created in ClickUp by a human | 52 | 52 | 0 |
+| Filed by the HubSpot integration | 1 | 0 | **1** |
+
+That disproves the assumption behind "Why both events" below. When the tag arrives
+inside the HubSpot create call, ClickUp emits no event we can subscribe to, so
+adding another event type cannot fix it. The fix is to stop relying on being told:
+
+`handle_sweep` runs on a schedule (`rate(15 minutes)`, EventBridge → the same
+Lambda with `{"gpbot_sweep": true}`), lists tasks tagged `gpbot-analyze` updated in
+the last `SWEEP_LOOKBACK_HOURS`, and offers each one to
+`dedup_check_then_trigger`. It is safe to re-offer everything on every pass
+because dedup, not the sweep, decides what runs — the ack-comment check and the
+DynamoDB conditional write both still apply.
+
+This also covers the worst failure this system has had. A webhook ClickUp suspends
+stops delivering **silently**, as it did from 2026-07-31 to 2026-08-14 while every
+dashboard read healthy. A schedule cannot be unsubscribed, so that outage becomes
+"up to 15 minutes late" instead of "off for two weeks".
+
+| Guard | Why |
+|---|---|
+| `SWEEP_LOOKBACK_HOURS` (default 24) | ~170 tickets already carry this tag. Without a window the first sweep would re-analyze bugs closed months ago at ~$4 each |
+| `SWEEP_MAX_TRIGGERS` (default 5) | Bounds the spend of any single pass. Hitting it logs `ERROR` and defers the rest to the next sweep |
+| `include_closed=false` | Closed tickets are settled work |
+| Analyze only | `gpbot-work` opens a PR, and the gap does not apply to it — hand-tagging and the escalation's own API tag write both fire `taskTagUpdated` normally (verified on ENG-10890/10891). A sweep for it would be a second, less-scrutinised route to opening PRs |
+| Declines don't consume the cap | A window full of already-handled tickets must not starve the one that still needs a run |
+| One bad task never ends the pass | The next ticket may be the bug nobody has looked at |
+
+Turn it off with `enable_sweep = false`, but understand what that restores: bugs
+filed by HubSpot with the tag applied at creation will silently never be analyzed.
+
 ## Why both events (`taskTagUpdated` and `taskCreated`)
+
+> **Read the sweep section above first.** `taskCreated` remains worth subscribing
+> to — it is the fast path, and it catches created-and-tagged tasks the moment
+> they appear rather than up to 15 minutes later. But it is *not* sufficient on
+> its own, and the measurement below overstated what it would fix.
+
 
 Subscribing to `taskTagUpdated` alone loses bugs, and it loses them silently.
 

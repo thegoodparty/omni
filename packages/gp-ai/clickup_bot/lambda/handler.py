@@ -5,6 +5,7 @@ import math
 import os
 import time
 from typing import Any, Literal
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 import boto3
@@ -386,6 +387,98 @@ def get_task_comments(task_id: str) -> list[dict]:
 
 def get_task(task_id: str) -> dict:
     return clickup_request("GET", f"/task/{task_id}")
+
+
+# RECONCILIATION SWEEP.
+#
+# Webhooks are not sufficient, and this is measured rather than assumed. On
+# 2026-08-17, 52 of the 53 tasks created workspace-wide after the taskCreated
+# subscription went live produced a delivery. The one that did not was the only
+# HubSpot-filed ticket in the set (DATA-2336) — which is precisely the class of
+# task this bot exists to serve. It emitted neither taskCreated nor
+# taskTagUpdated: no delivery of any kind reached the Lambda all day.
+#
+# That kills the assumption behind the taskCreated fix. When the tag arrives
+# inside the HubSpot create call, ClickUp emits nothing we can subscribe to, so
+# no event subscription can close the gap. The only reliable answer is to stop
+# depending on being told and go look.
+#
+# The sweep also covers the worse failure this system has had: a suspended
+# webhook, which between 2026-07-31 and 2026-08-14 dropped every bug for two
+# weeks while every dashboard read healthy. A poller cannot be silently
+# unsubscribed.
+#
+# ANALYZE ONLY, deliberately. gpbot-analyze is the entry point and the cheap,
+# reversible half — it posts a comment. gpbot-work opens a PR, and the gap being
+# patched here does not apply to it: hand-tagging and the escalation's own API
+# tag write both fire taskTagUpdated normally (verified against ENG-10890/10891,
+# which delivered as soon as the tag was re-applied through the API). Sweeping
+# for gpbot-work would add a second, less-scrutinised route to opening PRs for
+# no reduction in missed work.
+SWEEP_TAG = ANALYZE_TAG
+CLICKUP_TEAM_ID = "90132012119"
+
+DEFAULT_SWEEP_LOOKBACK_HOURS = 24.0
+# ClickUp's team task endpoint pages at 100. Five pages is far more headroom
+# than a 24h window needs; it exists so a runaway result set terminates.
+SWEEP_MAX_PAGES = 5
+CLICKUP_PAGE_SIZE = 100
+# A ceiling on how many runs one sweep may start. The lookback bounds which
+# tasks are eligible, but a bulk re-tag or a ClickUp API change could still
+# return a large set, and each trigger is a real agent run costing real money.
+# Hitting this cap is logged loudly; the next sweep picks up the remainder.
+DEFAULT_SWEEP_MAX_TRIGGERS = 5
+
+
+def _positive_float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        print(f"Ignoring unusable {name}={raw!r}, using {default}")
+        return default
+    if value <= 0:
+        print(f"Ignoring non-positive {name}={raw!r}, using {default}")
+        return default
+    return value
+
+
+def sweep_lookback_ms() -> int:
+    return int(_positive_float_env("SWEEP_LOOKBACK_HOURS", DEFAULT_SWEEP_LOOKBACK_HOURS) * 3600 * 1000)
+
+
+def sweep_max_triggers() -> int:
+    return int(_positive_float_env("SWEEP_MAX_TRIGGERS", DEFAULT_SWEEP_MAX_TRIGGERS))
+
+
+def list_recently_updated_tagged_tasks(tag: str, since_ms: int) -> list[dict]:
+    # date_updated_gt, not date_created_gt: a ticket whose tag was applied hours
+    # after it was filed must still be picked up, and its creation timestamp
+    # would have aged out. The bound exists to keep the sweep off the ~170
+    # historical tickets that already carry this tag — re-running those would
+    # cost hundreds of dollars in agent runs to re-analyze bugs closed months
+    # ago.
+    tasks: list[dict] = []
+    for page in range(SWEEP_MAX_PAGES):
+        query = urlencode(
+            {
+                "tags[]": tag,
+                "date_updated_gt": since_ms,
+                "include_closed": "false",
+                "subtasks": "true",
+                "page": page,
+            }
+        )
+        result = clickup_request("GET", f"/team/{CLICKUP_TEAM_ID}/task?{query}")
+        batch = result.get("tasks", [])
+        if not isinstance(batch, list):
+            break
+        tasks.extend(t for t in batch if isinstance(t, dict))
+        if len(batch) < CLICKUP_PAGE_SIZE:
+            break
+    return tasks
 
 
 def out_of_scope_reason(task: Any) -> str | None:
@@ -987,7 +1080,86 @@ def handle_async_processing(event: dict) -> dict:
         return {"statusCode": 500, "body": json.dumps({"error": "async processing failed"})}
 
 
+def launched_a_run(result: Any) -> bool:
+    # Did dedup_check_then_trigger actually start an agent, or did it decline?
+    # Every decline path returns a "skipped" key; only a real launch does not.
+    # Counting the cap against declines would let a window full of
+    # already-handled tickets starve the one ticket that still needs a run.
+    if not isinstance(result, dict) or result.get("statusCode") != 200:
+        return False
+    body = result.get("body")
+    if not isinstance(body, str):
+        return False
+    try:
+        parsed = json.loads(body)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(parsed, dict) and "skipped" not in parsed
+
+
+def handle_sweep(event: dict) -> dict:
+    """Trigger any recently-tagged ticket the webhook never told us about.
+
+    Idempotent by construction: every candidate goes through
+    dedup_check_then_trigger, so the ack-comment check and the DynamoDB
+    conditional write decide whether anything actually runs. A ticket the
+    webhook already handled is claimed and skipped here.
+    """
+    since_ms = int(time.time() * 1000) - sweep_lookback_ms()
+    try:
+        tasks = list_recently_updated_tagged_tasks(SWEEP_TAG, since_ms)
+    except Exception as e:
+        # Alarm-matching: the sweep is the backstop for a webhook we now know
+        # drops work, so a sweep that cannot list is a silent return to
+        # missing bugs.
+        print(f"ERROR: Sweep failed to list tasks tagged {SWEEP_TAG}: {e}")
+        return {"statusCode": 500, "body": json.dumps({"error": "sweep listing failed"})}
+
+    cap = sweep_max_triggers()
+    triggered = 0
+    skipped = 0
+    for task in tasks:
+        # Shape-defensive independently of the listing's own filter: a response
+        # drift must skip the unreadable entry, never abort the sweep and strand
+        # every task behind it.
+        if not isinstance(task, dict):
+            continue
+        task_id = task.get("id")
+        if not isinstance(task_id, str) or not task_id:
+            continue
+        if triggered >= cap:
+            # Loud: either something bulk-tagged, or the sweep is failing to
+            # claim what it starts and is looping over the same backlog.
+            print(f"ERROR: Sweep hit its cap of {cap} triggers; {len(tasks)} candidates in window, remainder deferred")
+            break
+        try:
+            result = dedup_check_then_trigger(task_id, SWEEP_TAG, from_async_worker=True)
+        except Exception as e:
+            # One bad ticket must not end the sweep — the next one may be the
+            # bug nobody has looked at.
+            print(f"ERROR: Sweep failed on task {task_id}: {e}")
+            continue
+        if launched_a_run(result):
+            triggered += 1
+        else:
+            skipped += 1
+
+    # Quiet on the common path (everything already claimed), because this runs
+    # on a schedule forever and its normal state is "nothing to do".
+    print(f"Sweep complete: {len(tasks)} tagged in window, {triggered} triggered, {skipped} already handled")
+    return {
+        "statusCode": 200,
+        "body": json.dumps({"swept": len(tasks), "triggered": triggered, "skipped": skipped}),
+    }
+
+
 def handler(event: dict, context: Any) -> dict:
+    # INTERNAL SWEEP DISPATCH: EventBridge invokes this function directly with
+    # {"gpbot_sweep": true}. Same unspoofable-through-the-ALB reasoning as the
+    # async marker below.
+    if event.get("gpbot_sweep") and "headers" not in event and "requestContext" not in event:
+        return handle_sweep(event)
+
     # INTERNAL ASYNC DISPATCH: the fast-ack path re-invokes this same function
     # asynchronously with {"gpbot_async": true, ...}. Only dispatch to the
     # trusted worker path when the marker is top-level AND the event carries
