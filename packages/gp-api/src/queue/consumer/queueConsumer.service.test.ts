@@ -1585,6 +1585,52 @@ describe('QueueConsumerService - message type routing', () => {
     expect(result).toBe(false)
   })
 
+  it('routes cvStatusPoll messages to the handler and acks immediately', async () => {
+    const cv = module.get(CvStatusPollService)
+    // handleCvStatusPoll is intentionally synchronous fire-and-forget: it
+    // detaches the paced scan and returns true so the message is acked
+    // before the scan completes (the scan outlives the SQS visibility
+    // timeout). The routing must return its boolean without awaiting any
+    // scan work.
+    const handleSpy = vi.spyOn(cv, 'handleCvStatusPoll').mockReturnValue(true)
+
+    const message: Message = {
+      MessageId: 'msg-cv-poll-ok',
+      Body: JSON.stringify({
+        type: QueueType.CV_STATUS_POLL,
+        data: { scanKey: '2026-08-17-08' },
+      }),
+    }
+
+    const result = await service.processMessage(message)
+
+    expect(result).toBe(true)
+    expect(handleSpy).toHaveBeenCalledExactlyOnceWith({
+      scanKey: '2026-08-17-08',
+    })
+  })
+
+  it('discards cvStatusPoll with invalid payload and does not start a scan', async () => {
+    const cv = module.get(CvStatusPollService)
+    const handleSpy = vi.spyOn(cv, 'handleCvStatusPoll')
+
+    const message: Message = {
+      MessageId: 'msg-cv-poll-invalid',
+      Body: JSON.stringify({
+        type: QueueType.CV_STATUS_POLL,
+        data: { notScanKey: true },
+      }),
+    }
+
+    // withLegacyErrorSwallowing catches the Zod parse failure and discards
+    // (true) rather than redelivering a poison message forever — and no
+    // unkeyed scan ever starts.
+    const result = await service.processMessage(message)
+
+    expect(result).toBe(true)
+    expect(handleSpy).not.toHaveBeenCalled()
+  })
+
   it('discards nightly10DlcReport with invalid payload and does not call handler', async () => {
     const report = module.get(Nightly10DlcReportService)
     const handleSpy = vi.spyOn(report, 'handleNightlyReport')

@@ -412,9 +412,12 @@ export class QueueConsumerService {
       case QueueType.CV_STATUS_POLL:
         this.logger.info('received cvStatusPoll message')
         // Acks immediately — the paced scan runs detached because it outlives
-        // the SQS visibility timeout (see CvStatusPollService).
-        return this.cvStatusPollService.handleCvStatusPoll(
-          CvStatusPollMessageSchema.parse(queueMessage.data),
+        // the SQS visibility timeout (see CvStatusPollService). Wrapped so a
+        // malformed payload discards instead of redelivering forever.
+        return await this.withLegacyErrorSwallowing(message, async () =>
+          this.cvStatusPollService.handleCvStatusPoll(
+            CvStatusPollMessageSchema.parse(queueMessage.data),
+          ),
         )
       case QueueType.AGENT_EXPERIMENT_RESULT:
         return await this.handleAgentExperimentResult(

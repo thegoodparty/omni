@@ -515,7 +515,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
       },
       {
         title:
-          '🛑 Never reached CampaignVerify (>3d, likely our submit pipeline)',
+          '🛑 Never reached CampaignVerify (>13h, likely our submit pipeline)',
         lines: neverReachedCv.map((record) => {
           const submittedAt =
             record.peerlySubmissionStartedAt ?? record.createdAt
