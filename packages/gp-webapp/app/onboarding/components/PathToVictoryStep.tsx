@@ -15,6 +15,9 @@ import {
 import { clientRequest } from 'gpApi/typed-request'
 import { numberFormatter } from 'helpers/numberHelper'
 import { reportErrorToSentry } from '@shared/sentry'
+import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
+import { FetchError } from 'ofetch'
+import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from 'app/dashboard/contacts/crm/shared/constants'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 import type { Campaign } from 'helpers/types'
 
@@ -93,6 +96,17 @@ const useRegisteredVoters = (campaignId: number | undefined) => {
       .catch((error: unknown) => {
         if (cancelled) return
         setRegisteredVoters(null)
+        // "We have no constituent data for this office" is an expected state,
+        // not an error — a district that resolves but has no stats row raises
+        // it just like an unresolvable one, and the predicate above can't see
+        // that case. Reporting it made a normal office a Sentry event.
+        if (
+          error instanceof FetchError &&
+          extractApiErrorInfo(error.data).errorCode ===
+            VOTER_DATA_UNAVAILABLE_ERROR_CODE
+        ) {
+          return
+        }
         reportErrorToSentry(error, {
           context: SENTRY_CONTEXT_FETCH_CONTACTS_STATS,
           campaignId,

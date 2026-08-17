@@ -14,9 +14,10 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { identifyUser } from '@shared/utils/analytics'
 import { PickSendDateStep } from './steps/PickSendDateStep'
 import { format } from 'date-fns'
-import { useQuery } from '@tanstack/react-query'
-import { districtStatsQueryOptions } from 'app/dashboard/polls/shared/queries'
-import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
+import {
+  useDistrictStats,
+  type DistrictStatsUnavailableReason,
+} from 'app/dashboard/polls/shared/queries'
 import { Button } from '@styleguide'
 
 interface Step {
@@ -132,8 +133,17 @@ const NotEnoughConstituents: React.FC<{
 // three district blocks read as one treatment across the polls flow.
 // Routes to contacts rather than repeating a support handoff here — the contacts
 // page already explains the missing district and offers help@goodparty.org.
-const ConstituentDataUnavailable: React.FC = () => {
+const ConstituentDataUnavailable: React.FC<{
+  reason: DistrictStatsUnavailableReason
+}> = ({ reason }) => {
   const router = useRouter()
+
+  useEffect(() => {
+    trackEvent(EVENTS.Polls.ConstituentDataUnavailableViewed, {
+      source: 'onboarding',
+      reason,
+    })
+  }, [reason])
 
   return (
     <div className="flex flex-col">
@@ -171,13 +181,9 @@ export default function OnboardingPage() {
     demoMessageText,
   } = useOnboardingContext()
 
-  // Serve has no Pro gate, so the district predicate is the only thing standing
-  // between an unresolvable office and a 400 on step 1 of onboarding.
-  const { isUnresolvable } = useDistrictResolution()
-  const statsQuery = useQuery({
-    ...districtStatsQueryOptions,
-    enabled: !isUnresolvable,
-  })
+  // Serve has no Pro gate, so this gate is the only thing standing between an
+  // office with no constituent data and a broken step 1 of onboarding.
+  const statsQuery = useDistrictStats()
 
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
   const [showError, setShowError] = useState(false)
@@ -260,10 +266,10 @@ export default function OnboardingPage() {
   }
 
   // Checked before the < 500 viability guard: that guard requires statsQuery.data,
-  // which never arrives without a district, so these orgs used to fall straight
-  // through it into a flow whose send-size math resolves to NaN.
-  if (isUnresolvable) {
-    return <ConstituentDataUnavailable />
+  // which never arrives without constituent data, so these orgs used to fall
+  // straight through it into a flow whose send-size math resolves to NaN.
+  if (statsQuery.unavailableReason) {
+    return <ConstituentDataUnavailable reason={statsQuery.unavailableReason} />
   }
 
   if (statsQuery.data && statsQuery.data.totalConstituentsWithCellPhone < 500) {

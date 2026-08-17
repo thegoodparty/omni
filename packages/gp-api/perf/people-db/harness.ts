@@ -74,7 +74,7 @@ export const createHarness = async (): Promise<Harness> => {
         )
         return
       case 'stats':
-        await stats.getStats({ districtId } as unknown as StatsDTO)
+        await stats.findStats({ districtId } as unknown as StatsDTO)
         return
       case 'csv': {
         const sink = createNullSink()

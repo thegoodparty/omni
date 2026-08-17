@@ -32,22 +32,30 @@ describe('StatsService', () => {
       totalConstituents: 100,
     })
 
-    const result = await service.getStats({
+    const result = await service.findStats({
       districtId: 'district-1',
     } as never)
 
     expect(mockPrisma.districtStats.findUnique).toHaveBeenCalledWith({
       where: { districtId: 'district-1' },
     })
-    expect(result.districtId).toBe('district-1')
+    expect(result?.districtId).toBe('district-1')
   })
 
-  it('throws NotFoundException when stats are missing', async () => {
+  it('returns null when stats are missing', async () => {
     mockPrisma.districtStats.findUnique.mockResolvedValue(null)
 
     await expect(
-      service.getStats({ districtId: 'missing-district-id' } as never),
-    ).rejects.toThrow(NotFoundException)
+      service.findStats({ districtId: 'missing-district-id' } as never),
+    ).resolves.toBeNull()
+  })
+
+  it('returns null total counts when stats are missing', async () => {
+    mockPrisma.districtStats.findUnique.mockResolvedValue(null)
+
+    await expect(
+      service.findTotalCounts('missing-district-id'),
+    ).resolves.toBeNull()
   })
 
   it('returns total counts for a district', async () => {

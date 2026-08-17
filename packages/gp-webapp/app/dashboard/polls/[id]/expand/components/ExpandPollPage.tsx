@@ -12,6 +12,7 @@ import {
   PollAudienceSelector,
   useTotalConstituentsWithCellPhone,
 } from '../../../shared/audience-selection'
+import type { DistrictStatsUnavailableReason } from '../../../shared/queries'
 import { LuLoaderCircle } from 'react-icons/lu'
 import { Poll } from '../../../shared/poll-types'
 import {
@@ -19,6 +20,37 @@ import {
   PollScheduledDateSelector,
 } from '../../../components/PollScheduledDateSelector'
 import { Button } from '@styleguide'
+
+// Its own component so the block's analytics event fires on mount — the
+// branch that renders it sits after the page's other hooks, where a
+// conditional useEffect isn't available.
+const ConstituentDataUnavailable: React.FC<{
+  reason: DistrictStatsUnavailableReason
+}> = ({ reason }) => {
+  const router = useRouter()
+
+  useEffect(() => {
+    trackEvent(EVENTS.Polls.ConstituentDataUnavailableViewed, {
+      source: 'expand',
+      reason,
+    })
+  }, [reason])
+
+  return (
+    <div className="flex flex-col items-center gap-4 my-8 text-center">
+      <h2 className="text-xl font-semibold">
+        We don&apos;t have constituent data for this office yet
+      </h2>
+      <p className="text-muted-foreground">
+        A poll can&apos;t be expanded without it. Visit Contacts and our team
+        can set this up for you.
+      </p>
+      <Button onClick={() => router.push('/dashboard/contacts')}>
+        Visit Contacts
+      </Button>
+    </div>
+  )
+}
 
 const AudienceSelectionForm: React.FC<{
   poll: Poll
@@ -136,21 +168,10 @@ export default function ExpandPollPage({
 
   // Before the spinner branch: a district-gated query is neither success nor
   // error, so this would otherwise spin forever.
-  if (query.isUnavailable) {
+  if (query.unavailableReason) {
     return (
       <ExpandPollLayout>
-        <div className="flex flex-col items-center gap-4 my-8 text-center">
-          <h2 className="text-xl font-semibold">
-            We don&apos;t have constituent data for this office yet
-          </h2>
-          <p className="text-muted-foreground">
-            A poll can&apos;t be expanded without it. Visit Contacts and our
-            team can set this up for you.
-          </p>
-          <Button onClick={() => router.push('/dashboard/contacts')}>
-            Visit Contacts
-          </Button>
-        </div>
+        <ConstituentDataUnavailable reason={query.unavailableReason} />
       </ExpandPollLayout>
     )
   }

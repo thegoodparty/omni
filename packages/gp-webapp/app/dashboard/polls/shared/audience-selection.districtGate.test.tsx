@@ -82,6 +82,25 @@ describe('useTotalConstituentsWithCellPhone — district gate', () => {
     expect(onRequest).not.toHaveBeenCalled()
     expect(result.current.isUnavailable).toBe(true)
   })
+
+  // The district resolves, so the predicate says available — the missing
+  // DistrictStats row only shows up in the response.
+  it('reports unavailable when a resolvable district has no stats', async () => {
+    api.mock('GET /v1/contacts/stats', {
+      status: 400,
+      data: {
+        message: 'District stats not available',
+        errorCode: 'VOTER_DATA_UNAVAILABLE',
+      },
+    })
+
+    const { result } = renderHook(() => useTotalConstituentsWithCellPhone(), {
+      wrapper,
+    })
+    await vi.waitFor(() => expect(result.current.isError).toBe(true))
+
+    expect(result.current.isUnavailable).toBe(true)
+  })
 })
 
 describe('calculateRecommendedPollSize', () => {

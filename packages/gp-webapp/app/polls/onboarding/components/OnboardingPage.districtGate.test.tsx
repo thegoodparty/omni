@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { trackEvent } from 'helpers/analyticsHelper'
 import OnboardingPage from './OnboardingPage'
 
 const mockOrg = vi.hoisted(() => ({ current: undefined as unknown }))
@@ -109,6 +110,58 @@ describe('polls OnboardingPage — district gate', () => {
     expect(
       screen.getByText(/don't have constituent data for this office yet/i),
     ).toBeInTheDocument()
+  })
+
+  // The org resolves a district, so the predicate says "available" — only the
+  // request's own outcome reveals that the district has no DistrictStats row.
+  it('blocks the flow when a resolvable district has no stats', async () => {
+    api.mock('GET /v1/contacts/stats', {
+      status: 400,
+      data: {
+        message: 'District stats not available',
+        errorCode: 'VOTER_DATA_UNAVAILABLE',
+      },
+    })
+
+    render(<OnboardingPage />)
+
+    expect(
+      await screen.findByText(/don't have constituent data for this office/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByTestId('insights-step')).not.toBeInTheDocument()
+  })
+
+  // The two populations need to stay separable: a write-in office name is the
+  // user's to fix, a missing stats row is ours.
+  it('reports the block with the reason that caused it', async () => {
+    mockStats()
+    mockOrg.current = { ...resolvableOrg, district: null }
+
+    render(<OnboardingPage />)
+    await flush()
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      'Polls - Constituent Data Unavailable Viewed',
+      { source: 'onboarding', reason: 'unresolvable_district' },
+    )
+  })
+
+  it('distinguishes a missing stats row from an unresolvable district', async () => {
+    api.mock('GET /v1/contacts/stats', {
+      status: 400,
+      data: {
+        message: 'District stats not available',
+        errorCode: 'VOTER_DATA_UNAVAILABLE',
+      },
+    })
+
+    render(<OnboardingPage />)
+    await screen.findByText(/don't have constituent data for this office/i)
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      'Polls - Constituent Data Unavailable Viewed',
+      { source: 'onboarding', reason: 'stats_unavailable' },
+    )
   })
 
   // Mirrors the existing NotEnoughConstituents bail-out, which routes to
