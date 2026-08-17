@@ -146,6 +146,37 @@ describe('polls OnboardingPage — district gate', () => {
     )
   })
 
+  // A transient failure must not claim the office has no data — that's false,
+  // and Contacts can't help. It gets its own copy and a way back.
+  it('offers a retry instead of the support handoff on a transient failure', async () => {
+    api.mock('GET /v1/contacts/stats', {
+      status: 500,
+      data: { message: 'upstream unavailable' },
+    })
+
+    render(<OnboardingPage />)
+
+    // Two retries with backoff run before the error state settles.
+    expect(
+      await screen.findByText(
+        /couldn't load your constituent data/i,
+        undefined,
+        {
+          timeout: 5000,
+        },
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/don't have constituent data for this office/i),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /try again/i }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /visit contacts/i }),
+    ).not.toBeInTheDocument()
+  })
+
   it('distinguishes a missing stats row from an unresolvable district', async () => {
     api.mock('GET /v1/contacts/stats', {
       status: 400,
