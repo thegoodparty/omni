@@ -170,6 +170,30 @@ describe('NativeDoorKnockingPage landing rail', () => {
     expect(chip('Support unknown', 2)).toHaveAttribute('aria-pressed', 'true')
   })
 
+  // Leaving a scope has to drop the chip too. Carried across the boundary it
+  // would silently re-narrow the district to whatever status was pressed
+  // inside the list, under a heading that has gone back to naming everything.
+  it('returns to an unfiltered district on Show all', async () => {
+    renderPage()
+    await selectTurf()
+
+    fireEvent.click(chip('Support unknown', 2))
+    await waitFor(() =>
+      expect(screen.getByText(/2\s*voters in this list/)).toBeInTheDocument(),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show all' }))
+
+    const line = await screen.findByText(
+      /voters in your district with a mapped address/,
+    )
+    expect(line).toHaveTextContent(
+      '4 voters in your district with a mapped address',
+    )
+    expect(screen.getByTestId('voter-map')).toHaveAttribute('data-people', '4')
+    expect(chip('Support unknown', 3)).toHaveAttribute('aria-pressed', 'false')
+  })
+
   // A legend that narrowed with its own chip would zero the other six counts
   // and leave nothing to press back.
   it('keeps the legend counts describing the list, not the pressed chip', async () => {

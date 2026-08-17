@@ -317,10 +317,12 @@ export default function NativeDoorKnockingPage({
           onFocusTurf={(turf) => {
             const next = selectedTurf?.id === turf.id ? null : turf
             setSelectedTurf(next)
-            // A chip narrows within the selected list, so a scope opens
-            // unfiltered: the count under the heading and the legend below it
-            // then describe the same audience until a chip is pressed.
-            if (next) setStatusFilter(new Set())
+            // A chip narrows within the selected list, so every scope change
+            // opens unfiltered — entering one and leaving it alike. The count
+            // under the heading and the legend below it then describe the same
+            // audience until a chip is pressed. Carrying a chip across the
+            // boundary would silently re-narrow whatever it landed in.
+            setStatusFilter(new Set())
             setFocusTurf(turf)
           }}
           onShowDetails={setDetailsTurf}
@@ -352,7 +354,10 @@ export default function NativeDoorKnockingPage({
                   <button
                     type="button"
                     className="ml-2 underline"
-                    onClick={() => setSelectedTurf(null)}
+                    onClick={() => {
+                      setSelectedTurf(null)
+                      setStatusFilter(new Set())
+                    }}
                   >
                     Show all
                   </button>
