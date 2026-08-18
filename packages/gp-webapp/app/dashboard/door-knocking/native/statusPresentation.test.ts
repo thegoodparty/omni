@@ -7,6 +7,7 @@ import {
 import {
   rollupStopStatus,
   skipInstruction,
+  stopIsKnockable,
   targetMarker,
 } from './statusPresentation'
 
@@ -88,6 +89,55 @@ describe('rollupStopStatus', () => {
     // which is why every surface pairs it with the marker.
     expect(rollupStopStatus(stop([deceased]))).toBe('unknown')
     expect(targetMarker(deceased)).toBe('Deceased')
+  })
+})
+
+// The second half of the rollup, and the pair is the point: these two answer
+// different questions, and the `unknown` above is why the second one has to
+// exist. A surface reading only the status renders "nobody to knock" and
+// "nobody has been here" identically.
+describe('stopIsKnockable', () => {
+  it('reports a stop with someone left to knock', () => {
+    expect(stopIsKnockable(stop([target('unknown')]))).toBe(true)
+  })
+
+  // The whole reason for this predicate: same status, opposite fact.
+  it('separates a fully flagged stop from an untouched one, which the status cannot', () => {
+    const deceased = {
+      ...target('unknown'),
+      notAVoterReason: 'deceased' as const,
+    }
+    const flagged = stop([deceased])
+    const untouched = stop([target('unknown')])
+    expect(rollupStopStatus(flagged)).toBe(rollupStopStatus(untouched))
+    expect(stopIsKnockable(flagged)).toBe(false)
+    expect(stopIsKnockable(untouched)).toBe(true)
+  })
+
+  // ADR 0007 and 0008 are one predicate to a count (routeCounts), and to this.
+  it('counts either flag as nobody', () => {
+    expect(stopIsKnockable(stop([target('supporter', true)]))).toBe(false)
+    expect(
+      stopIsKnockable(
+        stop([{ ...target('unknown'), notAVoterReason: 'moved' as const }]),
+      ),
+    ).toBe(false)
+  })
+
+  // A logged resident is still a resident: the flags are what remove someone,
+  // not having been spoken to. Otherwise a finished stop would go hollow.
+  it('keeps a fully logged household knockable', () => {
+    expect(stopIsKnockable(stop([target('supporter')]))).toBe(true)
+  })
+
+  it('reports one knockable resident among flagged neighbors', () => {
+    expect(
+      stopIsKnockable(stop([target('unknown', true), target('unknown')])),
+    ).toBe(true)
+  })
+
+  it('reports an empty stop as nobody', () => {
+    expect(stopIsKnockable(stop([]))).toBe(false)
   })
 })
 

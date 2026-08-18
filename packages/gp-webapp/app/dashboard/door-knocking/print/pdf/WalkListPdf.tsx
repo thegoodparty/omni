@@ -238,6 +238,14 @@ const ResidentRow = ({ row }: { row: WalkListRow }) => (
     <View style={[styles.cell, styles.cellRule, { width: COLUMN.resident }]}>
       <Text style={styles.residentText}>{row.name}</Text>
       {row.meta !== '' && <Text style={styles.metaText}>{row.meta}</Text>}
+      {/* ENG-10876. Under the resident because it is a fact about them, not
+          about the answer columns — those are for writing in, and this row's
+          may already be a blank form for a door that was answered before. One
+          Text node, and only for a resident with history, because node count
+          per row is the lever on a 150-stop route's layout cost. */}
+      {row.lastContact !== null && (
+        <Text style={styles.metaText}>{row.lastContact}</Text>
+      )}
     </View>
     <AnswerCells row={row} />
     <View

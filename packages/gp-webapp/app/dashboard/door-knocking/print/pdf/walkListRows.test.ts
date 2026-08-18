@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { stop, target } from './walkListFixtures'
+import { doorKnock, stop, target } from './walkListFixtures'
 import { walkListFilename, walkListRows } from './walkListRows'
 
 const household = (
@@ -229,6 +229,180 @@ describe('walkListRows', () => {
 
   it('has no rows for a route with no stops', () => {
     expect(walkListRows([])).toEqual([])
+  })
+
+  // ENG-10876, the case the reviewer raised. `deriveKnockStatus` folds
+  // answered-but-unsure into `unknown` so the door stays worth knocking, which
+  // means it prints the identical blank form a never-knocked door does. The
+  // line is the only thing on paper that tells the two apart.
+  it('carries the last contact for a door whose status collapsed to unknown', () => {
+    const rows = walkListRows([
+      stop({
+        addresses: [
+          household('105 Elm St', [
+            target({
+              knockStatus: 'unknown',
+              history: [doorKnock({ outcome: 'answered' })],
+            }),
+          ]),
+        ],
+      }),
+    ])
+
+    expect(rows[0]?.lastContact).toBe(
+      'Last contact: June 2026 · Door knock: Answered',
+    )
+    // Still a blank form: unsure support is a door worth re-asking, and the
+    // line is context rather than a reason to withhold the questions.
+    expect(rows[0]?.answer).toEqual({ kind: 'form' })
+  })
+
+  it('names the channel for outreach that was not a knock', () => {
+    const rows = walkListRows([
+      stop({
+        addresses: [
+          household('105 Elm St', [
+            target({
+              stopTargetId: 21,
+              history: [
+                {
+                  type: 'TEXT',
+                  date: '2026-05-04T18:00:00.000Z',
+                  data: {
+                    activityId: 'tx-1',
+                    respondedAt: null,
+                    optedOutAt: null,
+                    note: null,
+                    manual: false,
+                    outreachId: 412,
+                  },
+                },
+              ],
+            }),
+            target({
+              stopTargetId: 22,
+              personId: 'person-2',
+              history: [
+                {
+                  type: 'ROBOCALL',
+                  date: '2026-04-04T18:00:00.000Z',
+                  data: {
+                    activityId: 'rc-1',
+                    answeredAt: null,
+                    voicemailLeftAt: null,
+                    note: null,
+                    manual: false,
+                    outreachId: 412,
+                  },
+                },
+              ],
+            }),
+          ]),
+        ],
+      }),
+    ])
+
+    expect(rows[0]?.lastContact).toBe('Last contact: May 2026 · Text')
+    expect(rows[1]?.lastContact).toBe('Last contact: April 2026 · Robocall')
+  })
+
+  // A status change is a record edit, not an attempt to reach anyone — a flag
+  // set at a desk or at a door. Counting it as contact would date the last
+  // conversation to whenever somebody last corrected the file, and
+  // `skipInstruction` already prints what a flag means for this resident.
+  it('reads past a status change to the last actual contact', () => {
+    const rows = walkListRows([
+      stop({
+        addresses: [
+          household('105 Elm St', [
+            target({
+              history: [
+                {
+                  type: 'STATUS_CHANGE',
+                  date: '2026-08-11T18:00:00.000Z',
+                  data: {
+                    activityId: 'se-1',
+                    field: 'not_a_voter',
+                    fromLabel: null,
+                    toLabel: 'Moved away',
+                    actorName: 'Rosa Iyer',
+                    actorUserId: 77,
+                    source: 'manual',
+                  },
+                },
+                doorKnock({ outcome: 'not_home' }),
+              ],
+            }),
+          ]),
+        ],
+      }),
+    ])
+
+    expect(rows[0]?.lastContact).toBe(
+      'Last contact: June 2026 · Door knock: Not home',
+    )
+  })
+
+  // Absence is not a claim: a route the service worker snapshotted before ADR
+  // 0009 shipped carries no `history` key at all, so a printed "never
+  // contacted" would be asserting something this payload cannot know.
+  it('says nothing about a resident it was served no history for', () => {
+    const rows = walkListRows([
+      stop({
+        addresses: [
+          household('105 Elm St', [
+            target({ stopTargetId: 21, history: [] }),
+            target({ stopTargetId: 22, personId: 'person-2' }),
+          ]),
+        ],
+      }),
+    ])
+
+    expect(rows[0]?.lastContact).toBeNull()
+    expect(rows[1]?.lastContact).toBeNull()
+  })
+
+  // A note is free text about a named voter, on the surface that leaves the
+  // building and stops being access-controlled when it does — the same rule
+  // that keeps phone numbers off it. The fixture carries one so this asserts
+  // the omission rather than trusting it.
+  it('never carries a note onto paper', () => {
+    const rows = walkListRows([
+      stop({
+        addresses: [
+          household('105 Elm St', [
+            target({
+              history: [
+                doorKnock({ note: 'Dog in the yard, come back Saturday' }),
+              ],
+            }),
+          ]),
+        ],
+      }),
+    ])
+
+    expect(JSON.stringify(rows)).not.toMatch(/Dog in the yard/)
+  })
+
+  // Both paper surfaces render in Node, whose clock is UTC, so a door knocked
+  // at 8:30pm Eastern belongs to the previous month by any US reckoning and to
+  // this one by the renderer's. Formatting in UTC is what makes the sheet the
+  // same on every machine that builds it — this date would name June if the
+  // ambient timezone were allowed to decide.
+  it('names the month in UTC rather than by the building machine', () => {
+    const rows = walkListRows([
+      stop({
+        addresses: [
+          household('105 Elm St', [
+            target({
+              history: [doorKnock({}, '2026-07-01T01:30:00.000Z')],
+            }),
+          ]),
+        ],
+      }),
+    ])
+
+    expect(rows[0]?.lastContact).toContain('July 2026')
   })
 })
 
