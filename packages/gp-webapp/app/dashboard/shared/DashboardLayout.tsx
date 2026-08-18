@@ -12,7 +12,13 @@ import { ProUpgradePrompt } from './ProUpgradePrompt'
 import { usePathname, useRouter } from 'next/navigation'
 import { weeksTill } from 'helpers/dateHelper'
 import { Campaign } from 'helpers/types'
-import { Sidebar, SidebarInset, SidebarProvider, useSidebar } from '@styleguide'
+import {
+  Separator,
+  Sidebar,
+  SidebarInset,
+  SidebarProvider,
+  useSidebar,
+} from '@styleguide'
 import { MenuIcon, XMarkIcon } from '@styleguide/components/ui/icons'
 import { useOrganization } from '@shared/organization-picker'
 import ImpersonationBanner from '@shared/user/ImpersonationBanner'
@@ -229,9 +235,17 @@ const MobileMenuTrigger = () => {
             />
           </Link>
           {pageTitle && (
-            <h1 className="truncate text-base font-semibold text-foreground">
-              {pageTitle}
-            </h1>
+            <>
+              {/* Same logo | title divider anatomy as the styleguide's
+                  PageHeader (which this hand-rolled bar predates). */}
+              <Separator
+                orientation="vertical"
+                className="data-[orientation=vertical]:h-5"
+              />
+              <h1 className="truncate text-base font-semibold text-foreground">
+                {pageTitle}
+              </h1>
+            </>
           )}
         </div>
         <button

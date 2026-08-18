@@ -5,6 +5,7 @@ import {
   Card,
   Drawer,
   DrawerBody,
+  DrawerClose,
   DrawerContent,
   DrawerHandle,
   DrawerHeader,
@@ -13,6 +14,7 @@ import {
   FilterPill,
   FilterPillGroup,
   StatusText,
+  XMarkIcon,
 } from '@styleguide'
 import {
   CalendarIcon,
@@ -89,7 +91,12 @@ export const OutreachDetailsDrawer = ({
 
   return (
     <Drawer open={row !== null} onOpenChange={onOpenChange} direction="bottom">
-      <DrawerContent className="flex h-[calc(100dvh-4rem)] flex-col p-0 data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:max-h-[calc(100dvh-4rem)] data-[vaul-drawer-direction=bottom]:rounded-t-[10px] lg:h-[calc(100dvh-8rem)] lg:data-[vaul-drawer-direction=bottom]:max-h-[calc(100dvh-8rem)]">
+      <DrawerContent
+        className="flex h-[calc(100dvh-4rem)] flex-col p-0 data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:max-h-[calc(100dvh-4rem)] data-[vaul-drawer-direction=bottom]:rounded-t-[10px] lg:h-[calc(100dvh-8rem)] lg:data-[vaul-drawer-direction=bottom]:max-h-[calc(100dvh-8rem)]"
+        // The close lives inside the 608px content column (top right), not
+        // on the sheet corner — same anatomy as the flow sheets.
+        closeClassName="hidden"
+      >
         <DrawerHandle />
         <DrawerHeader className="sr-only">
           <DrawerTitle>
@@ -99,24 +106,30 @@ export const OutreachDetailsDrawer = ({
         {row && (
           <>
             <div className="px-4 py-4 lg:px-6">
-              <div className="mx-auto w-full max-w-[608px]">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-base font-semibold text-foreground">
-                    {row.name || row.title || 'Untitled campaign'}
-                  </h2>
-                  <HistoryStatusText label={statusLabel} />
+              <div className="mx-auto flex w-full max-w-[608px] items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-semibold text-foreground">
+                      {row.name || row.title || 'Untitled campaign'}
+                    </h2>
+                    <HistoryStatusText label={statusLabel} />
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    <ChannelBadge type={row.outreachType} />
+                    {displayDate && (
+                      <span className="text-sm text-muted-foreground">
+                        ·{' '}
+                        {bylineVerb
+                          ? `${bylineVerb} ${dateUsHelper(displayDate, 'long')}`
+                          : dateUsHelper(displayDate, 'long')}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                  <ChannelBadge type={row.outreachType} />
-                  {displayDate && (
-                    <span className="text-sm text-muted-foreground">
-                      ·{' '}
-                      {bylineVerb
-                        ? `${bylineVerb} ${dateUsHelper(displayDate, 'long')}`
-                        : dateUsHelper(displayDate, 'long')}
-                    </span>
-                  )}
-                </div>
+                <DrawerClose className="inline-flex size-10 shrink-0 items-center justify-center rounded-full opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-primary-focus focus-visible:outline-none">
+                  <XMarkIcon className="size-4" />
+                  <span className="sr-only">Close</span>
+                </DrawerClose>
               </div>
             </div>
 
