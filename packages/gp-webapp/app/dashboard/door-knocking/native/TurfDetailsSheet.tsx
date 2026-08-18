@@ -3,11 +3,13 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
-import { DoorKnockingTurf } from '@goodparty_org/contracts'
+import { DoorKnockingMode, DoorKnockingTurf } from '@goodparty_org/contracts'
 import {
   Button,
   IconButton,
   PencilIcon,
+  ToggleGroup,
+  ToggleGroupItem,
   Trash2Icon,
   XMarkIcon,
 } from '@styleguide'
@@ -24,6 +26,8 @@ import {
   turfsQueryOptions,
 } from './turfQueries'
 import { DOORS_PER_HOUR, estimateWalkTime } from './walkEstimate'
+import { estimateTravelSeconds } from './travelMode'
+import { unpreviewableDisclosureLabels } from './createFlow/voterFilterPreview'
 import type { PolygonStats } from './filterEngine'
 import { countDoors, knockableTargets } from '../routeCounts'
 
@@ -44,6 +48,14 @@ const OPTION_LABELS: Record<string, string> = Object.fromEntries(
     ),
   ),
 )
+
+const MODE_LABEL: Record<DoorKnockingMode, string> = {
+  walk: 'Walking',
+  drive: 'Driving',
+}
+
+const TRAVEL_MODE_PILL_CLASSNAME =
+  'rounded-full border border-components-input-border bg-transparent px-3 py-1 text-xs font-normal text-foreground data-[state=on]:border-tertiary-dark data-[state=on]:bg-tertiary-dark data-[state=on]:text-tertiary-foreground data-[state=on]:hover:bg-tertiary-dark/90'
 
 const formatDuration = (seconds: number): string => {
   const minutes = Math.round(seconds / 60)
@@ -91,6 +103,19 @@ interface TurfDetailsSheetProps {
   // 0 doors and 'Not knocked yet' until the pack lands, which is exactly the
   // confident-but-wrong answer the locked branch already guards against.
   listStatsPending: boolean
+  // This list's OWN selections the pack has no bucket for, recomputed by the
+  // page from the saved filters — not the create flow's draft-derived value,
+  // which describes whatever is being drawn right now.
+  //
+  // The filter itself works: gp-api's voterFileFilter.utils.ts turns age65Plus
+  // into a real `{ min: 65 }` bound at knock time. What can't express it is the
+  // PREVIEW — age65Plus has no FILTER_KEY_TO_DIM entry (mapping it onto the
+  // 50_plus bucket was rejected, since two pills would then preview one
+  // cohort), so filtersToDimSelections adds no age constraint and these counts
+  // span every age. So the disclosure is about what the map can shade, never
+  // about the targeting: a candidate who reads it as "my filter isn't applied"
+  // has been told something worse than the imprecision it exists to fix.
+  unpreviewableKeys: string[]
   onClose: () => void
   // The page holds its own references to this turf (map scope, camera focus),
   // which would otherwise keep masking the map to a list that no longer
@@ -102,6 +127,7 @@ export default function TurfDetailsSheet({
   turf,
   listStats,
   listStatsPending,
+  unpreviewableKeys,
   onClose,
   onDeleted,
 }: TurfDetailsSheetProps) {
@@ -110,6 +136,16 @@ export default function TurfDetailsSheet({
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  // Which mode the travel figure is being read in. Display-only and
+  // deliberately never persisted: door_knocking_route.doorKnockingTurfId is
+  // unique, the row is never written after the knock transaction commits (both
+  // lockedness and knock idempotency ARE its existence), and every logged knock
+  // hangs off a stopTargetId belonging to its stops. So this changes the label
+  // and the estimate, and nothing else — same stops, same order, and the same
+  // stored pathGeometry, which belongs to the mode we actually bought.
+  const [travelModeView, setTravelModeView] = useState<DoorKnockingMode | null>(
+    null,
+  )
   // `turf` is a snapshot the page captured when the row was clicked, so its
   // `locked` never moves on its own. Reading the live row keeps the affordance
   // honest after a refetch — the page already runs this query, so React Query
@@ -237,6 +273,29 @@ export default function TurfDetailsSheet({
     pending: routePending || preRoutePending,
     value: routeFailed || preRouteFailed ? 'Unavailable' : value,
   })
+  // The frozen route's counts came through knock-time evaluation, so they are
+  // the audience — exact, and nothing to hedge. The pack's are a superset: it
+  // shades what it has buckets for, and knocking then applies the rest. So
+  // "about" belongs to the pre-route branch only.
+  const approximate = (count: number) =>
+    liveTurf.locked ? count.toLocaleString() : `About ${count.toLocaleString()}`
+  const unpreviewableLabels = unpreviewableDisclosureLabels(unpreviewableKeys)
+  // Only the pre-route counts are the pack's, and only a settled count can be
+  // qualified — a skeleton and an 'Unavailable' have nothing to be about.
+  const discloseApproximation =
+    !liveTurf.locked && !preRoutePending && !preRouteFailed
+
+  const builtMode = route?.route.mode ?? null
+  const shownMode = travelModeView ?? builtMode
+  // Reading the travel figure in the mode we did NOT buy. The distance is the
+  // bought path's, so this is that same path at a different speed — never a
+  // second route, which is why nothing here recomputes stops or geometry.
+  const flippedFromBuilt =
+    builtMode !== null && shownMode !== null && shownMode !== builtMode
+  const travelSeconds =
+    route && flippedFromBuilt && shownMode
+      ? estimateTravelSeconds(route.route.totalMeters, shownMode)
+      : (route?.route.totalSeconds ?? 0)
 
   return (
     <div className="absolute inset-0 z-20 flex flex-col bg-background">
@@ -316,7 +375,7 @@ export default function TurfDetailsSheet({
                   authoritative counts are the frozen route's, so these wait
                   for it rather than showing the pack's answer and then
                   swapping it out mid-load. */}
-              <Stat label="Doors" {...packBackedStat(doors.toLocaleString())} />
+              <Stat label="Doors" {...packBackedStat(approximate(doors))} />
               {/* Gated on the route existing, not on the count being
                   non-zero: ADR 0007 drops do-not-knock residents, so a route
                   whose every resident is flagged has 0 knockable people, and
@@ -325,10 +384,9 @@ export default function TurfDetailsSheet({
               <Stat
                 label="People"
                 {...packBackedStat(
-                  (route
-                    ? targets.length
-                    : (listStats?.people ?? 0)
-                  ).toLocaleString(),
+                  approximate(
+                    route ? targets.length : (listStats?.people ?? 0),
+                  ),
                 )}
               />
               {/* Two different quantities, so two labels rather than one that
@@ -345,16 +403,21 @@ export default function TurfDetailsSheet({
                 label={liveTurf.locked ? 'Travel time' : 'Knocking time'}
                 {...packBackedStat(
                   route
-                    ? formatDuration(route.route.totalSeconds)
+                    ? flippedFromBuilt
+                      ? `About ${formatDuration(travelSeconds)}`
+                      : formatDuration(travelSeconds)
                     : (preRouteEstimate ?? 'Not knocked yet'),
                 )}
                 // Naming the rate is what keeps the pre-route number a rule of
                 // thumb rather than a promise; Geoapify's own duration needs
-                // no caveat beyond its label.
+                // no caveat beyond its label. Read in the mode we didn't buy it
+                // stops being the vendor's answer, so it says whose it is.
                 hint={
                   preRouteEstimate
                     ? `at ${DOORS_PER_HOUR} doors an hour`
-                    : undefined
+                    : flippedFromBuilt && shownMode
+                      ? `our estimate, at ${MODE_LABEL[shownMode].toLowerCase()} speed`
+                      : undefined
                 }
               />
               <Stat
@@ -390,6 +453,58 @@ export default function TurfDetailsSheet({
                 )}
               />
             </div>
+            {/* The route is frozen, so this is a reading of it and not an edit
+                to it: the stops, their order and the drawn path are the ones
+                bought for `builtMode` and stay exactly as they are. Nothing
+                here writes, and the map is not even on this surface — the only
+                thing that moves is the figure above and its label. */}
+            {route && route.route.totalMeters > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-muted-foreground">
+                  Travel time for
+                </span>
+                <ToggleGroup
+                  type="single"
+                  // A defined value always, and one of the two is always on:
+                  // Radix reports '' for a press that would deselect, which
+                  // here would leave the figure with no mode to be in.
+                  value={shownMode ?? ''}
+                  onValueChange={(next) => {
+                    if (next === 'walk' || next === 'drive')
+                      setTravelModeView(next)
+                  }}
+                  aria-label="Travel time for"
+                  className="flex flex-wrap justify-start gap-1.5"
+                >
+                  <ToggleGroupItem
+                    value="walk"
+                    className={TRAVEL_MODE_PILL_CLASSNAME}
+                  >
+                    {MODE_LABEL.walk}
+                  </ToggleGroupItem>
+                  <ToggleGroupItem
+                    value="drive"
+                    className={TRAVEL_MODE_PILL_CLASSNAME}
+                  >
+                    {MODE_LABEL.drive}
+                  </ToggleGroupItem>
+                </ToggleGroup>
+                {flippedFromBuilt && shownMode && builtMode && (
+                  // One template literal rather than JSX text around
+                  // expressions: SWC/Turbopack drops the leading space of a
+                  // text node following an expression, which jsdom keeps — so
+                  // the mixed form ships punctuation and spacing the unit test
+                  // never sees.
+                  <p className="text-xs text-muted-foreground">
+                    {`This route was built for ${MODE_LABEL[
+                      builtMode
+                    ].toLowerCase()}, and those are the only directions we bought. Nothing has been re-planned: the stops, their order and the path on the map are unchanged. This is our own estimate of covering that same path at ${MODE_LABEL[
+                      shownMode
+                    ].toLowerCase()} speed.`}
+                  </p>
+                )}
+              </div>
+            )}
             {routeFailed && (
               <p className="text-sm text-destructive">
                 This list&rsquo;s route could not be loaded, so the numbers
@@ -402,6 +517,37 @@ export default function TurfDetailsSheet({
                 This list&rsquo;s audience could not be counted, so the numbers
                 above are unavailable. Refresh to try again — the filters below
                 are what the list will target either way.
+              </p>
+            )}
+            {/* Word for word the landing rail's pair of lines (ENG-10899), on
+                the surface that reports the same numbers about the same list —
+                a candidate who reads the rail and then opens Details must not
+                meet two differently-worded accounts of one caveat.
+
+                "About" is not a hedge on the arithmetic: the count is exact for
+                what the pack can compute and a superset of who gets knocked.
+                The gap belongs to the PREVIEW, never to the filter — a key the
+                pack has no bucket for adds no entry to its dim at all, so a 65+
+                list shades every age, while gp-api's own conversion bounds it at
+                `{ gte: 65 }` and knocks exactly who was asked for. So the copy
+                says the map can't show the filter, never that the filter isn't
+                applied, which would read as targeting silently failing and is
+                the worse misunderstanding. */}
+            {discloseApproximation && (
+              <p className="text-xs text-muted-foreground">
+                About, because the map can&rsquo;t show every filter this list
+                applies, and knocking also skips anyone marked do-not-knock or
+                &ldquo;not a voter&rdquo; — so you&rsquo;ll walk fewer doors
+                than this.
+              </p>
+            )}
+            {/* The draw step's own sentence, from the same helper, so the
+                filter isn't named one way while drawing and another here. */}
+            {discloseApproximation && unpreviewableLabels.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                The map can&rsquo;t shade by {unpreviewableLabels.join(', ')}{' '}
+                yet, so these counts include people that filter will exclude.
+                Your saved list still applies it when you knock.
               </p>
             )}
           </section>

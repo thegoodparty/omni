@@ -18,6 +18,7 @@ import {
   transformVoterFileFiltersForBackend,
   type VoterFileFilters,
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import { unpreviewableDisclosureLabels } from './voterFilterPreview'
 import { MAX_TURF_NAME_LENGTH, TURF_COLORS } from '../turfQueries'
 import { DOORS_PER_HOUR, estimateWalkTime } from '../walkEstimate'
 import type { PolygonRing } from '../VoterMapCanvas'
@@ -42,12 +43,6 @@ const PILL_CLASSNAME =
 // existing route's roster is frozen — and "give me the doors I haven't done"
 // is the behavior a candidate wants there anyway.
 const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
-// Every other group's option labels stand on their own ("65+", "Renter"), so
-// the unpreviewable disclosure names the option. Contacts made's are the bare
-// counts '0'…'5+', which turned the sentence into "the map can't shade by 0
-// yet" — a sentence that reads like a bug. Name the group instead, once
-// however many of its buckets are selected.
-const CONTACTS_MADE_DISCLOSURE_LABEL = 'Prior contacts made'
 
 // Informational, not a gate: past this the evening is long enough to be worth
 // saying out loud. The hard cap at 150 is what actually blocks.
@@ -326,21 +321,7 @@ export default function CreateListFlow({
     continueLabel = 'No doors in this area'
   }
 
-  const unpreviewableLabels = [
-    ...new Set(
-      unpreviewableKeys
-        .map((key) => {
-          const field = filterSections
-            .flatMap((section) => section.fields)
-            .find((entry) => entry.options.some((option) => option.key === key))
-          if (!field) return undefined
-          if (field.key === CONTACTS_MADE_FIELD_KEY)
-            return CONTACTS_MADE_DISCLOSURE_LABEL
-          return field.options.find((option) => option.key === key)?.label
-        })
-        .filter((label): label is string => Boolean(label)),
-    ),
-  ]
+  const unpreviewableLabels = unpreviewableDisclosureLabels(unpreviewableKeys)
 
   const toggleGroupValues = (
     options: Array<{ key: string; label: string }>,

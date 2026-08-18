@@ -35,6 +35,7 @@ import {
   filtersToDimSelections,
   unpreviewableFilterKeys,
 } from './createFlow/voterFilterPreview'
+import { stopPositionsInRing } from './travelMode'
 import KnockTurfDialog from './KnockTurfDialog'
 import TurfDetailsSheet from './TurfDetailsSheet'
 import TurfList from './TurfList'
@@ -254,6 +255,39 @@ export default function NativeDoorKnockingPage({
         : null,
     [packQuery.data, detailsTurf, detailsList],
   )
+  // The details sheet discloses the same unshadeable selections the draw step
+  // does, so it needs them for the SAVED list rather than for the draft above:
+  // `unpreviewableKeys` describes whatever is being drawn right now, which is
+  // nothing at all while Details is open.
+  const detailsUnpreviewableKeys = useMemo(
+    () =>
+      packQuery.data && detailsList
+        ? unpreviewableFilterKeys(
+            savedListFilterKeys(detailsList),
+            packQuery.data.manifest,
+          )
+        : [],
+    [packQuery.data, detailsList],
+  )
+  // The knock dialog suggests walk vs drive from how spread out this list's own
+  // stops are, and the pack is the only thing that knows where they are before
+  // the route is bought. Same inputs as detailsListStats — the turf's ring and
+  // its saved filters — so the suggestion is derived from exactly the stop set
+  // the sheet and the draw step count. A missing list yields no stops rather
+  // than the unfiltered polygon, for the same reason it yields no stats.
+  const knockStops = useMemo(() => {
+    const pack = packQuery.data
+    if (!pack || !knockTurf) return null
+    const list = savedListsQuery.data?.find(
+      (candidate) => candidate.id === knockTurf.voterFileFilterId,
+    )
+    if (!list) return null
+    return stopPositionsInRing(
+      pack,
+      filtersToDimSelections(savedListFilterKeys(list), pack.manifest),
+      (knockTurf.geoPoly.coordinates[0] ?? []) as [number, number][],
+    )
+  }, [packQuery.data, savedListsQuery.data, knockTurf])
   const turfStats = useMemo(
     () =>
       packQuery.data && ring
@@ -641,6 +675,7 @@ export default function NativeDoorKnockingPage({
           listStatsPending={
             (!packQuery.data && !packQuery.isError) || savedListsQuery.isPending
           }
+          unpreviewableKeys={detailsUnpreviewableKeys}
           onClose={() => setDetailsTurf(null)}
           onDeleted={(deleted) => {
             setDetailsTurf(null)
@@ -666,6 +701,7 @@ export default function NativeDoorKnockingPage({
         <KnockTurfDialog
           key={knockTurf.id}
           turf={knockTurf}
+          stops={knockStops}
           open={true}
           onOpenChange={(open) => {
             if (!open) setKnockTurf(null)
