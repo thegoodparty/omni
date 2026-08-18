@@ -145,9 +145,11 @@ const rowTime = (row: HistoryRow): number => {
   return Number.isNaN(time) ? 0 : time
 }
 
+// The prototype shows "Jul 30" — short month, no year. dateUsHelper owns the
+// date-only parsing quirks, so reuse it and drop its year suffix.
 const rowDisplayDate = (row: HistoryRow): string | null => {
   const raw = row.date ?? row.createdAt
-  return raw ? dateUsHelper(raw, 'long') : null
+  return raw ? dateUsHelper(raw, 'short').replace(/,\s*\d{4}$/, '') : null
 }
 
 export const OutreachHistoryTable = ({
@@ -298,7 +300,9 @@ export const OutreachHistoryTable = ({
 
       {/* Desktop table */}
       <Card className="hidden overflow-hidden p-0 lg:block">
-        <Table className="w-full">
+        {/* Prototype table metrics: muted header labels, 44px data rows
+            (vs the styleguide's 56px default), 16px first/last padding. */}
+        <Table className="w-full [&_th]:text-muted-foreground [&_td]:h-11 [&_th:first-child]:!pl-4 [&_td:first-child]:!pl-4 [&_th:last-child]:!pr-4 [&_td:last-child]:!pr-4">
           <TableHeader>
             <TableRow>
               <TableHead className="whitespace-nowrap">Date</TableHead>
@@ -316,7 +320,7 @@ export const OutreachHistoryTable = ({
               <TableRow>
                 <TableCell
                   colSpan={6}
-                  className="h-24 text-center text-sm text-muted-foreground"
+                  className="!h-24 text-center text-sm text-muted-foreground"
                 >
                   {emptyMessage}
                 </TableCell>
