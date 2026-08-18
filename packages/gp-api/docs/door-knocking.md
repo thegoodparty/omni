@@ -234,6 +234,20 @@ pays a serve. The row itself is always the server's — nothing reconstructs a
 silent: the knock is already saved, so the feed keeps showing what it was
 served with.
 
+**The `not_a_voter` door is refreshed on a delay rather than not at all**
+(PR #1310, which closed the residual ADR 0009 recorded). Its sheet is held open
+across its own knock so the ADR 0008 follow-up can be answered, so neither
+trigger above ever fires for that resident — and refreshing on the knock is the
+thing the ADR ruled out, because the arriving serve rebuilds `NotAVoterControl`
+underneath the question. The refresh therefore waits for the follow-up to
+_resolve_: `WalkView` asks for one when the answer lands (after the status patch,
+which cancels in-flight serves) and, if the canvasser walks away from the
+question instead, on sheet close — gated on a `not_a_voter` status with no reason
+yet. That gate is load-bearing rather than tidy: an answered resident already
+paid for a serve and an ordinary door pays none, so this stays one serve per
+held-open sheet and does not become the per-door refetch ADR 0009 rejected the
+per-person endpoint to avoid.
+
 ## Do-not-knock
 
 `POST /v1/door-knocking/do-not-knock` — see
@@ -252,8 +266,10 @@ free while a genuine reversal earns its own row.
 Suppression happens at evaluation (step 3 above), which a **frozen route
 has already passed** — so the serve payload also carries a live
 `doNotKnock` per target, and the walk view, the printed sheet and the
-downloadable PDF walk list all show a skip instead of a logging form. Deliberately not gated on Pro: the pilot's
-whole point is that a candidate can honor the request at the door.
+downloadable PDF walk list all show a skip instead of a logging form. Deliberately not gated on Pro — one of the two
+exceptions in "The Pro gate" above, and it survived that gate landing: a
+candidate who cannot honor "don't come back" is worse than one who never had the
+button, so the instruction outlives the entitlement.
 
 ## "Not a voter" — the reason, captured
 
@@ -266,6 +282,10 @@ are mutually exclusive answers to one question and the projection is unique
 per `(org, personId, field)`; not a column on the interaction, because the
 outcome already ships without a reason and a correction made on a later
 visit could never reach the replay-idempotent row it needs to change.
+
+Ungated on Pro alongside do-not-knock — the second exception in "The Pro gate"
+above. It suppresses future evaluation the same way a refusal does, and the
+reason a door is wrong is worth capturing from whoever is standing at it.
 
 **Nothing is removed.** The prototype's phrasing ("remove this address from
 that person's voter record") is deliberately not implemented: no person is
@@ -372,16 +392,72 @@ between them: the native voter map when `native-door-knocking` is on, the
 legacy eCanvasser dashboard when it is off or unsettled. The sidebar entry in
 `DashboardMenu` mirrors that same branch, so the link and the landing page
 always agree — flag on requires a resolvable district (every pack and turf read
-resolves one server-side and 400s without it), flag off requires an eCanvasser
-integration record, which is the only thing the legacy dashboard can render.
+resolves one server-side and 400s without it) **and Pro**, flag off requires an
+eCanvasser integration record, which is the only thing the legacy dashboard can
+render.
 
-**Pre-GA: there is no Pro or subscription check on this feature.** Not on the
-page, not on any route in `src/doorKnocking/`. Access is the flag plus
-`candidateAccess()`, which only establishes that the caller is a candidate.
-That is deliberate for a flag-gated pilot — the allowlist _is_ the entitlement,
-and the waypoint quota caps vendor spend per org either way. It is wrong for
-GA, because the flag would come off for everyone at once and the routing spend
-is real money per knock. Deciding where that gate belongs (route guard vs.
-page-level upgrade view, and whether a non-Pro candidate sees a locked preview
-the way Know Your Opponent does) is a prerequisite for turning the flag on
-broadly, not a follow-up to it.
+Both sides read the CRM's `canUseProFeatures` (`isPro || electedOffice`), which
+is the frontend spelling of the `assertProAccess` predicate below, so the nav is
+never stricter than the API. A flag-on non-Pro candidate who reaches the URL
+anyway — a stale tab, a bookmark — gets `DoorKnockingPageGate`'s locked upgrade
+card rather than a map that draws and then 400s. Unlike Know Your Opponent,
+whose nav entry is deliberately shown to non-Pro candidates as an upsell, this
+entry is hidden: every knock spends vendor routing credits, so the pitch does
+not belong in a nav row. That makes the locked card a safety net rather than a
+funnel step, which is why it is deliberately shorter than
+`OpponentProLockedView` and fires no exposure event.
+
+**Control is untouched.** The flag-off eCanvasser dashboard was never Pro-gated
+and still isn't, on either the nav or the page.
+
+## The Pro gate (ENG-10888)
+
+**Every route in `src/doorKnocking/` is Pro-gated except the two suppression
+writes.** The gate is `ContactsService.assertProAccess(organization)`, called at
+the top of each controller method — the CRM's own predicate, reused rather than
+reimplemented, so `hasElectedOfficeAccess` still short-circuits ahead of
+`isPro` and an `eo-` (Serve) org stays license-equivalent to Pro here exactly as
+it is across Contacts. Refusal is that method's `BadRequestException`, 400 with
+`This feature is only available for pro campaigns`.
+
+| Route                   | Gated  |
+| ----------------------- | ------ |
+| `POST /turfs`           | yes    |
+| `GET /turfs`            | yes    |
+| `GET /turfs/:id`        | yes    |
+| `PUT /turfs/:id`        | yes    |
+| `DELETE /turfs/:id`     | yes    |
+| `GET /turfs/:id/route`  | yes    |
+| `GET /pack`             | yes    |
+| `POST /interactions`    | yes    |
+| `POST /turfs/:id/knock` | yes    |
+| `POST /do-not-knock`    | **no** |
+| `POST /not-a-voter`     | **no** |
+
+Reads are gated alongside the writes on purpose: a map that opens and then
+fails on the first turf is a worse answer than an upgrade prompt, and routing
+spends real Geoapify credits per knock.
+
+The two holes are ADR 0007 and ADR 0008, and they are the point rather than an
+oversight — see "Do-not-knock" and "'Not a voter'" below. If an org lapses
+mid-pilot the walk it was on becomes unreachable, but a canvasser standing at a
+door that asked not to be revisited can still record that, and a door reported
+moved or deceased still suppresses. Both are instructions about a door rather
+than work a subscription buys.
+
+A guard was considered and rejected: `@UseOrganization()` resolves the org in
+its own guard, so a second guard reading `request.organization` would depend on
+method-decorator evaluation order (bottom-up, so the gate would have to sit
+_above_ `@UseOrganization()` to run after it) — a silent break for anyone who
+reorders the decorators. Resolving the slug a second time in the guard, the way
+`CanDownloadVoterFile.guard.ts` does, buys a duplicate lookup per request. The
+in-method call is also what `contactNotes.controller.ts` and
+`contactInteractions.controller.ts` already do, and it keeps the gated and
+ungated routes legible side by side in one file. The cost is that a route added
+here is ungated until someone adds the call — the table above is the checklist.
+
+Note the ordering: the `@Body` `ZodValidationPipe` runs before the method body,
+so a malformed body on a gated route 400s as `Validation failed` rather than
+with the Pro message. Both refuse; only the wording differs.
+
+`@goodparty_org/contracts` is unchanged — this adds no field to any payload.

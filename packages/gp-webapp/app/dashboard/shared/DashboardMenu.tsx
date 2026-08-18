@@ -279,11 +279,14 @@ const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
 
 // Which of the two door-knocking products the candidate would actually land on.
 // `nativeEnabled` is the flag's settled value, so it matches what
-// DoorKnockingPageGate decides on the page itself.
+// DoorKnockingPageGate decides on the page itself. `proAccess` is the CRM's
+// canUseProFeatures (isPro OR elected office), which is the same predicate
+// gp-api's ContactsService.assertProAccess enforces on every native route.
 interface DoorKnockingNavGate {
   ecanvasserConnected: boolean
   nativeEnabled: boolean
   districtResolvable: boolean
+  proAccess: boolean
 }
 
 export const getDashboardMenuItems = (
@@ -298,6 +301,7 @@ export const getDashboardMenuItems = (
     ecanvasserConnected: false,
     nativeEnabled: false,
     districtResolvable: false,
+    proAccess: false,
   },
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
@@ -393,9 +397,24 @@ export const getDashboardMenuItems = (
   // unsettled) it renders the legacy eCanvasser dashboard, which is only worth
   // linking to for an integrated org. Gating on eCanvasser alone hid the native
   // pilot from every candidate who never integrated it. The native map also
-  // needs a resolvable district — every pack and turf read 400s without one.
+  // needs a resolvable district — every pack and turf read 400s without one —
+  // and, since ENG-10888, Pro: every native route is entitlement-gated in
+  // gp-api, so without it the link leads only to an upgrade prompt. Unlike
+  // Know Your Opponent, which advertises itself to non-Pro candidates, this
+  // stays hidden — routing spends real vendor credits per knock, so the pitch
+  // does not belong in a nav entry the pilot allowlist already scopes.
+  // The control branch is deliberately untouched: flag-off users keep the
+  // eCanvasser experience on the same terms as before.
+  //
+  // `proAccess` folds in elected office, so it reads false while that query is
+  // in flight and this item appears once it settles. Unlike the Contacts slot
+  // above there is nothing to hold — the item is appended, so waiting for the
+  // query and hiding during it are the same behavior. Resolving the other way
+  // (assume access until refused) would flash a Pro-only link at every non-Pro
+  // Win candidate, which is the thing this entry is hidden to avoid; the page
+  // gate, which can show a real loading state, is where that wait belongs.
   const doorKnockingShown = doorKnocking.nativeEnabled
-    ? doorKnocking.districtResolvable
+    ? doorKnocking.districtResolvable && doorKnocking.proAccess
     : doorKnocking.ecanvasserConnected
   if (doorKnockingShown) {
     menuItems.push(DOOR_KNOCKING_MENU_ITEM)
@@ -441,6 +460,7 @@ export default function DashboardMenu({
           ecanvasserConnected: !!ecanvasser,
           nativeEnabled: nativeDoorKnockingReady && nativeDoorKnockingEnabled,
           districtResolvable: !isDistrictUnresolvable,
+          proAccess: !!campaign?.isPro || !!electedOffice,
         },
       ),
     [
@@ -455,6 +475,7 @@ export default function DashboardMenu({
       nativeDoorKnockingReady,
       nativeDoorKnockingEnabled,
       isDistrictUnresolvable,
+      campaign,
     ],
   )
 
