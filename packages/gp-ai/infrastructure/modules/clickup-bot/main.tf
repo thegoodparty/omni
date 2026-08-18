@@ -51,29 +51,6 @@ variable "enable_fargate_trigger" {
   default     = false
 }
 
-variable "enable_sweep" {
-  description = <<-EOT
-    Whether to run the scheduled reconciliation sweep that catches gpbot-tagged
-    tickets the webhook never delivered.
-
-    Defaults to true because the webhook is known to be an incomplete feed:
-    a HubSpot-filed ticket whose tag arrives inside the create call emits no
-    subscribable event at all. Without this, those bugs are simply never
-    analyzed and nothing reports a problem.
-
-    Implies enable_fargate_trigger — a sweep that cannot start a run is just a
-    scheduled ClickUp query.
-  EOT
-  type        = bool
-  default     = true
-}
-
-variable "sweep_schedule_expression" {
-  description = "How often the reconciliation sweep runs. Bounds how late a webhook-dropped bug can be picked up."
-  type        = string
-  default     = "rate(15 minutes)"
-}
-
 variable "shared_slack_notifier_lambda_arn" {
   description = "ARN of the shared Slack notifier Lambda to subscribe to failure notifications (empty disables)"
   type        = string
@@ -372,43 +349,30 @@ resource "aws_lambda_function_event_invoke_config" "clickup_bot" {
 # stops delivering silently, as it did for two weeks from 2026-07-31. A schedule
 # cannot be unsubscribed, so the bot degrades to "up to one interval late"
 # instead of "off, and nothing looks wrong".
-resource "aws_cloudwatch_event_rule" "sweep" {
-  count = var.enable_sweep && var.enable_fargate_trigger ? 1 : 0
-
-  name = "clickup-bot-sweep-${var.environment}"
-  # Deliberately not tighter: the sweep is a backstop, not the primary path, and
-  # every run costs a ClickUp list call. The webhook still delivers most work in
-  # seconds; this bounds how late the rest can be.
-  description         = "Catch gpbot-tagged tickets the webhook never delivered"
-  schedule_expression = var.sweep_schedule_expression
-
-  tags = {
-    Environment = var.environment
-    Service     = "clickup-bot"
-  }
-}
-
-resource "aws_cloudwatch_event_target" "sweep" {
-  count = var.enable_sweep && var.enable_fargate_trigger ? 1 : 0
-
-  rule = aws_cloudwatch_event_rule.sweep[0].name
-  arn  = aws_lambda_function.clickup_bot.arn
-  # The marker the handler dispatches on. It is safe as a top-level key for the
-  # same reason gpbot_async is: an ALB request always carries headers /
-  # requestContext and lands its body as a string, so neither can be forged
-  # from the public endpoint.
-  input = jsonencode({ gpbot_sweep = true })
-}
-
-resource "aws_lambda_permission" "allow_sweep_invoke" {
-  count = var.enable_sweep && var.enable_fargate_trigger ? 1 : 0
-
-  statement_id  = "AllowSweepScheduleInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.clickup_bot.function_name
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.sweep[0].arn
-}
+# THE SCHEDULE LIVES IN GITHUB ACTIONS, NOT HERE: see
+# .github/workflows/gpbot-sweep.yml.
+#
+# It was written as an aws_cloudwatch_event_rule first, and that is still the
+# better shape — a rule in the same state as the function it invokes, with no
+# dependency on a CI runner. It cannot be applied. The role CI deploys with
+# (github-actions-pulumi-deploy) grants lambda:* but has no `events:` action at
+# all, so creating the rule fails with AccessDenied and takes the whole
+# prod/clickup-bot apply down with it — including the function code update that
+# had already succeeded, leaving the sweep code deployed with nothing to trigger
+# it. The pre-existing rules elsewhere in this stack do not disprove this: they
+# were created out-of-band and their applies are no-ops now.
+#
+# The workflow invokes this function directly with {"gpbot_sweep": true}, which
+# lambda:* does permit, so the trigger needs no permission the deploy already
+# has. The cost is that GitHub's cron is best-effort and can run late — which
+# this particular job can absorb, because it is a backstop with a 24-hour
+# lookback and a permanent per-ticket idempotency check, not a latency-sensitive
+# path.
+#
+# To move it back here: add events:PutRule, PutTargets, DeleteRule,
+# RemoveTargets, DescribeRule, ListTargetsByRule and TagResource to
+# GitHubActionsPulumiDeployPolicy, then restore the rule/target/permission trio
+# and delete the workflow.
 
 # Fail-loud is only loud if someone hears it. The handler's failures are
 # handled returns (structured 500s/401s), not Lambda invocation errors, so the
