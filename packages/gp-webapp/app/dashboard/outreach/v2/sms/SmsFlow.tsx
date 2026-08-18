@@ -376,10 +376,15 @@ export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
       setTone(nextTone)
       return
     }
+    // A blank body (first generation still in flight) must neither be
+    // cached for the outgoing tone nor treated as a memory hit for the
+    // incoming one — restoring '' would blank the editor and skip the fetch.
     const remembered = toneDrafts[nextTone]
-    setToneDrafts((prev) => ({ ...prev, [tone]: body }))
+    if (body.trim().length > 0) {
+      setToneDrafts((prev) => ({ ...prev, [tone]: body }))
+    }
     setTone(nextTone)
-    if (remembered !== undefined) {
+    if (remembered !== undefined && remembered.trim().length > 0) {
       draftRequestRef.current += 1
       resetDraftMutation()
       setBody(remembered)

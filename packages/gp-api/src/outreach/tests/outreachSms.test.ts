@@ -75,6 +75,56 @@ describe('POST /v1/outreach/sms/draft', () => {
     expect(userPrompt).toContain('City Council')
   })
 
+  it('feeds campaign story, issues, and plan sections into the prompt', async () => {
+    const campaign = await service.prisma.campaign.findFirstOrThrow({
+      where: { organizationSlug: orgSlug },
+    })
+    await service.prisma.campaignStory.create({
+      data: {
+        campaignId: campaign.id,
+        background: 'I grew up here and coach little league on weekends.',
+      },
+    })
+    await service.prisma.campaignStrategy.create({
+      data: {
+        campaignId: campaign.id,
+        opportunities: {
+          create: [{ order: 1, content: 'High turnout among young renters' }],
+        },
+        challenges: {
+          create: [{ order: 1, content: 'Low name recognition downtown' }],
+        },
+      },
+    })
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: {
+        details: {
+          ...campaign.details,
+          customIssues: [
+            { title: 'Housing', position: 'Build more affordable units' },
+          ],
+        },
+      },
+    })
+
+    jsonCompletion.mockResolvedValue(llmDraft('A grounded SMS body.'))
+
+    const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      'I grew up here and coach little league on weekends.',
+    )
+    expect(userPrompt).toContain('Housing: Build more affordable units')
+    expect(userPrompt).toContain('High turnout among young renters')
+    expect(userPrompt).toContain('Low name recognition downtown')
+  })
+
   it('polishes the given body when currentDraft is present', async () => {
     jsonCompletion.mockResolvedValue(llmDraft('A tighter version.'))
 

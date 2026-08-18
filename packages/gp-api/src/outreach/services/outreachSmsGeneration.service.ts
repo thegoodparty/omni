@@ -50,9 +50,11 @@ const DRAFT_SYSTEM_PROMPT = [
   '  emojis, no line breaks.',
   '- Do NOT introduce the candidate by name or office, and do NOT add',
   '  any opt-out language: the app wraps your text with both.',
-  '- Stay ISSUE-NEUTRAL: never invent policy positions, issue stances,',
-  '  endorsements, statistics, dates, places, or events. The candidate',
-  '  edits this draft before it is used.',
+  "- Ground positions, issues, and specifics in the candidate's own",
+  '  campaign materials when they are provided; never invent policy',
+  '  positions, issue stances, endorsements, statistics, dates, places,',
+  '  or events the materials do not contain. With no materials, stay',
+  '  issue-neutral. The candidate edits this draft before it is used.',
   '- Stay strictly non-partisan. No party labels, no attacks.',
   '- Match the requested tone.',
 ].join('\n')
@@ -71,9 +73,10 @@ const IMPROVE_SYSTEM_PROMPT = [
   '  links, hashtags, emojis, or line breaks.',
   '- Do NOT add an introduction of the candidate or any opt-out',
   '  language: the app wraps the text with both.',
-  '- Stay ISSUE-NEUTRAL: never add policy positions, issue stances,',
-  '  endorsements, statistics, dates, places, or events the original',
-  '  does not contain.',
+  '- Never add policy positions, issue stances, endorsements,',
+  '  statistics, dates, places, or events the original text does not',
+  '  contain — campaign materials, when provided, are context for tone',
+  '  and accuracy, not a source of new content in a polish.',
   '- Stay strictly non-partisan. No party labels, no attacks.',
   '- Match the requested tone through word choice, not new content.',
 ].join('\n')
@@ -96,6 +99,7 @@ export class OutreachSmsGenerationService {
     candidateName: string,
     office: string,
     userId: string,
+    campaignContext: string[] = [],
   ): Promise<string> {
     // Fresh generation only: improve mode polishes the candidate's own
     // words, so it applies to custom-purpose messages too.
@@ -109,6 +113,7 @@ export class OutreachSmsGenerationService {
       `Office sought: ${office || 'local office'}.`,
       `Goal of this message: ${PURPOSE_GOALS[input.purpose]}.`,
       `Tone: ${TONE_STYLES[input.tone]}`,
+      ...campaignContext,
     ]
     const messages: LlmMessage[] = input.currentDraft
       ? [
