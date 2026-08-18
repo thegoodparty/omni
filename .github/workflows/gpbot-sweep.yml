@@ -62,9 +62,20 @@ jobs:
           # than on a timer inside AWS is that the outcome shows up in a place
           # someone already looks. A fire-and-forget invoke would make every
           # run green regardless of what happened.
+          #
+          # --cli-binary-format is stated rather than left to the default, and
+          # the failure it prevents is total: CLI v2 defaults blob inputs to
+          # base64, so a raw --payload is rejected outright with
+          # `Invalid base64` (verified against 2.35.1). The alternative spelling
+          # -- pre-encoding the JSON with `base64` and relying on that default --
+          # works today but silently sends the *encoded string* as the event if
+          # a runner ever sets raw-in-base64-out in config or AWS_CLI_* env, and
+          # a sweep whose event is a string takes the webhook path and 401s.
+          # Saying which format this payload is in leaves neither reading open.
           aws lambda invoke \
             --function-name "$FUNCTION_NAME" \
-            --payload "$(printf '%s' '{"gpbot_sweep": true}' | base64)" \
+            --cli-binary-format raw-in-base64-out \
+            --payload '{"gpbot_sweep": true}' \
             --cli-read-timeout 300 \
             /tmp/sweep-response.json > /tmp/sweep-meta.json
 
