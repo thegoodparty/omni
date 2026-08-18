@@ -1,8 +1,10 @@
 import type {
   DoorKnockingRoutePayload,
   RoutePayloadTarget,
+  RouteTargetActivity,
 } from '@goodparty_org/contracts'
 import { formatDistance } from '../native/routeFormat'
+import { OUTCOME_OPTIONS } from '../native/knockQuestions'
 import { countDoors, knockableTargets } from '../routeCounts'
 
 export const formatDuration = (seconds: number): string => {
@@ -21,6 +23,72 @@ export const describeTarget = (target: RoutePayloadTarget): string =>
   ]
     .filter(Boolean)
     .join(' · ')
+
+// Month and year, and formatted in UTC rather than by the ambient clock. Both
+// paper surfaces render in Node, whose clock is UTC, so a door knocked at 9pm
+// anywhere in the US would print as the following day — which is the same
+// reason neither page stamps itself with today's date, and a consistently wrong
+// day is not an improvement on a coarse right month. A month is also the
+// granularity the feed was argued for at: "we spoke in June about the
+// sidewalks" (ADR 0009).
+const contactMonth = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'UTC',
+  month: 'long',
+  year: 'numeric',
+})
+
+// Paper's own outcome wording — the same labels as the tick-boxes further down
+// the page and as the form the sheet is transcribed back into, so one knock
+// isn't named two things on one sheet.
+const OUTCOME_LABELS = new Map(OUTCOME_OPTIONS)
+
+// What a row of the resident's history was, in the CRM feed's own channel
+// words. `null` for anything that is not outreach: a STATUS_CHANGE row is a
+// record edit (a flag set at a desk or at a door), not a contact, and
+// `skipInstruction` already prints what a flag means for this resident.
+const contactDescription = (activity: RouteTargetActivity): string | null => {
+  switch (activity.type) {
+    case 'DOOR_KNOCK':
+      return `Door knock: ${
+        OUTCOME_LABELS.get(activity.data.outcome) ?? activity.data.outcome
+      }`
+    case 'TEXT':
+      return 'Text'
+    case 'ROBOCALL':
+      return 'Robocall'
+    default:
+      return null
+  }
+}
+
+// ENG-10876, on the surface where it is still open. `deriveKnockStatus`
+// collapses answered-but-unsure into `unknown` on purpose, so the door stays
+// worth knocking — which leaves paper unable to tell that door from one nobody
+// has ever been to, because both print an identical blank form. On screen ADR
+// 0009's activity feed answers it; paper carried no history at all, and paper is
+// the surface used when the app isn't.
+//
+// One line, and only the two facts a doorstep needs: when, and what happened.
+// **Never the note** — free text about a named voter, on the surface that leaves
+// the building and stops being access-controlled the moment it does. Same rule
+// that keeps phone numbers off these two pages.
+//
+// Read by `WalkSheet` and by `walkListRows`, because the printable page builds
+// its own blocks and the PDF reads a row model: one function is what stops the
+// two formats wording the same history differently. Absent history prints
+// nothing rather than "never contacted" — a route snapshotted offline before
+// ADR 0009 shipped carries no `history` key at all, so absence is not a claim.
+export const lastContactLine = (target: RoutePayloadTarget): string | null => {
+  // Newest first and capped server-side (ADR 0009), so the first row that is
+  // outreach rather than a record edit is the last contact.
+  for (const activity of target.history ?? []) {
+    const what = contactDescription(activity)
+    const when = new Date(activity.date)
+    if (what === null || Number.isNaN(when.getTime())) continue
+    return `Last contact: ${contactMonth.format(when)} · ${what}`
+  }
+  return null
+}
 
 // The one sentence that states what the walk costs. The printed sheet's header
 // and the downloadable PDF's subtitle are the same string from here, on top of
