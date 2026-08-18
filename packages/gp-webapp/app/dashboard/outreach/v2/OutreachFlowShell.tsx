@@ -108,9 +108,9 @@ export const OutreachFlowShell = ({
                     variant="outline"
                     aria-label="Back"
                     onClick={onBack}
-                    className="rounded-full"
+                    className="border-border text-foreground"
                   >
-                    <ArrowLeftIcon />
+                    <ArrowLeftIcon className="size-4" />
                   </IconButton>
                 )}
               </div>
