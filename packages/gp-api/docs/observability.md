@@ -10,7 +10,7 @@ There are two categories of alerts:
 
 Every controller endpoint automatically gets one alert:
 
-- **Error count**: Fires when any requests return error status codes (≥ 400, excluding 401/403/404/409/498) within a 1-hour window.
+- **Error count**: Fires when any requests return error status codes (≥ 400, excluding 401/403/404/409/498) within a 1-hour window. A controller listed in `SERVER_ERRORS_ONLY` uses `≥ 500` instead -- see [Server-errors-only controllers](#server-errors-only-controllers).
 
 These are generated automatically from the controllers in the codebase -- you don't write them by hand. **All controller alerts are disabled by default** and require explicit opt-in via the ownership mapping (see [Ownership](#ownership) below).
 
@@ -22,6 +22,7 @@ These cover system-wide concerns that aren't tied to a specific endpoint:
 - **High memory utilization** (>90% for 5 min)
 - **Missing health check logs** (no `/v1/health` requests logged for 2 min)
 - **Slow Prisma connection acquisitions** (10+ connections exceeding 150ms in a 2-minute window)
+- **Door-knocking route planner spend ceiling** (>10,000 Geoapify credits across all organizations in 6h) -- the global view the per-org waypoint quota can't give. See gp-api `docs/door-knocking.md` § Spend visibility.
 
 ## Where do alerts show up?
 
@@ -48,7 +49,7 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
     'contact-engagement',
     'organizations',
   ],
-  'win-bugs': [],
+  'win-bugs': ['door-knocking'],
 }
 ```
 
@@ -73,7 +74,21 @@ All of that controller's endpoint alerts become active on the next deploy.
 
 ## How to override thresholds
 
-Error alerts always fire on any unexpected error and cannot be overridden -- if an endpoint is returning errors, you should know about it.
+Error alerts always fire on any unexpected error and the threshold cannot be overridden -- if an endpoint is returning errors, you should know about it. The one thing that _is_ tunable is which statuses count as unexpected, per controller.
+
+## Server-errors-only controllers
+
+`SERVER_ERRORS_ONLY` in `deploy/components/alerts.ts` lists controllers whose generated route alerts fire on `≥ 500` instead of the default `≥ 400`-minus-exclusions:
+
+```typescript
+export const SERVER_ERRORS_ONLY: ControllerName[] = ['door-knocking']
+```
+
+The default filter assumes a 4xx on your controller is a bug. That holds for most of them and breaks for a controller whose 4xx responses are the product's own vocabulary. `door-knocking` answers an over-budget knock with 429, an empty or oversized turf with 400, and an ineligible district with a 400 the webapp renders as a state -- so under the default rule normal pilot use would page, and an alert that fires on designed behavior gets muted. What is left is the range worth waking up for: a missing `GEOAPIFY_API_KEY` (502), a Route Planner outage or a plan that misses stops (502), and unhandled 500s.
+
+The cost: a genuine bug that surfaces as a 4xx on a listed controller no longer pages, and nothing in the generated rule can tell a designed 400 from an accidental one. Add a controller only when its 4xx vocabulary is deliberate and documented. Everything else keeps the `≥ 400` rule.
+
+Per-route granularity, ownership, Slack routing, and the rest of the generated machinery are unchanged -- this only swaps the status filter and the wording of the Slack message.
 
 ## How to add a new global alert
 

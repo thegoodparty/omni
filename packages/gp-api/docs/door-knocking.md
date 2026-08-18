@@ -105,6 +105,68 @@ call, loser returns `created: false`; (b) crash-mid-freeze → zero rows;
 rolls back after the vendor call still leaves its spend in the ledger; (e) a
 saved list's exclusions shrink the stop set.
 
+## Spend visibility
+
+The waypoint quota is a per-organization guardrail, not a bill. Two things it
+can't see: **nothing sums across organizations**, so the total bill scales with
+how many orgs hold the flag; and the ledger records Route Planner waypoints
+only, while every knock also makes a **second billed call** —
+`fetchPathGeometry`'s Routing request for the path geometry.
+
+Both are now visible, and no surface here can carry the API key: the Route
+Planner SDK puts the key in its request URL, so nothing sourced from a URL or a
+caught error is ever logged or labelled. Every metric attribute is a closed set
+of literals.
+
+| Signal | Where | Reads |
+| --- | --- | --- |
+| `event: 'DoorKnockingSpend'` log line | `doorKnockingKnock.service.ts` spend path | `organizationSlug`, `turfId`, `waypoints`, `credits` — emitted before the ledger write and regardless of its outcome, so a lost ledger row under-counts the quota without hiding the money |
+| `geoapify_route_planner_credits_total` | `vendors/geoapify/observability/geoapify.metrics.ts` | Credits billed, no org label (Prometheus cardinality) |
+| `geoapify_vendor_call_count_total{api,result}` | same | `api="route_planner"` and `api="routing"` — this is the only place the second call is counted |
+
+What pages: the global **route planner spend ceiling** alert (>10,000 credits /
+6h across all orgs, `#dev-alerts`, `@win-bugs`), and the `≥ 500` route alerts
+on this controller — including the 502 for a missing `GEOAPIFY_API_KEY`. The
+per-org 429, the empty/oversized-turf 400s, and the `VOTER_DATA_UNAVAILABLE`
+400 deliberately do not (see gp-api `docs/observability.md` §
+Server-errors-only controllers).
+
+Deliberately a chart-and-alert rather than an enforced global cap: a hard
+ceiling across organizations would let one org's knocking fail another's, which
+is worse than a page during a pilot.
+
+Credits per organization per day (Loki, no dashboard needed):
+
+```logql
+sum by (organizationSlug) (
+  sum_over_time(
+    {service_name="gp-api", deployment_environment_name="prod"}
+      |= "DoorKnockingSpend" | json | event = "DoorKnockingSpend"
+      | unwrap credits [24h]
+  )
+)
+```
+
+Same thing from the ledger, when the question is about the quota rather than
+the bill (the ledger is the only source `assertWaypointQuota` reads):
+
+```sql
+select organization_slug,
+       date_trunc('day', occurred_at) as day,
+       sum(waypoints) as waypoints,
+       sum(credits) as credits
+from door_knocking_route_planner_spend
+where occurred_at > now() - interval '7 days'
+group by 1, 2
+order by credits desc;
+```
+
+`sum by (organizationSlug)` above 5,000 credits (500 waypoints) in a rolling
+24h is the `ENG-10901` overshoot — concurrent knocks in one org each passing the
+quota check because the advisory lock is per turf — now measurable rather than
+inferred. That trade-off stands: an org-wide lock would serialize every knock
+behind a 30-second vendor call.
+
 ## Serving
 
 `GET /v1/door-knocking/turfs/:id/route`. Every read of a route (later

@@ -7,6 +7,7 @@ import {
 import { useTestService } from '@/test-service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { DoorKnockingPeopleApiService } from '../services/doorKnockingPeopleApi.service'
+import { DoorKnockingKnockService } from '../services/doorKnockingKnock.service'
 import {
   Campaign,
   OutreachStatus,
@@ -769,6 +770,31 @@ describe('door-knocking routes', () => {
             _sum: { waypoints: true },
           })
         expect(spend._sum.waypoints).toBe(3)
+      })
+
+      // The DoorKnockingSpend line is the only global view of Geoapify spend:
+      // the route-planner-spend-ceiling alert sums its `credits` across every
+      // organization, and the per-org-per-day queries in
+      // docs/door-knocking.md group by its `organizationSlug`. Renaming the
+      // event or dropping a field silently blinds both.
+      it('logs the spend with the org and credits the ceiling alert reads', async () => {
+        const turf = await createTurf()
+        stubVendors()
+        const logSpy = vi.spyOn(
+          service.app.get(DoorKnockingKnockService).logger,
+          'info',
+        )
+
+        const res = await knock(turf.id)
+
+        expect(res.status).toBe(201)
+        expect(logSpy).toHaveBeenCalledWith({
+          event: 'DoorKnockingSpend',
+          organizationSlug: orgSlug,
+          turfId: turf.id,
+          waypoints: 3,
+          credits: 30,
+        })
       })
     })
 
