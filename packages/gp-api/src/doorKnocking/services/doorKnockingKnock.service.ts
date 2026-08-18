@@ -14,6 +14,7 @@ import { ContactsService } from '@/contacts/services/contacts.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { GeoapifyRoutePlannerService } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
 import type { LngLat } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
+import { recordRoutePlannerCredits } from '@/vendors/geoapify/observability/geoapify.metrics'
 import {
   Campaign,
   ContactStatusField,
@@ -275,12 +276,30 @@ export class DoorKnockingKnockService extends createPrismaBase(
     turfId: number,
     stops: number,
   ): Promise<void> {
+    const credits = stops * GEOAPIFY_CREDITS_PER_LOCATION
+
+    // Emitted before the ledger write and independently of its outcome: the
+    // vendor has already billed, so this line — not the ledger — is what the
+    // spend queries and the global daily-credit ceiling alert count. Losing a
+    // ledger row is allowed to under-count one org's quota; it must not also
+    // hide the money. Carries organizationSlug so per-org-per-day spend (and
+    // any ENG-10901 overshoot past the 500-waypoint cap) is queryable in Loki
+    // without the cardinality cost of a Prometheus label.
+    this.logger.info({
+      event: 'DoorKnockingSpend',
+      organizationSlug,
+      turfId,
+      waypoints: stops,
+      credits,
+    })
+    recordRoutePlannerCredits(credits)
+
     try {
       await recordWaypointSpend(this.client, {
         organizationSlug,
         doorKnockingTurfId: turfId,
         waypoints: stops,
-        credits: stops * GEOAPIFY_CREDITS_PER_LOCATION,
+        credits,
       })
     } catch (error) {
       this.logger.error(
