@@ -1,0 +1,98 @@
+name: gpbot reconciliation sweep
+
+# Trigger for the clickup-bot Lambda's reconciliation sweep, which finds
+# gpbot-tagged tickets that no ClickUp webhook ever delivered. See the SWEEP
+# block in packages/gp-ai/clickup_bot/lambda/handler.py for why a poller is
+# needed at all: a HubSpot-filed ticket whose tag arrives inside the create call
+# emits no subscribable event, and a webhook ClickUp suspends stops delivering
+# silently (it did, for two weeks from 2026-07-31, while every dashboard read
+# healthy).
+#
+# WHY THE SCHEDULE IS HERE AND NOT IN TERRAFORM: the deploy role
+# (github-actions-pulumi-deploy) grants lambda:* but no `events:` action at all,
+# so an aws_cloudwatch_event_rule cannot be applied — it fails AccessDenied and
+# takes the whole prod/clickup-bot apply down with it. Invoking the function
+# directly needs nothing the deploy role does not already have. See the comment
+# in infrastructure/modules/clickup-bot/main.tf for how to move it back.
+#
+# The work is entirely the Lambda's. This workflow decides *when*, nothing else,
+# so a bad run here can at worst skip or repeat a sweep — and repeating one is a
+# no-op, because every candidate is gated on a permanent "has this bot ever
+# commented on this ticket" check.
+
+on:
+  schedule:
+    # Every 15 minutes, which bounds how late a webhook-dropped bug is picked
+    # up. GitHub's cron is best-effort and does run late under load; that is
+    # tolerable precisely because this is a backstop with a 24-hour lookback,
+    # not the primary path. The webhook still delivers most work in seconds.
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  # Never two sweeps at once. Overlap would be survivable — the Lambda's dedup
+  # and idempotency checks would decline the duplicates — but a queued backlog
+  # of sweeps waiting on a slow one has no value: the next scheduled run covers
+  # the same window.
+  group: gpbot-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: Sweep for undelivered tickets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-west-2
+
+      - name: Invoke the sweep
+        env:
+          FUNCTION_NAME: clickup-bot-prod
+        run: |
+          set -euo pipefail
+
+          # RequestResponse, not Event: the point of running this in CI rather
+          # than on a timer inside AWS is that the outcome shows up in a place
+          # someone already looks. A fire-and-forget invoke would make every
+          # run green regardless of what happened.
+          aws lambda invoke \
+            --function-name "$FUNCTION_NAME" \
+            --payload "$(printf '%s' '{"gpbot_sweep": true}' | base64)" \
+            --cli-read-timeout 300 \
+            /tmp/sweep-response.json > /tmp/sweep-meta.json
+
+          echo "--- invoke metadata ---"
+          cat /tmp/sweep-meta.json
+          echo
+          echo "--- handler response ---"
+          cat /tmp/sweep-response.json
+          echo
+
+          # A handled exception inside the function still returns HTTP 200 with
+          # FunctionError set. Checking only the status code would report a
+          # crashed sweep as a successful one.
+          if grep -q '"FunctionError"' /tmp/sweep-meta.json; then
+            echo "::error::Sweep invocation failed inside the function"
+            exit 1
+          fi
+
+          # The handler answers 500 when it could not list ClickUp tasks, which
+          # means this pass rescued nothing. Failing here is the whole reason
+          # this job is not fire-and-forget: a sweep that silently stops working
+          # returns us to dropping bugs with nothing to show for it.
+          status=$(jq -r '.statusCode // empty' /tmp/sweep-response.json)
+          if [ "$status" != "200" ]; then
+            echo "::error::Sweep returned statusCode=${status:-<none>}"
+            exit 1
+          fi
+
+          jq -r '.body | fromjson
+                 | "swept=\(.swept) triggered=\(.triggered) skipped=\(.skipped)"' \
+            /tmp/sweep-response.json >> "$GITHUB_STEP_SUMMARY"

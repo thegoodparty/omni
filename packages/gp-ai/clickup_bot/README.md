@@ -114,9 +114,23 @@ That disproves the assumption behind "Why both events" below. When the tag arriv
 inside the HubSpot create call, ClickUp emits no event we can subscribe to, so
 adding another event type cannot fix it. The fix is to stop relying on being told:
 
-`handle_sweep` runs on a schedule (`rate(15 minutes)`, EventBridge → the same
-Lambda with `{"gpbot_sweep": true}`), lists tasks tagged `gpbot-analyze` updated in
-the last `SWEEP_LOOKBACK_HOURS`, and triggers the ones the bot has never spoken on.
+`handle_sweep` runs on a schedule (every 15 minutes, invoked with
+`{"gpbot_sweep": true}`), lists tasks tagged `gpbot-analyze` updated in the last
+`SWEEP_LOOKBACK_HOURS`, and triggers the ones the bot has never spoken on.
+
+The schedule lives in **`.github/workflows/gpbot-sweep.yml`**, not in Terraform, and
+that is a workaround rather than a preference. The deploy role
+(`github-actions-pulumi-deploy`) grants `lambda:*` but no `events:` action at all, so
+`aws_cloudwatch_event_rule` fails `AccessDenied` and takes the entire
+`prod/clickup-bot` apply down with it — including the function code update that
+already succeeded, which is how the sweep code first reached production with nothing
+to trigger it. Invoking the Lambda directly needs no permission the deploy role
+lacks. The trade is that GitHub's cron is best-effort and can run late, which this
+job absorbs because it is a backstop with a 24-hour lookback. To move it into
+Terraform, add `events:PutRule`, `PutTargets`, `DeleteRule`, `RemoveTargets`,
+`DescribeRule`, `ListTargetsByRule` and `TagResource` to
+`GitHubActionsPulumiDeployPolicy`; the rule/target/permission trio is described in
+`infrastructure/modules/clickup-bot/main.tf`.
 
 ### Why the sweep needs its own idempotency
 
@@ -154,8 +168,9 @@ dashboard read healthy. A schedule cannot be unsubscribed, so that outage become
 | Declines don't consume the cap | A window full of already-handled tickets must not starve the one that still needs a run |
 | One bad task never ends the pass | The next ticket may be the bug nobody has looked at |
 
-Turn it off with `enable_sweep = false`, but understand what that restores: bugs
-filed by HubSpot with the tag applied at creation will silently never be analyzed.
+To turn it off, disable the `gpbot reconciliation sweep` workflow — but understand
+what that restores: bugs filed by HubSpot with the tag applied at creation will
+silently never be analyzed.
 
 ## Why both events (`taskTagUpdated` and `taskCreated`)
 
