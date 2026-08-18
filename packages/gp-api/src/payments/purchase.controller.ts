@@ -150,8 +150,9 @@ export class PurchaseController {
 
   @Post('portal-session')
   async createPortalSession(@ReqUser() user: User) {
-    const { metaData } = user
-    const { customerId } = metaData || {}
+    const customerId =
+      user.metaData?.customerId ??
+      (await this.recoverCustomerIdFromSubscription(user))
     if (!customerId) {
       throw new BadRequestException({
         message: 'User does not have a customerId',
@@ -161,6 +162,44 @@ export class PurchaseController {
     const { url: redirectUrl } =
       await this.stripeService.createPortalSession(customerId)
     return { redirectUrl }
+  }
+
+  // A write-side bug (since fixed) left a handful of Pro users with an active
+  // subscription but no customerId in meta_data, so Manage Subscription 400s
+  // with BILLING_CUSTOMER_ID_MISSING. Backfill from the campaign's stored
+  // subscriptionId on first click instead of failing them.
+  private async recoverCustomerIdFromSubscription(
+    user: User,
+  ): Promise<string | null> {
+    const campaign = await this.campaignsService.findActiveByUserId(user.id)
+    const subscriptionId = campaign?.details?.subscriptionId
+    if (!subscriptionId) return null
+
+    const customerId = await this.fetchSubscriptionCustomerId(
+      user.id,
+      subscriptionId,
+    )
+    if (!customerId) return null
+
+    await this.usersService.patchUserMetaData(user.id, { customerId })
+    return customerId
+  }
+
+  private async fetchSubscriptionCustomerId(
+    userId: number,
+    subscriptionId: string,
+  ): Promise<string | null> {
+    try {
+      const { customer } =
+        await this.stripeService.retrieveSubscription(subscriptionId)
+      return typeof customer === 'string' ? customer : (customer?.id ?? null)
+    } catch (error) {
+      this.logger.error(
+        { error: serializeError(error), userId, subscriptionId },
+        'Failed to recover customerId from active subscription',
+      )
+      return null
+    }
   }
 
   /**

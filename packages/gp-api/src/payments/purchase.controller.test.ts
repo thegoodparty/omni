@@ -51,6 +51,7 @@ describe('PurchaseController', () => {
     createEmbeddedProSubscriptionCheckoutSession: ReturnType<typeof vi.fn>
     createPortalSession: ReturnType<typeof vi.fn>
     expireCheckoutSession: ReturnType<typeof vi.fn>
+    retrieveSubscription: ReturnType<typeof vi.fn>
   }
   let usersService: {
     patchUserMetaData: ReturnType<typeof vi.fn>
@@ -69,6 +70,7 @@ describe('PurchaseController', () => {
       createEmbeddedProSubscriptionCheckoutSession: vi.fn(),
       createPortalSession: vi.fn(),
       expireCheckoutSession: vi.fn(),
+      retrieveSubscription: vi.fn(),
     }
     usersService = {
       patchUserMetaData: vi.fn(),
@@ -330,11 +332,14 @@ describe('PurchaseController', () => {
   })
 
   describe('createPortalSession', () => {
-    it('throws BadRequestException when the user has no customerId', async () => {
+    it('throws BadRequestException when the user has no customerId and no active campaign', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue(null)
+
       await expect(controller.createPortalSession(mockUser)).rejects.toThrow(
         BadRequestException,
       )
       expect(stripeService.createPortalSession).not.toHaveBeenCalled()
+      expect(stripeService.retrieveSubscription).not.toHaveBeenCalled()
     })
 
     it('returns the portal redirect URL when a customerId exists', async () => {
@@ -349,7 +354,110 @@ describe('PurchaseController', () => {
       const result = await controller.createPortalSession(userWithCustomer)
 
       expect(stripeService.createPortalSession).toHaveBeenCalledWith('cus_123')
+      expect(stripeService.retrieveSubscription).not.toHaveBeenCalled()
       expect(result).toEqual({ redirectUrl: 'https://stripe.test/portal' })
+    })
+
+    it('recovers customerId from the active subscription when metaData is missing it', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue({
+        ...mockCampaign,
+        details: { subscriptionId: 'sub_recover' },
+      })
+      stripeService.retrieveSubscription.mockResolvedValue({
+        id: 'sub_recover',
+        customer: 'cus_recovered',
+      })
+      stripeService.createPortalSession.mockResolvedValue({
+        url: 'https://stripe.test/portal-recovered',
+      })
+
+      const result = await controller.createPortalSession(mockUser)
+
+      expect(stripeService.retrieveSubscription).toHaveBeenCalledWith(
+        'sub_recover',
+      )
+      expect(usersService.patchUserMetaData).toHaveBeenCalledWith(userId, {
+        customerId: 'cus_recovered',
+      })
+      expect(stripeService.createPortalSession).toHaveBeenCalledWith(
+        'cus_recovered',
+      )
+      expect(result).toEqual({
+        redirectUrl: 'https://stripe.test/portal-recovered',
+      })
+    })
+
+    it('recovers customerId when Stripe returns an expanded customer object', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue({
+        ...mockCampaign,
+        details: { subscriptionId: 'sub_recover' },
+      })
+      stripeService.retrieveSubscription.mockResolvedValue({
+        id: 'sub_recover',
+        customer: { id: 'cus_expanded' },
+      })
+      stripeService.createPortalSession.mockResolvedValue({
+        url: 'https://stripe.test/portal-expanded',
+      })
+
+      const result = await controller.createPortalSession(mockUser)
+
+      expect(usersService.patchUserMetaData).toHaveBeenCalledWith(userId, {
+        customerId: 'cus_expanded',
+      })
+      expect(stripeService.createPortalSession).toHaveBeenCalledWith(
+        'cus_expanded',
+      )
+      expect(result).toEqual({
+        redirectUrl: 'https://stripe.test/portal-expanded',
+      })
+    })
+
+    it('throws BadRequestException when the active campaign has no subscriptionId', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue({
+        ...mockCampaign,
+        details: {},
+      })
+
+      await expect(controller.createPortalSession(mockUser)).rejects.toThrow(
+        BadRequestException,
+      )
+      expect(stripeService.retrieveSubscription).not.toHaveBeenCalled()
+      expect(usersService.patchUserMetaData).not.toHaveBeenCalled()
+      expect(stripeService.createPortalSession).not.toHaveBeenCalled()
+    })
+
+    it('throws BadRequestException when Stripe subscription lookup fails', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue({
+        ...mockCampaign,
+        details: { subscriptionId: 'sub_recover' },
+      })
+      stripeService.retrieveSubscription.mockRejectedValue(
+        new Error('stripe unavailable'),
+      )
+
+      await expect(controller.createPortalSession(mockUser)).rejects.toThrow(
+        BadRequestException,
+      )
+      expect(usersService.patchUserMetaData).not.toHaveBeenCalled()
+      expect(stripeService.createPortalSession).not.toHaveBeenCalled()
+    })
+
+    it('throws BadRequestException when the retrieved subscription has no customer', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue({
+        ...mockCampaign,
+        details: { subscriptionId: 'sub_recover' },
+      })
+      stripeService.retrieveSubscription.mockResolvedValue({
+        id: 'sub_recover',
+        customer: null,
+      })
+
+      await expect(controller.createPortalSession(mockUser)).rejects.toThrow(
+        BadRequestException,
+      )
+      expect(usersService.patchUserMetaData).not.toHaveBeenCalled()
+      expect(stripeService.createPortalSession).not.toHaveBeenCalled()
     })
   })
 
