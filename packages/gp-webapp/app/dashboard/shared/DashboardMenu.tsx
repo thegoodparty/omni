@@ -108,9 +108,9 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickDashboard),
   },
   {
-    label: 'Voter Outreach',
+    label: NAV_LABELS.voterOutreach,
     icon: <MdMessage />,
-    v2Icon: Send,
+    v2Icon: NAV_HEADER_ICONS.send,
     v2Category: 'campaign',
     link: '/dashboard/outreach',
     id: 'outreach-dashboard',

@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
+import { NAV_LABELS } from 'app/dashboard/shared/navLabels'
 import {
   OutreachProvider,
   useOutreach,
@@ -118,7 +119,11 @@ export const OutreachHubPage = ({
 
   return (
     <OutreachProvider initValue={outreaches}>
-      <DashboardLayout pathname={pathname} campaign={campaign}>
+      <DashboardLayout
+        pathname={pathname}
+        campaign={campaign}
+        navHeader={{ icon: 'send', label: NAV_LABELS.voterOutreach }}
+      >
         <OutreachHubContent
           {...{ tcrCompliance, preselectedListId, initialOutreachId }}
         />
