@@ -116,10 +116,28 @@ adding another event type cannot fix it. The fix is to stop relying on being tol
 
 `handle_sweep` runs on a schedule (`rate(15 minutes)`, EventBridge → the same
 Lambda with `{"gpbot_sweep": true}`), lists tasks tagged `gpbot-analyze` updated in
-the last `SWEEP_LOOKBACK_HOURS`, and offers each one to
-`dedup_check_then_trigger`. It is safe to re-offer everything on every pass
-because dedup, not the sweep, decides what runs — the ack-comment check and the
-DynamoDB conditional write both still apply.
+the last `SWEEP_LOOKBACK_HOURS`, and triggers the ones the bot has never spoken on.
+
+### Why the sweep needs its own idempotency
+
+**Do not let the sweep rely on the ordinary dedup layers.** Both of them expire
+after ~15 minutes *on purpose* — their job is to absorb retry storms while
+leaving a deliberate human re-tag free to re-run hours later (see
+`DEFAULT_DEDUP_COMMENT_WINDOW_SECONDS`). A 15-minute schedule against a 24-hour
+window would therefore re-analyze every ticket in the window on nearly every
+pass: ~96 agent runs per ticket per day, at $1.73–$4.79 each.
+
+So the sweep asks a different question and needs a permanent answer:
+`has_any_bot_comment` — *has this bot ever spoken on this ticket?* Unwindowed, so
+a ticket analyzed a month ago still counts as handled. The 15-minute layers still
+run underneath as the concurrency guard.
+
+The two checks fail in opposite directions, deliberately:
+
+| Check | On an unreadable comment | Why |
+|---|---|---|
+| `has_processing_started_comment` | does **not** block | A drift must not permanently disable re-tag re-runs; the DynamoDB layer still guards duplicates |
+| `sweep_should_skip` | **skips** | Guessing "not yet analyzed" on a schedule turns one ClickUp blip into a recurring charge. The webhook is still the primary path and the next sweep retries in 15 minutes |
 
 This also covers the worst failure this system has had. A webhook ClickUp suspends
 stops delivering **silently**, as it did from 2026-07-31 to 2026-08-14 while every
@@ -128,6 +146,7 @@ dashboard read healthy. A schedule cannot be unsubscribed, so that outage become
 
 | Guard | Why |
 |---|---|
+| `has_any_bot_comment` (permanent) | The load-bearing one. A ticket the bot has ever commented on is never swept again — see above |
 | `SWEEP_LOOKBACK_HOURS` (default 24) | ~170 tickets already carry this tag. Without a window the first sweep would re-analyze bugs closed months ago at ~$4 each |
 | `SWEEP_MAX_TRIGGERS` (default 5) | Bounds the spend of any single pass. Hitting it logs `ERROR` and defers the rest to the next sweep |
 | `include_closed=false` | Closed tickets are settled work |

@@ -3221,3 +3221,137 @@ def test_listing_asks_clickup_for_the_right_window(monkeypatch):
     assert "gpbot-analyze" in captured["endpoint"]
     # Closed tickets are settled work; re-analyzing them is pure spend.
     assert "include_closed=false" in captured["endpoint"]
+
+
+# ---------------------------------------------------------------------------
+# 25. The sweep's PERMANENT idempotency.
+#
+# The most expensive way to get this wrong. Both ordinary dedup layers expire
+# after ~15 minutes by design, so that a human re-tagging hours later re-runs.
+# The sweep runs every 15 minutes over a 24h window, so if it leaned on those
+# layers it would re-analyze every ticket in the window on nearly every pass —
+# ~96 agent runs per ticket per day. These tests pin the separate, unwindowed
+# check that makes a scheduled re-offer safe.
+# ---------------------------------------------------------------------------
+
+
+def bot_comment(text="[GP-Bot] Analysis complete", age_seconds=86400):
+    return {"comment_text": text, "date": str(int((time.time() - age_seconds) * 1000))}
+
+
+def human_comment(text="Any update on this?"):
+    return {"comment_text": text, "date": str(int(time.time() * 1000))}
+
+
+@pytest.fixture
+def sweep_comments(monkeypatch):
+    """Controls what get_task_comments returns per task id."""
+    by_task = {}
+    monkeypatch.setattr(handler, "get_task_comments", lambda tid: by_task.get(tid, []))
+    return by_task
+
+
+def test_a_ticket_analyzed_yesterday_is_never_swept_again(monkeypatch, sweep_calls, sweep_comments):
+    # The runaway-cost case. The bot's comment is a day old, so BOTH ordinary
+    # dedup layers have long expired and would happily re-run it.
+    sweep_comments["old"] = [bot_comment(age_seconds=86400)]
+    stub_listing(monkeypatch, [{"id": "old"}])
+
+    resp = handler.handler(sweep_event(), None)
+
+    assert sweep_calls == []
+    assert json.loads(resp["body"]) == {"swept": 1, "triggered": 0, "skipped": 1}
+
+
+def test_repeated_sweeps_of_an_analyzed_ticket_never_re_run_it(monkeypatch, sweep_calls, sweep_comments):
+    # Simulates a day of sweeps against a stable window.
+    sweep_comments["old"] = [bot_comment(age_seconds=86400)]
+    stub_listing(monkeypatch, [{"id": "old"}])
+
+    for _ in range(96):
+        handler.handler(sweep_event(), None)
+
+    assert sweep_calls == []
+
+
+def test_a_ticket_the_bot_has_never_touched_is_swept(monkeypatch, sweep_calls, sweep_comments):
+    # The whole point: DATA-2336 got no delivery, so nobody ever looked at it.
+    sweep_comments["never-seen"] = [human_comment()]
+    stub_listing(monkeypatch, [{"id": "never-seen"}])
+
+    handler.handler(sweep_event(), None)
+
+    assert [c[0] for c in sweep_calls] == ["never-seen"]
+
+
+def test_an_in_flight_run_is_not_duplicated_by_the_sweep(monkeypatch, sweep_calls, sweep_comments):
+    # The webhook fired two minutes ago and the agent has posted its ack. The
+    # sweep must not start a second agent on the same ticket.
+    sweep_comments["running"] = [bot_comment(text="[GP-Bot] Processing started (analyze)", age_seconds=120)]
+    stub_listing(monkeypatch, [{"id": "running"}])
+
+    handler.handler(sweep_event(), None)
+
+    assert sweep_calls == []
+
+
+def test_unreadable_comments_skip_rather_than_risk_a_repeating_charge(monkeypatch, sweep_calls):
+    # Fail CLOSED here specifically: guessing "not analyzed" on a schedule is
+    # how one ClickUp blip becomes a recurring bill. The webhook is still the
+    # primary path and the next sweep retries.
+    def boom(task_id):
+        raise RuntimeError("clickup blip")
+
+    monkeypatch.setattr(handler, "get_task_comments", boom)
+    stub_listing(monkeypatch, [{"id": "unknown"}])
+
+    resp = handler.handler(sweep_event(), None)
+
+    assert sweep_calls == []
+    assert json.loads(resp["body"])["skipped"] == 1
+
+
+def test_skipped_tickets_do_not_consume_the_trigger_cap(monkeypatch, sweep_calls, sweep_comments):
+    monkeypatch.setenv("SWEEP_MAX_TRIGGERS", "1")
+    sweep_comments.update({"a": [bot_comment()], "b": [bot_comment()], "c": [human_comment()]})
+    stub_listing(monkeypatch, [{"id": "a"}, {"id": "b"}, {"id": "c"}])
+
+    handler.handler(sweep_event(), None)
+
+    assert [c[0] for c in sweep_calls] == ["c"]
+
+
+@pytest.mark.parametrize(
+    "comments,expected",
+    [
+        ([], False),
+        ([human_comment()], False),
+        ([{"comment_text": "[GP-Bot] Analysis"}], True),
+        ([{"comment_text": "[GP-Bot] Processing started (analyze)"}], True),
+        ([{"comment_text": "[GP-Bot] Failed to start processing: boom"}], True),
+        # Text living only in the items array, the shape that broke dedup in the
+        # 2026-07-14 incident.
+        ([{"comment": [{"text": "[GP-Bot] Analysis"}]}], True),
+        ([{"comment": [{"text": "[GP-"}, {"text": "Bot] Analysis"}]}], True),
+        # Null-ish shapes must not crash, and must not be read as a bot comment.
+        ([{"comment_text": None, "comment": [{"text": None}]}], False),
+        ([{"comment_text": "", "comment": []}], False),
+        ([None], False),
+        (["not-a-dict"], False),
+        ([{"comment": [None, {"text": "[GP-Bot] hi"}]}], True),
+        # A human quoting the bot is indistinguishable from the bot, and that is
+        # the safe direction: at worst one ticket waits for the webhook.
+        ([{"comment_text": "the [GP-Bot] comment above is wrong"}], True),
+    ],
+)
+def test_has_any_bot_comment_shape_tolerance(comments, expected):
+    assert handler.has_any_bot_comment(comments) is expected
+
+
+def test_the_permanent_check_is_unwindowed_unlike_the_dedup_layers():
+    # Pins the distinction itself: a marker far older than the dedup window
+    # still counts here, and does not count there.
+    ancient = [bot_comment(text="[GP-Bot] Processing started (analyze)", age_seconds=30 * 86400)]
+
+    assert handler.has_any_bot_comment(ancient) is True
+    assert handler.has_processing_started_comment(ancient, "analyze") is False

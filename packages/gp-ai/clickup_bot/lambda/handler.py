@@ -1080,6 +1080,55 @@ def handle_async_processing(event: dict) -> dict:
         return {"statusCode": 500, "body": json.dumps({"error": "async processing failed"})}
 
 
+def has_any_bot_comment(comments: list[dict]) -> bool:
+    """Has this bot EVER spoken on this ticket?
+
+    Deliberately unwindowed, unlike has_processing_started_comment. Both dedup
+    layers expire after ~15 minutes on purpose, because their job is to absorb
+    retry storms while leaving a deliberate human re-tag free to re-run. The
+    sweep runs on a 15-minute schedule against a 24-hour window, so leaning on
+    those layers would re-analyze every ticket in the window on nearly every
+    pass — roughly 96 runs per ticket per day at agent prices.
+
+    The sweep asks a different question, and needs a permanent answer: "has
+    anyone ever looked at this?" A ticket the bot has commented on has been
+    handled, whether that was ten minutes or ten days ago.
+
+    Fails toward NOT skipping on an unreadable comment shape, which costs at
+    most a duplicate run that the 15-minute layers still catch — the opposite
+    failure would make the sweep silently stop rescuing dropped tickets, which
+    is the entire reason it exists.
+    """
+    for comment in comments:
+        if not isinstance(comment, dict):
+            continue
+        comment_text = comment.get("comment_text")
+        if not isinstance(comment_text, str) or not comment_text:
+            # Same two-shape tolerance as has_processing_started_comment; see
+            # the SHAPE CONTRACT note there.
+            comment_text = "".join(
+                item["text"] if isinstance(item.get("text"), str) else ""
+                for item in comment.get("comment", [])
+                if isinstance(item, dict)
+            )
+        if BOT_PREFIX in comment_text:
+            return True
+    return False
+
+
+def sweep_should_skip(task_id: str) -> bool:
+    try:
+        return has_any_bot_comment(get_task_comments(task_id))
+    except Exception as e:
+        # FAIL CLOSED, unlike most of this handler. An unreadable comment list
+        # means we cannot tell whether this ticket was already analyzed, and
+        # guessing "no" on a schedule is how a single ClickUp blip turns into a
+        # repeating charge. The webhook remains the primary path, and the next
+        # sweep retries in 15 minutes.
+        print(f"Failed to read comments for {task_id} during sweep, skipping this pass: {e}")
+        return True
+
+
 def launched_a_run(result: Any) -> bool:
     # Did dedup_check_then_trigger actually start an agent, or did it decline?
     # Every decline path returns a "skipped" key; only a real launch does not.
@@ -1132,6 +1181,12 @@ def handle_sweep(event: dict) -> dict:
             # claim what it starts and is looping over the same backlog.
             print(f"ERROR: Sweep hit its cap of {cap} triggers; {len(tasks)} candidates in window, remainder deferred")
             break
+        # PERMANENT idempotency, checked before the 15-minute layers get a say.
+        # See has_any_bot_comment: without this the sweep re-runs its whole
+        # window every pass.
+        if sweep_should_skip(task_id):
+            skipped += 1
+            continue
         try:
             result = dedup_check_then_trigger(task_id, SWEEP_TAG, from_async_worker=True)
         except Exception as e:
