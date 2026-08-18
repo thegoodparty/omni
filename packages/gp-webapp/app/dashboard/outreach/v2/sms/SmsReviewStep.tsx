@@ -132,6 +132,7 @@ export const SmsReviewStep = ({
   return (
     <div className="space-y-6">
       <Intro
+        channel="text"
         title="Review & pay"
         body="Review your campaign details and complete your payment."
       />
