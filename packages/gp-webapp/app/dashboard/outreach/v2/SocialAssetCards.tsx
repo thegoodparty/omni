@@ -137,11 +137,9 @@ const ScriptCard = ({ asset }: { asset: SocialAsset }) => {
       {manualCopyText !== null ? (
         <ManualCopyField text={manualCopyText} />
       ) : (
-        <div className="rounded-2xl bg-muted p-5">
-          <p className="text-lg leading-8 font-medium whitespace-pre-wrap text-foreground">
-            {asset.text}
-          </p>
-        </div>
+        <p className="text-sm leading-6 whitespace-pre-wrap text-foreground">
+          {asset.text}
+        </p>
       )}
 
       {asset.caption && (

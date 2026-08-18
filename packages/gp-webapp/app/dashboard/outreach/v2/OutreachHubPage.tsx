@@ -76,7 +76,7 @@ const OutreachHubContent = ({
   }, [initialOutreachId, outreaches, router])
 
   return (
-    <div className="p-4 lg:p-6">
+    <div className="mx-auto w-full max-w-7xl p-4 lg:p-6">
       <ChannelTileGrid
         tcrCompliance={tcrCompliance}
         preselectedListId={preselectedListId}

@@ -94,9 +94,23 @@ export const OutreachFlowShell = ({
         header={
           <>
             {/* Prototype header anatomy: desktop back floats left of the
-                608px column; mobile keeps a fixed icon slot so the title
-                doesn't shift between steps. */}
-            <div className="relative flex items-center gap-2 lg:block">
+                608px column; mobile puts back on its own row above the
+                title, level with the sheet's X close. The row is always
+                reserved so the title doesn't shift between steps. */}
+            <div className="mb-2 h-8 lg:hidden">
+              {onBack && (
+                <IconButton
+                  type="button"
+                  variant="outline"
+                  size="small"
+                  aria-label="Back"
+                  onClick={onBack}
+                >
+                  <ArrowLeftIcon className="size-4" />
+                </IconButton>
+              )}
+            </div>
+            <div className="relative">
               {onBack && (
                 <div className="absolute top-1/2 right-full mr-9 hidden -translate-y-1/2 lg:block">
                   <Button
@@ -110,20 +124,7 @@ export const OutreachFlowShell = ({
                   </Button>
                 </div>
               )}
-              <div className="size-8 shrink-0 lg:hidden">
-                {onBack && (
-                  <IconButton
-                    type="button"
-                    variant="outline"
-                    size="small"
-                    aria-label="Back"
-                    onClick={onBack}
-                  >
-                    <ArrowLeftIcon className="size-4" />
-                  </IconButton>
-                )}
-              </div>
-              <DrawerTitle className="min-w-0 flex-1 truncate pr-8 text-base font-semibold lg:pr-0">
+              <DrawerTitle className="min-w-0 truncate text-base font-semibold">
                 {title}
               </DrawerTitle>
             </div>
