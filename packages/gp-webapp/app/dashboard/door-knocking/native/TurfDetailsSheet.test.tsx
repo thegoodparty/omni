@@ -89,7 +89,6 @@ const routeWithDoors: DoorKnockingRoutePayload = {
       displayAddress: '105 Elm St',
       legSeconds: 0,
       legMeters: 0,
-      knockStatus: 'unknown',
       addresses: [
         {
           addressKey: '105|elm|st|1',
@@ -215,7 +214,6 @@ describe('TurfDetailsSheet delete', () => {
             displayAddress: '105 Elm St',
             legSeconds: 0,
             legMeters: 0,
-            knockStatus: 'supporter',
             addresses: [
               {
                 addressKey: '105|elm|st',

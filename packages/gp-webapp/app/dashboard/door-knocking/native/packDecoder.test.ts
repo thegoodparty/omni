@@ -113,13 +113,13 @@ describe('runFilter + polygonStats', () => {
     const pack = decodePack(buildFixture())
 
     const all = runFilter(pack, new Map())
-    expect(all).toMatchObject({ people: 4, households: 3, dots: 2 })
+    expect(all).toMatchObject({ people: 4, households: 3 })
     // Dot 0 holds a supporter (byte 2) and unknowns — most actionable wins.
     expect(all.statusPerDot[0]).toBe(0)
 
     const demsOnly: DimSelections = new Map([['party', new Set([1])]])
     const filtered = runFilter(pack, demsOnly)
-    expect(filtered).toMatchObject({ people: 1, households: 1, dots: 1 })
+    expect(filtered).toMatchObject({ people: 1, households: 1 })
     expect(filtered.matchedPerDot[0]).toBe(1)
     expect(filtered.matchedPerDot[1]).toBe(0)
     // The only matched person at dot 0 is the supporter now.
@@ -185,12 +185,8 @@ describe('polygonStats', () => {
     const stats = polygonStats(pack, demsOnly, dotZeroRing)
 
     // Only person 0 is Democratic, and they live in household 0 — so the
-    // Republican's household 1 at the same dot must not be counted. That is
-    // stricter than maskToPolygon's dot-granular rollup, which returns 2 here.
+    // Republican's household 1 at the same dot must not be counted.
     expect(stats).toMatchObject({ stops: 1, people: 1, households: 1 })
-    expect(
-      maskToPolygon(pack, runFilter(pack, demsOnly), dotZeroRing).households,
-    ).toBe(2)
   })
 
   it('breaks the ring down by party, biggest bucket first', () => {
@@ -328,7 +324,7 @@ describe('maskToPolygon', () => {
 
     expect(masked.matchedPerDot[0]).toBe(all.matchedPerDot[0])
     expect(masked.matchedPerDot[1]).toBe(0)
-    expect(masked).toMatchObject({ people: 3, dots: 1 })
+    expect(masked.people).toBe(3)
     // Statuses survive for kept dots and reset to the 255 sentinel otherwise,
     // so the excluded dot renders as absent rather than as 'unknown' (0).
     expect(masked.statusPerDot[0]).toBe(all.statusPerDot[0])
@@ -353,7 +349,7 @@ describe('maskToPolygon', () => {
 
     expect(masked.matchedPerDot[0]).toBe(all.matchedPerDot[0])
     expect(masked.matchedPerDot[1]).toBe(0)
-    expect(masked).toMatchObject({ people: 3, dots: 1 })
+    expect(masked.people).toBe(3)
   })
 
   it('zeroes everything when the ring encloses no dot', () => {
@@ -369,23 +365,22 @@ describe('maskToPolygon', () => {
     ]
     const masked = maskToPolygon(pack, all, elsewhere)
 
-    expect(masked).toMatchObject({ people: 0, households: 0, dots: 0 })
+    expect(masked.people).toBe(0)
     expect(Array.from(masked.matchedPerDot)).toEqual([0, 0])
   })
 
-  it('counts every household at a kept dot, overcounting by design', () => {
+  // The rail prints `people` and nothing else off a masked result, so the mask
+  // carries no household count at all rather than a dot-granular approximation
+  // of one that only looked maintained.
+  it('carries no household count', () => {
     const pack = decodePack(buildFixture())
-    // Only person 0 (Democratic) matches, and person 0 lives in household 0.
     const demsOnly: DimSelections = new Map([['party', new Set([1])]])
     const filtered = runFilter(pack, demsOnly)
     expect(filtered.households).toBe(1)
 
     const masked = maskToPolygon(pack, filtered, dotZeroRing)
 
-    // Households 0 and 1 both sit at dot 0, so the dot-granular rollup returns
-    // 2 where runFilter's person-level pass returns 1. This is the documented
-    // approximation for the rail readout — knock-time evaluation is canonical.
-    expect(masked.households).toBe(2)
+    expect(masked.households).toBeUndefined()
     expect(masked.people).toBe(1)
   })
 })

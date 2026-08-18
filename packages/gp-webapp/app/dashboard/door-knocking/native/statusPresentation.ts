@@ -46,9 +46,10 @@ export const STATUS_DOT_COLORS: Record<DoorKnockStatus, string> =
     ]),
   ) as Record<DoorKnockStatus, string>
 
-// Most-actionable-first rollup, mirroring the server's rollupStopStatus:
-// an 'unknown' person keeps the whole stop knockable, and an empty stop
-// rolls up to 'unknown' — no seed value, so no divergence from the server.
+// Most-actionable-first rollup, and the only one: an 'unknown' person keeps the
+// whole stop knockable, and an empty stop rolls up to 'unknown'. The ranking is
+// `DOOR_KNOCK_STATUSES`' own order rather than a second table beside it, so a
+// status added to the vocabulary cannot arrive unranked.
 const rollupStatuses = (statuses: DoorKnockStatus[]): DoorKnockStatus =>
   statuses.length === 0
     ? 'unknown'

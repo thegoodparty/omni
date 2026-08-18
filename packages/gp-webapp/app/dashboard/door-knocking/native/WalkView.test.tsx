@@ -40,7 +40,6 @@ const routePayload: DoorKnockingRoutePayload = {
       displayAddress: '210 Cedar Row',
       legSeconds: 300,
       legMeters: 380,
-      knockStatus: 'supporter',
       addresses: [
         {
           addressKey: '210|cedar|row',
@@ -71,7 +70,6 @@ const routePayload: DoorKnockingRoutePayload = {
       displayAddress: '105 Elm St',
       legSeconds: 0,
       legMeters: 0,
-      knockStatus: 'unknown',
       addresses: [
         {
           addressKey: '105|elm|st',
@@ -950,7 +948,6 @@ describe('WalkView auto-advance', () => {
     displayAddress: address,
     legSeconds: 0,
     legMeters: 0,
-    knockStatus: 'unknown' as const,
     addresses: [
       {
         addressKey: address.toLowerCase().replaceAll(' ', '|'),

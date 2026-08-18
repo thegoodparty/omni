@@ -35,7 +35,6 @@ const stop = (targets: RoutePayloadTarget[]): RoutePayloadStop => ({
   displayAddress: '105 Elm St',
   legSeconds: 0,
   legMeters: 0,
-  knockStatus: 'unknown',
   addresses: [
     {
       addressKey: '105|elm|st',
@@ -71,8 +70,28 @@ describe('rollupStopStatus', () => {
     expect(rollupStopStatus(stop([]))).toBe('unknown')
   })
 
-  // ADR 0008 makes the same claim as 0007 about this rollup, and gp-api's serve
-  // service says the webapp's rollup drops both fields — it now does.
+  // gp-api used to ship its own stop rollup on the route payload and pinned
+  // this order in a hand-written rank map; that copy is gone, so this is the
+  // only place the order is asserted. Here it IS `DOOR_KNOCK_STATUSES`, so a
+  // status added to the contract without a decision about where it ranks
+  // surfaces as a failure rather than as a silently grey stop.
+  it('ranks the whole vocabulary most-actionable first', () => {
+    expect(
+      rollupStopStatus(stop([target('refused'), target('not_home')])),
+    ).toBe('not_home')
+    expect(
+      rollupStopStatus(stop([target('refused'), target('supporter')])),
+    ).toBe('supporter')
+    expect(
+      rollupStopStatus(stop([target('refused'), target('non_supporter')])),
+    ).toBe('non_supporter')
+    expect(
+      rollupStopStatus(stop([target('not_a_voter'), target('inaccessible')])),
+    ).toBe('inaccessible')
+  })
+
+  // ADR 0008 makes the same claim as 0007 about this rollup: both flags remove a
+  // resident from it, which is one predicate (`isKnockable`) and not two rules.
   it('ignores a resident flagged with a reason', () => {
     const moved = { ...target('unknown'), notAVoterReason: 'moved' as const }
     expect(rollupStopStatus(stop([moved, target('supporter')]))).toBe(

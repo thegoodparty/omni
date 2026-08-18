@@ -10,7 +10,6 @@ import {
   ParseIntPipe,
   Post,
   Put,
-  Query,
   StreamableFile,
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
@@ -80,15 +79,16 @@ export class DoorKnockingController {
   @Get('turfs')
   @UseOrganization()
   @ResponseSchema(z.array(DoorKnockingTurfSchema))
-  async listTurfs(
-    @ReqOrganization() organization: Organization,
-    @Query('voterFileFilterId', new ParseIntPipe({ optional: true }))
-    voterFileFilterId?: number,
-  ) {
+  async listTurfs(@ReqOrganization() organization: Organization) {
     await this.contacts.assertProAccess(organization)
-    return this.turfService.list(organization.slug, voterFileFilterId)
+    return this.turfService.list(organization.slug)
   }
 
+  // No webapp caller and none wanted: the rail lists every turf at once, so a
+  // single-turf read has no surface. It is not orphaned — the routes suite reads
+  // `locked` back through it (derived, so there is no column to query instead)
+  // and the print-walk-list e2e spec uses it as the control proving a turf
+  // exists before asserting the print route 404s on a missing route.
   @Get('turfs/:id')
   @UseOrganization()
   @ResponseSchema(DoorKnockingTurfSchema)
