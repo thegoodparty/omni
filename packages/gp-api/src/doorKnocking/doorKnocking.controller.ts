@@ -41,6 +41,7 @@ import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.deco
 import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
 import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
+import { ContactsService } from '@/contacts/services/contacts.service'
 import { Campaign, Organization, User } from '../generated/prisma'
 import { DoorKnockingTurfService } from './services/doorKnockingTurf.service'
 import { DoorKnockingKnockService } from './services/doorKnockingKnock.service'
@@ -48,6 +49,11 @@ import { DoorKnockingServeService } from './services/doorKnockingServe.service'
 import { DoorKnockingInteractionService } from './services/doorKnockingInteraction.service'
 import { DoorKnockingPackService } from './services/doorKnockingPack.service'
 
+// Every route here is Pro-gated through ContactsService.assertProAccess — the
+// CRM's own predicate, so an `eo-` (Serve) org keeps access without isPro —
+// EXCEPT the two suppression writes below. Reads are gated alongside the
+// writes: a map you can open but cannot route is a worse answer than an
+// upgrade prompt, and each knock spends real Geoapify routing credits.
 @Controller('door-knocking')
 export class DoorKnockingController {
   constructor(
@@ -56,49 +62,54 @@ export class DoorKnockingController {
     private readonly serveService: DoorKnockingServeService,
     private readonly interactionService: DoorKnockingInteractionService,
     private readonly packService: DoorKnockingPackService,
+    private readonly contacts: ContactsService,
   ) {}
 
   @Post('turfs')
   @UseOrganization()
   @ResponseSchema(DoorKnockingTurfSchema)
-  createTurf(
+  async createTurf(
     @ReqOrganization() organization: Organization,
     @Body(new ZodValidationPipe(CreateDoorKnockingTurfSchema))
     input: CreateDoorKnockingTurf,
   ) {
+    await this.contacts.assertProAccess(organization)
     return this.turfService.create(organization.slug, input)
   }
 
   @Get('turfs')
   @UseOrganization()
   @ResponseSchema(z.array(DoorKnockingTurfSchema))
-  listTurfs(
+  async listTurfs(
     @ReqOrganization() organization: Organization,
     @Query('voterFileFilterId', new ParseIntPipe({ optional: true }))
     voterFileFilterId?: number,
   ) {
+    await this.contacts.assertProAccess(organization)
     return this.turfService.list(organization.slug, voterFileFilterId)
   }
 
   @Get('turfs/:id')
   @UseOrganization()
   @ResponseSchema(DoorKnockingTurfSchema)
-  getTurf(
+  async getTurf(
     @Param('id', ParseIntPipe) id: number,
     @ReqOrganization() organization: Organization,
   ) {
+    await this.contacts.assertProAccess(organization)
     return this.turfService.get(id, organization.slug)
   }
 
   @Put('turfs/:id')
   @UseOrganization()
   @ResponseSchema(DoorKnockingTurfSchema)
-  updateTurf(
+  async updateTurf(
     @Param('id', ParseIntPipe) id: number,
     @ReqOrganization() organization: Organization,
     @Body(new ZodValidationPipe(UpdateDoorKnockingTurfSchema))
     input: UpdateDoorKnockingTurf,
   ) {
+    await this.contacts.assertProAccess(organization)
     return this.turfService.update(id, organization.slug, input)
   }
 
@@ -109,16 +120,18 @@ export class DoorKnockingController {
     @Param('id', ParseIntPipe) id: number,
     @ReqOrganization() organization: Organization,
   ) {
+    await this.contacts.assertProAccess(organization)
     await this.turfService.delete(id, organization.slug)
   }
 
   @Get('turfs/:id/route')
   @UseOrganization()
   @ResponseSchema(DoorKnockingRoutePayloadSchema)
-  serveRoute(
+  async serveRoute(
     @Param('id', ParseIntPipe) id: number,
     @ReqOrganization() organization: Organization,
   ) {
+    await this.contacts.assertProAccess(organization)
     return this.serveService.serve(id, organization)
   }
 
@@ -126,23 +139,28 @@ export class DoorKnockingController {
   @UseOrganization()
   @Header('Content-Type', 'application/octet-stream')
   async pack(@ReqOrganization() organization: Organization) {
+    await this.contacts.assertProAccess(organization)
     return new StreamableFile(await this.packService.build(organization))
   }
 
   @Post('interactions')
   @UseOrganization()
   @ResponseSchema(RecordDoorKnockInteractionResponseSchema)
-  recordInteraction(
+  async recordInteraction(
     @ReqOrganization() organization: Organization,
     @Body(new ZodValidationPipe(RecordDoorKnockInteractionSchema))
     input: RecordDoorKnockInteraction,
   ) {
+    await this.contacts.assertProAccess(organization)
     return this.interactionService.record(organization, input)
   }
 
-  // ADR 0007. Deliberately not the CRM's PATCH /contacts/:personId/status,
-  // which is Pro-gated — the flagged pilot is not, and a candidate who cannot
-  // honor "don't come back" is worse than one who never had the button.
+  // ADR 0007, and the first of the two deliberate holes in the Pro gate above.
+  // Deliberately not the CRM's PATCH /contacts/:personId/status, which is
+  // Pro-gated — a candidate who cannot honor "don't come back" is worse than
+  // one who never had the button, so suppression outlives the entitlement: if
+  // an org lapses mid-pilot it must still be able to record a refusal to
+  // return, even though every other route here now 400s for it.
   @Post('do-not-knock')
   @UseOrganization()
   @ResponseSchema(SetDoNotKnockResponseSchema)
@@ -155,9 +173,11 @@ export class DoorKnockingController {
     return this.interactionService.setDoNotKnock(organization, user.id, input)
   }
 
-  // ADR 0008. Ungated alongside the rest of the pilot, same as do-not-knock:
-  // the reason a door is wrong is worth capturing from whoever is standing at
-  // it.
+  // ADR 0008, and the second hole. Ungated for the same reason as
+  // do-not-knock: the reason a door is wrong is worth capturing from whoever
+  // is standing at it, and "moved" / "deceased" suppress future evaluation the
+  // same way a refusal does. Both are instructions about a door rather than
+  // work a subscription buys.
   @Post('not-a-voter')
   @UseOrganization()
   @ResponseSchema(SetNotAVoterResponseSchema)
@@ -174,13 +194,14 @@ export class DoorKnockingController {
   @UseOrganization()
   @UseCampaign({ continueIfNotFound: true })
   @ResponseSchema(DoorKnockingKnockResponseSchema)
-  knock(
+  async knock(
     @Param('id', ParseIntPipe) id: number,
     @ReqOrganization() organization: Organization,
     @ReqCampaign() campaign: Campaign | null,
     @Body(new ZodValidationPipe(DoorKnockingKnockRequestSchema))
     request: DoorKnockingKnockRequest,
   ) {
+    await this.contacts.assertProAccess(organization)
     return this.knockService.knock(id, organization, campaign, request)
   }
 }
