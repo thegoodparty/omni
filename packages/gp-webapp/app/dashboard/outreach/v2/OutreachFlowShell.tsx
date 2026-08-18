@@ -74,10 +74,10 @@ export const OutreachFlowShell = ({
 
   const requestClose = (nextOpen: boolean) => {
     if (nextOpen) return
-    // While the discard confirm is up, every pointerdown on it lands
-    // OUTSIDE the vaul drawer's content, so the drawer fires another
-    // dismiss — un-swallowed, that re-opened the confirm the instant
-    // "Keep editing" closed it, an infinite loop on real pointers.
+    // Outside-interaction dismissal is prevented at the sheet
+    // (OutreachSheet's onInteractOutside), so this only sees Close /
+    // Escape / drag. Still ignore any dismiss while the confirm is up —
+    // reopening it from under itself is never right.
     if (confirmOpen) return
     if (dirty) {
       setConfirmOpen(true)

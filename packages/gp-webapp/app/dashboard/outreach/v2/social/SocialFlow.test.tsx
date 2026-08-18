@@ -277,6 +277,15 @@ describe('SocialFlow', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
     expect(screen.queryByText('Discard changes?')).not.toBeInTheDocument()
 
+    // The confirm's pointerdown lands outside the vaul content, and Radix
+    // re-delivers it to the drawer's dismissable layer AFTER the confirm
+    // closes — the sheet must ignore outside interactions entirely or Keep
+    // editing re-opens the confirm forever (validated against real Chrome).
+    fireEvent.pointerDown(document.body)
+    fireEvent.click(document.body)
+    expect(screen.queryByText('Discard changes?')).not.toBeInTheDocument()
+    expect(onClose).toHaveBeenCalledTimes(1)
+
     // Discard actually closes.
     await user.keyboard('{Escape}')
     await user.click(await screen.findByRole('button', { name: 'Discard' }))

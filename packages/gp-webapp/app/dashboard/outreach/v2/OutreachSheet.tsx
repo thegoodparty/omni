@@ -45,6 +45,13 @@ export const OutreachSheet = ({
     <DrawerContent
       className="h-[calc(100dvh-4rem)] w-full data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:max-h-[calc(100dvh-4rem)] data-[vaul-drawer-direction=bottom]:rounded-t-[10px] lg:h-[calc(100dvh-8rem)] lg:data-[vaul-drawer-direction=bottom]:max-h-[calc(100dvh-8rem)]"
       closeClassName={headerless ? 'top-2 right-2 size-10' : 'hidden'}
+      // Never dismiss on outside interactions: clicking inside the discard
+      // confirm counts as "outside" this content, and Radix re-delivers that
+      // pointerdown to this layer AFTER the confirm closes — un-prevented,
+      // that deferred dismiss re-opened the confirm forever ("Keep editing"
+      // could never close it). Close/Escape/drag still dismiss through
+      // onOpenChange, where the flow shell runs its dirty-close confirm.
+      onInteractOutside={(e) => e.preventDefault()}
     >
       <DrawerHandle />
       <DrawerHeader
