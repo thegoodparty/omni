@@ -3034,7 +3034,7 @@ def stub_listing(monkeypatch, tasks):
     monkeypatch.setattr(handler, "list_recently_updated_tagged_tasks", lambda tag, since: tasks)
 
 
-def test_sweep_triggers_a_tagged_task_the_webhook_never_delivered(monkeypatch, sweep_calls):
+def test_sweep_triggers_a_tagged_task_the_webhook_never_delivered(monkeypatch, sweep_calls, sweep_comments):
     stub_listing(monkeypatch, [{"id": "86ak1w3tn"}])
 
     resp = handler.handler(sweep_event(), None)
@@ -3046,7 +3046,7 @@ def test_sweep_triggers_a_tagged_task_the_webhook_never_delivered(monkeypatch, s
     assert sweep_calls == [("86ak1w3tn", handler.ANALYZE_TAG, True)]
 
 
-def test_sweep_only_ever_asks_for_analyze(monkeypatch, sweep_calls):
+def test_sweep_only_ever_asks_for_analyze(monkeypatch, sweep_calls, sweep_comments):
     # gpbot-work opens a PR, and the gap being patched does not apply to it:
     # hand-tagging and the escalation's own API write both fire taskTagUpdated
     # normally. A sweep for it would be a second, less-scrutinised route to
@@ -3059,7 +3059,7 @@ def test_sweep_only_ever_asks_for_analyze(monkeypatch, sweep_calls):
     assert handler.SWEEP_TAG == "gpbot-analyze"
 
 
-def test_sweep_is_idempotent_because_dedup_declines(monkeypatch):
+def test_sweep_is_idempotent_because_dedup_declines(monkeypatch, sweep_comments):
     # The whole safety argument: the sweep re-offers everything in its window on
     # every run, and dedup is what makes that harmless.
     monkeypatch.setattr(handler, "list_recently_updated_tagged_tasks", lambda tag, since: [{"id": "a"}, {"id": "b"}])
@@ -3071,7 +3071,7 @@ def test_sweep_is_idempotent_because_dedup_declines(monkeypatch):
     assert body == {"swept": 2, "triggered": 0, "skipped": 2}
 
 
-def test_sweep_caps_how_many_runs_one_pass_can_start(monkeypatch, sweep_calls):
+def test_sweep_caps_how_many_runs_one_pass_can_start(monkeypatch, sweep_calls, sweep_comments):
     # Each trigger is a real agent run costing real money. A bulk re-tag must
     # not turn into an unbounded spend.
     monkeypatch.setenv("SWEEP_MAX_TRIGGERS", "2")
@@ -3083,7 +3083,7 @@ def test_sweep_caps_how_many_runs_one_pass_can_start(monkeypatch, sweep_calls):
     assert json.loads(resp["body"])["triggered"] == 2
 
 
-def test_declined_tasks_do_not_consume_the_cap(monkeypatch):
+def test_declined_tasks_do_not_consume_the_cap(monkeypatch, sweep_comments):
     # A window full of already-handled tickets must not starve the one ticket
     # that still needs a run.
     monkeypatch.setenv("SWEEP_MAX_TRIGGERS", "1")
@@ -3101,7 +3101,7 @@ def test_declined_tasks_do_not_consume_the_cap(monkeypatch):
     assert "needs-run" in seen
 
 
-def test_one_bad_task_does_not_end_the_sweep(monkeypatch):
+def test_one_bad_task_does_not_end_the_sweep(monkeypatch, sweep_comments):
     # The next ticket may be the bug nobody has looked at.
     seen = []
 
@@ -3226,6 +3226,10 @@ def test_listing_asks_clickup_for_the_right_window(monkeypatch):
     assert "tags[]=gpbot-analyze" in captured["endpoint"]
     # Closed tickets are settled work; re-analyzing them is pure spend.
     assert "include_closed=false" in captured["endpoint"]
+    # ClickUp omits subtasks unless asked. Dropping this would make the sweep
+    # silently blind to any gpbot-analyze ticket filed as a subtask — and
+    # ClickUp ignores unrecognized parameters, so nothing would report it.
+    assert "subtasks=true" in captured["endpoint"]
 
 
 def test_listing_follows_pagination_until_a_short_page(monkeypatch):
