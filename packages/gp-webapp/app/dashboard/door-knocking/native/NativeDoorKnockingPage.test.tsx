@@ -1,6 +1,6 @@
 import { ReactNode } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import { render, testQueryClient } from 'helpers/test-utils/render'
@@ -15,7 +15,10 @@ import NativeDoorKnockingPage from './NativeDoorKnockingPage'
 // A triangle around both dots, tapped one vertex at a time, so the draw step
 // can be walked the way a canvasser walks it: the stub reports each tap the
 // way the canvas does, including its three-point gate on the ring.
-const { drawSession, packFixture } = vi.hoisted(() => ({
+const { drawSession, packFixture, packControl } = vi.hoisted(() => ({
+  // Lets one test hold the pack in flight while the saved lists settle — the
+  // ordinary cache ordering, and the one the rail used to misread as failure.
+  packControl: { pending: false },
   drawSession: {
     placed: [] as Array<[number, number]>,
     taps: [
@@ -48,7 +51,10 @@ const { drawSession, packFixture } = vi.hoisted(() => ({
 vi.mock('./useVoterPack', () => ({
   voterPackQueryOptions: {
     queryKey: ['door-knocking-pack'],
-    queryFn: async () => packFixture,
+    queryFn: async () => {
+      if (packControl.pending) await new Promise(() => undefined)
+      return packFixture
+    },
   },
 }))
 // deck.gl and maplibre don't run in jsdom. The stub reports the filtered
@@ -380,6 +386,38 @@ describe('NativeDoorKnockingPage unresolved list scope', () => {
   beforeEach(() => {
     testQueryClient.clear()
   })
+  afterEach(() => {
+    packControl.pending = false
+  })
+
+  // The scope needs the manifest as much as the list, and a warm list cache
+  // against a cold pack is the ordinary ordering — Contacts populates the
+  // lists, the pack is this page's own large fetch. Gating pending on the list
+  // query alone made that case fall through to the settled branch, so the chips
+  // printed the em dash that claims a permanent failure at something still
+  // loading. The count line is gated on the pack and so absent here; the chips
+  // render either way, which is why they are what this asserts.
+  it('skeletons the chips rather than em-dashing them while only the pack is in flight', async () => {
+    packControl.pending = true
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [turf] })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 7 }],
+    })
+    render(
+      <NativeDoorKnockingPage
+        pathname="/dashboard/door-knocking"
+        campaign={null}
+      />,
+    )
+    await selectRow()
+
+    const supporter = await screen.findByRole('button', { name: /Supporter/ })
+    await waitFor(() =>
+      expect(supporter.querySelector('.animate-pulse')).toBeInTheDocument(),
+    )
+    expect(supporter.textContent).not.toContain('—')
+  })
 
   const selectRow = async () => {
     await waitFor(() =>
@@ -507,6 +545,84 @@ describe('NativeDoorKnockingPage list visibility', () => {
       />,
     )
   }
+
+  // The create flow unmounts the rail, and with it the eye toggle that is the
+  // only disclosure a ring is hidden. Coming back to a quieted outline nobody
+  // remembers quieting is the same stranding the chips and the phone sheet
+  // reset for, so hidden rings follow the same rule.
+  it('restores hidden rings when the create flow closes', async () => {
+    renderTwo()
+    await screen.findByText('Elm St & 5th')
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Hide Elm St & 5th on the map' }),
+    )
+    expect(screen.getByTestId('voter-map')).toHaveAttribute('data-turfs', '1')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create list' }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Close list creation' }),
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('voter-map')).toHaveAttribute(
+        'data-turfs',
+        '2',
+      ),
+    )
+    expect(
+      screen.getByRole('button', { name: 'Hide Elm St & 5th on the map' }),
+    ).toBeInTheDocument()
+  })
+
+  // Same rule on the way back from a walk, which replaces the rail outright and
+  // is the longer of the two absences.
+  it('restores hidden rings when a walk ends', async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [{ ...turf, locked: true }, second],
+    })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 7 }, { id: 8 }],
+    })
+    // The route's own content isn't what this asserts, only what leaving it
+    // restores.
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 500,
+      data: { message: 'no route in this test' },
+    })
+    render(
+      <NativeDoorKnockingPage
+        pathname="/dashboard/door-knocking"
+        campaign={null}
+      />,
+    )
+    await screen.findByText('Riverside loop')
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Hide Riverside loop on the map' }),
+    )
+    expect(screen.getByTestId('voter-map')).toHaveAttribute('data-turfs', '1')
+
+    // A locked turf goes straight into its saved route, no confirm dialog —
+    // scoped to its own row, since both lists carry a Knock button.
+    fireEvent.click(
+      within(screen.getByTestId('turf-row-1')).getByRole('button', {
+        name: 'Knock',
+      }),
+    )
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Back to the map' }),
+    )
+
+    await waitFor(() =>
+      expect(screen.getByTestId('voter-map')).toHaveAttribute(
+        'data-turfs',
+        '2',
+      ),
+    )
+  })
 
   it('drops only the hidden list from the map', async () => {
     renderTwo()

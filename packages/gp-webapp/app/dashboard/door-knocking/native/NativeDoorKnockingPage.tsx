@@ -153,6 +153,13 @@ export default function NativeDoorKnockingPage({
   // only thing that discloses hiddenness, so a ring hidden last week and gone
   // on the next open is a map missing an outline for a reason nobody remembers
   // setting. Nothing here reaches gp-api, so no contract moves.
+  //
+  // "Ephemeral" covers leaving the landing map, not just closing the tab:
+  // `closeFlow` and `endWalk` clear it alongside the chips and the phone sheet,
+  // because both modes unmount the rail and with it every eye toggle. Coming
+  // back to rings you can't remember quieting is the same stranding the chips
+  // reset for, and one rule for all of this page's display state is the rule a
+  // reader can predict.
   const [hiddenTurfIds, setHiddenTurfIds] = useState<Set<number>>(new Set())
   // Renaming from the details sheet only invalidates the turfs query, and
   // `selectedTurf` is the snapshot captured when the row was clicked — read the
@@ -199,11 +206,23 @@ export default function NativeDoorKnockingPage({
         : undefined,
     [savedListsQuery.data, selectedTurf],
   )
+  // The pack is half of every count on this page, and "no pack yet" is a
+  // different claim from "the pack failed" — one resolves itself, the other is
+  // an answer. Named once because the rail and the details sheet both have to
+  // ask, and a warm saved-list cache against a cold pack is the ordinary case
+  // (Contacts populates the lists; the pack is this page's own large fetch),
+  // so a surface that asks about only one of the two queries calls a loading
+  // state a permanent one.
+  const packPending = !packQuery.data && !packQuery.isError
   // Filters that haven't arrived versus filters that never will. The first
   // self-corrects and reads as loading; the second is a settled answer — "we
   // cannot describe this list" — and has to say so out loud, because a list
   // deleted in Contacts leaves the rail claiming the ring IS the list forever.
-  const scopePending = Boolean(selectedTurf) && savedListsQuery.isPending
+  // Both queries gate it: `scopeSelections` needs the manifest as much as the
+  // list, so a pending pack with a settled list would otherwise fall through to
+  // `scopeUnavailable` and print em dashes at something still loading.
+  const scopePending =
+    Boolean(selectedTurf) && (savedListsQuery.isPending || packPending)
   // The scope the rail heading names: the selected list's own saved filters,
   // or the whole district. Status chips narrow the map on top of this, and the
   // legend counts underneath describe the scope itself. `null` is the third
@@ -423,8 +442,10 @@ export default function NativeDoorKnockingPage({
     }
     // The walk replaces the rail outright, so this is the other way a phone
     // sheet gets stranded open: come back from a walk and it would spring up
-    // over the map. Same reset as closeFlow, same reason.
+    // over the map. Same reset as closeFlow, same reason — and the hidden rings
+    // go with it, since the eye toggles were unmounted for the whole walk.
     setRailOpen(false)
+    setHiddenTurfIds(new Set())
   }
 
   const changeFlowStep = (next: CreateFlowStep) => {
@@ -443,6 +464,7 @@ export default function NativeDoorKnockingPage({
     setFlowStep(null)
     setFilters({})
     setStatusFilter(new Set())
+    setHiddenTurfIds(new Set())
     setClearDrawToken((token) => token + 1)
     // Same reason, for the phone sheet: the rail is unmounted while the flow is
     // open, so a sheet left pulled up on the way in would spring back over the
@@ -842,9 +864,7 @@ export default function NativeDoorKnockingPage({
           // Both inputs, since either one still in flight leaves the stats
           // null for a reason that resolves itself. A settled null is a
           // different claim, and the sheet makes it rather than printing 0.
-          listStatsPending={
-            (!packQuery.data && !packQuery.isError) || savedListsQuery.isPending
-          }
+          listStatsPending={packPending || savedListsQuery.isPending}
           unpreviewableKeys={detailsUnpreviewableKeys}
           onClose={() => setDetailsTurf(null)}
           onDeleted={(deleted) => {
