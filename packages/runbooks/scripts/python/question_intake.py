@@ -256,15 +256,18 @@ def append_behaviors(path: Path, new: list[dict]) -> int:
 def main(argv: list[str] | None = None) -> int:
     import analytics_event_health as aeh
     import behavior_registry as br
+    import questions_clickup as qc
 
     parser = argparse.ArgumentParser(description="Read the Analytics Questions list.")
-    parser.add_argument("--list-id", default=os.environ.get("GP_QUESTIONS_LIST_ID"))
+    parser.add_argument(
+        "--list-id", default=os.environ.get("GP_QUESTIONS_LIST_ID") or qc.LIST_ID
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
     api_key = os.environ.get("CLICKUP_API_KEY")
-    if not api_key or not args.list_id:
-        print("CLICKUP_API_KEY and --list-id/GP_QUESTIONS_LIST_ID required", file=sys.stderr)
+    if not api_key:
+        print("CLICKUP_API_KEY required", file=sys.stderr)
         return 2
 
     tasks = fetch_questions(api_key, args.list_id)

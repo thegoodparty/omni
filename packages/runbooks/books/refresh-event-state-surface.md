@@ -64,20 +64,19 @@ case-insensitively.
   tab. Same auth as `refresh` (`GP_EVENT_STATE_SHEET_ID` + the cached Google token) plus
   Databricks, and `--dry-run` prints the matrix dimensions without writing.
 - `uv run python event_state_gsheet.py writeback-questions` — writes two ClickUp custom fields
-  (answer state, last checked) and nothing else. Needs `CLICKUP_API_KEY`,
-  `GP_QUESTIONS_LIST_ID`, `GP_QUESTIONS_STATE_FIELD_ID`, `GP_QUESTIONS_CHECKED_FIELD_ID` and
-  the three option ids `GP_QUESTIONS_OPT_ANSWERABLE` / `GP_QUESTIONS_OPT_PARTIAL` /
-  `GP_QUESTIONS_OPT_NOT`; missing any of them exits 2. `--dry-run` reports how many tasks
-  would change. Unchanged states are skipped, so a quiet week produces no task notifications.
-  In CI every id but the API key is inlined in `analytics-governance.yml`'s job `env:` — they
-  are not secrets, and gating the loop on seven admin-set repo variables is what stalled
-  DATA-2069. The key comes from the existing `secrets.CLICKUP_API_TOKEN`, mapped onto the
-  `CLICKUP_API_KEY` name `clickup_api.py` reads. Set it locally in `scripts/.env` for a laptop
-  run; note `clickup_api.py` loads that file without `override=True`, so an empty
-  `CLICKUP_API_KEY` exported by your shell silently wins over it.
-- `uv run python question_intake.py` — reads the list into the registry.
-  `GP_QUESTIONS_LIST_ID` + `CLICKUP_API_KEY`; `--dry-run` counts what it would add. It refuses
-  to write on top of an invalid `behaviors:` block and exits non-zero listing every problem.
+  (answer state, last checked) and nothing else. `--dry-run` reports how many tasks would
+  change. Unchanged states are skipped, so a quiet week produces no task notifications.
+- `uv run python question_intake.py` — reads the list into the registry. `--dry-run` counts
+  what it would add. It refuses to write on top of an invalid `behaviors:` block and exits
+  non-zero listing every problem.
+
+`CLICKUP_API_KEY` is the only thing either command needs. The list, field and option ids are
+pointers rather than secrets, so they default from `scripts/python/questions_clickup.py` —
+edit that one file if the list is ever rebuilt. `GP_QUESTIONS_*` env vars (and
+`question_intake.py --list-id`) still override, which is how you aim a run at a scratch list.
+In CI the token is the existing `secrets.CLICKUP_API_TOKEN`, mapped onto the `CLICKUP_API_KEY`
+name `clickup_api.py` reads. Locally, note that `clickup_api.py` loads `scripts/.env` without
+`override=True`, so an empty `CLICKUP_API_KEY` exported by your shell silently beats it.
 
 Both the `questions` and `gaps` tabs refresh **only** via the scheduled `analytics-governance`
 workflow. `scripts/shell/refresh-event-state.sh` runs `refresh` alone, so a manual run updates
