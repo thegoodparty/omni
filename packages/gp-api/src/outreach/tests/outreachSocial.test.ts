@@ -35,7 +35,12 @@ beforeEach(async () => {
       organizationSlug: orgSlug,
       userId: service.user.id,
       slug: 'jane-doe',
-      details: { state: 'TX', zip: '78634', normalizedOffice: 'City Council' },
+      details: {
+        state: 'TX',
+        city: 'Georgetown',
+        zip: '78634',
+        normalizedOffice: 'City Council',
+      },
       data: {},
       aiContent: {},
     },
@@ -114,6 +119,9 @@ describe('POST /v1/outreach/social/draft', () => {
     expect(userPrompt).toContain('introduce the candidate to voters')
     expect(userPrompt).toContain('Warm:')
     expect(userPrompt).toContain('City Council')
+    expect(userPrompt).toContain(
+      'Where the candidate is running: Georgetown, TX.',
+    )
   })
 
   it('feeds campaign story, issues, and plan sections into the prompt', async () => {

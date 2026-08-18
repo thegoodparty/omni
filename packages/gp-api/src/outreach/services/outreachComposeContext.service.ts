@@ -37,6 +37,16 @@ export class OutreachComposeContextService extends createPrismaBase(
 
     const blocks: string[] = []
 
+    // The no-materials fallback is name, place, and office (product
+    // decision 2026-08-17) — name and office already ride in the caller's
+    // baseline lines, so place is contributed here.
+    const place = [campaign.details.city, campaign.details.state]
+      .filter(Boolean)
+      .join(', ')
+    if (place) {
+      blocks.push(`Where the candidate is running: ${place}.`)
+    }
+
     const background = story?.background?.trim()
     if (background) {
       blocks.push(
