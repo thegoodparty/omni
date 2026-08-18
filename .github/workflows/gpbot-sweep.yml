@@ -45,6 +45,14 @@ jobs:
   sweep:
     name: Sweep for undelivered tickets
     runs-on: ubuntu-latest
+    # Bounds a stall, which the concurrency group above would otherwise turn
+    # into an outage: cancel-in-progress is false, so a job hung on OIDC or a
+    # dark Lambda control plane holds the slot for GitHub's default six hours
+    # and every sweep behind it waits. Ten minutes rather than the Lambda
+    # ceiling of fifteen because this function's own timeout is 120s — anything
+    # past a couple of minutes here is already a stuck runner, not a slow sweep,
+    # and the sooner that surfaces the sooner the backstop is working again.
+    timeout-minutes: 10
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v5
