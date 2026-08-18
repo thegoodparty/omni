@@ -43,6 +43,12 @@ export interface RoutePin {
   lat: number
   lng: number
   status: DoorKnockStatus
+  // Whether anyone at this stop is still a target (`stopIsKnockable`). A stop
+  // where every resident is flagged rolls up over an empty list, so `status` is
+  // the same `unknown` grey as a stop nobody has been to — and the pin is what
+  // a canvasser is actually standing in front of, so this is the surface where
+  // that ambiguity costs a walk to a door they were told to skip.
+  knockable: boolean
 }
 
 interface VoterMapCanvasProps {
@@ -423,11 +429,29 @@ export default function VoterMapCanvas({
           id: 'route-pins',
           data: routePins,
           getPosition: (pin) => [pin.lng, pin.lat],
-          getFillColor: (pin) => [...STATUS_RGB[pin.status], 235],
+          // A stop with nobody left to knock draws hollow: the fill drops to
+          // near-transparent and its own status color moves to the ring. An
+          // eighth fill color would read as another outcome and would owe the
+          // legend an entry, but "not a target" is a different question from
+          // "which status" — an outline answers it without joining the seven
+          // colors a canvasser is still learning.
+          getFillColor: (pin) =>
+            pin.knockable
+              ? [...STATUS_RGB[pin.status], 235]
+              : [255, 255, 255, 220],
+          getLineColor: (pin) =>
+            pin.knockable
+              ? [255, 255, 255, 255]
+              : [...STATUS_RGB[pin.status], 235],
+          // Thicker ring on a hollow pin, so at street zoom the outline is the
+          // thing that reads rather than a hairline around a white dot.
+          getLineWidth: (pin) => (pin.knockable ? 2 : 3),
+          lineWidthUnits: 'pixels',
           updateTriggers: {
             getFillColor: routePins,
+            getLineColor: routePins,
+            getLineWidth: routePins,
           },
-          getLineColor: [255, 255, 255, 255],
           lineWidthMinPixels: 2,
           stroked: true,
           radiusMinPixels: 11,
@@ -440,7 +464,13 @@ export default function VoterMapCanvas({
           data: routePins,
           getPosition: (pin) => [pin.lng, pin.lat],
           getText: (pin) => String(pin.seq),
-          getColor: [255, 255, 255, 255],
+          // The numeral sits on the fill, so it has to invert with it — white
+          // on a hollow pin is a number nobody can read.
+          getColor: (pin) =>
+            pin.knockable
+              ? [255, 255, 255, 255]
+              : [...STATUS_RGB[pin.status], 255],
+          updateTriggers: { getColor: routePins },
           getSize: 12,
           fontWeight: 700,
           pickable: false,
