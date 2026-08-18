@@ -146,6 +146,15 @@ export default function VoterMapCanvas({
   const hasTilesKey = NEXT_PUBLIC_GEOAPIFY_TILES_KEY.length > 0
   const overlayRef = useRef<MapboxOverlay | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  // The mount effect's one read of the pack is the opening view, which — like
+  // initialZoom beside it — is a mount-time fact and not a controlled camera.
+  // Depending on the object instead tied the map's lifetime to the pack's
+  // identity: a refetch after a walk destroyed the MapLibre instance through
+  // map.remove() and re-framed the district, throwing away wherever the
+  // canvasser had panned to. The overlay effect below still depends on `pack`,
+  // which is what repaints the dots.
+  const packRef = useRef(pack)
+  packRef.current = pack
   // Click-to-add-vertex drawing (mapbox-gl-draw's finish gesture is
   // unreliable on maplibre): every click appends a point and the shape
   // closes itself from whatever points exist — there is no finish gesture.
@@ -301,7 +310,7 @@ export default function VoterMapCanvas({
     map.on('touchend', endDrag)
     map.on('touchcancel', endDrag)
 
-    const bounds = packBounds(pack.positions)
+    const bounds = packBounds(packRef.current.positions)
     if (bounds) {
       // Read at mount only: this names the opening view, not a controlled
       // zoom — reacting to it later would fight the canvasser's own panning.
@@ -324,9 +333,9 @@ export default function VoterMapCanvas({
       mapRef.current = null
       map.remove()
     }
-    // The map mounts once per pack — everything dynamic flows through the
-    // overlay effect below.
-  }, [pack, hasTilesKey])
+    // The map lives as long as its container — everything dynamic, the pack
+    // included, flows through the overlay effect below.
+  }, [hasTilesKey])
 
   useEffect(() => {
     const overlay = overlayRef.current
