@@ -13,6 +13,7 @@ import {
 import { LockIcon } from '@styleguide/components/ui/icons'
 import { useNativeDoorKnockingFlag } from 'app/shared/experiments/nativeDoorKnockingFlag'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
+import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import DoorKnockingPage from '../components/DoorKnockingPage'
 import NativeDoorKnockingPage from './NativeDoorKnockingPage'
@@ -92,7 +93,8 @@ export default function DoorKnockingPageGate({
   summary,
 }: DoorKnockingPageGateProps) {
   const { ready, enabled } = useNativeDoorKnockingFlag(true)
-  const { data: electedOffice } = useElectedOffice()
+  const { data: electedOffice, isPending: isElectedOfficePending } =
+    useElectedOffice()
 
   if (ready && enabled) {
     // The CRM's canUseProFeatures, which is also the predicate
@@ -100,10 +102,28 @@ export default function DoorKnockingPageGate({
     // route: an `eo-` org is license-equivalent to Pro. Gate both the reads and
     // the writes here, because the alternative is a map that draws and then
     // fails on the first turf.
-    if (!campaign?.isPro && !electedOffice) {
-      return (
-        <DoorKnockingProLockedView pathname={pathname} campaign={campaign} />
-      )
+    //
+    // Only a non-Pro campaign has to consult the elected-office query, so a Pro
+    // candidate never waits on it. And an unsettled query is not a refusal: a
+    // Serve org's access comes from exactly that query and its campaign is
+    // never `isPro`, so treating undefined as "not elected office" would flash
+    // the upgrade card at the org most entitled to the feature, on every cold
+    // load. DashboardMenu holds its own elected-office decisions the same way.
+    if (!campaign?.isPro) {
+      if (isElectedOfficePending) {
+        return (
+          <DashboardLayout pathname={pathname} campaign={campaign}>
+            <div className="flex w-full items-center justify-center py-20">
+              <LoadingAnimation />
+            </div>
+          </DashboardLayout>
+        )
+      }
+      if (!electedOffice) {
+        return (
+          <DoorKnockingProLockedView pathname={pathname} campaign={campaign} />
+        )
+      }
     }
     return <NativeDoorKnockingPage pathname={pathname} campaign={campaign} />
   }

@@ -405,6 +405,14 @@ export const getDashboardMenuItems = (
   // does not belong in a nav entry the pilot allowlist already scopes.
   // The control branch is deliberately untouched: flag-off users keep the
   // eCanvasser experience on the same terms as before.
+  //
+  // `proAccess` folds in elected office, so it reads false while that query is
+  // in flight and this item appears once it settles. Unlike the Contacts slot
+  // above there is nothing to hold — the item is appended, so waiting for the
+  // query and hiding during it are the same behavior. Resolving the other way
+  // (assume access until refused) would flash a Pro-only link at every non-Pro
+  // Win candidate, which is the thing this entry is hidden to avoid; the page
+  // gate, which can show a real loading state, is where that wait belongs.
   const doorKnockingShown = doorKnocking.nativeEnabled
     ? doorKnocking.districtResolvable && doorKnocking.proAccess
     : doorKnocking.ecanvasserConnected

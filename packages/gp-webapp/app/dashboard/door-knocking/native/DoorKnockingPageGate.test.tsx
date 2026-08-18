@@ -4,7 +4,10 @@ import { Campaign } from 'helpers/types'
 import DoorKnockingPageGate from './DoorKnockingPageGate'
 
 const flagState = { ready: true, enabled: false }
-const electedOfficeState: { data: object | null } = { data: null }
+const electedOfficeState: { data: object | null; isPending: boolean } = {
+  data: null,
+  isPending: false,
+}
 
 vi.mock('app/shared/experiments/nativeDoorKnockingFlag', () => ({
   useNativeDoorKnockingFlag: () => flagState,
@@ -35,10 +38,12 @@ const props = {
 const setState = (
   flag: { ready: boolean; enabled: boolean },
   electedOffice: object | null = null,
+  isElectedOfficePending = false,
 ) => {
   flagState.ready = flag.ready
   flagState.enabled = flag.enabled
   electedOfficeState.data = electedOffice
+  electedOfficeState.isPending = isElectedOfficePending
 }
 
 describe('DoorKnockingPageGate', () => {
@@ -87,6 +92,26 @@ describe('DoorKnockingPageGate', () => {
   it('renders the native experience for an elected office without Pro', () => {
     setState({ ready: true, enabled: true }, { id: 1 })
     render(<DoorKnockingPageGate {...props} campaign={{} as Campaign} />)
+    expect(screen.getByTestId('native-door-knocking')).toBeInTheDocument()
+  })
+
+  // An in-flight elected-office query is not a refusal. A Serve org's access
+  // comes from that query and its campaign is never isPro, so answering early
+  // would show the upgrade card to the org most entitled to the feature on
+  // every cold load or bookmarked URL.
+  it('does not show the upgrade view while the elected-office query is in flight', () => {
+    setState({ ready: true, enabled: true }, null, true)
+    render(<DoorKnockingPageGate {...props} campaign={{} as Campaign} />)
+    expect(screen.queryByText('Door knocking is a Pro feature')).toBeNull()
+    expect(screen.queryByTestId('native-door-knocking')).toBeNull()
+  })
+
+  // The wait is only owed to a campaign whose access could still turn out to
+  // come from elected office; a Pro campaign is already entitled, so it must
+  // not be held behind an unrelated query.
+  it('renders the native experience for a Pro campaign without waiting on that query', () => {
+    setState({ ready: true, enabled: true }, null, true)
+    render(<DoorKnockingPageGate {...props} />)
     expect(screen.getByTestId('native-door-knocking')).toBeInTheDocument()
   })
 
