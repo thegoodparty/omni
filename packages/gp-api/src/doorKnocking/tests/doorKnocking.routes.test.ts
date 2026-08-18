@@ -2457,7 +2457,6 @@ describe('door-knocking routes', () => {
         ['get', '/v1/door-knocking/turfs', undefined],
         ['get', `/v1/door-knocking/turfs/${turfId}`, undefined],
         ['put', `/v1/door-knocking/turfs/${turfId}`, { name: 'Renamed' }],
-        ['delete', `/v1/door-knocking/turfs/${turfId}`, undefined],
         ['get', `/v1/door-knocking/turfs/${turfId}/route`, undefined],
         ['get', '/v1/door-knocking/pack', undefined],
         [
@@ -2474,6 +2473,11 @@ describe('door-knocking routes', () => {
           `/v1/door-knocking/turfs/${turfId}/knock`,
           { mode: 'walk', loop: false },
         ],
+        // Last on purpose: the Pro-org loop below shares one turf, and a delete
+        // in the middle would leave every route after it answering 404 without
+        // ever reaching the gate under test. Order is irrelevant to the non-Pro
+        // loop, which never gets past the gate at all.
+        ['delete', `/v1/door-knocking/turfs/${turfId}`, undefined],
       ] as const
 
     const opts = () => ({ ...orgHeaders(), validateStatus: () => true })
@@ -2496,6 +2500,7 @@ describe('door-knocking routes', () => {
 
     it('keeps every gated route open for a Pro organization', async () => {
       const turf = await createTurf()
+      stubVendors()
 
       const list = await service.client.get('/v1/door-knocking/turfs', opts())
       expect(list.status).toBe(200)
@@ -2504,6 +2509,23 @@ describe('door-knocking routes', () => {
         opts(),
       )
       expect(get.status).toBe(200)
+
+      // Then the whole list, asserted by the absence of the gate's own message
+      // rather than by status. Run against a live Pro org most of these answer
+      // 2xx, but a couple legitimately fail on their own terms — POST
+      // /interactions carries a synthetic stopTargetId (404), and PUT/DELETE
+      // meet assertNotLocked once the knock above them has run (409). A status
+      // assertion would be testing those reasons; this asserts exactly the one
+      // thing the gate could get wrong, which is refusing an entitled org.
+      for (const [method, path, body] of gatedRoutes(turf.id)) {
+        const res =
+          body === undefined
+            ? await service.client[method](path, opts())
+            : await service.client[method](path, body, opts())
+        expect(res.data?.message, `${method.toUpperCase()} ${path}`).not.toBe(
+          'This feature is only available for pro campaigns',
+        )
+      }
     })
 
     // The org lapsing mid-pilot is exactly the case the two holes exist for:
