@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render } from '@testing-library/react'
 import type { DoorKnockingPackManifest } from '@goodparty_org/contracts'
-import VoterMapCanvas, { type PolygonRing } from './VoterMapCanvas'
+import VoterMapCanvas, {
+  type PolygonRing,
+  type RoutePin,
+} from './VoterMapCanvas'
+import { STATUS_RGB } from './statusPresentation'
 import type { DecodedPack } from './packDecoder'
 import type { FilterResult } from './filterEngine'
 
@@ -15,6 +19,12 @@ interface MapEvent {
 interface MockLayerProps {
   id: string
   data: unknown
+  // Accessors the pin layers derive per pin, so a test can ask what a given
+  // pin would actually be drawn as.
+  getFillColor?: (pin: RoutePin) => number[]
+  getLineColor?: (pin: RoutePin) => number[]
+  getLineWidth?: (pin: RoutePin) => number
+  getColor?: (pin: RoutePin) => number[]
 }
 
 const gl = vi.hoisted(() => {
@@ -127,6 +137,8 @@ const clickMap = (point: [number, number]) => {
 
 const layerData = (id: string) =>
   gl.overlay.layers.find((layer) => layer.id === id)?.data
+
+const layer = (id: string) => gl.overlay.layers.find((entry) => entry.id === id)
 
 describe('VoterMapCanvas drawing', () => {
   const baseProps = {
@@ -302,6 +314,50 @@ describe('VoterMapCanvas drawing', () => {
     expect(layerData('voter-dots')).toEqual(
       expect.objectContaining({ length: repainted.manifest.counts.dots }),
     )
+  })
+
+  // A stop where every resident is flagged rolls up over an empty list, so its
+  // status is the same `unknown` grey as a stop nobody has been to. The pin is
+  // what a canvasser is standing in front of, so it draws hollow — an outline
+  // says "not a target" where an eighth fill colour would say "another status".
+  it('draws a stop with nobody knockable hollow, not in a new colour', () => {
+    const knockable: RoutePin = {
+      seq: 1,
+      lat: 41.92,
+      lng: -87.66,
+      status: 'unknown',
+      knockable: true,
+    }
+    // Same status, so nothing but knockability can tell these two apart.
+    const flagged: RoutePin = { ...knockable, seq: 2, knockable: false }
+
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        startDrawToken={0}
+        routePins={[knockable, flagged]}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    const pins = layer('route-pins')
+    const status = [...STATUS_RGB.unknown]
+    // The normal pin: status fill, white ring.
+    expect(pins?.getFillColor?.(knockable)).toEqual([...status, 235])
+    expect(pins?.getLineColor?.(knockable)).toEqual([255, 255, 255, 255])
+    // The flagged pin inverts — and its ring is the status colour rather than
+    // any new one, so no eighth colour enters the legend's vocabulary.
+    expect(pins?.getFillColor?.(flagged)).toEqual([255, 255, 255, 220])
+    expect(pins?.getLineColor?.(flagged)).toEqual([...status, 235])
+    expect(pins?.getLineWidth?.(flagged)).toBeGreaterThan(
+      pins?.getLineWidth?.(knockable) ?? 0,
+    )
+    // The numeral rides the fill, so it has to invert with it or it reads as a
+    // blank pin.
+    const numbers = layer('route-pin-numbers')
+    expect(numbers?.getColor?.(knockable)).toEqual([255, 255, 255, 255])
+    expect(numbers?.getColor?.(flagged)).toEqual([...status, 255])
   })
 
   it('opens at street level when given an initial zoom', () => {
