@@ -14,7 +14,12 @@ import {
   WILL_VOTE_QUESTION,
 } from '../native/knockQuestions'
 import { skipInstruction, STATUS_LABELS } from '../native/statusPresentation'
-import { describeTarget, formatDuration, walkSummary } from './walkFacts'
+import {
+  describeTarget,
+  formatDuration,
+  lastContactLine,
+  walkSummary,
+} from './walkFacts'
 
 // An empty square to tick. Printers drop background colors by default, so
 // every mark on this page has to be a border or text.
@@ -52,6 +57,7 @@ const TargetBlock = ({ target }: { target: RoutePayloadTarget }) => {
   // a door isn't knocked twice and a transcriber doesn't overwrite it.
   const recorded = target.knockStatus !== 'unknown'
   const skip = skipInstruction(target)
+  const lastContact = lastContactLine(target)
 
   return (
     <div className="break-inside-avoid px-2 py-1.5">
@@ -61,6 +67,13 @@ const TargetBlock = ({ target }: { target: RoutePayloadTarget }) => {
         </span>
         {detail && <span className="text-[10px]">{detail}</span>}
       </div>
+      {/* ENG-10876. Above whatever follows, because it is what the canvasser
+          reads before deciding how to open — and it prints whichever of the
+          three branches below applies, since "have we been here before" is a
+          fact about the resident rather than about the form. Same helper the
+          PDF's row model reads, so the two formats cannot word one history two
+          ways. */}
+      {lastContact && <div className="text-[10px]">{lastContact}</div>}
       {/* ADR 0007 and 0008. Turf evaluation keeps flagged people off new
           lists, but it cannot reach a route already frozen — and paper freezes
           again the moment it prints. The name stays so the sheet still matches

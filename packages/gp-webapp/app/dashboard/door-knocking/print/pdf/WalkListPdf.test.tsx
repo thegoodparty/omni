@@ -11,7 +11,7 @@ import type {
   RoutePayloadStop,
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
-import { payload, stop, target } from './walkListFixtures'
+import { doorKnock, payload, stop, target } from './walkListFixtures'
 import { renderWalkListPdf } from './WalkListPdf'
 
 // pdfkit writes standard-Helvetica glyphs in WinAnsi, whose 0x80–0x9F range is
@@ -203,6 +203,25 @@ describe('WalkListPdf', () => {
     expect(text).toContain(
       'Deceased — skip this resident, and do not ask for them by name',
     )
+  })
+
+  // ENG-10876. The grid's blank form means "worth knocking", which reads the
+  // same for a door nobody has been to and one that answered unsure — so the
+  // resident cell carries what the app's feed would have shown. The note stays
+  // off the page, like the phone numbers above.
+  it('prints the last contact under the resident, without the note', async () => {
+    const text = await renderText([
+      oneDoor([
+        target({
+          history: [doorKnock({ note: 'Dog in the yard, come back Saturday' })],
+        }),
+      ]),
+    ])
+
+    expect(text).toContain('Last contact: June 2026 · Door knock: Answered')
+    expect(text).not.toMatch(/Dog in the yard/)
+    // Still a form to fill in: the line is context, not a recorded answer.
+    expect(text).toContain('Y?N')
   })
 
   // A household is one door however many people answer it, so the grid draws

@@ -74,6 +74,19 @@ export const rollupStopStatus = (stop: RoutePayloadStop): DoorKnockStatus =>
     ),
   )
 
+// The other half of the rollup, and the reason it needs one: a stop where every
+// resident is flagged rolls up over an empty list, so `rollupStopStatus` returns
+// `unknown` — the same answer as a stop nobody has been to yet. That is correct
+// as far as a status goes (there is no knock to report) but it is not the whole
+// fact, and any surface showing only the status shows the two cases identically.
+// A status and "is this a target at all" are two questions; `unknown` can only
+// answer the first, which is why this is a second value rather than an eighth
+// status. `WalkView`'s stop row pairs them ("Nobody to knock here" in place of
+// the count and dots); the map pin is the surface that currently does not, and
+// this is what it should read to.
+export const stopIsKnockable = (stop: RoutePayloadStop): boolean =>
+  stop.addresses.some((address) => address.targets.some(isKnockable))
+
 // ADR 0008. The one-line instruction paper carries, worded apart on purpose.
 // "Moved away" is about an address, so it only has to explain why the door is
 // dropped; "deceased" is about a person at a door the rest of the household

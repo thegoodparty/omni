@@ -1,6 +1,6 @@
 import type { DoorKnockingRoutePayload } from '@goodparty_org/contracts'
 import { skipInstruction, STATUS_LABELS } from '../../native/statusPresentation'
-import { describeTarget } from '../walkFacts'
+import { describeTarget, lastContactLine } from '../walkFacts'
 
 // What the three answer columns hold for one resident. `skip` and `logged`
 // replace the tick-boxes entirely — there is nothing to ask at either door.
@@ -25,6 +25,12 @@ export interface WalkListRow {
   otherResidents: string[]
   name: string
   meta: string
+  // ENG-10876. When this campaign last reached this resident and what happened,
+  // or null when it never has. A blank answer form means "worth knocking", which
+  // on paper reads the same for a door nobody has been to and one that answered
+  // unsure — this is the line that tells them apart. Never a note and never a
+  // phone number; see `lastContactLine`.
+  lastContact: string | null
   answer: WalkListAnswer
   // The grid merges the stop-number cell down a stop and the address cell down
   // a household, so a block of flats reads as one stop and a shared front door
@@ -58,6 +64,7 @@ export const walkListRows = (
             .filter((name): name is string => Boolean(name)),
           name: target.name ?? 'Name unavailable',
           meta: describeTarget(target),
+          lastContact: lastContactLine(target),
           // Checked before the logged branch: a flagged resident is not to be
           // knocked whatever was recorded there before.
           answer: skip
