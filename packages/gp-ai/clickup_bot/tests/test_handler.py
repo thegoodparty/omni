@@ -3218,9 +3218,58 @@ def test_listing_asks_clickup_for_the_right_window(monkeypatch):
     handler.list_recently_updated_tagged_tasks("gpbot-analyze", 1234567)
 
     assert "date_updated_gt=1234567" in captured["endpoint"]
-    assert "gpbot-analyze" in captured["endpoint"]
+    # The literal bracket form, not urlencode's default `tags%5B%5D=`. An
+    # unrecognized filter parameter is not an error — the endpoint would return
+    # every recently-updated task in the workspace and the sweep would silently
+    # stop being a tag query. Asserting on the bare tag name would pass either
+    # way and catch nothing.
+    assert "tags[]=gpbot-analyze" in captured["endpoint"]
     # Closed tickets are settled work; re-analyzing them is pure spend.
     assert "include_closed=false" in captured["endpoint"]
+
+
+def test_listing_follows_pagination_until_a_short_page(monkeypatch):
+    # Without this, a regression to the termination condition silently caps the
+    # sweep at one page and the tickets behind it are never rescued.
+    full = [{"id": f"t{i}"} for i in range(handler.CLICKUP_PAGE_SIZE)]
+    pages = iter([{"tasks": full}, {"tasks": full}, {"tasks": [{"id": "last"}]}])
+    requested = []
+
+    def fake_request(method, endpoint, data=None):
+        requested.append(endpoint)
+        return next(pages)
+
+    monkeypatch.setattr(handler, "clickup_request", fake_request)
+
+    result = handler.list_recently_updated_tagged_tasks("gpbot-analyze", 0)
+
+    assert len(requested) == 3
+    assert [f"page={n}" in requested[n] for n in range(3)] == [True, True, True]
+    assert len(result) == handler.CLICKUP_PAGE_SIZE * 2 + 1
+
+
+def test_listing_stops_at_the_page_ceiling(monkeypatch):
+    # A result set that never shortens must terminate rather than page forever
+    # against ClickUp inside a Lambda invocation.
+    full = [{"id": f"t{i}"} for i in range(handler.CLICKUP_PAGE_SIZE)]
+    requested = []
+
+    def fake_request(method, endpoint, data=None):
+        requested.append(endpoint)
+        return {"tasks": full}
+
+    monkeypatch.setattr(handler, "clickup_request", fake_request)
+
+    result = handler.list_recently_updated_tagged_tasks("gpbot-analyze", 0)
+
+    assert len(requested) == handler.SWEEP_MAX_PAGES
+    assert len(result) == handler.CLICKUP_PAGE_SIZE * handler.SWEEP_MAX_PAGES
+
+
+def test_listing_tolerates_a_malformed_page(monkeypatch):
+    monkeypatch.setattr(handler, "clickup_request", lambda *a, **k: {"tasks": "not-a-list"})
+
+    assert handler.list_recently_updated_tagged_tasks("gpbot-analyze", 0) == []
 
 
 # ---------------------------------------------------------------------------

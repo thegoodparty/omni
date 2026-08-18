@@ -5,7 +5,7 @@ import math
 import os
 import time
 from typing import Any, Literal
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 import boto3
@@ -469,7 +469,18 @@ def list_recently_updated_tagged_tasks(tag: str, since_ms: int) -> list[dict]:
                 "include_closed": "false",
                 "subtasks": "true",
                 "page": page,
-            }
+            },
+            # Emit `tags[]=` literally rather than urlencode's default
+            # `tags%5B%5D=`. ClickUp does currently normalize the escaped form
+            # (verified 2026-08-18: both spellings returned the same 27 tagged
+            # tasks, against 100 unfiltered of which 3 were tagged), so this is
+            # not a live bug — but the failure mode if that ever changes is the
+            # worst kind available here. An unrecognized filter is not an error:
+            # the endpoint would return every recently-updated task in the
+            # workspace, the sweep would silently stop being a tag query, and
+            # the only visible symptom would be the bot going quiet again.
+            quote_via=quote,
+            safe="[]",
         )
         result = clickup_request("GET", f"/team/{CLICKUP_TEAM_ID}/task?{query}")
         batch = result.get("tasks", [])
