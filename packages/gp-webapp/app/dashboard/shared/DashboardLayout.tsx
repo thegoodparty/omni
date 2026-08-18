@@ -25,7 +25,8 @@ import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import { DashboardCampaignManagerChat } from '../campaign-manager/CampaignManagerChatProvider'
 
 export interface DashboardNavHeaderConfig {
-  icon: NavHeaderIconKey
+  // Omitted = label-only bar (the Voter Outreach design carries no icon).
+  icon?: NavHeaderIconKey
   label: string
   centered?: boolean
 }

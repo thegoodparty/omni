@@ -122,7 +122,7 @@ export const OutreachHubPage = ({
       <DashboardLayout
         pathname={pathname}
         campaign={campaign}
-        navHeader={{ icon: 'send', label: NAV_LABELS.voterOutreach }}
+        navHeader={{ label: NAV_LABELS.voterOutreach }}
       >
         <OutreachHubContent
           {...{ tcrCompliance, preselectedListId, initialOutreachId }}
