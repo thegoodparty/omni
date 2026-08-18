@@ -58,11 +58,13 @@ vi.mock('./VoterMapCanvas', () => ({
   __esModule: true,
   default: ({
     filterResult,
+    turfs,
     initialZoom,
     onPolygonChange,
     onDrawPointCount,
   }: {
     filterResult: { people: number }
+    turfs: unknown[]
     initialZoom?: number
     onPolygonChange: (ring: Array<[number, number]> | null) => void
     onDrawPointCount?: (count: number) => void
@@ -70,6 +72,9 @@ vi.mock('./VoterMapCanvas', () => ({
     <div
       data-testid="voter-map"
       data-people={String(filterResult.people)}
+      // How many outlines the map was handed, which is what a per-list hide
+      // changes — the dots are the pack's and are unaffected.
+      data-turfs={String(turfs.length)}
       data-initial-zoom={String(initialZoom)}
     >
       <button
@@ -151,9 +156,11 @@ const turf: DoorKnockingTurf = {
 const chip = (label: string, count: number) =>
   screen.getByRole('button', { name: new RegExp(`${label}\\s*${count}`) })
 
-// The turf points at saved filter 7; passing one here is what exercises the
-// list's own filters, as opposed to only its polygon.
-const renderPage = (savedLists: SegmentResponse[] = []) => {
+// The turf points at saved filter 7, so the default is that list existing with
+// no options set — a real list that legitimately targets everyone inside its
+// ring. That is a different claim from the list being absent, which is what
+// `[]` here means and what the rail must refuse to count.
+const renderPage = (savedLists: SegmentResponse[] = [{ id: 7 }]) => {
   api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [turf] })
   api.mock('GET /v1/voters/voter-file/filters', {
     status: 200,
@@ -314,6 +321,41 @@ describe('NativeDoorKnockingPage landing rail', () => {
     expect(chip('Support unknown', 3)).toHaveAttribute('aria-pressed', 'false')
   })
 
+  // The rail's count is exact for what the pack can compute and a superset of
+  // who gets knocked, so it is softened — and the softening has to name the
+  // map as the limitation, never the filter, or a candidate reads it as their
+  // targeting silently failing.
+  it('softens the list count and says why it is a superset', async () => {
+    renderPage()
+    await selectTurf()
+
+    expect(screen.getByText(/About\s*3\s*voters in this list/)).toBeTruthy()
+    const caveat = screen.getByText(/the map can.t show every filter/i)
+    expect(caveat.textContent).toContain('do-not-knock')
+    expect(caveat.textContent).toContain('fewer doors')
+  })
+
+  // The same sentence the draw step shows, off the same helper: 65+ has no pack
+  // bucket at all, so the shaded preview covers every age — while the saved
+  // list still bounds it at 65 when the route is built.
+  it('discloses a selected list filter the map cannot shade', async () => {
+    renderPage([{ id: 7, age65Plus: true }])
+    await selectTurf()
+
+    const disclosure = screen.getByText((_, element) => {
+      if (element?.tagName !== 'P') return false
+      return /can’t shade by 65\+ yet/.test(element.textContent ?? '')
+    })
+    expect(disclosure.textContent).toContain('still applies it when you knock')
+  })
+
+  it('names no unshadeable filter when every one of them maps', async () => {
+    renderPage([{ id: 7, partyDemocrat: true }])
+    await selectTurf()
+
+    expect(screen.queryByText(/can’t shade by/)).toBeNull()
+  })
+
   // A legend that narrowed with its own chip would zero the other six counts
   // and leave nothing to press back.
   it('keeps the legend counts describing the list, not the pressed chip', async () => {
@@ -327,6 +369,213 @@ describe('NativeDoorKnockingPage landing rail', () => {
     )
     expect(chip('Supporter', 1)).toBeInTheDocument()
     expect(chip('Support unknown', 2)).toBeInTheDocument()
+  })
+})
+
+// `savedListFilterKeys(undefined)` is `{}`, which every consumer reads as "no
+// filters" and answers with the whole polygon's population under the selected
+// list's name. The heading, the count, the seven legend chips and the dot mask
+// all hang off one scope, so all four have to refuse together.
+describe('NativeDoorKnockingPage unresolved list scope', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+  })
+
+  const selectRow = async () => {
+    await waitFor(() =>
+      expect(screen.getByText('Elm St & 5th')).toBeInTheDocument(),
+    )
+    fireEvent.click(screen.getByText('Elm St & 5th'))
+  }
+
+  it('waits rather than printing the polygon count while the lists load', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [turf] })
+    // Never settles, so the scope stays in flight for the whole test.
+    api.mock(
+      'GET /v1/voters/voter-file/filters',
+      () => new Promise(() => undefined),
+    )
+    render(
+      <NativeDoorKnockingPage
+        pathname="/dashboard/door-knocking"
+        campaign={null}
+      />,
+    )
+    await selectRow()
+
+    expect(
+      await screen.findByText(/Counting the voters in this list/),
+    ).toBeInTheDocument()
+    // 3 is the ring's population with no filters applied — the plausible wrong
+    // number this branch exists to withhold.
+    expect(screen.queryByText(/3\s*voters in this list/)).toBeNull()
+    // The heading still names the scope the candidate picked: it is not a claim
+    // about size, and the line underneath is where the claim lives.
+    expect(
+      screen.getByRole('heading', { name: 'Elm St & 5th' }),
+    ).toBeInTheDocument()
+    // And the seven chips print no counts, for the same reason.
+    expect(
+      screen.queryByRole('button', { name: /Support unknown\s*\d/ }),
+    ).toBeNull()
+    expect(
+      screen.getByRole('button', { name: /Support unknown/ }),
+    ).toBeDisabled()
+    expect(screen.getByTestId('voter-map')).toHaveAttribute('data-people', '0')
+  })
+
+  // The state that never self-corrects: the filter is gone from Contacts, so
+  // waiting forever would be a lie and falling through to the ring's count
+  // would be the original bug made permanent.
+  it('does not fall through to an unfiltered count for a list deleted in the CRM', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [turf] })
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+    render(
+      <NativeDoorKnockingPage
+        pathname="/dashboard/door-knocking"
+        campaign={null}
+      />,
+    )
+    await selectRow()
+
+    expect(
+      await screen.findByText(/filters could not be loaded/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/3\s*voters in this list/)).toBeNull()
+    expect(screen.queryByText(/Counting the voters/)).toBeNull()
+    expect(screen.getByTestId('voter-map')).toHaveAttribute('data-people', '0')
+    // Reachable in every state: this is the one a candidate needs a way out of.
+    fireEvent.click(screen.getByRole('button', { name: 'Show all' }))
+    const line = await screen.findByText(
+      /voters in your district with a mapped address/,
+    )
+    expect(line).toHaveTextContent(
+      '4 voters in your district with a mapped address',
+    )
+  })
+
+  // A failed fetch and a deleted filter are the same settled claim — there is
+  // no audience to report — and neither may borrow the loading state.
+  it('treats a failed lists fetch as settled, not as loading', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [turf] })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+    render(
+      <NativeDoorKnockingPage
+        pathname="/dashboard/door-knocking"
+        campaign={null}
+      />,
+    )
+    await selectRow()
+
+    expect(
+      await screen.findByText(/filters could not be loaded/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/3\s*voters in this list/)).toBeNull()
+  })
+})
+
+// Per-list visibility: client-side display state, in the same category as the
+// selection and the status chips.
+describe('NativeDoorKnockingPage list visibility', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+  })
+
+  const second: DoorKnockingTurf = {
+    ...turf,
+    id: 2,
+    voterFileFilterId: 8,
+    name: 'Riverside loop',
+  }
+
+  const renderTwo = () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [turf, second],
+    })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 7 }, { id: 8 }],
+    })
+    return render(
+      <NativeDoorKnockingPage
+        pathname="/dashboard/door-knocking"
+        campaign={null}
+      />,
+    )
+  }
+
+  it('drops only the hidden list from the map', async () => {
+    renderTwo()
+    await screen.findByText('Elm St & 5th')
+    expect(screen.getByTestId('voter-map')).toHaveAttribute('data-turfs', '2')
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Hide Elm St & 5th on the map' }),
+    )
+
+    // The other ring is untouched, and the dots are the pack's either way:
+    // hiding is display state, not a filter.
+    expect(screen.getByTestId('voter-map')).toHaveAttribute('data-turfs', '1')
+    expect(screen.getByTestId('voter-map')).toHaveAttribute('data-people', '4')
+    expect(
+      screen.getByRole('button', { name: 'Show Elm St & 5th on the map' }),
+    ).toBeInTheDocument()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Show Elm St & 5th on the map' }),
+    )
+    expect(screen.getByTestId('voter-map')).toHaveAttribute('data-turfs', '2')
+  })
+
+  // The heading, the count, the legend and the dot mask all describe the
+  // selection, so hiding the selected list has to release it — otherwise the
+  // rail keeps shouting about a list whose outline is no longer drawn.
+  it('deselects the list it hides', async () => {
+    renderTwo()
+    await screen.findByText('Elm St & 5th')
+    fireEvent.click(screen.getByText('Elm St & 5th'))
+    await waitFor(() =>
+      expect(screen.getByText(/voters in this list/)).toBeInTheDocument(),
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Hide Elm St & 5th on the map' }),
+    )
+
+    const line = await screen.findByText(
+      /voters in your district with a mapped address/,
+    )
+    expect(line).toHaveTextContent(
+      '4 voters in your district with a mapped address',
+    )
+    expect(
+      screen.getByRole('heading', { name: 'District voters' }),
+    ).toBeInTheDocument()
+  })
+
+  // The camera is about to frame this ring and the dots are about to mask to
+  // it, so selecting a hidden list draws it again rather than framing a
+  // boundary the candidate cannot see.
+  it('reveals a hidden list when it is selected', async () => {
+    renderTwo()
+    await screen.findByText('Elm St & 5th')
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Hide Elm St & 5th on the map' }),
+    )
+    expect(screen.getByTestId('voter-map')).toHaveAttribute('data-turfs', '1')
+
+    fireEvent.click(screen.getByText('Elm St & 5th'))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('voter-map')).toHaveAttribute(
+        'data-turfs',
+        '2',
+      ),
+    )
   })
 })
 

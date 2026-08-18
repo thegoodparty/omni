@@ -24,6 +24,7 @@ import {
   maskToPolygon,
   polygonStats,
   runFilter,
+  type FilterResult,
 } from './filterEngine'
 import {
   routeQueryOptions,
@@ -33,6 +34,7 @@ import {
 import CreateListFlow, { CreateFlowStep } from './createFlow/CreateListFlow'
 import {
   filtersToDimSelections,
+  unpreviewableDisclosureLabels,
   unpreviewableFilterKeys,
 } from './createFlow/voterFilterPreview'
 import { stopPositionsInRing } from './travelMode'
@@ -143,6 +145,15 @@ export default function NativeDoorKnockingPage({
   const [selectedTurf, setSelectedTurf] = useState<DoorKnockingTurf | null>(
     null,
   )
+  // Which saved outlines are drawn. Every turf's ring rendered at once and
+  // always, so an account with a dozen lists got a dozen overlapping rings and
+  // no way to quiet any of them. Client-side display state in the same category
+  // as `selectedTurf` and `statusFilter` — and deliberately as ephemeral as
+  // they are, rather than a column or a localStorage entry: the rail row is the
+  // only thing that discloses hiddenness, so a ring hidden last week and gone
+  // on the next open is a map missing an outline for a reason nobody remembers
+  // setting. Nothing here reaches gp-api, so no contract moves.
+  const [hiddenTurfIds, setHiddenTurfIds] = useState<Set<number>>(new Set())
   // Renaming from the details sheet only invalidates the turfs query, and
   // `selectedTurf` is the snapshot captured when the row was clicked — read the
   // heading's name off the live row or the rail would keep showing the old one
@@ -157,6 +168,13 @@ export default function NativeDoorKnockingPage({
   const [detailsTurf, setDetailsTurf] = useState<DoorKnockingTurf | null>(null)
   const walkTurf = walk.turf
 
+  // Only the outlines the rail says are shown. Hiding is display-only: the dots
+  // are the pack's and are unaffected, and the rows keep their Details, PDF and
+  // Knock affordances — a quiet ring is not an archived list.
+  const visibleTurfs = useMemo(
+    () => (turfsQuery.data ?? []).filter((turf) => !hiddenTurfIds.has(turf.id)),
+    [turfsQuery.data, hiddenTurfIds],
+  )
   const selectedTurfRing = useMemo(
     () =>
       selectedTurf
@@ -164,25 +182,52 @@ export default function NativeDoorKnockingPage({
         : null,
     [selectedTurf],
   )
+  // The list carrying the selected turf's filters, which is what makes the
+  // rail's scope a LIST rather than a bare ring. It can be missing for three
+  // unrelated reasons — still loading, the request failed, or it was deleted in
+  // the CRM — and none of them means "no filters", though
+  // `savedListFilterKeys(undefined)` is `{}` and every consumer below reads
+  // that as exactly that. Resolving it once, here, is what stops the heading,
+  // the legend chips and the dot mask from each making their own guess and
+  // agreeing on the whole polygon's population under one list's name.
+  const selectedList = useMemo(
+    () =>
+      selectedTurf
+        ? savedListsQuery.data?.find(
+            (candidate) => candidate.id === selectedTurf.voterFileFilterId,
+          )
+        : undefined,
+    [savedListsQuery.data, selectedTurf],
+  )
+  // Filters that haven't arrived versus filters that never will. The first
+  // self-corrects and reads as loading; the second is a settled answer — "we
+  // cannot describe this list" — and has to say so out loud, because a list
+  // deleted in Contacts leaves the rail claiming the ring IS the list forever.
+  const scopePending = Boolean(selectedTurf) && savedListsQuery.isPending
   // The scope the rail heading names: the selected list's own saved filters,
   // or the whole district. Status chips narrow the map on top of this, and the
-  // legend counts underneath describe the scope itself.
+  // legend counts underneath describe the scope itself. `null` is the third
+  // state — no honest scope — and every consumer below propagates it rather
+  // than falling back on an unconstrained selection map.
   const scopeSelections = useMemo(() => {
-    if (!packQuery.data || !selectedTurf) return new Map<string, Set<number>>()
-    const list = savedListsQuery.data?.find(
-      (candidate) => candidate.id === selectedTurf.voterFileFilterId,
-    )
+    if (!packQuery.data) return null
+    if (!selectedTurf) return new Map<string, Set<number>>()
+    if (!selectedList) return null
     return filtersToDimSelections(
-      savedListFilterKeys(list),
+      savedListFilterKeys(selectedList),
       packQuery.data.manifest,
     )
-  }, [packQuery.data, savedListsQuery.data, selectedTurf])
+  }, [packQuery.data, selectedList, selectedTurf])
+  const scopeReady = scopeSelections !== null
+  // Settled with nothing: the fetch failed, or the filter is gone from the CRM.
+  const scopeUnavailable = Boolean(selectedTurf) && !scopeReady && !scopePending
   // The filter draft narrows the preview only while the create flow is open.
   const selections = useMemo(() => {
-    if (!packQuery.data) return new Map<string, Set<number>>()
+    if (!packQuery.data) return null
     if (flowStep) {
       return filtersToDimSelections(filters, packQuery.data.manifest)
     }
+    if (!scopeSelections) return null
     const dim = packQuery.data.manifest.dims.find(
       (d) => d.key === 'canvassStatus',
     )
@@ -200,8 +245,22 @@ export default function NativeDoorKnockingPage({
     narrowed.set('canvassStatus', indexes)
     return narrowed
   }, [flowStep, filters, statusFilter, scopeSelections, packQuery.data])
-  const filterResult = useMemo(() => {
+  const filterResult = useMemo<FilterResult | null>(() => {
     if (!packQuery.data) return null
+    // A scope with no filters behind it shades nothing: every dot renders the
+    // unmatched grey rather than letting the ring's whole population stand in
+    // for a list we can't describe. The rail says which of the two states this
+    // is; the map only has to avoid making the confident claim.
+    if (!selections) {
+      const dots = packQuery.data.manifest.counts.dots
+      return {
+        people: 0,
+        households: 0,
+        dots: 0,
+        matchedPerDot: new Uint32Array(dots),
+        statusPerDot: new Uint8Array(dots).fill(255),
+      }
+    }
     const result = runFilter(packQuery.data, selections)
     if (!flowStep && selectedTurfRing) {
       return maskToPolygon(packQuery.data, result, selectedTurfRing)
@@ -217,6 +276,23 @@ export default function NativeDoorKnockingPage({
         ? unpreviewableFilterKeys(filters, packQuery.data.manifest)
         : [],
     [packQuery.data, filters],
+  )
+  // The same disclosure for the selected list, whose filters were saved rather
+  // than drafted: the rail's count is a superset for the same reason the draw
+  // step's was, and the create flow's sentence is the one already written for
+  // it. Only computed once the list has resolved — an unresolved scope has no
+  // filters to disclose and says so instead.
+  const scopeUnpreviewableLabels = useMemo(
+    () =>
+      packQuery.data && selectedList
+        ? unpreviewableDisclosureLabels(
+            unpreviewableFilterKeys(
+              savedListFilterKeys(selectedList),
+              packQuery.data.manifest,
+            ),
+          )
+        : [],
+    [packQuery.data, selectedList],
   )
   // The details sheet's pre-route stats: doors/voters inside the saved polygon
   // that the list's OWN filters keep. Computed with empty selections these
@@ -290,7 +366,7 @@ export default function NativeDoorKnockingPage({
   }, [packQuery.data, savedListsQuery.data, knockTurf])
   const turfStats = useMemo(
     () =>
-      packQuery.data && ring
+      packQuery.data && ring && selections
         ? polygonStats(packQuery.data, selections, ring)
         : null,
     [packQuery.data, selections, ring],
@@ -303,7 +379,7 @@ export default function NativeDoorKnockingPage({
     const counts: Partial<Record<DoorKnockStatus, number>> = {}
     const pack = packQuery.data
     const dim = pack?.manifest.dims.find((d) => d.key === 'canvassStatus')
-    if (!pack || !dim) return counts
+    if (!pack || !dim || !scopeSelections) return counts
     const perValue = canvassStatusCounts(
       pack,
       scopeSelections,
@@ -438,6 +514,7 @@ export default function NativeDoorKnockingPage({
         >
           <TurfList
             selectedTurfId={selectedTurf?.id ?? null}
+            hiddenTurfIds={hiddenTurfIds}
             onFocusTurf={(turf) => {
               const next = selectedTurf?.id === turf.id ? null : turf
               setSelectedTurf(next)
@@ -448,6 +525,36 @@ export default function NativeDoorKnockingPage({
               // boundary would silently re-narrow whatever it landed in.
               setStatusFilter(new Set())
               setFocusTurf(turf)
+              // Selecting a hidden list draws it again. The camera is about to
+              // fly to this ring and the dots are about to mask to it, so
+              // leaving the outline off would frame a boundary the candidate
+              // can't see — the two controls answer different questions
+              // ("which list am I reading" and "which outlines are drawn") and
+              // must not end up contradicting each other.
+              if (next)
+                setHiddenTurfIds((current) => {
+                  if (!current.has(turf.id)) return current
+                  const remaining = new Set(current)
+                  remaining.delete(turf.id)
+                  return remaining
+                })
+            }}
+            onToggleTurfVisibility={(turf) => {
+              setHiddenTurfIds((current) => {
+                const next = new Set(current)
+                if (next.has(turf.id)) next.delete(turf.id)
+                else next.add(turf.id)
+                return next
+              })
+              // Hiding the list the rail is describing deselects it: the
+              // heading, the count, the legend and the dot mask all describe
+              // the selection, so keeping it would leave the loudest thing on
+              // screen pinned to a list the candidate just asked to quiet —
+              // and masked to an outline that is no longer drawn.
+              if (!hiddenTurfIds.has(turf.id) && selectedTurf?.id === turf.id) {
+                setSelectedTurf(null)
+                setStatusFilter(new Set())
+              }
             }}
             onShowDetails={setDetailsTurf}
             onKnockTurf={(turf) => {
@@ -464,16 +571,31 @@ export default function NativeDoorKnockingPage({
                 {selectedTurfName ?? 'District voters'}
               </h2>
               {filterResult && (
-                <p className="text-xs text-muted-foreground">
-                  {/* The pack is rooftop-geocoded rows only (MAPPABLE_ONLY,
-                    >90% of the file), so this is not the district's full
-                    registration total and shouldn't read as though it were —
-                    a candidate comparing it against an official count needs
-                    to know why it's short. */}
-                  {filterResult.people.toLocaleString()}{' '}
-                  {selectedTurf
-                    ? 'voters in this list'
-                    : 'voters in your district with a mapped address'}
+                <p
+                  className={`text-xs ${
+                    scopeUnavailable
+                      ? 'text-destructive'
+                      : 'text-muted-foreground'
+                  }`}
+                >
+                  {/* The heading names the selected list in all three states —
+                      it is the scope the candidate picked, not a claim about
+                      its size. This line is where the claim lives, so it is the
+                      line that has to admit to not having one. The pack is
+                      rooftop-geocoded rows only (MAPPABLE_ONLY, >90% of the
+                      file), so the district figure is not its full registration
+                      total and shouldn't read as though it were — a candidate
+                      comparing it against an official count needs to know why
+                      it's short. */}
+                  {!selectedTurf
+                    ? `${filterResult.people.toLocaleString()} voters in your district with a mapped address`
+                    : scopePending
+                      ? 'Counting the voters in this list…'
+                      : scopeUnavailable
+                        ? 'This list’s filters could not be loaded, so its voters can’t be counted here and none are shaded on the map. Refresh to try again — the list still targets them when you knock.'
+                        : `About ${filterResult.people.toLocaleString()} voters in this list`}
+                  {/* Reachable in all three states: an unresolved scope is
+                      exactly the one a candidate needs a way out of. */}
                   {selectedTurf && (
                     <button
                       type="button"
@@ -488,6 +610,38 @@ export default function NativeDoorKnockingPage({
                   )}
                 </p>
               )}
+              {/* "About", not a hedge on the arithmetic: the count is exact for
+                  what the pack can compute, and a superset of who gets knocked.
+                  The gap is the PREVIEW's, never the filter's — a key the pack
+                  has no bucket for adds no entry to its dim at all, so a 65+
+                  list shades every age, while gp-api's own conversion bounds it
+                  at `{ gte: 65 }` and knocks exactly who was asked for. Knock
+                  time also applies the list's activity conditions, support
+                  status and prior-contact clauses, none of which the pack
+                  carries, then drops do-not-knock and not-a-voter residents.
+                  So the copy says the map can't show the filter — never that
+                  the filter isn't applied, which would read as targeting
+                  silently failing and is the worse misunderstanding. */}
+              {selectedTurf && scopeReady && (
+                <p className="text-xs text-muted-foreground">
+                  About, because the map can&rsquo;t show every filter this list
+                  applies, and knocking also skips anyone marked do-not-knock or
+                  &ldquo;not a voter&rdquo; — so you&rsquo;ll walk fewer doors
+                  than this.
+                </p>
+              )}
+              {/* The draw step's own sentence, from the same helper, so the
+                  filter isn't named one way while drawing and another here. */}
+              {selectedTurf &&
+                scopeReady &&
+                scopeUnpreviewableLabels.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    The map can&rsquo;t shade by{' '}
+                    {scopeUnpreviewableLabels.join(', ')} yet, so these counts
+                    include people that filter will exclude. Your saved list
+                    still applies it when you knock.
+                  </p>
+                )}
             </div>
             <div className="flex flex-wrap gap-1.5">
               {DOOR_KNOCK_STATUSES.map((status) => (
@@ -495,7 +649,10 @@ export default function NativeDoorKnockingPage({
                   key={status}
                   type="button"
                   aria-pressed={statusFilter.has(status)}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${
+                  // A chip narrows within the scope, so with no scope to narrow
+                  // it can only flip its own pressed state and change nothing.
+                  disabled={!scopeReady}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs disabled:opacity-60 ${
                     statusFilter.has(status)
                       ? 'border-tertiary-dark bg-tertiary-dark/10 font-medium'
                       : 'border-border'
@@ -514,9 +671,22 @@ export default function NativeDoorKnockingPage({
                     style={{ backgroundColor: STATUS_DOT_COLORS[status] }}
                   />
                   {STATUS_LABELS[status]}
-                  <span className="font-semibold tabular-nums">
-                    {(statusCounts[status] ?? 0).toLocaleString()}
-                  </span>
+                  {/* Seven zeroes under a list's name is the same confident
+                      wrong answer as one wrong total, so an unresolved scope
+                      prints no number: a skeleton while it can still arrive, an
+                      em dash once it can't. */}
+                  {scopeReady ? (
+                    <span className="font-semibold tabular-nums">
+                      {(statusCounts[status] ?? 0).toLocaleString()}
+                    </span>
+                  ) : scopePending ? (
+                    <span
+                      aria-hidden="true"
+                      className="h-3 w-5 animate-pulse rounded bg-muted"
+                    />
+                  ) : (
+                    <span className="font-semibold">&mdash;</span>
+                  )}
                 </button>
               ))}
             </div>
@@ -588,7 +758,7 @@ export default function NativeDoorKnockingPage({
               <VoterMapCanvas
                 pack={packQuery.data}
                 filterResult={filterResult}
-                turfs={turfsQuery.data ?? []}
+                turfs={visibleTurfs}
                 routePins={routePins}
                 routeLoop={walkRouteQuery.data?.route.loop ?? false}
                 routeGeometry={

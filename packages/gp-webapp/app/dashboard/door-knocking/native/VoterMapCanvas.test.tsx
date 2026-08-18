@@ -264,6 +264,46 @@ describe('VoterMapCanvas drawing', () => {
     expect(onDrawPointCount).toHaveBeenLastCalledWith(1)
   })
 
+  // Ending a walk invalidates the pack so the landing dots aren't stale, and
+  // the refetch hands down a fresh object. Keyed on that identity, the mount
+  // effect tore the MapLibre instance down through map.remove() and re-framed
+  // the district — the canvasser was looking at one block and landed back at
+  // district scale. The dots still have to recolour: that is the overlay
+  // effect's job and it keeps its own dependency on the pack.
+  it('repaints on a new pack without rebuilding the map', () => {
+    const props = {
+      ...baseProps,
+      startDrawToken: 0,
+      onPolygonChange: vi.fn(),
+      onDrawPointCount: vi.fn(),
+    }
+    const { rerender } = render(<VoterMapCanvas {...props} />)
+    expect(gl.map.fitBounds).toHaveBeenCalledTimes(1)
+
+    // A refetched pack: same coordinates, new object identity, and one dot's
+    // status changed by the knocks logged during the walk.
+    const repainted: DecodedPack = {
+      ...pack,
+      dimPlanes: new Map([['canvassStatus', new Uint8Array([0, 0])]]),
+    }
+    const recoloured: FilterResult = {
+      ...filterResult,
+      statusPerDot: new Uint8Array([0, 1]),
+    }
+    rerender(
+      <VoterMapCanvas {...props} pack={repainted} filterResult={recoloured} />,
+    )
+
+    expect(gl.map.remove).not.toHaveBeenCalled()
+    // No second framing, so whatever the canvasser had panned to survives.
+    expect(gl.map.fitBounds).toHaveBeenCalledTimes(1)
+    expect(gl.map.jumpTo).not.toHaveBeenCalled()
+    // And the dots did repaint: the overlay effect ran for the new pack.
+    expect(layerData('voter-dots')).toEqual(
+      expect.objectContaining({ length: repainted.manifest.counts.dots }),
+    )
+  })
+
   it('opens at street level when given an initial zoom', () => {
     const { unmount } = render(
       <VoterMapCanvas
