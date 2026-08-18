@@ -15,6 +15,7 @@ import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interc
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { Campaign, User } from '../generated/prisma'
 import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
+import { OutreachComposeContextService } from './services/outreachComposeContext.service'
 
 const candidateName = (user: User): string =>
   [user.firstName, user.lastName].filter(Boolean).join(' ').trim()
@@ -25,6 +26,7 @@ const candidateName = (user: User): string =>
 export class OutreachSmsController {
   constructor(
     private readonly generationService: OutreachSmsGenerationService,
+    private readonly composeContext: OutreachComposeContextService,
     private readonly organizations: OrganizationsService,
     private readonly logger: PinoLogger,
   ) {
@@ -59,6 +61,7 @@ export class OutreachSmsController {
         candidateName(user),
         positionName ?? campaign.details.normalizedOffice ?? '',
         String(user.id),
+        await this.composeContext.buildCampaignContext(campaign),
       ),
     }
   }
