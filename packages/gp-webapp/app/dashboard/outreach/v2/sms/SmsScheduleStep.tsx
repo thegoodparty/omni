@@ -100,6 +100,7 @@ export const SmsScheduleStep = ({
   return (
     <div className="space-y-6">
       <Intro
+        channel="text"
         title="When do you want to send it?"
         body="We recommend mid-morning or early evening for higher engagement. Sends require at least 48 hours' notice."
       />

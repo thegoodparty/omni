@@ -77,7 +77,11 @@ export const SmsAudienceStep = ({
   if (mode === 'name') {
     return (
       <div className="space-y-6">
-        <Intro title="Name your list" body="You can rename it any time." />
+        <Intro
+          channel="text"
+          title="Name your list"
+          body="You can rename it any time."
+        />
         <NameStep
           name={builderName}
           onNameChange={onBuilderNameChange}
@@ -95,6 +99,7 @@ export const SmsAudienceStep = ({
     return (
       <div className="space-y-6">
         <Intro
+          channel="text"
           title="Build a voter list"
           body="Pick filters to define who this campaign reaches."
         />
@@ -112,6 +117,7 @@ export const SmsAudienceStep = ({
   return (
     <div className="space-y-6">
       <Intro
+        channel="text"
         title="Who do you want to reach?"
         body="Pick one of your saved voter lists. We only text voters with a mobile number."
       />
