@@ -79,9 +79,11 @@ const DRAFT_SYSTEM_PROMPT = [
   '- Write in the first person, as the candidate.',
   '- Keep the draft roughly 60-120 words of plain prose (no hashtags,',
   '  no links, no headings).',
-  '- Stay ISSUE-NEUTRAL: never invent policy positions, issue stances,',
-  '  endorsements, statistics, dates, places, or events. The candidate',
-  '  edits this draft before it is used.',
+  "- Ground positions, issues, and specifics in the candidate's own",
+  '  campaign materials when they are provided; never invent policy',
+  '  positions, issue stances, endorsements, statistics, dates, places,',
+  '  or events the materials do not contain. With no materials, stay',
+  '  issue-neutral. The candidate edits this draft before it is used.',
   '- Stay strictly non-partisan. No party labels, no attacks.',
   '- Match the requested tone.',
 ].join('\n')
@@ -99,9 +101,10 @@ const IMPROVE_SYSTEM_PROMPT = [
   '- Keep roughly the same length as the original. Do not add new',
   '  sentences, greetings, or sign-offs the original does not have.',
   '- Return plain prose (no hashtags, no links, no headings).',
-  '- Stay ISSUE-NEUTRAL: never add policy positions, issue stances,',
-  '  endorsements, statistics, dates, places, or events the original',
-  '  does not contain.',
+  '- Never add policy positions, issue stances, endorsements,',
+  '  statistics, dates, places, or events the original text does not',
+  '  contain — campaign materials, when provided, are context for tone',
+  '  and accuracy, not a source of new content in a polish.',
   '- Stay strictly non-partisan. No party labels, no attacks.',
   '- Match the requested tone through word choice, not new content.',
 ].join('\n')
@@ -116,8 +119,10 @@ const SYSTEM_PROMPT = [
   'platform-native posts.',
   'Rules:',
   '- Write in the first person, as the candidate.',
-  '- Build ONLY on the provided draft message. Never invent facts,',
-  '  endorsements, statistics, dates, or places it does not contain.',
+  "- Build on the provided draft message; the candidate's campaign",
+  '  materials, when provided, may ground supporting detail. Never',
+  '  invent facts, endorsements, statistics, dates, or places that',
+  '  neither the draft nor the materials contain.',
   '- Stay strictly non-partisan. No party labels, no attacks.',
   '- Return exactly one asset per requested platform, following each',
   "  platform's rules.",
@@ -163,6 +168,7 @@ export class OutreachSocialGenerationService {
     candidateName: string,
     office: string,
     userId: string,
+    campaignContext: string[] = [],
   ): Promise<string> {
     // Fresh generation only: improve mode polishes the candidate's own
     // words, so it applies to custom-purpose messages too.
@@ -176,6 +182,7 @@ export class OutreachSocialGenerationService {
       `Office sought: ${office || 'local office'}.`,
       `Goal of this message: ${PURPOSE_GOALS[input.purpose]}.`,
       `Tone: ${TONE_STYLES[input.tone]}`,
+      ...campaignContext,
     ]
     const messages: LlmMessage[] = input.currentDraft
       ? [
@@ -220,11 +227,15 @@ export class OutreachSocialGenerationService {
     input: SocialGenerateRequest,
     candidateName: string,
     userId: string,
+    campaignContext: string[] = [],
   ): Promise<SocialAsset[]> {
     const platforms = [...new Set(input.platforms)]
     const messages: LlmMessage[] = [
       { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: buildPrompt(input, platforms, candidateName) },
+      {
+        role: 'user',
+        content: buildPrompt(input, platforms, candidateName, campaignContext),
+      },
     ]
 
     let generated: GeneratedAssets
@@ -273,10 +284,12 @@ const buildPrompt = (
   input: SocialGenerateRequest,
   platforms: SocialAssetPlatform[],
   candidateName: string,
+  campaignContext: string[],
 ): string =>
   [
     `Candidate name: ${candidateName || 'The candidate'}.`,
     `Goal of this message: ${PURPOSE_GOALS[input.purpose]}.`,
+    ...campaignContext,
     'Confirmed draft message:',
     '"""',
     input.draftMessage,

@@ -32,6 +32,7 @@ import { OrganizationsService } from '@/organizations/services/organizations.ser
 import { Campaign, User } from '../generated/prisma'
 import { OutreachSocialService } from './services/outreachSocial.service'
 import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
+import { OutreachComposeContextService } from './services/outreachComposeContext.service'
 
 const candidateName = (user: User): string =>
   [user.firstName, user.lastName].filter(Boolean).join(' ').trim()
@@ -46,6 +47,7 @@ export class OutreachSocialController {
   constructor(
     private readonly socialService: OutreachSocialService,
     private readonly generationService: OutreachSocialGenerationService,
+    private readonly composeContext: OutreachComposeContextService,
     private readonly organizations: OrganizationsService,
     private readonly logger: PinoLogger,
   ) {
@@ -82,6 +84,7 @@ export class OutreachSocialController {
         candidateName(user),
         positionName ?? campaign.details.normalizedOffice ?? '',
         String(user.id),
+        await this.composeContext.buildCampaignContext(campaign),
       ),
     }
   }
@@ -90,6 +93,7 @@ export class OutreachSocialController {
   @ResponseSchema(SocialGenerateResponseSchema)
   async generate(
     @ReqUser() user: User,
+    @ReqCampaign() campaign: Campaign,
     @Body(new ZodValidationPipe(SocialGenerateRequestSchema))
     input: SocialGenerateRequest,
   ): Promise<SocialGenerateResponse> {
@@ -98,6 +102,7 @@ export class OutreachSocialController {
         input,
         candidateName(user),
         String(user.id),
+        await this.composeContext.buildCampaignContext(campaign),
       ),
     }
   }

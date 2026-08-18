@@ -24,6 +24,7 @@ import { OutreachMaterializationService } from './services/outreachMaterializati
 import { OutreachService } from './services/outreach.service'
 import { OutreachSocialService } from './services/outreachSocial.service'
 import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
+import { OutreachComposeContextService } from './services/outreachComposeContext.service'
 import { OutreachNotificationService } from './services/outreachNotification.service'
 import { OutreachPurchaseHandlerService } from './services/outreachPurchase.service'
 
@@ -54,6 +55,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachService,
     OutreachSocialService,
     OutreachSocialGenerationService,
+    OutreachComposeContextService,
     OutreachCompletionService,
     OutreachInboundSweepService,
     OutreachNotificationService,
