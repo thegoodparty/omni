@@ -190,11 +190,48 @@ visible failure:
   so this is invisible; it also covers the flag patches and any refetch this
   code didn't start.
 
-The residual gap is narrow and deliberate: a resident whose sheet stays open
-across their own knock — the `not_a_voter` case, which holds the sheet so the
-ADR 0008 follow-up can be answered — still sees the feed they were served
-with. Refreshing underneath that prompt would rebuild the control being
-answered, which is a worse trade than one stale card.
+**As accepted, this left one residual gap**, narrow and deliberate: a resident
+whose sheet stays open across their own knock — the `not_a_voter` case, which
+holds the sheet so the ADR 0008 follow-up can be answered — still sees the feed
+they were served with. Refreshing underneath that prompt would rebuild the
+control being answered, which is a worse trade than one stale card. That
+reasoning still holds; what changed is when the refresh is allowed to fire.
+
+#### The residual, closed (PR #1310, `d15f232c3`)
+
+That gap is now closed, and the reasoning above is why it took the shape it
+did. The refresh was never wrong for this resident — it was wrong _at the
+knock_, which is the only moment the ADR considered. Firing it there rebuilds
+`NotAVoterControl`, whose two branches switch on `notAVoterReason`, underneath
+the question being answered. So the refresh is **deferred rather than dropped**:
+it goes out when the follow-up is resolved, which is the first moment nothing is
+left for a serve to arrive under.
+
+`refreshFeedFor(targetId)` was split into a person-keyed
+`refreshFeedForPerson(personId)`, and the two resolutions each call it:
+
+- **Answered** — from `onNotAVoterChanged`, deliberately **after**
+  `applyNotAVoter`. `patchPerson` cancels the route query before writing (the
+  second invariant above), so refreshing first would have had the patch cancel
+  the serve it had just asked for. The control a serve would rebuild is, by this
+  point, already the marker that answer resolves to.
+- **Abandoned** — on sheet close, gated on `knockStatus === 'not_a_voter'` with
+  no reason recorded yet. The sheet is unmounting, so there is nothing to
+  rebuild.
+
+**That gate is a cost property, not tidiness.** It is what keeps this at one
+serve per held-open sheet rather than the per-door serve rejected above. An
+answered resident has already paid for a serve on the answer path, so the
+close path must not bill them a second one; an ordinary door pays nothing,
+because every other outcome auto-advances and is already covered by `openSheet`.
+Refreshing on _every_ sheet close would reintroduce exactly the per-door refetch
+this ADR chose the route payload over — which is the whole argument for the
+payload, so a reader who removes the gate as redundant has quietly reversed the
+decision this document exists to record.
+
+Both triggers inherit the two invariants unchanged: the refetch is never awaited
+and never surfaced, and it reuses a serve already in flight
+(`cancelRefetch: false`) rather than restarting it.
 
 ## Consequences
 
@@ -202,13 +239,16 @@ answered, which is a worse trade than one stale card.
   realistic coverage. Route serve costs four more index-served queries, run in
   the same `Promise.all` as the three status reads already there.
 - **A knock logged mid-walk reaches that resident's own feed on the next serve,
-  which `WalkView` asks for when the resident is opened again.**
+  which `WalkView` asks for when the resident is opened again** — or, for the
+  `not_a_voter` door that keeps its sheet open, once its ADR 0008 follow-up is
+  resolved.
   `WalkView.patchPerson` writes the recorded `knockStatus` into the route query
   cache and nothing else, so the status everywhere else in the walk updates
   immediately while the feed keeps showing what the payload was served with.
   Left alone that reads as a broken feature rather than a stale cache, because
   the same knock visibly landed everywhere else in the panel. See "Refreshing
-  the feed mid-walk" below.
+  the feed mid-walk" below, including "The residual, closed" — every trigger is
+  tied to a moment the staleness is on screen, so no walk pays a serve per door.
 - `history` is `.optional()` rather than required or `.default([])`. The
   server always sends the array, empty included, but nothing on this path
   enforces that at runtime in either direction: `ZodResponseInterceptor` is not

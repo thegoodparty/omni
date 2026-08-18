@@ -172,6 +172,20 @@ pays a serve. The row itself is always the server's — nothing reconstructs a
 silent: the knock is already saved, so the feed keeps showing what it was
 served with.
 
+**The `not_a_voter` door is refreshed on a delay rather than not at all**
+(PR #1310, which closed the residual ADR 0009 recorded). Its sheet is held open
+across its own knock so the ADR 0008 follow-up can be answered, so neither
+trigger above ever fires for that resident — and refreshing on the knock is the
+thing the ADR ruled out, because the arriving serve rebuilds `NotAVoterControl`
+underneath the question. The refresh therefore waits for the follow-up to
+_resolve_: `WalkView` asks for one when the answer lands (after the status patch,
+which cancels in-flight serves) and, if the canvasser walks away from the
+question instead, on sheet close — gated on a `not_a_voter` status with no reason
+yet. That gate is load-bearing rather than tidy: an answered resident already
+paid for a serve and an ordinary door pays none, so this stays one serve per
+held-open sheet and does not become the per-door refetch ADR 0009 rejected the
+per-person endpoint to avoid.
+
 ## Do-not-knock
 
 `POST /v1/door-knocking/do-not-knock` — see
@@ -344,19 +358,19 @@ reimplemented, so `hasElectedOfficeAccess` still short-circuits ahead of
 it is across Contacts. Refusal is that method's `BadRequestException`, 400 with
 `This feature is only available for pro campaigns`.
 
-| Route                                | Gated |
-| ------------------------------------ | ----- |
-| `POST /turfs`                        | yes   |
-| `GET /turfs`                         | yes   |
-| `GET /turfs/:id`                     | yes   |
-| `PUT /turfs/:id`                     | yes   |
-| `DELETE /turfs/:id`                  | yes   |
-| `GET /turfs/:id/route`               | yes   |
-| `GET /pack`                          | yes   |
-| `POST /interactions`                 | yes   |
-| `POST /turfs/:id/knock`              | yes   |
-| `POST /do-not-knock`                 | **no** |
-| `POST /not-a-voter`                  | **no** |
+| Route                   | Gated  |
+| ----------------------- | ------ |
+| `POST /turfs`           | yes    |
+| `GET /turfs`            | yes    |
+| `GET /turfs/:id`        | yes    |
+| `PUT /turfs/:id`        | yes    |
+| `DELETE /turfs/:id`     | yes    |
+| `GET /turfs/:id/route`  | yes    |
+| `GET /pack`             | yes    |
+| `POST /interactions`    | yes    |
+| `POST /turfs/:id/knock` | yes    |
+| `POST /do-not-knock`    | **no** |
+| `POST /not-a-voter`     | **no** |
 
 Reads are gated alongside the writes on purpose: a map that opens and then
 fails on the first turf is a worse answer than an upgrade prompt, and routing
@@ -372,7 +386,7 @@ than work a subscription buys.
 A guard was considered and rejected: `@UseOrganization()` resolves the org in
 its own guard, so a second guard reading `request.organization` would depend on
 method-decorator evaluation order (bottom-up, so the gate would have to sit
-*above* `@UseOrganization()` to run after it) — a silent break for anyone who
+_above_ `@UseOrganization()` to run after it) — a silent break for anyone who
 reorders the decorators. Resolving the slug a second time in the guard, the way
 `CanDownloadVoterFile.guard.ts` does, buys a duplicate lookup per request. The
 in-method call is also what `contactNotes.controller.ts` and
