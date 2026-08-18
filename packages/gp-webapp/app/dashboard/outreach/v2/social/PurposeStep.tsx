@@ -14,6 +14,7 @@ interface PurposeStepProps {
 export const PurposeStep = ({ selected, onSelect }: PurposeStepProps) => (
   <div className="space-y-6">
     <Intro
+      channel="socialMedia"
       title="What do you want to do?"
       body="This helps us tailor your message and choose the right platforms."
     />

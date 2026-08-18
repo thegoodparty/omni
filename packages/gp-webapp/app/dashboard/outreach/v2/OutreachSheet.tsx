@@ -25,9 +25,10 @@ interface OutreachSheetProps {
 
 // The outreach flow sheet: a full-width bottom drawer covering everything
 // except the top 64px of the viewport (128px on desktop, per the design
-// prototype) — drag handle, 40x40 close top-right, a 608px centered content
-// column repeated in the header, body, and footer. The back affordance lives
-// in the header content (OutreachFlowShell), not on the sheet chrome.
+// prototype) — drag handle and a 608px centered content column repeated in
+// the header, body, and footer. Back and close both live inside the header
+// content column (OutreachFlowShell), so the sheet's own corner close only
+// shows on headerless success screens, which have no header row to host it.
 // Deliberately a COPY of the CRM's CrmSheet anatomy rather than an import:
 // that sheet is Lovable-pixel-locked to the CRM and outreach will drift from
 // it (WET over premature DRY — see the phase 1 implementation notes).
@@ -43,7 +44,7 @@ export const OutreachSheet = ({
   <Drawer open={open} onOpenChange={onOpenChange} direction="bottom">
     <DrawerContent
       className="h-[calc(100dvh-4rem)] w-full data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:max-h-[calc(100dvh-4rem)] data-[vaul-drawer-direction=bottom]:rounded-t-[10px] lg:h-[calc(100dvh-8rem)] lg:data-[vaul-drawer-direction=bottom]:max-h-[calc(100dvh-8rem)]"
-      closeClassName="top-2 right-2 size-10"
+      closeClassName={headerless ? 'top-2 right-2 size-10' : 'hidden'}
     >
       <DrawerHandle />
       <DrawerHeader

@@ -13,9 +13,11 @@ import {
   AlertDialogTitle,
   ArrowLeftIcon,
   Button,
+  DrawerClose,
   DrawerTitle,
   IconButton,
   Stepper,
+  XMarkIcon,
 } from '@styleguide'
 import { OutreachSheet } from './OutreachSheet'
 
@@ -93,41 +95,31 @@ export const OutreachFlowShell = ({
         headerless={totalSteps === 0}
         header={
           <>
-            {/* Prototype header anatomy: desktop back floats left of the
-                608px column; mobile puts back on its own row above the
-                title, level with the sheet's X close. The row is always
-                reserved so the title doesn't shift between steps. */}
-            <div className="mb-2 h-8 lg:hidden">
-              {onBack && (
-                <IconButton
-                  type="button"
-                  variant="outline"
-                  size="small"
-                  aria-label="Back"
-                  onClick={onBack}
-                >
-                  <ArrowLeftIcon className="size-4" />
-                </IconButton>
-              )}
-            </div>
-            <div className="relative">
-              {onBack && (
-                <div className="absolute top-1/2 right-full mr-9 hidden -translate-y-1/2 lg:block">
-                  <Button
+            {/* Prototype header anatomy: no visible title — a circular back
+                (when the step has one) and the close sit inside the content
+                column on one row, with the channel pill in the step body
+                carrying the flow context. The back slot is always reserved
+                so the row doesn't collapse between steps. */}
+            <div className="flex items-center justify-between">
+              <div className="size-10">
+                {onBack && (
+                  <IconButton
                     type="button"
                     variant="outline"
-                    size="small"
+                    aria-label="Back"
                     onClick={onBack}
+                    className="rounded-full"
                   >
-                    <ArrowLeftIcon className="size-4" aria-hidden />
-                    Back
-                  </Button>
-                </div>
-              )}
-              <DrawerTitle className="min-w-0 truncate text-base font-semibold">
-                {title}
-              </DrawerTitle>
+                    <ArrowLeftIcon />
+                  </IconButton>
+                )}
+              </div>
+              <DrawerClose className="inline-flex size-10 items-center justify-center rounded-full opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-primary-focus focus-visible:outline-none">
+                <XMarkIcon className="size-4" />
+                <span className="sr-only">Close</span>
+              </DrawerClose>
             </div>
+            <DrawerTitle className="sr-only">{title}</DrawerTitle>
             {totalSteps > 0 && (
               <Stepper
                 variant="bar"

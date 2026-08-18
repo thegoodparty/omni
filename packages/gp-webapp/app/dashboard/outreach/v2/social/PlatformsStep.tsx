@@ -14,6 +14,7 @@ interface PlatformsStepProps {
 export const PlatformsStep = ({ selected, onToggle }: PlatformsStepProps) => (
   <div className="space-y-6">
     <Intro
+      channel="socialMedia"
       title="Where do you want to share it?"
       body="All platforms are on by default. Turn off any you don't want. We'll adapt your draft into post copy or a video script for each one."
     />

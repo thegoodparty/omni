@@ -12,15 +12,15 @@ import {
   Textarea,
 } from '@styleguide'
 import {
-  ArrowRightIcon,
   ClockIcon,
-  HandHeartIcon,
   Loader2Icon,
   MicIcon,
   RefreshIcon,
+  SmileIcon,
   SparklesIcon,
   SquareIcon,
-  ThumbsUpIcon,
+  SunIcon,
+  TargetIcon,
 } from '@styleguide/components/ui/icons'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import { ThinkingStream } from './ThinkingStream'
@@ -33,13 +33,11 @@ const TONE_LABELS: Record<SocialTone, string> = {
   friendly: 'Friendly',
 }
 
-// Approved-icons stand-ins for the prototype's Sun/Target/Clock/Smile tone
-// glyphs (only icons.tsx icons are allowed in app code).
 const TONE_ICONS: Record<SocialTone, ReactNode> = {
-  warm: <HandHeartIcon className="size-4" />,
-  direct: <ArrowRightIcon className="size-4" />,
+  warm: <SunIcon className="size-4" />,
+  direct: <TargetIcon className="size-4" />,
   urgent: <ClockIcon className="size-4" />,
-  friendly: <ThumbsUpIcon className="size-4" />,
+  friendly: <SmileIcon className="size-4" />,
 }
 
 interface ComposeStepProps {
@@ -88,6 +86,7 @@ export const ComposeStep = ({
   return (
     <div className="space-y-6">
       <Intro
+        channel="socialMedia"
         title="What do you want to say?"
         body="Confirm the message. We'll adapt this draft to each platform's voice and length in the next steps."
       />
