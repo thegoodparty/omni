@@ -7,6 +7,7 @@ import { Campaign, Organization, VoterFileFilter } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactsService } from './contacts.service'
 import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from '../contacts.types'
+import { EXCLUDABLE_VOTER_COLUMNS } from '@/peopleDb/voter.select'
 import {
   AggregatesDTO,
   DownloadPeopleDTO,
@@ -955,22 +956,7 @@ describe('ContactsService', () => {
 
         expect(mockVoterDownloadService.streamPeopleCsv).toHaveBeenCalledWith(
           expect.objectContaining({
-            excludeColumns: [
-              'Parties_Description',
-              'Residence_HHParties_Description',
-              'VoterParties_Change_Changed_Party',
-              'VotingPerformanceEvenYearGeneral',
-              'VotingPerformanceEvenYearPrimary',
-              'VotingPerformanceEvenYearGeneralAndPrimary',
-              'General_2026',
-              'General_2024',
-              'General_2022',
-              'General_2020',
-              'Primary_2026',
-              'Primary_2024',
-              'Primary_2022',
-              'Primary_2020',
-            ],
+            excludeColumns: [...EXCLUDABLE_VOTER_COLUMNS],
           }),
           res,
           expect.any(Object),
