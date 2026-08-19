@@ -176,10 +176,21 @@ export class PurchaseController {
     // post-election via ActiveProSubscriptionAlert). Any campaign's
     // subscriptionId resolves the same Stripe customer, so search them all,
     // newest first.
-    const campaigns = await this.campaignsService.findMany({
-      where: { userId: user.id },
-      orderBy: { updatedAt: Prisma.SortOrder.desc },
-    })
+    let campaigns: Campaign[]
+    try {
+      campaigns = await this.campaignsService.findMany({
+        where: { userId: user.id },
+        orderBy: { updatedAt: Prisma.SortOrder.desc },
+      })
+    } catch (error) {
+      // Recovery is best-effort end to end: a transient DB error here should
+      // surface as the graceful 400, not an unhandled 500.
+      this.logger.error(
+        { error: serializeError(error), userId: user.id },
+        'Failed to load campaigns for customerId recovery',
+      )
+      return null
+    }
     const subscriptionId = campaigns.find(
       (campaign) => campaign.details?.subscriptionId,
     )?.details?.subscriptionId

@@ -464,6 +464,16 @@ describe('PurchaseController', () => {
       })
     })
 
+    it('throws the graceful 400 when the campaign lookup itself fails', async () => {
+      campaignsService.findMany.mockRejectedValue(new Error('db unavailable'))
+
+      await expect(controller.createPortalSession(mockUser)).rejects.toThrow(
+        BadRequestException,
+      )
+      expect(stripeService.retrieveSubscription).not.toHaveBeenCalled()
+      expect(stripeService.createPortalSession).not.toHaveBeenCalled()
+    })
+
     it('throws BadRequestException when no campaign has a subscriptionId', async () => {
       campaignsService.findMany.mockResolvedValue([
         { ...mockCampaign, details: {} },
