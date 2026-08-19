@@ -24,6 +24,57 @@ import { ElectionApiTokenService } from './vendors/clerk/services/electionApiTok
 
 export const TEST_CLERK_ID = 'user_test_123'
 
+// The reset below is a few tens of milliseconds of work. This ceiling is here
+// only to survive real pathology (a starved runner, a lock held by work that
+// outlived the test that started it) — vitest's 10s default was tight enough
+// that ordinary CI contention tripped it, and a tripped reset is what starts
+// the cascade that `pendingReset` guards against.
+const RESET_TIMEOUT_MS = 30_000
+
+/**
+ * Empty every table, then seed the one user the suite authenticates as.
+ *
+ * Truncating all 88 tables unconditionally costs a flat ~350ms, because the
+ * commit syncs a new relation file for each one; asking all 88 whether they
+ * hold a row costs ~15ms in a single round trip, and a test typically dirties
+ * a handful. So probe first and truncate only what the last test actually
+ * wrote. CASCADE may pull in an empty child table, which is harmless — the
+ * post-condition is only that every table is empty.
+ */
+const resetDatabase = async (
+  prisma: PrismaService,
+  tables: string[],
+): Promise<User> => {
+  const dirty = tables.length
+    ? await prisma.$queryRawUnsafe<Array<{ tablename: string }>>(
+        tables
+          .map(
+            (table) =>
+              `SELECT '${table}' AS tablename ` +
+              `WHERE EXISTS (SELECT 1 FROM "public"."${table}")`,
+          )
+          .join(' UNION ALL '),
+      )
+    : []
+
+  if (dirty.length > 0) {
+    const tableList = dirty
+      .map(({ tablename }) => `"public"."${tablename}"`)
+      .join(', ')
+    await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${tableList} CASCADE;`)
+  }
+
+  return prisma.user.create({
+    data: {
+      id: 123,
+      clerkId: TEST_CLERK_ID,
+      email: 'tests@goodparty.org',
+      firstName: 'Johnny',
+      lastName: 'Goodparty',
+    },
+  })
+}
+
 /**
  * What ClerkUserEnricherService resolves to when Clerk cannot be reached: the
  * DB identity fields stand, but a locally stored avatar is never served as if
@@ -69,11 +120,21 @@ export const useTestService = (): TestServiceContext => {
   let app: NestFastifyApplication
   let client: AxiosInstance
   let user: User
+  let uniqueDbName: string
+  let tables: string[]
+
+  // When a hook exceeds its timeout vitest rejects the hook's promise but
+  // cannot cancel the queries already in flight, so an abandoned reset runs to
+  // completion regardless. Unordered, its user insert lands after the NEXT
+  // test's truncate and every later test in the file dies on a duplicate id —
+  // which is how one slow reset used to fail a whole file. Chaining keeps an
+  // abandoned reset strictly ahead of its successor, so it costs one test.
+  let pendingReset: Promise<unknown> = Promise.resolve()
 
   beforeAll(async () => {
     // Generate unique database name for this test suite. It's important to use unique
     // database names per suite to ensure that suites are isolated from each other.
-    const uniqueDbName = `test_db_${randomBytes(8).toString('hex')}`
+    uniqueDbName = `test_db_${randomBytes(8).toString('hex')}`
 
     container = await startTestPostgres()
 
@@ -197,41 +258,48 @@ export const useTestService = (): TestServiceContext => {
       }
       return config
     })
+
+    // Read once: the database is cloned from the template and never migrated
+    // again, so the reset would otherwise re-ask for the same 88 names before
+    // every single test.
+    tables = (
+      await app.get(PrismaService).$queryRaw<Array<{ tablename: string }>>`
+        SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+      `
+    ).map(({ tablename }) => tablename)
   }, 25_000)
 
   beforeEach(async () => {
-    const prisma = app.get(PrismaService)
-
-    // Get all table names from the Prisma schema
-    const tableNames = await prisma.$queryRaw<Array<{ tablename: string }>>`
-      SELECT tablename FROM pg_tables WHERE schemaname='public'
-    `
-
-    // Empty every table before each test run to isolate individual tests
-    // within a suite. Truncate all tables in a single statement for better performance.
-    if (tableNames.length > 0) {
-      const tableList = tableNames
-        .map(({ tablename }) => `"public"."${tablename}"`)
-        .join(', ')
-      await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${tableList} CASCADE;`)
-    }
-
-    // Create a test user for the current test
-    user = await prisma.user.create({
-      data: {
-        id: 123,
-        clerkId: TEST_CLERK_ID,
-        email: 'tests@goodparty.org',
-        firstName: 'Johnny',
-        lastName: 'Goodparty',
-      },
-    })
-  })
+    const reset = pendingReset
+      .catch(() => undefined)
+      .then(() => resetDatabase(app.get(PrismaService), tables))
+    // Keep the chain itself settled, so one failed reset doesn't reject every
+    // reset after it.
+    pendingReset = reset.catch(() => undefined)
+    user = await reset
+  }, RESET_TIMEOUT_MS)
 
   afterAll(async () => {
     // Close the NestJS application
     if (app) {
       await app.close()
+    }
+
+    // Drop this suite's clone. Nothing else does, so a reused container
+    // otherwise carries every database every suite ever created — a long-lived
+    // local one had accumulated 248 — and autovacuum keeps working through all
+    // of them, which is what leaves a "warm" container measurably slower to
+    // test against than a fresh one. FORCE covers any connection app.close()
+    // left behind.
+    if (!container) return
+    const admin = new Client({
+      connectionString: container.getConnectionUri(),
+    })
+    await admin.connect()
+    try {
+      await admin.query(`DROP DATABASE IF EXISTS ${uniqueDbName} WITH (FORCE)`)
+    } finally {
+      await admin.end()
     }
   })
 
