@@ -270,6 +270,26 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).not.toContain('days from today')
   })
 
+  // The server clock runs ahead of every US timezone for part of each day, so 0
+  // and -1 can both still be the deadline day where the candidate is. Telling
+  // someone they missed a deadline that is actually today is the worst error
+  // here, so the boundary reads as urgent-today, never as passed.
+  it.each([0, -1])(
+    'treats a day count of %i as due today, not as passed',
+    (daysToFilingDeadline) => {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({
+          ballotStatus: 'qualified-not-filed',
+          filingPeriodEnd: '2026-09-15',
+          daysToFilingDeadline,
+        }),
+      )
+      expect(prompt).toContain('that is TODAY')
+      expect(prompt).not.toContain('has already passed')
+      expect(prompt).not.toContain('0 days from today')
+    },
+  )
+
   it('says the deadline is unknown when the race has no filing period', () => {
     const prompt = buildCampaignManagerSystemPrompt(
       ctx({ ballotStatus: 'qualified-not-filed', filingPeriodEnd: null }),
@@ -290,10 +310,10 @@ describe('buildCampaignManagerSystemPrompt', () => {
 
   it('puts the office, district, and level in the race context', () => {
     const prompt = buildCampaignManagerSystemPrompt(
-      ctx({ district: 'Ward 3', officeLevel: 'city' }),
+      ctx({ district: 'Ward 3', officeLevel: 'CITY' }),
     )
     expect(prompt).toContain('District: Ward 3')
-    expect(prompt).toContain('Office level: city')
+    expect(prompt).toContain('Office level: CITY')
   })
 
   it('sends the manager to BallotReady before web search when a race resolved', () => {

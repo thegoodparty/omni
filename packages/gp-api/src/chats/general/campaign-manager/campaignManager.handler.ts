@@ -359,7 +359,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       campaignId: campaign.id,
       officeName: details.normalizedOffice ?? null,
       district: details.district ?? null,
-      officeLevel: details.level ?? null,
+      officeLevel: details.ballotLevel ?? null,
       location,
       weeksToElection: electionDate
         ? differenceInCalendarWeeks(parseISO(electionDate), new Date())

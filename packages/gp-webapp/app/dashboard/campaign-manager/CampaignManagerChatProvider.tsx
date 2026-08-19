@@ -143,10 +143,14 @@ export function CampaignManagerChatProvider({
   // The string mirrors gp-api's buildCampaignManagerGreeting (buildCampaign
   // ManagerIntro is its hand-synced client twin).
   const hiddenMessageContents = useMemo(() => {
+    // Only the two sentinels belong here. loadExisting skips the assistant turn
+    // that FOLLOWS a hidden user message, on the assumption that a hidden
+    // message's reply is a canned one it can safely drop. The ballot kickoff
+    // runs a real LLM turn, so hiding it would delete the candidate's filing
+    // answer from the transcript on every reload.
     const base = [
       CAMPAIGN_MANAGER_START_STORY_SENTINEL,
       CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
-      CAMPAIGN_MANAGER_BALLOT_KICKOFF,
     ]
     return pendingKickoff === CAMPAIGN_MANAGER_START_STORY_SENTINEL
       ? [...base, buildCampaignManagerIntro(firstName).join('\n\n')]
