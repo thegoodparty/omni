@@ -4,7 +4,6 @@ import CheckoutPayment from 'app/dashboard/purchase/components/CheckoutPayment'
 import { Button } from '@styleguide'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { FREE_TEXTS_OFFER } from '../../../outreach/constants'
-import { useP2pUxEnabled } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
 import { useCheckoutSession } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import {
   completeCheckoutSession,
@@ -38,12 +37,11 @@ export const OutreachPurchaseForm = ({
   excludedDuplicatePhoneCount,
 }: OutreachPurchaseFormProps) => {
   const [campaign] = useCampaign()
-  const { p2pUxEnabled } = useP2pUxEnabled()
   const { checkoutSession } = useCheckoutSession()
   const [isRedeeming, setIsRedeeming] = useState(false)
   const isRedeemingRef = useRef(false)
 
-  const hasFreeTextsOffer = p2pUxEnabled && campaign?.hasFreeTextsOffer
+  const hasFreeTextsOffer = campaign?.hasFreeTextsOffer
   const discount = hasFreeTextsOffer
     ? Math.min(contactCount, FREE_TEXTS_OFFER.COUNT)
     : 0

@@ -188,7 +188,14 @@ export function ProUpgradeModal({
         <Body2 className="leading-4">
           <ul className="list-none list-inside p-0 m-0">
             {items.map((item, index) => (
-              <li key={index}>✔&nbsp; {item}</li>
+              // The item rides in one span: globals.css turns li into a flex
+              // container under any data-slot ancestor (the v2 outreach hub
+              // mounts this modal inside one), and a flex li swallows the
+              // leading space of a text node that follows an element — the
+              // bold-phrase items rendered as "filestailored" there.
+              <li key={index}>
+                ✔&nbsp; <span>{item}</span>
+              </li>
             ))}
           </ul>
         </Body2>

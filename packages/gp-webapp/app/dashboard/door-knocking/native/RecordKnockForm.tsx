@@ -12,8 +12,8 @@ import {
 import { Button, Textarea, ToggleGroup, ToggleGroupItem } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useDictationAppend } from 'app/dashboard/briefings/shared/useDictationAppend'
-import { DictationMicButton } from 'app/dashboard/briefings/shared/DictationMicButton'
+import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
+import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
 import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
 import {
   OUTCOME_OPTIONS,

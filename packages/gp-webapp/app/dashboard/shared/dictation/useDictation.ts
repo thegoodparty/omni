@@ -77,7 +77,14 @@ const buildAbsoluteWsUrl = (relativeOrAbsolute: string): string => {
     } catch {
       throw new Error('Invalid WebSocket URL')
     }
-    if (supplied.host !== expected.host) {
+    // Trust the exact API host plus any goodparty.org host: preview
+    // webapps talk to a per-PR API alias while that API's PUBLIC_API_URL
+    // names the environment's canonical host, so an exact-host check
+    // false-positives on our own infrastructure.
+    const isGoodpartyHost =
+      supplied.hostname === 'goodparty.org' ||
+      supplied.hostname.endsWith('.goodparty.org')
+    if (supplied.host !== expected.host && !isGoodpartyHost) {
       throw new Error(`Untrusted WebSocket host: ${supplied.host}`)
     }
     return relativeOrAbsolute
