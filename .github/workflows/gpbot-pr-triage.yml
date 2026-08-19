@@ -1,6 +1,7 @@
 name: gpbot PR triage
 
-# Puts a named human on every [GP-Bot] PR and tells the owning team it exists.
+# Puts the human currently on bug duty on every [GP-Bot] PR and tells the owning
+# team it exists.
 #
 # The bot opens PRs nobody asked for, against tickets no reviewer has read. Ten
 # bot PRs died silently in the archived gp-webapp repo because "someone will
@@ -65,7 +66,6 @@ jobs:
         env:
           CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           roster=.github/gpbot-reviewers.json
@@ -92,37 +92,94 @@ jobs:
           echo "group=$group" >> "$GITHUB_OUTPUT"
           echo "slack_group_id=$(jq -r --arg g "$group" '.groups[$g].slackGroupId // empty' "$roster")" >> "$GITHUB_OUTPUT"
 
-          # Round-robin, stateless: no counter to persist and nothing to drift
-          # out of sync. A group with no roster of its own falls back to the
-          # shared pool so this keeps working before the Serve/Win split lands.
-          reviewer="$(jq -r --arg g "$group" --argjson n "$PR_NUMBER" '
-            (.groups[$g].reviewers // []) as $own
-            | (if ($own | length) > 0 then $own else .defaultReviewers end) as $pool
-            | if ($pool | length) > 0 then $pool[$n % ($pool | length)] else empty end
-          ' "$roster")"
-          echo "assigned reviewer: ${reviewer:-<none>}"
-          echo "reviewer=$reviewer" >> "$GITHUB_OUTPUT"
+      # Who is on bug duty right now. @serve-bugs / @win-bugs are two-week
+      # rotations holding one person at a time, so the group's membership is the
+      # answer and reading it here means a handoff needs no commit anywhere.
+      #
+      # This replaced a round-robin over a hand-listed pool. Round-robin keyed on
+      # the PR number is stateless and never drifts, but it answers the wrong
+      # question: it picked whoever the arithmetic landed on, which was almost
+      # never the person actually holding the rotation, and pulled in people who
+      # do not review app code at all.
+      #
+      # usergroups.users.list needs `usergroups:read`, which the gp_ai_bot token
+      # does not carry yet, so today this resolves to nothing and the
+      # announcement goes out with the group mention alone — still the right
+      # person, just without the GitHub request.
+      - name: Resolve the on-call reviewer
+        id: oncall
+        if: env.SLACK_TOKEN != '' && steps.owner.outputs.slack_group_id != ''
+        env:
+          GROUP_ID: ${{ steps.owner.outputs.slack_group_id }}
+        run: |
+          # Deliberately not `-e`. Every call below is checked by hand and
+          # degrades to "no individual assignee", because failing here would
+          # take the announcement down with it — an unheard-of bot PR is the
+          # exact outcome this workflow exists to prevent.
+          set -uo pipefail
+          roster=.github/gpbot-reviewers.json
+
+          members="$(curl -sS --max-time 20 -G https://slack.com/api/usergroups.users.list \
+            -H "Authorization: Bearer $SLACK_TOKEN" \
+            --data-urlencode "usergroup=$GROUP_ID")"
+          if [ "$(jq -r '.ok // false' <<<"$members")" != "true" ]; then
+            echo "::warning::cannot read Slack group $GROUP_ID ($(jq -r '.error // "no response"' <<<"$members")); announcing to the group with no individual assignee"
+            exit 0
+          fi
+
+          mentions=""
+          logins=""
+          # Everyone the group returns is used rather than one being chosen. The
+          # group holds one person, and the only expected exception is a brief
+          # two-person overlap at handoff — picking between them would put back
+          # the arbitrary selection this step exists to remove.
+          for uid in $(jq -r '.users[]? | select(. != "")' <<<"$members"); do
+            mentions="${mentions:+$mentions }<@${uid}>"
+
+            # Slack is the authority on the address, and a profile email is not
+            # always stored lower-case (Jack@goodparty.org is live today), so
+            # normalise before matching against the roster's keys.
+            email="$(curl -sS --max-time 20 -G https://slack.com/api/users.info \
+              -H "Authorization: Bearer $SLACK_TOKEN" \
+              --data-urlencode "user=$uid" \
+              | jq -r '.user.profile.email // empty' | tr '[:upper:]' '[:lower:]')"
+            if [ -z "$email" ]; then
+              echo "::warning::no readable email for Slack user $uid, so no GitHub login can be reached"
+              continue
+            fi
+
+            login="$(jq -r --arg e "$email" '.githubLogins[$e] // empty' "$roster")"
+            if [ -z "$login" ]; then
+              echo "::warning::$email is on bug duty but has no githubLogins entry in $roster; add one to get GitHub review requests"
+              continue
+            fi
+            logins="${logins:+$logins,}$login"
+          done
+
+          echo "on-call: ${mentions:-<none>} -> ${logins:-<no github login>}"
+          echo "mentions=$mentions" >> "$GITHUB_OUTPUT"
+          echo "reviewers=$logins" >> "$GITHUB_OUTPUT"
 
       - name: Request review
-        if: steps.owner.outputs.reviewer != ''
+        if: steps.oncall.outputs.reviewers != ''
         uses: actions/github-script@v7
         env:
-          REVIEWER: ${{ steps.owner.outputs.reviewer }}
+          REVIEWERS: ${{ steps.oncall.outputs.reviewers }}
         with:
           script: |
-            const reviewer = process.env.REVIEWER
+            const reviewers = process.env.REVIEWERS.split(',').filter(Boolean)
             try {
               await github.rest.pulls.requestReviewers({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 pull_number: context.payload.pull_request.number,
-                reviewers: [reviewer],
+                reviewers,
               })
             } catch (e) {
-              // A stale login in the roster, or the bot's own account, makes
-              // this 422. Announcing the PR still has value, so warn instead
-              // of failing and let the Slack step run.
-              core.warning(`could not request review from ${reviewer}: ${e.message}`)
+              // A login that has lost repo access, or the bot's own account,
+              // makes this 422. Announcing the PR still has value, so warn
+              // instead of failing and let the Slack step run.
+              core.warning(`could not request review from ${reviewers.join(', ')}: ${e.message}`)
             }
 
       # Degrades quietly when the channel variable is unset, so this workflow
@@ -131,7 +188,8 @@ jobs:
         if: env.SLACK_TOKEN != '' && env.CHANNEL != ''
         env:
           GROUP_ID: ${{ steps.owner.outputs.slack_group_id }}
-          REVIEWER: ${{ steps.owner.outputs.reviewer }}
+          MENTIONS: ${{ steps.oncall.outputs.mentions }}
+          REVIEWERS: ${{ steps.oncall.outputs.reviewers }}
           CUSTOM_ID: ${{ steps.owner.outputs.custom_id }}
           PR_URL: ${{ github.event.pull_request.html_url }}
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -141,8 +199,19 @@ jobs:
           [ -n "$GROUP_ID" ] && mention="<!subteam^${GROUP_ID}> "
           ticket=""
           [ -n "$CUSTOM_ID" ] && ticket=" (<https://app.clickup.com/t/${CUSTOM_ID}|${CUSTOM_ID}>)"
-          reviewer_line="No reviewer could be assigned — please pick this up."
-          [ -n "$REVIEWER" ] && reviewer_line="Assigned to *${REVIEWER}* for review."
+
+          # <!subteam^...> above already notifies the one person on duty, so
+          # these lines only have to report what happened on GitHub. Naming
+          # someone is worth a real <@id> and not bold text, which notifies
+          # nobody; $MENTIONS is built only from ids Slack returned, so it can
+          # never be the literal `<@>` an empty variable would produce.
+          if [ -n "$REVIEWERS" ]; then
+            reviewer_line="Review requested from ${MENTIONS}."
+          elif [ -n "$MENTIONS" ]; then
+            reviewer_line="${MENTIONS} is on duty but has no GitHub login on file, so no review was requested."
+          else
+            reviewer_line="Whoever is on bug duty could not be resolved — please pick this up."
+          fi
 
           # jq -n builds the payload so a PR title containing quotes or
           # backslashes cannot break out of the JSON.

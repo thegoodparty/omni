@@ -307,6 +307,19 @@ merge them, and that closing a weak one is the expected outcome.
 | `vars.GPBOT_PR_CHANNEL_ID` | `C022VR6PRQC` (`#bugs`) | Where the people who triage these bugs already are, and the home of the `@serve-bugs` / `@win-bugs` groups the message mentions |
 | `secrets.GPBOT_SLACK_BOT_TOKEN` | `gp_ai_bot` | A member of `#bugs` with `chat:write` |
 
+`@serve-bugs` and `@win-bugs` are two-week on-call rotations holding one person
+at a time, so `gpbot-pr-triage.yml` reads the current holder out of the group
+with `usergroups.users.list` and requests *that* person's GitHub review — the
+rotation is honoured with nothing to hand-maintain but the Slack-email →
+GitHub-login map in `.github/gpbot-reviewers.json`.
+
+That call needs **`usergroups:read`**, which the token does not yet carry. Until
+a Slack app admin adds the scope and reinstalls the app, the lookup answers
+`missing_scope` and every bot PR announces to the group — still the right
+person — with no individual review requested. Reinstalling can issue a new bot
+token, so plan on updating both `secrets.GPBOT_SLACK_BOT_TOKEN` and
+`AI_SECRETS_PROD.SLACK_BOT_TOKEN` when it happens.
+
 It is deliberately **not** `secrets.SLACK_APP_BOT_TOKEN`. That is the analytics
 app, which is a member of `#product-analytics` only; pointing it at `#bugs` fails
 every post with `not_in_channel`. Both gpbot workflows must carry the same app,
