@@ -115,7 +115,7 @@ describe('WalkListPdf', () => {
   it('pre-prints the tick options an unknocked door gets asked', () => {
     expect(blank).toContain('Dorian Fen')
     expect(blank).toContain('31 · Independent')
-    expect(blank).toContain('YN' + 'Y?N' + 'Y?N')
+    expect(blank).toContain('YN' + 'YN?' + 'YN?')
   })
 
   // Paper leaves the building and stops being access-controlled when it does.
@@ -221,7 +221,7 @@ describe('WalkListPdf', () => {
     expect(text).toContain('Last contact: June 2026 · Door knock: Answered')
     expect(text).not.toMatch(/Dog in the yard/)
     // Still a form to fill in: the line is context, not a recorded answer.
-    expect(text).toContain('Y?N')
+    expect(text).toContain('YN?')
   })
 
   // A household is one door however many people answer it, so the grid draws
@@ -237,7 +237,7 @@ describe('WalkListPdf', () => {
     expect(text.match(/105 Elm St/g)).toHaveLength(1)
     expect(text).toContain('Dorian Fen')
     expect(text).toContain('Ada One')
-    expect(text.match(/Y\?N/g)).toHaveLength(4)
+    expect(text.match(/YN\?/g)).toHaveLength(4)
   })
 
   it('gives every page the footer, the tagline, a page number and the column headings', async () => {

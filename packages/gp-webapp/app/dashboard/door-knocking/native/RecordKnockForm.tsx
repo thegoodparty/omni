@@ -16,23 +16,23 @@ import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationA
 import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
 import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
 import {
-  OUTCOME_OPTIONS,
+  ANSWER_OPTIONS,
+  ENGAGEMENT_OPTIONS,
+  ENGAGEMENT_QUESTION,
+  NOTE_QUESTION,
   OUTCOME_QUESTION,
-  QUICK_QUESTION,
-  QUICK_RESULTS,
-  QuickResult,
   SUPPORT_OPTIONS,
   SUPPORT_QUESTION,
   WILL_VOTE_OPTIONS,
   WILL_VOTE_QUESTION,
 } from './knockQuestions'
 
-// Compact cousin of the CRM wizard's pill toggles (crm/shared/constants.ts)
-// — same selected-state convention, sized for the walk view's dense form.
 // Matches the contract's ceiling (DoorKnockingInteraction.schema.ts) so an
 // over-long note is trimmed in the field rather than 400'd on save.
 const NOTE_MAX_LENGTH = 2_000
 
+// Compact cousin of the CRM wizard's pill toggles (crm/shared/constants.ts)
+// — same selected-state convention, sized for the walk view's dense form.
 const PILL_ITEM_CLASSNAME =
   'rounded-full border border-components-input-border bg-transparent px-3 py-1 text-xs font-normal text-foreground data-[state=on]:border-tertiary-dark data-[state=on]:bg-tertiary-dark data-[state=on]:text-tertiary-foreground data-[state=on]:hover:bg-tertiary-dark/90'
 
@@ -53,14 +53,18 @@ const ChoiceRow = <T extends string>({
   label: string
   options: Array<[T, string]>
   value: T | undefined
-  onChange: (value: T) => void
+  onChange: (value: T | undefined) => void
 }) => (
   <div className="flex flex-col gap-1">
     <span className="text-xs font-medium text-muted-foreground">{label}</span>
     <ToggleGroup
       type="single"
+      // Always a defined value: `''` is how this expresses "nothing chosen",
+      // so the group never flips between controlled and uncontrolled.
       value={value ?? ''}
-      onValueChange={(next) => next && onChange(next as T)}
+      // Tapping the chosen answer again clears it and collapses whatever it
+      // opened — the correction a canvasser reaches for after a mis-tap.
+      onValueChange={(next) => onChange((next || undefined) as T | undefined)}
       aria-label={label}
       className="flex flex-wrap justify-start gap-1.5"
     >
@@ -82,9 +86,11 @@ export default function RecordKnockForm({
   clientKey,
   onRecorded,
 }: RecordKnockFormProps) {
-  // Starts on the fast path; the canvasser opts into the long form.
-  const [detail, setDetail] = useState(false)
+  // Two steps, two pieces of state, because the contract's five-way outcome is
+  // a flattening of the tree the canvasser walks: `answered` in step one only
+  // means "keep asking", and step two is what the door actually ends as.
   const [outcome, setOutcome] = useState<DoorKnockOutcome | undefined>()
+  const [engagement, setEngagement] = useState<DoorKnockOutcome | undefined>()
   const [supportAnswer, setSupportAnswer] = useState<
     SupportAnswer | undefined
   >()
@@ -97,23 +103,17 @@ export default function RecordKnockForm({
   const dictation = useDictationAppend({
     analyticsLabel: 'door_knocking_note',
     value: note,
-    // The textarea's maxLength only constrains typing; a long dictation
-    // appends straight past it, so the same ceiling is enforced here.
+    // The textarea's maxLength only constrains typing, so a long dictation
+    // appends straight past it and the same ceiling is enforced here.
     onChange: (next) => setNote(next.slice(0, NOTE_MAX_LENGTH)),
   })
 
-  // The payload travels as an argument rather than being read off state at
-  // send time: the quick path fires from inside a chip's own handler, one
-  // render before its state would settle.
   const record = useMutation({
     mutationFn: (input: {
       outcome: DoorKnockOutcome
       supportAnswer?: SupportAnswer
       willVote?: WillVoteAnswer
       note?: string
-      // Not sent to the server — carried through so onSuccess can report
-      // which path the canvasser actually used.
-      logMode: 'quick' | 'detail'
     }) =>
       clientRequest('POST /v1/door-knocking/interactions', {
         stopTargetId: target.stopTargetId,
@@ -130,9 +130,6 @@ export default function RecordKnockForm({
         // Whether a note was written, never what it said — notes are about
         // named voters and don't belong in an analytics payload.
         hasNote: Boolean(input.note),
-        // The brief's two-tap claim is only worth anything if it's the path
-        // people take, so the split is measured rather than assumed.
-        logMode: input.logMode,
         ...(input.supportAnswer ? { supportAnswer: input.supportAnswer } : {}),
         ...(input.willVote ? { willVote: input.willVote } : {}),
       })
@@ -140,128 +137,139 @@ export default function RecordKnockForm({
     },
   })
 
-  const saveQuick = (result: QuickResult) =>
-    record.mutate({
-      outcome: result.outcome,
-      ...(result.supportAnswer ? { supportAnswer: result.supportAnswer } : {}),
-      logMode: 'quick',
-    })
+  const opened = outcome === 'answered'
+  const engaged = opened && engagement === 'answered'
+  // The outcome the contract gets: step two replaces step one's `answered`,
+  // which was only ever the branch into it.
+  const finalOutcome = opened ? engagement : outcome
+  // Every branch has an ending, and the buttons appear when the canvasser
+  // reaches one. An engaged door isn't finished until both answers are in.
+  const complete = engaged
+    ? Boolean(supportAnswer && willVote)
+    : Boolean(finalOutcome)
 
-  const saveDetail = () => {
-    if (!outcome) return
-    const answered = outcome === 'answered'
-    record.mutate({
-      outcome,
-      ...(answered && supportAnswer ? { supportAnswer } : {}),
-      ...(answered && willVote ? { willVote } : {}),
-      ...(note.trim() ? { note: note.trim() } : {}),
-      logMode: 'detail',
-    })
+  const reset = () => {
+    setOutcome(undefined)
+    setEngagement(undefined)
+    setSupportAnswer(undefined)
+    setWillVote(undefined)
+    setNote('')
   }
 
-  // The two paths are exclusive on purpose. Showing the flat chips and the
-  // cascade together would offer two ways to answer the same question, and a
-  // chip that saves instantly sitting beside fields that don't is the kind of
-  // ambiguity that gets resolved by tapping the wrong thing.
-  if (!detail) {
-    return (
-      <div className="flex flex-col gap-3 rounded-md border border-border p-3">
-        <div className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-muted-foreground">
-            {QUICK_QUESTION}
-          </span>
-          <div className="flex flex-wrap justify-start gap-1.5">
-            {QUICK_RESULTS.map((result) => (
-              <button
-                key={result.id}
-                type="button"
-                disabled={record.isPending}
-                className={`${PILL_ITEM_CLASSNAME} disabled:opacity-50`}
-                onClick={() => saveQuick(result)}
-              >
-                {result.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        {record.isPending && (
-          <p className="text-sm text-muted-foreground">Saving…</p>
-        )}
-        {record.isError && (
-          <p className="text-sm text-destructive">
-            Saving failed — try again, or add detail.
-          </p>
-        )}
-        <button
-          type="button"
-          className="self-start text-xs font-medium underline underline-offset-2"
-          onClick={() => setDetail(true)}
-        >
-          Add a note or more detail
-        </button>
-      </div>
-    )
+  const save = () => {
+    if (!finalOutcome) return
+    const trimmed = note.trim()
+    record.mutate({
+      outcome: finalOutcome,
+      // The contract rejects answers on anything but `answered`, so a
+      // canvasser who backed out of the engaged branch can't ship the answers
+      // they had picked inside it.
+      ...(engaged && supportAnswer ? { supportAnswer } : {}),
+      ...(engaged && willVote ? { willVote } : {}),
+      ...(trimmed ? { note: trimmed } : {}),
+    })
   }
 
   return (
     <div className="flex flex-col gap-3 rounded-md border border-border p-3">
       <ChoiceRow
         label={OUTCOME_QUESTION}
-        options={OUTCOME_OPTIONS}
+        options={ANSWER_OPTIONS}
         value={outcome}
         onChange={(value) => {
           setOutcome(value)
-          if (value !== 'answered') {
-            setSupportAnswer(undefined)
-            setWillVote(undefined)
-          }
+          setEngagement(undefined)
+          setSupportAnswer(undefined)
+          setWillVote(undefined)
         }}
       />
-      {outcome === 'answered' && (
-        <>
-          <ChoiceRow
-            label={SUPPORT_QUESTION}
-            options={SUPPORT_OPTIONS}
-            value={supportAnswer}
-            onChange={setSupportAnswer}
-          />
-          <ChoiceRow
-            label={WILL_VOTE_QUESTION}
-            options={WILL_VOTE_OPTIONS}
-            value={willVote}
-            onChange={setWillVote}
-          />
-        </>
+
+      {/* Each question stays on screen once it has been answered. The walk
+          expands downward rather than replacing a step with the next one: the
+          answer a canvasser most wants to check before saving is the one they
+          gave two taps ago. */}
+      {opened && (
+        <ChoiceRow
+          label={ENGAGEMENT_QUESTION}
+          options={ENGAGEMENT_OPTIONS}
+          value={engagement}
+          onChange={(value) => {
+            setEngagement(value)
+            if (value !== 'answered') {
+              setSupportAnswer(undefined)
+              setWillVote(undefined)
+            }
+          }}
+        />
       )}
-      <div className="relative">
-        <Textarea
-          value={note}
-          maxLength={NOTE_MAX_LENGTH}
-          placeholder="Notes (optional)"
-          rows={2}
-          className="pr-12"
-          onChange={(e) => setNote(e.target.value)}
+
+      {engaged && (
+        <ChoiceRow
+          label={SUPPORT_QUESTION}
+          options={SUPPORT_OPTIONS}
+          value={supportAnswer}
+          onChange={setSupportAnswer}
         />
-        <DictationMicButton
-          dictation={dictation}
-          idleLabel="Dictate note"
-          recordingLabel="Stop dictation"
-          disabled={record.isPending}
+      )}
+
+      {engaged && supportAnswer && (
+        <ChoiceRow
+          label={WILL_VOTE_QUESTION}
+          options={WILL_VOTE_OPTIONS}
+          value={willVote}
+          onChange={setWillVote}
         />
-      </div>
-      <DictationFeedback dictation={dictation} />
+      )}
+
+      {/* Last, and only on the branch that had a conversation to write down. */}
+      {engaged && supportAnswer && willVote && (
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground">
+            {NOTE_QUESTION}
+          </span>
+          <div className="relative">
+            <Textarea
+              value={note}
+              maxLength={NOTE_MAX_LENGTH}
+              placeholder="Notes (optional)"
+              rows={2}
+              className="pr-12"
+              onChange={(e) => setNote(e.target.value)}
+            />
+            <DictationMicButton
+              dictation={dictation}
+              idleLabel="Dictate note"
+              recordingLabel="Stop dictation"
+              disabled={record.isPending}
+            />
+          </div>
+          <DictationFeedback dictation={dictation} />
+        </div>
+      )}
+
       {record.isError && (
         <p className="text-sm text-destructive">
           Saving failed — your answers are still here, try again.
         </p>
       )}
-      <Button
-        size="small"
-        disabled={!outcome || record.isPending}
-        onClick={saveDetail}
-      >
-        {record.isPending ? 'Saving…' : 'Save knock'}
-      </Button>
+
+      {complete && (
+        <div className="flex flex-col gap-2">
+          <Button size="small" disabled={record.isPending} onClick={save}>
+            {record.isPending ? 'Saving…' : 'Save'}
+          </Button>
+          {/* Clears the walkthrough without closing the door's sheet — the way
+              back from three taps down the wrong branch. */}
+          <Button
+            size="small"
+            variant="outline"
+            disabled={record.isPending}
+            onClick={reset}
+          >
+            Cancel
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
