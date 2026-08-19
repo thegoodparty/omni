@@ -11,6 +11,8 @@ import { SMS_COMPOSED_MAX_LENGTH } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { CheckCircleIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
+import { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
+import type { TcrCompliance } from 'helpers/types'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
 import { LongPoll } from '@shared/utils/LongPoll'
@@ -75,6 +77,7 @@ const PRICE_PER_MESSAGE =
 interface SmsFlowProps {
   open: boolean
   onClose: () => void
+  tcrCompliance?: TcrCompliance
   // Fired after payment (or free redemption) completes server-side; the hub
   // refetches the outreach list there.
   onScheduled: () => Promise<void>
@@ -120,7 +123,12 @@ const SuccessScreen = ({
 // Flow state is flat client state owned here (phase 1 shell convention):
 // nothing persists until the pay step's draft-first create, and reopening
 // starts fresh.
-export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
+export const SmsFlow = ({
+  open,
+  onClose,
+  tcrCompliance,
+  onScheduled,
+}: SmsFlowProps) => {
   const [campaign] = useCampaign()
   const [user] = useUser()
 
@@ -774,6 +782,11 @@ export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
           }}
         >
           <SmsReviewStep
+            name={name}
+            notCleared={
+              tcrCompliance?.peerlyCvStatus !==
+              PeerlyCvVerificationStatus.VERIFIED
+            }
             audienceName={selectedList?.name ?? 'Saved list'}
             sendAt={scheduledAt ?? new Date()}
             composedMessage={composedMessage}

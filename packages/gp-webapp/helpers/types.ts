@@ -1,3 +1,4 @@
+import type { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
 /**
  * Shared type definitions for helper utilities and domain models
  * Based on Prisma schema definitions
@@ -177,6 +178,7 @@ export interface TcrCompliance {
   updatedAt: Date | string
   campaignId: number
   peerlyIdentityId?: string | null
+  peerlyCvStatus?: PeerlyCvVerificationStatus | null
   peerlyRegistrationLink?: string | null
   peerlyIdentityProfileLink?: string | null
   peerly10DLCBrandSubmissionKey?: string | null

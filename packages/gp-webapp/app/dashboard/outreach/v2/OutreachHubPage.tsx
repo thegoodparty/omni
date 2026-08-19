@@ -102,6 +102,7 @@ const OutreachHubContent = ({
       <SmsFlow
         open={smsFlowOpen}
         onClose={() => setSmsFlowOpen(false)}
+        tcrCompliance={tcrCompliance}
         onScheduled={handleSmsScheduled}
       />
       <Suspense>
