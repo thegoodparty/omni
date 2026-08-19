@@ -14,6 +14,21 @@ export const TEMPLATE_DB = 'gp_api_test_template'
 // clone takes it in shared mode, so a rebuild can never land mid-clone.
 export const TEMPLATE_LOCK_KEY = 847_213_559
 
+// Durability buys nothing here and costs a lot: the per-test reset TRUNCATEs,
+// and TRUNCATE's commit has to sync a freshly created relation file per table.
+// That measured at ~350-400ms per reset on the defaults versus ~10ms with
+// these off — the margin that decides whether a reset survives a contended CI
+// runner or trips its hook timeout. The container is thrown away after the
+// run, so all that is given up is crash recovery.
+const NO_DURABILITY = [
+  '-c',
+  'fsync=off',
+  '-c',
+  'synchronous_commit=off',
+  '-c',
+  'full_page_writes=off',
+]
+
 // globalSetup and every useTestService suite must build the container with the
 // exact same config: testcontainers keys reuse on a hash of that config, so any
 // difference would hand a suite a fresh container without the template that
@@ -30,6 +45,7 @@ export const startTestPostgres = (): Promise<StartedPostgreSqlContainer> =>
     .withUsername('test_user')
     .withPassword('test_password')
     .withLabels({ 'gp-api-test-checkout': __dirname })
+    .withCommand(['postgres', ...NO_DURABILITY])
     .withReuse()
     .start()
 
