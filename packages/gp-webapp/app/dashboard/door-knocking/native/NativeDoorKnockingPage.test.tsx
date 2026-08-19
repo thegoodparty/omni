@@ -849,4 +849,33 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
 
     expect(screen.getByLabelText('Route name')).toBeInTheDocument()
   })
+
+  // The roster and the doors figure are two readings of one pass over the pack,
+  // so the rows have to come out at the number the button beside them commits
+  // to — a list one row short of its own headline is worse than no list. The
+  // fixture's three households sit on two coordinates, so this also covers the
+  // block-of-flats case: one stop, two doors.
+  it('lists one door per household inside the drawn ring, on request', async () => {
+    drawSession.placed = []
+    renderPage()
+    await screen.findByText(/voters in your district with a mapped address/)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create list' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+
+    await screen.findByRole('button', { name: 'Continue (3 doors)' })
+    // Shut, the roster costs nothing — there is no panel to read a count off.
+    expect(document.getElementById('draw-step-doors')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'See the doors' }))
+
+    const panel = document.getElementById('draw-step-doors')
+    expect(panel?.querySelectorAll('li li')).toHaveLength(3)
+    expect(screen.getByText('2 doors at one location')).toBeInTheDocument()
+  })
 })

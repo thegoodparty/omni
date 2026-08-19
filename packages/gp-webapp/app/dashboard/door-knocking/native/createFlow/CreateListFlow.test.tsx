@@ -41,6 +41,9 @@ const baseProps = {
   onSaved: vi.fn(),
   isElectedOfficial: false,
   unpreviewableKeys: [],
+  turfRoster: null,
+  rosterOpen: false,
+  onToggleRoster: vi.fn(),
 }
 
 describe('CreateListFlow', () => {
@@ -560,6 +563,133 @@ describe('CreateListFlow', () => {
     // The row around the cluster stays click-through, so the map keeps the
     // full width of the band it was given.
     expect(cluster?.parentElement).not.toHaveClass('pointer-events-auto')
+  })
+
+  // The gap the walkthrough reported: the draw step stated a door count and
+  // never said which doors it meant, at the one moment the shape can still be
+  // changed. One row per door, and a block of flats reads as the several doors
+  // it is under the single coordinate the router will visit.
+  it('lists the enclosed doors, grouping the ones that share a location', () => {
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        turfStats={turfStats(2, 3)}
+        rosterOpen
+        turfRoster={{
+          locations: [
+            { doors: [{ people: 2 }, { people: 1 }] },
+            { doors: [{ people: 4 }] },
+          ],
+          shownDoors: 3,
+          totalDoors: 3,
+        }}
+      />,
+    )
+
+    const panel = document.getElementById('draw-step-doors')
+    expect(panel).not.toBeNull()
+    expect(screen.getByText('2 doors at one location')).toBeInTheDocument()
+    // Three rows for the three doors the stats bar counts, and no numerals on
+    // them: nothing has decided a visiting order at draw time, so a numbered
+    // row would imply one the canvasser is held to.
+    expect(panel?.querySelectorAll('li li')).toHaveLength(3)
+    expect(panel?.querySelector('ol')).toBeNull()
+    expect(screen.getByText('2 matching voters')).toBeInTheDocument()
+    expect(screen.getByText('1 matching voter')).toBeInTheDocument()
+    expect(screen.getByText('4 matching voters')).toBeInTheDocument()
+  })
+
+  // The roster is the pack's, so it is the same superset the counts above it
+  // are — and it is the surface that most looks like a finished list, so it
+  // has to say so in the words the rail and the details sheet already use.
+  it('says the roster is wider than the walk, and where addresses come from', () => {
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        turfStats={turfStats(2, 1)}
+        rosterOpen
+        turfRoster={{
+          locations: [{ doors: [{ people: 1 }] }],
+          shownDoors: 1,
+          totalDoors: 1,
+        }}
+      />,
+    )
+
+    const caveat = screen.getByText(/knock fewer doors than this/)
+    expect(caveat.textContent).toContain('do-not-knock')
+    expect(caveat.textContent).toContain('not a voter')
+    expect(
+      screen.getByText(/Street addresses arrive with the route/),
+    ).toBeInTheDocument()
+  })
+
+  // A ring drawn over half a district holds more doors than a phone should be
+  // asked to render, so the list stops and the count admits it stopped —
+  // silently showing 200 of 4,000 is the reading that misleads.
+  it('says how many doors it left off the list', () => {
+    const { rerender } = render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        turfStats={turfStats(2, 2)}
+        rosterOpen
+        turfRoster={{
+          locations: [{ doors: [{ people: 1 }, { people: 1 }] }],
+          shownDoors: 2,
+          totalDoors: 2,
+        }}
+      />,
+    )
+    expect(screen.queryByText(/Showing/)).toBeNull()
+
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        turfStats={turfStats(900, 2000)}
+        rosterOpen
+        turfRoster={{
+          locations: [{ doors: [{ people: 1 }, { people: 1 }] }],
+          shownDoors: 2,
+          totalDoors: 2000,
+        }}
+      />,
+    )
+    expect(screen.getByText('Showing 2 of 2,000 doors.')).toBeInTheDocument()
+  })
+
+  // Building the roster is a second pass over every person in the district, so
+  // the panel is a request the page answers rather than something the flow
+  // renders off state it already has.
+  it('asks the page for the roster instead of holding it open', () => {
+    const onToggleRoster = vi.fn()
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        turfStats={turfStats(2, 3)}
+        onToggleRoster={onToggleRoster}
+      />,
+    )
+
+    expect(document.getElementById('draw-step-doors')).toBeNull()
+    const toggle = screen.getByRole('button', { name: 'See the doors' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(toggle)
+    expect(onToggleRoster).toHaveBeenCalledTimes(1)
+  })
+
+  // Nothing to list, so nothing to offer: the button would open an empty panel
+  // beside a Continue that already says there are no doors here.
+  it('offers no door list for a shape holding nothing', () => {
+    render(
+      <CreateListFlow {...baseProps} step="draw" turfStats={turfStats(0, 0)} />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'See the doors' })).toBeNull()
   })
 
   // gp-api 400s a contacts-made selection from an elected-office org

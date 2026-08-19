@@ -226,6 +226,89 @@ export const polygonStats = (
   return { stops, people, households, partyMix }
 }
 
+export interface RosterDoor {
+  people: number
+}
+
+export interface RosterLocation {
+  // The doors sharing one geocoded coordinate. More than one means a building
+  // the router visits once and a canvasser knocks several times.
+  doors: RosterDoor[]
+}
+
+export interface PolygonRoster {
+  locations: RosterLocation[]
+  // Doors materialized into `locations`; below `totalDoors` once the cap bit.
+  shownDoors: number
+  // Every door in the ring, capped or not — this is the same quantity
+  // `polygonStats().households` reports, so the roster and the doors figure
+  // above it can be counted against each other.
+  totalDoors: number
+}
+
+// The doors the drawn ring encloses, grouped by the coordinate they sit at.
+// Same predicate as `polygonStats` — a household counts when a person in it
+// survives the filter and its dot is inside the ring — so `totalDoors` is
+// `households` by construction rather than by a second definition that can
+// drift from it.
+//
+// `doorLimit` caps how many doors are MATERIALIZED, not how many are counted:
+// a ring drawn over half a district holds tens of thousands of them and the
+// candidate is looking at this list to sanity-check an evening's walk, not to
+// read it end to end. The pass still runs to the last person once the cap is
+// hit, because a door already on the list would otherwise report fewer people
+// than live behind it — the loop reaches a household's residents at whatever
+// person indexes they happen to occupy, not together.
+export const polygonRoster = (
+  pack: DecodedPack,
+  selections: DimSelections,
+  ring: Array<[number, number]>,
+  doorLimit: number,
+): PolygonRoster => {
+  const { personToHousehold, householdToDot, manifest } = pack
+  const insideDot = dotsInRing(pack, ring)
+  const active = activeDimMasks(pack, selections)
+
+  const locations: RosterLocation[] = []
+  const locationByDot = new Map<number, RosterLocation>()
+  const doorByHousehold = new Map<number, RosterDoor>()
+  const householdSeen = new Uint8Array(manifest.counts.households)
+  let shownDoors = 0
+  let totalDoors = 0
+  outer: for (let i = 0; i < personToHousehold.length; i++) {
+    for (let a = 0; a < active.length; a++) {
+      const entry = active[a]
+      if (entry && !entry.mask[entry.plane[i] ?? 0]) continue outer
+    }
+    const household = personToHousehold[i] ?? 0
+    const dot = householdToDot[household] ?? 0
+    if (!insideDot[dot]) continue
+    if (!householdSeen[household]) {
+      householdSeen[household] = 1
+      totalDoors++
+    }
+    const listed = doorByHousehold.get(household)
+    if (listed) {
+      listed.people++
+      continue
+    }
+    if (shownDoors >= doorLimit) continue
+    const door: RosterDoor = { people: 1 }
+    doorByHousehold.set(household, door)
+    shownDoors++
+    const known = locationByDot.get(dot)
+    if (known) {
+      known.doors.push(door)
+      continue
+    }
+    const location: RosterLocation = { doors: [door] }
+    locationByDot.set(dot, location)
+    locations.push(location)
+  }
+
+  return { locations, shownDoors, totalDoors }
+}
+
 // Restrict a filter result to the dots inside a turf polygon: dots outside
 // zero out (they render as unmatched grey) and the people count describes only
 // the turf. Used when a saved list is selected on the landing map.
