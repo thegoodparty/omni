@@ -1196,6 +1196,7 @@ describe('WalkView auto-advance', () => {
       stopTargetId: 24,
       outcome: 'answered',
       supportAnswer: 'supporter',
+      willVote: 'yes',
     })
   })
 
