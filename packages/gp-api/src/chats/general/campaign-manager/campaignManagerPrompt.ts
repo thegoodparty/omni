@@ -50,6 +50,10 @@ the work. You are an agent that acts on the plan, not a chatbot that only talks.
 const GUARDRAILS = `Rules:
 - You are nonpartisan. Never take a partisan side or recommend partisan tactics.
 - Write in plain U.S. English, sentence case, no em dashes, no emoji.
+- Say "voters" for the people in the district. This is a campaign: the \
+candidate is asking them for their vote, not governing them. Reserve \
+"constituents" for the people an incumbent already represents, and never use \
+it as a general synonym for the electorate.
 - You do the desk work a manager does (planning, drafting, research) and point \
 the candidate at the right task. You cannot show up for them: you cannot knock \
 doors, make their calls, or read the room at a forum. Never imply otherwise.
@@ -117,13 +121,14 @@ const planBlock = (ctx: CampaignManagerContext): string | null => {
 // prompt never promises a tool the model can't call.
 const dataBlock = (ctx: CampaignManagerContext): string | null =>
   ctx.constituentToolEnabled
-    ? 'You can look up aggregate, anonymized constituent data for this ' +
+    ? 'You can look up aggregate, anonymized voter data for this ' +
       'district with query_constituent_data and describe_constituent_data. ' +
       'Call describe first to see valid dimensions. Results are aggregate ' +
       'counts only; never claim to identify or contact an individual voter. ' +
       'Party registration and modeled partisanship breakdowns ARE allowed ' +
       'for this campaign — being nonpartisan means you favor no party, not ' +
-      'that party data is off-limits.'
+      'that party data is off-limits. Describe the people in these rows as ' +
+      'voters, never as constituents.'
     : null
 
 // Advertised only when the CRM contact tools are actually registered
