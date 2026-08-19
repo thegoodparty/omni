@@ -25,6 +25,7 @@ const turfStats = (stops: number, households: number) => ({
   people: stops * 2,
   households,
   partyMix: [],
+  ageMix: [],
 })
 
 const baseProps = {
@@ -34,7 +35,13 @@ const baseProps = {
   onClose: vi.fn(),
   districtHouseholds: 1500,
   ring: OPEN_RING,
-  turfStats: { stops: 14, people: 22, households: 9, partyMix: [] },
+  turfStats: {
+    stops: 14,
+    people: 22,
+    households: 9,
+    partyMix: [],
+    ageMix: [],
+  },
   drawPointCount: 3,
   onUndoPoint: vi.fn(),
   onClearPoints: vi.fn(),
@@ -373,6 +380,7 @@ describe('CreateListFlow', () => {
             { label: 'Republican', people: 30 },
             { label: 'Unknown', people: 10 },
           ],
+          ageMix: [],
         }}
       />,
     )

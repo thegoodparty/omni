@@ -226,6 +226,7 @@ describe('polygonStats', () => {
       people: 0,
       households: 0,
       partyMix: [],
+      ageMix: [],
     })
   })
 })

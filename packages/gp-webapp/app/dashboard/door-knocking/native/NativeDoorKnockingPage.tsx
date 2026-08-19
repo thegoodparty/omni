@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -377,6 +377,20 @@ export default function NativeDoorKnockingPage({
         : [],
     [packQuery.data, detailsList],
   )
+  // Deleting is reachable from two surfaces now — the rail row and the details
+  // sheet — so the page's own cleanup is named once rather than written twice.
+  // These all hold a whole turf object rather than an id, so without it they
+  // would go on masking and framing the map to a polygon the refetched rail no
+  // longer contains.
+  const handleTurfDeleted = useCallback((deleted: DoorKnockingTurf) => {
+    setDetailsTurf((current) => (current?.id === deleted.id ? null : current))
+    setSelectedTurf((current) => (current?.id === deleted.id ? null : current))
+    setFocusTurf((current) => (current?.id === deleted.id ? null : current))
+    // Defensive: the knock dialog is modal and the details sheet covers the row
+    // that opens it, so these can't currently be open together. Cheaper to drop
+    // the reference than to rely on that holding.
+    setKnockTurf((current) => (current?.id === deleted.id ? null : current))
+  }, [])
   // The knock dialog suggests walk vs drive from how spread out this list's own
   // stops are, and the pack is the only thing that knows where they are before
   // the route is bought. Same inputs as detailsListStats — the turf's ring and
@@ -637,6 +651,7 @@ export default function NativeDoorKnockingPage({
                 walk.start({ id: turf.id, name: turf.name }, 'existingRoute')
               else setKnockTurf(turf)
             }}
+            onDeletedTurf={handleTurfDeleted}
           />
           <section className="flex flex-col gap-2">
             <div>
@@ -921,24 +936,7 @@ export default function NativeDoorKnockingPage({
           listStatsPending={packPending || savedListsQuery.isPending}
           unpreviewableKeys={detailsUnpreviewableKeys}
           onClose={() => setDetailsTurf(null)}
-          onDeleted={(deleted) => {
-            setDetailsTurf(null)
-            // Both hold a whole turf object, not an id, so they'd go on
-            // masking and framing the map to a polygon the refetched list no
-            // longer contains.
-            setSelectedTurf((current) =>
-              current?.id === deleted.id ? null : current,
-            )
-            setFocusTurf((current) =>
-              current?.id === deleted.id ? null : current,
-            )
-            // Defensive: the knock dialog is modal and the details sheet covers
-            // the row that opens it, so the two can't currently be open at
-            // once. Cheaper to drop the reference than to rely on that holding.
-            setKnockTurf((current) =>
-              current?.id === deleted.id ? null : current,
-            )
-          }}
+          onDeleted={handleTurfDeleted}
         />
       )}
       {knockTurf && (

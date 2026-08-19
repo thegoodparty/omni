@@ -5,7 +5,17 @@ import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { useSnackbar } from 'helpers/useSnackbar'
 import NativeDoorKnockingPage from './NativeDoorKnockingPage'
+
+// The test renderer wraps only QueryClientProvider, and every rail row now
+// carries a delete control that reports through useSnackbar, which throws
+// outside its provider.
+vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
+vi.mocked(useSnackbar).mockReturnValue({
+  successSnackbar: vi.fn(),
+  errorSnackbar: vi.fn(),
+} as unknown as ReturnType<typeof useSnackbar>)
 
 // 4 people over 2 dots. Person 0 is a Democratic supporter and persons 1-2 are
 // unknown, all three at dot 0; person 3 is unknown at dot 1, outside the saved

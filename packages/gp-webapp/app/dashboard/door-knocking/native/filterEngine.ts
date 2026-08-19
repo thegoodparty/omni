@@ -84,9 +84,12 @@ export const runFilter = (
   return { people, households, matchedPerDot, statusPerDot }
 }
 
-export interface PartySlice {
-  // The pack's own bucket name for the party ('Democratic', 'Unknown', …),
-  // so a district whose buckets differ still reads correctly.
+export interface DimSlice {
+  // The pack's own bucket name for the value ('Democratic', '35_50',
+  // 'Unknown', …), so a district whose buckets differ still reads correctly.
+  // Presentation maps these onto display labels; the pack's vocabulary is
+  // deliberately what crosses this boundary, since it is what the manifest
+  // and the saved-list preview both speak.
   label: string
   people: number
 }
@@ -96,7 +99,13 @@ export interface PolygonStats {
   people: number
   households: number
   // Biggest bucket first, empty buckets dropped.
-  partyMix: PartySlice[]
+  partyMix: DimSlice[]
+  // Same shape and the same pass, for the only other dim a FROZEN ROUTE can
+  // also answer (its targets carry a live age and party and nothing else).
+  // Every other dim the pack carries — education, income, ethnicity and ten
+  // more — would build a breakdown that emptied itself the moment the list
+  // was knocked, so the sheet reports the two both sources have.
+  ageMix: DimSlice[]
 }
 
 // Ray-cast the dots once (bbox prefiltered) so a person pass is a lookup per
@@ -189,6 +198,9 @@ export const polygonStats = (
   const partyDim = manifest.dims.find((dim) => dim.key === 'party')
   const partyPlane = dimPlanes.get('party')
   const partyPeople = new Array<number>(partyDim?.values.length ?? 0).fill(0)
+  const ageDim = manifest.dims.find((dim) => dim.key === 'age')
+  const agePlane = dimPlanes.get('age')
+  const agePeople = new Array<number>(ageDim?.values.length ?? 0).fill(0)
 
   const dotSeen = new Uint8Array(dotCount)
   const householdSeen = new Uint8Array(manifest.counts.households)
@@ -216,14 +228,22 @@ export const polygonStats = (
     if (party < partyPeople.length) {
       partyPeople[party] = (partyPeople[party] ?? 0) + 1
     }
+    const age = agePlane?.[i] ?? 0
+    if (age < agePeople.length) {
+      agePeople[age] = (agePeople[age] ?? 0) + 1
+    }
   }
 
   const partyMix = (partyDim?.values ?? [])
     .map((label, index) => ({ label, people: partyPeople[index] ?? 0 }))
     .filter((slice) => slice.people > 0)
     .sort((a, b) => b.people - a.people)
+  const ageMix = (ageDim?.values ?? [])
+    .map((label, index) => ({ label, people: agePeople[index] ?? 0 }))
+    .filter((slice) => slice.people > 0)
+    .sort((a, b) => b.people - a.people)
 
-  return { stops, people, households, partyMix }
+  return { stops, people, households, partyMix, ageMix }
 }
 
 export interface RosterDoor {
