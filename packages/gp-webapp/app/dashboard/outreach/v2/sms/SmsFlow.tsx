@@ -62,7 +62,7 @@ const STEP_TITLES: Record<StepId, string> = {
   audience: 'Who are you texting?',
   schedule: 'When do you want to send?',
   compose: 'What do you want to say?',
-  review: 'Review and send',
+  review: 'Review & pay',
 }
 
 const PRICE_PER_MESSAGE =
@@ -669,12 +669,17 @@ export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
             selectedId={selectedListId}
             onSelect={(id) => {
               setSelectedListId(id)
-              // A different audience needs a fresh phone list.
+              // A different audience needs a fresh phone list, and a stale
+              // "couldn't prepare" error from the last attempt is moot.
               setPhoneListToken(null)
               setPhoneList(null)
               setStopPolling(false)
+              setPhoneListError(false)
             }}
-            onStartBuilder={() => setAudienceMode('filters')}
+            onStartBuilder={() => {
+              setPhoneListError(false)
+              setAudienceMode('filters')
+            }}
             reachableCount={reachableCount}
             reachableLoading={reachabilityQuery.isLoading}
             pricePerMessage={PRICE_PER_MESSAGE}

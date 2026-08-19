@@ -192,7 +192,9 @@ describe('SmsFlow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     // Review: free-texts offer covers 1,200 → free branch.
-    expect(await screen.findByText('Review & pay')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { level: 3, name: 'Review & pay' }),
+    ).toBeInTheDocument()
     expect(await screen.findByText('1,200')).toBeInTheDocument()
     const scheduleButton = await screen.findByRole('button', {
       name: 'Schedule text',
