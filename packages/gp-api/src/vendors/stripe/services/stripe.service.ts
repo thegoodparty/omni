@@ -236,6 +236,10 @@ export class StripeService {
     const session = await this.stripe.checkout.sessions.create({
       ui_mode: 'custom',
       mode: 'payment',
+      // Explicit list: Stripe's automatic set adds BNPL options (Klarna,
+      // Affirm) that are off-brand for campaign charges (product call,
+      // Aug 19). Card, bank debit, and Amazon Pay stay.
+      payment_method_types: ['card', 'us_bank_account', 'amazon_pay'],
       ...(customerId
         ? { customer: customerId }
         : email
