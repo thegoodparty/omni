@@ -27,7 +27,6 @@ import { LoadingAnimation } from '@shared/utils/LoadingAnimation'
 import { FREE_TEXTS_OFFER } from 'app/dashboard/outreach/constants'
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
 import { Intro } from '../social/Intro'
-import { renderWithMergeVars } from './mergeVars'
 
 const money = (cents: number): string => (cents / 100).toFixed(2)
 
@@ -260,9 +259,7 @@ export const SmsReviewStep = ({
                 className="mb-2 max-h-48 w-full rounded-xl object-cover"
               />
             )}
-            <p className="whitespace-pre-wrap">
-              {renderWithMergeVars(composedMessage)}
-            </p>
+            <p className="whitespace-pre-wrap">{composedMessage}</p>
           </div>
         </div>
       )}
@@ -292,13 +289,6 @@ export const SmsReviewStep = ({
         </Button>
       ) : (
         <>
-          <Alert variant="info" icon={<InfoIcon className="size-4" />}>
-            <AlertTitle>${money(totalCents)} due today</AlertTitle>
-            <AlertDescription>
-              One-time charge for this campaign. Your Pro subscription is billed
-              separately.
-            </AlertDescription>
-          </Alert>
           <Card className="gap-3 p-4">
             <p className="font-medium text-foreground">Payment details</p>
             <CheckoutPayment
@@ -306,6 +296,13 @@ export const SmsReviewStep = ({
               onPaymentError={() => setPayError(true)}
             />
           </Card>
+          <Alert variant="info" icon={<InfoIcon className="size-4" />}>
+            <AlertTitle>${money(totalCents)} due today</AlertTitle>
+            <AlertDescription>
+              One-time charge for this campaign. Your Pro subscription is billed
+              separately.
+            </AlertDescription>
+          </Alert>
         </>
       )}
     </div>
