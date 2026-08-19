@@ -65,6 +65,13 @@ export const EVENTS = {
     issueDetailsViewed: 'Polls - Poll Results Issue Details Viewed',
     lowConfidenceModalClicked: 'Polls - Low Confidence Modal Clicked',
   },
+  // Shared across every polls surface that can hard-block on missing
+  // constituent data (onboarding, create, expand) — one event with a `source`
+  // rather than three near-duplicates.
+  Polls: {
+    ConstituentDataUnavailableViewed:
+      'Polls - Constituent Data Unavailable Viewed',
+  },
   createPoll: {
     createPollClicked: 'Polls - Create Poll Clicked',
     pollQuestionViewed: 'Polls - Poll Question Viewed',

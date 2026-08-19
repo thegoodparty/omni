@@ -5,11 +5,13 @@ import {
   PeopleListResponseSchema,
   PersonSchema,
 } from '@goodparty_org/contracts'
+import { HttpStatus } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { Organization } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { ContactsService } from './contacts.service'
+import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from '../contacts.types'
 import type { PeopleListResponse, PersonOutput } from '../schemas/person.schema'
 
 // Task 3.2 (superseded): people-db is now the SOLE contacts path — the
@@ -135,7 +137,7 @@ describe('ContactsService — people-db (sole path)', () => {
     streamPeopleCsv: ReturnType<typeof vi.fn>
   }
   let mockStatsService: {
-    getStats: ReturnType<typeof vi.fn>
+    findStats: ReturnType<typeof vi.fn>
   }
 
   beforeEach(() => {
@@ -180,7 +182,7 @@ describe('ContactsService — people-db (sole path)', () => {
       streamPeopleCsv: vi.fn(),
     }
     mockStatsService = {
-      getStats: vi.fn(),
+      findStats: vi.fn(),
     }
     const mockContactStatusService = {
       currentStatusForPeople: vi.fn().mockResolvedValue(new Map()),
@@ -407,15 +409,26 @@ describe('ContactsService — people-db (sole path)', () => {
   })
 
   describe('fetchStatsByDistrictId', () => {
-    it('calls StatsService.getStats', async () => {
-      mockStatsService.getStats.mockResolvedValue(FIXTURE_STATS)
+    it('calls StatsService.findStats', async () => {
+      mockStatsService.findStats.mockResolvedValue(FIXTURE_STATS)
 
       const result = await service.fetchStatsByDistrictId(OVERRIDE_DISTRICT_ID)
 
-      expect(mockStatsService.getStats).toHaveBeenCalledWith(
+      expect(mockStatsService.findStats).toHaveBeenCalledWith(
         expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
       )
       expect(result).toEqual(FIXTURE_STATS)
+    })
+
+    it('throws VOTER_DATA_UNAVAILABLE when the district has no stats row', async () => {
+      mockStatsService.findStats.mockResolvedValue(null)
+
+      await expect(
+        service.fetchStatsByDistrictId(OVERRIDE_DISTRICT_ID),
+      ).rejects.toMatchObject({
+        status: HttpStatus.BAD_REQUEST,
+        response: { errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE },
+      })
     })
   })
 })

@@ -119,7 +119,7 @@ describe('ContactsService', () => {
       streamPeopleCsv: ReturnType<typeof vi.fn>
     }
     let mockStatsService: {
-      getStats: ReturnType<typeof vi.fn>
+      findStats: ReturnType<typeof vi.fn>
     }
     let mockContactsMadeResolutionService: {
       resolveContactsMade: ReturnType<typeof vi.fn>
@@ -174,7 +174,7 @@ describe('ContactsService', () => {
         streamPeopleCsv: vi.fn().mockResolvedValue(undefined),
       }
       mockStatsService = {
-        getStats: vi.fn(),
+        findStats: vi.fn(),
       }
       mockContactsMadeResolutionService = {
         resolveContactsMade: vi.fn().mockResolvedValue({ kind: 'none' }),
@@ -248,7 +248,7 @@ describe('ContactsService', () => {
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
         })
         mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
-        mockStatsService.getStats.mockResolvedValue({
+        mockStatsService.findStats.mockResolvedValue({
           districtId: OVERRIDE_DISTRICT_ID,
           totalConstituents: 1234,
           buckets: {},
@@ -303,7 +303,7 @@ describe('ContactsService', () => {
         })
         // Non-pro (no campaign) base list takes the synthetic-preview path,
         // which reads the aggregate stats for the real total.
-        mockStatsService.getStats.mockResolvedValue({
+        mockStatsService.findStats.mockResolvedValue({
           districtId: OVERRIDE_DISTRICT_ID,
           totalConstituents: 10,
           buckets: {},
@@ -616,7 +616,7 @@ describe('ContactsService', () => {
         const org = makeOrganization({
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
         })
-        mockStatsService.getStats.mockResolvedValue({
+        mockStatsService.findStats.mockResolvedValue({
           districtId: OVERRIDE_DISTRICT_ID,
           totalConstituents: 500,
           buckets: {},
@@ -624,7 +624,7 @@ describe('ContactsService', () => {
 
         await service.getDistrictStats(org)
 
-        expect(mockStatsService.getStats).toHaveBeenCalledWith(
+        expect(mockStatsService.findStats).toHaveBeenCalledWith(
           expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
         )
       })
@@ -788,7 +788,7 @@ describe('ContactsService', () => {
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
         })
         mockCampaignsService.findFirst.mockResolvedValue(null)
-        mockStatsService.getStats.mockResolvedValue({
+        mockStatsService.findStats.mockResolvedValue({
           districtId: OVERRIDE_DISTRICT_ID,
           totalConstituents: 42,
           buckets: {},
