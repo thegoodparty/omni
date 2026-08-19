@@ -371,8 +371,14 @@ export default function TurfDetailsSheet({
           {/* Rendered locked or not — disabled rather than absent. gp-api still
               refuses the call, so this changes nothing about what is possible;
               it changes whether a candidate can tell that Delete exists. */}
+          {/* liveTurf, like Edit beside it: this control names the list in its
+              label and in the confirm dialog's title, and the sheet can rename
+              it, so the prop snapshot would ask "Delete Elm St?" about a list
+              renamed to Riverside a moment earlier. Identity is unaffected —
+              liveTurf is found BY turf.id, so the id the mutation sends is the
+              same object either way. */}
           <DeleteTurfControl
-            turf={turf}
+            turf={liveTurf}
             locked={liveTurf.locked}
             onDeleted={onDeleted}
           />

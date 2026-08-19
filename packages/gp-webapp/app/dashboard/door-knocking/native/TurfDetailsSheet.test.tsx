@@ -182,6 +182,27 @@ describe('TurfDetailsSheet delete', () => {
     )
   })
 
+  // Same rule as the header and Edit: this sheet can rename the list, so a
+  // control that named it from the click-time snapshot would ask "Delete Elm
+  // St & 5th?" about a list renamed to Riverside loop a moment earlier — and
+  // the confirm dialog is the last thing read before something is destroyed.
+  it('names the live list, not the snapshot, in the delete affordance', async () => {
+    renderSheet({
+      prop: { name: 'Elm St & 5th' },
+      live: { name: 'Riverside loop' },
+    })
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Delete Riverside loop')).toBeEnabled(),
+    )
+    expect(screen.queryByLabelText('Delete Elm St & 5th')).toBeNull()
+
+    fireEvent.click(screen.getByLabelText('Delete Riverside loop'))
+    expect(
+      await screen.findByText('Delete Riverside loop?'),
+    ).toBeInTheDocument()
+  })
+
   // Same stale snapshot, other direction: the route exists once it's locked, so
   // gating the route query on the prop would report it as never knocked.
   it('loads the route for a turf locked since the sheet opened', async () => {
@@ -697,6 +718,42 @@ describe('TurfDetailsSheet roster', () => {
     // Nor household context: an untargeted resident is not in this list, and
     // listing them would contradict the People stat directly above.
     expect(screen.queryByText('Unlisted Roommate')).toBeNull()
+  })
+
+  // The disclaimer says these residents are "listed here", so it has to be
+  // about rows on screen. Computed over every door it fired above a capped
+  // list whose visible fifty held no marker — a caveat explaining something
+  // the reader cannot see.
+  it('holds the flagged-resident note when no flagged row survives the cap', async () => {
+    // 51 doors: the flagged one is the last, so the cap drops exactly it.
+    const addresses = Array.from({ length: 51 }, (_, index) => ({
+      addressKey: `door-${index}`,
+      address: `${100 + index} Elm St`,
+      otherResidents: [],
+      targets: [
+        {
+          ...resident,
+          stopTargetId: 100 + index,
+          personId: `person-${index}`,
+          doNotKnock: index === 50,
+        },
+      ],
+    }))
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: {
+        ...routeWithDoors,
+        stops: [{ ...routeWithDoors.stops[0]!, addresses }],
+      } satisfies DoorKnockingRoutePayload,
+    })
+    renderSheet({ prop: { locked: true } })
+
+    expect(await screen.findByText('100 Elm St')).toBeInTheDocument()
+    expect(screen.queryByText(/left out of the counts above/)).toBeNull()
+    // The cap itself still says it bit, so the missing door is accounted for.
+    expect(
+      screen.getByText(/Showing the first 50 of 51 doors/),
+    ).toBeInTheDocument()
   })
 
   // The pack is positions, two index arrays and demographic byte planes — it

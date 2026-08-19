@@ -55,7 +55,13 @@ export default function TurfRoster({ stops }: TurfRosterProps) {
   // the printed sheet's rule ("the header is the evening's work, the rows are
   // the index"). Rows without a word for it read as the People stat being
   // broken, so the roster says which way round it is.
-  const hasFlagged = doors.some((door) =>
+  //
+  // Computed over `shown`, not `doors`: the sentence says these residents are
+  // "listed here", so it has to be about rows on screen. Scanning every door
+  // printed it above a capped list whose visible fifty held no marker at all —
+  // a caveat explaining something the reader cannot see, which is how a true
+  // statement still teaches someone to distrust the surface.
+  const hasFlagged = shown.some((door) =>
     door.targets.some((target) => targetMarker(target) !== null),
   )
 
