@@ -2,16 +2,16 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
+  Alert,
+  AlertDescription,
+  AlertTitle,
   Button,
   Card,
   cn,
 } from '@styleguide'
 import {
   EyeIcon,
+  InfoIcon,
   Loader2Icon,
   MessageSquareIcon,
 } from '@styleguide/components/ui/icons'
@@ -40,7 +40,11 @@ const fmtDate = (d: Date) =>
   })
 
 interface SmsReviewStepProps {
+  name: string
   audienceName: string
+  // Peerly CampaignVerify not yet VERIFIED: the send is held until it
+  // clears, per the design's not-cleared banner.
+  notCleared: boolean
   sendAt: Date
   composedMessage: string
   imagePreviewUrl: string | null
@@ -58,7 +62,9 @@ interface SmsReviewStepProps {
 }
 
 export const SmsReviewStep = ({
+  name,
   audienceName,
+  notCleared,
   sendAt,
   composedMessage,
   imagePreviewUrl,
@@ -138,79 +144,84 @@ export const SmsReviewStep = ({
         body="Review your campaign details and complete your payment."
       />
 
+      {notCleared && (
+        <Alert variant="info" icon={<InfoIcon className="size-4" />}>
+          <AlertTitle>You&apos;re not cleared yet</AlertTitle>
+          <AlertDescription>
+            Your text scheduled for {fmtDate(sendAt)} may not go out. If
+            verification is not cleared by then, the send is held and you can
+            reschedule.
+          </AlertDescription>
+        </Alert>
+      )}
+
       <Card className="gap-0 overflow-hidden p-0">
-        <Accordion type="single" collapsible defaultValue="details">
-          <AccordionItem value="details" className="border-none">
-            <AccordionTrigger className="px-4 py-4 hover:no-underline">
-              <div className="flex items-center gap-3 text-left">
-                <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-info-light">
-                  <MessageSquareIcon className="size-6 text-foreground" />
-                </span>
-                <div>
-                  <p className="font-medium text-foreground">Text message</p>
-                  <p className="text-sm font-normal text-foreground">
-                    Send date: {fmtDate(sendAt)}
-                  </p>
-                  <p className="text-sm font-normal text-foreground">
-                    Send time:{' '}
-                    {sendAt.toLocaleTimeString('en-US', {
-                      hour: 'numeric',
-                      minute: '2-digit',
-                    })}
-                  </p>
-                </div>
+        <div className="flex items-center gap-3 px-4 py-4">
+          <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-info-light">
+            <MessageSquareIcon className="size-6 text-foreground" />
+          </span>
+          <div className="min-w-0">
+            <p className="font-medium text-foreground">SMS</p>
+            <p className="truncate text-sm text-muted-foreground">{name}</p>
+          </div>
+        </div>
+        <div className="border-t border-border px-4 py-4">
+          <dl className="space-y-1.5 text-sm">
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">Send date</dt>
+              <dd className="text-foreground">{fmtDate(sendAt)}</dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">Send time</dt>
+              <dd className="text-foreground">
+                {sendAt.toLocaleTimeString('en-US', {
+                  hour: 'numeric',
+                  minute: '2-digit',
+                })}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">Audience</dt>
+              <dd className="truncate text-foreground">{audienceName}</dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">People</dt>
+              <dd className="text-foreground">
+                {contactCount.toLocaleString()}
+              </dd>
+            </div>
+            {!!excludedOptedOutCount && (
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">Excluded (opted out)</dt>
+                <dd className="text-muted-foreground">
+                  {excludedOptedOutCount.toLocaleString()}
+                </dd>
               </div>
-            </AccordionTrigger>
-            <AccordionContent className="px-4 pb-4">
-              <dl className="space-y-1 text-sm">
-                <div className="flex justify-between">
-                  <dt className="text-foreground">Recipients</dt>
-                  <dd className="text-foreground">
-                    {contactCount.toLocaleString()}
-                  </dd>
-                </div>
-                {!!excludedOptedOutCount && (
-                  <div className="flex justify-between">
-                    <dt className="text-muted-foreground">
-                      Excluded (opted out)
-                    </dt>
-                    <dd className="text-muted-foreground">
-                      {excludedOptedOutCount.toLocaleString()}
-                    </dd>
-                  </div>
-                )}
-                {!!excludedDuplicatePhoneCount && (
-                  <div className="flex justify-between">
-                    <dt className="text-muted-foreground">
-                      Duplicate numbers removed
-                    </dt>
-                    <dd className="text-muted-foreground">
-                      {excludedDuplicatePhoneCount.toLocaleString()}
-                    </dd>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <dt className="text-foreground">Price per message</dt>
-                  <dd className="text-foreground">
-                    ${pricePerContact.toFixed(3)}
-                  </dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-foreground">Audience</dt>
-                  <dd className="text-foreground">{audienceName}</dd>
-                </div>
-                {hasFreeTextsOffer && (
-                  <div className="flex justify-between">
-                    <dt className="text-foreground">Free texts discount</dt>
-                    <dd className="text-success">
-                      Up to {discount.toLocaleString()} free
-                    </dd>
-                  </div>
-                )}
-              </dl>
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
+            )}
+            {!!excludedDuplicatePhoneCount && (
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">
+                  Duplicate numbers removed
+                </dt>
+                <dd className="text-muted-foreground">
+                  {excludedDuplicatePhoneCount.toLocaleString()}
+                </dd>
+              </div>
+            )}
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">Price per outreach</dt>
+              <dd className="text-foreground">${pricePerContact.toFixed(3)}</dd>
+            </div>
+            {hasFreeTextsOffer && (
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">Free texts discount</dt>
+                <dd className="text-success">
+                  Up to {discount.toLocaleString()} free
+                </dd>
+              </div>
+            )}
+          </dl>
+        </div>
         <div className="flex items-center justify-between border-t border-border px-4 py-4">
           <span className="font-medium text-foreground">Total</span>
           <span className="font-semibold text-foreground">
@@ -280,10 +291,22 @@ export const SmsReviewStep = ({
           Schedule text
         </Button>
       ) : (
-        <CheckoutPayment
-          onPaymentSuccess={handlePaidComplete}
-          onPaymentError={() => setPayError(true)}
-        />
+        <>
+          <Alert variant="info" icon={<InfoIcon className="size-4" />}>
+            <AlertTitle>${money(totalCents)} due today</AlertTitle>
+            <AlertDescription>
+              One-time charge for this campaign. Your Pro subscription is billed
+              separately.
+            </AlertDescription>
+          </Alert>
+          <Card className="gap-3 p-4">
+            <p className="font-medium text-foreground">Payment details</p>
+            <CheckoutPayment
+              onPaymentSuccess={handlePaidComplete}
+              onPaymentError={() => setPayError(true)}
+            />
+          </Card>
+        </>
       )}
     </div>
   )
