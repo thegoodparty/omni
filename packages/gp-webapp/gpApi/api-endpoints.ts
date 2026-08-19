@@ -746,7 +746,7 @@ export type APIEndpoints = {
     Response: ArrayBuffer
   }
   'GET /v1/door-knocking/turfs': {
-    Request: { voterFileFilterId?: number }
+    Request: {}
     Response: DoorKnockingTurf[]
   }
   'POST /v1/door-knocking/turfs': {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DoorKnockOutcome, SupportAnswer } from '../../generated/prisma'
-import { deriveKnockStatus, rollupStopStatus } from './knockStatus.util'
+import { deriveKnockStatus } from './knockStatus.util'
 
 describe('deriveKnockStatus', () => {
   it('returns unknown for a person never knocked', () => {
@@ -65,36 +65,5 @@ describe('deriveKnockStatus', () => {
         supportAnswer: null,
       }),
     ).toBe('unknown')
-  })
-})
-
-describe('rollupStopStatus', () => {
-  it('one unknown person keeps the stop knockable', () => {
-    expect(rollupStopStatus(['supporter', 'unknown', 'refused'])).toBe(
-      'unknown',
-    )
-  })
-
-  it('not_home outranks settled outcomes', () => {
-    expect(rollupStopStatus(['refused', 'not_home', 'supporter'])).toBe(
-      'not_home',
-    )
-  })
-
-  it('not_a_voter is the least actionable status', () => {
-    expect(rollupStopStatus(['not_a_voter', 'refused'])).toBe('refused')
-    expect(rollupStopStatus(['not_a_voter', 'inaccessible'])).toBe(
-      'inaccessible',
-    )
-  })
-
-  it('settled stops report their best outcome', () => {
-    expect(rollupStopStatus(['refused', 'supporter'])).toBe('supporter')
-    expect(rollupStopStatus(['refused', 'non_supporter'])).toBe('non_supporter')
-    expect(rollupStopStatus(['refused'])).toBe('refused')
-  })
-
-  it('an empty stop is unknown', () => {
-    expect(rollupStopStatus([])).toBe('unknown')
   })
 })

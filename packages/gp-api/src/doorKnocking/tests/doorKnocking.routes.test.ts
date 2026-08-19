@@ -233,7 +233,7 @@ describe('door-knocking routes', () => {
       expect(turf.locked).toBe(false)
 
       const list = await service.client.get(
-        `/v1/door-knocking/turfs?voterFileFilterId=${filter.id}`,
+        '/v1/door-knocking/turfs',
         orgHeaders(),
       )
       expect(list.data).toHaveLength(1)
@@ -1043,30 +1043,26 @@ describe('door-knocking routes', () => {
 
       const { res } = await knockAndServe()
 
-      const entries = (
+      const addresses = (
         res.data.stops as Array<{
-          knockStatus: string
           addresses: Array<{
             addressKey: string
             targets: Array<{ personId: string; knockStatus: string }>
           }>
         }>
-      ).flatMap((stop) => stop.addresses.map((address) => ({ stop, address })))
+      ).flatMap((stop) => stop.addresses)
 
-      const key1 = entries.find((e) => e.address.addressKey === PIPED_KEY)
+      const key1 = addresses.find((a) => a.addressKey === PIPED_KEY)
       const statusFor = (personId: string) =>
-        key1?.address.targets.find((t) => t.personId === personId)?.knockStatus
+        key1?.targets.find((t) => t.personId === personId)?.knockStatus
       // The latest ANSWER wins, matching how Contacts derives the same person:
       // the newer not_home is a failed re-attempt, not a retraction of the
       // support they already gave.
       expect(statusFor(PERSON_1)).toBe('supporter')
       expect(statusFor(PERSON_2)).toBe('unknown')
-      // An unknown person keeps the whole stop knockable.
-      expect(key1?.stop.knockStatus).toBe('unknown')
 
-      const key3 = entries.find((e) => e.address.addressKey === 'KEY-3')
-      expect(key3?.address.targets[0]?.knockStatus).toBe('supporter')
-      expect(key3?.stop.knockStatus).toBe('supporter')
+      const key3 = addresses.find((a) => a.addressKey === 'KEY-3')
+      expect(key3?.targets[0]?.knockStatus).toBe('supporter')
     })
 
     // Contacts lets a candidate correct a status by hand, and that correction
@@ -1126,17 +1122,16 @@ describe('door-knocking routes', () => {
 
       const key3 = (
         res.data.stops as Array<{
-          knockStatus: string
           addresses: Array<{
             addressKey: string
             targets: Array<{ knockStatus: string }>
           }>
         }>
       )
-        .flatMap((stop) => stop.addresses.map((address) => ({ stop, address })))
-        .find((e) => e.address.addressKey === 'KEY-3')
+        .flatMap((stop) => stop.addresses)
+        .find((address) => address.addressKey === 'KEY-3')
 
-      expect(key3?.address.targets[0]?.knockStatus).toBe('unknown')
+      expect(key3?.targets[0]?.knockStatus).toBe('unknown')
     })
 
     it('serves a targetless route without calling people-api', async () => {
@@ -1172,7 +1167,6 @@ describe('door-knocking routes', () => {
 
       expect(res.status).toBe(200)
       expect(res.data.stops[0].addresses).toEqual([])
-      expect(res.data.stops[0].knockStatus).toBe('unknown')
       // No vendor traffic: neither Geoapify (fetch) nor the people-db
       // residents lookup (the shim).
       expect(
@@ -2040,46 +2034,6 @@ describe('door-knocking routes', () => {
       // in doorKnockingPeopleApi.service.test.ts. Spying here sees only what
       // this route handed the adapter, which is the value under test's input
       // rather than its output.
-
-      // `unknown` outranks every other status in the rollup, so a flagged
-      // resident would otherwise report their whole stop as still-to-knock —
-      // persons 1 and 2 share an address, which is what makes that reachable.
-      it('rolls a stop up from its knockable residents only', async () => {
-        const { turf } = await knockAndGetTurfAndTarget()
-        const shared = await service.prisma.doorKnockingStopTarget.findMany({
-          where: { addressKey: PIPED_KEY },
-          orderBy: { id: 'asc' },
-        })
-        expect(shared).toHaveLength(2)
-
-        expect(
-          (
-            await record({
-              stopTargetId: shared[0]!.id,
-              clientKey: CLIENT_KEY,
-              outcome: 'answered',
-              supportAnswer: 'supporter',
-            })
-          ).status,
-        ).toBe(201)
-        await setDoNotKnock({ stopTargetId: shared[1]!.id, value: 'active' })
-
-        const res = await service.client.get(
-          `/v1/door-knocking/turfs/${turf.id}/route`,
-          { ...orgHeaders(), validateStatus: () => true },
-        )
-
-        expect(res.status).toBe(200)
-        const stop = (
-          res.data.stops as Array<{
-            knockStatus: string
-            addresses: Array<{ addressKey: string }>
-          }>
-        ).find((candidate) =>
-          candidate.addresses.some((a) => a.addressKey === PIPED_KEY),
-        )
-        expect(stop?.knockStatus).toBe('supporter')
-      })
     })
     describe('not-a-voter (ADR 0008)', () => {
       const setNotAVoter = (body: Record<string, unknown>) =>
@@ -2375,47 +2329,6 @@ describe('door-knocking routes', () => {
         expect((await knock(secondTurf.id)).status).toBe(201)
 
         expect(lastEvaluateArg()?.excludePersonIds).toEqual([])
-      })
-
-      // `unknown` outranks every other status in the rollup, so a flagged
-      // resident with nothing logged would otherwise report their whole stop
-      // as still-to-knock. Persons 1 and 2 share an address, which is what
-      // makes that reachable.
-      it('rolls a stop up from its knockable residents only', async () => {
-        const { turf } = await knockAndGetTurfAndTargets()
-        const shared = await service.prisma.doorKnockingStopTarget.findMany({
-          where: { addressKey: PIPED_KEY },
-          orderBy: { id: 'asc' },
-        })
-        expect(shared).toHaveLength(2)
-
-        expect(
-          (
-            await record({
-              stopTargetId: shared[0]!.id,
-              clientKey: CLIENT_KEY,
-              outcome: 'answered',
-              supportAnswer: 'supporter',
-            })
-          ).status,
-        ).toBe(201)
-        await setNotAVoter({ stopTargetId: shared[1]!.id, value: 'moved' })
-
-        const res = await service.client.get(
-          `/v1/door-knocking/turfs/${turf.id}/route`,
-          { ...orgHeaders(), validateStatus: () => true },
-        )
-
-        expect(res.status).toBe(200)
-        const stop = (
-          res.data.stops as Array<{
-            knockStatus: string
-            addresses: Array<{ addressKey: string }>
-          }>
-        ).find((candidate) =>
-          candidate.addresses.some((a) => a.addressKey === PIPED_KEY),
-        )
-        expect(stop?.knockStatus).toBe('supporter')
       })
     })
   })

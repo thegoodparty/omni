@@ -276,7 +276,6 @@ export default function NativeDoorKnockingPage({
       return {
         people: 0,
         households: 0,
-        dots: 0,
         matchedPerDot: new Uint32Array(dots),
         statusPerDot: new Uint8Array(dots).fill(255),
       }

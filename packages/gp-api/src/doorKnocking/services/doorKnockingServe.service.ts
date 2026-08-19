@@ -23,7 +23,6 @@ import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import {
   deriveKnockStatus,
   overrideToKnockStatus,
-  rollupStopStatus,
 } from '../utils/knockStatus.util'
 
 const ROUTE_INCLUDE = {
@@ -152,20 +151,6 @@ export class DoorKnockingServeService extends createPrismaBase(
           displayAddress: stop.displayAddress,
           legSeconds: stop.legSeconds,
           legMeters: stop.legMeters,
-          // ADR 0007 and ADR 0008. Suppressed residents are left out because
-          // `unknown` outranks every other status in the rollup, so one
-          // do-not-knock or moved-away neighbor would report the whole stop as
-          // still-to-knock however much of the household had been logged. The
-          // webapp's rollup drops them for the same reason.
-          knockStatus: rollupStopStatus(
-            addresses.flatMap((address) =>
-              address.targets
-                .filter(
-                  (target) => !target.doNotKnock && !target.notAVoterReason,
-                )
-                .map((target) => target.knockStatus),
-            ),
-          ),
           addresses,
         }
       }),

@@ -129,9 +129,10 @@ export const RoutePayloadStopSchema = z.object({
   displayAddress: z.string(),
   legSeconds: z.number().int(),
   legMeters: z.number().int(),
-  // Most-actionable rollup across the stop's people: an 'unknown' person
-  // keeps the whole stop knockable.
-  knockStatus: DoorKnockStatusSchema,
+  // No stop-level rollup: the webapp's `rollupStopStatus` derives one from
+  // `addresses[].targets[].knockStatus`, and shipping a second copy meant two
+  // implementations of one rule that had to agree about suppressing
+  // do-not-knock and not-a-voter residents. One implementation cannot drift.
   addresses: z.array(RoutePayloadAddressSchema),
 })
 

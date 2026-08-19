@@ -114,7 +114,6 @@ const pack: DecodedPack = {
 const filterResult: FilterResult = {
   people: 2,
   households: 2,
-  dots: 2,
   matchedPerDot: new Uint32Array([1, 1]),
   statusPerDot: new Uint8Array([0, 0]),
 }
