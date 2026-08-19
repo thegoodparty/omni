@@ -726,6 +726,7 @@ export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
         <SmsComposeStep
           tone={tone}
           onToneChange={handleToneChange}
+          audienceName={selectedList?.name ?? builderName}
           intro={intro}
           body={body}
           onBodyChange={handleBodyChange}

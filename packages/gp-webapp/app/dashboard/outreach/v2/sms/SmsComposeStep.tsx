@@ -14,17 +14,17 @@ import {
   Textarea,
 } from '@styleguide'
 import {
-  ArrowRightIcon,
   ClockIcon,
-  HandHeartIcon,
+  ImageIcon,
   Loader2Icon,
   MicIcon,
   RefreshIcon,
+  SmileIcon,
   SparklesIcon,
   SquareIcon,
-  ThumbsUpIcon,
+  SunIcon,
+  TargetIcon,
   Trash2Icon,
-  UploadIcon,
 } from '@styleguide/components/ui/icons'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import { Intro } from '../social/Intro'
@@ -43,15 +43,16 @@ const TONE_LABELS: Record<SocialTone, string> = {
 }
 
 const TONE_ICONS: Record<SocialTone, ReactNode> = {
-  warm: <HandHeartIcon className="size-4" />,
-  direct: <ArrowRightIcon className="size-4" />,
+  warm: <SunIcon className="size-4" />,
+  direct: <TargetIcon className="size-4" />,
   urgent: <ClockIcon className="size-4" />,
-  friendly: <ThumbsUpIcon className="size-4" />,
+  friendly: <SmileIcon className="size-4" />,
 }
 
 interface SmsComposeStepProps {
   tone: SocialTone
   onToneChange: (tone: SocialTone) => void
+  audienceName: string
   intro: string
   body: string
   onBodyChange: (body: string) => void
@@ -74,6 +75,7 @@ interface SmsComposeStepProps {
 export const SmsComposeStep = ({
   tone,
   onToneChange,
+  audienceName,
   intro,
   body,
   onBodyChange,
@@ -139,7 +141,9 @@ export const SmsComposeStep = ({
 
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-muted-foreground">Your message</p>
+          <p className="text-sm text-muted-foreground">
+            Suggested for {audienceName || 'your list'}
+          </p>
           <div className="flex items-center gap-2">
             {!isCustomPurpose && (
               <Button
@@ -207,12 +211,12 @@ export const SmsComposeStep = ({
                 onClick={() => fileInputRef.current?.click()}
                 className="mb-4 flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border py-10 transition-colors hover:border-primary/50 hover:bg-muted"
               >
-                <UploadIcon className="size-6 text-muted-foreground" />
+                <ImageIcon className="size-6 text-muted-foreground" />
                 <span className="text-sm font-medium text-foreground">
                   Add your campaign headshot or logo
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  Required — JPG, PNG, or GIF up to 500 KB
+                  Recipients see this in the message preview
                 </span>
               </button>
             )}
@@ -237,10 +241,14 @@ export const SmsComposeStep = ({
                   overLimit && 'text-destructive',
                 )}
               >
-                {composedLength}/{SMS_COMPOSED_MAX_LENGTH} chars · {segments}{' '}
-                SMS
+                {composedLength} chars · {segments} SMS
               </span>
             </div>
+            <p className="mb-1">
+              <span className="inline-flex items-center rounded-full bg-primary-light px-2 py-0.5 text-xs font-medium text-primary-dark">
+                Greeting First Name
+              </span>
+            </p>
             <p className="mb-2 text-xs text-muted-foreground">{intro}</p>
             <Textarea
               value={body}
@@ -325,7 +333,8 @@ export const SmsComposeStep = ({
         )}
         {!image && (
           <p className="text-xs text-muted-foreground">
-            An image is required for text campaigns.
+            An image is required for text campaigns — JPG, PNG, or GIF up to 500
+            KB.
           </p>
         )}
       </div>

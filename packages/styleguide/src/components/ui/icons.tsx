@@ -46,6 +46,7 @@ export {
   Flag as FlagIcon,
   Globe as GlobeIcon,
   GripVertical as GripVerticalIcon,
+  Image as ImageIcon,
   Info as InfoIcon,
   LayoutDashboard as LayoutDashboardIcon,
   NotebookPen as NotebookPenIcon,
