@@ -179,7 +179,7 @@ describe('SmsFlow', () => {
     ).toBeInTheDocument()
     expect(draftCalls).toHaveLength(1)
     expect(
-      screen.getByText('Hi, this is Jane, candidate for City Council.'),
+      screen.getByText('this is Jane, candidate for City Council.'),
     ).toBeInTheDocument()
     expect(screen.getByText('Reply STOP to opt out.')).toBeInTheDocument()
 

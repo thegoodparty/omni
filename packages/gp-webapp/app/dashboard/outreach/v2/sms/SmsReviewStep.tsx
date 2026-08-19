@@ -27,6 +27,7 @@ import { LoadingAnimation } from '@shared/utils/LoadingAnimation'
 import { FREE_TEXTS_OFFER } from 'app/dashboard/outreach/constants'
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
 import { Intro } from '../social/Intro'
+import { renderWithMergeVars } from './mergeVars'
 
 const money = (cents: number): string => (cents / 100).toFixed(2)
 
@@ -248,7 +249,9 @@ export const SmsReviewStep = ({
                 className="mb-2 max-h-48 w-full rounded-xl object-cover"
               />
             )}
-            <p className="whitespace-pre-wrap">{composedMessage}</p>
+            <p className="whitespace-pre-wrap">
+              {renderWithMergeVars(composedMessage)}
+            </p>
           </div>
         </div>
       )}
