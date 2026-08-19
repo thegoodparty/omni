@@ -75,6 +75,21 @@ import {
 import { isPeerlyCvPinRejection } from '../utils/peerlyCvPinRejection.util'
 import { PinoLogger } from 'nestjs-pino'
 
+// Slack truncates long blocks silently; pretty-printing roughly doubles a
+// body's line count, so cut it here with a visible marker instead.
+const SLACK_RESPONSE_BODY_MAX_CHARS = 1500
+
+// Peerly's error bodies are the `Error`/`status_code` envelope the sibling
+// rejection utils read, except on gateway failures, which return an HTML or
+// plain-text string instead.
+type PeerlyErrorResponseBody =
+  | string
+  | {
+      Error?: string
+      status_code?: number
+      details?: string | null
+    }
+
 @Injectable()
 export class PeerlyIdentityService extends PeerlyBaseConfig {
   constructor(
@@ -954,9 +969,8 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     if (context.campaign && !context.suppressSlackAlert) {
       const user = await this.usersService.findByCampaign(context.campaign)
       if (user) {
-        const formattedError = (isAxiosError(error) && format(error)) || error
         await this.sendSlackErrorNotification(
-          formattedError,
+          error,
           user,
           context.peerlyIdentityId,
         )
@@ -969,22 +983,73 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     })
   }
 
+  // Only the request line and Peerly's parsed response body reach Slack. The
+  // serialized Axios error carries config.headers.Authorization (a live Peerly
+  // bearer token) and the request body (the candidate's CV PIN in cleartext),
+  // and #bot-10dlc-compliance is broadly readable — never widen this payload.
   private async sendSlackErrorNotification(
-    formattedError: unknown,
+    error: unknown,
     user: User,
     peerlyIdentityId?: string,
   ) {
-    const errorString =
-      typeof formattedError === 'string'
-        ? formattedError
-        : JSON.stringify(formattedError)
+    const axiosError = isAxiosError<PeerlyErrorResponseBody>(error)
+      ? error
+      : null
+    const status = axiosError?.response?.status ?? axiosError?.status
+    const requestLine = [
+      axiosError?.config?.method?.toUpperCase(),
+      axiosError?.config?.url,
+    ]
+      .filter(Boolean)
+      .join(' ')
+    const responseData = axiosError?.response?.data
+    // Axios reports an empty response body as '', which would render as an
+    // empty block — Slack rejects the whole message on those.
+    const hasResponseData =
+      responseData !== undefined && responseData !== null && responseData !== ''
+    const fallbackMessage = error instanceof Error ? error.message : ''
 
     const blocks = buildPeerlySlackErrorMessage({
       user,
-      formattedError: errorString,
+      requestSummary: axiosError
+        ? [requestLine || 'Peerly request', status].filter(Boolean).join(' → ')
+        : undefined,
+      responseData: hasResponseData
+        ? this.formatSlackResponseBody(responseData)
+        : undefined,
+      errorMessage: hasResponseData
+        ? undefined
+        : fallbackMessage || 'Unknown Peerly API error',
       peerlyIdentityId,
     })
 
     await this.slackService.message({ blocks }, SlackChannel.bot10DlcCompliance)
+  }
+
+  // Peerly's error bodies are small JSON objects, so pretty-printing them is
+  // what makes the alert readable. Gateway errors arrive as HTML/text strings
+  // instead — those pass through untouched rather than becoming an escaped,
+  // quote-wrapped blob.
+  private formatSlackResponseBody(responseData: PeerlyErrorResponseBody) {
+    if (typeof responseData === 'string') {
+      return this.truncateSlackResponseBody(responseData)
+    }
+    let serialized: string | undefined
+    try {
+      serialized = JSON.stringify(responseData, null, 2)
+    } catch {
+      // A circular or otherwise unserializable body must not throw here — that
+      // would take down the alert along with it.
+      serialized = undefined
+    }
+    return this.truncateSlackResponseBody(
+      serialized ?? '<unserializable response body>',
+    )
+  }
+
+  private truncateSlackResponseBody(body: string): string {
+    return body.length > SLACK_RESPONSE_BODY_MAX_CHARS
+      ? `${body.slice(0, SLACK_RESPONSE_BODY_MAX_CHARS)}\n… (truncated)`
+      : body
   }
 }

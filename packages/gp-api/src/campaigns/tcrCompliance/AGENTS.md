@@ -540,6 +540,22 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
   made the channel unreadable — one wrong digit from a candidate looked identical to
   a vendor outage. A nested **5xx** (CV itself down) and any non-CV Peerly 400 still
   alert. The HTTP status the caller gets is unchanged; only the alert is suppressed.
+- **The 🚨 error alert carries the request line and Peerly's response body — nothing
+  else.** `sendSlackErrorNotification` (`vendors/peerly/services/peerlyIdentity.service.ts`)
+  passes `requestSummary` (`METHOD url → status`) and the parsed `response.data` into
+  `buildPeerlySlackErrorMessage`; a non-Axios failure falls back to the error message.
+  An object body is pretty-printed and rendered in a `rich_text_preformatted` block
+  (a plain rich-text section collapses the indentation); a body that is already a
+  string — Peerly's gateway errors return HTML — passes through as-is, and an
+  oversized one is cut at 1500 chars with a `… (truncated)` marker so Slack doesn't
+  silently drop the tail.
+  It used to `JSON.stringify` the whole serialized Axios error, which posted
+  `config.headers.Authorization` — a live Peerly bearer token — plus the request body
+  (the candidate's CV PIN in cleartext) into `bot-10dlc-compliance` on every alert.
+  Never widen this payload back to the error object, `config`, headers, or a stack;
+  `peerlyIdentity.service.test.ts` asserts the rendered blocks contain no
+  `Authorization`. Grafana logs still get the full formatted error — that's fine,
+  they're access-controlled; Slack is not.
 - **PIN screen is gated on the live Peerly CV status (ENG-10654):**
   `deriveComplianceStage` still returns `awaiting_pin` from the DB `status` alone (a
   `submitted` record with a live site) — that stage value is unchanged because
