@@ -206,8 +206,12 @@ export const SmsComposeStep = ({
                 </IconButton>
               </div>
             ) : (
+              // globals.css forces flex-row on data-slot-less flex buttons
+              // (legacy link/button normalization); the slot opts out so
+              // the dropzone stacks like the design.
               <button
                 type="button"
+                data-slot="sms-image-dropzone"
                 onClick={() => fileInputRef.current?.click()}
                 className="mb-4 flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border py-10 transition-colors hover:border-primary/50 hover:bg-muted"
               >
