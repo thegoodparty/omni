@@ -421,22 +421,46 @@ or an elected-office org, per the Pro gate below, and the district must have
 rooftop-geocoded voters — every pack and turf read resolves a district
 server-side and 400s without one.
 
+### Checking whether an environment already has the key
+
+`GEOAPIFY_API_KEY` is already present in **both** `GP_API_DEV` and
+`GP_API_PROD`, and has been in dev since at least the task definition registered
+2026-07-21. Confirm that for any environment without fetching a secret value —
+`deploy/index.ts` derives the task definition's secret references from the
+secret's own keys, so the key _names_ are readable straight off the task
+definition, which `ReadOnlyAccess` covers:
+
+```sh
+CLUSTER=gp-develop-fargateCluster SERVICE=gp-api-develop   # prod: gp-master-fargateCluster / gp-api-master
+aws ecs describe-task-definition --output text \
+  --task-definition "$(aws ecs describe-services --cluster "$CLUSTER" \
+    --services "$SERVICE" --query 'services[0].taskDefinition' --output text)" \
+  --query "taskDefinition.containerDefinitions[0].secrets[].name" | tr '\t' '\n'
+```
+
+Note that green CI is not evidence either way. The e2e suite deliberately never
+builds a route — `POST turfs/:id/knock` is the only call in the feature that
+reaches a billed vendor — so those specs pass whether or not a key exists.
+
 ### Procurement, as of this writing
 
-There is no company Geoapify account. The POC under
-`packages/runbooks/scripts/python/door_knocking_map_poc/` deliberately used
-each developer's own free-tier key, which is why its README tells you to sign up
-yourself and warns that the generated HTML embeds your personal key. The TDD
-lists purchasing as an open leadership ask, approved in principle only.
+What the key's presence does **not** establish is whose account it belongs to,
+and that is the open question rather than provisioning. The POC under
+`packages/runbooks/scripts/python/door_knocking_map_poc/` deliberately used each
+developer's own free-tier key — its README tells you to sign up yourself and
+warns that the generated HTML embeds your personal key — and the TDD still lists
+purchasing as an open leadership ask, approved in principle only. So confirm the
+account with whoever provisioned it before sizing a pilot on it.
 
-The free tier is 3,000 credits/day and needs no credit card, which at 10 credits
-per stop is ~300 optimized stops/day across the whole account — below
-`DAILY_WAYPOINT_LIMIT` (500) in `waypointQuota.util.ts`, so on a free key the
-vendor's ceiling binds before ours does and one enthusiastic pilot campaign can
-exhaust it. Free is nonetheless viable for a gated QA pass: Geoapify permits
-commercial use on it provided the map carries their attribution, which
-initializing MapLibre from their `style.json` does automatically, as
-`VoterMapCanvas` does.
+The distinction has teeth, because the free tier is 3,000 credits/day: at 10
+credits per stop that is ~300 optimized stops/day across the whole account,
+_below_ `DAILY_WAYPOINT_LIMIT` (500) in `waypointQuota.util.ts`. On a free key
+the vendor's ceiling binds before ours does, our own quota error never fires,
+and one enthusiastic pilot campaign can exhaust the account for everyone. Free
+is fine for a gated QA pass — Geoapify permits commercial use on it provided the
+map carries their attribution, which initializing MapLibre from their
+`style.json` does automatically, as `VoterMapCanvas` does — but it is not a
+pilot-sized plan.
 
 The TDD sized the real plan at ~50k credits/day, which is the $179/month tier —
 note that the TDD's separate "$299–609" figure prices the tiers above it, since
