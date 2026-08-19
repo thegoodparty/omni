@@ -35,10 +35,17 @@ const LOCATION_BLUE_APPROX: [number, number, number, number] = [
   19, 81, 216, 120,
 ]
 const LOCATION_HALO: [number, number, number, number] = [19, 81, 216, 38]
+// Slop in pixels around a route pin's own 11-14px radius. The whole feature is
+// used one-handed on a phone in the street, so the tap target has to clear the
+// ~44px a thumb needs rather than the ~24px the pin is drawn at.
+const PIN_TAP_RADIUS = 12
 
 export type PolygonRing = Array<[number, number]>
 
 export interface RoutePin {
+  // Which stop this pin is, so a tap can be turned back into a door to open.
+  // `seq` orders the route and is not the route payload's identity for a stop.
+  stopId: number
   seq: number
   lat: number
   lng: number
@@ -79,6 +86,10 @@ interface VoterMapCanvasProps {
   // Fires with the vertex count as points are placed (0 on start/clear) —
   // the page uses it to dismiss the draw instructions on the first click.
   onDrawPointCount?: (count: number) => void
+  // A tap on a numbered stop pin, which is the canvasser's way into that
+  // door's log from the map. Never fires while drawing: a tap is a vertex
+  // there, and the two are different modes.
+  onRoutePinClick?: (pin: RoutePin) => void
 }
 
 const hexToRgba = (
@@ -133,6 +144,53 @@ const packBounds = (
   ]
 }
 
+// Shortest distance from `point` to the segment a-b. Longitude is scaled by
+// cos(latitude) first because a degree of longitude is only ~0.75 of a degree
+// of latitude at US latitudes — compared in raw degrees, a tall narrow ring's
+// long sides read as closer than they are and the wrong edge wins.
+const distanceToSegment = (
+  point: [number, number],
+  a: [number, number],
+  b: [number, number],
+  lngScale: number,
+): number => {
+  const px = point[0] * lngScale
+  const ax = a[0] * lngScale
+  const dx = b[0] * lngScale - ax
+  const dy = b[1] - a[1]
+  const lengthSq = dx * dx + dy * dy
+  const projected =
+    lengthSq === 0 ? 0 : ((px - ax) * dx + (point[1] - a[1]) * dy) / lengthSq
+  const t = Math.max(0, Math.min(1, projected))
+  return Math.hypot(px - (ax + t * dx), point[1] - (a[1] + t * dy))
+}
+
+// Where a tap belongs in the ring being drawn. Under three points there are no
+// edges yet, so it appends; from three the ring is read as closed and the point
+// splices into whichever edge it is nearest. Appending unconditionally meant a
+// tap between two existing vertices jumped the boundary across the shape and
+// back, leaving a criss-crossed, self-intersecting outline.
+export const ringInsertIndex = (
+  ring: PolygonRing,
+  point: [number, number],
+): number => {
+  if (ring.length < 3) return ring.length
+  const lngScale = Math.cos((point[1] * Math.PI) / 180)
+  let bestIndex = ring.length
+  let bestDistance = Infinity
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i]
+    const b = ring[(i + 1) % ring.length]
+    if (!a || !b) continue
+    const distance = distanceToSegment(point, a, b, lngScale)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      bestIndex = i + 1
+    }
+  }
+  return bestIndex
+}
+
 export default function VoterMapCanvas({
   pack,
   filterResult,
@@ -147,6 +205,7 @@ export default function VoterMapCanvas({
   undoDrawToken,
   onPolygonChange,
   onDrawPointCount,
+  onRoutePinClick,
 }: VoterMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const hasTilesKey = NEXT_PUBLIC_GEOAPIFY_TILES_KEY.length > 0
@@ -167,6 +226,12 @@ export default function VoterMapCanvas({
   const drawActiveRef = useRef(false)
   const [drawPoints, setDrawPoints] = useState<PolygonRing>([])
   const drawPointsRef = useRef<PolygonRing>([])
+  // Ring indexes in the order they were placed. The array used to BE that
+  // record — appending meant the newest vertex was always the last element —
+  // and edge insertion takes it away, so undo (still last-add only) needs it
+  // kept explicitly. Drags are deliberately absent: a moved vertex is corrected
+  // by moving it again, and recording them would turn this into an edit stack.
+  const addOrderRef = useRef<number[]>([])
   const dragIndexRef = useRef<number | null>(null)
   const justDraggedRef = useRef(false)
   const endDragRef = useRef<(() => void) | null>(null)
@@ -174,6 +239,8 @@ export default function VoterMapCanvas({
   onPolygonChangeRef.current = onPolygonChange
   const onDrawPointCountRef = useRef(onDrawPointCount)
   onDrawPointCountRef.current = onDrawPointCount
+  const onRoutePinClickRef = useRef(onRoutePinClick)
+  onRoutePinClickRef.current = onRoutePinClick
   // Opt-in: nothing is watched until the canvasser asks to be shown.
   const [locationEnabled, setLocationEnabled] = useState(false)
   const location = useLiveLocation(locationEnabled)
@@ -213,8 +280,28 @@ export default function VoterMapCanvas({
     map.addControl(overlay as unknown as maplibregl.IControl)
     overlayRef.current = overlay
 
+    // Same picking idiom as pickVertex below. The radius is slop on top of the
+    // pin's own drawn radius, because this is tapped with a thumb in the street.
+    const pickRoutePin = (x: number, y: number): RoutePin | null => {
+      const info = overlayRef.current?.pickObject({
+        x,
+        y,
+        radius: PIN_TAP_RADIUS,
+        layerIds: ['route-pins'],
+      })
+      return (info?.object as RoutePin | undefined) ?? null
+    }
+
     map.on('click', (event) => {
-      if (!drawActiveRef.current) return
+      if (!drawActiveRef.current) {
+        // Knock mode: the pin under the thumb is the door to log. Gated on the
+        // same flag the vertex path is, so a pin tap can never become a vertex
+        // and a drawing tap can never open a door. On the landing map the pin
+        // layer has no data, so nothing is picked.
+        const pin = pickRoutePin(event.point.x, event.point.y)
+        if (pin) onRoutePinClickRef.current?.(pin)
+        return
+      }
       // A vertex drag that ends within click tolerance still fires a click —
       // don't turn it into a new point.
       if (justDraggedRef.current) {
@@ -222,10 +309,26 @@ export default function VoterMapCanvas({
         return
       }
       const point: [number, number] = [event.lngLat.lng, event.lngLat.lat]
-      const last = drawPointsRef.current[drawPointsRef.current.length - 1]
       // A double-click lands as two clicks at the same spot — one vertex.
-      if (last && last[0] === point[0] && last[1] === point[1]) return
-      const next = [...drawPointsRef.current, point]
+      // Checked against every vertex rather than the last one: the second click
+      // now lands ON the vertex the first placed and splices beside it, so
+      // "twice in the same spot" stopped meaning "twice at the end of the ring".
+      if (
+        drawPointsRef.current.some(
+          (vertex) => vertex[0] === point[0] && vertex[1] === point[1],
+        )
+      ) {
+        return
+      }
+      const index = ringInsertIndex(drawPointsRef.current, point)
+      const next = [...drawPointsRef.current]
+      next.splice(index, 0, point)
+      addOrderRef.current = [
+        ...addOrderRef.current.map((added) =>
+          added >= index ? added + 1 : added,
+        ),
+        index,
+      ]
       drawPointsRef.current = next
       setDrawPoints(next)
       onDrawPointCountRef.current?.(next.length)
@@ -457,7 +560,8 @@ export default function VoterMapCanvas({
           radiusMinPixels: 11,
           radiusMaxPixels: 14,
           getRadius: 12,
-          pickable: false,
+          // The map's click handler picks this layer to turn a tap into a door.
+          pickable: true,
         }),
         new TextLayer<RoutePin>({
           id: 'route-pin-numbers',
@@ -602,6 +706,7 @@ export default function VoterMapCanvas({
     endDragRef.current?.()
     drawActiveRef.current = true
     drawPointsRef.current = []
+    addOrderRef.current = []
     setDrawPoints([])
     onDrawPointCountRef.current?.(0)
     onPolygonChangeRef.current(null)
@@ -614,7 +719,18 @@ export default function VoterMapCanvas({
     // Settle any in-flight drag first, or it would keep writing to an index
     // this undo is about to remove.
     endDragRef.current?.()
-    const next = drawPointsRef.current.slice(0, -1)
+    // Still "drop the vertex you just placed", but that is no longer the last
+    // element of the ring: a tap splices into the nearest edge, so placement
+    // order is read off addOrderRef instead. Repeated bumps keep walking back
+    // through the placements, which is what the array's own order used to give
+    // for free. An empty record has nothing to undo rather than throwing.
+    const order = [...addOrderRef.current]
+    const removed = order.pop()
+    if (removed === undefined) return
+    addOrderRef.current = order.map((added) =>
+      added > removed ? added - 1 : added,
+    )
+    const next = drawPointsRef.current.filter((_, index) => index !== removed)
     drawPointsRef.current = next
     setDrawPoints(next)
     onDrawPointCountRef.current?.(next.length)
@@ -630,6 +746,7 @@ export default function VoterMapCanvas({
     endDragRef.current?.()
     drawActiveRef.current = false
     drawPointsRef.current = []
+    addOrderRef.current = []
     setDrawPoints([])
     onDrawPointCountRef.current?.(0)
     onPolygonChangeRef.current(null)

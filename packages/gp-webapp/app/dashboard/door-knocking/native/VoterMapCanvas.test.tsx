@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render } from '@testing-library/react'
 import type { DoorKnockingPackManifest } from '@goodparty_org/contracts'
 import VoterMapCanvas, {
+  ringInsertIndex,
   type PolygonRing,
   type RoutePin,
 } from './VoterMapCanvas'
@@ -19,12 +20,21 @@ interface MapEvent {
 interface MockLayerProps {
   id: string
   data: unknown
+  pickable?: boolean
+  radiusMinPixels?: number
   // Accessors the pin layers derive per pin, so a test can ask what a given
   // pin would actually be drawn as.
   getFillColor?: (pin: RoutePin) => number[]
   getLineColor?: (pin: RoutePin) => number[]
   getLineWidth?: (pin: RoutePin) => number
   getColor?: (pin: RoutePin) => number[]
+}
+
+interface PickParams {
+  x: number
+  y: number
+  radius: number
+  layerIds: string[]
 }
 
 const gl = vi.hoisted(() => {
@@ -48,10 +58,18 @@ const gl = vi.hoisted(() => {
   }
   const overlay = {
     layers: [] as MockLayerProps[],
+    // Stands a pin under the tap, so a test can knock on a door the way a
+    // canvasser does. Keyed by layer so the vertex picking the drag handlers
+    // do is unaffected.
+    pickedPin: null as { object: RoutePin } | null,
+    lastPick: null as PickParams | null,
     setProps: (props: { layers: Array<{ props: MockLayerProps }> }) => {
       overlay.layers = props.layers.map((layer) => layer.props)
     },
-    pickObject: () => null,
+    pickObject: (params: PickParams) => {
+      overlay.lastPick = params
+      return params.layerIds.includes('route-pins') ? overlay.pickedPin : null
+    },
   }
   return { handlers, map, overlay }
 })
@@ -139,6 +157,45 @@ const layerData = (id: string) =>
 
 const layer = (id: string) => gl.overlay.layers.find((entry) => entry.id === id)
 
+describe('ringInsertIndex', () => {
+  // Clockwise from the south-west corner: edge 0 is the south side, edge 1 the
+  // east side, edge 2 the north side, edge 3 the closing west side.
+  const SQUARE: PolygonRing = [
+    [-87.66, 41.92],
+    [-87.65, 41.92],
+    [-87.65, 41.93],
+    [-87.66, 41.93],
+  ]
+
+  it('appends until there is an edge to insert into', () => {
+    expect(ringInsertIndex([], [-87.66, 41.92])).toBe(0)
+    expect(ringInsertIndex(SQUARE.slice(0, 2), [-87.65, 41.93])).toBe(2)
+  })
+
+  it('splices a point between the two vertices it was tapped between', () => {
+    expect(ringInsertIndex(SQUARE, [-87.6501, 41.925])).toBe(2)
+  })
+
+  it('picks the nearest edge for a point tapped outside the ring', () => {
+    expect(ringInsertIndex(SQUARE, [-87.655, 41.918])).toBe(1)
+  })
+
+  // A degree of longitude is ~0.74 of a degree of latitude at Chicago's
+  // latitude, so on a tall narrow ring raw degrees rank a long side as nearer
+  // than it is on the ground. Here the east edge is ~994m away and the south
+  // edge ~1113m, but in bare degrees the south edge reads as closer.
+  it('measures on the ground, not in degrees, on a tall narrow ring', () => {
+    const tall: PolygonRing = [
+      [-87.7, 41.9],
+      [-87.66, 41.9],
+      [-87.66, 42.0],
+      [-87.7, 42.0],
+    ]
+
+    expect(ringInsertIndex(tall, [-87.672, 41.91])).toBe(2)
+  })
+})
+
 describe('VoterMapCanvas drawing', () => {
   const baseProps = {
     pack,
@@ -156,6 +213,8 @@ describe('VoterMapCanvas drawing', () => {
   beforeEach(() => {
     gl.handlers.clear()
     gl.overlay.layers = []
+    gl.overlay.pickedPin = null
+    gl.overlay.lastPick = null
     vi.clearAllMocks()
   })
 
@@ -184,6 +243,88 @@ describe('VoterMapCanvas drawing', () => {
     expect(onDrawPointCount).toHaveBeenLastCalledWith(3)
     expect(onPolygonChange).toHaveBeenLastCalledWith(POINTS.slice(0, 3))
     expect(layerData('draw-vertices')).toEqual(POINTS.slice(0, 3))
+  })
+
+  // Appending every tap meant a point placed between two existing vertices sent
+  // the boundary across the shape and back — a criss-crossed outline from a
+  // gesture that looks like "put a corner here".
+  it('splices a tap between two vertices into that edge', () => {
+    const onPolygonChange = vi.fn()
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    POINTS.slice(0, 3).forEach(clickMap)
+
+    // Just outside the edge running between vertices 1 and 2.
+    const between: [number, number] = [-87.6495, 41.925]
+    clickMap(between)
+
+    expect(layerData('draw-vertices')).toEqual([
+      POINTS[0],
+      POINTS[1],
+      between,
+      POINTS[2],
+    ])
+    expect(onPolygonChange).toHaveBeenLastCalledWith([
+      POINTS[0],
+      POINTS[1],
+      between,
+      POINTS[2],
+    ])
+  })
+
+  // Undo is still last-add only, but the ring stopped being the add history the
+  // moment a tap could land in the middle of it — dropping the last element
+  // would take a vertex the canvasser placed three taps ago.
+  it('undoes the vertex just placed, not the last one in the ring', () => {
+    const onPolygonChange = vi.fn()
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    POINTS.slice(0, 3).forEach(clickMap)
+    const between: [number, number] = [-87.6495, 41.925]
+    clickMap(between)
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        undoDrawToken={1}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    expect(layerData('draw-vertices')).toEqual(POINTS.slice(0, 3))
+    expect(onPolygonChange).toHaveBeenLastCalledWith(POINTS.slice(0, 3))
+  })
+
+  // A double-click arrives as two clicks at one spot. Under append semantics
+  // the guard could look at the end of the ring; under insertion the second
+  // click lands ON the vertex the first placed and would splice beside it.
+  it('takes one vertex from a double-click on an inserted point', () => {
+    const onDrawPointCount = vi.fn()
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={onDrawPointCount}
+      />,
+    )
+    POINTS.slice(0, 3).forEach(clickMap)
+    const between: [number, number] = [-87.6495, 41.925]
+    clickMap(between)
+    clickMap(between)
+
+    expect(onDrawPointCount).toHaveBeenLastCalledWith(4)
+    expect(layerData('draw-vertices')).toHaveLength(4)
   })
 
   // Three points is where a ring starts existing, so undoing across that line
@@ -321,6 +462,7 @@ describe('VoterMapCanvas drawing', () => {
   // says "not a target" where an eighth fill colour would say "another status".
   it('draws a stop with nobody knockable hollow, not in a new colour', () => {
     const knockable: RoutePin = {
+      stopId: 11,
       seq: 1,
       lat: 41.92,
       lng: -87.66,
@@ -328,7 +470,12 @@ describe('VoterMapCanvas drawing', () => {
       knockable: true,
     }
     // Same status, so nothing but knockability can tell these two apart.
-    const flagged: RoutePin = { ...knockable, seq: 2, knockable: false }
+    const flagged: RoutePin = {
+      ...knockable,
+      stopId: 12,
+      seq: 2,
+      knockable: false,
+    }
 
     render(
       <VoterMapCanvas
@@ -357,6 +504,73 @@ describe('VoterMapCanvas drawing', () => {
     const numbers = layer('route-pin-numbers')
     expect(numbers?.getColor?.(knockable)).toEqual([255, 255, 255, 255])
     expect(numbers?.getColor?.(flagged)).toEqual([...status, 255])
+  })
+
+  // A canvasser standing in front of a house taps its pin — that was inert,
+  // because the layer was unpickable and had no handler at all.
+  it('opens the tapped stop, with a target a thumb can hit', () => {
+    const onRoutePinClick = vi.fn()
+    const pin: RoutePin = {
+      stopId: 11,
+      seq: 1,
+      lat: 41.92,
+      lng: -87.66,
+      status: 'unknown',
+      knockable: true,
+    }
+    gl.overlay.pickedPin = { object: pin }
+
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        startDrawToken={0}
+        routePins={[pin]}
+        onRoutePinClick={onRoutePinClick}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    clickMap([-87.66, 41.92])
+
+    expect(layer('route-pins')?.pickable).toBe(true)
+    expect(onRoutePinClick).toHaveBeenCalledWith(pin)
+    // This is used one-handed in the street, so the drawn pin plus the pick
+    // slop has to clear the ~44px diameter a thumb needs.
+    expect(
+      (layer('route-pins')?.radiusMinPixels ?? 0) +
+        (gl.overlay.lastPick?.radius ?? 0),
+    ).toBeGreaterThanOrEqual(22)
+  })
+
+  // Drawing and knocking are different modes, and the create flow's map has no
+  // pins on it — but a tap that became both a vertex and a door would be the
+  // worst of the two.
+  it('does not open a door with a tap placed while drawing', () => {
+    const onRoutePinClick = vi.fn()
+    const onDrawPointCount = vi.fn()
+    gl.overlay.pickedPin = {
+      object: {
+        stopId: 11,
+        seq: 1,
+        lat: 41.92,
+        lng: -87.66,
+        status: 'unknown',
+        knockable: true,
+      },
+    }
+
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        onRoutePinClick={onRoutePinClick}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={onDrawPointCount}
+      />,
+    )
+    clickMap([-87.66, 41.92])
+
+    expect(onRoutePinClick).not.toHaveBeenCalled()
+    expect(onDrawPointCount).toHaveBeenLastCalledWith(1)
   })
 
   it('opens at street level when given an initial zoom', () => {

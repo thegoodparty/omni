@@ -87,15 +87,19 @@ vi.mock('./VoterMapCanvas', () => ({
   default: ({
     filterResult,
     turfs,
+    routePins,
     initialZoom,
     onPolygonChange,
     onDrawPointCount,
+    onRoutePinClick,
   }: {
     filterResult: { people: number }
     turfs: unknown[]
+    routePins: Array<{ stopId: number }>
     initialZoom?: number
     onPolygonChange: (ring: Array<[number, number]> | null) => void
     onDrawPointCount?: (count: number) => void
+    onRoutePinClick?: (pin: { stopId: number }) => void
   }) => (
     <div
       data-testid="voter-map"
@@ -120,6 +124,15 @@ vi.mock('./VoterMapCanvas', () => ({
       >
         tap the map
       </button>
+      {routePins.map((pin) => (
+        <button
+          key={pin.stopId}
+          type="button"
+          onClick={() => onRoutePinClick?.(pin)}
+        >
+          {`tap pin ${pin.stopId}`}
+        </button>
+      ))}
     </div>
   ),
 }))
@@ -936,5 +949,120 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
       screen.getByRole('button', { name: 'See the doors' }),
     ).toHaveAttribute('aria-expanded', 'false')
     expect(rosterPasses.count).toBe(passesOnLeaving)
+  })
+})
+
+// The map is the surface a canvasser is looking at with a house in front of
+// them, so a pin has to be a way into that door's log — and something on screen
+// has to say so.
+describe('NativeDoorKnockingPage walk map', () => {
+  const routePayload = {
+    route: {
+      id: 5,
+      doorKnockingTurfId: 1,
+      mode: 'walk' as const,
+      loop: false,
+      totalSeconds: 600,
+      totalMeters: 800,
+      stopCount: 1,
+      createdAt: new Date('2026-07-21T00:00:00Z'),
+    },
+    pathGeometry: null,
+    stops: [
+      {
+        id: 11,
+        seq: 1,
+        lat: 36.16,
+        lng: -86.78,
+        displayAddress: '105 Elm St',
+        legSeconds: 0,
+        legMeters: 0,
+        addresses: [
+          {
+            addressKey: '105|elm|st',
+            address: '105 Elm St',
+            otherResidents: [],
+            targets: [
+              {
+                stopTargetId: 21,
+                personId: 'person-21',
+                name: 'Dorian Fen',
+                age: 40,
+                politicalParty: null,
+                cellPhone: null,
+                landline: null,
+                knockStatus: 'unknown' as const,
+                mayHaveMoved: false,
+                doNotKnock: false,
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  }
+
+  const startWalk = async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [{ ...turf, locked: true }],
+    })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 7 }],
+    })
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: routePayload,
+    })
+    render(
+      <NativeDoorKnockingPage
+        pathname="/dashboard/door-knocking"
+        campaign={null}
+      />,
+    )
+    await screen.findByText('Elm St & 5th')
+    // A locked list goes straight into its saved route.
+    fireEvent.click(screen.getByRole('button', { name: 'Knock' }))
+    return screen.findByRole('button', { name: 'tap pin 11' })
+  }
+
+  beforeEach(() => {
+    testQueryClient.clear()
+  })
+
+  it('opens the door behind a tapped pin', async () => {
+    const pin = await startWalk()
+
+    fireEvent.click(pin)
+
+    await waitFor(() =>
+      expect(screen.getByText('Log this door')).toBeInTheDocument(),
+    )
+    expect(
+      screen.getByRole('heading', { name: 'Dorian Fen' }),
+    ).toBeInTheDocument()
+  })
+
+  // The gesture was undiscoverable even once it worked: nothing on the walk
+  // map said a pin was tappable.
+  it('coaches the pin tap, and stops once the canvasser has made it', async () => {
+    const pin = await startWalk()
+    expect(screen.getByText('Tap a pin to log the door.')).toBeInTheDocument()
+
+    fireEvent.click(pin)
+
+    await waitFor(() =>
+      expect(screen.queryByText('Tap a pin to log the door.')).toBeNull(),
+    )
+  })
+
+  // The landing map has no pins, and a hint about them there would be about
+  // nothing on screen.
+  it('says nothing about pins on the landing map', async () => {
+    renderPage()
+    await screen.findByText(/voters in your district with a mapped address/)
+
+    expect(screen.queryByText('Tap a pin to log the door.')).toBeNull()
   })
 })
