@@ -44,28 +44,23 @@ describe('constants', () => {
 
 describe('electionCode', () => {
   it('classifies an even-year November general-election day as General', () => {
-    expect(electionCode(utc('2026-11-03'), 'MN')).toBe('General')
-    expect(electionCode(utc('2024-11-05'), 'MN')).toBe('General')
+    expect(electionCode(utc('2026-11-03'))).toBe('General')
+    expect(electionCode(utc('2024-11-05'))).toBe('General')
   })
 
-  it('classifies odd-year LA/MS/NJ/VA general-day as ConsolidatedGeneral', () => {
-    expect(electionCode(utc('2025-11-04'), 'VA')).toBe('ConsolidatedGeneral')
-    expect(electionCode(utc('2025-11-04'), 'NJ')).toBe('ConsolidatedGeneral')
-  })
-
-  it('applies the KS (year-2003)%4==0 consolidated cycle only on cycle', () => {
-    expect(electionCode(utc('2027-11-02'), 'KS')).toBe('ConsolidatedGeneral')
-    expect(electionCode(utc('2025-11-04'), 'KS')).toBe('LocalOrMunicipal')
-  })
-
-  it('classifies an odd-year non-consolidated state general-day as LocalOrMunicipal', () => {
-    expect(electionCode(utc('2025-11-04'), 'MN')).toBe('LocalOrMunicipal')
+  it('classifies every odd-year November general-day as LocalOrMunicipal', () => {
+    // Serving moved the odd-November states off the retired consolidated
+    // category and onto the live local model, so the metadata follows: the
+    // state no longer changes the answer.
+    expect(electionCode(utc('2025-11-04'))).toBe('LocalOrMunicipal')
+    expect(electionCode(utc('2027-11-02'))).toBe('LocalOrMunicipal')
+    expect(electionCode(utc('2025-11-04'))).toBe('LocalOrMunicipal')
   })
 
   it('classifies off-cycle dates as LocalOrMunicipal', () => {
-    expect(electionCode(utc('2026-06-15'), 'MN')).toBe('LocalOrMunicipal')
-    expect(electionCode(utc('2027-11-09'), 'MN')).toBe('LocalOrMunicipal')
-    expect(electionCode(null, 'MN')).toBe('LocalOrMunicipal')
+    expect(electionCode(utc('2026-06-15'))).toBe('LocalOrMunicipal')
+    expect(electionCode(utc('2027-11-09'))).toBe('LocalOrMunicipal')
+    expect(electionCode(null)).toBe('LocalOrMunicipal')
   })
 })
 

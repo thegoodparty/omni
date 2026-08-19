@@ -7,28 +7,6 @@ import { ElectionCode } from '../generated/prisma'
 export class ProjectedTurnoutService extends createPrismaBase(
   MODELS.ProjectedTurnout,
 ) {
-  private static readonly CONSOLIDATED_2YR_STATES = new Set([
-    'LA',
-    'MS',
-    'NJ',
-    'VA',
-  ] as const)
-  private static readonly CONSOLIDATED_4YR_STATES = new Set(['KS'] as const)
-
-  private static makeStateGuard<Code extends string>(set: ReadonlySet<Code>) {
-    return (s: string): s is Code => set.has(s as Code)
-  }
-
-  private static readonly isTwoYearState =
-    ProjectedTurnoutService.makeStateGuard(
-      ProjectedTurnoutService.CONSOLIDATED_2YR_STATES,
-    )
-
-  private static readonly isFourYearState =
-    ProjectedTurnoutService.makeStateGuard(
-      ProjectedTurnoutService.CONSOLIDATED_4YR_STATES,
-    )
-
   constructor() {
     super()
   }
@@ -53,12 +31,11 @@ export class ProjectedTurnoutService extends createPrismaBase(
       )
     }
 
-    const electionCode =
-      rawElectionCode ?? this.determineElectionCode(electionDate, state!)
     return this.model.findFirst({
       where: {
-        electionCode,
-        electionYear,
+        electionCode:
+          rawElectionCode ?? this.determineElectionCode(electionDate),
+        electionYear: this.resolveElectionYear(electionDate, electionYear),
         district: {
           L2DistrictType,
           L2DistrictName,
@@ -74,58 +51,54 @@ export class ProjectedTurnoutService extends createPrismaBase(
     electionYear?: number,
     rawElectionCode?: ElectionCode,
   ) {
-    const district = await this.client.district.findUnique({
-      where: { id: districtId },
-      select: { state: true },
-    })
-    if (!district) return null
-
-    const electionCode =
-      rawElectionCode ??
-      this.determineElectionCode(electionDate, district.state)
     return this.model.findFirst({
       where: {
         districtId,
-        electionCode,
-        electionYear,
+        electionCode:
+          rawElectionCode ?? this.determineElectionCode(electionDate),
+        electionYear: this.resolveElectionYear(electionDate, electionYear),
       },
     })
   }
 
-  private isTuesdayAfterFirstMondayInNov(date: Date): boolean {
-    const day = date.getDate()
-    return date.getMonth() === 10 && date.getDay() === 2 && day > 1 && day <= 8
+  // A district carries one projection per election year, so a lookup that does
+  // not pin the year matches every one of them: Prisma drops an `undefined`
+  // from the predicate and `findFirst` has no ordering, so it returns an
+  // arbitrary vintage. Callers holding a year pass it; the rest get the year of
+  // the election they asked about.
+  private resolveElectionYear(
+    electionDate: string,
+    electionYear?: number,
+  ): number {
+    return electionYear ?? new Date(electionDate).getUTCFullYear()
   }
 
-  determineElectionCode(electionDate: string, state: string): ElectionCode {
-    // Converted from Nigel's Python, you probably shouldn't touch this
-    const date = new Date(`${electionDate}T00:00:00`)
-    const year = date.getFullYear()
+  private isTuesdayAfterFirstMondayInNov(date: Date): boolean {
+    const day = date.getUTCDate()
+    return (
+      date.getUTCMonth() === 10 && date.getUTCDay() === 2 && day > 1 && day <= 8
+    )
+  }
+
+  // The model scores three kinds of election day: even-year November generals,
+  // state primary days, and everything else as local. Primary days come from
+  // the warehouse-derived calendar and arrive on the race row already tagged,
+  // so the only classification left here is November-general versus local — and
+  // it no longer depends on the state, because the retrained model dropped the
+  // consolidated-general category the odd-November states used to read.
+  //
+  // Dates are read in UTC so the answer does not depend on the server's zone,
+  // and the string is parsed as given: appending a zone suffix turned a full ISO
+  // timestamp into an invalid date, which classified every November as local.
+  determineElectionCode(electionDate: string): ElectionCode {
+    const date = new Date(electionDate)
 
     if (!this.isTuesdayAfterFirstMondayInNov(date)) {
       return ElectionCode.LocalOrMunicipal
     }
 
-    if (year % 2 === 0) {
-      return ElectionCode.General
-    }
-
-    if (
-      ProjectedTurnoutService.isTwoYearState(state) &&
-      ProjectedTurnoutService.CONSOLIDATED_2YR_STATES.has(state)
-    ) {
-      return ElectionCode.ConsolidatedGeneral
-    }
-
-    const isFourthYear = (year - 2003) % 4 === 0
-    if (
-      ProjectedTurnoutService.isFourYearState(state) &&
-      ProjectedTurnoutService.CONSOLIDATED_4YR_STATES.has(state) &&
-      isFourthYear
-    ) {
-      return ElectionCode.ConsolidatedGeneral
-    }
-
-    return ElectionCode.LocalOrMunicipal
+    return date.getUTCFullYear() % 2 === 0
+      ? ElectionCode.General
+      : ElectionCode.LocalOrMunicipal
   }
 }

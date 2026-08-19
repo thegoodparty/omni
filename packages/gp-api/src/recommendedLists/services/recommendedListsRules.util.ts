@@ -34,30 +34,26 @@ const OPPONENT_PARTY_CUT = 70
 const DEM_COL = 'hs_ideology_partisanship_partisanship_overall_party_dem'
 const GOP_COL = 'hs_ideology_partisanship_partisanship_overall_party_gop'
 
-const CONSOLIDATED_ODD_YEAR_STATES = ['LA', 'MS', 'NJ', 'VA']
-
 export const electionCode = (
   date: Date | null,
-  state: string,
 ): RecommendedListElectionCode => {
   // Read the calendar date in UTC so classification matches the engine's
   // timezone-naive `date` semantics and never drifts with the server's zone.
+  //
+  // Odd-November states used to classify as ConsolidatedGeneral, reading rows
+  // frozen from a retired model run. Serving moved them to the live local
+  // model, so the category no longer resolves to anything and this returns the
+  // same LocalOrMunicipal the turnout lookup now uses. Existing rows may still
+  // carry the old value, so the type keeps it.
   if (
     date &&
     date.getUTCMonth() === 10 &&
     date.getUTCDay() === 2 &&
     date.getUTCDate() > 1 &&
-    date.getUTCDate() <= 8
+    date.getUTCDate() <= 8 &&
+    date.getUTCFullYear() % 2 === 0
   ) {
-    const year = date.getUTCFullYear()
-    if (year % 2 === 0) return 'General'
-    if (CONSOLIDATED_ODD_YEAR_STATES.includes(state)) {
-      return 'ConsolidatedGeneral'
-    }
-    if (state === 'KS' && (year - 2003) % 4 === 0) {
-      return 'ConsolidatedGeneral'
-    }
-    return 'LocalOrMunicipal'
+    return 'General'
   }
   return 'LocalOrMunicipal'
 }
