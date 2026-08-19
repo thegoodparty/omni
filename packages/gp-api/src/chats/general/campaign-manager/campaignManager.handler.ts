@@ -2,6 +2,7 @@ import { Inject, Injectable, Optional } from '@nestjs/common'
 import {
   differenceInCalendarDays,
   differenceInCalendarWeeks,
+  isValid,
   parseISO,
 } from 'date-fns'
 import {
@@ -150,6 +151,21 @@ const EMPTY_STORY_STATE: StoryState = {
 // useCrmEnabled gate, so the assistant capability ramps with exactly the
 // same cohorts as the UI.
 export const WIN_CRM_FLAG = 'win-crm'
+
+// details is a raw JSON blob with no schema at this call site, so a
+// human-patched or differently-formatted date parses to an Invalid Date and the
+// difference comes back NaN. NaN is not null, so it would slip past every
+// null-guard downstream and land in the system prompt as "NaN days from today".
+// Return null for anything unparseable and let the prompt say it does not know.
+const calendarDaysUntil = (iso: string): number | null => {
+  const parsed = parseISO(iso)
+  return isValid(parsed) ? differenceInCalendarDays(parsed, new Date()) : null
+}
+
+const calendarWeeksUntil = (iso: string): number | null => {
+  const parsed = parseISO(iso)
+  return isValid(parsed) ? differenceInCalendarWeeks(parsed, new Date()) : null
+}
 
 // Native web search only exists when the Anthropic key is configured. Read in
 // one place so the prompt's guidance and the tool registration can never
@@ -361,17 +377,12 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       district: details.district ?? null,
       officeLevel: details.ballotLevel ?? null,
       location,
-      weeksToElection: electionDate
-        ? differenceInCalendarWeeks(parseISO(electionDate), new Date())
-        : null,
+      weeksToElection: electionDate ? calendarWeeksUntil(electionDate) : null,
       ballotStatus,
       filingPeriodStart: details.filingPeriodsStart ?? null,
       filingPeriodEnd: details.filingPeriodsEnd ?? null,
       daysToFilingDeadline: details.filingPeriodsEnd
-        ? differenceInCalendarDays(
-            parseISO(details.filingPeriodsEnd),
-            new Date(),
-          )
+        ? calendarDaysUntil(details.filingPeriodsEnd)
         : null,
       topTasks: selectTopDynamicTasks(tasks).map((t) => ({
         title: t.title,

@@ -9,9 +9,14 @@ import { CAMPAIGN_MANAGER_BALLOT_KICKOFF } from './campaignManagerChat'
 
 // Capture the props the chat surface is handed so the hidden-message list can be
 // asserted directly. The surface itself renders nothing here.
-const surfaceProps: { hiddenMessageContents?: string[] }[] = []
+interface SurfaceProps {
+  hiddenMessageContents?: string[]
+  pendingKickoff?: string
+  initialConversationId?: string | null
+}
+const surfaceProps: SurfaceProps[] = []
 vi.mock('../chief-of-staff/components/chat/ChiefOfStaffChatSurface', () => ({
-  default: (props: { hiddenMessageContents?: string[] }) => {
+  default: (props: SurfaceProps) => {
     surfaceProps.push(props)
     return null
   },
