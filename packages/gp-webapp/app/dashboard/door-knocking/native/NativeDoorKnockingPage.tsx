@@ -408,12 +408,19 @@ export default function NativeDoorKnockingPage({
   // the step is already reporting rather than a second answer to the question.
   // It rides `ring`, which the canvas re-emits when a drag ends, so a roster
   // this long is never rebuilt mid-gesture.
+  //
+  // Gated on the draw step as well as on the panel, because the ring OUTLIVES
+  // that step: Back keeps it and so does Continue. Without the step in the
+  // condition, a panel left open and then backed out of would run a full pass
+  // over every person behind a list nobody can see — and land it on the
+  // filters step, whose pills recolor the dots on every tap and are the most
+  // pressed control in the flow.
   const turfRoster = useMemo(
     () =>
-      rosterOpen && packQuery.data && ring && selections
+      rosterOpen && flowStep === 'draw' && packQuery.data && ring && selections
         ? polygonRoster(packQuery.data, selections, ring, ROSTER_DOOR_LIMIT)
         : null,
-    [rosterOpen, packQuery.data, selections, ring],
+    [rosterOpen, flowStep, packQuery.data, selections, ring],
   )
   // Landing-rail status chips: person-level counts over the scope the heading
   // names, so selecting a list rescopes them with it. Memoized on the scope
@@ -483,6 +490,14 @@ export default function NativeDoorKnockingPage({
       setStartDrawToken((token) => token + 1)
       setDrawHintDismissed(false)
     }
+    // Back to the filters is a re-cut of the audience, and the step forward
+    // from it wipes the shape — so the next thing drawn is a different list
+    // against a different question. A doors panel left open would spring back
+    // over it with nobody having asked, which is the same stranding closeFlow
+    // and endWalk reset the rail's sheet and the status chips for. Continuing
+    // to confirm deliberately does NOT reset it: that is one shape being
+    // reviewed, and Back has to return the step as it was left.
+    if (next === 'filters') setRosterOpen(false)
     setFlowStep(next)
     setSelectedTurf(null)
   }
@@ -514,6 +529,9 @@ export default function NativeDoorKnockingPage({
       // clear token too would run deleteAll AFTER draw_polygon is entered
       // and kill the fresh drawing session.
       setFlowStep('draw')
+      // A saved list is finished business, so the next shape is asked about
+      // from scratch — same rule as backing out to the filters.
+      setRosterOpen(false)
       setStartDrawToken((token) => token + 1)
       setDrawHintDismissed(false)
     } else {
