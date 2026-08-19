@@ -53,7 +53,8 @@ interface SmsComposeStepProps {
   tone: SocialTone
   onToneChange: (tone: SocialTone) => void
   audienceName: string
-  intro: string
+  missingIdentification: boolean
+  identificationExample: string
   body: string
   onBodyChange: (body: string) => void
   composedLength: number
@@ -76,7 +77,8 @@ export const SmsComposeStep = ({
   tone,
   onToneChange,
   audienceName,
-  intro,
+  missingIdentification,
+  identificationExample,
   body,
   onBodyChange,
   composedLength,
@@ -123,7 +125,7 @@ export const SmsComposeStep = ({
       <Intro
         channel="text"
         title="What do you want to say?"
-        body="Start from a draft, dictate your own, or improve with AI. We add your identification and the opt-out line automatically."
+        body="Start from a draft, dictate your own, or improve with AI. We add the greeting and the opt-out line automatically."
       />
 
       <FilterPillGroup
@@ -248,12 +250,11 @@ export const SmsComposeStep = ({
                 {composedLength} chars · {segments} SMS
               </span>
             </div>
-            <p className="mb-1">
+            <p className="mb-2">
               <span className="inline-flex items-center rounded-full bg-primary-light px-2 py-0.5 text-xs font-medium text-primary-dark">
                 Greeting First Name
               </span>
             </p>
-            <p className="mb-2 text-xs text-muted-foreground">{intro}</p>
             <Textarea
               value={body}
               onChange={(e) => onBodyChange(e.target.value)}
@@ -329,6 +330,12 @@ export const SmsComposeStep = ({
           </p>
         )}
         {imageError && <p className="text-xs text-destructive">{imageError}</p>}
+        {missingIdentification && body.trim().length > 0 && (
+          <p className="text-xs text-destructive">
+            Compliance: messages must open with an identification, e.g. &quot;
+            {identificationExample}&quot;
+          </p>
+        )}
         {overLimit && (
           <p className="text-xs text-destructive">
             Keep the whole message (including the identification and opt-out

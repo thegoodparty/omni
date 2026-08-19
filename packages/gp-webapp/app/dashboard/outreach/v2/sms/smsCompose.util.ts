@@ -17,11 +17,13 @@ export const OPT_OUT_FOOTER = 'Reply STOP to opt out.'
 // the dev end-to-end pass before GA.
 export const SMS_GREETING = 'Hello {first_name},'
 
-// Compliance: every SMS opens with a candidate identification. System-owned
-// region (not editable in the compose step), tone-flavored per the design
-// prototype's introFor; reads as the continuation of SMS_GREETING, so no
-// variant carries its own greeting word. The CS compose-rules pass may
-// replace this wording.
+// Compliance: every SMS opens with a candidate identification. Per the
+// design, it is the first sentence of the EDITABLE message: fresh AI drafts
+// are prepended with it, and hasIdentification warns (and the CTA blocks)
+// when an edit removes it. Tone-flavored per the design prototype's
+// introFor; reads as the continuation of SMS_GREETING, so no variant
+// carries its own greeting word. The CS compose-rules pass may replace
+// this wording.
 export const identificationIntro = (
   tone: SocialTone,
   firstName: string,
@@ -36,14 +38,24 @@ export const identificationIntro = (
 }
 
 // The submitted script is the concatenation of the system regions around
-// the user's body — the backend has no region concept and sends the script
-// to the vendor verbatim (merge token included).
+// the user's message (which opens with the identification) — the backend
+// has no region concept and sends the script to the vendor verbatim
+// (merge token included).
 export const composeScript = (
-  intro: string,
   body: string,
   footer: string = OPT_OUT_FOOTER,
-): string =>
-  [SMS_GREETING, intro, body.trim(), footer].filter(Boolean).join(' ')
+): string => [SMS_GREETING, body.trim(), footer].filter(Boolean).join(' ')
+
+// Prototype's hasIntro: the message head must read as an identification.
+// With no first name on file the name check is vacuous, so only the
+// candidacy phrasing is required.
+export const hasIdentification = (body: string, firstName: string): boolean => {
+  const head = body.slice(0, 140).toLowerCase()
+  const nameOk =
+    firstName.trim().length === 0 ||
+    head.includes(firstName.trim().toLowerCase())
+  return nameOk && (head.includes('candidate') || head.includes('running for'))
+}
 
 export const IMAGE_MAX_BYTES = 500000
 export const IMAGE_ACCEPT = 'image/jpeg,image/png,image/gif'
