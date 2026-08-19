@@ -6,8 +6,12 @@ import {
   subDays,
   subWeeks,
 } from 'date-fns'
-import { CAMPAIGN_TASK_CATALOG, TaskTiming } from '@goodparty_org/contracts'
-import { Prisma } from '../../../generated/prisma'
+import {
+  BALLOT_ACCESS_CATEGORY,
+  CAMPAIGN_TASK_CATALOG,
+  TaskTiming,
+} from '@goodparty_org/contracts'
+import { Campaign, Prisma } from '../../../generated/prisma'
 import { CHANNEL_TO_FLOW_TYPE } from '../campaignTracker.consts'
 
 // Resolve a catalog task's structured timing to a concrete date. The column is
@@ -70,16 +74,58 @@ const toRow = (
   }
 }
 
+// Onboarding's "Are you already on the ballot?" answer. Read it the same way
+// the campaign manager does: onboarding writes it to details.ballotStatus AND
+// to the whole-answers snapshot, and campaigns that answered before the update
+// schema let details.ballotStatus through only have the snapshot copy.
+export const resolveBallotStatus = (
+  campaign: Pick<Campaign, 'details' | 'data'>,
+): PrismaJson.CampaignDetails['ballotStatus'] | null =>
+  campaign.details?.ballotStatus ??
+  campaign.data?.onboarding?.ballotStatus ??
+  null
+
+// Ballot access is only work for a candidate who has not filed yet.
+// 'on-ballot' is the one answer that affirmatively means those steps are done,
+// so it is the only one that drops them; 'testing' and a missing answer keep
+// them, because a candidate we never asked is not a candidate who filed, and
+// silently dropping a filing deadline is unrecoverable while an extra
+// pre-launch task is one they can check off.
+export const needsBallotAccessTasks = (
+  campaign: Pick<Campaign, 'details' | 'data'>,
+): boolean => resolveBallotStatus(campaign) !== 'on-ballot'
+
+// Tracker rows carry no catalog id, so the titles are the only handle the
+// reconcile has on the ballot-access rows — derive them from the catalog so
+// they cannot drift from what was materialized.
+export const BALLOT_ACCESS_TASK_TITLES = CAMPAIGN_TASK_CATALOG.filter(
+  (task) => task.category === BALLOT_ACCESS_CATEGORY,
+).map((task) => task.title)
+
 // Build the campaign's static (global) tracker rows from the catalog — the
 // Pre-launch/Launch/GOTV-ops tasks that exist as soon as the tracker starts.
 export const buildStaticTrackerTaskRows = (
   campaignId: number,
   start: Date,
   electionDate: Date | null,
+  includeBallotAccess: boolean,
 ): Prisma.CampaignTrackerTaskCreateManyInput[] =>
-  CAMPAIGN_TASK_CATALOG.filter((task) => task.type === 'static').map((task) =>
-    toRow(campaignId, start, electionDate, task),
-  )
+  CAMPAIGN_TASK_CATALOG.filter(
+    (task) =>
+      task.type === 'static' &&
+      (includeBallotAccess || task.category !== BALLOT_ACCESS_CATEGORY),
+  ).map((task) => toRow(campaignId, start, electionDate, task))
+
+// Just the ballot-access rows, for adding them back when a candidate's ballot
+// status changes after the one-shot static materialization.
+export const buildBallotAccessTrackerTaskRows = (
+  campaignId: number,
+  start: Date,
+  electionDate: Date | null,
+): Prisma.CampaignTrackerTaskCreateManyInput[] =>
+  CAMPAIGN_TASK_CATALOG.filter(
+    (task) => task.category === BALLOT_ACCESS_CATEGORY,
+  ).map((task) => toRow(campaignId, start, electionDate, task))
 
 // Build the 7 deterministic outreach rows (the plan contact schedule). Returns
 // none when the candidate lost their primary — a lost-primary race is over, so

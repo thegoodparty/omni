@@ -341,7 +341,10 @@ export {
   type CampaignTaskDefinition,
 } from './campaigns/CampaignTaskCatalog.schema'
 
-export { CAMPAIGN_TASK_CATALOG } from './campaigns/CampaignTaskCatalog.data'
+export {
+  BALLOT_ACCESS_CATEGORY,
+  CAMPAIGN_TASK_CATALOG,
+} from './campaigns/CampaignTaskCatalog.data'
 
 export {
   VOTER_CONTACT_SCHEDULE,
