@@ -62,7 +62,10 @@ describe('PurchaseController', () => {
     completeCheckoutSession: ReturnType<typeof vi.fn>
     completeFreePurchase: ReturnType<typeof vi.fn>
   }
-  let campaignsService: { findActiveByUserId: ReturnType<typeof vi.fn> }
+  let campaignsService: {
+    findActiveByUserId: ReturnType<typeof vi.fn>
+    findMany: ReturnType<typeof vi.fn>
+  }
 
   beforeEach(() => {
     stripeService = {
@@ -83,6 +86,7 @@ describe('PurchaseController', () => {
     }
     campaignsService = {
       findActiveByUserId: vi.fn().mockResolvedValue(mockCampaign),
+      findMany: vi.fn().mockResolvedValue([]),
     }
 
     controller = new PurchaseController(
@@ -332,8 +336,8 @@ describe('PurchaseController', () => {
   })
 
   describe('createPortalSession', () => {
-    it('throws BadRequestException when the user has no customerId and no active campaign', async () => {
-      campaignsService.findActiveByUserId.mockResolvedValue(null)
+    it('throws BadRequestException when the user has no customerId and no campaigns', async () => {
+      campaignsService.findMany.mockResolvedValue([])
 
       await expect(controller.createPortalSession(mockUser)).rejects.toThrow(
         BadRequestException,
@@ -358,11 +362,10 @@ describe('PurchaseController', () => {
       expect(result).toEqual({ redirectUrl: 'https://stripe.test/portal' })
     })
 
-    it('recovers customerId from the active subscription when metaData is missing it', async () => {
-      campaignsService.findActiveByUserId.mockResolvedValue({
-        ...mockCampaign,
-        details: { subscriptionId: 'sub_recover' },
-      })
+    it('recovers customerId from the stored subscription when metaData is missing it', async () => {
+      campaignsService.findMany.mockResolvedValue([
+        { ...mockCampaign, details: { subscriptionId: 'sub_recover' } },
+      ])
       stripeService.retrieveSubscription.mockResolvedValue({
         id: 'sub_recover',
         customer: 'cus_recovered',
@@ -387,11 +390,59 @@ describe('PurchaseController', () => {
       })
     })
 
-    it('recovers customerId when Stripe returns an expanded customer object', async () => {
-      campaignsService.findActiveByUserId.mockResolvedValue({
-        ...mockCampaign,
-        details: { subscriptionId: 'sub_recover' },
+    it('recovers from a campaign whose election has passed (no active campaign)', async () => {
+      // The reported users' elections are over, so recovery must not depend
+      // on the active-campaign predicate.
+      campaignsService.findMany.mockResolvedValue([
+        { ...mockCampaign, details: {} },
+        { ...mockCampaign, id: 42, details: { subscriptionId: 'sub_past' } },
+      ])
+      stripeService.retrieveSubscription.mockResolvedValue({
+        id: 'sub_past',
+        customer: 'cus_past',
       })
+      stripeService.createPortalSession.mockResolvedValue({
+        url: 'https://stripe.test/portal-past',
+      })
+
+      const result = await controller.createPortalSession(mockUser)
+
+      expect(campaignsService.findActiveByUserId).not.toHaveBeenCalled()
+      expect(stripeService.retrieveSubscription).toHaveBeenCalledWith(
+        'sub_past',
+      )
+      expect(result).toEqual({ redirectUrl: 'https://stripe.test/portal-past' })
+    })
+
+    it('still returns the portal URL when the customerId backfill write fails', async () => {
+      campaignsService.findMany.mockResolvedValue([
+        { ...mockCampaign, details: { subscriptionId: 'sub_recover' } },
+      ])
+      stripeService.retrieveSubscription.mockResolvedValue({
+        id: 'sub_recover',
+        customer: 'cus_recovered',
+      })
+      usersService.patchUserMetaData.mockRejectedValue(
+        new Error('db unavailable'),
+      )
+      stripeService.createPortalSession.mockResolvedValue({
+        url: 'https://stripe.test/portal-recovered',
+      })
+
+      const result = await controller.createPortalSession(mockUser)
+
+      expect(stripeService.createPortalSession).toHaveBeenCalledWith(
+        'cus_recovered',
+      )
+      expect(result).toEqual({
+        redirectUrl: 'https://stripe.test/portal-recovered',
+      })
+    })
+
+    it('recovers customerId when Stripe returns an expanded customer object', async () => {
+      campaignsService.findMany.mockResolvedValue([
+        { ...mockCampaign, details: { subscriptionId: 'sub_recover' } },
+      ])
       stripeService.retrieveSubscription.mockResolvedValue({
         id: 'sub_recover',
         customer: { id: 'cus_expanded' },
@@ -413,11 +464,10 @@ describe('PurchaseController', () => {
       })
     })
 
-    it('throws BadRequestException when the active campaign has no subscriptionId', async () => {
-      campaignsService.findActiveByUserId.mockResolvedValue({
-        ...mockCampaign,
-        details: {},
-      })
+    it('throws BadRequestException when no campaign has a subscriptionId', async () => {
+      campaignsService.findMany.mockResolvedValue([
+        { ...mockCampaign, details: {} },
+      ])
 
       await expect(controller.createPortalSession(mockUser)).rejects.toThrow(
         BadRequestException,
@@ -428,10 +478,9 @@ describe('PurchaseController', () => {
     })
 
     it('throws BadRequestException when Stripe subscription lookup fails', async () => {
-      campaignsService.findActiveByUserId.mockResolvedValue({
-        ...mockCampaign,
-        details: { subscriptionId: 'sub_recover' },
-      })
+      campaignsService.findMany.mockResolvedValue([
+        { ...mockCampaign, details: { subscriptionId: 'sub_recover' } },
+      ])
       stripeService.retrieveSubscription.mockRejectedValue(
         new Error('stripe unavailable'),
       )
@@ -444,10 +493,9 @@ describe('PurchaseController', () => {
     })
 
     it('throws BadRequestException when the retrieved subscription has no customer', async () => {
-      campaignsService.findActiveByUserId.mockResolvedValue({
-        ...mockCampaign,
-        details: { subscriptionId: 'sub_recover' },
-      })
+      campaignsService.findMany.mockResolvedValue([
+        { ...mockCampaign, details: { subscriptionId: 'sub_recover' } },
+      ])
       stripeService.retrieveSubscription.mockResolvedValue({
         id: 'sub_recover',
         customer: null,

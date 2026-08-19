@@ -8,7 +8,7 @@ import {
   Controller,
   Post,
 } from '@nestjs/common'
-import { Campaign, Organization, User } from '../generated/prisma'
+import { Campaign, Organization, Prisma, User } from '../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 import { serializeError } from 'serialize-error'
 import { ReqUser } from '../authentication/decorators/ReqUser.decorator'
@@ -171,8 +171,18 @@ export class PurchaseController {
   private async recoverCustomerIdFromSubscription(
     user: User,
   ): Promise<string | null> {
-    const campaign = await this.campaignsService.findActiveByUserId(user.id)
-    const subscriptionId = campaign?.details?.subscriptionId
+    // The stranded users' elections have passed, so an active-campaign lookup
+    // returns null for exactly them (Manage Subscription stays reachable
+    // post-election via ActiveProSubscriptionAlert). Any campaign's
+    // subscriptionId resolves the same Stripe customer, so search them all,
+    // newest first.
+    const campaigns = await this.campaignsService.findMany({
+      where: { userId: user.id },
+      orderBy: { updatedAt: Prisma.SortOrder.desc },
+    })
+    const subscriptionId = campaigns.find(
+      (campaign) => campaign.details?.subscriptionId,
+    )?.details?.subscriptionId
     if (!subscriptionId) return null
 
     const customerId = await this.fetchSubscriptionCustomerId(
@@ -181,7 +191,16 @@ export class PurchaseController {
     )
     if (!customerId) return null
 
-    await this.usersService.patchUserMetaData(user.id, { customerId })
+    // Best-effort backfill: the customerId is already in hand, so a failed
+    // write must not turn a working portal redirect into a 500.
+    try {
+      await this.usersService.patchUserMetaData(user.id, { customerId })
+    } catch (error) {
+      this.logger.error(
+        { error: serializeError(error), userId: user.id },
+        'Failed to backfill customerId — portal session proceeds without it',
+      )
+    }
     return customerId
   }
 
