@@ -118,11 +118,11 @@ Planner SDK puts the key in its request URL, so nothing sourced from a URL or a
 caught error is ever logged or labelled. Every metric attribute is a closed set
 of literals.
 
-| Signal | Where | Reads |
-| --- | --- | --- |
-| `event: 'DoorKnockingSpend'` log line | `doorKnockingKnock.service.ts` spend path | `organizationSlug`, `turfId`, `waypoints`, `credits` — emitted before the ledger write and regardless of its outcome, so a lost ledger row under-counts the quota without hiding the money |
-| `geoapify_route_planner_credits_total` | `vendors/geoapify/observability/geoapify.metrics.ts` | Credits billed, no org label (Prometheus cardinality) |
-| `geoapify_vendor_call_count_total{api,result}` | same | `api="route_planner"` and `api="routing"` — this is the only place the second call is counted |
+| Signal                                         | Where                                                | Reads                                                                                                                                                                                      |
+| ---------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `event: 'DoorKnockingSpend'` log line          | `doorKnockingKnock.service.ts` spend path            | `organizationSlug`, `turfId`, `waypoints`, `credits` — emitted before the ledger write and regardless of its outcome, so a lost ledger row under-counts the quota without hiding the money |
+| `geoapify_route_planner_credits_total`         | `vendors/geoapify/observability/geoapify.metrics.ts` | Credits billed, no org label (Prometheus cardinality)                                                                                                                                      |
+| `geoapify_vendor_call_count_total{api,result}` | same                                                 | `api="route_planner"` and `api="routing"` — this is the only place the second call is counted                                                                                              |
 
 What pages: the global **route planner spend ceiling** alert (>10,000 credits /
 6h across all orgs, `#dev-alerts`, `@win-bugs`), and the `≥ 500` route alerts
@@ -384,6 +384,91 @@ building and stops being access-controlled when it does.
 
 Voter **email** is absent data, not a decision: there is no email column on the
 `Voter` model and no field on the `Person` contract.
+
+## Turning it on in an environment
+
+Everything below is configuration that lives outside this repo, so a green
+deploy proves nothing about whether the feature works. Four things must be true
+at once, and each fails differently.
+
+**Two Geoapify keys, and they are not interchangeable.** `GEOAPIFY_API_KEY` is
+server-side and buys route optimization, billed ~10 credits per stop.
+`NEXT_PUBLIC_GEOAPIFY_TILES_KEY` is inlined into the browser bundle and buys
+map tiles at ~0.25 credits each. Because the second one ships to the client it
+must be domain-restricted in the Geoapify console or anyone can spend our
+credits: allow `app.goodparty.org` (the origin `/dashboard` is actually served
+from — **not** `goodparty.org`, which is the marketing deployment; see
+`APP_SHARE_BASE` in the webapp's `appEnv.ts`), the Vercel preview domains, and
+`localhost` for local dev. Prefer the narrowest preview pattern the console
+accepts over a bare `*.vercel.app`, which would let any site hosted on Vercel
+draw on our tile budget.
+
+Setting the tiles key requires a **rebuild**, not just a redeploy —
+`NEXT_PUBLIC_` values are baked in at build time, so an env var added after the
+last build is invisible until the next one. The server key needs no Pulumi
+change: `deploy/index.ts` maps `Object.keys(secret)` into the task definition,
+so any key added to the `GP_API_<ENV>` secret JSON is injected on the next
+deploy. A missing server key is the gentlest failure of the four — the client
+validates lazily, so the environment boots and only the knock endpoint 502s.
+
+**The flag variant must be the literal string `on`.** `useFlagOn` tests
+`v?.value === 'on'`, so a variant named anything else — `true`, `enabled`,
+`treatment` — reads as off and silently serves the legacy eCanvasser dashboard
+instead. That is the failure most likely to be mistaken for a broken deploy.
+
+**Pro and a resolvable district.** Pilot campaigns need `isPro` (admin-settable)
+or an elected-office org, per the Pro gate below, and the district must have
+rooftop-geocoded voters — every pack and turf read resolves a district
+server-side and 400s without one.
+
+### Checking whether an environment already has the key
+
+`GEOAPIFY_API_KEY` is already present in **both** `GP_API_DEV` and
+`GP_API_PROD`, and has been in dev since at least the task definition registered
+2026-07-21. Confirm that for any environment without fetching a secret value —
+`deploy/index.ts` derives the task definition's secret references from the
+secret's own keys, so the key _names_ are readable straight off the task
+definition, which `ReadOnlyAccess` covers:
+
+```sh
+CLUSTER=gp-develop-fargateCluster SERVICE=gp-api-develop   # prod: gp-master-fargateCluster / gp-api-master
+aws ecs describe-task-definition --output text \
+  --task-definition "$(aws ecs describe-services --cluster "$CLUSTER" \
+    --services "$SERVICE" --query 'services[0].taskDefinition' --output text)" \
+  --query "taskDefinition.containerDefinitions[0].secrets[].name" | tr '\t' '\n'
+```
+
+Note that green CI is not evidence either way. The e2e suite deliberately never
+builds a route — `POST turfs/:id/knock` is the only call in the feature that
+reaches a billed vendor — so those specs pass whether or not a key exists.
+
+### Procurement, as of this writing
+
+What the key's presence does **not** establish is whose account it belongs to,
+and that is the open question rather than provisioning. The POC under
+`packages/runbooks/scripts/python/door_knocking_map_poc/` deliberately used each
+developer's own free-tier key — its README tells you to sign up yourself and
+warns that the generated HTML embeds your personal key — and the TDD still lists
+purchasing as an open leadership ask, approved in principle only. So confirm the
+account with whoever provisioned it before sizing a pilot on it.
+
+The distinction has teeth, because the free tier is 3,000 credits/day: at 10
+credits per stop that is ~300 optimized stops/day across the whole account,
+_below_ `DAILY_WAYPOINT_LIMIT` (500) in `waypointQuota.util.ts`. On a free key
+the vendor's ceiling binds before ours does, our own quota error never fires,
+and one enthusiastic pilot campaign can exhaust the account for everyone. Free
+is fine for a gated QA pass — Geoapify permits commercial use on it provided the
+map carries their attribution, which initializing MapLibre from their
+`style.json` does automatically, as `VoterMapCanvas` does — but it is not a
+pilot-sized plan.
+
+The TDD sized the real plan at ~50k credits/day, which is the $179/month tier —
+note that the TDD's separate "$299–609" figure prices the tiers above it, since
+it was peak-day sized rather than sized to its own stated plan. The TDD also
+flags a non-technical dependency worth closing at purchase time: get **written**
+confirmation that we may cache and store results. Their ToS has no caching
+clause and they advertise it, but storing the optimized stop order is
+load-bearing for us, so it should be on file rather than inferred.
 
 ## Access and eligibility
 
