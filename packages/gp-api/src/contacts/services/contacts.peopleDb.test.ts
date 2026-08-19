@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { ContactsService } from './contacts.service'
 import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from '../contacts.types'
+import { EXCLUDABLE_VOTER_COLUMNS } from '@/peopleDb/voter.select'
 import type { PeopleListResponse, PersonOutput } from '../schemas/person.schema'
 
 // Task 3.2 (superseded): people-db is now the SOLE contacts path — the
@@ -354,22 +355,7 @@ describe('ContactsService — people-db (sole path)', () => {
           groupByHousehold: false,
           // Serve (eo-) downloads drop party + turnout propensity + vote
           // history columns via projection (ENG-10830).
-          excludeColumns: [
-            'Parties_Description',
-            'Residence_HHParties_Description',
-            'VoterParties_Change_Changed_Party',
-            'VotingPerformanceEvenYearGeneral',
-            'VotingPerformanceEvenYearPrimary',
-            'VotingPerformanceEvenYearGeneralAndPrimary',
-            'General_2026',
-            'General_2024',
-            'General_2022',
-            'General_2020',
-            'Primary_2026',
-            'Primary_2024',
-            'Primary_2022',
-            'Primary_2020',
-          ],
+          excludeColumns: [...EXCLUDABLE_VOTER_COLUMNS],
         }),
         res,
         expect.objectContaining({
