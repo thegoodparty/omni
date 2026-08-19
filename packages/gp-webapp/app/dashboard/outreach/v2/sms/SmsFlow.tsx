@@ -46,7 +46,11 @@ import { SmsAudienceStep, type SmsAudienceMode } from './SmsAudienceStep'
 import { SmsScheduleStep, TIME_OPTIONS } from './SmsScheduleStep'
 import { SmsComposeStep } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
-import { composeScript, identificationIntro } from './smsCompose.util'
+import {
+  composeScript,
+  hasIdentification,
+  identificationIntro,
+} from './smsCompose.util'
 
 type StepId = 'purpose' | 'audience' | 'schedule' | 'compose' | 'review'
 const STEP_ORDER: StepId[] = [
@@ -285,13 +289,15 @@ export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
     return () => URL.revokeObjectURL(url)
   }, [image])
 
-  const intro = identificationIntro(
-    tone,
-    user?.firstName ?? '',
-    campaign?.details?.normalizedOffice ?? '',
-  )
-  const composedMessage = composeScript(intro, body)
+  const introFor = (t: SocialTone) =>
+    identificationIntro(
+      t,
+      user?.firstName ?? '',
+      campaign?.details?.normalizedOffice ?? '',
+    )
+  const composedMessage = composeScript(body)
   const composedLength = composedMessage.length
+  const missingIdentification = !hasIdentification(body, user?.firstName ?? '')
 
   const earliestSend = useMemo(() => Date.now() + 48 * 60 * 60 * 1000, [open])
 
@@ -352,8 +358,15 @@ export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
             setUndoText(priorBody)
             setManuallyEdited(false)
           }
-          setBody(generated)
-          setToneDrafts((prev) => ({ ...prev, [nextTone]: generated }))
+          // Fresh drafts open with the identification (design model: it is
+          // the message's editable first sentence); improve mode polishes a
+          // message that already carries it.
+          const full =
+            currentDraft === undefined
+              ? `${introFor(nextTone)} ${generated}`
+              : generated
+          setBody(full)
+          setToneDrafts((prev) => ({ ...prev, [nextTone]: full }))
         },
       },
     )
@@ -620,6 +633,7 @@ export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
                   onClick: () => setStepId('review'),
                   disabled:
                     body.trim().length === 0 ||
+                    missingIdentification ||
                     composedLength > SMS_COMPOSED_MAX_LENGTH ||
                     image === null ||
                     draftMutation.isPending,
@@ -727,7 +741,8 @@ export const SmsFlow = ({ open, onClose, onScheduled }: SmsFlowProps) => {
           tone={tone}
           onToneChange={handleToneChange}
           audienceName={selectedList?.name ?? builderName}
-          intro={intro}
+          missingIdentification={missingIdentification}
+          identificationExample={introFor(tone)}
           body={body}
           onBodyChange={handleBodyChange}
           composedLength={composedLength}
