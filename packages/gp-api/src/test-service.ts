@@ -121,7 +121,7 @@ export const useTestService = (): TestServiceContext => {
   let client: AxiosInstance
   let user: User
   let uniqueDbName: string
-  let tables: string[]
+  let tables: string[] = []
 
   // When a hook exceeds its timeout vitest rejects the hook's promise but
   // cannot cancel the queries already in flight, so an abandoned reset runs to
