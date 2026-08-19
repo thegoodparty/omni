@@ -247,7 +247,7 @@ export interface PlanData {
 
   winNumber: number
   projectedTurnout: number
-  registeredVoters: number
+  registeredVoters: number | null
   voterContactGoal: number
 
   opponentCount: number
@@ -1019,7 +1019,7 @@ const formatRange = (low: number | null, high: number | null): string =>
     : ''
 
 const buildConfidenceEstimates = (
-  registeredVoters: number,
+  registeredVoters: number | null,
   projectedTurnout: number,
   projectedTurnoutRange: string,
   winNumber: number,
@@ -1027,15 +1027,19 @@ const buildConfidenceEstimates = (
 ): ConfidenceRow[] => [
   {
     estimate: 'Registered voters',
-    pointValue: registeredVoters.toLocaleString('en-US'),
+    pointValue: registeredVoters?.toLocaleString('en-US') ?? '',
     range: '',
-    notes: 'Based on the latest voter file for your district.',
+    // A figure that is absent has no provenance to claim. Naming the voter file
+    // beside a blank value asserts a source for a number that is not there.
+    notes: registeredVoters
+      ? 'From the voter file for your district.'
+      : 'Not available for your district yet.',
   },
   {
     estimate: 'Projected voter turnout',
     pointValue: projectedTurnout.toLocaleString('en-US'),
     range: projectedTurnoutRange,
-    notes: 'Based on 3-cycle turnout average.',
+    notes: 'Projected by our turnout model for this election day.',
   },
   {
     estimate: 'Projected votes needed to win',
@@ -1077,15 +1081,15 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     winNumber,
   )
 
-  // Prefer the real registered-voter count from election-api when present.
-  // Falls back to the ~22%-turnout heuristic on projectedTurnout when the
-  // race hash didn't resolve or upstream data is sparse.
+  // The real registered-voter count from election-api, or nothing. There used
+  // to be a ~22%-turnout heuristic behind it, which back-derived an electorate
+  // size from the turnout projection whenever the count was missing. A count is
+  // not a projection, and the plan showed the invented figure as coming from the
+  // voter file. Where the count is absent the plan now shows no number.
   const registeredVoters =
     input.registeredVoters && input.registeredVoters > 0
       ? input.registeredVoters
-      : projectedTurnout > 0
-        ? Math.round(projectedTurnout / 0.22)
-        : 0
+      : null
 
   const averageTouchesPerVoter =
     projectedTurnout > 0
@@ -1182,12 +1186,16 @@ export const buildPlanData = (input: PlanInput): PlanData => {
   ]
 
   const metrics: MetricRow[] = [
-    {
-      metric: 'Registered Voters',
-      target: `${registeredVoters.toLocaleString('en-US')} registered voters`,
-      source:
-        'The total pool of voters eligible to cast a ballot in your race, pulled from the latest voter file.',
-    },
+    ...(registeredVoters
+      ? [
+          {
+            metric: 'Registered Voters',
+            target: `${registeredVoters.toLocaleString('en-US')} registered voters`,
+            source:
+              'The total pool of voters eligible to cast a ballot in your race, pulled from the latest voter file.',
+          },
+        ]
+      : []),
     {
       metric: 'Projected Voter Turnout',
       target: `${projectedTurnout.toLocaleString('en-US')} voters turnout`,

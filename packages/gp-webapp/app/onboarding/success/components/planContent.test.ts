@@ -336,6 +336,56 @@ describe('buildPlanData contact schedule', () => {
   })
 })
 
+describe('buildPlanData registered voters', () => {
+  const rowFor = (estimate: string, plan: ReturnType<typeof buildPlanData>) =>
+    plan.confidenceEstimates.find((c) => c.estimate === estimate)
+
+  it('shows no figure when the voter file supplied none', () => {
+    const plan = buildPlanData(makeInput({ registeredVoters: null }))
+
+    expect(plan.registeredVoters).toBeNull()
+    expect(rowFor('Registered voters', plan)?.pointValue).toBe('')
+  })
+
+  it('never derives a registered-voter count from projected turnout', () => {
+    // The old fallback divided turnout by an assumed 22% rate, which put a
+    // fabricated electorate size in front of the candidate.
+    const plan = buildPlanData(
+      makeInput({ registeredVoters: null, projectedTurnout: 22_000 }),
+    )
+
+    expect(JSON.stringify(plan)).not.toContain('100,000')
+  })
+
+  it('claims no voter-file provenance when the figure is absent', () => {
+    const plan = buildPlanData(makeInput({ registeredVoters: null }))
+
+    expect(rowFor('Registered voters', plan)?.notes).not.toMatch(/voter file/i)
+  })
+
+  it('still reports a served count, with its provenance', () => {
+    const plan = buildPlanData(makeInput({ registeredVoters: 41_230 }))
+
+    expect(plan.registeredVoters).toBe(41_230)
+    expect(rowFor('Registered voters', plan)?.pointValue).toBe('41,230')
+    expect(rowFor('Registered voters', plan)?.notes).toMatch(/voter file/i)
+  })
+
+  it('drops the registered-voter metric row when there is no count', () => {
+    const plan = buildPlanData(makeInput({ registeredVoters: null }))
+
+    const row = plan.metrics.find((m) => m.metric === 'Registered Voters')
+    expect(row).toBeUndefined()
+  })
+
+  it('keeps the registered-voter metric row when there is a count', () => {
+    const plan = buildPlanData(makeInput({ registeredVoters: 41_230 }))
+
+    const row = plan.metrics.find((m) => m.metric === 'Registered Voters')
+    expect(row?.target).toBe('41,230 registered voters')
+  })
+})
+
 describe('buildPlanData prediction intervals', () => {
   const rangeFor = (estimate: string, plan: ReturnType<typeof buildPlanData>) =>
     plan.confidenceEstimates.find((c) => c.estimate === estimate)?.range
