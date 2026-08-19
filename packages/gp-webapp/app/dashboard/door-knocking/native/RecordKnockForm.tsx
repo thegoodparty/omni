@@ -208,7 +208,16 @@ export default function RecordKnockForm({
           label={SUPPORT_QUESTION}
           options={SUPPORT_OPTIONS}
           value={supportAnswer}
-          onChange={setSupportAnswer}
+          onChange={(value) => {
+            setSupportAnswer(value)
+            // Clearing support collapses the will-vote row, and its answer has
+            // to go with it: otherwise answering support again reopens the row
+            // already filled in with a response the canvasser never gave on
+            // this pass, and Save lights up on that ghost. A support answer
+            // that is only *changed* keeps it, because the row never leaves
+            // the screen and turnout doesn't depend on who they support.
+            if (!value) setWillVote(undefined)
+          }}
         />
       )}
 

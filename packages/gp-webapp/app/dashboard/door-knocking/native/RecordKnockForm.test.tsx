@@ -177,6 +177,27 @@ describe('RecordKnockForm walkthrough', () => {
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
   })
 
+  // A collapsed row must come back empty. Reopening it on the answer given
+  // before the correction would offer a Save the canvasser never walked to.
+  it('forgets the will-vote answer once support is tapped off', () => {
+    renderForm()
+    walkToEngaged()
+    answer('Do they support you?', 'Yes')
+    answer('Will they vote this election?', 'No')
+    expect(screen.getByRole('button', { name: 'Save' })).toBeVisible()
+
+    answer('Do they support you?', 'Yes')
+    answer('Do they support you?', 'No')
+
+    expect(screen.getByText('Will they vote this election?')).toBeVisible()
+    expect(
+      question('Will they vote this election?').getByRole('radio', {
+        name: 'No',
+      }),
+    ).toHaveAttribute('data-state', 'off')
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+  })
+
   it('returns to the first question when the walk is cancelled', () => {
     renderForm()
     walkToEngaged()
