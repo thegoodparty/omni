@@ -1,4 +1,5 @@
 import { DoorKnockingPackManifest } from '@goodparty_org/contracts'
+import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
 import { DimSelections } from '../filterEngine'
 import {
   INCOME_KEY_TO_RANGE,
@@ -156,6 +157,34 @@ export const unpreviewableFilterKeys = (
       ([filterKey, value]) => value && !narrowsPreview(filterKey, manifest),
     )
     .map(([filterKey]) => filterKey)
+
+const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
+// Every other group's option labels stand on their own ("65+", "Renter"), so
+// the disclosure names the option. Contacts made's are the bare counts
+// '0'…'5+', which turned the sentence into "the map can't shade by 0 yet" — a
+// sentence that reads like a bug. Name the group instead, once however many of
+// its buckets are selected.
+const CONTACTS_MADE_DISCLOSURE_LABEL = 'Prior contacts made'
+
+// The disclosure's own vocabulary, beside the keys it describes: the draw step,
+// the landing rail and the details sheet all say which filters the map can't
+// shade, and a candidate meeting those sentences in one session must not find
+// them naming the same filter differently.
+export const unpreviewableDisclosureLabels = (keys: string[]): string[] => [
+  ...new Set(
+    keys
+      .map((key) => {
+        const field = filterSections
+          .flatMap((section) => section.fields)
+          .find((entry) => entry.options.some((option) => option.key === key))
+        if (!field) return undefined
+        if (field.key === CONTACTS_MADE_FIELD_KEY)
+          return CONTACTS_MADE_DISCLOSURE_LABEL
+        return field.options.find((option) => option.key === key)?.label
+      })
+      .filter((label): label is string => Boolean(label)),
+  ),
+]
 
 // Builds the pack filter selection previewing a saved-list filter draft: for
 // each dim with at least one selected option, allow exactly the selected

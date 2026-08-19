@@ -103,7 +103,7 @@ export const createHarness = async (): Promise<Harness> => {
         )
         return
       case 'stats':
-        await stats.getStats({ districtId } as unknown as StatsDTO)
+        await stats.findStats({ districtId } as unknown as StatsDTO)
         return
       case 'csv': {
         const sink = createNullSink()
@@ -119,7 +119,7 @@ export const createHarness = async (): Promise<Harness> => {
   }
 
   const totalConstituents = async (districtId: string): Promise<number> =>
-    (await stats.getTotalCounts(districtId)).totalConstituents ?? 0
+    (await stats.findTotalCounts(districtId))?.totalConstituents ?? 0
 
   return { invoke, totalConstituents, close: () => app.close() }
 }

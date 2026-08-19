@@ -36,6 +36,9 @@ def _positive_float_from_env(name: str, default: float) -> float:
     return default
 
 
+ANALYZE_LABEL = "analyze"
+
+
 @dataclass
 class AgentConfig:
     task_id: str
@@ -45,6 +48,13 @@ class AgentConfig:
     model: str = "opus"
     max_budget_usd: float = DEFAULT_MAX_BUDGET_USD
     deadline_seconds: float = DEFAULT_DEADLINE_SECONDS
+    # Which kind of run this is ("analyze" / "implement"), set by the ClickUp
+    # bot's container override. Defaults to empty rather than to "analyze": an
+    # unset label means we are running somewhere that does not set it (a local
+    # invocation, an older task definition), and the escalation path must stay
+    # closed in that case rather than treating an unknown run as an analysis
+    # allowed to queue implementation work.
+    label: str = ""
 
     @classmethod
     def from_env(cls) -> "AgentConfig":
@@ -56,6 +66,7 @@ class AgentConfig:
             model=os.environ.get("AGENT_MODEL", "opus"),
             max_budget_usd=_positive_float_from_env("AGENT_MAX_BUDGET_USD", DEFAULT_MAX_BUDGET_USD),
             deadline_seconds=_positive_float_from_env("AGENT_DEADLINE_SECONDS", DEFAULT_DEADLINE_SECONDS),
+            label=os.environ.get("AGENT_LABEL", ""),
         )
 
 

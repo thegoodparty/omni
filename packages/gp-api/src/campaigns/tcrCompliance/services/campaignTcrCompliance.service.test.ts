@@ -2243,9 +2243,12 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
     verifyCampaignVerifyPin: ReturnType<typeof vi.fn>
     createCampaignVerifyToken: ReturnType<typeof vi.fn>
     submitCampaignVerifyTokenToBrand: ReturnType<typeof vi.fn>
-    retrieveCampaignVerifyStatus: ReturnType<typeof vi.fn>
+    retrieveCampaignVerifyDetails: ReturnType<typeof vi.fn>
   }
-  let mockModel: { findFirstOrThrow: ReturnType<typeof vi.fn> }
+  let mockModel: {
+    findFirstOrThrow: ReturnType<typeof vi.fn>
+    updateMany: ReturnType<typeof vi.fn>
+  }
   let mockPrisma: { tcrCompliance: typeof mockModel }
 
   const tcrCompliance = {
@@ -2260,9 +2263,12 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
       verifyCampaignVerifyPin: vi.fn(),
       createCampaignVerifyToken: vi.fn(),
       submitCampaignVerifyTokenToBrand: vi.fn(),
-      retrieveCampaignVerifyStatus: vi.fn(),
+      retrieveCampaignVerifyDetails: vi.fn(),
     }
-    mockModel = { findFirstOrThrow: vi.fn() }
+    mockModel = {
+      findFirstOrThrow: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    }
     mockPrisma = { tcrCompliance: mockModel }
 
     const module: TestingModule = await Test.createTestingModule({
@@ -2385,8 +2391,15 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
   >[1]
 
   it('retrieveCampaignVerifyToken verifies the PIN when the CV is not yet VERIFIED', async () => {
-    mockModel.findFirstOrThrow.mockResolvedValueOnce({ campaign: { id: 1 } })
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('APPROVED')
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({
+      id: 'tcr-2',
+      peerlyIdentityId: 'peerly-1',
+      campaign: { id: 1, user: null },
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: 'APPROVED',
+      pinDelivery: null,
+    })
     mockPeerly.verifyCampaignVerifyPin.mockResolvedValueOnce(true)
     mockPeerly.createCampaignVerifyToken.mockResolvedValueOnce('cv-token')
 
@@ -2400,14 +2413,35 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
       expect(mockPeerly.verifyCampaignVerifyPin).toHaveBeenCalledWith(
         'peerly-1',
         '123456',
-        { id: 1 },
+        { id: 1, user: null },
       )
+      // A verified PIN means the CV is VERIFIED — the persisted mirror must
+      // stamp so sweepUnsubmittedUsecases picks the record up without
+      // waiting for the next CV status scan.
+      expect(mockModel.updateMany).toHaveBeenCalledWith({
+        where: {
+          peerlyIdentityId: 'peerly-1',
+          NOT: { peerlyCvStatus: 'VERIFIED' },
+        },
+        data: {
+          peerlyCvStatus: 'VERIFIED',
+          peerlyCvStatusChangedAt: expect.any(Date),
+          cvInReviewEscalatedAt: null,
+        },
+      })
     })
   })
 
   it('retrieveCampaignVerifyToken throws Invalid PIN for a wrong PIN on a non-VERIFIED CV', async () => {
-    mockModel.findFirstOrThrow.mockResolvedValueOnce({ campaign: { id: 1 } })
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('APPROVED')
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({
+      id: 'tcr-2',
+      peerlyIdentityId: 'peerly-1',
+      campaign: { id: 1, user: null },
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: 'APPROVED',
+      pinDelivery: null,
+    })
     mockPeerly.verifyCampaignVerifyPin.mockResolvedValueOnce(false)
 
     await withEnv('prod', async () => {
@@ -2415,12 +2449,20 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
         service.retrieveCampaignVerifyToken('000000', tcrWithIdentity),
       ).rejects.toThrow(UnprocessableEntityException)
       expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
+      expect(mockModel.updateMany).not.toHaveBeenCalled()
     })
   })
 
   it('retrieveCampaignVerifyToken skips PIN re-verification and mints a token when the CV is already VERIFIED', async () => {
-    mockModel.findFirstOrThrow.mockResolvedValueOnce({ campaign: { id: 1 } })
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('VERIFIED')
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({
+      id: 'tcr-2',
+      peerlyIdentityId: 'peerly-1',
+      campaign: { id: 1, user: null },
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: 'VERIFIED',
+      pinDelivery: null,
+    })
     mockPeerly.createCampaignVerifyToken.mockResolvedValueOnce('cv-token')
 
     await withEnv('prod', async () => {
@@ -2433,9 +2475,64 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
       expect(mockPeerly.verifyCampaignVerifyPin).not.toHaveBeenCalled()
       expect(mockPeerly.createCampaignVerifyToken).toHaveBeenCalledWith(
         'peerly-1',
-        { id: 1 },
+        { id: 1, user: null },
       )
     })
+  })
+
+  // A candidate who enters their PIN between scans leaves the CV scan's poll
+  // set the moment VERIFIED is stamped, so PIN entry is the last observation
+  // that can record the delivery channel + fire CompliancePinSent.
+  it('retrieveCampaignVerifyToken runs PIN-delivery detection off its own read after a successful verify', async () => {
+    const user = { id: 55 }
+    const record = {
+      id: 'tcr-2',
+      peerlyIdentityId: 'peerly-1',
+      campaign: { id: 1, user },
+    }
+    mockModel.findFirstOrThrow.mockResolvedValueOnce(record)
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: 'APPROVED',
+      pinDelivery: { method: 'text', destination: '3125550000' },
+    })
+    mockPeerly.verifyCampaignVerifyPin.mockResolvedValueOnce(true)
+    mockPeerly.createCampaignVerifyToken.mockResolvedValueOnce('cv-token')
+    const detectSpy = vi
+      .spyOn(service, 'applyCvDetection')
+      .mockResolvedValue(undefined)
+
+    await withEnv('prod', async () => {
+      await service.retrieveCampaignVerifyToken('123456', tcrWithIdentity)
+    })
+    // The detection is detached — flush it before asserting.
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(detectSpy).toHaveBeenCalledExactlyOnceWith(record, record.campaign, {
+      status: 'VERIFIED',
+      pinDelivery: { method: 'text', destination: '3125550000' },
+    })
+  })
+
+  it('retrieveCampaignVerifyToken does not run detection when the PIN is rejected', async () => {
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({
+      id: 'tcr-2',
+      peerlyIdentityId: 'peerly-1',
+      campaign: { id: 1, user: null },
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: 'APPROVED',
+      pinDelivery: { method: 'text', destination: '3125550000' },
+    })
+    mockPeerly.verifyCampaignVerifyPin.mockResolvedValueOnce(false)
+    const detectSpy = vi.spyOn(service, 'applyCvDetection')
+
+    await withEnv('prod', async () => {
+      await expect(
+        service.retrieveCampaignVerifyToken('000000', tcrWithIdentity),
+      ).rejects.toThrow(UnprocessableEntityException)
+    })
+
+    expect(detectSpy).not.toHaveBeenCalled()
   })
 })
 
@@ -2761,9 +2858,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     service = module.get(CampaignTcrComplianceService)
   })
 
-  it('mints a token and submits the usecase when CV is VERIFIED', async () => {
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('VERIFIED')
-
+  it('mints a token and submits the usecase for a swept (VERIFIED) record', async () => {
     await withEnv('prod', async () => {
       await submitUsecaseIfVerified(service, stuckRecord)
     })
@@ -2782,22 +2877,6 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     })
   })
 
-  it('does not submit or advance when CV is APPROVED (candidate still owes a PIN)', async () => {
-    // APPROVED can be reached by the CV authority before the candidate enters
-    // their PIN, so the sweep must leave the record in `submitted`. Advancing
-    // it to `pending` would flip the candidate to the "in review" screen and
-    // strand them with a PIN they can no longer enter.
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('APPROVED')
-
-    await withEnv('prod', async () => {
-      await submitUsecaseIfVerified(service, stuckRecord)
-    })
-
-    expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-    expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
-    expect(mockModel.update).not.toHaveBeenCalled()
-  })
-
   it.each(['waiting_to_finalize', 'finalized'])(
     'skips when the profile is already past pending (status %s)',
     async (status) => {
@@ -2807,21 +2886,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
 
       await submitUsecaseIfVerified(service, stuckRecord)
 
-      expect(mockPeerly.retrieveCampaignVerifyStatus).not.toHaveBeenCalled()
       expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-      expect(mockModel.update).not.toHaveBeenCalled()
-    },
-  )
-
-  it.each(['REQUESTED', 'IN_REVIEW', 'REJECTED', 'WITHDRAWN'])(
-    'skips (no token, no Slack-spamming approve) when CV is %s',
-    async (status) => {
-      mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce(status)
-
-      await submitUsecaseIfVerified(service, stuckRecord)
-
-      expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-      expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
       expect(mockModel.update).not.toHaveBeenCalled()
     },
   )
@@ -2859,16 +2924,6 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     expect(mockModel.update).not.toHaveBeenCalled()
   })
 
-  it('skips when CV status is null (no CV request exists for the identity)', async () => {
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce(null)
-
-    await submitUsecaseIfVerified(service, stuckRecord)
-
-    expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-    expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
-    expect(mockModel.update).not.toHaveBeenCalled()
-  })
-
   it('skips (no rethrow) when the Peerly identity 404s (orphaned/deleted)', async () => {
     mockPeerly.getIdentityProfile.mockRejectedValueOnce(
       new NotFoundException('identity not found'),
@@ -2878,7 +2933,6 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       submitUsecaseIfVerified(service, stuckRecord),
     ).resolves.toBeUndefined()
 
-    expect(mockPeerly.retrieveCampaignVerifyStatus).not.toHaveBeenCalled()
     expect(mockModel.update).not.toHaveBeenCalled()
   })
 
@@ -2903,7 +2957,11 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     expect(mockModel.update).not.toHaveBeenCalled()
   })
 
-  it('sweeps submitted records that have a Peerly identity', async () => {
+  // The persisted-VERIFIED filter is what keeps APPROVED records (candidate
+  // still owes a PIN) out of the sweep — auto-submitting on APPROVED would
+  // race the candidate past the PIN screen. It also removed the per-record
+  // retrieve_cv read Peerly's rate-limit complaint was about (2026-08-17).
+  it('sweeps only submitted records whose persisted CV status is VERIFIED', async () => {
     mockModel.findMany.mockResolvedValueOnce([])
 
     await sweep(service)
@@ -2912,6 +2970,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       where: {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: { not: null },
+        peerlyCvStatus: 'VERIFIED',
       },
     })
   })

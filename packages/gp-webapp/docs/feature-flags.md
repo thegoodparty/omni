@@ -72,7 +72,17 @@ It's honored on every environment **except production** (`process.env.VERCEL_ENV
 
 ## Server-side flags
 
-Server components currently can't read Amplitude experiments — the provider is client-only. If you need server-side gating, gate at the gp-api layer or pass the flag down to a `'use client'` boundary.
+The **provider and its hooks are client-only**, so a server component can't call `useFlagOn`. It can, however, call the same resolver that produces the SSR seed: `await getFlagVariants()` returns the variant map (or `null` for an anonymous request or a gp-api failure, in which case every flag reads off). That is the way to gate a route without rendering it at all:
+
+```tsx
+// app/dashboard/<feature>/layout.tsx — server component
+const variants = await getFlagVariants()
+if (variants?.[MY_FLAG_KEY]?.value === 'on') {
+  redirect('/somewhere-else')
+}
+```
+
+Reach for this when the gated surface must not render or fetch — `door-knocking/surveys/layout.tsx` redirects pilot users away from the legacy eCanvasser survey designer before its eCanvasser reads run. It costs one extra gp-api call per request, and it emits no `$exposure` (exposure is a client-side analytics event), which is correct for a surface that isn't the experiment's treatment. For the ordinary case — flag off means "don't show this route" — the client `FeatureFlagGuard` is still simpler and free.
 
 ## Adding a new flag
 

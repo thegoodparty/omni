@@ -97,8 +97,16 @@ export {
   type UpdateContactStatusInput,
   ContactStatusesSchema,
   type ContactStatuses,
+  DoNotKnockStatusSchema,
+  type DoNotKnockStatus,
+  NotAVoterStatusSchema,
+  type NotAVoterStatus,
+  NotAVoterReasonSchema,
+  type NotAVoterReason,
   VOTER_LIKELIHOOD_LABELS,
   SUPPORT_STATUS_ROLLUP_LABELS,
+  DO_NOT_KNOCK_LABELS,
+  NOT_A_VOTER_LABELS,
   resolveContactStatusLabel,
 } from './people/ContactStatus.schema'
 
@@ -769,6 +777,9 @@ export {
   DOOR_KNOCK_STATUSES,
   DoorKnockStatusSchema,
   type DoorKnockStatus,
+  RouteTargetActivitySchema,
+  type RouteTargetActivity,
+  ROUTE_TARGET_ACTIVITY_LIMIT,
   RoutePayloadTargetSchema,
   type RoutePayloadTarget,
   RoutePayloadAddressSchema,
@@ -787,3 +798,17 @@ export {
   RecordDoorKnockInteractionResponseSchema,
   type RecordDoorKnockInteractionResponse,
 } from './doorKnocking/DoorKnockingInteraction.schema'
+
+export {
+  SetDoNotKnockSchema,
+  type SetDoNotKnock,
+  SetDoNotKnockResponseSchema,
+  type SetDoNotKnockResponse,
+} from './doorKnocking/DoorKnockingDoNotKnock.schema'
+
+export {
+  SetNotAVoterSchema,
+  type SetNotAVoter,
+  SetNotAVoterResponseSchema,
+  type SetNotAVoterResponse,
+} from './doorKnocking/DoorKnockingNotAVoter.schema'

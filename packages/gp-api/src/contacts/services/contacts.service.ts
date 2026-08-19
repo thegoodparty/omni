@@ -1549,7 +1549,22 @@ export class ContactsService {
   }
 
   async fetchStatsByDistrictId(districtId: string): Promise<StatsResponse> {
-    return this.peopleStatsService.getStats(StatsDTO.create({ districtId }))
+    const stats = await this.peopleStatsService.findStats(
+      StatsDTO.create({ districtId }),
+    )
+
+    // A district with no stats row is the same user-facing state as an org
+    // that can't resolve a district at all: we have no constituent data for
+    // this office. Callers branch on the error code, so both must carry it —
+    // a bare 404 here read as "unknown route" and fell through every gate.
+    if (!stats) {
+      throw new BadRequestException({
+        message: `District stats not available for districtId=${districtId}`,
+        errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE,
+      })
+    }
+
+    return stats
   }
 
   // Built-in segments never carry activity conditions or a support-status

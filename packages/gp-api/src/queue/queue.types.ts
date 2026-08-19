@@ -15,6 +15,7 @@ export enum QueueType {
   AGENTIC_COMPLIANCE_KICKOFF = 'agenticComplianceKickoff',
   OCR_ATTACHMENT = 'ocrAttachment',
   NIGHTLY_10DLC_REPORT = 'nightly10DlcReport',
+  CV_STATUS_POLL = 'cvStatusPoll',
   ORDINANCE_QUALITY_LOOP = 'ordinanceQualityLoop',
   RECOMMENDED_LISTS_RECOMPUTE = 'recommendedListsRecompute',
 }
@@ -58,6 +59,10 @@ export type QueueMessage =
   | {
       type: QueueType.NIGHTLY_10DLC_REPORT
       data: Nightly10DlcReportMessage
+    }
+  | {
+      type: QueueType.CV_STATUS_POLL
+      data: CvStatusPollMessage
     }
   | {
       type: QueueType.ORDINANCE_QUALITY_LOOP
@@ -175,6 +180,7 @@ export enum MessageGroup {
   weeklyTasksDigest = 'weeklyTasksDigest',
   agenticComplianceKickoff = 'agenticComplianceKickoff',
   nightly10DlcReport = 'nightly10DlcReport',
+  cvStatusPoll = 'cvStatusPoll',
 }
 
 const PollResponseJsonRowSchema = z.object({
@@ -224,6 +230,13 @@ export const Nightly10DlcReportMessageSchema = z.object({
 export type Nightly10DlcReportMessage = z.infer<
   typeof Nightly10DlcReportMessageSchema
 >
+
+// scanKey is the ET date-hour slot the cron fired in (also the FIFO
+// deduplicationId suffix), carried for log correlation only.
+export const CvStatusPollMessageSchema = z.object({
+  scanKey: z.string(),
+})
+export type CvStatusPollMessage = z.infer<typeof CvStatusPollMessageSchema>
 
 // One step of the ordinance quality loop (QC or revise). `attempt` exists
 // only to vary the FIFO deduplicationId on retries — the handler reads the

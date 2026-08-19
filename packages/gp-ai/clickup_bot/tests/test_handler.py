@@ -7,6 +7,7 @@ reads the source). Each test encodes one numbered behavior from the spec.
 import hashlib
 import hmac
 import json
+import re
 import time
 from urllib.error import HTTPError, URLError
 
@@ -2933,3 +2934,477 @@ def test_unreadable_task_shapes_never_crash_the_guard(task):
 
 def test_custom_id_prefix_match_is_case_insensitive():
     assert handler.out_of_scope_reason({"custom_id": "data-1845"}) is not None
+
+
+# ---------------------------------------------------------------------------
+# 22. The analyze prompt and the verdict parser are one contract split across
+# two deployment artifacts.
+#
+# The prompt that asks for `GPBOT-VERDICT:` lives in this Lambda; the parser
+# that acts on it lives in the Fargate agent. Nothing at runtime connects them,
+# so a reworded prompt or a renamed verdict would not fail anything — every
+# analysis would just quietly stop escalating, which is indistinguishable from
+# the feature being switched off. These tests are the only thing holding the two
+# ends together.
+# ---------------------------------------------------------------------------
+
+
+def test_every_verdict_the_prompt_offers_is_one_the_parser_accepts():
+    from engineer_agent.agent.escalation import parse_verdict
+
+    offered = re.findall(r"GPBOT-VERDICT:\s*([a-z-]+)", handler.ANALYZE_INSTRUCTION)
+
+    assert offered, "the analyze prompt no longer shows the agent any GPBOT-VERDICT line"
+    for verdict in offered:
+        assert parse_verdict(f"GPBOT-VERDICT: {verdict}") == verdict
+
+
+def test_the_prompt_offers_every_verdict_the_parser_knows():
+    # The other direction: a verdict the parser handles but the prompt never
+    # mentions is dead code the model can never reach.
+    from engineer_agent.agent.escalation import KNOWN_VERDICTS
+
+    offered = set(re.findall(r"GPBOT-VERDICT:\s*([a-z-]+)", handler.ANALYZE_INSTRUCTION))
+
+    assert offered == set(KNOWN_VERDICTS)
+
+
+def test_only_the_analyze_prompt_asks_for_a_verdict():
+    # An implement run that emitted the token could otherwise look like an
+    # analysis asking to queue another implement run.
+    assert "GPBOT-VERDICT" not in handler.IMPLEMENT_INSTRUCTION
+
+
+# ---------------------------------------------------------------------------
+# 23. The agent is told which kind of run it is, as a value.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("tag_name,expected_label", [("gpbot-analyze", "analyze"), ("gpbot-work", "implement")])
+def test_run_label_is_passed_to_the_container(fake_clickup, fake_ecs, ecs_env, tag_name, expected_label):
+    # The agent gates escalation on this value. Inferring the run type from the
+    # instruction prose instead would make an unrelated prompt edit silently
+    # change whether a run can open a PR.
+    event = make_event(tag_updated_body(tags=(tag_name,)))
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 200
+    assert engineer_agent_env(fake_ecs.run_task_calls[0])["AGENT_LABEL"] == expected_label
+
+
+# ---------------------------------------------------------------------------
+# 24. The reconciliation sweep.
+#
+# This exists because the webhook is not a complete feed: on 2026-08-17 the only
+# task of 53 created workspace-wide that produced no delivery was the sole
+# HubSpot-filed ticket, which is the class the bot serves. The sweep is what
+# stops a dropped delivery from becoming a bug nobody ever looks at, so the
+# behavior that matters most here is that it keeps going and that it cannot
+# spend unbounded money.
+# ---------------------------------------------------------------------------
+
+
+def sweep_event():
+    return {"gpbot_sweep": True}
+
+
+def triggered_result():
+    return {"statusCode": 200, "body": json.dumps({"status": "triggered", "task_id": "x"})}
+
+
+def skipped_result(reason="duplicate"):
+    return {"statusCode": 200, "body": json.dumps({"skipped": reason})}
+
+
+@pytest.fixture
+def sweep_calls(monkeypatch):
+    """Records which task ids the sweep asked to trigger."""
+    calls = []
+
+    def fake_trigger(task_id, matched_tag, from_async_worker=False):
+        calls.append((task_id, matched_tag, from_async_worker))
+        return triggered_result()
+
+    monkeypatch.setattr(handler, "dedup_check_then_trigger", fake_trigger)
+    return calls
+
+
+def stub_listing(monkeypatch, tasks):
+    monkeypatch.setattr(handler, "list_recently_updated_tagged_tasks", lambda tag, since: tasks)
+
+
+def test_sweep_triggers_a_tagged_task_the_webhook_never_delivered(monkeypatch, sweep_calls, sweep_comments):
+    stub_listing(monkeypatch, [{"id": "86ak1w3tn"}])
+
+    resp = handler.handler(sweep_event(), None)
+
+    assert resp["statusCode"] == 200
+    assert json.loads(resp["body"])["triggered"] == 1
+    # from_async_worker=True: nobody is waiting on an HTTP response here, so the
+    # sweep must take the worker's failure semantics, not the webhook's.
+    assert sweep_calls == [("86ak1w3tn", handler.ANALYZE_TAG, True)]
+
+
+def test_sweep_only_ever_asks_for_analyze(monkeypatch, sweep_calls, sweep_comments):
+    # gpbot-work opens a PR, and the gap being patched does not apply to it:
+    # hand-tagging and the escalation's own API write both fire taskTagUpdated
+    # normally. A sweep for it would be a second, less-scrutinised route to
+    # opening PRs.
+    stub_listing(monkeypatch, [{"id": "a"}, {"id": "b"}])
+
+    handler.handler(sweep_event(), None)
+
+    assert {tag for _, tag, _ in sweep_calls} == {handler.ANALYZE_TAG}
+    assert handler.SWEEP_TAG == "gpbot-analyze"
+
+
+def test_sweep_is_idempotent_because_dedup_declines(monkeypatch, sweep_comments):
+    # The whole safety argument: the sweep re-offers everything in its window on
+    # every run, and dedup is what makes that harmless.
+    monkeypatch.setattr(handler, "list_recently_updated_tagged_tasks", lambda tag, since: [{"id": "a"}, {"id": "b"}])
+    monkeypatch.setattr(handler, "dedup_check_then_trigger", lambda *a, **k: skipped_result())
+
+    resp = handler.handler(sweep_event(), None)
+
+    body = json.loads(resp["body"])
+    assert body == {"swept": 2, "triggered": 0, "skipped": 2}
+
+
+def test_sweep_caps_how_many_runs_one_pass_can_start(monkeypatch, sweep_calls, sweep_comments):
+    # Each trigger is a real agent run costing real money. A bulk re-tag must
+    # not turn into an unbounded spend.
+    monkeypatch.setenv("SWEEP_MAX_TRIGGERS", "2")
+    stub_listing(monkeypatch, [{"id": f"t{i}"} for i in range(10)])
+
+    resp = handler.handler(sweep_event(), None)
+
+    assert len(sweep_calls) == 2
+    assert json.loads(resp["body"])["triggered"] == 2
+
+
+def test_declined_tasks_do_not_consume_the_cap(monkeypatch, sweep_comments):
+    # A window full of already-handled tickets must not starve the one ticket
+    # that still needs a run.
+    monkeypatch.setenv("SWEEP_MAX_TRIGGERS", "1")
+    seen = []
+
+    def trigger(task_id, tag, from_async_worker=False):
+        seen.append(task_id)
+        return triggered_result() if task_id == "needs-run" else skipped_result()
+
+    monkeypatch.setattr(handler, "dedup_check_then_trigger", trigger)
+    stub_listing(monkeypatch, [{"id": "done1"}, {"id": "done2"}, {"id": "needs-run"}])
+
+    handler.handler(sweep_event(), None)
+
+    assert "needs-run" in seen
+
+
+def test_one_bad_task_does_not_end_the_sweep(monkeypatch, sweep_comments):
+    # The next ticket may be the bug nobody has looked at.
+    seen = []
+
+    def trigger(task_id, tag, from_async_worker=False):
+        seen.append(task_id)
+        if task_id == "boom":
+            raise RuntimeError("clickup blip")
+        return triggered_result()
+
+    monkeypatch.setattr(handler, "dedup_check_then_trigger", trigger)
+    stub_listing(monkeypatch, [{"id": "boom"}, {"id": "good"}])
+
+    resp = handler.handler(sweep_event(), None)
+
+    assert seen == ["boom", "good"]
+    assert json.loads(resp["body"])["triggered"] == 1
+
+
+def test_a_listing_failure_is_loud(monkeypatch, capsys):
+    # The sweep is the backstop for a feed known to drop work, so a sweep that
+    # cannot list has silently returned us to missing bugs.
+    def boom(tag, since):
+        raise RuntimeError("clickup down")
+
+    monkeypatch.setattr(handler, "list_recently_updated_tagged_tasks", boom)
+
+    resp = handler.handler(sweep_event(), None)
+
+    assert resp["statusCode"] == 500
+    assert "ERROR" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("task", [{}, {"id": ""}, {"id": None}, {"id": 123}, "not-a-dict", None])
+def test_sweep_ignores_unusable_task_shapes(monkeypatch, sweep_calls, task):
+    stub_listing(monkeypatch, [task])
+
+    resp = handler.handler(sweep_event(), None)
+
+    assert resp["statusCode"] == 200
+    assert sweep_calls == []
+
+
+def test_sweep_marker_cannot_be_forged_through_the_alb(fake_clickup, monkeypatch):
+    # Same guarantee as gpbot_async: an ALB request always carries headers and
+    # requestContext and lands its body as a string, so a public caller cannot
+    # reach the sweep path.
+    called = []
+    monkeypatch.setattr(handler, "handle_sweep", lambda e: called.append(e) or {"statusCode": 200, "body": "{}"})
+    event = make_event(json.dumps({"gpbot_sweep": True}))
+
+    handler.handler(event, None)
+
+    assert called == []
+
+
+# --- window and cap parsing -------------------------------------------------
+
+
+def test_the_lookback_window_bounds_the_sweep(monkeypatch):
+    # Without a bound the sweep would re-run the ~170 historical tickets that
+    # already carry this tag — hundreds of dollars to re-analyze closed bugs.
+    monkeypatch.setenv("SWEEP_LOOKBACK_HOURS", "6")
+    captured = {}
+
+    def listing(tag, since_ms):
+        captured["since"] = since_ms
+        return []
+
+    monkeypatch.setattr(handler, "list_recently_updated_tagged_tasks", listing)
+
+    handler.handler(sweep_event(), None)
+
+    age_hours = (time.time() * 1000 - captured["since"]) / 3600000
+    assert 5.9 < age_hours < 6.1
+
+
+@pytest.mark.parametrize("raw", ["", "abc", "0", "-4", "none"])
+def test_unusable_sweep_settings_fall_back_to_defaults(monkeypatch, raw):
+    # A typo must not disable the bound or the cap.
+    monkeypatch.setenv("SWEEP_LOOKBACK_HOURS", raw)
+    monkeypatch.setenv("SWEEP_MAX_TRIGGERS", raw)
+
+    assert handler.sweep_lookback_ms() == int(handler.DEFAULT_SWEEP_LOOKBACK_HOURS * 3600 * 1000)
+    assert handler.sweep_max_triggers() == handler.DEFAULT_SWEEP_MAX_TRIGGERS
+
+
+@pytest.mark.parametrize(
+    "result,expected",
+    [
+        ({"statusCode": 200, "body": json.dumps({"status": "triggered"})}, True),
+        ({"statusCode": 200, "body": json.dumps({"skipped": "duplicate"})}, False),
+        ({"statusCode": 200, "body": json.dumps({"skipped": "out of scope"})}, False),
+        ({"statusCode": 500, "body": json.dumps({"error": "boom"})}, False),
+        ({"statusCode": 200, "body": "not json"}, False),
+        ({"statusCode": 200, "body": None}, False),
+        ({"statusCode": 200}, False),
+        (None, False),
+        ("nope", False),
+    ],
+)
+def test_launched_a_run_only_counts_real_launches(result, expected):
+    assert handler.launched_a_run(result) is expected
+
+
+def test_listing_asks_clickup_for_the_right_window(monkeypatch):
+    captured = {}
+
+    def fake_request(method, endpoint, data=None):
+        captured["endpoint"] = endpoint
+        return {"tasks": []}
+
+    monkeypatch.setattr(handler, "clickup_request", fake_request)
+
+    handler.list_recently_updated_tagged_tasks("gpbot-analyze", 1234567)
+
+    assert "date_updated_gt=1234567" in captured["endpoint"]
+    # The literal bracket form, not urlencode's default `tags%5B%5D=`. An
+    # unrecognized filter parameter is not an error — the endpoint would return
+    # every recently-updated task in the workspace and the sweep would silently
+    # stop being a tag query. Asserting on the bare tag name would pass either
+    # way and catch nothing.
+    assert "tags[]=gpbot-analyze" in captured["endpoint"]
+    # Closed tickets are settled work; re-analyzing them is pure spend.
+    assert "include_closed=false" in captured["endpoint"]
+    # ClickUp omits subtasks unless asked. Dropping this would make the sweep
+    # silently blind to any gpbot-analyze ticket filed as a subtask — and
+    # ClickUp ignores unrecognized parameters, so nothing would report it.
+    assert "subtasks=true" in captured["endpoint"]
+
+
+def test_listing_follows_pagination_until_a_short_page(monkeypatch):
+    # Without this, a regression to the termination condition silently caps the
+    # sweep at one page and the tickets behind it are never rescued.
+    full = [{"id": f"t{i}"} for i in range(handler.CLICKUP_PAGE_SIZE)]
+    pages = iter([{"tasks": full}, {"tasks": full}, {"tasks": [{"id": "last"}]}])
+    requested = []
+
+    def fake_request(method, endpoint, data=None):
+        requested.append(endpoint)
+        return next(pages)
+
+    monkeypatch.setattr(handler, "clickup_request", fake_request)
+
+    result = handler.list_recently_updated_tagged_tasks("gpbot-analyze", 0)
+
+    assert len(requested) == 3
+    assert [f"page={n}" in requested[n] for n in range(3)] == [True, True, True]
+    assert len(result) == handler.CLICKUP_PAGE_SIZE * 2 + 1
+
+
+def test_listing_stops_at_the_page_ceiling(monkeypatch):
+    # A result set that never shortens must terminate rather than page forever
+    # against ClickUp inside a Lambda invocation.
+    full = [{"id": f"t{i}"} for i in range(handler.CLICKUP_PAGE_SIZE)]
+    requested = []
+
+    def fake_request(method, endpoint, data=None):
+        requested.append(endpoint)
+        return {"tasks": full}
+
+    monkeypatch.setattr(handler, "clickup_request", fake_request)
+
+    result = handler.list_recently_updated_tagged_tasks("gpbot-analyze", 0)
+
+    assert len(requested) == handler.SWEEP_MAX_PAGES
+    assert len(result) == handler.CLICKUP_PAGE_SIZE * handler.SWEEP_MAX_PAGES
+
+
+def test_listing_tolerates_a_malformed_page(monkeypatch):
+    monkeypatch.setattr(handler, "clickup_request", lambda *a, **k: {"tasks": "not-a-list"})
+
+    assert handler.list_recently_updated_tagged_tasks("gpbot-analyze", 0) == []
+
+
+# ---------------------------------------------------------------------------
+# 25. The sweep's PERMANENT idempotency.
+#
+# The most expensive way to get this wrong. Both ordinary dedup layers expire
+# after ~15 minutes by design, so that a human re-tagging hours later re-runs.
+# The sweep runs every 15 minutes over a 24h window, so if it leaned on those
+# layers it would re-analyze every ticket in the window on nearly every pass —
+# ~96 agent runs per ticket per day. These tests pin the separate, unwindowed
+# check that makes a scheduled re-offer safe.
+# ---------------------------------------------------------------------------
+
+
+def bot_comment(text="[GP-Bot] Analysis complete", age_seconds=86400):
+    return {"comment_text": text, "date": str(int((time.time() - age_seconds) * 1000))}
+
+
+def human_comment(text="Any update on this?"):
+    return {"comment_text": text, "date": str(int(time.time() * 1000))}
+
+
+@pytest.fixture
+def sweep_comments(monkeypatch):
+    """Controls what get_task_comments returns per task id."""
+    by_task = {}
+    monkeypatch.setattr(handler, "get_task_comments", lambda tid: by_task.get(tid, []))
+    return by_task
+
+
+def test_a_ticket_analyzed_yesterday_is_never_swept_again(monkeypatch, sweep_calls, sweep_comments):
+    # The runaway-cost case. The bot's comment is a day old, so BOTH ordinary
+    # dedup layers have long expired and would happily re-run it.
+    sweep_comments["old"] = [bot_comment(age_seconds=86400)]
+    stub_listing(monkeypatch, [{"id": "old"}])
+
+    resp = handler.handler(sweep_event(), None)
+
+    assert sweep_calls == []
+    assert json.loads(resp["body"]) == {"swept": 1, "triggered": 0, "skipped": 1}
+
+
+def test_repeated_sweeps_of_an_analyzed_ticket_never_re_run_it(monkeypatch, sweep_calls, sweep_comments):
+    # Simulates a day of sweeps against a stable window.
+    sweep_comments["old"] = [bot_comment(age_seconds=86400)]
+    stub_listing(monkeypatch, [{"id": "old"}])
+
+    for _ in range(96):
+        handler.handler(sweep_event(), None)
+
+    assert sweep_calls == []
+
+
+def test_a_ticket_the_bot_has_never_touched_is_swept(monkeypatch, sweep_calls, sweep_comments):
+    # The whole point: DATA-2336 got no delivery, so nobody ever looked at it.
+    sweep_comments["never-seen"] = [human_comment()]
+    stub_listing(monkeypatch, [{"id": "never-seen"}])
+
+    handler.handler(sweep_event(), None)
+
+    assert [c[0] for c in sweep_calls] == ["never-seen"]
+
+
+def test_an_in_flight_run_is_not_duplicated_by_the_sweep(monkeypatch, sweep_calls, sweep_comments):
+    # The webhook fired two minutes ago and the agent has posted its ack. The
+    # sweep must not start a second agent on the same ticket.
+    sweep_comments["running"] = [bot_comment(text="[GP-Bot] Processing started (analyze)", age_seconds=120)]
+    stub_listing(monkeypatch, [{"id": "running"}])
+
+    handler.handler(sweep_event(), None)
+
+    assert sweep_calls == []
+
+
+def test_unreadable_comments_skip_rather_than_risk_a_repeating_charge(monkeypatch, sweep_calls):
+    # Fail CLOSED here specifically: guessing "not analyzed" on a schedule is
+    # how one ClickUp blip becomes a recurring bill. The webhook is still the
+    # primary path and the next sweep retries.
+    def boom(task_id):
+        raise RuntimeError("clickup blip")
+
+    monkeypatch.setattr(handler, "get_task_comments", boom)
+    stub_listing(monkeypatch, [{"id": "unknown"}])
+
+    resp = handler.handler(sweep_event(), None)
+
+    assert sweep_calls == []
+    assert json.loads(resp["body"])["skipped"] == 1
+
+
+def test_skipped_tickets_do_not_consume_the_trigger_cap(monkeypatch, sweep_calls, sweep_comments):
+    monkeypatch.setenv("SWEEP_MAX_TRIGGERS", "1")
+    sweep_comments.update({"a": [bot_comment()], "b": [bot_comment()], "c": [human_comment()]})
+    stub_listing(monkeypatch, [{"id": "a"}, {"id": "b"}, {"id": "c"}])
+
+    handler.handler(sweep_event(), None)
+
+    assert [c[0] for c in sweep_calls] == ["c"]
+
+
+@pytest.mark.parametrize(
+    "comments,expected",
+    [
+        ([], False),
+        ([human_comment()], False),
+        ([{"comment_text": "[GP-Bot] Analysis"}], True),
+        ([{"comment_text": "[GP-Bot] Processing started (analyze)"}], True),
+        ([{"comment_text": "[GP-Bot] Failed to start processing: boom"}], True),
+        # Text living only in the items array, the shape that broke dedup in the
+        # 2026-07-14 incident.
+        ([{"comment": [{"text": "[GP-Bot] Analysis"}]}], True),
+        ([{"comment": [{"text": "[GP-"}, {"text": "Bot] Analysis"}]}], True),
+        # Null-ish shapes must not crash, and must not be read as a bot comment.
+        ([{"comment_text": None, "comment": [{"text": None}]}], False),
+        ([{"comment_text": "", "comment": []}], False),
+        ([None], False),
+        (["not-a-dict"], False),
+        ([{"comment": [None, {"text": "[GP-Bot] hi"}]}], True),
+        # A human quoting the bot is indistinguishable from the bot, and that is
+        # the safe direction: at worst one ticket waits for the webhook.
+        ([{"comment_text": "the [GP-Bot] comment above is wrong"}], True),
+    ],
+)
+def test_has_any_bot_comment_shape_tolerance(comments, expected):
+    assert handler.has_any_bot_comment(comments) is expected
+
+
+def test_the_permanent_check_is_unwindowed_unlike_the_dedup_layers():
+    # Pins the distinction itself: a marker far older than the dedup window
+    # still counts here, and does not count there.
+    ancient = [bot_comment(text="[GP-Bot] Processing started (analyze)", age_seconds=30 * 86400)]
+
+    assert handler.has_any_bot_comment(ancient) is True
+    assert handler.has_processing_started_comment(ancient, "analyze") is False

@@ -11,6 +11,9 @@ vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
 vi.mock('app/dashboard/briefings/shared/useDictationAppend', () => ({
   useDictationAppend: () => ({
     status: 'idle',
+    error: null,
+    partialTranscript: '',
+    active: false,
     busy: false,
     toggle: vi.fn(),
     start: vi.fn(),
@@ -44,12 +47,20 @@ function makeStream(events: ChatStreamEvent[]): AsyncIterable<ChatStreamEvent> {
   })()
 }
 
+// The composer has no aria-label; it is found by its placeholder.
+const composer = (): HTMLElement =>
+  screen.getByPlaceholderText(/how can i help/i)
+
 beforeEach(() => {
   createConversation.mockReset()
   listMessages.mockReset()
   listConversations.mockReset()
   streamMessage.mockReset()
   softDelete.mockReset()
+  // The engine reconciles against the persisted transcript after a turn, so
+  // listMessages must always resolve to an array; individual tests override it
+  // with the finished turn where the assertion depends on the reconciled view.
+  listMessages.mockResolvedValue([])
   window.localStorage.clear()
 })
 
@@ -68,10 +79,27 @@ describe('<AiChatBody>', () => {
         { type: 'done', assistantMessageId: 'asst_1' },
       ]),
     )
+    // The reconciled transcript the engine swaps in once the turn persists.
+    listMessages.mockResolvedValue([
+      {
+        id: 'u1',
+        conversationId: 'conv_1',
+        role: 'user',
+        content: 'What next?',
+        createdAt: '2026-06-14T00:00:00.000Z',
+      },
+      {
+        id: 'asst_1',
+        conversationId: 'conv_1',
+        role: 'assistant',
+        content: 'Here to help.',
+        createdAt: '2026-06-14T00:00:01.000Z',
+      },
+    ])
 
     render(<AiChatBody chatApi={chatApi} config={config} active />)
 
-    await user.type(screen.getByLabelText(/ask a question/i), 'What next?')
+    await user.type(composer(), 'What next?')
     await user.click(screen.getByRole('button', { name: /send/i }))
 
     await waitFor(() => expect(createConversation).toHaveBeenCalledTimes(1))
@@ -96,16 +124,16 @@ describe('<AiChatBody>', () => {
     )
 
     render(<AiChatBody chatApi={chatApi} config={config} active />)
-    const composer = screen.getByLabelText(/ask a question/i)
-    await user.type(composer, 'partial draft')
+    const input = composer()
+    await user.type(input, 'partial draft')
 
     // Enter while an IME candidate is being committed must not send.
-    fireEvent.keyDown(composer, { key: 'Enter', isComposing: true })
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
     expect(createConversation).not.toHaveBeenCalled()
     expect(streamMessage).not.toHaveBeenCalled()
 
     // The plain Enter once composition has finished does send.
-    fireEvent.keyDown(composer, { key: 'Enter' })
+    fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => expect(createConversation).toHaveBeenCalledTimes(1))
     expect(streamMessage).toHaveBeenCalledWith(
       expect.objectContaining({ content: 'partial draft' }),
@@ -128,7 +156,7 @@ describe('<AiChatBody>', () => {
 
     render(<AiChatBody chatApi={chatApi} config={config} active />)
 
-    await user.type(screen.getByLabelText(/ask a question/i), 'hi')
+    await user.type(composer(), 'hi')
     await user.click(screen.getByRole('button', { name: /send/i }))
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
@@ -169,29 +197,29 @@ describe('<AiChatBody>', () => {
     expect(createConversation).not.toHaveBeenCalled()
   })
 
-  it('aborts the in-flight stream when the surface goes inactive', async () => {
+  it('aborts the in-flight stream when the surface unmounts', async () => {
     const user = userEvent.setup()
     createConversation.mockResolvedValue({ conversationId: 'conv_1' })
     let capturedSignal: AbortSignal | undefined
     streamMessage.mockImplementation(({ signal }: { signal?: AbortSignal }) => {
       capturedSignal = signal
-      // Never-ending stream so it is still in flight when we go inactive.
+      // Never-ending stream so it is still in flight when we unmount.
       return (async function* () {
         await new Promise(() => undefined)
       })()
     })
 
-    const { rerender } = render(
+    const { unmount } = render(
       <AiChatBody chatApi={chatApi} config={config} active />,
     )
 
-    await user.type(screen.getByLabelText(/ask a question/i), 'hang on')
+    await user.type(composer(), 'hang on')
     await user.click(screen.getByRole('button', { name: /send/i }))
 
     await waitFor(() => expect(streamMessage).toHaveBeenCalledTimes(1))
     expect(capturedSignal?.aborted).toBe(false)
 
-    rerender(<AiChatBody chatApi={chatApi} config={config} active={false} />)
+    unmount()
 
     await waitFor(() => expect(capturedSignal?.aborted).toBe(true))
   })

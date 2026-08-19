@@ -65,6 +65,13 @@ function makeErrorStream(code: ChatErrorCode): AsyncIterable<ChatStreamEvent> {
   })()
 }
 
+// A stream that produces no assistant turn (ends immediately), so the
+// transcript reconciles to a user turn with no reply — the bare-user retry.
+function makeEmptyStream(): AsyncIterable<ChatStreamEvent> {
+  // eslint-disable-next-line @typescript-eslint/no-empty-function, require-yield
+  return (async function* () {})()
+}
+
 beforeEach(() => {
   createMock.mockReset()
   listMessagesMock.mockReset()
@@ -75,14 +82,7 @@ beforeEach(() => {
 
 describe('<AskAiChatBody> deferred creation', () => {
   it('does NOT call chatApi.createBriefingChat on mount when no annotationIdOverride is given', async () => {
-    render(
-      <AskAiChatBody
-        meetingDate={MEETING_DATE}
-        anchor={null}
-        composerVariant="block"
-        active
-      />,
-    )
+    render(<AskAiChatBody meetingDate={MEETING_DATE} anchor={null} active />)
 
     // Composer is interactive immediately (no annotationId required to
     // type into it).
@@ -109,7 +109,6 @@ describe('<AskAiChatBody> deferred creation', () => {
       <AskAiChatBody
         meetingDate={MEETING_DATE}
         anchor={null}
-        composerVariant="block"
         onChatCreated={onChatCreated}
         active
       />,
@@ -170,14 +169,7 @@ describe('<AskAiChatBody> deferred creation', () => {
     listMessagesMock.mockResolvedValue([])
     streamMessageMock.mockReturnValue(makeOkStream())
 
-    render(
-      <AskAiChatBody
-        meetingDate={MEETING_DATE}
-        anchor={null}
-        composerVariant="block"
-        active
-      />,
-    )
+    render(<AskAiChatBody meetingDate={MEETING_DATE} anchor={null} active />)
 
     const textarea = await screen.findByLabelText(/ask assistant message/i)
     await user.type(textarea, 'pre-flight gap test')
@@ -222,14 +214,7 @@ describe('<AskAiChatBody> deferred creation', () => {
     listMessagesMock.mockRejectedValueOnce(new Error('verification failed'))
     streamMessageMock.mockReturnValue(makeOkStream())
 
-    render(
-      <AskAiChatBody
-        meetingDate={MEETING_DATE}
-        anchor={null}
-        composerVariant="block"
-        active
-      />,
-    )
+    render(<AskAiChatBody meetingDate={MEETING_DATE} anchor={null} active />)
 
     const textarea = await screen.findByLabelText(/ask assistant message/i)
     await user.type(textarea, 'first try')
@@ -272,7 +257,6 @@ describe('<AskAiChatBody> deferred creation', () => {
       <AskAiChatBody
         meetingDate={MEETING_DATE}
         anchor={null}
-        composerVariant="block"
         onChatCreated={onChatCreated}
         active
       />,
@@ -309,14 +293,7 @@ describe('<AskAiChatBody> deferred creation', () => {
     listMessagesMock.mockResolvedValue([])
     streamMessageMock.mockReturnValue(makeOkStream())
 
-    render(
-      <AskAiChatBody
-        meetingDate={MEETING_DATE}
-        anchor={null}
-        composerVariant="block"
-        active
-      />,
-    )
+    render(<AskAiChatBody meetingDate={MEETING_DATE} anchor={null} active />)
 
     const textarea = await screen.findByLabelText(/ask assistant message/i)
     await user.type(textarea, 'hi')
@@ -338,14 +315,7 @@ describe('<AskAiChatBody> deferred creation', () => {
     const user = userEvent.setup()
     createMock.mockRejectedValue(new Error('boom'))
 
-    render(
-      <AskAiChatBody
-        meetingDate={MEETING_DATE}
-        anchor={null}
-        composerVariant="block"
-        active
-      />,
-    )
+    render(<AskAiChatBody meetingDate={MEETING_DATE} anchor={null} active />)
 
     const textarea = await screen.findByLabelText(/ask assistant message/i)
     await user.type(textarea, 'first try')
@@ -389,14 +359,7 @@ describe('<AskAiChatBody> deferred creation', () => {
       .mockReturnValueOnce(makeOkStream())
       .mockReturnValueOnce(makeOkStream())
 
-    render(
-      <AskAiChatBody
-        meetingDate={MEETING_DATE}
-        anchor={null}
-        composerVariant="block"
-        active
-      />,
-    )
+    render(<AskAiChatBody meetingDate={MEETING_DATE} anchor={null} active />)
 
     const textarea = await screen.findByLabelText(/ask assistant message/i)
     await user.type(textarea, 'first')
@@ -414,6 +377,94 @@ describe('<AskAiChatBody> deferred creation', () => {
       content: 'second',
     })
   })
+
+  it('replays the same clientMessageId on retry after a stream error (server dedupe)', async () => {
+    const user = userEvent.setup()
+    createMock.mockResolvedValue({
+      annotationId: 'ann_dedupe',
+      conversationId: 'conv_dedupe',
+    })
+    listMessagesMock.mockResolvedValue([])
+    streamMessageMock
+      // First attempt errors mid-turn…
+      .mockReturnValueOnce(makeErrorStream('upstream_unavailable'))
+      // …the retry streams cleanly.
+      .mockReturnValueOnce(makeOkStream())
+
+    render(<AskAiChatBody meetingDate={MEETING_DATE} anchor={null} active />)
+
+    const textarea = await screen.findByLabelText(/ask assistant message/i)
+    await user.type(textarea, 'dedupe me')
+    await user.click(screen.getByRole('button', { name: /ask assistant/i }))
+
+    // First send errored; capture the client-message id it used.
+    await screen.findByRole('alert')
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
+    const firstId = streamMessageMock.mock.calls[0]?.[0]?.clientMessageId as
+      | string
+      | undefined
+    expect(firstId).toBeTruthy()
+
+    // Retry — same content AND the same client-message id, so the server's
+    // partial unique index dedupes the turn instead of inserting a duplicate.
+    await user.click(screen.getByRole('button', { name: /^retry$/i }))
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(2))
+    expect(streamMessageMock.mock.calls[1]?.[0]).toMatchObject({
+      annotationId: 'ann_dedupe',
+      content: 'dedupe me',
+      clientMessageId: firstId,
+    })
+    // No second chat row was minted for the retry.
+    expect(createMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('replays the original clientMessageId when retrying a bare user turn (no reply)', async () => {
+    const user = userEvent.setup()
+    createMock.mockResolvedValue({
+      annotationId: 'ann_bare',
+      conversationId: 'conv_bare',
+    })
+    // First stream produces no assistant turn; the transcript reconciles to
+    // just the user turn (the bare-user "Something went wrong" retry). The
+    // retry then streams cleanly.
+    streamMessageMock
+      .mockReturnValueOnce(makeEmptyStream())
+      .mockReturnValueOnce(makeOkStream())
+    // Verification read (empty), then a user-only persisted transcript.
+    listMessagesMock.mockResolvedValueOnce([]).mockResolvedValue([
+      {
+        id: 'srv_u',
+        conversationId: 'conv_bare',
+        role: 'user',
+        content: 'ping the server',
+        createdAt: '2026-06-08T00:00:00.000Z',
+      },
+    ])
+
+    render(<AskAiChatBody meetingDate={MEETING_DATE} anchor={null} active />)
+
+    const textarea = await screen.findByLabelText(/ask assistant message/i)
+    await user.type(textarea, 'ping the server')
+    await user.click(screen.getByRole('button', { name: /ask assistant/i }))
+
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
+    const firstId = streamMessageMock.mock.calls[0]?.[0]?.clientMessageId as
+      | string
+      | undefined
+    expect(firstId).toBeTruthy()
+
+    // The bare-user retry appears (a user turn with no assistant reply).
+    const retry = await screen.findByRole('button', { name: /^retry$/i })
+    await user.click(retry)
+
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(2))
+    // Same content AND the same client-message id — the server dedupes it.
+    expect(streamMessageMock.mock.calls[1]?.[0]).toMatchObject({
+      annotationId: 'ann_bare',
+      content: 'ping the server',
+      clientMessageId: firstId,
+    })
+  })
 })
 
 describe('<AskAiChatBody> override path still works', () => {
@@ -428,7 +479,6 @@ describe('<AskAiChatBody> override path still works', () => {
         meetingDate={MEETING_DATE}
         anchor={null}
         annotationIdOverride="ann_existing"
-        composerVariant="block"
         active
       />,
     )

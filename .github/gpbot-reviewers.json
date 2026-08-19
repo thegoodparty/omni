@@ -1,35 +1,32 @@
 {
   "_note": [
     "Reviewer routing for [GP-Bot] PRs, consumed by .github/workflows/gpbot-pr-triage.yml.",
-    "Bot PRs arrive without a human owner, so this file decides who is asked to look.",
+    "Bot PRs arrive without a human owner. This file says which rotation owns the ticket and how to reach that rotation's holder on GitHub; it does not say who the holder is.",
     "Editing it is a normal reviewable PR — that is the point of it being here rather than in workflow YAML.",
-    "Slack user groups cannot be read from GitHub Actions, so the GitHub logins below are a hand-maintained mirror of the Slack group membership."
+    "There is deliberately no reviewer pool. @serve-bugs and @win-bugs are two-week on-call rotations carrying exactly one person at a time, so the Slack group already IS the answer to 'who looks at this': the workflow reads the current holder from usergroups.users.list when the PR opens, and a handoff needs no commit here.",
+    "The only hand-maintained part is githubLogins, because GitHub Actions cannot derive a GitHub login from a Slack user. It is keyed on work email rather than the Slack U0... id: Slack returns the email from users.info, `git log --format='%ae'` and `gh api users/<login>` corroborate it from the GitHub side, and an entry a reviewer can read is an entry a reviewer can check — an opaque id can only be trusted.",
+    "A missing entry costs one un-requested review, never a wrong one: the announcement still mentions the group, which is the on-call person. Add people as they join a rotation; never guess a login."
   ],
 
   "_todo": [
-    "Split defaultReviewers across the two groups. Until a group has its own reviewers array, it falls back to defaultReviewers, which works but ignores Serve/Win ownership when picking the name.",
+    "Add `usergroups:read` to the gp_ai_bot Slack app and reinstall it. Without it usergroups.users.list answers missing_scope, so every bot PR announces to the group and requests no individual review. Reinstalling can issue a new bot token, in which case secrets.GPBOT_SLACK_BOT_TOKEN and AI_SECRETS_PROD.SLACK_BOT_TOKEN both need the new value.",
     "Confirm the Platform/Bugs routing below. It is the one list whose owner was left open."
   ],
 
-  "defaultReviewers": [
-    "swain",
-    "tomer-tgp",
-    "dealvz",
-    "oakinh",
-    "stephtea",
-    "feliksalbright",
-    "melecia-gp",
-    "bryclevgp"
-  ],
+  "githubLogins": {
+    "swain@goodparty.org": "swain",
+    "tomer@goodparty.org": "tomer-tgp",
+    "daniel@goodparty.org": "dealvz",
+    "nikao.hill@goodparty.org": "oakinh",
+    "stephen@goodparty.org": "stephtea"
+  },
 
   "groups": {
     "serve-bugs": {
-      "slackGroupId": "S0AD54G9D3K",
-      "reviewers": []
+      "slackGroupId": "S0AD54G9D3K"
     },
     "win-bugs": {
-      "slackGroupId": "S0AE3NTCXM3",
-      "reviewers": []
+      "slackGroupId": "S0AE3NTCXM3"
     }
   },
 

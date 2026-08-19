@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
 import {
   DoorKnockStatus,
+  NotAVoterReason,
   RoutePayloadStop,
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
@@ -10,7 +10,14 @@ import { IconButton, MapPinIcon, XMarkIcon } from '@styleguide'
 import RecordKnockForm from './RecordKnockForm'
 import DoorScript from './DoorScript'
 import { useDoorScript } from './useDoorScript'
-import { STATUS_DOT_COLORS, STATUS_LABELS } from './statusPresentation'
+import DoNotKnockControl from './DoNotKnockControl'
+import NotAVoterControl from './NotAVoterControl'
+import ActivityFeedCard from './ActivityFeedCard'
+import {
+  STATUS_DOT_COLORS,
+  STATUS_LABELS,
+  targetMarker,
+} from './statusPresentation'
 
 const StatusDot = ({ status }: { status: DoorKnockStatus }) => (
   <span
@@ -19,15 +26,34 @@ const StatusDot = ({ status }: { status: DoorKnockStatus }) => (
   />
 )
 
+// ADR 0007 and 0008. Both rosters below list a flagged resident alongside
+// people who are still to knock, so both replace the status with the marker —
+// the same rule the walk list follows. Without it the stop list says "Do not
+// knock" and this sheet, one tap later, says "Support unknown" about the same
+// person: two answers to the same question, which is the contradiction the
+// marker exists to prevent.
+const ResidentMarker = ({ marker }: { marker: string }) => (
+  <span className="shrink-0 text-xs font-medium text-warning">{marker}</span>
+)
+
 interface PersonSheetProps {
   stop: RoutePayloadStop
-  initialTargetId: number
+  // Controlled by WalkView rather than held here, because auto-advance moves
+  // between residents of one household without the sheet closing — internal
+  // state would keep showing the person who was just logged.
+  selectedTargetId: number
+  onSelectTarget: (targetId: number) => void
   statusFor: (target: RoutePayloadTarget) => DoorKnockStatus
   clientKeyFor: (targetId: number) => string
   onRecorded: (
     targetId: number,
     personId: string,
     knockStatus: DoorKnockStatus,
+  ) => void
+  onDoNotKnockChanged: (personId: string, doNotKnock: boolean) => void
+  onNotAVoterChanged: (
+    personId: string,
+    reason: NotAVoterReason | undefined,
   ) => void
   onClose: () => void
 }
@@ -56,17 +82,19 @@ const PhoneRow = ({ label, phone }: { label: string; phone: string }) => (
 
 export default function PersonSheet({
   stop,
-  initialTargetId,
+  selectedTargetId,
+  onSelectTarget,
   statusFor,
   clientKeyFor,
   onRecorded,
+  onDoNotKnockChanged,
+  onNotAVoterChanged,
   onClose,
 }: PersonSheetProps) {
   const targets = stop.addresses.flatMap((address) => address.targets)
   const script = useDoorScript()
-  const [selectedId, setSelectedId] = useState(initialTargetId)
   const target =
-    targets.find((candidate) => candidate.stopTargetId === selectedId) ??
+    targets.find((candidate) => candidate.stopTargetId === selectedTargetId) ??
     targets[0]
   if (!target) return null
   const otherResidents = stop.addresses.flatMap(
@@ -83,9 +111,6 @@ export default function PersonSheet({
       />
       <div className="fixed z-40 flex flex-col bg-background shadow-xl max-lg:inset-x-0 max-lg:bottom-0 max-lg:max-h-[85dvh] max-lg:rounded-t-xl lg:bottom-0 lg:right-0 lg:top-0 lg:w-[430px] lg:border-l lg:border-border">
         <div className="flex items-start gap-3 border-b border-border p-4">
-          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-info text-sm font-semibold text-primary-foreground">
-            {stop.seq}
-          </span>
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-xl font-semibold">
               {target.name ?? 'Name unavailable'}
@@ -107,22 +132,31 @@ export default function PersonSheet({
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {targets.length > 1 && (
             <div className="mb-4 flex gap-1.5 overflow-x-auto rounded-lg bg-muted p-1.5">
-              {targets.map((candidate) => (
-                <button
-                  key={candidate.stopTargetId}
-                  type="button"
-                  aria-pressed={candidate.stopTargetId === selectedId}
-                  className={`flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm ${
-                    candidate.stopTargetId === selectedId
-                      ? 'border border-border bg-background font-medium shadow-sm'
-                      : ''
-                  }`}
-                  onClick={() => setSelectedId(candidate.stopTargetId)}
-                >
-                  {candidate.name ?? 'Unnamed'}
-                  <StatusDot status={statusFor(candidate)} />
-                </button>
-              ))}
+              {targets.map((candidate) => {
+                const marker = targetMarker(candidate)
+                return (
+                  <button
+                    key={candidate.stopTargetId}
+                    type="button"
+                    aria-pressed={
+                      candidate.stopTargetId === target.stopTargetId
+                    }
+                    className={`flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm ${
+                      candidate.stopTargetId === target.stopTargetId
+                        ? 'border border-border bg-background font-medium shadow-sm'
+                        : ''
+                    }`}
+                    onClick={() => onSelectTarget(candidate.stopTargetId)}
+                  >
+                    {candidate.name ?? 'Unnamed'}
+                    {marker ? (
+                      <ResidentMarker marker={marker} />
+                    ) : (
+                      <StatusDot status={statusFor(candidate)} />
+                    )}
+                  </button>
+                )
+              })}
             </div>
           )}
 
@@ -172,20 +206,27 @@ export default function PersonSheet({
               Household
             </h3>
             <div className="flex flex-col gap-2 p-4 text-sm">
-              {targets.map((member) => (
-                <div
-                  key={member.stopTargetId}
-                  className="flex items-center justify-between"
-                >
-                  <span className="truncate">
-                    {member.name ?? 'Name unavailable'}
-                  </span>
-                  <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-                    <StatusDot status={statusFor(member)} />
-                    {STATUS_LABELS[statusFor(member)]}
-                  </span>
-                </div>
-              ))}
+              {targets.map((member) => {
+                const marker = targetMarker(member)
+                return (
+                  <div
+                    key={member.stopTargetId}
+                    className="flex items-center justify-between"
+                  >
+                    <span className="truncate">
+                      {member.name ?? 'Name unavailable'}
+                    </span>
+                    {marker ? (
+                      <ResidentMarker marker={marker} />
+                    ) : (
+                      <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                        <StatusDot status={statusFor(member)} />
+                        {STATUS_LABELS[statusFor(member)]}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
               {otherResidents.map((resident, index) => (
                 <div
                   key={`${resident.name ?? 'resident'}-${index}`}
@@ -199,21 +240,84 @@ export default function PersonSheet({
               ))}
             </div>
           </section>
+
+          {/* ADR 0009. Scoped to `target`, so switching resident switches the
+              feed — two people behind one door disagree, and attributing a
+              housemate's refusal to whoever answered is worse than showing
+              nothing.
+
+              Here in the scrolling body with the other reference cards, not in
+              the footer with the script and the form. That is what makes it
+              survive a flag: the footer is the acting half of the sheet and is
+              withheld for a do-not-knock or not-a-voter resident, while this
+              half describes the person and always renders. Deliberate, not
+              incidental — the feed is the only place the flag's own
+              STATUS_CHANGE row appears, naming who set it and when. Withholding
+              it on flagged residents would hide the provenance of the flag from
+              exactly the person standing there wondering whether it is right,
+              and a mis-tapped do-not-knock would then be unfalsifiable from the
+              door. Suppressing the form stops a knock; suppressing the history
+              stops someone noticing a mistake.
+
+              Being outside the footer fragment is also why it carries no key:
+              it has no mutating siblings to collide with. Moving it in there
+              would need one namespaced like `not-a-voter-` and `do-not-knock-`
+              are. */}
+          <ActivityFeedCard history={target.history ?? []} />
         </div>
 
         <div className="flex flex-col gap-3 border-t border-border p-4">
-          {/* Above the form, because it's what the canvasser says before there
-              is anything to log. */}
-          <DoorScript intro={script.intro} issues={script.issues} />
-          <h3 className="text-base font-semibold">Log this door</h3>
-          <RecordKnockForm
-            key={target.stopTargetId}
-            target={target}
-            clientKey={clientKeyFor(target.stopTargetId)}
-            onRecorded={(personId, knockStatus) =>
-              onRecorded(target.stopTargetId, personId, knockStatus)
-            }
-          />
+          {/* ADR 0007 and 0008. The script and the form are withheld rather
+              than disabled: a flagged door has nothing to say and nothing to
+              log, and an inert set of pills invites someone to work out why
+              they don't respond. Do-not-knock is checked first because it is
+              the stronger instruction — it is about the door, not the
+              resident. */}
+          {target.doNotKnock ? (
+            <DoNotKnockControl
+              key={target.stopTargetId}
+              target={target}
+              onChanged={onDoNotKnockChanged}
+            />
+          ) : target.notAVoterReason ? (
+            <NotAVoterControl
+              key={target.stopTargetId}
+              target={target}
+              onChanged={onNotAVoterChanged}
+            />
+          ) : (
+            <>
+              {/* Above the form, because it's what the canvasser says before
+                  there is anything to log. */}
+              <DoorScript intro={script.intro} issues={script.issues} />
+              <h3 className="text-base font-semibold">Log this door</h3>
+              <RecordKnockForm
+                key={target.stopTargetId}
+                target={target}
+                clientKey={clientKeyFor(target.stopTargetId)}
+                onRecorded={(personId, knockStatus) =>
+                  onRecorded(target.stopTargetId, personId, knockStatus)
+                }
+              />
+              {/* Below the form, because it is a follow-up to what the form
+                  just recorded — it renders nothing until this door is logged
+                  as `not_a_voter`. */}
+              <NotAVoterControl
+                key={`not-a-voter-${target.stopTargetId}`}
+                target={target}
+                onChanged={onNotAVoterChanged}
+              />
+              {/* Namespaced: a bare stopTargetId would collide with the
+                  form's key above, and React reconciles same-key siblings as
+                  one child. All three still need a key so each resets its
+                  mutation state when the canvasser switches resident. */}
+              <DoNotKnockControl
+                key={`do-not-knock-${target.stopTargetId}`}
+                target={target}
+                onChanged={onDoNotKnockChanged}
+              />
+            </>
+          )}
         </div>
       </div>
     </>
