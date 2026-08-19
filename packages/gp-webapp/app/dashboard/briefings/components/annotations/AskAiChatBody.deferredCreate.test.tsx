@@ -32,7 +32,7 @@ vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
 
 // `useDictationAppend` reaches for browser APIs; stub it to a no-op for
 // these unit tests.
-vi.mock('../../shared/useDictationAppend', () => ({
+vi.mock('../../../shared/dictation/useDictationAppend', () => ({
   useDictationAppend: () => ({
     isRecording: false,
     error: null,

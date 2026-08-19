@@ -2,6 +2,7 @@ import { HttpModule } from '@nestjs/axios'
 import { forwardRef, Module } from '@nestjs/common'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
+import { LlmModule } from '@/llm/llm.module'
 import { AiModule } from 'src/ai/ai.module'
 import { EmailModule } from 'src/email/email.module'
 import { PurchaseType } from 'src/payments/purchase.types'
@@ -15,11 +16,15 @@ import { PaymentsModule } from '../payments/payments.module'
 import { PeerlyModule } from '../vendors/peerly/peerly.module'
 import { VotersModule } from '../voters/voters.module'
 import { OutreachController } from './outreach.controller'
+import { OutreachSocialController } from './outreachSocial.controller'
 import { OutreachNotificationInterceptor } from './interceptors/outreachNotification.interceptor'
 import { OutreachCompletionService } from './services/outreachCompletion.service'
 import { OutreachInboundSweepService } from './services/outreachInboundSweep.service'
 import { OutreachMaterializationService } from './services/outreachMaterialization.service'
 import { OutreachService } from './services/outreach.service'
+import { OutreachSocialService } from './services/outreachSocial.service'
+import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
+import { OutreachComposeContextService } from './services/outreachComposeContext.service'
 import { OutreachNotificationService } from './services/outreachNotification.service'
 import { OutreachPurchaseHandlerService } from './services/outreachPurchase.service'
 
@@ -37,6 +42,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     forwardRef(() => VotersModule),
     GoogleModule,
     AiModule,
+    LlmModule,
     SlackModule,
     // ContactsModule pulls in CampaignsModule (and onward to Peerly), which
     // loops back to Outreach — defer this edge so the module graph resolves.
@@ -44,9 +50,12 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OrganizationsModule,
     ContactInteractionModule,
   ],
-  controllers: [OutreachController],
+  controllers: [OutreachController, OutreachSocialController],
   providers: [
     OutreachService,
+    OutreachSocialService,
+    OutreachSocialGenerationService,
+    OutreachComposeContextService,
     OutreachCompletionService,
     OutreachInboundSweepService,
     OutreachNotificationService,

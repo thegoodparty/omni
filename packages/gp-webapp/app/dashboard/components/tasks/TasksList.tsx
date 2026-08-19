@@ -42,7 +42,6 @@ import { buildTrackingAttrs, EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { identifyUser } from '@shared/utils/analytics'
 import WeeklyTaskNavigator, { formatWeekLabel } from './WeeklyTaskNavigator'
 import { useWeekNavigation } from './useWeekNavigation'
-import { useP2pUxEnabled } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
 import { Campaign, TcrCompliance } from 'helpers/types'
 import { useUser } from '@shared/hooks/useUser'
 import { isValidOutreachType } from 'app/dashboard/outreach/util/getEffectiveOutreachType'
@@ -83,7 +82,6 @@ const TasksList = ({
   tcrCompliance,
 }: TasksListProps): React.JSX.Element => {
   const router = useRouter()
-  const { p2pUxEnabled } = useP2pUxEnabled()
   const [tasks, setTasks] = useState<Task[]>(tasksProp)
 
   useEffect(() => {
@@ -455,7 +453,7 @@ const TasksList = ({
         )
         return
       }
-      if (p2pUxEnabled && !isTextCompliant) {
+      if (!isTextCompliant) {
         trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceModalViewed, {
           source: 'task_list',
         })
@@ -714,7 +712,7 @@ const TasksList = ({
           if (!isPro) return P2P_MODAL_VARIANTS.NonProUpgrade
           const isTextCompliant =
             tcrCompliance?.status === TCR_COMPLIANCE_STATUS.APPROVED
-          if (p2pUxEnabled && hasFreeTextsOffer && !isTextCompliant) {
+          if (hasFreeTextsOffer && !isTextCompliant) {
             return P2P_MODAL_VARIANTS.ProFreeTextsNonCompliant
           }
           return P2P_MODAL_VARIANTS.NonProUpgrade
@@ -723,13 +721,11 @@ const TasksList = ({
         onUpgradeLinkClick={undefined}
         trackingAttrs={p2pTrackingAttrs}
       />
-      {p2pUxEnabled && (
-        <ComplianceModal
-          open={showComplianceModal}
-          tcrComplianceStatus={tcrCompliance?.status}
-          onClose={() => setShowComplianceModal(false)}
-        />
-      )}
+      <ComplianceModal
+        open={showComplianceModal}
+        tcrComplianceStatus={tcrCompliance?.status}
+        onClose={() => setShowComplianceModal(false)}
+      />
       {flowModalTask && (
         <TaskFlow
           forceOpen

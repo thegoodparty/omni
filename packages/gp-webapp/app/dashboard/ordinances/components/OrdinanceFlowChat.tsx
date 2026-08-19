@@ -27,7 +27,7 @@ import {
 import { segmentsTextLength } from '../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll'
-import { useDictationAppend } from '../../briefings/shared/useDictationAppend'
+import { useDictationAppend } from '../../shared/dictation/useDictationAppend'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { buildOrdinanceAnchor } from '../data/anchor'
 import { ordinanceFlowChatApi } from '../data/chat-api'

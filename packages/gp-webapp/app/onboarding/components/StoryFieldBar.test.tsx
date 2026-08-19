@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import type { UseDictationAppendResult } from 'app/dashboard/briefings/shared/useDictationAppend'
-import type { DictationStatus } from 'app/dashboard/briefings/shared/useDictation'
+import type { UseDictationAppendResult } from 'app/dashboard/shared/dictation/useDictationAppend'
+import type { DictationStatus } from 'app/dashboard/shared/dictation/useDictation'
 import type { StoryRewrite } from 'app/dashboard/campaign-story/components/useStoryRewrite'
 import StoryFieldBar from './StoryFieldBar'
 

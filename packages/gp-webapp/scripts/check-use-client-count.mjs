@@ -180,10 +180,16 @@ import { dirname, join, relative } from 'node:path'
 // inside the client-only PersonSheet. The paper surfaces read the same reason
 // through statusPresentation.ts, which stays directive-free so print/ keeps its
 // zero.
-// 2026-08-19: 567 -> 568 for campaign-manager/GetOnBallotCard.tsx — the
+// 2026-08-11: 567 -> 580 for Voter Outreach 2.0 phase 1: the flag-gated hub
+// (gate, hub page, tile grid, history table, details drawer), the sheet/flow
+// shell, the four social-flow steps + flow + thinking stream, and the shared
+// asset cards / detail-fetch hook are all interactive drawer/wizard surfaces
+// (flag reads, mutations, flow state) that can't be server components. Net
+// +13 after deleting P2pUxEnabledProvider + useTcrComplianceCheck.
+// 2026-08-19: 580 -> 581 for campaign-manager/GetOnBallotCard.tsx — the
 // ballot-access prompt card reads the campaign from context and persists its
 // own skip in localStorage, so it can't render on the server.
-const BASELINE = 568
+const BASELINE = 581
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

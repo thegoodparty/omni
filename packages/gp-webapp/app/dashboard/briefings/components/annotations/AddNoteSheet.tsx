@@ -11,8 +11,8 @@ import {
   DrawerTitle,
   Textarea,
 } from '@styleguide'
-import { useDictationAppend } from '../../shared/useDictationAppend'
-import { DictationMicButton } from '../../shared/DictationMicButton'
+import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
+import { DictationMicButton } from '../../../shared/dictation/DictationMicButton'
 import { DictationFeedback } from '../../shared/DictationFeedback'
 import { useIsMobile } from '@styleguide/hooks/use-mobile'
 import { reportErrorToSentry } from '@shared/sentry'

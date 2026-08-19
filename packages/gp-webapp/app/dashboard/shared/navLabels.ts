@@ -42,4 +42,5 @@ export const NAV_LABELS = {
   campaignPlan: 'Campaign Plan',
   knowYourOpponent: 'Know Your Opponent',
   publicProfile: 'Public Profile',
+  voterOutreach: 'Voter Outreach',
 } as const

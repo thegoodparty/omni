@@ -16,7 +16,7 @@ import {
 import { segmentsToLive } from '../agent-chat/streaming'
 import { useStreamingTurn } from '../agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../agent-chat/usePinnedAutoScroll'
-import { useDictationAppend } from 'app/dashboard/briefings/shared/useDictationAppend'
+import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import type { AiChatClient, AiChatConfig } from './types'
 import { CHAT_MAX_W } from './constants'
 import AiChatHistoryPopover from './AiChatHistoryPopover'

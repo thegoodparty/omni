@@ -22,7 +22,7 @@ import {
 import { segmentsToLive } from '../../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
-import { useDictationAppend } from '../../../briefings/shared/useDictationAppend'
+import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
 import { reportErrorToSentry } from '@shared/sentry'
 import { chiefOfStaffChatApi } from '../../data/chat-api'
 import type {

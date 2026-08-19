@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { screen, fireEvent } from '@testing-library/react'
 import { ChatComposer } from './chatUI'
-import type { UseDictationAppendResult } from '../../briefings/shared/useDictationAppend'
+import type { UseDictationAppendResult } from '../dictation/useDictationAppend'
 
 const makeDictation = (
   over: Partial<UseDictationAppendResult> = {},
