@@ -907,7 +907,6 @@ describe('ElectionsService', () => {
             official_office_name: null,
             primary_election_date: null,
             projected_turnout: 200,
-            projected_voter_turnout: 200,
             registered_voters: 900,
             unique_cellphones: 500,
             unique_landlines: 300,
