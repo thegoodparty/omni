@@ -16,6 +16,15 @@ const CampaignDetailsSchema = z
     zip: z.string(),
     knowRun: z.enum(['yes']),
     runForOffice: z.enum(['yes', 'no']),
+    // Onboarding's "Are you already on the ballot?" answer. Read by the
+    // Campaign Manager to coach ballot access, so it has to survive this
+    // allowlist (an omitted key is stripped, not rejected).
+    ballotStatus: z.enum([
+      'on-ballot',
+      'qualified-not-filed',
+      'considering',
+      'testing',
+    ]),
     pledged: z.boolean(),
     customIssues: z.array(
       z.object({

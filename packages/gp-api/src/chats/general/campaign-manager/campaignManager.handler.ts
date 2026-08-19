@@ -1,5 +1,9 @@
 import { Inject, Injectable, Optional } from '@nestjs/common'
-import { differenceInCalendarWeeks, parseISO } from 'date-fns'
+import {
+  differenceInCalendarDays,
+  differenceInCalendarWeeks,
+  parseISO,
+} from 'date-fns'
 import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
@@ -39,6 +43,8 @@ import { buildDescribeFilterDimensionsTool } from '../crm-tools/describeFilterDi
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import { ElectionsService } from '@/elections/services/elections.service'
+import { buildGetBallotRequirementsTool } from './getBallotRequirements.tool'
 
 // Sensitive scope: the agent is grounded in the candidate's own campaign data,
 // so it runs Anthropic-only. The registry fails closed on any non-claude model.
@@ -145,19 +151,35 @@ const EMPTY_STORY_STATE: StoryState = {
 // same cohorts as the UI.
 export const WIN_CRM_FLAG = 'win-crm'
 
+// Native web search only exists when the Anthropic key is configured. Read in
+// one place so the prompt's guidance and the tool registration can never
+// disagree about whether the manager can search.
+const webSearchAvailable = (): boolean => !!process.env.ANTHROPIC_API_KEY
+
 const EMPTY_CONTEXT: CampaignManagerContext = {
   candidateFirstName: null,
   candidateName: '',
   campaignId: null,
   officeName: null,
+  district: null,
+  officeLevel: null,
   location: null,
   weeksToElection: null,
+  ballotStatus: null,
+  filingPeriodStart: null,
+  filingPeriodEnd: null,
+  daysToFilingDeadline: null,
   topTasks: [],
   districtFilters: null,
   constituentToolEnabled: false,
   organization: null,
   crmToolsEnabled: false,
   savedFilterToolsEnabled: false,
+  raceId: null,
+  // Overridden by the early-return sites below: web search does not depend on
+  // the campaign resolving, so a campaign we could not load must not silently
+  // lose it.
+  webSearchEnabled: false,
   story: null,
   plan: null,
 }
@@ -187,6 +209,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     private readonly contacts?: ContactsService,
     @Optional()
     private readonly voterFileFilters?: VoterFileFilterService,
+    @Optional()
+    private readonly elections?: ElectionsService,
   ) {}
 
   // The manager is a single ongoing conversation, not one per open: resume the
@@ -251,6 +275,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     return buildCampaignManagerGreeting(campaign.user?.firstName)
   }
 
+  private emptyContext(): CampaignManagerContext {
+    return { ...EMPTY_CONTEXT, webSearchEnabled: webSearchAvailable() }
+  }
+
   async loadContext(
     conversationId: string,
     userId: number,
@@ -259,13 +287,13 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       where: { id: conversationId, ownerUserId: userId },
     })
     const organizationSlug = conversation?.organizationSlug
-    if (!organizationSlug) return EMPTY_CONTEXT
+    if (!organizationSlug) return this.emptyContext()
 
     const campaign = await this.campaigns.client.campaign.findFirst({
       where: { organizationSlug },
       include: { user: true },
     })
-    if (!campaign) return EMPTY_CONTEXT
+    if (!campaign) return this.emptyContext()
 
     const tasks = await this.campaigns.client.campaignTrackerTask.findMany({
       where: { campaignId: campaign.id },
@@ -285,6 +313,12 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     const electionDate = details.electionDate ?? details.primaryElectionDate
     const location =
       [details.city, details.state].filter(Boolean).join(', ') || null
+    // Onboarding writes this answer to both details.ballotStatus and
+    // data.onboarding.ballotStatus. Fall back to the onboarding copy for
+    // candidates who answered before details.ballotStatus was allowed through
+    // the update schema, since those rows only have the second one.
+    const ballotStatus =
+      details.ballotStatus ?? campaign.data.onboarding?.ballotStatus ?? null
 
     // Scope constituent queries to the campaign's district (from its org's
     // position), same shape Chief of Staff uses. Resolving the flag only when
@@ -324,9 +358,20 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       candidateName,
       campaignId: campaign.id,
       officeName: details.normalizedOffice ?? null,
+      district: details.district ?? null,
+      officeLevel: details.level ?? null,
       location,
       weeksToElection: electionDate
         ? differenceInCalendarWeeks(parseISO(electionDate), new Date())
+        : null,
+      ballotStatus,
+      filingPeriodStart: details.filingPeriodsStart ?? null,
+      filingPeriodEnd: details.filingPeriodsEnd ?? null,
+      daysToFilingDeadline: details.filingPeriodsEnd
+        ? differenceInCalendarDays(
+            parseISO(details.filingPeriodsEnd),
+            new Date(),
+          )
         : null,
       topTasks: selectTopDynamicTasks(tasks).map((t) => ({
         title: t.title,
@@ -337,6 +382,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       organization,
       crmToolsEnabled,
       savedFilterToolsEnabled,
+      raceId: details.raceId ?? null,
+      webSearchEnabled: webSearchAvailable(),
       story,
       plan,
     }
@@ -362,9 +409,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     const tools: Record<string, LlmTool> = {}
 
     // Web search runs through Anthropic's native tool (the scope is Claude-only)
-    // so queries stay within the enterprise agreement. Gated on the key here so
-    // the system prompt never advertises a tool that was not registered.
-    if (process.env.ANTHROPIC_API_KEY) {
+    // so queries stay within the enterprise agreement. Registration reads the
+    // same ctx flag the prompt's ballot guidance reads, so the prompt can never
+    // advertise a search tool that was not registered.
+    if (ctx.webSearchEnabled) {
       tools.web_search = { kind: 'native_web_search', maxUses: 5 }
     }
 
@@ -391,6 +439,17 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
           scope,
         })
       }
+    }
+
+    // BallotReady filing requirements for the candidate's own race, bound to
+    // the campaign's race hash. Registered whenever the race resolved, not
+    // gated on ballot status: a candidate who already filed can still ask what
+    // their filing office needs, and the prompt decides when to lead with it.
+    if (this.elections && ctx.raceId) {
+      tools.get_ballot_requirements = buildGetBallotRequirementsTool({
+        elections: this.elections,
+        raceId: ctx.raceId,
+      })
     }
 
     // Campaign Story intake: read/elaborate/save the candidate's story and,

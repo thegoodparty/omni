@@ -12,8 +12,14 @@ const ctx = (
   candidateName: 'Renee Diaz',
   campaignId: 1,
   officeName: 'City Council',
+  district: null,
+  officeLevel: null,
   location: 'Springfield, IL',
   weeksToElection: 7,
+  ballotStatus: null,
+  filingPeriodStart: null,
+  filingPeriodEnd: null,
+  daysToFilingDeadline: null,
   topTasks: [
     {
       title: 'Knock 50 doors in Ward 3',
@@ -29,6 +35,8 @@ const ctx = (
   organization: null,
   crmToolsEnabled: false,
   savedFilterToolsEnabled: false,
+  raceId: null,
+  webSearchEnabled: true,
   story: null,
   plan: null,
   ...over,
@@ -196,6 +204,148 @@ describe('buildCampaignManagerSystemPrompt', () => {
     )
     expect(prompt).toContain('finished their Campaign Story')
     expect(prompt).not.toContain('one at a time')
+  })
+
+  it('says nothing about ballot status when the candidate never answered', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).not.toContain('already on the ballot')
+  })
+
+  it('carries the ballot-access playbook for a qualified-not-filed candidate', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ ballotStatus: 'qualified-not-filed' }),
+    )
+    expect(prompt).toContain('have NOT filed yet')
+    expect(prompt).toContain('Getting on the ballot is the single most')
+    expect(prompt).toContain('web_search')
+    expect(prompt).not.toContain('has not committed to running yet')
+  })
+
+  it('carries the playbook plus the still-deciding caveat when considering', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ ballotStatus: 'considering' }),
+    )
+    expect(prompt).toContain('Getting on the ballot is the single most')
+    expect(prompt).toContain('has not committed to running yet')
+  })
+
+  it('states the filing period close as the deadline, with days remaining', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        ballotStatus: 'qualified-not-filed',
+        filingPeriodStart: '2026-09-01',
+        filingPeriodEnd: '2026-09-15',
+        daysToFilingDeadline: 27,
+      }),
+    )
+    expect(prompt).toContain('Filing opens 2026-09-01')
+    expect(prompt).toContain('filing deadline for this race is 2026-09-15')
+    expect(prompt).toContain('27 days from today')
+    expect(prompt).toContain('best source available')
+    expect(prompt).toContain('confirm it with the filing office')
+  })
+
+  it('singularizes the day count on the last day', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        ballotStatus: 'qualified-not-filed',
+        filingPeriodEnd: '2026-09-15',
+        daysToFilingDeadline: 1,
+      }),
+    )
+    expect(prompt).toContain('1 day from today')
+  })
+
+  it('flags a passed deadline as ambiguous rather than as time remaining', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        ballotStatus: 'qualified-not-filed',
+        filingPeriodEnd: '2026-01-15',
+        daysToFilingDeadline: -40,
+      }),
+    )
+    expect(prompt).toContain('has already passed')
+    expect(prompt).toContain('the record is stale')
+    expect(prompt).not.toContain('day from today')
+    expect(prompt).not.toContain('days from today')
+  })
+
+  it('says the deadline is unknown when the race has no filing period', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ ballotStatus: 'qualified-not-filed', filingPeriodEnd: null }),
+    )
+    expect(prompt).toContain('no filing period')
+    expect(prompt).toContain('never guess a date')
+  })
+
+  it('states the other ballot answers without the filing playbook', () => {
+    for (const status of ['on-ballot', 'testing'] as const) {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({ ballotStatus: status }),
+      )
+      expect(prompt).toContain('already on the ballot. They answered')
+      expect(prompt).not.toContain('Getting on the ballot is the single most')
+    }
+  })
+
+  it('puts the office, district, and level in the race context', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ district: 'Ward 3', officeLevel: 'city' }),
+    )
+    expect(prompt).toContain('District: Ward 3')
+    expect(prompt).toContain('Office level: city')
+  })
+
+  it('sends the manager to BallotReady before web search when a race resolved', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ ballotStatus: 'qualified-not-filed', raceId: 'br-hash-1' }),
+    )
+    expect(prompt).toContain('call get_ballot_requirements FIRST')
+    expect(prompt).toContain('fill what it leaves null')
+  })
+
+  it('falls back to web search when the campaign has no race record', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ ballotStatus: 'qualified-not-filed', raceId: null }),
+    )
+    expect(prompt).toContain('no BallotReady race record')
+    expect(prompt).not.toContain('call get_ballot_requirements FIRST')
+    expect(prompt).toContain('Use web_search for any ballot-access question')
+  })
+
+  it('does not advertise the ballot tool to a candidate already on the ballot', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ ballotStatus: 'on-ballot', raceId: 'br-hash-1' }),
+    )
+    expect(prompt).not.toContain('get_ballot_requirements')
+  })
+
+  it('falls back to web search for what BallotReady leaves null', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        ballotStatus: 'qualified-not-filed',
+        raceId: 'br-hash-1',
+        webSearchEnabled: true,
+      }),
+    )
+    expect(prompt).toContain('call get_ballot_requirements FIRST')
+    expect(prompt).toContain('Use web_search to fill what it leaves null')
+    expect(prompt).toContain('noDataFound')
+  })
+
+  it('never mentions web search when the search tool is not registered', () => {
+    for (const raceId of ['br-hash-1', null]) {
+      const prompt = buildCampaignManagerSystemPrompt(
+        ctx({
+          ballotStatus: 'qualified-not-filed',
+          raceId,
+          webSearchEnabled: false,
+        }),
+      )
+      expect(prompt).not.toContain('web_search')
+      expect(prompt).toContain('no web-search tool on this turn')
+      expect(prompt).toContain('Never fill a gap from memory')
+    }
   })
 
   it('never invents facts (candidate-in-control guardrail)', () => {

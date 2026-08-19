@@ -27,6 +27,15 @@ export const buildCampaignManagerIntro = (
   'How can I help today?',
 ]
 
+// The hidden kickoff the "Let's get you on the ballot" home card fires. Unlike
+// the story and product-overview sentinels this is real English sent straight
+// to the model: the answer has to be specific to the candidate's office and
+// state, so it runs a normal LLM turn against the ballot-access guidance in the
+// system prompt rather than a canned reply. Hidden from the transcript so the
+// manager reads as opening the topic itself.
+export const CAMPAIGN_MANAGER_BALLOT_KICKOFF =
+  'How do I get on the ballot for my race?'
+
 export const campaignManagerChatApi = createAgentChatClient(
   'campaign_assistant',
   'campaign-manager-chat',
