@@ -194,10 +194,19 @@ test.describe('Saved list lifecycle', () => {
 
     // Re-select the saved list: it reproduces the searched-down view by
     // re-applying the stored search to the query param and the search box.
-    await applyContactsQuery(page, async () => {
-      await segmentSelect(page).click({ timeout: 5000 })
-      await page.getByRole('option', { name: listName }).click()
-    })
+    //
+    // Deliberately not applyContactsQuery. Creating the list above already
+    // selected it and applied its stored search, so this exact
+    // segment-plus-search combination is already in the React Query cache —
+    // and the contacts query is held for 5 minutes with refetchOnMount off, a
+    // window this test cannot outlast. Re-selecting is therefore a cache hit
+    // that renders the right rows while issuing no request at all, so waiting
+    // for one times out. What the step is actually asserting is the state
+    // below.
+    await segmentSelect(page).click({ timeout: 5000 })
+    await page.getByRole('option', { name: listName }).click()
+    await waitForContactsTableReady(page)
+
     await expect(page).toHaveURL(/[?&]query=Smith/, { timeout: 15000 })
     await expect(searchInput(page)).toHaveValue(searchValue, { timeout: 10000 })
   })
