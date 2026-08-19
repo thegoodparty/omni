@@ -6,8 +6,12 @@ export type DimSelections = Map<string, Set<number>>
 
 export interface FilterResult {
   people: number
-  households: number
-  dots: number
+  // Present only on a district-wide pass. `maskToPolygon` leaves it off
+  // because no surface reads a household count off a masked result: the one
+  // reader is the create flow's `districtHouseholds`, which renders only while
+  // the flow is open, and the mask runs only while it is closed. Optional
+  // rather than a sentinel so that interlock is the compiler's to enforce.
+  households?: number
   // Matched people per dot — a dot with 0 renders dimmed.
   matchedPerDot: Uint32Array
   // Most-actionable canvass status byte among each dot's matched people.
@@ -77,12 +81,7 @@ export const runFilter = (
     }
   }
 
-  let dots = 0
-  for (let i = 0; i < dotCount; i++) {
-    if ((matchedPerDot[i] ?? 0) > 0) dots++
-  }
-
-  return { people, households, dots, matchedPerDot, statusPerDot }
+  return { people, households, matchedPerDot, statusPerDot }
 }
 
 export interface PartySlice {
@@ -176,9 +175,7 @@ export const canvassStatusCounts = (
 //
 // The households count is person-level exact — a household counts only when a
 // person in it survives the filter — so it matches what runFilter would report
-// for the same audience, restricted to the ring. That is deliberately stricter
-// than maskToPolygon's dot-granular rollup, which counts every household
-// sharing a matched coordinate and is documented as a slight overcount.
+// for the same audience, restricted to the ring.
 export const polygonStats = (
   pack: DecodedPack,
   selections: DimSelections,
@@ -230,14 +227,14 @@ export const polygonStats = (
 }
 
 // Restrict a filter result to the dots inside a turf polygon: dots outside
-// zero out (they render as unmatched grey) and the counts describe only the
-// turf. Used when a saved list is selected on the landing map.
+// zero out (they render as unmatched grey) and the people count describes only
+// the turf. Used when a saved list is selected on the landing map.
 export const maskToPolygon = (
   pack: DecodedPack,
   result: FilterResult,
   ring: Array<[number, number]>,
 ): FilterResult => {
-  const { positions, householdToDot } = pack
+  const { positions } = pack
   let minX = Infinity
   let minY = Infinity
   let maxX = -Infinity
@@ -251,7 +248,6 @@ export const maskToPolygon = (
   const matchedPerDot = new Uint32Array(result.matchedPerDot.length)
   const statusPerDot = new Uint8Array(result.statusPerDot.length).fill(255)
   let people = 0
-  let dots = 0
   for (let i = 0; i < result.matchedPerDot.length; i++) {
     const matched = result.matchedPerDot[i] ?? 0
     if (matched === 0) continue
@@ -262,17 +258,8 @@ export const maskToPolygon = (
     matchedPerDot[i] = matched
     statusPerDot[i] = result.statusPerDot[i] ?? 255
     people += matched
-    dots++
   }
-  // Household count is dot-granular here (any household at a matched dot),
-  // a slight overcount vs runFilter's person-level rollup — fine for the
-  // rail readout, and the canonical count is knock-time evaluation anyway.
-  let households = 0
-  for (let h = 0; h < householdToDot.length; h++) {
-    const dot = householdToDot[h] ?? 0
-    if ((matchedPerDot[dot] ?? 0) > 0) households++
-  }
-  return { people, households, dots, matchedPerDot, statusPerDot }
+  return { people, matchedPerDot, statusPerDot }
 }
 
 const pointInRing = (

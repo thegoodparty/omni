@@ -46,9 +46,10 @@ export const STATUS_DOT_COLORS: Record<DoorKnockStatus, string> =
     ]),
   ) as Record<DoorKnockStatus, string>
 
-// Most-actionable-first rollup, mirroring the server's rollupStopStatus:
-// an 'unknown' person keeps the whole stop knockable, and an empty stop
-// rolls up to 'unknown' — no seed value, so no divergence from the server.
+// Most-actionable-first rollup, and the only one: an 'unknown' person keeps the
+// whole stop knockable, and an empty stop rolls up to 'unknown'. The ranking is
+// `DOOR_KNOCK_STATUSES`' own order rather than a second table beside it, so a
+// status added to the vocabulary cannot arrive unranked.
 const rollupStatuses = (statuses: DoorKnockStatus[]): DoorKnockStatus =>
   statuses.length === 0
     ? 'unknown'
@@ -73,6 +74,19 @@ export const rollupStopStatus = (stop: RoutePayloadStop): DoorKnockStatus =>
       address.targets.filter(isKnockable).map((target) => target.knockStatus),
     ),
   )
+
+// The other half of the rollup, and the reason it needs one: a stop where every
+// resident is flagged rolls up over an empty list, so `rollupStopStatus` returns
+// `unknown` — the same answer as a stop nobody has been to yet. That is correct
+// as far as a status goes (there is no knock to report) but it is not the whole
+// fact, and any surface showing only the status shows the two cases identically.
+// A status and "is this a target at all" are two questions; `unknown` can only
+// answer the first, which is why this is a second value rather than an eighth
+// status. `WalkView`'s stop row pairs them ("Nobody to knock here" in place of
+// the count and dots); the map pin is the surface that currently does not, and
+// this is what it should read to.
+export const stopIsKnockable = (stop: RoutePayloadStop): boolean =>
+  stop.addresses.some((address) => address.targets.some(isKnockable))
 
 // ADR 0008. The one-line instruction paper carries, worded apart on purpose.
 // "Moved away" is about an address, so it only has to explain why the door is

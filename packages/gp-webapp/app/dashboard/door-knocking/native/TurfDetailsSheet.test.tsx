@@ -89,7 +89,6 @@ const routeWithDoors: DoorKnockingRoutePayload = {
       displayAddress: '105 Elm St',
       legSeconds: 0,
       legMeters: 0,
-      knockStatus: 'unknown',
       addresses: [
         {
           addressKey: '105|elm|st|1',
@@ -118,12 +117,14 @@ const renderSheet = ({
   live,
   listStats = null,
   listStatsPending = false,
+  unpreviewableKeys = [],
   onDeleted = vi.fn(),
 }: {
   prop?: Partial<DoorKnockingTurf>
   live?: Partial<DoorKnockingTurf>
   listStats?: PolygonStats | null
   listStatsPending?: boolean
+  unpreviewableKeys?: string[]
   onDeleted?: () => void
 } = {}) => {
   api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
@@ -136,6 +137,7 @@ const renderSheet = ({
       turf={turf(prop)}
       listStats={listStats}
       listStatsPending={listStatsPending}
+      unpreviewableKeys={unpreviewableKeys}
       onClose={vi.fn()}
       onDeleted={onDeleted}
     />,
@@ -212,7 +214,6 @@ describe('TurfDetailsSheet delete', () => {
             displayAddress: '105 Elm St',
             legSeconds: 0,
             legMeters: 0,
-            knockStatus: 'supporter',
             addresses: [
               {
                 addressKey: '105|elm|st',
@@ -482,15 +483,57 @@ describe('TurfDetailsSheet overview', () => {
   // These sit directly above the "Applied filters" pills, so an unqualified
   // count has to be the filtered one — the page computes them with the turf's
   // saved filters rather than with empty selections.
-  it('reports the doors and people the list targets', () => {
+  // Hedged, because the pack shades only what it has buckets for and knocking
+  // then applies the rest — activity conditions, support status, and the
+  // do-not-knock / not-a-voter exclusions. An unqualified integer here reads as
+  // the audience when it is really the wider population it is drawn from.
+  it('reports the doors and people the list targets, as approximate', () => {
     renderSheet({ listStats: listStats() })
 
     expect(screen.getByText('Doors')).toBeInTheDocument()
-    expect(screen.getByText('68')).toBeInTheDocument()
+    expect(screen.getByText('About 68')).toBeInTheDocument()
     expect(screen.getByText('People')).toBeInTheDocument()
-    expect(screen.getByText('213')).toBeInTheDocument()
+    expect(screen.getByText('About 213')).toBeInTheDocument()
     expect(screen.queryByText('Doors in this area')).toBeNull()
     expect(screen.queryByText('People in this area')).toBeNull()
+    expect(
+      screen.getByText(/About, because the map can.t show every filter/),
+    ).toBeInTheDocument()
+  })
+
+  // The frozen route's counts came through knock-time evaluation, so they ARE
+  // the audience. Hedging them would invent doubt about the one exact number
+  // this sheet has.
+  it('states the frozen route counts exactly', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: routeWithDoors,
+    })
+    renderSheet({ prop: { locked: true }, listStats: listStats() })
+
+    expect(await screen.findByText('31m')).toBeInTheDocument()
+    expect(screen.getByText('2')).toBeInTheDocument()
+    expect(screen.queryByText('About 2')).toBeNull()
+    expect(screen.queryByText(/About, because the map/)).toBeNull()
+  })
+
+  // The rail's sentence verbatim, from the shared helper, on the surface that
+  // reports the same numbers about the same list — and scoped to the MAP,
+  // because gp-api applies 65+ as a real age bound at knock time. Read as "my
+  // filter isn't working" it would be worse than the imprecision it fixes.
+  it('names a filter the map cannot shade without impugning the filter', () => {
+    renderSheet({ listStats: listStats(), unpreviewableKeys: ['age65Plus'] })
+
+    const disclosure = screen.getByText(/The map can.t shade by/)
+    expect(disclosure).toHaveTextContent(
+      'The map can’t shade by 65+ yet, so these counts include people that filter will exclude. Your saved list still applies it when you knock.',
+    )
+  })
+
+  it('says nothing about unshadeable filters when there are none', () => {
+    renderSheet({ listStats: listStats() })
+
+    expect(screen.queryByText(/can.t shade by/)).toBeNull()
   })
 
   // Same rule as the TurfList row: only a locked list has a route to print,
@@ -522,6 +565,124 @@ describe('TurfDetailsSheet overview', () => {
     renderSheet({ prop: { locked: false }, live: { locked: true } })
 
     expect(await screen.findByRole('link', { name: 'PDF' })).toBeInTheDocument()
+  })
+})
+
+// The mode was chosen before the route existed and is permanent afterwards:
+// door_knocking_route.doorKnockingTurfId is unique, the row is never written
+// once the knock transaction commits, and every logged knock hangs off a
+// stopTargetId belonging to its stops. So the flip is a reading of the frozen
+// route, never a re-plan of it — and the stored pathGeometry belongs to the
+// mode we actually bought, which is the one path we have.
+describe('TurfDetailsSheet travel mode flip', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+  })
+
+  const renderKnocked = () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: {
+        ...routeWithDoors,
+        pathGeometry: {
+          type: 'LineString',
+          coordinates: [
+            [-86.78, 36.16],
+            [-86.781, 36.161],
+          ],
+        },
+      } satisfies DoorKnockingRoutePayload,
+    })
+    renderSheet({ prop: { locked: true } })
+    return screen.findByText('31m')
+  }
+
+  it('re-estimates the travel time for the mode that was not bought', async () => {
+    await renderKnocked()
+
+    // Geoapify's own figure for the walk route it planned.
+    expect(screen.getByText('Travel time')).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Walking' })).toBeChecked()
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Driving' }))
+
+    // 2400m of bought path, read at driving speed — ours, and labelled ours.
+    expect(screen.getByText('About 6m')).toBeInTheDocument()
+    expect(screen.queryByText('31m')).toBeNull()
+    expect(
+      screen.getByText('our estimate, at driving speed'),
+    ).toBeInTheDocument()
+  })
+
+  // The one thing this must never imply. There is no second path: we bought the
+  // walking directions and nothing re-plans them.
+  it('says the route itself is unchanged', async () => {
+    await renderKnocked()
+    fireEvent.click(screen.getByRole('radio', { name: 'Driving' }))
+
+    const note = screen.getByText(/Nothing has been re-planned/)
+    expect(note).toHaveTextContent(/built for walking/)
+    expect(note).toHaveTextContent(
+      /the stops, their order and the path on the map are unchanged/,
+    )
+    // And the frozen artifact keeps naming itself, rather than the flip
+    // relabelling it as a drive route it is not.
+    expect(screen.getByText('Walk route · loop')).toBeInTheDocument()
+    expect(screen.queryByText(/Drive route/)).toBeNull()
+  })
+
+  it('puts the vendor figure back when flipped home', async () => {
+    await renderKnocked()
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Driving' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Walking' }))
+
+    expect(screen.getByText('31m')).toBeInTheDocument()
+    expect(screen.queryByText(/^About /)).toBeNull()
+    expect(screen.queryByText(/Nothing has been re-planned/)).toBeNull()
+  })
+
+  // The route row is never mutated, so the flip must not write anywhere — and
+  // the served payload it is reading has to come out the other side identical.
+  it('writes nothing and leaves the stops and geometry alone', async () => {
+    let wrote = false
+    api.mock('PUT /v1/door-knocking/turfs/:id', () => {
+      wrote = true
+      return { status: 200, data: turf() }
+    })
+    api.mock('POST /v1/door-knocking/turfs/:id/knock', () => {
+      wrote = true
+      return {
+        status: 200,
+        data: { created: false, route: routePayload.route },
+      }
+    })
+    await renderKnocked()
+    const before = testQueryClient.getQueryData<DoorKnockingRoutePayload>([
+      'door-knocking-route',
+      1,
+    ])
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Driving' }))
+
+    const after = testQueryClient.getQueryData<DoorKnockingRoutePayload>([
+      'door-knocking-route',
+      1,
+    ])
+    expect(wrote).toBe(false)
+    expect(after?.route).toEqual(before?.route)
+    expect(after?.pathGeometry).toEqual(before?.pathGeometry)
+    expect(after?.stops.map((stop) => stop.seq)).toEqual(
+      before?.stops.map((stop) => stop.seq),
+    )
+  })
+
+  // Nothing to flip before there is a bought route to flip against.
+  it('offers no toggle on an unknocked list', () => {
+    renderSheet({ listStats: listStats() })
+
+    expect(screen.queryByRole('radio', { name: 'Driving' })).toBeNull()
+    expect(screen.queryByText('Travel time for')).toBeNull()
   })
 })
 

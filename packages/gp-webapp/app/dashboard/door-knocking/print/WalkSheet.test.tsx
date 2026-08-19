@@ -15,7 +15,6 @@ const stop = (overrides: Partial<RoutePayloadStop> = {}): RoutePayloadStop => ({
   displayAddress: '105 Elm St',
   legSeconds: 0,
   legMeters: 0,
-  knockStatus: 'unknown',
   addresses: [
     {
       addressKey: '105|elm|st',
@@ -483,6 +482,74 @@ describe('WalkSheet', () => {
     renderSheet([])
 
     expect(screen.getByText('This route has no stops.')).toBeInTheDocument()
+  })
+
+  // ENG-10876. On screen ADR 0009's activity feed answers "have we been here
+  // before"; paper carried no history at all, so an answered-but-unsure door and
+  // a door nobody has ever knocked printed the same blank form. The line prints
+  // for a flagged resident too — whether we have been here is a fact about them
+  // rather than about which of the three branches follows.
+  it('prints when a resident was last contacted, alongside whatever follows', () => {
+    const resident = {
+      personId: 'person-1',
+      name: 'Dorian Fen',
+      age: 31,
+      politicalParty: 'Independent' as const,
+      cellPhone: null,
+      landline: null,
+      knockStatus: 'unknown' as const,
+      mayHaveMoved: false,
+      doNotKnock: false,
+      history: [
+        {
+          type: 'DOOR_KNOCK' as const,
+          date: '2026-06-12T18:00:00.000Z',
+          data: {
+            activityId: 'dk-1',
+            outcome: 'answered' as const,
+            supportAnswer: 'unsure' as const,
+            // Free text about a named voter never travels onto paper.
+            note: 'Dog in the yard, come back Saturday',
+            manual: false,
+          },
+        },
+      ],
+    }
+    renderSheet([
+      stop({
+        addresses: [
+          {
+            addressKey: '105|elm|st',
+            address: '105 Elm St',
+            targets: [
+              { ...resident, stopTargetId: 21 },
+              {
+                ...resident,
+                stopTargetId: 22,
+                personId: 'person-2',
+                name: 'Marisol Vega',
+                notAVoterReason: 'moved' as const,
+              },
+            ],
+            otherResidents: [],
+          },
+        ],
+      }),
+    ])
+
+    const person = screen.getByRole('listitem')
+    expect(
+      within(person).getAllByText(
+        'Last contact: June 2026 · Door knock: Answered',
+      ),
+    ).toHaveLength(2)
+    // Still gets the questions: unsure support is a door worth re-asking.
+    expect(within(person).getByText('Did they answer?')).toBeInTheDocument()
+    // And the flagged housemate keeps their instruction beside the same line.
+    expect(
+      within(person).getByText('Moved away — skip this resident'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Dog in the yard/)).toBeNull()
   })
 
   // The grid version of the same list, built server-side. A link rather than a

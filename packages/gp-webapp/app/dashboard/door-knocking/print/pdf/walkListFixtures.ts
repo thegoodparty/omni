@@ -2,7 +2,29 @@ import type {
   DoorKnockingRoutePayload,
   RoutePayloadStop,
   RoutePayloadTarget,
+  RouteTargetActivity,
 } from '@goodparty_org/contracts'
+
+// ADR 0009's per-resident history, as the paper surfaces read it. The default
+// date is mid-month so it names the same month in UTC and in every US zone —
+// the one test that cares about the boundary passes its own.
+export const doorKnock = (
+  overrides: Partial<
+    Extract<RouteTargetActivity, { type: 'DOOR_KNOCK' }>['data']
+  > = {},
+  date = '2026-06-12T18:00:00.000Z',
+): RouteTargetActivity => ({
+  type: 'DOOR_KNOCK',
+  date,
+  data: {
+    activityId: 'dk-1',
+    outcome: 'answered',
+    supportAnswer: 'unsure',
+    note: null,
+    manual: false,
+    ...overrides,
+  },
+})
 
 // Shared by the row-model tests and the rendered-PDF tests, so both are
 // asserting against the same route rather than two hand-built ones that drift.
@@ -34,7 +56,6 @@ export const stop = (
   displayAddress: '105 Elm St',
   legSeconds: 0,
   legMeters: 0,
-  knockStatus: 'unknown',
   addresses: [
     {
       addressKey: '105|elm|st',

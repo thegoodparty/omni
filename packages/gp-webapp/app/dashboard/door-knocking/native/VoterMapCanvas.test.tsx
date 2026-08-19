@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render } from '@testing-library/react'
 import type { DoorKnockingPackManifest } from '@goodparty_org/contracts'
-import VoterMapCanvas, { type PolygonRing } from './VoterMapCanvas'
+import VoterMapCanvas, {
+  type PolygonRing,
+  type RoutePin,
+} from './VoterMapCanvas'
+import { STATUS_RGB } from './statusPresentation'
 import type { DecodedPack } from './packDecoder'
 import type { FilterResult } from './filterEngine'
 
@@ -15,6 +19,12 @@ interface MapEvent {
 interface MockLayerProps {
   id: string
   data: unknown
+  // Accessors the pin layers derive per pin, so a test can ask what a given
+  // pin would actually be drawn as.
+  getFillColor?: (pin: RoutePin) => number[]
+  getLineColor?: (pin: RoutePin) => number[]
+  getLineWidth?: (pin: RoutePin) => number
+  getColor?: (pin: RoutePin) => number[]
 }
 
 const gl = vi.hoisted(() => {
@@ -104,7 +114,6 @@ const pack: DecodedPack = {
 const filterResult: FilterResult = {
   people: 2,
   households: 2,
-  dots: 2,
   matchedPerDot: new Uint32Array([1, 1]),
   statusPerDot: new Uint8Array([0, 0]),
 }
@@ -127,6 +136,8 @@ const clickMap = (point: [number, number]) => {
 
 const layerData = (id: string) =>
   gl.overlay.layers.find((layer) => layer.id === id)?.data
+
+const layer = (id: string) => gl.overlay.layers.find((entry) => entry.id === id)
 
 describe('VoterMapCanvas drawing', () => {
   const baseProps = {
@@ -262,6 +273,90 @@ describe('VoterMapCanvas drawing', () => {
 
     clickMap(POINTS[0] as [number, number])
     expect(onDrawPointCount).toHaveBeenLastCalledWith(1)
+  })
+
+  // Ending a walk invalidates the pack so the landing dots aren't stale, and
+  // the refetch hands down a fresh object. Keyed on that identity, the mount
+  // effect tore the MapLibre instance down through map.remove() and re-framed
+  // the district — the canvasser was looking at one block and landed back at
+  // district scale. The dots still have to recolour: that is the overlay
+  // effect's job and it keeps its own dependency on the pack.
+  it('repaints on a new pack without rebuilding the map', () => {
+    const props = {
+      ...baseProps,
+      startDrawToken: 0,
+      onPolygonChange: vi.fn(),
+      onDrawPointCount: vi.fn(),
+    }
+    const { rerender } = render(<VoterMapCanvas {...props} />)
+    expect(gl.map.fitBounds).toHaveBeenCalledTimes(1)
+
+    // A refetched pack: same coordinates, new object identity, and one dot's
+    // status changed by the knocks logged during the walk.
+    const repainted: DecodedPack = {
+      ...pack,
+      dimPlanes: new Map([['canvassStatus', new Uint8Array([0, 0])]]),
+    }
+    const recoloured: FilterResult = {
+      ...filterResult,
+      statusPerDot: new Uint8Array([0, 1]),
+    }
+    rerender(
+      <VoterMapCanvas {...props} pack={repainted} filterResult={recoloured} />,
+    )
+
+    expect(gl.map.remove).not.toHaveBeenCalled()
+    // No second framing, so whatever the canvasser had panned to survives.
+    expect(gl.map.fitBounds).toHaveBeenCalledTimes(1)
+    expect(gl.map.jumpTo).not.toHaveBeenCalled()
+    // And the dots did repaint: the overlay effect ran for the new pack.
+    expect(layerData('voter-dots')).toEqual(
+      expect.objectContaining({ length: repainted.manifest.counts.dots }),
+    )
+  })
+
+  // A stop where every resident is flagged rolls up over an empty list, so its
+  // status is the same `unknown` grey as a stop nobody has been to. The pin is
+  // what a canvasser is standing in front of, so it draws hollow — an outline
+  // says "not a target" where an eighth fill colour would say "another status".
+  it('draws a stop with nobody knockable hollow, not in a new colour', () => {
+    const knockable: RoutePin = {
+      seq: 1,
+      lat: 41.92,
+      lng: -87.66,
+      status: 'unknown',
+      knockable: true,
+    }
+    // Same status, so nothing but knockability can tell these two apart.
+    const flagged: RoutePin = { ...knockable, seq: 2, knockable: false }
+
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        startDrawToken={0}
+        routePins={[knockable, flagged]}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    const pins = layer('route-pins')
+    const status = [...STATUS_RGB.unknown]
+    // The normal pin: status fill, white ring.
+    expect(pins?.getFillColor?.(knockable)).toEqual([...status, 235])
+    expect(pins?.getLineColor?.(knockable)).toEqual([255, 255, 255, 255])
+    // The flagged pin inverts — and its ring is the status colour rather than
+    // any new one, so no eighth colour enters the legend's vocabulary.
+    expect(pins?.getFillColor?.(flagged)).toEqual([255, 255, 255, 220])
+    expect(pins?.getLineColor?.(flagged)).toEqual([...status, 235])
+    expect(pins?.getLineWidth?.(flagged)).toBeGreaterThan(
+      pins?.getLineWidth?.(knockable) ?? 0,
+    )
+    // The numeral rides the fill, so it has to invert with it or it reads as a
+    // blank pin.
+    const numbers = layer('route-pin-numbers')
+    expect(numbers?.getColor?.(knockable)).toEqual([255, 255, 255, 255])
+    expect(numbers?.getColor?.(flagged)).toEqual([...status, 255])
   })
 
   it('opens at street level when given an initial zoom', () => {

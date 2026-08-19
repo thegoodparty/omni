@@ -20,6 +20,7 @@ import {
   rollupStopStatus,
   STATUS_DOT_COLORS,
   STATUS_LABELS,
+  stopIsKnockable,
   targetMarker,
 } from './statusPresentation'
 
@@ -104,12 +105,11 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
   // straight walk down the list never advances onto a logged door, so it never
   // pays it at all, and the canvasser checking "did that save?" pays once.
   const [loggedPersonIds, setLoggedPersonIds] = useState<Set<string>>(new Set())
-  const personIdForTarget = (targetId: number): string | undefined =>
+  const targetForId = (targetId: number): RoutePayloadTarget | undefined =>
     routeQuery.data?.stops
       .flatMap((stop) => stop.addresses.flatMap((address) => address.targets))
-      .find((target) => target.stopTargetId === targetId)?.personId
-  const refreshFeedFor = (targetId: number) => {
-    const personId = personIdForTarget(targetId)
+      .find((target) => target.stopTargetId === targetId)
+  const refreshFeedForPerson = (personId: string | undefined) => {
     if (!personId || !loggedPersonIds.has(personId)) return
     // Never awaited and never surfaced: the knock is already saved, so a serve
     // this walk cannot reach has to leave the feed showing what it was served
@@ -118,6 +118,28 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
     // asks again. `cancelRefetch: false` so flicking between two logged
     // housemates reuses the serve in flight instead of restarting it.
     void routeQuery.refetch({ cancelRefetch: false })
+  }
+  const refreshFeedFor = (targetId: number) =>
+    refreshFeedForPerson(targetForId(targetId)?.personId)
+  // ADR 0009's one documented residual, and the reason it was left as one: a
+  // `not_a_voter` door deliberately keeps its sheet open so the ADR 0008
+  // follow-up can be answered, so neither trigger above ever fires for that
+  // resident. Refreshing on the knock is what the ADR ruled out — the serve
+  // rebuilds `NotAVoterControl`, whose two branches switch on
+  // `notAVoterReason`, underneath the question being answered.
+  //
+  // So the refresh is deferred rather than dropped: it goes out once the
+  // follow-up is resolved. Answering it is handled where the answer lands; this
+  // is the other resolution, walking away from the question unanswered. The
+  // sheet is already unmounting, so there is nothing left for the serve to
+  // arrive under. Narrow on purpose — every other outcome auto-advances and is
+  // covered by `openSheet`, and refreshing on every sheet close would be the
+  // per-door serve ADR 0009 rejected. A reason already given takes this branch
+  // out, because that path asked for its own serve.
+  const refreshFeedOnAbandonedFollowUp = (targetId: number) => {
+    const target = targetForId(targetId)
+    if (target?.knockStatus !== 'not_a_voter' || target.notAVoterReason) return
+    refreshFeedForPerson(target.personId)
   }
   // One replay key per target, minted when its form first opens and kept
   // across close→reopen (a remounted form must retry with the SAME key or
@@ -368,7 +390,7 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                             house — its rollup color is the same grey as
                             still-to-knock, and the marker is the only thing
                             that tells those two apart. */}
-                        {stopKnockable(stop).length === 0 ? (
+                        {!stopIsKnockable(stop) ? (
                           <span className="font-medium text-warning">
                             Nobody to knock here
                           </span>
@@ -500,8 +522,20 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
             advanceFrom(targetId)
           }}
           onDoNotKnockChanged={applyDoNotKnock}
-          onNotAVoterChanged={applyNotAVoter}
-          onClose={() => setSheet(null)}
+          onNotAVoterChanged={(personId, notAVoterReason) => {
+            applyNotAVoter(personId, notAVoterReason)
+            // ADR 0009's residual, closed. The question this resident's sheet
+            // was held open for has just been answered, so the control a serve
+            // would rebuild is already the marker that answer resolves to —
+            // which is what makes the deferred refresh safe here and not on
+            // the knock. After the patch, so the patch's own cancellation of
+            // an older in-flight serve can't take this one with it.
+            refreshFeedForPerson(personId)
+          }}
+          onClose={() => {
+            setSheet(null)
+            refreshFeedOnAbandonedFollowUp(sheet.targetId)
+          }}
         />
       )}
     </div>

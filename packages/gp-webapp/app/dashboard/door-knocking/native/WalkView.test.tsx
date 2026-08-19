@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { DoorKnockingRoutePayload } from '@goodparty_org/contracts'
+import {
+  DoorKnockingRoutePayload,
+  NotAVoterReason,
+  RoutePayloadTarget,
+  RouteTargetActivity,
+} from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -35,7 +40,6 @@ const routePayload: DoorKnockingRoutePayload = {
       displayAddress: '210 Cedar Row',
       legSeconds: 300,
       legMeters: 380,
-      knockStatus: 'supporter',
       addresses: [
         {
           addressKey: '210|cedar|row',
@@ -66,7 +70,6 @@ const routePayload: DoorKnockingRoutePayload = {
       displayAddress: '105 Elm St',
       legSeconds: 0,
       legMeters: 0,
-      knockStatus: 'unknown',
       addresses: [
         {
           addressKey: '105|elm|st',
@@ -503,6 +506,90 @@ describe('WalkView not-a-voter reason', () => {
       data: { personId: 'person-1', knockStatus: 'not_a_voter' },
     })
 
+  // The route as the server would build it now. Dorian's knock status and both
+  // flags are read live at serve time (ADR 0008), so a serve asked for mid-walk
+  // reflects whatever has been written since the walk opened.
+  const serveWithDorian = (
+    live: Partial<RoutePayloadTarget>,
+  ): DoorKnockingRoutePayload => ({
+    ...routePayload,
+    stops: routePayload.stops.map((stop) =>
+      stop.id !== 11
+        ? stop
+        : {
+            ...stop,
+            addresses: stop.addresses.map((address) => ({
+              ...address,
+              targets: address.targets.map((target) => ({
+                ...target,
+                ...live,
+              })),
+            })),
+          },
+    ),
+  })
+
+  const knockRow: RouteTargetActivity = {
+    type: 'DOOR_KNOCK',
+    date: '2026-08-18T18:00:00.000Z',
+    data: {
+      activityId: 'dk-1',
+      outcome: 'not_a_voter',
+      supportAnswer: null,
+      note: null,
+      manual: false,
+    },
+  }
+
+  const flagRow: RouteTargetActivity = {
+    type: 'STATUS_CHANGE',
+    date: '2026-08-18T18:05:00.000Z',
+    data: {
+      activityId: 'se-1',
+      field: 'not_a_voter',
+      fromLabel: null,
+      toLabel: 'Moved away',
+      actorName: 'Rosa Iyer',
+      actorUserId: 77,
+      source: 'manual',
+    },
+  }
+
+  // A live serve rather than a frozen payload, because both writes below are
+  // things the next serve genuinely reflects — and because answering the
+  // follow-up now asks for one (ADR 0009's deferred refresh), so a static mock
+  // would answer that request by walking the write it had just accepted back
+  // off. Each write also adds the feed row it really produces, which is the row
+  // the refresh exists to fetch.
+  const mockLiveRoute = () => {
+    const live: Partial<RoutePayloadTarget> = {}
+    let serves = 0
+
+    api.mock('POST /v1/door-knocking/interactions', () => {
+      live.knockStatus = 'not_a_voter'
+      live.history = [knockRow]
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'not_a_voter' },
+      }
+    })
+    api.mock('POST /v1/door-knocking/not-a-voter', ({ body }) => {
+      const { value } = body as { value: NotAVoterReason | 'cleared' }
+      live.notAVoterReason = value === 'cleared' ? undefined : value
+      live.history = [flagRow, knockRow]
+      return {
+        status: 200,
+        data: { personId: 'person-1', notAVoterReason: live.notAVoterReason },
+      }
+    })
+    api.mock('GET /v1/door-knocking/turfs/:id/route', () => {
+      serves += 1
+      return { status: 200, data: serveWithDorian(live) }
+    })
+
+    return () => serves
+  }
+
   // The two-tap claim is the whole reason the quick chips exist, and it is
   // measured by `logMode` — so the follow-up must sit behind the save, never in
   // front of it.
@@ -556,11 +643,7 @@ describe('WalkView not-a-voter reason', () => {
   })
 
   it('marks the resident and withholds the form once a reason is given', async () => {
-    logNotAVoter()
-    api.mock('POST /v1/door-knocking/not-a-voter', {
-      status: 200,
-      data: { personId: 'person-1', notAVoterReason: 'deceased' },
-    })
+    mockLiveRoute()
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
@@ -583,11 +666,7 @@ describe('WalkView not-a-voter reason', () => {
   // denominator rather than holding a canvasser who correctly skipped them
   // below 100%.
   it('drops a flagged resident out of the progress counts', async () => {
-    logNotAVoter()
-    api.mock('POST /v1/door-knocking/not-a-voter', {
-      status: 200,
-      data: { personId: 'person-1', notAVoterReason: 'moved' },
-    })
+    mockLiveRoute()
 
     render(<WalkView turfId={3} />)
     await waitFor(() =>
@@ -704,6 +783,133 @@ describe('WalkView not-a-voter reason', () => {
       screen.getByText(/Support unknown/, { selector: 'span' }),
     ).toHaveTextContent('Support unknown 0')
   })
+
+  // ADR 0009 left exactly one resident on a stale feed: this one, because their
+  // sheet is deliberately held open across their own knock, so neither
+  // `openSheet` nor the resident switcher ever fires for them. The refresh is
+  // deferred rather than dropped — the three tests below are the two ways a
+  // follow-up resolves, and the reason it could not simply fire on the knock.
+  //
+  // This one is that reason. `NotAVoterControl` switches branches on
+  // `notAVoterReason`, so a serve arriving mid-answer replaces the question with
+  // the marker under the canvasser's thumb. The second serve here carries a
+  // reason a teammate set after this walk opened, which is what makes this an
+  // assertion about the control rather than about a counter: had the refresh
+  // fired, the question being answered would be gone.
+  it('leaves the follow-up question standing rather than refreshing under it', async () => {
+    let serves = 0
+    api.mock('GET /v1/door-knocking/turfs/:id/route', () => {
+      serves += 1
+      return {
+        status: 200,
+        data: serveWithDorian(
+          serves === 1
+            ? {}
+            : { knockStatus: 'not_a_voter', notAVoterReason: 'moved' },
+        ),
+      }
+    })
+    logNotAVoter()
+
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
+    fireEvent.click(screen.getByRole('button', { name: 'Not a voter' }))
+    await screen.findByText('Not a voter — what happened?')
+
+    // Read the screen only once a serve could have arrived. A refresh fired on
+    // the knock would already be in flight here, so waiting for the query to be
+    // idle again is what makes the assertions below see the swapped branch
+    // rather than the frame before it.
+    await waitFor(() =>
+      expect(
+        testQueryClient.getQueryState(['door-knocking-route', 3])?.fetchStatus,
+      ).toBe('idle'),
+    )
+    expect(serves).toBe(1)
+    // Both answers still offered, and the marker branch — its wording and its
+    // Undo — nowhere on screen.
+    expect(screen.getByRole('button', { name: 'Moved' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Deceased' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
+    expect(screen.queryByText(/They stay off new lists/)).toBeNull()
+  })
+
+  // The follow-up is resolved, so the serve can land: the control is already the
+  // marker that answer resolves to, and the row the refresh exists to fetch —
+  // the flag's own status change — is the one thing in this sheet that only the
+  // server can build.
+  it('asks for the fresh feed once the follow-up is answered', async () => {
+    const serves = mockLiveRoute()
+
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
+    fireEvent.click(screen.getByRole('button', { name: 'Not a voter' }))
+    await screen.findByText('Not a voter — what happened?')
+    expect(
+      screen.getByText('No previous outreach to this resident.'),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Moved' }))
+
+    await waitFor(() =>
+      expect(screen.getByText('Not A Voter updated')).toBeInTheDocument(),
+    )
+    expect(screen.getByText(/Door Knock:/)).toBeInTheDocument()
+    expect(serves()).toBe(2)
+  })
+
+  // The other way the question resolves: walked away from unanswered. The door
+  // is logged either way, so its own feed is stale either way — and the sheet is
+  // gone, so there is nothing left for the serve to arrive under. Asked for on
+  // close rather than left to the next reopen so the serve is spent at the house
+  // that still has signal, not at the next doorstep.
+  it('asks for the fresh feed when the question is closed unanswered', async () => {
+    const serves = mockLiveRoute()
+
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
+    fireEvent.click(screen.getByRole('button', { name: 'Not a voter' }))
+    await screen.findByText('Not a voter — what happened?')
+    expect(serves()).toBe(1)
+
+    await closePersonSheet()
+
+    await waitFor(() => expect(serves()).toBe(2))
+    // The knock the serve was asked for is on the resident's feed on reopen,
+    // with no second serve needed to put it there.
+    fireEvent.click(screen.getByText('105 Elm St'))
+    await waitFor(() =>
+      expect(screen.getByText(/Door Knock:/)).toBeInTheDocument(),
+    )
+  })
+
+  // Every other outcome auto-advances, so `openSheet` already covers it — and
+  // paying a serve on every sheet close would be the per-door refresh ADR 0009
+  // rejected, on the one connection the whole design exists to work without.
+  it('does not re-serve the route when an ordinary door is closed on', async () => {
+    let serves = 0
+    api.mock('GET /v1/door-knocking/turfs/:id/route', () => {
+      serves += 1
+      return { status: 200, data: serveWithDorian({}) }
+    })
+    api.mock('POST /v1/door-knocking/interactions', {
+      status: 200,
+      data: { personId: 'person-1', knockStatus: 'not_home' },
+    })
+
+    render(<WalkView turfId={3} />)
+    await openPersonSheet('105 Elm St')
+    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    // Nothing unlogged ahead, so this closes the sheet without going through
+    // the close handler; reopening and closing by hand exercises that path.
+    await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
+
+    fireEvent.click(screen.getByText('105 Elm St'))
+    await waitFor(() => expect(serves).toBe(2))
+    await closePersonSheet()
+
+    expect(serves).toBe(2)
+  })
 })
 
 // "Always show the next door so there is no thinking between houses." The
@@ -742,7 +948,6 @@ describe('WalkView auto-advance', () => {
     displayAddress: address,
     legSeconds: 0,
     legMeters: 0,
-    knockStatus: 'unknown' as const,
     addresses: [
       {
         addressKey: address.toLowerCase().replaceAll(' ', '|'),

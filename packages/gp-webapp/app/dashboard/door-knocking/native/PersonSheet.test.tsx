@@ -41,7 +41,6 @@ const stop = (targets: RoutePayloadTarget[]): RoutePayloadStop => ({
   displayAddress: '105 Elm St',
   legSeconds: 0,
   legMeters: 0,
-  knockStatus: 'unknown',
   addresses: [
     {
       addressKey: '105|elm|st',

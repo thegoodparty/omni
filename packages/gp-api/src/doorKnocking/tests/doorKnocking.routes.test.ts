@@ -7,6 +7,7 @@ import {
 import { useTestService } from '@/test-service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { DoorKnockingPeopleApiService } from '../services/doorKnockingPeopleApi.service'
+import { DoorKnockingKnockService } from '../services/doorKnockingKnock.service'
 import {
   Campaign,
   OutreachStatus,
@@ -186,11 +187,15 @@ describe('door-knocking routes', () => {
         overrideDistrictId: DISTRICT_ID,
       },
     })
+    // Pro, because every route but the two suppression writes is gated on it
+    // (ContactsService.assertProAccess). The non-Pro refusals live in their own
+    // describe block below, which downgrades this campaign.
     campaign = await service.prisma.campaign.create({
       data: {
         userId: service.user.id,
         slug: `dk-campaign-${suffix}`,
         organizationSlug: orgSlug,
+        isPro: true,
       },
     })
     filter = await service.prisma.voterFileFilter.create({
@@ -228,7 +233,7 @@ describe('door-knocking routes', () => {
       expect(turf.locked).toBe(false)
 
       const list = await service.client.get(
-        `/v1/door-knocking/turfs?voterFileFilterId=${filter.id}`,
+        '/v1/door-knocking/turfs',
         orgHeaders(),
       )
       expect(list.data).toHaveLength(1)
@@ -770,6 +775,31 @@ describe('door-knocking routes', () => {
           })
         expect(spend._sum.waypoints).toBe(3)
       })
+
+      // The DoorKnockingSpend line is the only global view of Geoapify spend:
+      // the route-planner-spend-ceiling alert sums its `credits` across every
+      // organization, and the per-org-per-day queries in
+      // docs/door-knocking.md group by its `organizationSlug`. Renaming the
+      // event or dropping a field silently blinds both.
+      it('logs the spend with the org and credits the ceiling alert reads', async () => {
+        const turf = await createTurf()
+        stubVendors()
+        const logSpy = vi.spyOn(
+          service.app.get(DoorKnockingKnockService).logger,
+          'info',
+        )
+
+        const res = await knock(turf.id)
+
+        expect(res.status).toBe(201)
+        expect(logSpy).toHaveBeenCalledWith({
+          event: 'DoorKnockingSpend',
+          organizationSlug: orgSlug,
+          turfId: turf.id,
+          waypoints: 3,
+          credits: 30,
+        })
+      })
     })
 
     it('rejects a knock when the organization has no resolvable district', async () => {
@@ -777,6 +807,16 @@ describe('door-knocking routes', () => {
       const noDistrictSlug = `no-district-dk-${suffix}`
       await service.prisma.organization.create({
         data: { slug: noDistrictSlug, ownerId: service.user.id },
+      })
+      // Pro, so the refusal under test is the missing district and not the
+      // Pro gate every route here now runs first.
+      await service.prisma.campaign.create({
+        data: {
+          userId: service.user.id,
+          slug: `no-district-campaign-${suffix}`,
+          organizationSlug: noDistrictSlug,
+          isPro: true,
+        },
       })
       const ndFilter = await service.prisma.voterFileFilter.create({
         data: { organizationSlug: noDistrictSlug, name: 'ND audience' },
@@ -1003,30 +1043,26 @@ describe('door-knocking routes', () => {
 
       const { res } = await knockAndServe()
 
-      const entries = (
+      const addresses = (
         res.data.stops as Array<{
-          knockStatus: string
           addresses: Array<{
             addressKey: string
             targets: Array<{ personId: string; knockStatus: string }>
           }>
         }>
-      ).flatMap((stop) => stop.addresses.map((address) => ({ stop, address })))
+      ).flatMap((stop) => stop.addresses)
 
-      const key1 = entries.find((e) => e.address.addressKey === PIPED_KEY)
+      const key1 = addresses.find((a) => a.addressKey === PIPED_KEY)
       const statusFor = (personId: string) =>
-        key1?.address.targets.find((t) => t.personId === personId)?.knockStatus
+        key1?.targets.find((t) => t.personId === personId)?.knockStatus
       // The latest ANSWER wins, matching how Contacts derives the same person:
       // the newer not_home is a failed re-attempt, not a retraction of the
       // support they already gave.
       expect(statusFor(PERSON_1)).toBe('supporter')
       expect(statusFor(PERSON_2)).toBe('unknown')
-      // An unknown person keeps the whole stop knockable.
-      expect(key1?.stop.knockStatus).toBe('unknown')
 
-      const key3 = entries.find((e) => e.address.addressKey === 'KEY-3')
-      expect(key3?.address.targets[0]?.knockStatus).toBe('supporter')
-      expect(key3?.stop.knockStatus).toBe('supporter')
+      const key3 = addresses.find((a) => a.addressKey === 'KEY-3')
+      expect(key3?.targets[0]?.knockStatus).toBe('supporter')
     })
 
     // Contacts lets a candidate correct a status by hand, and that correction
@@ -1086,17 +1122,16 @@ describe('door-knocking routes', () => {
 
       const key3 = (
         res.data.stops as Array<{
-          knockStatus: string
           addresses: Array<{
             addressKey: string
             targets: Array<{ knockStatus: string }>
           }>
         }>
       )
-        .flatMap((stop) => stop.addresses.map((address) => ({ stop, address })))
-        .find((e) => e.address.addressKey === 'KEY-3')
+        .flatMap((stop) => stop.addresses)
+        .find((address) => address.addressKey === 'KEY-3')
 
-      expect(key3?.address.targets[0]?.knockStatus).toBe('unknown')
+      expect(key3?.targets[0]?.knockStatus).toBe('unknown')
     })
 
     it('serves a targetless route without calling people-api', async () => {
@@ -1132,7 +1167,6 @@ describe('door-knocking routes', () => {
 
       expect(res.status).toBe(200)
       expect(res.data.stops[0].addresses).toEqual([])
-      expect(res.data.stops[0].knockStatus).toBe('unknown')
       // No vendor traffic: neither Geoapify (fetch) nor the people-db
       // residents lookup (the shim).
       expect(
@@ -1372,6 +1406,15 @@ describe('door-knocking routes', () => {
           overrideDistrictId: DISTRICT_ID,
         },
       })
+      // Pro, so this proves cross-org isolation rather than the Pro gate.
+      await service.prisma.campaign.create({
+        data: {
+          userId: service.user.id,
+          slug: `campaign-other-c-${suffix}`,
+          organizationSlug: otherSlug,
+          isPro: true,
+        },
+      })
       const res = await service.client.get(
         `/v1/door-knocking/turfs/${turf.id}/route`,
         {
@@ -1510,6 +1553,15 @@ describe('door-knocking routes', () => {
           slug: otherSlug,
           ownerId: service.user.id,
           overrideDistrictId: DISTRICT_ID,
+        },
+      })
+      // Pro, so this proves cross-org isolation rather than the Pro gate.
+      await service.prisma.campaign.create({
+        data: {
+          userId: service.user.id,
+          slug: `campaign-int-c-${suffix}`,
+          organizationSlug: otherSlug,
+          isPro: true,
         },
       })
 
@@ -1982,46 +2034,6 @@ describe('door-knocking routes', () => {
       // in doorKnockingPeopleApi.service.test.ts. Spying here sees only what
       // this route handed the adapter, which is the value under test's input
       // rather than its output.
-
-      // `unknown` outranks every other status in the rollup, so a flagged
-      // resident would otherwise report their whole stop as still-to-knock —
-      // persons 1 and 2 share an address, which is what makes that reachable.
-      it('rolls a stop up from its knockable residents only', async () => {
-        const { turf } = await knockAndGetTurfAndTarget()
-        const shared = await service.prisma.doorKnockingStopTarget.findMany({
-          where: { addressKey: PIPED_KEY },
-          orderBy: { id: 'asc' },
-        })
-        expect(shared).toHaveLength(2)
-
-        expect(
-          (
-            await record({
-              stopTargetId: shared[0]!.id,
-              clientKey: CLIENT_KEY,
-              outcome: 'answered',
-              supportAnswer: 'supporter',
-            })
-          ).status,
-        ).toBe(201)
-        await setDoNotKnock({ stopTargetId: shared[1]!.id, value: 'active' })
-
-        const res = await service.client.get(
-          `/v1/door-knocking/turfs/${turf.id}/route`,
-          { ...orgHeaders(), validateStatus: () => true },
-        )
-
-        expect(res.status).toBe(200)
-        const stop = (
-          res.data.stops as Array<{
-            knockStatus: string
-            addresses: Array<{ addressKey: string }>
-          }>
-        ).find((candidate) =>
-          candidate.addresses.some((a) => a.addressKey === PIPED_KEY),
-        )
-        expect(stop?.knockStatus).toBe('supporter')
-      })
     })
     describe('not-a-voter (ADR 0008)', () => {
       const setNotAVoter = (body: Record<string, unknown>) =>
@@ -2318,47 +2330,6 @@ describe('door-knocking routes', () => {
 
         expect(lastEvaluateArg()?.excludePersonIds).toEqual([])
       })
-
-      // `unknown` outranks every other status in the rollup, so a flagged
-      // resident with nothing logged would otherwise report their whole stop
-      // as still-to-knock. Persons 1 and 2 share an address, which is what
-      // makes that reachable.
-      it('rolls a stop up from its knockable residents only', async () => {
-        const { turf } = await knockAndGetTurfAndTargets()
-        const shared = await service.prisma.doorKnockingStopTarget.findMany({
-          where: { addressKey: PIPED_KEY },
-          orderBy: { id: 'asc' },
-        })
-        expect(shared).toHaveLength(2)
-
-        expect(
-          (
-            await record({
-              stopTargetId: shared[0]!.id,
-              clientKey: CLIENT_KEY,
-              outcome: 'answered',
-              supportAnswer: 'supporter',
-            })
-          ).status,
-        ).toBe(201)
-        await setNotAVoter({ stopTargetId: shared[1]!.id, value: 'moved' })
-
-        const res = await service.client.get(
-          `/v1/door-knocking/turfs/${turf.id}/route`,
-          { ...orgHeaders(), validateStatus: () => true },
-        )
-
-        expect(res.status).toBe(200)
-        const stop = (
-          res.data.stops as Array<{
-            knockStatus: string
-            addresses: Array<{ addressKey: string }>
-          }>
-        ).find((candidate) =>
-          candidate.addresses.some((a) => a.addressKey === PIPED_KEY),
-        )
-        expect(stop?.knockStatus).toBe('supporter')
-      })
     })
   })
   describe('pack', () => {
@@ -2396,6 +2367,180 @@ describe('door-knocking routes', () => {
         { personId, status: 'supporter' },
       ])
       expect(packRequest?.districtId).toBe(DISTRICT_ID)
+    })
+  })
+
+  describe('Pro gate (ENG-10888)', () => {
+    const downgrade = () =>
+      service.prisma.campaign.update({
+        where: { id: campaign.id },
+        data: { isPro: false },
+      })
+
+    // Every route the gate covers, as (method, path, body) so one loop can
+    // prove the refusal is uniform. Bodies are valid on purpose: the
+    // @Body ZodValidationPipe runs before the method body, so a malformed one
+    // would 400 as 'Validation failed' and prove nothing about the gate.
+    const gatedRoutes = (turfId: number) =>
+      [
+        [
+          'post',
+          '/v1/door-knocking/turfs',
+          {
+            voterFileFilterId: filter.id,
+            name: 'Gated turf',
+            color: '#22aa55',
+            geoPoly: GEO_POLY,
+          },
+        ],
+        ['get', '/v1/door-knocking/turfs', undefined],
+        ['get', `/v1/door-knocking/turfs/${turfId}`, undefined],
+        ['put', `/v1/door-knocking/turfs/${turfId}`, { name: 'Renamed' }],
+        ['get', `/v1/door-knocking/turfs/${turfId}/route`, undefined],
+        ['get', '/v1/door-knocking/pack', undefined],
+        [
+          'post',
+          '/v1/door-knocking/interactions',
+          {
+            stopTargetId: 1,
+            clientKey: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+            outcome: 'answered',
+          },
+        ],
+        [
+          'post',
+          `/v1/door-knocking/turfs/${turfId}/knock`,
+          { mode: 'walk', loop: false },
+        ],
+        // Last on purpose: the Pro-org loop below shares one turf, and a delete
+        // in the middle would leave every route after it answering 404 without
+        // ever reaching the gate under test. Order is irrelevant to the non-Pro
+        // loop, which never gets past the gate at all.
+        ['delete', `/v1/door-knocking/turfs/${turfId}`, undefined],
+      ] as const
+
+    const opts = () => ({ ...orgHeaders(), validateStatus: () => true })
+
+    it('refuses every gated route for a non-Pro organization', async () => {
+      const turf = await createTurf()
+      await downgrade()
+
+      for (const [method, path, body] of gatedRoutes(turf.id)) {
+        const res =
+          body === undefined
+            ? await service.client[method](path, opts())
+            : await service.client[method](path, body, opts())
+        expect(res.status, `${method.toUpperCase()} ${path}`).toBe(400)
+        expect(res.data.message, `${method.toUpperCase()} ${path}`).toBe(
+          'This feature is only available for pro campaigns',
+        )
+      }
+    })
+
+    it('keeps every gated route open for a Pro organization', async () => {
+      const turf = await createTurf()
+      stubVendors()
+
+      const list = await service.client.get('/v1/door-knocking/turfs', opts())
+      expect(list.status).toBe(200)
+      const get = await service.client.get(
+        `/v1/door-knocking/turfs/${turf.id}`,
+        opts(),
+      )
+      expect(get.status).toBe(200)
+
+      // Then the whole list, asserted by the absence of the gate's own message
+      // rather than by status. Run against a live Pro org most of these answer
+      // 2xx, but a couple legitimately fail on their own terms — POST
+      // /interactions carries a synthetic stopTargetId (404), and PUT/DELETE
+      // meet assertNotLocked once the knock above them has run (409). A status
+      // assertion would be testing those reasons; this asserts exactly the one
+      // thing the gate could get wrong, which is refusing an entitled org.
+      for (const [method, path, body] of gatedRoutes(turf.id)) {
+        const res =
+          body === undefined
+            ? await service.client[method](path, opts())
+            : await service.client[method](path, body, opts())
+        expect(res.data?.message, `${method.toUpperCase()} ${path}`).not.toBe(
+          'This feature is only available for pro campaigns',
+        )
+      }
+    })
+
+    // The org lapsing mid-pilot is exactly the case the two holes exist for:
+    // the route it was walking is now unreachable, but a canvasser standing at
+    // a door that asked not to be revisited can still record that.
+    it('still accepts both suppression writes after a downgrade', async () => {
+      const turf = await createTurf()
+      stubVendors()
+      expect((await knock(turf.id)).status).toBe(201)
+      const target =
+        await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+          orderBy: { id: 'asc' },
+        })
+
+      await downgrade()
+
+      // The walk itself is gone...
+      const route = await service.client.get(
+        `/v1/door-knocking/turfs/${turf.id}/route`,
+        opts(),
+      )
+      expect(route.status).toBe(400)
+
+      // ...but "don't come back" and "wrong door" still land.
+      const dnk = await service.client.post(
+        '/v1/door-knocking/do-not-knock',
+        { stopTargetId: target.id, value: 'active' },
+        opts(),
+      )
+      expect(dnk.status).toBe(201)
+      expect(dnk.data).toEqual({
+        personId: target.personId,
+        doNotKnock: true,
+      })
+
+      const nav = await service.client.post(
+        '/v1/door-knocking/not-a-voter',
+        { stopTargetId: target.id, value: 'moved' },
+        opts(),
+      )
+      expect(nav.status).toBe(201)
+      expect(nav.data).toEqual({
+        personId: target.personId,
+        notAVoterReason: 'moved',
+      })
+    })
+
+    // hasElectedOfficeAccess keys on the `eo-` slug prefix and short-circuits
+    // before isPro is read, so a Serve org is license-equivalent to Pro here
+    // exactly as it is across the CRM.
+    it('grants access to an eo- organization with no Pro campaign', async () => {
+      const suffix = Date.now()
+      const eoSlug = `eo-dk-gate-${suffix}`
+      await service.prisma.organization.create({
+        data: {
+          slug: eoSlug,
+          ownerId: service.user.id,
+          overrideDistrictId: DISTRICT_ID,
+        },
+      })
+      await service.prisma.campaign.create({
+        data: {
+          userId: service.user.id,
+          slug: `eo-dk-gate-campaign-${suffix}`,
+          organizationSlug: eoSlug,
+          isPro: false,
+        },
+      })
+
+      const res = await service.client.get('/v1/door-knocking/turfs', {
+        headers: { 'x-organization-slug': eoSlug },
+        validateStatus: () => true,
+      })
+
+      expect(res.status).toBe(200)
+      expect(res.data).toEqual([])
     })
   })
 })

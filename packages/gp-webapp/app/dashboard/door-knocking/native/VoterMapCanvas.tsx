@@ -43,6 +43,12 @@ export interface RoutePin {
   lat: number
   lng: number
   status: DoorKnockStatus
+  // Whether anyone at this stop is still a target (`stopIsKnockable`). A stop
+  // where every resident is flagged rolls up over an empty list, so `status` is
+  // the same `unknown` grey as a stop nobody has been to — and the pin is what
+  // a canvasser is actually standing in front of, so this is the surface where
+  // that ambiguity costs a walk to a door they were told to skip.
+  knockable: boolean
 }
 
 interface VoterMapCanvasProps {
@@ -146,6 +152,15 @@ export default function VoterMapCanvas({
   const hasTilesKey = NEXT_PUBLIC_GEOAPIFY_TILES_KEY.length > 0
   const overlayRef = useRef<MapboxOverlay | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  // The mount effect's one read of the pack is the opening view, which — like
+  // initialZoom beside it — is a mount-time fact and not a controlled camera.
+  // Depending on the object instead tied the map's lifetime to the pack's
+  // identity: a refetch after a walk destroyed the MapLibre instance through
+  // map.remove() and re-framed the district, throwing away wherever the
+  // canvasser had panned to. The overlay effect below still depends on `pack`,
+  // which is what repaints the dots.
+  const packRef = useRef(pack)
+  packRef.current = pack
   // Click-to-add-vertex drawing (mapbox-gl-draw's finish gesture is
   // unreliable on maplibre): every click appends a point and the shape
   // closes itself from whatever points exist — there is no finish gesture.
@@ -301,7 +316,7 @@ export default function VoterMapCanvas({
     map.on('touchend', endDrag)
     map.on('touchcancel', endDrag)
 
-    const bounds = packBounds(pack.positions)
+    const bounds = packBounds(packRef.current.positions)
     if (bounds) {
       // Read at mount only: this names the opening view, not a controlled
       // zoom — reacting to it later would fight the canvasser's own panning.
@@ -324,9 +339,9 @@ export default function VoterMapCanvas({
       mapRef.current = null
       map.remove()
     }
-    // The map mounts once per pack — everything dynamic flows through the
-    // overlay effect below.
-  }, [pack, hasTilesKey])
+    // The map lives as long as its container — everything dynamic, the pack
+    // included, flows through the overlay effect below.
+  }, [hasTilesKey])
 
   useEffect(() => {
     const overlay = overlayRef.current
@@ -414,11 +429,29 @@ export default function VoterMapCanvas({
           id: 'route-pins',
           data: routePins,
           getPosition: (pin) => [pin.lng, pin.lat],
-          getFillColor: (pin) => [...STATUS_RGB[pin.status], 235],
+          // A stop with nobody left to knock draws hollow: the fill drops to
+          // near-transparent and its own status color moves to the ring. An
+          // eighth fill color would read as another outcome and would owe the
+          // legend an entry, but "not a target" is a different question from
+          // "which status" — an outline answers it without joining the seven
+          // colors a canvasser is still learning.
+          getFillColor: (pin) =>
+            pin.knockable
+              ? [...STATUS_RGB[pin.status], 235]
+              : [255, 255, 255, 220],
+          getLineColor: (pin) =>
+            pin.knockable
+              ? [255, 255, 255, 255]
+              : [...STATUS_RGB[pin.status], 235],
+          // Thicker ring on a hollow pin, so at street zoom the outline is the
+          // thing that reads rather than a hairline around a white dot.
+          getLineWidth: (pin) => (pin.knockable ? 2 : 3),
+          lineWidthUnits: 'pixels',
           updateTriggers: {
             getFillColor: routePins,
+            getLineColor: routePins,
+            getLineWidth: routePins,
           },
-          getLineColor: [255, 255, 255, 255],
           lineWidthMinPixels: 2,
           stroked: true,
           radiusMinPixels: 11,
@@ -431,7 +464,13 @@ export default function VoterMapCanvas({
           data: routePins,
           getPosition: (pin) => [pin.lng, pin.lat],
           getText: (pin) => String(pin.seq),
-          getColor: [255, 255, 255, 255],
+          // The numeral sits on the fill, so it has to invert with it — white
+          // on a hollow pin is a number nobody can read.
+          getColor: (pin) =>
+            pin.knockable
+              ? [255, 255, 255, 255]
+              : [...STATUS_RGB[pin.status], 255],
+          updateTriggers: { getColor: routePins },
           getSize: 12,
           fontWeight: 700,
           pickable: false,
