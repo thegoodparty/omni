@@ -190,7 +190,16 @@ import { dirname, join, relative } from 'node:path'
 // It owns a react-query subscription and returns a state the three PIN surfaces
 // branch on, so it has to run in the browser; it replaces per-surface inline
 // logic rather than adding a new client boundary.
-const BASELINE = 581
+// 2026-08-20: 581 -> 582 for door-knocking/native/DeleteTurfControl.tsx — the
+// shared delete affordance owns the DELETE mutation, the confirm dialog's open
+// state and the 409 path, so it cannot render on the server. It is the only one
+// of its change's three new modules that needs the directive: TurfRoster.tsx
+// binds no handler and holds no state, and audienceMix.ts is pure functions, so
+// both stay directive-free and inherit the boundary from TurfDetailsSheet —
+// same reason statusPresentation.ts does. (Written as 567 -> 568 before this
+// branch was rebased onto Voter Outreach 2.0 and the PIN gate; the +1 is what
+// this change is responsible for, and the entries above are the rest.)
+const BASELINE = 582
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

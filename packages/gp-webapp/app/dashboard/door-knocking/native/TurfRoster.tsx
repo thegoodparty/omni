@@ -1,5 +1,3 @@
-'use client'
-
 import { DoorKnockStatus, RoutePayloadStop } from '@goodparty_org/contracts'
 import {
   STATUS_DOT_COLORS,
@@ -41,6 +39,12 @@ interface TurfRosterProps {
 // the door, not members of this list, so listing them here would contradict the
 // People stat directly above and answer "who is in this list" with people who
 // are not.
+//
+// Deliberately **directive-free**, like `statusPresentation.ts` beside it: it
+// holds no state and binds no handler, so it inherits the client boundary from
+// `TurfDetailsSheet` and costs the `'use client'` ratchet nothing. It also
+// leaves it renderable from a server surface — the printed walk list is the one
+// artifact that carries every door, and it is the obvious next caller.
 export default function TurfRoster({ stops }: TurfRosterProps) {
   // An address IS a door — `countDoors` counts exactly these, so the roster's
   // length and the Doors stat above it cannot disagree. A stop is the
