@@ -456,6 +456,7 @@ export default function NativeDoorKnockingPage({
     () =>
       walkTurf && walkRouteQuery.data
         ? walkRouteQuery.data.stops.map((stop) => ({
+            stopId: stop.id,
             seq: stop.seq,
             lat: stop.lat,
             lng: stop.lng,
@@ -465,6 +466,20 @@ export default function NativeDoorKnockingPage({
         : [],
     [walkTurf, walkRouteQuery.data],
   )
+
+  // A tapped pin, handed to WalkView as a request to open that stop's door —
+  // the page owns the map, WalkView owns which door is open, and the sheet must
+  // stay the one surface a door is logged from. The token is what lets the same
+  // pin be tapped twice: closing the sheet leaves this state untouched, so a
+  // bare stop id would be inert on the second tap.
+  const [pinTap, setPinTap] = useState<{
+    stopId: number
+    token: number
+  } | null>(null)
+  // The walk's first-run coach mark. It names the gesture the walk map exists
+  // for, and it is dismissed by that gesture — nothing else on the map has
+  // anything to teach here.
+  const [pinHintDismissed, setPinHintDismissed] = useState(false)
 
   // Leaving the walk is the only way out of it. Doors logged along the way
   // mean the landing map's dots are stale.
@@ -483,6 +498,11 @@ export default function NativeDoorKnockingPage({
     // go with it, since the eye toggles were unmounted for the whole walk.
     setRailOpen(false)
     setHiddenTurfIds(new Set())
+    // Same stranding rule as the rest of this page's display state: a pin
+    // tapped on the way out would reopen its sheet on the next walk, and the
+    // coach mark is per-walk because each one starts on an unfamiliar route.
+    setPinTap(null)
+    setPinHintDismissed(false)
   }
 
   const changeFlowStep = (next: CreateFlowStep) => {
@@ -543,7 +563,13 @@ export default function NativeDoorKnockingPage({
 
   const rightRail = () => {
     if (walkTurf) {
-      return <WalkView turfId={walkTurf.id} onKnockRecorded={walk.recordDoor} />
+      return (
+        <WalkView
+          turfId={walkTurf.id}
+          onKnockRecorded={walk.recordDoor}
+          openStopRequest={pinTap}
+        />
+      )
     }
     // The create flow renders as a full-width overlay, not a rail.
     if (flowStep) return null
@@ -848,7 +874,32 @@ export default function NativeDoorKnockingPage({
                 undoDrawToken={undoDrawToken}
                 onPolygonChange={setRing}
                 onDrawPointCount={setDrawPointCount}
+                onRoutePinClick={(pin) => {
+                  setPinTap((current) => ({
+                    stopId: pin.stopId,
+                    token: (current?.token ?? 0) + 1,
+                  }))
+                  setPinHintDismissed(true)
+                }}
               />
+            )}
+            {/* The prototype's walk hint, in the prototype's words. It sits at
+                the bottom of the map band, which in walk mode is the whole
+                width of a shell already stacked `flex-col` with the list below
+                — the sub-lg rail sheet that would otherwise cover it belongs to
+                the landing map and is unmounted for the length of a walk.
+
+                `pointer-events-none`, so unlike the draw step's full-inset
+                dismiss button it can never swallow the tap it is asking for —
+                there is no stray-vertex problem to solve here, and eating the
+                first pin tap would make the hint the bug. It is dismissed by
+                the gesture it teaches instead. */}
+            {walkTurf && routePins.length > 0 && !pinHintDismissed && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-4">
+                <p className="rounded-full border border-border bg-background/95 px-4 py-2 text-sm font-medium shadow-sm">
+                  Tap a pin to log the door.
+                </p>
+              </div>
             )}
             {flowStep === 'draw' &&
               !drawHintDismissed &&

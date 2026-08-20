@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   DOOR_KNOCK_STATUSES,
@@ -36,9 +36,18 @@ interface WalkViewProps {
   // statuses are baked into the cached pack, so new knocks are invisible
   // there until it reloads.
   onKnockRecorded?: () => void
+  // A stop the canvasser tapped on the map. The page owns the map, this view
+  // owns which door is open, so the tap arrives as a request rather than as
+  // state — and `token` is what makes tapping the same pin again reopen the
+  // sheet that was just closed.
+  openStopRequest?: { stopId: number; token: number } | null
 }
 
-export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
+export default function WalkView({
+  turfId,
+  onKnockRecorded,
+  openStopRequest,
+}: WalkViewProps) {
   const queryClient = useQueryClient()
   const routeQuery = useQuery(routeQueryOptions(turfId))
   // Recorded statuses patch the route query cache itself (not component
@@ -241,6 +250,54 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
       next.target.stopTargetId,
     )
   }
+
+  // A map pin tap opens the same `PersonSheet` a stop row opens, through the
+  // same `openSheet` — the pin is a way INTO the door-logging surface, never a
+  // second one, so replay keys and the ADR 0009 feed refresh come along with it.
+  //
+  // It goes straight to the sheet even for a multi-resident stop, where the row
+  // expands instead: the row's list is right under the finger that pressed it,
+  // while a pin is on a map band the list is scrolled away from, and the sheet's
+  // own resident switcher is the same picker one step further in.
+  //
+  // Whom it opens is the first resident still worth knocking, so a household
+  // with one flagged member lands on the person there is a conversation to have
+  // with. A hollow pin — `stopIsKnockable` false, nobody left — falls through to
+  // the first resident, deliberately: a tap that does nothing is the bug being
+  // fixed, and a sheet is not a form. `PersonSheet` withholds the script and
+  // `RecordKnockForm` for a flagged resident and renders the flag's own control
+  // and its `STATUS_CHANGE` row instead, so the tap answers "why am I being told
+  // to skip this house?" at the doorstep — the only place a flag set on the
+  // wrong resident gets caught — without offering a knock to log.
+  const openStopFromMap = (stop: RoutePayloadStop) => {
+    const stopTargets = targetsForStop(stop)
+    const target = stopTargets.find(isKnockable) ?? stopTargets[0]
+    if (!target) return
+    openSheet(
+      stop.id,
+      stopTargets.map((t) => t.stopTargetId),
+      target.stopTargetId,
+    )
+  }
+  // Held in a ref because the effect below has to re-run on `stops` — a request
+  // that arrives before the serve does retries when it lands — while an
+  // ordinary dependency on this function would re-run it on every render.
+  const openStopFromMapRef = useRef(openStopFromMap)
+  openStopFromMapRef.current = openStopFromMap
+  // The token this view has already acted on. Every knock patches the route
+  // cache and so rebuilds `stops`; without this the effect would reopen the
+  // sheet on each one, under a canvasser who had closed it.
+  const handledPinTapRef = useRef(0)
+  const requestToken = openStopRequest?.token ?? 0
+  const requestStopId = openStopRequest?.stopId ?? null
+  useEffect(() => {
+    if (requestToken === 0 || requestStopId === null) return
+    if (handledPinTapRef.current === requestToken) return
+    const stop = stops.find((candidate) => candidate.id === requestStopId)
+    if (!stop) return
+    handledPinTapRef.current = requestToken
+    openStopFromMapRef.current(stop)
+  }, [requestToken, requestStopId, stops])
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto bg-background px-4 py-4">

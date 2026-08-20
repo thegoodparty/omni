@@ -1420,3 +1420,197 @@ describe('WalkView auto-advance', () => {
     expect(keys[1]).not.toBe(keys[0])
   })
 })
+
+// A pin is what a canvasser is actually standing in front of, so tapping one
+// has to reach the same PersonSheet a stop row reaches. The page owns the map
+// and turns a tap into this request; the view turns it into an open door.
+describe('WalkView map pin taps', () => {
+  const target = (
+    stopTargetId: number,
+    name: string,
+    overrides: Partial<RoutePayloadTarget> = {},
+  ): RoutePayloadTarget => ({
+    stopTargetId,
+    personId: `person-${stopTargetId}`,
+    name,
+    age: 40,
+    politicalParty: null,
+    cellPhone: null,
+    landline: null,
+    knockStatus: 'unknown',
+    mayHaveMoved: false,
+    doNotKnock: false,
+    ...overrides,
+  })
+
+  const stop = (
+    id: number,
+    seq: number,
+    address: string,
+    targets: RoutePayloadTarget[],
+  ) => ({
+    id,
+    seq,
+    lat: 36.16,
+    lng: -86.78,
+    displayAddress: address,
+    legSeconds: 0,
+    legMeters: 0,
+    addresses: [
+      {
+        addressKey: address.toLowerCase().replaceAll(' ', '|'),
+        address,
+        targets,
+        otherResidents: [],
+      },
+    ],
+  })
+
+  const mockRoute = (stops: DoorKnockingRoutePayload['stops']) =>
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: {
+        route: {
+          id: 5,
+          doorKnockingTurfId: 3,
+          mode: 'walk' as const,
+          loop: false,
+          totalSeconds: 600,
+          totalMeters: 800,
+          stopCount: stops.length,
+          createdAt: new Date('2026-07-21T00:00:00Z'),
+        },
+        pathGeometry: null,
+        stops,
+      },
+    })
+
+  // Pins only exist once the serve has landed, so a walk always renders before
+  // the first tap can happen.
+  const walkThenTap = async (
+    stops: DoorKnockingRoutePayload['stops'],
+    request: { stopId: number; token: number },
+  ) => {
+    mockRoute(stops)
+    const { rerender } = render(<WalkView turfId={3} />)
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+    rerender(<WalkView turfId={3} openStopRequest={request} />)
+    return rerender
+  }
+
+  beforeEach(() => {
+    testQueryClient.clear()
+    vi.mocked(trackEvent).mockClear()
+  })
+
+  it('opens the tapped stop’s door', async () => {
+    await walkThenTap(
+      [
+        stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
+        stop(12, 2, '210 Cedar Row', [target(22, 'Marisol Vega')]),
+      ],
+      { stopId: 12, token: 1 },
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Marisol Vega' }),
+      ).toBeInTheDocument(),
+    )
+    expect(screen.getByText('Log this door')).toBeInTheDocument()
+  })
+
+  // The row expands for a household so the canvasser can pick; a pin has no
+  // list under it to expand into, and the sheet's own switcher is that picker.
+  it('opens a household at the first resident still worth knocking', async () => {
+    await walkThenTap(
+      [
+        stop(11, 1, '105 Elm St', [
+          target(21, 'Dorian Fen', { doNotKnock: true }),
+          target(24, 'Winnie Fen'),
+        ]),
+      ],
+      { stopId: 11, token: 1 },
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Winnie Fen' }),
+      ).toBeInTheDocument(),
+    )
+    expect(screen.getByText('Log this door')).toBeInTheDocument()
+  })
+
+  // A hollow pin has nobody left to knock. Opening it anyway is the point: the
+  // sheet withholds the script and the form and renders the flag's own control
+  // instead, so the tap answers "why am I skipping this house?" from the
+  // doorstep — where a flag set on the wrong resident is caught — rather than
+  // going dead under the thumb, which is the bug being fixed.
+  it('opens a stop with nobody knockable without offering a knock', async () => {
+    await walkThenTap(
+      [
+        stop(11, 1, '105 Elm St', [
+          target(21, 'Dorian Fen', { doNotKnock: true }),
+        ]),
+      ],
+      { stopId: 11, token: 1 },
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Dorian Fen' }),
+      ).toBeInTheDocument(),
+    )
+    expect(screen.queryByText('Log this door')).toBeNull()
+    expect(
+      screen.getByText(/asked not to be visited again/),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+  })
+
+  // Closing the sheet leaves the page's tapped-pin state alone, so a bare stop
+  // id would be inert the second time — the token is what makes the same pin
+  // openable again.
+  it('reopens the same stop when its pin is tapped again', async () => {
+    const rerender = await walkThenTap(
+      [stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')])],
+      { stopId: 11, token: 1 },
+    )
+    await waitFor(() =>
+      expect(screen.getByText('Log this door')).toBeInTheDocument(),
+    )
+    await closePersonSheet()
+
+    rerender(<WalkView turfId={3} openStopRequest={{ stopId: 11, token: 2 }} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('Log this door')).toBeInTheDocument(),
+    )
+  })
+
+  // Every knock patches the route cache, which rebuilds the stops the effect
+  // reads — a reopen on each one would spring the sheet back up on a canvasser
+  // who had closed it.
+  it('does not reopen the sheet when a knock patches the route', async () => {
+    api.mock('POST /v1/door-knocking/interactions', {
+      status: 200,
+      data: { personId: 'person-21', knockStatus: 'not_home' },
+    })
+    await walkThenTap([stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')])], {
+      stopId: 11,
+      token: 1,
+    })
+    await waitFor(() =>
+      expect(screen.getByText('Log this door')).toBeInTheDocument(),
+    )
+
+    // Nothing left ahead, so logging this door closes the sheet — and it has
+    // to stay closed.
+    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
+
+    expect(screen.queryByText('Log this door')).toBeNull()
+  })
+})
