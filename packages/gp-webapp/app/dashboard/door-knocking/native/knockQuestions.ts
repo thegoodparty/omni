@@ -4,10 +4,16 @@ import {
   WillVoteAnswer,
 } from '@goodparty_org/contracts'
 
-// The three questions a knock answers, in the order they're asked. Shared by
-// the in-app form and the printed walk sheet: paper is transcribed back into
-// that form afterwards, so a wording or ordering difference between the two
-// turns into a mis-keyed answer.
+// The questions a knock answers. The app walks them as a tree — only a door
+// that answered is asked anything else — while paper prints the five outcomes
+// flat, because a sheet cannot branch and has to offer every ending at once.
+// Both surfaces read these constants: paper is transcribed back into this
+// form, so a wording or ordering difference between the two turns into a
+// mis-keyed answer.
+
+// Every ending, and the label for an outcome anywhere it is named on its own.
+// Paper's outcome row, and `walkFacts.ts`'s last-contact line. Each option in
+// the app's two steps below resolves to one of these.
 export const OUTCOME_OPTIONS: Array<[DoorKnockOutcome, string]> = [
   ['answered', 'Answered'],
   ['not_home', 'Not home'],
@@ -16,64 +22,38 @@ export const OUTCOME_OPTIONS: Array<[DoorKnockOutcome, string]> = [
   ['not_a_voter', 'Not a voter'],
 ]
 
+// The app's first question. Two of the three end the knock; `answered` is the
+// only one with a follow-up.
+export const ANSWER_OPTIONS: Array<[DoorKnockOutcome, string]> = [
+  ['answered', 'Answered'],
+  ['not_home', 'Not home'],
+  ['inaccessible', 'Inaccessible'],
+]
+
+// The app's second question, asked only of a door that answered. `answered`
+// carries a different label here than in the flat row above, because at this
+// point in the walkthrough "Answered" is the question already behind the
+// canvasser — what is being asked is whether the conversation happened.
+export const ENGAGEMENT_OPTIONS: Array<[DoorKnockOutcome, string]> = [
+  ['answered', 'Engaged'],
+  ['refused_to_engage', 'Refused'],
+  ['not_a_voter', 'Not voter'],
+]
+
 export const SUPPORT_OPTIONS: Array<[SupportAnswer, string]> = [
   ['supporter', 'Yes'],
-  ['unsure', 'Unsure'],
   ['non_supporter', 'No'],
+  ['unsure', 'Unsure'],
 ]
 
 export const WILL_VOTE_OPTIONS: Array<[WillVoteAnswer, string]> = [
   ['yes', 'Yes'],
-  ['unsure', 'Unsure'],
   ['no', 'No'],
+  ['unsure', 'Unsure'],
 ]
 
 export const OUTCOME_QUESTION = 'Did they answer?'
+export const ENGAGEMENT_QUESTION = 'Did they engage?'
 export const SUPPORT_QUESTION = 'Do they support you?'
-export const WILL_VOTE_QUESTION = 'Will they vote?'
-
-// The brief's two-tap path: one flat row where every chip is a COMPLETE
-// result, so the common door costs one tap to open and one to log. Walking
-// the cascade above instead costs three taps at best, and the brief is blunt
-// about why that matters — "keeping records is not a second job I will
-// quietly stop doing".
-//
-// Flattened onto the existing contract, not new enum members: the brief's
-// list ("supporter, lean, undecided, not home, refused, moved, sign request")
-// maps onto DoorKnockOutcome x SupportAnswer, with `lean` collapsing into
-// Undecided and `sign request` having no field to land in — it stays a note.
-export interface QuickResult {
-  id: string
-  label: string
-  outcome: DoorKnockOutcome
-  supportAnswer?: SupportAnswer
-}
-
-// Ordered by how often a canvasser reaches for each one, not by the brief's
-// prose order: most doors go unanswered, so "Not home" sits under the thumb.
-export const QUICK_RESULTS: QuickResult[] = [
-  { id: 'not_home', label: 'Not home', outcome: 'not_home' },
-  {
-    id: 'supporter',
-    label: 'Supporter',
-    outcome: 'answered',
-    supportAnswer: 'supporter',
-  },
-  {
-    id: 'undecided',
-    label: 'Undecided',
-    outcome: 'answered',
-    supportAnswer: 'unsure',
-  },
-  {
-    id: 'non_supporter',
-    label: 'Not supporting',
-    outcome: 'answered',
-    supportAnswer: 'non_supporter',
-  },
-  { id: 'refused', label: 'Refused', outcome: 'refused_to_engage' },
-  { id: 'not_a_voter', label: 'Not a voter', outcome: 'not_a_voter' },
-  { id: 'inaccessible', label: 'Inaccessible', outcome: 'inaccessible' },
-]
-
-export const QUICK_QUESTION = 'What happened?'
+export const WILL_VOTE_QUESTION = 'Will they vote this election?'
+export const NOTE_QUESTION = 'Note'

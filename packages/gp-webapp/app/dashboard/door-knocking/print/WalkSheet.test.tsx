@@ -162,7 +162,11 @@ describe('WalkSheet', () => {
     expect(within(person).getByText('31 · Independent')).toBeInTheDocument()
     expect(within(person).getByText('Did they answer?')).toBeInTheDocument()
     expect(within(person).getByText('Do they support you?')).toBeInTheDocument()
-    expect(within(person).getByText('Will they vote?')).toBeInTheDocument()
+    expect(
+      within(person).getByText('Will they vote this election?'),
+    ).toBeInTheDocument()
+    // All five outcomes, because paper cannot branch the way the app's
+    // walkthrough does — every ending has to be offered at once.
     for (const label of [
       'Answered',
       'Not home',

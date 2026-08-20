@@ -105,12 +105,31 @@ const openPersonSheet = async (address: string) => {
   )
 }
 
-// The cascade (outcome, then support, then will-vote, then a note) now sits
-// behind a disclosure; the sheet opens on the one-tap chips instead.
-const openDetailForm = () =>
+// The walkthrough answers one question at a time, so a test has to say which
+// question it is answering: two of the rows both offer "Yes".
+const answerQuestion = (label: string, option: string) =>
   fireEvent.click(
-    screen.getByRole('button', { name: 'Add a note or more detail' }),
+    within(screen.getByText(label).parentElement as HTMLElement).getByRole(
+      'radio',
+      { name: option },
+    ),
   )
+
+// Save is the only thing that logs a door, and it appears once the branch the
+// canvasser walked has nothing left to ask.
+const saveKnock = () =>
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+const knockNotHome = () => {
+  answerQuestion('Did they answer?', 'Not home')
+  saveKnock()
+}
+
+const knockNotAVoter = () => {
+  answerQuestion('Did they answer?', 'Answered')
+  answerQuestion('Did they engage?', 'Not voter')
+  saveKnock()
+}
 
 const closePersonSheet = async () => {
   fireEvent.click(
@@ -329,25 +348,22 @@ describe('WalkView', () => {
       screen.getByText('May have moved since this route was built.'),
     ).toBeInTheDocument()
 
-    openDetailForm()
-    fireEvent.click(screen.getByRole('radio', { name: 'Answered' }))
-    fireEvent.click(
-      within(
-        screen.getByText('Do they support you?').parentElement as HTMLElement,
-      ).getByRole('radio', { name: 'Yes' }),
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
+    answerQuestion('Did they answer?', 'Answered')
+    answerQuestion('Did they engage?', 'Engaged')
+    answerQuestion('Do they support you?', 'Yes')
+    answerQuestion('Will they vote this election?', 'Unsure')
+    saveKnock()
 
     await waitFor(() => expect(posted).toHaveLength(1))
     expect(posted[0]).toMatchObject({
       stopTargetId: 21,
       outcome: 'answered',
       supportAnswer: 'supporter',
+      willVote: 'unsure',
     })
     expect((posted[0] as { clientKey: string }).clientKey).toMatch(
       /[0-9a-f-]{36}/,
     )
-    expect(posted[0]).not.toHaveProperty('willVote')
 
     // Sheet closes and the logged counter reflects the new status.
     await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
@@ -356,13 +372,15 @@ describe('WalkView', () => {
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
       outcome: 'answered',
       supportAnswer: 'supporter',
+      willVote: 'unsure',
       knockStatus: 'supporter',
       hasNote: false,
-      logMode: 'detail',
     })
   })
 
   // The note is free text about a named voter, so only its existence travels.
+  // Walked on the door that never opened, because that is the majority of
+  // them and the one the note field was restored for.
   it('reports that a note was written without shipping what it said', async () => {
     api.mock('POST /v1/door-knocking/interactions', {
       status: 200,
@@ -371,19 +389,17 @@ describe('WalkView', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    openDetailForm()
-    fireEvent.click(screen.getByRole('radio', { name: 'Not home' }))
+    answerQuestion('Did they answer?', 'Not home')
     fireEvent.change(screen.getByPlaceholderText('Notes (optional)'), {
       target: { value: 'Dog in the yard, come back Saturday' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
+    saveKnock()
 
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
         outcome: 'not_home',
         knockStatus: 'not_home',
         hasNote: true,
-        logMode: 'detail',
       }),
     )
     const logged = vi
@@ -397,7 +413,7 @@ describe('WalkView', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
 
     await waitFor(() =>
       expect(screen.getByText(/Saving failed/)).toBeInTheDocument(),
@@ -424,14 +440,14 @@ describe('WalkView', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
     await waitFor(() => expect(keys).toHaveLength(1))
 
     // Close and reopen the sheet — the remount must not mint a new key,
     // or the server-side upsert can't dedupe the retry.
     await closePersonSheet()
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
     await waitFor(() => expect(keys).toHaveLength(2))
     expect(keys[1]).toBe(keys[0])
   })
@@ -448,12 +464,12 @@ describe('WalkView', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
     await waitFor(() => expect(keys).toHaveLength(1))
     await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
 
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
     await waitFor(() => expect(keys).toHaveLength(2))
     expect(keys[1]).not.toBe(keys[0])
   })
@@ -470,16 +486,13 @@ describe('WalkView', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    openDetailForm()
-    // Pick answers first, then flip to Not home — the answers must not leak.
-    fireEvent.click(screen.getByRole('radio', { name: 'Answered' }))
-    fireEvent.click(
-      within(
-        screen.getByText('Will they vote?').parentElement as HTMLElement,
-      ).getByRole('radio', { name: 'Yes' }),
-    )
-    fireEvent.click(screen.getByRole('radio', { name: 'Not home' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
+    // Walk the engaged branch, then back out to Not home — the answers picked
+    // inside it must not leak onto an outcome the contract rejects them for.
+    answerQuestion('Did they answer?', 'Answered')
+    answerQuestion('Did they engage?', 'Engaged')
+    answerQuestion('Do they support you?', 'Yes')
+    answerQuestion('Will they vote this election?', 'Yes')
+    knockNotHome()
 
     await waitFor(() => expect(posted).toHaveLength(1))
     expect(posted[0]).toMatchObject({ outcome: 'not_home' })
@@ -590,10 +603,11 @@ describe('WalkView not-a-voter reason', () => {
     return () => serves
   }
 
-  // The two-tap claim is the whole reason the quick chips exist, and it is
-  // measured by `logMode` — so the follow-up must sit behind the save, never in
-  // front of it.
-  it('logs the door on the single quick tap, with no reason attached', async () => {
+  // The prototype asks Moved/Deceased inside the walkthrough, before Save.
+  // Here it stays behind the save: the reason is optional, and a door that is
+  // logged only once its optional follow-up is answered is a door that gets
+  // lost when the canvasser walks away mid-question.
+  it('logs the door on Save, with no reason attached', async () => {
     const posted: unknown[] = []
     api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
       posted.push(body)
@@ -605,7 +619,7 @@ describe('WalkView not-a-voter reason', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not a voter' }))
+    knockNotAVoter()
 
     await waitFor(() => expect(posted).toHaveLength(1))
     expect(posted[0]).toMatchObject({
@@ -616,7 +630,6 @@ describe('WalkView not-a-voter reason', () => {
       outcome: 'not_a_voter',
       knockStatus: 'not_a_voter',
       hasNote: false,
-      logMode: 'quick',
     })
     // Nothing about a reason reaches the knock write — it is a different field
     // on a different endpoint.
@@ -630,7 +643,7 @@ describe('WalkView not-a-voter reason', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not a voter' }))
+    knockNotAVoter()
 
     await waitFor(() =>
       expect(
@@ -647,7 +660,7 @@ describe('WalkView not-a-voter reason', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not a voter' }))
+    knockNotAVoter()
     await screen.findByText('Not a voter — what happened?')
 
     fireEvent.click(screen.getByRole('button', { name: 'Deceased' }))
@@ -674,7 +687,7 @@ describe('WalkView not-a-voter reason', () => {
     )
 
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not a voter' }))
+    knockNotAVoter()
     await screen.findByText('Not a voter — what happened?')
     fireEvent.click(screen.getByRole('button', { name: 'Moved' }))
     await screen.findByRole('button', { name: 'Undo' })
@@ -813,7 +826,7 @@ describe('WalkView not-a-voter reason', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not a voter' }))
+    knockNotAVoter()
     await screen.findByText('Not a voter — what happened?')
 
     // Read the screen only once a serve could have arrived. A refresh fired on
@@ -843,7 +856,7 @@ describe('WalkView not-a-voter reason', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not a voter' }))
+    knockNotAVoter()
     await screen.findByText('Not a voter — what happened?')
     expect(
       screen.getByText('No previous outreach to this resident.'),
@@ -868,7 +881,7 @@ describe('WalkView not-a-voter reason', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not a voter' }))
+    knockNotAVoter()
     await screen.findByText('Not a voter — what happened?')
     expect(serves()).toBe(1)
 
@@ -899,7 +912,7 @@ describe('WalkView not-a-voter reason', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
     // Nothing unlogged ahead, so this closes the sheet without going through
     // the close handler; reopening and closing by hand exercises that path.
     await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
@@ -1001,7 +1014,7 @@ describe('WalkView auto-advance', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
 
     // The sheet stays open on the next person rather than closing.
     await waitFor(() =>
@@ -1025,7 +1038,7 @@ describe('WalkView auto-advance', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
 
     await waitFor(() =>
       expect(
@@ -1048,7 +1061,7 @@ describe('WalkView auto-advance', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
 
     await waitFor(() =>
       expect(
@@ -1071,7 +1084,7 @@ describe('WalkView auto-advance', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
 
     await waitFor(() =>
       expect(
@@ -1109,13 +1122,79 @@ describe('WalkView auto-advance', () => {
       expect(screen.getByText('Log this door')).toBeInTheDocument(),
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
 
     await waitFor(() =>
       expect(
         screen.getByRole('heading', { name: 'Winnie Fen' }),
       ).toBeInTheDocument(),
     )
+  })
+
+  // Aug 14 walkthrough: one household, one status per person — the canvasser
+  // marks the resident who answered separately from the one who didn't. The
+  // sheet stays open across the two, so the walkthrough has to be rebuilt for
+  // the second rather than carrying the first one's answers into their record.
+  it('starts the next resident on a blank walkthrough and logs them separately', async () => {
+    mockRoute([
+      stop(11, 1, '105 Elm St', [
+        target(21, 'Dorian Fen'),
+        target(24, 'Winnie Fen'),
+      ]),
+    ])
+    const posted: unknown[] = []
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      posted.push(body)
+      return {
+        status: 200,
+        data:
+          posted.length === 1
+            ? { personId: 'person-21', knockStatus: 'not_home' }
+            : { personId: 'person-24', knockStatus: 'supporter' },
+      }
+    })
+
+    render(<WalkView turfId={3} />)
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+    fireEvent.click(screen.getByText('105 Elm St'))
+    await waitFor(() =>
+      expect(screen.getAllByText('Dorian Fen')).toHaveLength(2),
+    )
+    fireEvent.click(screen.getAllByText('Dorian Fen').pop()!)
+    await waitFor(() =>
+      expect(screen.getByText('Log this door')).toBeInTheDocument(),
+    )
+
+    knockNotHome()
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Winnie Fen' }),
+      ).toBeInTheDocument(),
+    )
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+    expect(
+      within(
+        screen.getByText('Did they answer?').parentElement as HTMLElement,
+      ).getByRole('radio', { name: 'Not home' }),
+    ).toHaveAttribute('data-state', 'off')
+
+    answerQuestion('Did they answer?', 'Answered')
+    answerQuestion('Did they engage?', 'Engaged')
+    answerQuestion('Do they support you?', 'Yes')
+    answerQuestion('Will they vote this election?', 'Yes')
+    saveKnock()
+
+    await waitFor(() => expect(posted).toHaveLength(2))
+    expect(posted[0]).toMatchObject({ stopTargetId: 21, outcome: 'not_home' })
+    expect(posted[1]).toMatchObject({
+      stopTargetId: 24,
+      outcome: 'answered',
+      supportAnswer: 'supporter',
+      willVote: 'yes',
+    })
   })
 
   // Nothing ahead means the walk is done for this pass; anything skipped is
@@ -1126,7 +1205,7 @@ describe('WalkView auto-advance', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
 
     await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
   })
@@ -1178,7 +1257,7 @@ describe('WalkView auto-advance', () => {
       screen.getByText('No previous outreach to this resident.'),
     ).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
     // Nothing ahead, so the sheet closes on the logged door.
     await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
     expect(serves).toBe(1)
@@ -1209,7 +1288,7 @@ describe('WalkView auto-advance', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
     await waitFor(() =>
       expect(
         screen.getByRole('heading', { name: 'Marisol Vega' }),
@@ -1237,7 +1316,7 @@ describe('WalkView auto-advance', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
     await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
     expect(screen.getByText('1/1 logged')).toBeInTheDocument()
 
@@ -1290,7 +1369,7 @@ describe('WalkView auto-advance', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
     await waitFor(() =>
       expect(
         screen.getByRole('heading', { name: 'Marisol Vega' }),
@@ -1308,7 +1387,7 @@ describe('WalkView auto-advance', () => {
     await waitFor(() =>
       expect(screen.getByText('Log this door')).toBeInTheDocument(),
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
     await waitFor(() => expect(screen.getByText('2/2 logged')).toBeTruthy())
 
     // The held serve carries neither knock; arriving now it must be discarded.
@@ -1367,14 +1446,14 @@ describe('WalkView auto-advance', () => {
       expect(screen.getByText('Log this door')).toBeInTheDocument(),
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
     // Advances to the housemate, whose knock then fails.
     await waitFor(() =>
       expect(
         screen.getByRole('heading', { name: 'Winnie Fen' }),
       ).toBeInTheDocument(),
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
     await waitFor(() => expect(screen.getByText(/Saving failed/)).toBeTruthy())
 
     // Back to the logged housemate, which is what asks for the fresh serve,
@@ -1385,7 +1464,7 @@ describe('WalkView auto-advance', () => {
     await waitFor(() =>
       expect(screen.getByText('Log this door')).toBeInTheDocument(),
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
 
     await waitFor(() => expect(keys).toHaveLength(3))
     expect(keys[2]).toBe(keys[1])
@@ -1407,14 +1486,14 @@ describe('WalkView auto-advance', () => {
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
     await waitFor(() =>
       expect(
         screen.getByRole('heading', { name: 'Marisol Vega' }),
       ).toBeInTheDocument(),
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
     await waitFor(() => expect(keys).toHaveLength(2))
     expect(keys[1]).toMatch(/[0-9a-f-]{36}/)
     expect(keys[1]).not.toBe(keys[0])
@@ -1608,7 +1687,7 @@ describe('WalkView map pin taps', () => {
 
     // Nothing left ahead, so logging this door closes the sheet — and it has
     // to stay closed.
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
     await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
 
     expect(screen.queryByText('Log this door')).toBeNull()
