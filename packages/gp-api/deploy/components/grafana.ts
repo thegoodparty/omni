@@ -1,7 +1,10 @@
 import * as grafana from '@pulumiverse/grafana'
 import { Alert } from './alerting/alerts.types'
 import { GLOBAL_ALERTS } from './alerts'
-import { buildAlertDescription } from './alerting/alert-description'
+import {
+  buildAlertDescription,
+  buildAlertSummary,
+} from './alerting/alert-notification'
 import { controllerAlerts } from './alerting/controller-alerts'
 import { personProfilesDashboardConfigJson } from './personProfilesDashboard'
 import { CONTROLLER_NAMES } from '../../src/generated/route-types'
@@ -175,7 +178,7 @@ export const createGrafanaResources = async ({
     noDataState: 'OK',
     execErrState: 'Alerting',
     annotations: {
-      summary: alert.name,
+      summary: buildAlertSummary(alert, environment),
       description: buildAlertDescription(alert, environment),
     },
     labels: {

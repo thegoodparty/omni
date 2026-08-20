@@ -28,7 +28,7 @@ These cover system-wide concerns that aren't tied to a specific endpoint:
 
 When an alert fires, Grafana sends a notification to the `#dev-alerts` Slack channel. The notification includes:
 
-- The environment the alert fired in, as a `[DEV]` or `[PROD]` prefix
+- The environment the alert fired in, tagged `[DEV]` or `[PROD]` on both the title and the body (which of the two a contact point shows is Grafana's default templating to decide, so neither omits it)
 - The alert name and a description with guidance on how to investigate
 - A link back to the alert in Grafana
 - A mention of the owning Slack group (`@serve-bugs` or `@win-bugs`) if applicable
@@ -65,7 +65,7 @@ All alerting configuration lives in `deploy/`:
 | `deploy/components/alerts.ts`                     | Ownership mapping and global alerts                       |
 | `deploy/components/alerting/controller-alerts.ts` | Generates error count alerts for each controller endpoint |
 | `deploy/components/alerting/alerts.types.ts`      | Type definitions for `Alert` and `SlackGroup`             |
-| `deploy/components/alerting/alert-description.ts` | Slack body: environment prefix and group mention          |
+| `deploy/components/alerting/alert-notification.ts` | Notification title and body: environment tag, mention    |
 | `deploy/components/grafana.ts`                    | Converts alerts into Grafana rule groups via Pulumi       |
 
 ## How to opt in a controller
