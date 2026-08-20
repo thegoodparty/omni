@@ -20,6 +20,8 @@ const seedCampaign = async (args: {
     einNumber?: string
     subscriptionId?: string
     campaignCommittee?: string
+    officeTermLength?: string | number
+    customIssues?: Array<Record<string, string | number>>
   }
 }) => {
   const organizationSlug = `org-${args.id}`
@@ -33,7 +35,15 @@ const seedCampaign = async (args: {
       userId: service.user.id,
       slug: args.slug,
       isActive: args.isActive,
-      details: { raceId: args.raceId, ...args.details },
+      // PrismaJson.CampaignDetails declares officeTermLength as a string and
+      // customIssues as all-string records. It is a shadow type over a JSON
+      // column, not a constraint, and production disagrees with it on both
+      // counts — which is the whole reason these cases exist. Seed the shape
+      // the column actually holds.
+      details: {
+        raceId: args.raceId,
+        ...args.details,
+      } as PrismaJson.CampaignDetails,
     },
   })
 }
@@ -197,6 +207,61 @@ describe('GET /v1/public-campaigns', () => {
     expect(res.data.details.einNumber).toBeUndefined()
     expect(res.data.details.subscriptionId).toBeUndefined()
     expect(res.data.details.campaignCommittee).toBeUndefined()
+  })
+
+  // Regression: `officeTermLength` is declared z.string(), but roughly half of
+  // all active campaigns store the legacy bare-number form. Every one of them
+  // failed response validation, so the endpoint 500d instead of answering.
+  it('serves a campaign whose officeTermLength is a legacy number', async () => {
+    await seedCampaign({
+      id: 20,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+      details: { officeTermLength: 4, einNumber: '12-3456789' },
+    })
+
+    const res = await find({ raceId: MONICA_RACE, ...MONICA })
+
+    expect(res.status).toBe(200)
+    expect(res.data.details.officeTermLength).toBe('4')
+    // Coercing the value must not weaken the whitelist around it.
+    expect(res.data.details.einNumber).toBeUndefined()
+  })
+
+  it('leaves the modern string officeTermLength untouched', async () => {
+    await seedCampaign({
+      id: 21,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+      details: { officeTermLength: '4 years' },
+    })
+
+    const res = await find({ raceId: MONICA_RACE, ...MONICA })
+
+    expect(res.status).toBe(200)
+    expect(res.data.details.officeTermLength).toBe('4 years')
+  })
+
+  // Legacy customIssues entries carry a numeric `order` alongside the strings.
+  it('serves customIssues carrying a legacy numeric order', async () => {
+    await seedCampaign({
+      id: 22,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+      details: {
+        customIssues: [{ title: 'Roads', position: 'Fix them', order: 0 }],
+      },
+    })
+
+    const res = await find({ raceId: MONICA_RACE, ...MONICA })
+
+    expect(res.status).toBe(200)
+    expect(res.data.details.customIssues).toEqual([
+      { title: 'Roads', position: 'Fix them', order: 0 },
+    ])
   })
 
   it('omits an unpublished (draft) website from the public response', async () => {
