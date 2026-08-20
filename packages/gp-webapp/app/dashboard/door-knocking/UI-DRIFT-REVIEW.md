@@ -399,7 +399,7 @@ since it is the only place a canvasser sees progress while walking.
 
 ---
 
-## What was accidental, and is fixed in PR #1346 (open, not yet merged)
+## What was accidental, and will be fixed in PR #1346 (open, not yet merged)
 
 ### 1. The detail sheet's overview stats had lost their icons
 
