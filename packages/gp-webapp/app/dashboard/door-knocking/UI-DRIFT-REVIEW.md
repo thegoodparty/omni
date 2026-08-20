@@ -8,8 +8,9 @@ difference into one of three piles:
   why. These are listed below for product to confirm or overturn. Nothing here
   has been changed.
 - **Accidental** — the prototype had it, we lost it or never built it, and no
-  decision is recorded. These are fixed in PR #1346; they are listed near the end
-  so you can see what moved.
+  decision is recorded. These are fixed in PR #1346, which is open alongside this
+  document and has not been merged, so they are not live yet. They are listed
+  near the end so you can see what is about to move.
 - **Still open** — real differences that are nobody's decision yet, listed near
   the end with a recommendation each. Two of them cost more than a UI change and
   need a product answer before an engineering one.
@@ -398,7 +399,7 @@ since it is the only place a canvasser sees progress while walking.
 
 ---
 
-## What was accidental, and has been fixed (PR #1346)
+## What was accidental, and is fixed in PR #1346 (open, not yet merged)
 
 ### 1. The detail sheet's overview stats had lost their icons
 
