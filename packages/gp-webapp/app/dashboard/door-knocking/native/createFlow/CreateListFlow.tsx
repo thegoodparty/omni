@@ -18,7 +18,9 @@ import {
   transformVoterFileFiltersForBackend,
   type VoterFileFilters,
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import { unpreviewableDisclosureLabels } from './voterFilterPreview'
 import { MAX_TURF_NAME_LENGTH, TURF_COLORS } from '../turfQueries'
+import { DOORS_PER_HOUR, estimateWalkTime } from '../walkEstimate'
 import type { PolygonRing } from '../VoterMapCanvas'
 import type { PolygonStats } from '../filterEngine'
 
@@ -42,21 +44,16 @@ const PILL_CLASSNAME =
 // is the behavior a candidate wants there anyway.
 const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
 
-// The POC's rate, and what the walking estimate is worth: 45 doors an hour is
-// a canvasser's sustained pace with the walk between doors included. The
-// vendor's own duration only exists once the route is built server-side, which
-// is after the point where this decision is made.
-const DOORS_PER_HOUR = 45
 // Informational, not a gate: past this the evening is long enough to be worth
 // saying out loud. The hard cap at 150 is what actually blocks.
 const SOFT_STOP_LIMIT = 100
 const HARD_STOP_LIMIT = 150
-
-const estimateWalkTime = (doors: number): string => {
-  const minutes = Math.round((doors / DOORS_PER_HOUR) * 60)
-  if (minutes < 60) return `${minutes} min`
-  return `${Math.floor(minutes / 60)} hr ${minutes % 60} min`
-}
+// The canvas closes the shape itself and only emits a ring from three points
+// (VoterMapCanvas's onPolygonChange gate), so there is no Done to press and
+// Continue cannot enable before then. Mirrored here rather than imported: the
+// canvas module carries maplibre and deck.gl, and this flow is deliberately
+// outside that chunk.
+const MIN_POLYGON_POINTS = 3
 
 export type CreateFlowStep = 'filters' | 'draw' | 'confirm'
 
@@ -73,6 +70,14 @@ interface CreateListFlowProps {
   ring: PolygonRing | null
   // In-polygon counts for the drawn shape, computed by the page from the pack.
   turfStats: PolygonStats | null
+  // Boundary points placed so far. `ring` only exists from three points, so
+  // this is the only thing that knows there is a one- or two-point shape to
+  // undo — and it counts adds, not drags, which never change the total.
+  drawPointCount: number
+  // Drop the last placed point / empty the shape. The canvas owns the ring,
+  // so both are requests, not edits made here.
+  onUndoPoint: () => void
+  onClearPoints: () => void
   // Saved-flow completion: clear the drawing (and optionally exit).
   onSaved: (drawAnother: boolean) => void
   // Hides the Win-only filters, same contract as the CRM wizard's
@@ -113,7 +118,7 @@ const StepHeader = ({
   const stepIndex = STEP_ORDER.indexOf(step)
   const meta = STEP_META[step]
   return (
-    <div className="border-b border-border bg-background px-6 py-4">
+    <div className="border-b border-border bg-background px-4 py-4 sm:px-6">
       <div className="mx-auto w-full max-w-2xl">
         <div className="flex items-start gap-3">
           {onBack && (
@@ -156,6 +161,9 @@ export default function CreateListFlow({
   districtHouseholds,
   ring,
   turfStats,
+  drawPointCount,
+  onUndoPoint,
+  onClearPoints,
   onSaved,
   isElectedOfficial,
   unpreviewableKeys,
@@ -298,16 +306,22 @@ export default function CreateListFlow({
   const doors = turfStats?.households ?? 0
   const overCap = stops > HARD_STOP_LIMIT
   const longWalk = stops > SOFT_STOP_LIMIT && !overCap
+  // Continue is the finish gesture, so while it is disabled it says what it
+  // is waiting for. The three-point minimum was otherwise undiscoverable —
+  // someone who placed two points had a dead button, no Done anywhere, and
+  // nothing on screen naming the rule.
+  const pointsNeeded = MIN_POLYGON_POINTS - drawPointCount
+  let continueLabel = `Continue (${doors.toLocaleString()} doors)`
+  if (pointsNeeded > 0) {
+    continueLabel =
+      drawPointCount === 0
+        ? `Tap ${MIN_POLYGON_POINTS} points to continue`
+        : `${pointsNeeded} more point${pointsNeeded === 1 ? '' : 's'} to continue`
+  } else if (stops === 0) {
+    continueLabel = 'No doors in this area'
+  }
 
-  const unpreviewableLabels = unpreviewableKeys
-    .map(
-      (key) =>
-        filterSections
-          .flatMap((section) => section.fields)
-          .flatMap((field) => field.options)
-          .find((option) => option.key === key)?.label,
-    )
-    .filter((label): label is string => Boolean(label))
+  const unpreviewableLabels = unpreviewableDisclosureLabels(unpreviewableKeys)
 
   const toggleGroupValues = (
     options: Array<{ key: string; label: string }>,
@@ -339,8 +353,42 @@ export default function CreateListFlow({
           />
         </div>
         <div className="flex-1" />
-        <div className="pointer-events-auto border-t border-border bg-background px-6 py-4">
-          <div className="mx-auto flex w-full max-w-2xl items-center gap-4">
+        {/* Bottom-right of the live map band, in flow directly above the
+            stats bar (and in its column, so they line up over Continue) —
+            a taller bar from a cap warning pushes them up instead of
+            covering them. Only the buttons take pointer events; the rest of
+            the row stays a tappable part of the map. */}
+        <div className="px-4 pb-3 sm:px-6">
+          <div className="mx-auto flex w-full max-w-2xl justify-end">
+            <div className="pointer-events-auto flex items-center gap-2">
+              {drawPointCount > 0 && (
+                <Button
+                  size="small"
+                  variant="secondary"
+                  className="shadow-md"
+                  aria-label="Undo last boundary point"
+                  onClick={onUndoPoint}
+                >
+                  Undo
+                </Button>
+              )}
+              <Button
+                size="small"
+                variant="secondary"
+                className="shadow-md"
+                aria-label="Clear the boundary"
+                disabled={drawPointCount === 0}
+                onClick={onClearPoints}
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+        </div>
+        <div className="pointer-events-auto border-t border-border bg-background px-4 py-4 sm:px-6">
+          {/* Stacked on a phone: side by side, the stats wrap to four lines in
+              a sliver of a column while the button squeezes to nothing. */}
+          <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
             {/* Everything here describes the drawn shape, not the district —
                 these numbers are what the candidate commits to. */}
             <div className="min-w-0 flex-1">
@@ -397,7 +445,7 @@ export default function CreateListFlow({
               disabled={!ring || stops === 0 || overCap}
               onClick={() => onStepChange('confirm')}
             >
-              Continue ({doors.toLocaleString()} doors)
+              {continueLabel}
             </Button>
           </div>
         </div>
@@ -435,7 +483,7 @@ export default function CreateListFlow({
         onBack={step === 'confirm' ? () => onStepChange('draw') : null}
         onClose={onClose}
       />
-      <div className="flex-1 overflow-y-auto px-6 py-6">
+      <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
           {step === 'filters' &&
             filterSections.map((section) =>
@@ -527,8 +575,8 @@ export default function CreateListFlow({
           )}
         </div>
       </div>
-      <div className="border-t border-border bg-background px-6 py-4">
-        <div className="mx-auto flex w-full max-w-2xl justify-center gap-3">
+      <div className="border-t border-border bg-background px-4 py-4 sm:px-6">
+        <div className="mx-auto flex w-full max-w-2xl flex-wrap justify-center gap-3">
           {step === 'filters' && (
             <>
               {/* No polygon exists yet, so district-wide is the only honest

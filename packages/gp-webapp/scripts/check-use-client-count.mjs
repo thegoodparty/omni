@@ -171,11 +171,26 @@ import { dirname, join, relative } from 'node:path'
 // 2026-08-13: 564 -> 565 for door-knocking/native/DoorScript.tsx. The door
 // script collapses on tap so it doesn't push the answer pills off a phone
 // screen, and it renders inside PersonSheet, which is already client-only.
-// 566: useCvPinGate — the shared CampaignVerify PIN gate. It owns a react-query
-// subscription and returns a state the three PIN surfaces branch on, so it has
-// to run in the browser; it replaces per-surface inline logic rather than
-// adding a new client boundary.
-const BASELINE = 566
+// 2026-08-13: 565 -> 566 for door-knocking/native/DoNotKnockControl.tsx — a
+// mutating button pair (flag / undo) rendered inside the client-only
+// PersonSheet, peer to RecordKnockForm.tsx, so it can't render on the server.
+// 2026-08-17: 566 -> 567 for door-knocking/native/NotAVoterControl.tsx — the
+// ADR 0008 follow-up and its marker, same shape and same reason as
+// DoNotKnockControl above: it POSTs on tap and renders from the response,
+// inside the client-only PersonSheet. The paper surfaces read the same reason
+// through statusPresentation.ts, which stays directive-free so print/ keeps its
+// zero.
+// 2026-08-11: 567 -> 580 for Voter Outreach 2.0 phase 1: the flag-gated hub
+// (gate, hub page, tile grid, history table, details drawer), the sheet/flow
+// shell, the four social-flow steps + flow + thinking stream, and the shared
+// asset cards / detail-fetch hook are all interactive drawer/wizard surfaces
+// (flag reads, mutations, flow state) that can't be server components. Net
+// +13 after deleting P2pUxEnabledProvider + useTcrComplianceCheck.
+// 2026-08-20: 580 -> 581 for useCvPinGate — the shared CampaignVerify PIN gate.
+// It owns a react-query subscription and returns a state the three PIN surfaces
+// branch on, so it has to run in the browser; it replaces per-surface inline
+// logic rather than adding a new client boundary.
+const BASELINE = 581
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

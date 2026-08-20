@@ -3,7 +3,6 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { CampaignContext } from '@shared/hooks/CampaignProvider'
-import { P2pUxEnabledContext } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
 import OutreachCreateCards from './OutreachCreateCards'
 import type { Campaign } from 'helpers/types'
 
@@ -38,16 +37,7 @@ const renderCards = ({
 } = {}) =>
   render(
     <CampaignContext.Provider value={[{ id: 1, isPro: true } as Campaign]}>
-      <P2pUxEnabledContext.Provider
-        value={{
-          p2pUxEnabled: true,
-          tcrCompliant: false,
-          proUpdatedAtDate: new Date(),
-          resetP2pUxEnabled: () => undefined,
-        }}
-      >
-        <OutreachCreateCards preselectedListId={preselectedListId} />
-      </P2pUxEnabledContext.Provider>
+      <OutreachCreateCards preselectedListId={preselectedListId} />
     </CampaignContext.Provider>,
   )
 
@@ -141,16 +131,7 @@ describe('OutreachCreateCards — ENG-10762 consume-once preselectedListId', () 
 
     rerender(
       <CampaignContext.Provider value={[{ id: 1, isPro: true } as Campaign]}>
-        <P2pUxEnabledContext.Provider
-          value={{
-            p2pUxEnabled: true,
-            tcrCompliant: false,
-            proUpdatedAtDate: new Date(),
-            resetP2pUxEnabled: () => undefined,
-          }}
-        >
-          <OutreachCreateCards preselectedListId={undefined} />
-        </P2pUxEnabledContext.Provider>
+        <OutreachCreateCards preselectedListId={undefined} />
       </CampaignContext.Provider>,
     )
 
@@ -165,16 +146,7 @@ describe('OutreachCreateCards — ENG-10762 consume-once preselectedListId', () 
 
     rerender(
       <CampaignContext.Provider value={[{ id: 1, isPro: true } as Campaign]}>
-        <P2pUxEnabledContext.Provider
-          value={{
-            p2pUxEnabled: true,
-            tcrCompliant: false,
-            proUpdatedAtDate: new Date(),
-            resetP2pUxEnabled: () => undefined,
-          }}
-        >
-          <OutreachCreateCards preselectedListId={99} />
-        </P2pUxEnabledContext.Provider>
+        <OutreachCreateCards preselectedListId={99} />
       </CampaignContext.Provider>,
     )
 

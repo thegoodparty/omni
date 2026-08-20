@@ -8,14 +8,12 @@ import {
 import { ComplianceModal } from 'app/dashboard/shared/ComplianceModal'
 import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useP2pUxEnabled } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
 import type { TcrCompliance } from 'helpers/types'
 
 export const useTextOutreachGate = (
   tcrCompliance?: TcrCompliance,
   source = 'outreach_page',
 ) => {
-  const { p2pUxEnabled } = useP2pUxEnabled()
   const [campaign] = useCampaign()
   const { isPro, hasFreeTextsOffer } = campaign || {}
   const [showP2PModal, setShowP2PModal] = useState(false)
@@ -29,7 +27,7 @@ export const useTextOutreachGate = (
       setShowP2PModal(true)
       return false
     }
-    if (p2pUxEnabled && !isTextCompliant) {
+    if (!isTextCompliant) {
       trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceModalViewed, {
         source,
       })
@@ -45,7 +43,7 @@ export const useTextOutreachGate = (
         {...{
           variant: (() => {
             if (!isPro) return P2P_MODAL_VARIANTS.NonProUpgrade
-            if (p2pUxEnabled && hasFreeTextsOffer && !isTextCompliant) {
+            if (hasFreeTextsOffer && !isTextCompliant) {
               return P2P_MODAL_VARIANTS.ProFreeTextsNonCompliant
             }
             return P2P_MODAL_VARIANTS.NonProUpgrade
@@ -56,15 +54,13 @@ export const useTextOutreachGate = (
         }}
       />
 
-      {p2pUxEnabled && (
-        <ComplianceModal
-          {...{
-            open: showComplianceModal,
-            tcrComplianceStatus: tcrCompliance?.status,
-            onClose: () => setShowComplianceModal(false),
-          }}
-        />
-      )}
+      <ComplianceModal
+        {...{
+          open: showComplianceModal,
+          tcrComplianceStatus: tcrCompliance?.status,
+          onClose: () => setShowComplianceModal(false),
+        }}
+      />
     </>
   )
 

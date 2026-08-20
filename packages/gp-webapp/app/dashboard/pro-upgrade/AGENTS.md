@@ -100,9 +100,14 @@ closes that at three layers:
   election-filing; post-start statuses keep their dedicated
   `ProUpgrade3Compliance` surfaces. **`/dashboard` has TWO homes** —
   `DashboardContent` branches on the campaign-story flag between the legacy
-  `CampaignManager` and `CampaignManagerHome` — and the banner (like any
-  dashboard-home widget) must render in **both**; it reads the
-  server-fetched `tcrCompliance` that `DashboardContent` passes down.
+  `CampaignManager` and `CampaignManagerHome` — and **every 10DLC surface
+  must render in both**: the banner (reads the server-fetched
+  `tcrCompliance` that `DashboardContent` passes down) AND
+  `ProUpgrade3ComplianceCard` (every post-start state, including PIN
+  entry). This is not theoretical: `CampaignManagerHome` shipped without
+  the card, and once the campaign-story flag hit 100% the banner — which
+  hides itself as soon as a TCR record exists — left every candidate
+  awaiting a PIN with no dashboard 10DLC surface at all (PR #1273).
   `ProUpgrade3Compliance`'s "Set up texting compliance" fallthrough card and
   the outreach ComplianceModal also land on election-filing (the double
   surface with the banner is a deliberate product decision).
@@ -147,7 +152,10 @@ gp-api (ENG-10323). Don't add a client-side "kick off the agent" call.
 
 After payment, `isPro` flips and the **post-payment compliance states** (PIN entry / in
 review / approved / denied) render in `ProUpgrade3Compliance` on the **profile page**
-(`app/dashboard/profile/texting-compliance/`), not in this dir. The wizard's `success`
+(`app/dashboard/profile/texting-compliance/`), not in this dir. The same states also
+render on both dashboard homes via `ProUpgrade3ComplianceCard`
+(`app/dashboard/components/campaignManager/`, a Pro-gated wrapper around
+`ProUpgrade3Compliance`). The wizard's `success`
 step just lands the candidate and routes them to `/dashboard`.
 
 ### Never render a PIN box off the local status alone (ENG-10866)

@@ -56,6 +56,16 @@ testcontainers' reuse hash stops matching and suites get a fresh, template-less
 container. Suites still run with `isolate: true`; sharding is what keeps wall
 clock down, since the per-file cost is re-importing the Nest app graph.
 
+Two things about that container and the per-test reset are load-bearing, not
+incidental. It runs with `fsync`/`synchronous_commit`/`full_page_writes` off,
+because TRUNCATE's commit syncs a new relation file per table and the defaults
+put the reset near vitest's hook timeout on a contended runner. And the reset
+truncates only the tables that actually hold a row (one `EXISTS` probe across
+all of them costs far less than truncating all 88), then each suite drops its
+own clone in `afterAll` so a reused container doesn't accumulate one database
+per suite forever. Post-condition is unchanged: every table is empty and user
+`123` exists.
+
 If you touched `prisma/`, make sure there are no undeclared schema changes (the
 migration-diff step in `Checks` will fail otherwise — see `npm run migrate:dev`).
 
@@ -127,6 +137,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | Campaign plan PDF sharing                                | `src/campaignPlanShares/AGENTS.md`                   |
 | Voter file / L2 lookups                                  | `src/voters/AGENTS.md`                               |
 | Stripe payments / pro upgrades                           | `src/payments/AGENTS.md`                             |
+| Voter outreach (Peerly texting, social, AI compose)      | `src/outreach/AGENTS.md`                             |
 | Campaign websites / domains                              | `src/websites/AGENTS.md`                             |
 | Opposition research (Know Your Opponent)                 | `src/raceOpponent/AGENTS.md`                         |
 | Ordinances / drafting / quality loop                     | `src/ordinances/AGENTS.md`                           |

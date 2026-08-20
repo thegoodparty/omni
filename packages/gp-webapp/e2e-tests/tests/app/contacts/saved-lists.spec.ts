@@ -32,6 +32,9 @@ const searchInput = (page: Page): Locator =>
 const segmentSelect = (page: Page): Locator =>
   page.getByRole('combobox').first()
 
+const contactRows = (page: Page): Locator =>
+  page.locator('table').first().locator('tbody tr')
+
 // Select a checkbox inside the filters sheet by section heading (an <h4>, e.g.
 // "Political Party") and option label (e.g. "Independent"). Mirrors the helper
 // in win-contacts.spec.ts; kept local because spec files don't import from one
@@ -147,6 +150,12 @@ test.describe('Saved list lifecycle', () => {
       await expect(page).toHaveURL(/[?&]query=Smith/, { timeout: 15000 })
     })
 
+    // What the searched-down view holds, to compare the re-selected list
+    // against at the end. A count rather than a row's text: the API decides
+    // which fields "Smith" matches, so a matched row does not have to render
+    // the term, and an empty result set is a legitimate state on a preview.
+    const searchedRowCount = await contactRows(page).count()
+
     const createListButton = page.getByRole('button', { name: /create list/i })
     await createListButton.scrollIntoViewIfNeeded()
     await createListButton.click({ force: true })
@@ -194,12 +203,26 @@ test.describe('Saved list lifecycle', () => {
 
     // Re-select the saved list: it reproduces the searched-down view by
     // re-applying the stored search to the query param and the search box.
-    await applyContactsQuery(page, async () => {
-      await segmentSelect(page).click({ timeout: 5000 })
-      await page.getByRole('option', { name: listName }).click()
-    })
+    //
+    // Deliberately not applyContactsQuery. Creating the list above already
+    // selected it and applied its stored search, so this exact
+    // segment-plus-search combination is already in the React Query cache —
+    // and the contacts query is held for 5 minutes with refetchOnMount off, a
+    // window this test cannot outlast. Re-selecting is therefore a cache hit
+    // that renders the right rows while issuing no request at all, so waiting
+    // for one times out. The assertions below are the real check.
+    await segmentSelect(page).click({ timeout: 5000 })
+    await page.getByRole('option', { name: listName }).click()
+    await waitForContactsTableReady(page)
+
     await expect(page).toHaveURL(/[?&]query=Smith/, { timeout: 15000 })
     await expect(searchInput(page)).toHaveValue(searchValue, { timeout: 10000 })
+    // The rows too, not just the query param and the box that produced them —
+    // otherwise a re-select that restored the search but served the unfiltered
+    // segment would still pass.
+    await expect(contactRows(page)).toHaveCount(searchedRowCount, {
+      timeout: 15000,
+    })
   })
 
   // ENG-10520: delete a custom list via the per-row trash + confirm dialog, and

@@ -41,8 +41,6 @@ export const IMPACT_LEVELS_LABELS: ImpactLevelLabels = {
   high: 'High Impact',
 }
 
-export const NUM_OF_MOCK_OUTREACHES = 5
-
 type OutreachTypeKey =
   | 'text'
   | 'p2p'

@@ -43,7 +43,9 @@ jobs:
     name: Find unreviewed bot PRs
     runs-on: ubuntu-latest
     env:
-      SLACK_TOKEN: ${{ secrets.SLACK_APP_BOT_TOKEN }}
+      # gp_ai_bot — see the same note in gpbot-pr-triage.yml. Both workflows post
+      # to the same channel, so they must carry the same app.
+      SLACK_TOKEN: ${{ secrets.GPBOT_SLACK_BOT_TOKEN }}
       CHANNEL: ${{ vars.GPBOT_PR_CHANNEL_ID }}
     steps:
       - name: Collect stale bot PRs

@@ -42,7 +42,7 @@ it('creates a campaign', async () => {
 
 `useTestService` spins a real Postgres container, runs migrations, bootstraps the full Nest app, and exposes an authed Axios client. Each suite gets a unique DB; tables truncate between tests. Default test user id: `123`.
 
-Local Postgres / Docker must be running for these. If they fail with "connection refused", start Docker Desktop and retry.
+Docker must be reachable for these. On OrbStack, non-interactive shells need `PATH` and `DOCKER_HOST` exported explicitly or docker hangs for minutes instead of erroring — don't restart OrbStack, export the vars. See `docs/testing.md` § Docker for testcontainers (repo root).
 
 ## Unit tests — two patterns
 

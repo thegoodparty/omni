@@ -62,8 +62,13 @@ describe('POST /v1/campaigns/tcr-compliance/:id/submit-cv-pin', () => {
     await service.prisma.tcrCompliance.deleteMany({ where: { id: record.id } })
   })
 
+  // retrieveCampaignVerifyToken reads the enriched retrieve_cv (one call
+  // yields both the status and the PIN delivery channel), so the gate is
+  // driven off `details.status`, not the status-only variant.
   const stubCvStatus = (status: PeerlyCvVerificationStatus | null) =>
-    vi.spyOn(peerly, 'retrieveCampaignVerifyStatus').mockResolvedValue(status)
+    vi
+      .spyOn(peerly, 'retrieveCampaignVerifyDetails')
+      .mockResolvedValue({ status, pinDelivery: null })
 
   it('verifies the PIN with Peerly when the CV status is APPROVED', async () => {
     stubCvStatus(PeerlyCvVerificationStatus.APPROVED)

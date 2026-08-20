@@ -1,7 +1,5 @@
 import { NotFoundException } from '@nestjs/common'
-import { ElectionCode } from '../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ProjectedTurnoutService } from 'src/projectedTurnout/projectedTurnout.service'
 import { CampaignStrategyContextService } from './campaign-strategy-context.service'
 import { CampaignStrategyContextRequestDto } from './campaign-strategy-context.schema'
 
@@ -20,6 +18,9 @@ type RaceRow = {
   normalizedPositionName: string | null
   numberOfSeats: number | null
   winNumber: number | null
+  projectedTurnout: number | null
+  projectedTurnoutLower: number | null
+  projectedTurnoutUpper: number | null
   officeLevel: string | null
   officeType: string | null
   partisanType: string | null
@@ -40,11 +41,6 @@ type RaceRow = {
       registeredVoters: number | null
       uniqueCellphones: number | null
       uniqueLandlines: number | null
-      ProjectedTurnouts: Array<{
-        electionYear: number
-        electionCode: string
-        projectedTurnout: number
-      }>
     } | null
   } | null
 }
@@ -67,6 +63,9 @@ const baseRace = (overrides: Partial<RaceRow> = {}): RaceRow => ({
   normalizedPositionName: 'City Legislature',
   numberOfSeats: 1,
   winNumber: null,
+  projectedTurnout: 10000,
+  projectedTurnoutLower: 8000,
+  projectedTurnoutUpper: 13000,
   officeLevel: null,
   officeType: 'Other',
   partisanType: 'nonpartisan',
@@ -89,18 +88,6 @@ const baseRace = (overrides: Partial<RaceRow> = {}): RaceRow => ({
       registeredVoters: 18000,
       uniqueCellphones: 12500,
       uniqueLandlines: 5500,
-      ProjectedTurnouts: [
-        {
-          electionYear: 2026,
-          electionCode: ElectionCode.LocalOrMunicipal,
-          projectedTurnout: 2272,
-        },
-        {
-          electionYear: 2026,
-          electionCode: ElectionCode.General,
-          projectedTurnout: 8400,
-        },
-      ],
     },
   },
   ...overrides,
@@ -110,22 +97,11 @@ describe('CampaignStrategyContextService', () => {
   let service: CampaignStrategyContextService
   let raceFindFirst: ReturnType<typeof vi.fn>
   let raceFindMany: ReturnType<typeof vi.fn>
-  let projectedTurnoutService: Pick<
-    ProjectedTurnoutService,
-    'determineElectionCode'
-  >
 
   beforeEach(() => {
     raceFindFirst = vi.fn()
     raceFindMany = vi.fn().mockResolvedValue([])
-    projectedTurnoutService = {
-      determineElectionCode: vi
-        .fn()
-        .mockReturnValue(ElectionCode.LocalOrMunicipal),
-    }
-    service = new CampaignStrategyContextService(
-      projectedTurnoutService as ProjectedTurnoutService,
-    )
+    service = new CampaignStrategyContextService()
     Object.defineProperty(service, '_prisma', {
       value: {
         race: {
@@ -167,7 +143,7 @@ describe('CampaignStrategyContextService', () => {
         },
       ],
       civics_win_number: null,
-      contacts_needed_estimate: 5685,
+      contacts_needed_estimate: 25005,
       general_election_date: '2026-08-25',
       number_of_seats: 1,
       office_level: null,
@@ -175,15 +151,19 @@ describe('CampaignStrategyContextService', () => {
       partisan_type: 'nonpartisan',
       official_office_name: 'City Legislature',
       primary_election_date: null,
-      projected_turnout: 2272,
-      projected_voter_turnout: 8400,
+      projected_turnout: 10000,
+      projected_turnout_lower: 8000,
+      projected_turnout_upper: 13000,
+      projected_voter_turnout: null,
       registered_voters: 18000,
       unique_cellphones: 12500,
       unique_landlines: 5500,
       relevant_election_date: '2026-08-25',
       state: 'AL',
-      win_number_effective: 1137,
-      win_number_estimate: 1137,
+      win_number_effective: 5001,
+      win_number_estimate: 5001,
+      win_number_lower: 4001,
+      win_number_upper: 6501,
     })
   })
 
@@ -228,27 +208,60 @@ describe('CampaignStrategyContextService', () => {
     ).toBe(false)
   })
 
+  it('serves the race row point and bounds and sends no November figure', async () => {
+    raceFindFirst.mockResolvedValue(
+      baseRace({
+        projectedTurnout: 10000,
+        projectedTurnoutLower: 8000,
+        projectedTurnoutUpper: 13000,
+      }),
+    )
+
+    const result = await service.getCampaignStrategyContext(baseRequest())
+
+    expect(result.projected_turnout).toBe(10000)
+    expect(result.projected_turnout_lower).toBe(8000)
+    expect(result.projected_turnout_upper).toBe(13000)
+    expect(result.projected_voter_turnout).toBeNull()
+    expect(result.win_number_effective).toBe(5001)
+    expect(result.win_number_lower).toBe(4001)
+    expect(result.win_number_upper).toBe(6501)
+    expect(result.contacts_needed_estimate).toBe(25005)
+  })
+
   it('prefers civics_win_number over the derived estimate for win_number_effective', async () => {
     raceFindFirst.mockResolvedValue(baseRace({ winNumber: 800 }))
 
     const result = await service.getCampaignStrategyContext(baseRequest())
 
     expect(result.civics_win_number).toBe(800)
-    expect(result.win_number_estimate).toBe(1137) // floor(2272 / 2) + 1
+    expect(result.win_number_estimate).toBe(5001) // floor(10000 / 2) + 1
     expect(result.win_number_effective).toBe(800)
     expect(result.contacts_needed_estimate).toBe(4000) // 5 * 800
+    // A civics win number is not derived from turnout, so a turnout-derived
+    // range would not bracket it.
+    expect(result.win_number_lower).toBeNull()
+    expect(result.win_number_upper).toBeNull()
   })
 
   it('returns null derived metrics when projected_turnout is unavailable', async () => {
     raceFindFirst.mockResolvedValue(
-      baseRace({ Position: { id: 'pos-uuid-1', district: null } }),
+      baseRace({
+        projectedTurnout: null,
+        projectedTurnoutLower: null,
+        projectedTurnoutUpper: null,
+      }),
     )
 
     const result = await service.getCampaignStrategyContext(baseRequest())
 
     expect(result.projected_turnout).toBeNull()
+    expect(result.projected_turnout_lower).toBeNull()
+    expect(result.projected_turnout_upper).toBeNull()
     expect(result.win_number_estimate).toBeNull()
     expect(result.win_number_effective).toBeNull()
+    expect(result.win_number_lower).toBeNull()
+    expect(result.win_number_upper).toBeNull()
     expect(result.contacts_needed_estimate).toBeNull()
   })
 
@@ -260,7 +273,6 @@ describe('CampaignStrategyContextService', () => {
     expect(result.registered_voters).toBeNull()
     expect(result.unique_cellphones).toBeNull()
     expect(result.unique_landlines).toBeNull()
-    expect(result.projected_voter_turnout).toBeNull()
   })
 
   it('returns null voter-stats fields when the position has no district attached', async () => {
@@ -273,14 +285,13 @@ describe('CampaignStrategyContextService', () => {
     expect(result.registered_voters).toBeNull()
     expect(result.unique_cellphones).toBeNull()
     expect(result.unique_landlines).toBeNull()
-    expect(result.projected_voter_turnout).toBeNull()
   })
 
   it('returns null voter-stats fields when the district has null aggregate columns', async () => {
     // Districts that exist in the mart but have no L2 aggregation row
     // (e.g. turnout-only synthetic districts) land in Postgres with the
-    // three count columns NULL. ProjectedTurnouts can still be populated
-    // for those rows and should flow through normally.
+    // three count columns NULL. Turnout rides on the race row, so it is
+    // unaffected by a district's missing counts.
     raceFindFirst.mockResolvedValue(
       baseRace({
         Position: {
@@ -290,13 +301,6 @@ describe('CampaignStrategyContextService', () => {
             registeredVoters: null,
             uniqueCellphones: null,
             uniqueLandlines: null,
-            ProjectedTurnouts: [
-              {
-                electionYear: 2026,
-                electionCode: ElectionCode.LocalOrMunicipal,
-                projectedTurnout: 2272,
-              },
-            ],
           },
         },
       }),
@@ -307,8 +311,7 @@ describe('CampaignStrategyContextService', () => {
     expect(result.registered_voters).toBeNull()
     expect(result.unique_cellphones).toBeNull()
     expect(result.unique_landlines).toBeNull()
-    // projected_turnout still comes through from ProjectedTurnouts
-    expect(result.projected_turnout).toBe(2272)
+    expect(result.projected_turnout).toBe(10000)
   })
 
   it('passes individual null voter-stats columns through as null', async () => {
@@ -321,7 +324,6 @@ describe('CampaignStrategyContextService', () => {
             registeredVoters: 18000,
             uniqueCellphones: null,
             uniqueLandlines: null,
-            ProjectedTurnouts: [],
           },
         },
       }),
@@ -334,209 +336,13 @@ describe('CampaignStrategyContextService', () => {
     expect(result.unique_landlines).toBeNull()
   })
 
-  it('projected_voter_turnout is anchored to the General row for the race year regardless of race stage', async () => {
-    // Primary race in March; projected_turnout uses LocalOrMunicipal (via
-    // determineElectionCode), but projected_voter_turnout always picks
-    // the General row.
-    raceFindFirst.mockResolvedValue(
-      baseRace({
-        electionDate: new Date('2026-03-04T00:00:00Z'),
-        isPrimary: true,
-        Position: {
-          id: 'pos-uuid-1',
-          district: {
-            id: 'dist-uuid-1',
-            registeredVoters: null,
-            uniqueCellphones: null,
-            uniqueLandlines: null,
-            ProjectedTurnouts: [
-              {
-                electionYear: 2026,
-                electionCode: ElectionCode.LocalOrMunicipal,
-                projectedTurnout: 1500,
-              },
-              {
-                electionYear: 2026,
-                electionCode: ElectionCode.General,
-                projectedTurnout: 8400,
-              },
-            ],
-          },
-        },
-      }),
-    )
-
-    const result = await service.getCampaignStrategyContext(baseRequest())
-
-    expect(result.projected_voter_turnout).toBe(8400)
-  })
-
-  it('anchors projected_voter_turnout on the sibling General year for cross-year primary/general cycles', async () => {
-    // Louisiana-style Nov 2025 jungle primary feeding a Jan 2026 general.
-    // The Projected_Turnout row for the general lives at electionYear=2026,
-    // not 2025. The sibling-general date (filled by lookupSiblingStageDates)
-    // carries the correct year, so the resolver anchors on it instead of
-    // the looked-up race's own electionDate year.
-    raceFindFirst.mockResolvedValue(
-      baseRace({
-        electionDate: new Date('2025-11-08T00:00:00Z'),
-        isPrimary: true,
-        Position: {
-          id: 'pos-uuid-1',
-          district: {
-            id: 'dist-uuid-1',
-            registeredVoters: null,
-            uniqueCellphones: null,
-            uniqueLandlines: null,
-            ProjectedTurnouts: [
-              {
-                electionYear: 2026,
-                electionCode: ElectionCode.General,
-                projectedTurnout: 9000,
-              },
-            ],
-          },
-        },
-      }),
-    )
-    raceFindMany.mockResolvedValue([
-      {
-        electionDate: new Date('2026-01-15T00:00:00Z'),
-        isPrimary: false,
-        isRunoff: false,
-      },
-    ])
-
-    const result = await service.getCampaignStrategyContext(baseRequest())
-
-    expect(result.projected_voter_turnout).toBe(9000)
-    expect(result.primary_election_date).toBe('2025-11-08')
-    expect(result.general_election_date).toBe('2026-01-15')
-  })
-
-  it('returns null projected_voter_turnout when no General row exists for the race year', async () => {
-    raceFindFirst.mockResolvedValue(
-      baseRace({
-        Position: {
-          id: 'pos-uuid-1',
-          district: {
-            id: 'dist-uuid-1',
-            registeredVoters: null,
-            uniqueCellphones: null,
-            uniqueLandlines: null,
-            ProjectedTurnouts: [
-              {
-                electionYear: 2026,
-                electionCode: ElectionCode.LocalOrMunicipal,
-                projectedTurnout: 1500,
-              },
-            ],
-          },
-        },
-      }),
-    )
-
-    const result = await service.getCampaignStrategyContext(baseRequest())
-
-    expect(result.projected_voter_turnout).toBeNull()
-  })
-
-  it('returns null projected_voter_turnout when the only General row is from a different year', async () => {
-    raceFindFirst.mockResolvedValue(
-      baseRace({
-        electionDate: new Date('2026-08-25T00:00:00Z'),
-        Position: {
-          id: 'pos-uuid-1',
-          district: {
-            id: 'dist-uuid-1',
-            registeredVoters: null,
-            uniqueCellphones: null,
-            uniqueLandlines: null,
-            ProjectedTurnouts: [
-              {
-                electionYear: 2024,
-                electionCode: ElectionCode.General,
-                projectedTurnout: 9999,
-              },
-            ],
-          },
-        },
-      }),
-    )
-
-    const result = await service.getCampaignStrategyContext(baseRequest())
-
-    expect(result.projected_voter_turnout).toBeNull()
-  })
-
-  it('falls back to a ConsolidatedGeneral row when no General row exists for the year', async () => {
-    // LA / MS / NJ / VA odd-year generals and Kansas's quadrennial general
-    // are stored under ConsolidatedGeneral upstream. Without the fallback,
-    // projected_voter_turnout would silently be null for every race in
-    // those states.
-    raceFindFirst.mockResolvedValue(
-      baseRace({
-        Position: {
-          id: 'pos-uuid-1',
-          district: {
-            id: 'dist-uuid-1',
-            registeredVoters: null,
-            uniqueCellphones: null,
-            uniqueLandlines: null,
-            ProjectedTurnouts: [
-              {
-                electionYear: 2026,
-                electionCode: ElectionCode.ConsolidatedGeneral,
-                projectedTurnout: 7500,
-              },
-            ],
-          },
-        },
-      }),
-    )
-
-    const result = await service.getCampaignStrategyContext(baseRequest())
-
-    expect(result.projected_voter_turnout).toBe(7500)
-  })
-
-  it('prefers General over ConsolidatedGeneral when both exist for the same year', async () => {
-    raceFindFirst.mockResolvedValue(
-      baseRace({
-        Position: {
-          id: 'pos-uuid-1',
-          district: {
-            id: 'dist-uuid-1',
-            registeredVoters: null,
-            uniqueCellphones: null,
-            uniqueLandlines: null,
-            ProjectedTurnouts: [
-              {
-                electionYear: 2026,
-                electionCode: ElectionCode.ConsolidatedGeneral,
-                projectedTurnout: 7500,
-              },
-              {
-                electionYear: 2026,
-                electionCode: ElectionCode.General,
-                projectedTurnout: 8400,
-              },
-            ],
-          },
-        },
-      }),
-    )
-
-    const result = await service.getCampaignStrategyContext(baseRequest())
-
-    expect(result.projected_voter_turnout).toBe(8400)
-  })
-
   it('still computes win_number_effective from civics_win_number when projected_turnout is null', async () => {
     raceFindFirst.mockResolvedValue(
       baseRace({
         winNumber: 500,
-        Position: { id: 'pos-uuid-1', district: null },
+        projectedTurnout: null,
+        projectedTurnoutLower: null,
+        projectedTurnoutUpper: null,
       }),
     )
 
@@ -551,13 +357,13 @@ describe('CampaignStrategyContextService', () => {
   it('ignores number_of_seats when computing win_number_estimate', async () => {
     // Multi-seat at-large races use the same simple-majority threshold
     // as single-seat; consumers that need a per-seat or Droop-quota
-    // multi-seat estimate compute their own. floor(2272 / 2) + 1 = 1137
+    // multi-seat estimate compute their own. floor(10000 / 2) + 1 = 5001
     // regardless of seats.
     raceFindFirst.mockResolvedValue(baseRace({ numberOfSeats: 3 }))
 
     const result = await service.getCampaignStrategyContext(baseRequest())
 
-    expect(result.win_number_estimate).toBe(1137)
+    expect(result.win_number_estimate).toBe(5001)
   })
 
   it('does not depend on number_of_seats being non-null', async () => {
@@ -565,7 +371,7 @@ describe('CampaignStrategyContextService', () => {
 
     const result = await service.getCampaignStrategyContext(baseRequest())
 
-    expect(result.win_number_estimate).toBe(1137)
+    expect(result.win_number_estimate).toBe(5001)
   })
 
   it.each([
@@ -574,31 +380,12 @@ describe('CampaignStrategyContextService', () => {
   ])(
     'returns null win_number_estimate when projected_turnout is $label',
     async ({ projectedTurnout }) => {
-      // Postgres ProjectedTurnout.projectedTurnout is an unconstrained
-      // Int with no upstream sign validation. A stored 0 would otherwise
-      // produce win_number_estimate = 1 ("1 vote needed to win 0
-      // voters"); negatives produce 0 or negative estimates. All are
-      // misleading signal vs. null.
-      raceFindFirst.mockResolvedValue(
-        baseRace({
-          Position: {
-            id: 'pos-uuid-1',
-            district: {
-              id: 'dist-uuid-1',
-              registeredVoters: null,
-              uniqueCellphones: null,
-              uniqueLandlines: null,
-              ProjectedTurnouts: [
-                {
-                  electionYear: 2026,
-                  electionCode: ElectionCode.LocalOrMunicipal,
-                  projectedTurnout,
-                },
-              ],
-            },
-          },
-        }),
-      )
+      // Race.projectedTurnout is an unconstrained Postgres Int with no
+      // upstream sign validation. A stored 0 would otherwise produce
+      // win_number_estimate = 1 ("1 vote needed to win 0 voters");
+      // negatives produce 0 or negative estimates. All are misleading
+      // signal vs. null.
+      raceFindFirst.mockResolvedValue(baseRace({ projectedTurnout }))
 
       const result = await service.getCampaignStrategyContext(baseRequest())
 
@@ -608,92 +395,6 @@ describe('CampaignStrategyContextService', () => {
       expect(result.contacts_needed_estimate).toBeNull()
     },
   )
-
-  it('falls back to LocalOrMunicipal when no ProjectedTurnout row matches the election year/code', async () => {
-    raceFindFirst.mockResolvedValue(
-      baseRace({
-        Position: {
-          id: 'pos-uuid-1',
-          district: {
-            id: 'dist-uuid-1',
-            registeredVoters: null,
-            uniqueCellphones: null,
-            uniqueLandlines: null,
-            ProjectedTurnouts: [
-              {
-                electionYear: 2024,
-                electionCode: ElectionCode.LocalOrMunicipal,
-                projectedTurnout: 9999,
-              },
-            ],
-          },
-        },
-      }),
-    )
-
-    const result = await service.getCampaignStrategyContext(baseRequest())
-
-    expect(result.projected_turnout).toBeNull()
-  })
-
-  it('picks the first matching ProjectedTurnout row (relies on Prisma ordering by inferenceAt desc)', async () => {
-    // The service eager-loads ProjectedTurnouts with `orderBy: inferenceAt
-    // desc` so the .find() in resolveProjectedTurnout returns the most
-    // recent snapshot when multiple model_versions share the same
-    // (electionYear, electionCode). This test feeds a pre-ordered array
-    // (mimicking what Prisma returns) and asserts the first match wins.
-    raceFindFirst.mockResolvedValue(
-      baseRace({
-        Position: {
-          id: 'pos-uuid-1',
-          district: {
-            id: 'dist-uuid-1',
-            registeredVoters: null,
-            uniqueCellphones: null,
-            uniqueLandlines: null,
-            ProjectedTurnouts: [
-              {
-                electionYear: 2026,
-                electionCode: ElectionCode.LocalOrMunicipal,
-                projectedTurnout: 3000, // newer model run
-              },
-              {
-                electionYear: 2026,
-                electionCode: ElectionCode.LocalOrMunicipal,
-                projectedTurnout: 2500, // older model run
-              },
-            ],
-          },
-        },
-      }),
-    )
-
-    const result = await service.getCampaignStrategyContext(baseRequest())
-
-    expect(result.projected_turnout).toBe(3000)
-  })
-
-  it('passes orderBy inferenceAt desc through to the Prisma include for ProjectedTurnouts', async () => {
-    raceFindFirst.mockResolvedValue(baseRace())
-
-    await service.getCampaignStrategyContext(baseRequest())
-
-    expect(raceFindFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        include: expect.objectContaining({
-          Position: expect.objectContaining({
-            include: expect.objectContaining({
-              district: expect.objectContaining({
-                include: expect.objectContaining({
-                  ProjectedTurnouts: { orderBy: { inferenceAt: 'desc' } },
-                }),
-              }),
-            }),
-          }),
-        }),
-      }),
-    )
-  })
 
   it('pins a deterministic race via stage-preference ordering on the brHashId lookup', async () => {
     raceFindFirst.mockResolvedValue(baseRace())

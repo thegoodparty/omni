@@ -59,6 +59,35 @@ export const createHarness = async (): Promise<Harness> => {
           aggregatesSchema.parse({ districtId, filters }),
         )
         return
+      // One whole GET /v1/contacts/list-detail, not one query: mirrors
+      // ContactsService.fetchListDetailAggregates, which resolves the
+      // load-bearing base tile FIRST and only then fans out to the three
+      // channel-restricted tiles in parallel. Benchmarking 'count' alone
+      // understates a real request by ~4x, and the serial-then-parallel shape
+      // is what decides how long a connection is actually held.
+      case 'list-detail': {
+        // Base is awaited on its own so a base rejection throws — that IS the
+        // 504. The channels then settle independently, matching the service:
+        // a rejected channel becomes a null "Unavailable" tile and the request
+        // still returns 200, so counting one here as a benchmark failure would
+        // be a false regression. A slow channel is not hidden by this — the
+        // case still waits for it, so it shows up as a slow cell.
+        await voterQuery.getAggregates(
+          aggregatesSchema.parse({ districtId, filters }),
+        )
+        await Promise.allSettled(
+          [
+            { ...filters, hasCellPhone: true },
+            { ...filters, hasLandline: true },
+            { ...filters, hasAddress: true },
+          ].map((channelFilters) =>
+            voterQuery.getAggregates(
+              aggregatesSchema.parse({ districtId, filters: channelFilters }),
+            ),
+          ),
+        )
+        return
+      }
       case 'overlap':
         await voterQuery.getOverlapCount(
           overlapCountSchema.parse({
@@ -74,7 +103,7 @@ export const createHarness = async (): Promise<Harness> => {
         )
         return
       case 'stats':
-        await stats.getStats({ districtId } as unknown as StatsDTO)
+        await stats.findStats({ districtId } as unknown as StatsDTO)
         return
       case 'csv': {
         const sink = createNullSink()
@@ -90,7 +119,7 @@ export const createHarness = async (): Promise<Harness> => {
   }
 
   const totalConstituents = async (districtId: string): Promise<number> =>
-    (await stats.getTotalCounts(districtId)).totalConstituents ?? 0
+    (await stats.findTotalCounts(districtId))?.totalConstituents ?? 0
 
   return { invoke, totalConstituents, close: () => app.close() }
 }

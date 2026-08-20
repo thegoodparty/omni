@@ -71,6 +71,12 @@ export {
   type ActivityConditionAction,
   ACTIVITY_CONDITION_ACTION_VALUES,
   ActivityConditionActionSchema,
+  type SocialAssetPlatform,
+  SOCIAL_ASSET_PLATFORM_VALUES,
+  SocialAssetPlatformSchema,
+  type SocialAssetKind,
+  SOCIAL_ASSET_KIND_VALUES,
+  SocialAssetKindSchema,
 } from './generated/enums'
 
 export {
@@ -97,8 +103,16 @@ export {
   type UpdateContactStatusInput,
   ContactStatusesSchema,
   type ContactStatuses,
+  DoNotKnockStatusSchema,
+  type DoNotKnockStatus,
+  NotAVoterStatusSchema,
+  type NotAVoterStatus,
+  NotAVoterReasonSchema,
+  type NotAVoterReason,
   VOTER_LIKELIHOOD_LABELS,
   SUPPORT_STATUS_ROLLUP_LABELS,
+  DO_NOT_KNOCK_LABELS,
+  NOT_A_VOTER_LABELS,
   resolveContactStatusLabel,
 } from './people/ContactStatus.schema'
 
@@ -689,6 +703,35 @@ export * from './ordinances/Ordinance.schema'
 export * from './ordinances/redline'
 
 export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
+export {
+  SOCIAL_PURPOSE_VALUES,
+  SocialPurposeSchema,
+  type SocialPurpose,
+  SOCIAL_TONE_VALUES,
+  SocialToneSchema,
+  type SocialTone,
+  SocialDraftRequestSchema,
+  type SocialDraftRequest,
+  SocialDraftResponseSchema,
+  type SocialDraftResponse,
+  SOCIAL_DRAFT_MESSAGE_MAX_LENGTH,
+  SOCIAL_POST_COPY_MAX_LENGTH,
+  SOCIAL_VIDEO_SCRIPT_MAX_LENGTH,
+  SOCIAL_VIDEO_PLATFORMS,
+  socialAssetKindForPlatform,
+  SocialAssetSchema,
+  type SocialAsset,
+  SocialGenerateRequestSchema,
+  type SocialGenerateRequest,
+  SocialGenerateResponseSchema,
+  type SocialGenerateResponse,
+  SocialSaveRequestSchema,
+  type SocialSaveRequest,
+  OutreachSocialDetailSchema,
+  type OutreachSocialDetail,
+  OutreachDetailSchema,
+  type OutreachDetail,
+} from './outreach/OutreachSocial.schema'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
 
@@ -769,6 +812,9 @@ export {
   DOOR_KNOCK_STATUSES,
   DoorKnockStatusSchema,
   type DoorKnockStatus,
+  RouteTargetActivitySchema,
+  type RouteTargetActivity,
+  ROUTE_TARGET_ACTIVITY_LIMIT,
   RoutePayloadTargetSchema,
   type RoutePayloadTarget,
   RoutePayloadAddressSchema,
@@ -787,3 +833,17 @@ export {
   RecordDoorKnockInteractionResponseSchema,
   type RecordDoorKnockInteractionResponse,
 } from './doorKnocking/DoorKnockingInteraction.schema'
+
+export {
+  SetDoNotKnockSchema,
+  type SetDoNotKnock,
+  SetDoNotKnockResponseSchema,
+  type SetDoNotKnockResponse,
+} from './doorKnocking/DoorKnockingDoNotKnock.schema'
+
+export {
+  SetNotAVoterSchema,
+  type SetNotAVoter,
+  SetNotAVoterResponseSchema,
+  type SetNotAVoterResponse,
+} from './doorKnocking/DoorKnockingNotAVoter.schema'

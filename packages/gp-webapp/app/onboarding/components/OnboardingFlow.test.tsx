@@ -56,7 +56,7 @@ const IDLE_DICTATION = {
   stop: vi.fn(),
   toggle: vi.fn(),
 }
-vi.mock('app/dashboard/briefings/shared/useDictationAppend', () => ({
+vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
   useDictationAppend: (input: { analyticsLabel: string }) =>
     mockUseDictationAppend(input),
 }))

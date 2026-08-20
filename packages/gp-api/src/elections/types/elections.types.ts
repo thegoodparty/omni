@@ -147,6 +147,14 @@ export type District = {
   L2DistrictType: string
   L2DistrictName: string
   projectedTurnout: SourceProjectedTurnout | null
+  // L2-derived voter aggregates. Only `GET /districts/:id` returns the whole
+  // District row; the position lookup hand-shapes a district response without
+  // them, hence optional. `null` means the aggregate hasn't been computed for
+  // this district type (common for school districts) — it is not evidence of
+  // an empty electorate.
+  registeredVoters?: number | null
+  uniqueCellphones?: number | null
+  uniqueLandlines?: number | null
 }
 
 export type PositionWithOptionalDistrict = {
@@ -226,6 +234,13 @@ export type CampaignStrategyContextResponse = {
   partisan_type?: string | null
   primary_election_date: string | null
   projected_turnout: number | null
+  // Prediction bounds, and the same interval carried through the win-number
+  // math below. Optional because the two services deploy in parallel: mid
+  // rollout an older election-api omits them, and the mapper has to turn that
+  // absence into null — an undefined fails the contract's response schema and
+  // 500s the campaign read.
+  projected_turnout_lower?: number | null
+  projected_turnout_upper?: number | null
   projected_voter_turnout: number | null
   registered_voters: number | null
   unique_cellphones: number | null
@@ -234,6 +249,8 @@ export type CampaignStrategyContextResponse = {
   state: string | null
   win_number_effective: number | null
   win_number_estimate: number | null
+  win_number_lower?: number | null
+  win_number_upper?: number | null
 }
 
 type SourceProjectedTurnout = {

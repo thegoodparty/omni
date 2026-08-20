@@ -47,4 +47,5 @@ export const buildWinConstituentDataScope = (
   mandatoryFilters: districtFilters,
   minCellSize: CONSTITUENT_MIN_CELL_SIZE,
   partisanQueriesAllowed: true,
+  audienceNoun: 'voter',
 })

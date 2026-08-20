@@ -6,12 +6,6 @@ import { OutreachPurchaseForm } from './OutreachPurchaseForm'
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [{ hasFreeTextsOffer: false }],
 }))
-vi.mock(
-  'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider',
-  () => ({
-    useP2pUxEnabled: () => ({ p2pUxEnabled: true }),
-  }),
-)
 vi.mock('app/dashboard/purchase/components/CheckoutSessionProvider', () => ({
   useCheckoutSession: () => ({ checkoutSession: { amount: 5000 } }),
 }))

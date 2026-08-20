@@ -306,9 +306,13 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
       (args.contactsMadeIdOverrides?.include?.length ?? 0) === 0 &&
       (args.contactsMadeIdOverrides?.exclude?.length ?? 0) === 0
     ) {
-      const { totalConstituents } =
-        await this.statsService.getTotalCounts(districtId)
-      return totalConstituents
+      // A district with no pre-computed stats row has no shortcut, not no
+      // voters — fall through to the real count instead of failing the
+      // request.
+      const totalCounts = await this.statsService.findTotalCounts(districtId)
+      if (totalCounts) {
+        return totalCounts.totalConstituents
+      }
     }
 
     const whereClause = buildVoterWhereSql({

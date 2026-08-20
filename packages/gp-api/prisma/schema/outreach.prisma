@@ -58,6 +58,7 @@ model Outreach {
   // no backfill.
   organizationSlug                  String?                            @map("organization_slug")
   organization                      Organization?                      @relation(fields: [organizationSlug], references: [slug], onDelete: SetNull)
+  social                            OutreachSocial?
   voterActivities                   VoterOutreachActivity[]
   raceOpponentContrasts             RaceOpponentContrast[]
   contactInteractionTexts           ContactInteractionText[]

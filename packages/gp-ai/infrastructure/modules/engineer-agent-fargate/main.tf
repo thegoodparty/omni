@@ -29,6 +29,32 @@ variable "failure_notification_email" {
   default     = ""
 }
 
+variable "escalate_analysis_to_work" {
+  description = <<-EOT
+    When true, an analyze run that ends with `GPBOT-VERDICT: fix` tags its own
+    ClickUp ticket `gpbot-work`, which queues an implementation run and opens a
+    PR with no human in between.
+
+    Defaults to FALSE, and the default is the point: this changes what arrives in
+    the repository unreviewed, so it must be switched on deliberately rather than
+    inherited by deploying the code. With it off, the agent still logs the verdict
+    it would have acted on ("escalation disabled"), which is how you judge whether
+    the verdicts are trustworthy before handing them the trigger.
+
+    Before enabling: vars.GPBOT_PR_CHANNEL_ID must be set AND
+    secrets.GPBOT_SLACK_BOT_TOKEN must hold an app that can post to that channel
+    (Slack refuses with not_in_channel otherwise), and the team should know bot
+    PRs are coming, that a bot approval does not merge them, and that closing a
+    weak one is the expected outcome.
+
+    This doubles as the kill switch. Setting it back to false and applying stops
+    the bot opening PRs without reverting any code, and leaves the analyze half
+    running.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "shared_slack_notifier_lambda_arn" {
   description = "ARN of the shared Slack notifier Lambda function"
   type        = string
@@ -260,6 +286,10 @@ resource "aws_ecs_task_definition" "agent" {
         {
           name  = "WORKSPACE_DIR"
           value = "/workspace"
+        },
+        {
+          name  = "GPBOT_ESCALATE_TO_WORK"
+          value = tostring(var.escalate_analysis_to_work)
         }
       ]
     }
