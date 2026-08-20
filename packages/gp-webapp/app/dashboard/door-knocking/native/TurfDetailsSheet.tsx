@@ -5,10 +5,16 @@ import { useQuery } from '@tanstack/react-query'
 import { DoorKnockingMode, DoorKnockingTurf } from '@goodparty_org/contracts'
 import {
   Button,
+  CalendarIcon,
+  CheckCircleIcon,
+  ClockIcon,
+  DoorOpenIcon,
   IconButton,
+  MapPinIcon,
   PencilIcon,
   ToggleGroup,
   ToggleGroupItem,
+  UsersIcon,
   XMarkIcon,
 } from '@styleguide'
 import EditTurfDialog from './EditTurfDialog'
@@ -38,6 +44,44 @@ const OPTION_LABELS: Record<string, string> = Object.fromEntries(
   ),
 )
 
+// option key -> the field it belongs to ('Age', 'Political Party'), from the
+// same config. The pills were a single undifferentiated wrap, which is legible
+// for 'Democrat' and meaningless for 'Unknown' and 'Yes' — 'Unknown' is an
+// option on eleven of these fields and 'Yes' on four, so a list filtered to
+// veterans with an unknown homeowner flag rendered as "Yes, Unknown" and named
+// neither. Grouping is how the create flow presents the same choices, so a
+// candidate reads their list back in the shape they picked it.
+const OPTION_FIELD_LABELS: Record<string, string> = Object.fromEntries(
+  filterSections.flatMap((section) =>
+    section.fields.flatMap((field) =>
+      field.options.map((option) => [option.key, field.label]),
+    ),
+  ),
+)
+
+// Field order follows the config rather than insertion order, so two lists
+// with the same filters can't list them in different orders.
+const FIELD_ORDER: string[] = filterSections.flatMap((section) =>
+  section.fields.map((field) => field.label),
+)
+
+// Income ranges persist as the range strings themselves rather than as option
+// keys, so their group is looked up by field instead of per value.
+const INCOME_FIELD_LABEL =
+  filterSections
+    .flatMap((section) => section.fields)
+    .find((field) => field.key === 'income_ranges')?.label ?? 'Household Income'
+
+const groupByField = (
+  entries: { field: string; label: string }[],
+): { field: string; labels: string[] }[] =>
+  FIELD_ORDER.flatMap((field) => {
+    const labels = entries
+      .filter((entry) => entry.field === field)
+      .map((entry) => entry.label)
+    return labels.length > 0 ? [{ field, labels }] : []
+  })
+
 const MODE_LABEL: Record<DoorKnockingMode, string> = {
   walk: 'Walking',
   drive: 'Driving',
@@ -52,30 +96,45 @@ const formatDuration = (seconds: number): string => {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
+// Every stat carries the icon for the quantity it reports. Six unlabelled
+// numbers in a two-column grid are read by scanning the labels; the glyph is
+// what makes a grid scannable, and it is the same one the quantity carries
+// elsewhere in the product (a door for doors, people for people, a clock for
+// time). Decorative on purpose — `aria-hidden`, because the label beside it
+// already names the figure and a screen reader repeating "door" adds nothing.
 const Stat = ({
+  icon: Icon,
   label,
   value,
   hint,
   pending,
 }: {
+  icon: React.ComponentType<{ size?: number; className?: string }>
   label: string
   value: string
   hint?: string
   pending?: boolean
 }) => (
-  <div className="rounded-lg border border-border p-3">
-    <p className="text-xs text-muted-foreground">{label}</p>
-    {pending ? (
-      <p className="py-0.5">
-        <span className="block h-4 w-20 animate-pulse rounded bg-muted" />
-        <span className="sr-only">Loading</span>
-      </p>
-    ) : (
-      <p className="text-sm font-semibold">{value}</p>
-    )}
-    {hint && !pending && (
-      <p className="text-xs text-muted-foreground">{hint}</p>
-    )}
+  <div className="flex items-start gap-2 rounded-lg border border-border p-3">
+    <Icon
+      size={16}
+      aria-hidden="true"
+      className="mt-0.5 shrink-0 text-muted-foreground"
+    />
+    <div className="min-w-0 flex-1">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      {pending ? (
+        <p className="py-0.5">
+          <span className="block h-4 w-20 animate-pulse rounded bg-muted" />
+          <span className="sr-only">Loading</span>
+        </p>
+      ) : (
+        <p className="text-sm font-semibold">{value}</p>
+      )}
+      {hint && !pending && (
+        <p className="text-xs text-muted-foreground">{hint}</p>
+      )}
+    </div>
   </div>
 )
 
@@ -211,22 +270,32 @@ export default function TurfDetailsSheet({
   )
   // Language selections persist as codes ('en'), not booleans — re-expand
   // them to their option labels like the boolean keys.
-  const languageLabels = (
+  const languageEntries = (
     (filter?.languageCodes as string[] | undefined) ?? []
   ).flatMap((code) => {
     const key = Object.entries(LANGUAGE_KEY_TO_CODE).find(
       ([, candidate]) => candidate === code,
     )?.[0]
     const label = key ? OPTION_LABELS[key] : undefined
-    return label ? [label] : []
+    return label && key
+      ? [{ field: OPTION_FIELD_LABELS[key] ?? 'Language', label }]
+      : []
   })
-  const appliedFilterLabels = filter
+  const appliedFilterEntries = filter
     ? Object.entries(OPTION_LABELS)
         .filter(([key]) => filter[key] === true)
-        .map(([, label]) => label)
-        .concat((filter.incomeRanges as string[] | undefined) ?? [])
-        .concat(languageLabels)
+        .map(([key, label]) => ({
+          field: OPTION_FIELD_LABELS[key] ?? 'Other',
+          label,
+        }))
+        .concat(
+          ((filter.incomeRanges as string[] | undefined) ?? []).map(
+            (range) => ({ field: INCOME_FIELD_LABEL, label: range }),
+          ),
+        )
+        .concat(languageEntries)
     : []
+  const appliedFilterGroups = groupByField(appliedFilterEntries)
 
   const route = routeQuery.data
   const targets = knockableTargets(route?.stops ?? [])
@@ -409,13 +478,18 @@ export default function TurfDetailsSheet({
                   authoritative counts are the frozen route's, so these wait
                   for it rather than showing the pack's answer and then
                   swapping it out mid-load. */}
-              <Stat label="Doors" {...packBackedStat(approximate(doors))} />
+              <Stat
+                icon={DoorOpenIcon}
+                label="Doors"
+                {...packBackedStat(approximate(doors))}
+              />
               {/* Gated on the route existing, not on the count being
                   non-zero: ADR 0007 drops do-not-knock residents, so a route
                   whose every resident is flagged has 0 knockable people, and
                   falling back on emptiness would answer that with the pack's
                   pre-route number instead of the frozen route's real 0. */}
               <Stat
+                icon={UsersIcon}
                 label="People"
                 {...packBackedStat(
                   approximate(
@@ -434,6 +508,7 @@ export default function TurfDetailsSheet({
                   "Route type" stat next door, and is unknown while the route
                   is still loading, so this label stays mode-free. */}
               <Stat
+                icon={ClockIcon}
                 label={liveTurf.locked ? 'Travel time' : 'Knocking time'}
                 {...packBackedStat(
                   route
@@ -455,6 +530,7 @@ export default function TurfDetailsSheet({
                 }
               />
               <Stat
+                icon={MapPinIcon}
                 label="Route type"
                 {...routeStat(
                   route
@@ -465,6 +541,7 @@ export default function TurfDetailsSheet({
                 )}
               />
               <Stat
+                icon={CalendarIcon}
                 label="Created"
                 value={new Date(turf.createdAt).toLocaleDateString(undefined, {
                   month: 'short',
@@ -475,6 +552,7 @@ export default function TurfDetailsSheet({
               {/* Logged, not reached: not-home, inaccessible and refused all
                   count here, and none of them is a conversation. */}
               <Stat
+                icon={CheckCircleIcon}
                 label="People logged"
                 {...routeStat(
                   route
@@ -637,21 +715,32 @@ export default function TurfDetailsSheet({
             <h3 className="text-xs font-semibold uppercase tracking-wide text-info">
               Applied filters
             </h3>
-            {appliedFilterLabels.length === 0 ? (
+            {appliedFilterGroups.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No filters applied — this list targets all contacts.
               </p>
             ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {/* Labels repeat across fields — 'Unknown' is an option on 11 of
-                    them — so the label alone isn't a stable key. */}
-                {appliedFilterLabels.map((label, index) => (
-                  <span
-                    key={`${label}-${index}`}
-                    className="rounded-full border border-border px-2.5 py-1 text-xs"
-                  >
-                    {label}
-                  </span>
+              <div className="flex flex-col gap-3">
+                {appliedFilterGroups.map((group) => (
+                  <div key={group.field} className="flex flex-col gap-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {group.field}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {/* Labels repeat across fields — 'Unknown' is an option on
+                          11 of them — so the label alone isn't a stable key,
+                          even inside one group (income ranges and language
+                          codes land here from two different sources). */}
+                      {group.labels.map((label, index) => (
+                        <span
+                          key={`${label}-${index}`}
+                          className="rounded-full border border-border px-2.5 py-1 text-xs"
+                        >
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
             )}

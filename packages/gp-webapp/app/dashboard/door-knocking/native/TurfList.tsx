@@ -78,6 +78,15 @@ export default function TurfList({
   return (
     <section className="flex flex-col gap-1.5">
       <h2 className="text-sm font-semibold">Saved lists · {turfs.length}</h2>
+      {/* The row's affordances are not equally discoverable: Details, Knock,
+          PDF, delete and the eye all announce themselves, while tapping the
+          NAME is what scopes the map, the voter count and the status legend
+          below to that list, and nothing said so. Beside that many controls, a
+          name reads as a label rather than a target. */}
+      <p className="text-xs text-muted-foreground">
+        Tap a list to highlight it on the map, or Knock to start at the first
+        door.
+      </p>
       {turfs.map((turf) => {
         const hidden = hiddenTurfIds.has(turf.id)
         return (
