@@ -768,6 +768,7 @@ export {
 export {
   DoorKnockingResidentsRequestSchema,
   type DoorKnockingResidentsRequest,
+  DoorKnockingDemographicsShape,
   DoorKnockingResidentTargetSchema,
   type DoorKnockingResidentTarget,
   DoorKnockingResidentsAddressSchema,

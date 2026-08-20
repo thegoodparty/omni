@@ -904,6 +904,20 @@ describe('door-knocking routes', () => {
               politicalParty: 'Democratic',
               cellPhone: '(615) 555-0142',
               landline: '(615) 555-0199',
+              // The eleven attributes people-api resolved, already through the
+              // display mappers. A mix of answered and absent, because a real
+              // row is usually partial.
+              registeredVoter: true,
+              turnoutLikelihood: 'Super',
+              maritalStatus: 'Likely Married',
+              hasChildrenUnder18: 'Yes',
+              veteranStatus: 'Yes',
+              homeowner: 'Likely',
+              businessOwner: null,
+              levelOfEducation: 'Graduate Degree',
+              estimatedIncomeAmount: 82000,
+              language: 'Spanish',
+              ethnicityGroup: 'Hispanic',
             },
             {
               personId: PERSON_2,
@@ -985,6 +999,48 @@ describe('door-knocking routes', () => {
       expect(dedupedAddress?.otherResidents).toEqual([{ name: 'Teo Vega' }])
     })
 
+    it('carries the demographic profile onto a live target', async () => {
+      const { res } = await knockAndServe()
+
+      const target = res.data.stops
+        .flatMap((stop: { addresses: Array<{ targets: unknown[] }> }) =>
+          stop.addresses.flatMap((address) => address.targets),
+        )
+        .find((t: { personId: string }) => t.personId === PERSON_1)
+
+      expect(target).toMatchObject({
+        registeredVoter: true,
+        turnoutLikelihood: 'Super',
+        maritalStatus: 'Likely Married',
+        hasChildrenUnder18: 'Yes',
+        veteranStatus: 'Yes',
+        homeowner: 'Likely',
+        // Presence-only: absent stays null, never 'No'.
+        businessOwner: null,
+        levelOfEducation: 'Graduate Degree',
+        estimatedIncomeAmount: 82000,
+        language: 'Spanish',
+        ethnicityGroup: 'Hispanic',
+      })
+    })
+
+    // Targets only. A non-target resident is household context for the
+    // conversation, not someone the candidate asked to contact — the same rule
+    // that already keeps phone numbers off them.
+    it('leaves other residents name-only', async () => {
+      const { res } = await knockAndServe()
+
+      const residents = res.data.stops.flatMap(
+        (stop: { addresses: Array<{ otherResidents: unknown[] }> }) =>
+          stop.addresses.flatMap((address) => address.otherResidents),
+      )
+
+      expect(residents).not.toHaveLength(0)
+      for (const resident of residents) {
+        expect(Object.keys(resident as object)).toEqual(['name'])
+      }
+    })
+
     it('flags moved-away targets and falls back to the frozen name', async () => {
       const { res } = await knockAndServe()
 
@@ -1012,6 +1068,20 @@ describe('door-knocking routes', () => {
         cellPhone: null,
         landline: null,
         mayHaveMoved: true,
+        // The demographic profile is live-only for the same reason: a mover has
+        // no live row, so the card describes nobody rather than describing
+        // whoever lives at that address now.
+        registeredVoter: null,
+        turnoutLikelihood: null,
+        maritalStatus: null,
+        hasChildrenUnder18: null,
+        veteranStatus: null,
+        homeowner: null,
+        businessOwner: null,
+        levelOfEducation: null,
+        estimatedIncomeAmount: null,
+        language: null,
+        ethnicityGroup: null,
       })
     })
 

@@ -132,6 +132,36 @@ describe('WalkListPdf', () => {
     expect(text).not.toMatch(/landline/i)
   })
 
+  // The same argument as the phone numbers above, and it applies with more
+  // force: a demographic profile of a named voter is a larger disclosure than a
+  // number is, on the one surface that stops being access-controlled the moment
+  // it is printed. The fixture carries all eleven attributes, so this asserts
+  // the omission rather than trusting it — and it checks the rendered text as
+  // well as the row model, since a renderer could reach past the model into the
+  // payload it is handed.
+  it('never prints the demographic profile', async () => {
+    const text = await renderText([oneDoor([target()])])
+
+    for (const leak of [
+      /Likely Married/,
+      /Graduate Degree/,
+      /Hispanic/,
+      /Spanish/,
+      /82,?000/,
+      /\$75k/,
+      /marital/i,
+      /veteran/i,
+      /homeowner/i,
+      /ethnicity/i,
+      /education/i,
+      /income/i,
+      /turnout/i,
+      /demographic/i,
+    ]) {
+      expect(text).not.toMatch(leak)
+    }
+  })
+
   // Node's clock is UTC, so any date this stamps itself is tomorrow's for an
   // evening download anywhere in the US. The canvasser writes it instead.
   it('leaves the date to the canvasser rather than stamping one', () => {

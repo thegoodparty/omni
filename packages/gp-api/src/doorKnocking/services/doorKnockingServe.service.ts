@@ -1,11 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import {
+  DoorKnockingDemographicsShape,
   DoorKnockingResidentsResponse,
   DoorKnockingRoutePayload,
   DoorKnockStatus,
   NotAVoterReason,
   NotAVoterReasonSchema,
   RoutePayloadAddress,
+  RoutePayloadTarget,
   RouteTargetActivity,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
@@ -41,6 +43,33 @@ const composeName = (
   person
     ? [person.firstName, person.lastName].filter(Boolean).join(' ') || null
     : null
+
+type LiveTarget = LiveAddress['targets'][number]
+
+// The eleven attributes people-api resolved for a live target, copied onto the
+// route payload one for one. Every one is null for a target with no live row
+// (`mayHaveMoved`), like age, party and the phone numbers beside them.
+//
+// Hand-written rather than a spread of `livePerson` so the two contracts stay
+// two decisions: the residents response is an internal S2S shape and the route
+// payload is what reaches a canvasser's phone, and a field added to the former
+// should not arrive on the latter without anyone choosing it. The explicit
+// `Pick` is what makes forgetting one a type error instead of a hole.
+const demographicsOf = (
+  livePerson: LiveTarget | undefined,
+): Pick<RoutePayloadTarget, keyof typeof DoorKnockingDemographicsShape> => ({
+  registeredVoter: livePerson?.registeredVoter ?? null,
+  turnoutLikelihood: livePerson?.turnoutLikelihood ?? null,
+  maritalStatus: livePerson?.maritalStatus ?? null,
+  hasChildrenUnder18: livePerson?.hasChildrenUnder18 ?? null,
+  veteranStatus: livePerson?.veteranStatus ?? null,
+  homeowner: livePerson?.homeowner ?? null,
+  businessOwner: livePerson?.businessOwner ?? null,
+  levelOfEducation: livePerson?.levelOfEducation ?? null,
+  estimatedIncomeAmount: livePerson?.estimatedIncomeAmount ?? null,
+  language: livePerson?.language ?? null,
+  ethnicityGroup: livePerson?.ethnicityGroup ?? null,
+})
 
 @Injectable()
 export class DoorKnockingServeService extends createPrismaBase(
@@ -189,6 +218,13 @@ export class DoorKnockingServeService extends createPrismaBase(
             // mayHaveMoved is derived from.
             cellPhone: livePerson?.cellPhone ?? null,
             landline: livePerson?.landline ?? null,
+            // The demographic profile, live-only for the same reason: a target
+            // who no longer appears at the frozen addressKey carries nulls
+            // rather than the profile of whoever lives there now. Spelled out
+            // field by field rather than spread, so the payload can never pick
+            // up a key the residents response grows later without someone
+            // deciding it belongs at the door.
+            ...demographicsOf(livePerson),
             knockStatus: statusByPersonId.get(target.personId) ?? 'unknown',
             // mayHaveMoved is the voter file disagreeing with the frozen
             // snapshot; notAVoterReason is a person at the door saying so.
