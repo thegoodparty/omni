@@ -464,7 +464,7 @@ far end of the row. Restored, along with the prototype's person glyph on the
 resident switcher, where a strip of names and coloured dots otherwise reads as
 filter chips rather than as the people behind one door.
 
-All five are covered by new tests.
+All five are covered by new tests in that PR.
 
 ---
 
