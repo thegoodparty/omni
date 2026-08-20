@@ -47,14 +47,25 @@ The local `npm run verify` is unchanged — it runs the whole suite in one pass.
 
 The unit-test DB is provisioned by cloning a schema template, not by replaying
 every migration per suite. `vitest.config.ts` runs `src/test-global-setup.ts`
-once, which builds the full schema into a `gp_api_test_template` database in the
-shared testcontainer; each `useTestService` suite then does
-`CREATE DATABASE ... TEMPLATE gp_api_test_template` (a near-instant Postgres
-copy) instead of re-running all 258 migrations. `src/test-postgres.ts` owns the
-container config that both paths share — keep it identical in both or
+once, which builds the full schema into a template database; each
+`useTestService` suite then does `CREATE DATABASE ... TEMPLATE` (a near-instant
+Postgres copy) instead of re-running all 258 migrations. `src/test-postgres.ts`
+owns the container config that both paths share — keep it identical in both or
 testcontainers' reuse hash stops matching and suites get a fresh, template-less
 container. Suites still run with `isolate: true`; sharding is what keeps wall
 clock down, since the per-file cost is re-importing the Nest app graph.
+
+One container serves every checkout on the machine, and three things are what
+make that safe. The template is named for a digest of the migrations it holds
+(`gp_api_tmpl_<hash>`), so every checkout on the same migrations shares one warm
+copy while a checkout on any other set gets its own. It is built under a scratch
+name and published with a rename, because `CREATE DATABASE` makes a database
+visible before the migrations finish replaying into it — a run killed mid-replay
+would otherwise leave a half-built template that every later run would clone.
+And a published template has `ALLOW_CONNECTIONS false`, the way `template0`
+does, because Postgres refuses to copy a database while any session is connected
+to it. `globalSetup` also sweeps abandoned scratch databases, superseded
+templates, and clones left behind by killed runs.
 
 Two things about that container and the per-test reset are load-bearing, not
 incidental. It runs with `fsync`/`synchronous_commit`/`full_page_writes` off,
