@@ -20,11 +20,11 @@ model Website {
   /// hero and the page <title> read it; the "paid for by" footer and the SMS
   /// privacy/terms copy always use the derived name, which is the legally
   /// correct entity there. Nothing writes this column: it was populated once by
-  /// 20260817090000_strip_website_main_title from the ID list in that migration,
-  /// and no endpoint, MCP tool or admin surface sets it. Do not add one — a new
-  /// custom headline would reintroduce the stale-name divergence this replaced.
-  /// Dropping the column changes those sites' headline to the derived form, so
-  /// schedule it deliberately rather than as cleanup.
+  /// 20260820090000_add_website_legacy_title_override from the literal list in
+  /// that migration, and no endpoint, MCP tool or admin surface sets it. Do not
+  /// add one — a new custom headline would reintroduce the stale-name
+  /// divergence this replaced. Dropping the column changes those sites'
+  /// headline to the derived form, so schedule it deliberately, not as cleanup.
   legacyTitleOverride  String?          @map("legacy_title_override")
   domain               Domain?
   contacts             WebsiteContact[]
