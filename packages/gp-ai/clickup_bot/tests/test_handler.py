@@ -3439,6 +3439,18 @@ def test_ci_fix_request_launches_a_run_labelled_ci_fix(fake_clickup, fake_ecs, e
     assert env["CLICKUP_TASK_ID"] == "abc123"
 
 
+def test_a_launched_fix_run_answers_the_workflow_with_a_200(fake_clickup, fake_ecs, ecs_env):
+    # gpbot-ci-drive.yml reads `.statusCode` out of the invoke response to tell a
+    # launch from a silent failure, and now fails the step when it is not 200.
+    # handle_ci_fix forwards trigger_fargate_task's return value untouched, so a
+    # drift in that shape would report every successful launch as failed — the
+    # PR's slot spent, the run running, and the workflow red over nothing.
+    resp = handler.handler(ci_fix_event(), None)
+
+    assert resp["statusCode"] == 200
+    assert response_body(resp)["status"] == "triggered"
+
+
 def test_the_fix_instruction_names_the_pr_to_push_to(fake_clickup, fake_ecs, ecs_env):
     # A fix run that cannot tell which PR it is fixing is a fix run that opens a
     # second PR, which is the outcome this whole path exists to avoid.
