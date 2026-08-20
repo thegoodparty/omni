@@ -570,7 +570,14 @@ export class OrganizationsService extends createPrismaBase(
       )
     }
 
-    const rawDistrict = overrideDistrict ?? position?.district
+    // Routed. This district feeds voterFile.canDownload, not any HubSpot
+    // field — so it is an eligibility check, and the guard has to judge the
+    // same district the query will use, exactly as the contacts path does.
+    const rawDistrict =
+      overrideDistrict ??
+      (position?.district
+        ? await this.districtRouting.routeWinDistrict(slug, position.district)
+        : undefined)
     const district: OrgDistrict | null = rawDistrict
       ? {
           id: rawDistrict.id,
@@ -680,7 +687,17 @@ export class OrganizationsService extends createPrismaBase(
         : Promise.resolve(null),
     ])
 
-    const rawDistrict = overrideDistrict ?? position?.district
+    // Routed, so the district shown to a candidate is the one their voter
+    // counts came from. It surfaces the raw vendor string for now
+    // (`2026 PROPOSED CONG DIST 04 (EST.)`); a humanized label is a follow-up.
+    const rawDistrict =
+      overrideDistrict ??
+      (position?.district
+        ? await this.districtRouting.routeWinDistrict(
+            org.slug,
+            position.district,
+          )
+        : undefined)
     const district: OrgDistrict | null = rawDistrict
       ? {
           id: rawDistrict.id,

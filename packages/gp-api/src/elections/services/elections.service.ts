@@ -212,8 +212,8 @@ export class ElectionsService {
   // inherits that error, and the multipliers pass it straight into the
   // voter-contact goal.
   //
-  // Logged rather than returned, deliberately: no consumer contract changes
-  // yet, and the first thing worth knowing is how many campaigns this touches.
+  // Returned as well as logged, so a consumer can caveat the number rather
+  // than presenting it as precise.
   private async isTurnoutFromPreviousMap(
     hasTurnout: boolean,
     district: { state: string; L2DistrictType: string; L2DistrictName: string },
@@ -551,6 +551,9 @@ export class ElectionsService {
       }
       return {
         district,
+        // True when the projection behind these numbers describes the previous
+        // map's electorate, because the routed district carries none of its own.
+        turnoutFromPreviousMap,
         ...(hasTurnout
           ? this.calculateRaceTargetMetrics(turnoutValue)
           : {

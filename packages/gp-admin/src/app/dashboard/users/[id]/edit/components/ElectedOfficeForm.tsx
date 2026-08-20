@@ -170,7 +170,11 @@ export function ElectedOfficeForm({
             electionYear={electionYear ?? 0}
             initialL2DistrictType={initialDistrictType}
             initialL2DistrictName={initialDistrictName}
-            defaultExcludeInvalid={false}
+            // Serve represents today's constituents, so a proposed district is
+            // definitionally wrong here. Those rows carry no projected turnout,
+            // so excluding on that keeps them out of this picker — which
+            // defaultExcludeInvalid={false} was letting through.
+            defaultExcludeInvalid={true}
             onSave={async ({ L2DistrictType, L2DistrictName }) => {
               await updateElectedOfficeDistrict(
                 initialData.id,

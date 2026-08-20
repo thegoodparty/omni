@@ -927,14 +927,15 @@ describe('OrganizationsService', () => {
       expect(mockRouteWinDistrict).not.toHaveBeenCalled()
     })
 
-    it('does not route CRM company context', async () => {
+    // This district feeds voterFile.canDownload, not any HubSpot field, so it
+    // is an eligibility check and routes like the contacts path does.
+    it('routes CRM company context', async () => {
       mockRouteWinDistrict.mockResolvedValue(proposed)
 
       const { district } =
         await service.getCrmCompanyOrgContextByOrgSlug('oh-4-campaign')
 
-      expect(district?.id).toBe('current-oh-4')
-      expect(mockRouteWinDistrict).not.toHaveBeenCalled()
+      expect(district?.id).toBe('proposed-oh-4')
     })
 
     it('does not route resolveServeContext', async () => {
@@ -951,13 +952,14 @@ describe('OrganizationsService', () => {
       expect(mockRouteWinDistrict).not.toHaveBeenCalled()
     })
 
-    it('does not route makeFriendly (org-settings display)', async () => {
+    // Routed so the district shown to a candidate is the one their counts came
+    // from. Still the raw vendor string; a humanized label is a follow-up.
+    it('routes makeFriendly (org-settings display)', async () => {
       mockRouteWinDistrict.mockResolvedValue(proposed)
 
       const result = await service.getOrganization(1, 'oh-4-campaign')
 
-      expect(result.district?.id).toBe('current-oh-4')
-      expect(mockRouteWinDistrict).not.toHaveBeenCalled()
+      expect(result.district?.id).toBe('proposed-oh-4')
     })
 
     it('does not route resolveCitySlug (a display/identity string)', async () => {
