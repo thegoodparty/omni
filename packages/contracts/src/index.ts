@@ -732,6 +732,16 @@ export {
   OutreachDetailSchema,
   type OutreachDetail,
 } from './outreach/OutreachSocial.schema'
+export {
+  PHONE_BANKING_PURPOSE_VALUES,
+  PhoneBankingScriptPurposeSchema,
+  type PhoneBankingScriptPurpose,
+  PHONE_BANKING_SCRIPT_MAX_LENGTH,
+  PhoneBankingScriptDraftRequestSchema,
+  type PhoneBankingScriptDraftRequest,
+  PhoneBankingScriptDraftResponseSchema,
+  type PhoneBankingScriptDraftResponse,
+} from './outreach/PhoneBankingScript.schema'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
 
