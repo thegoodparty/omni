@@ -10,8 +10,9 @@ difference into one of three piles:
 - **Accidental** — the prototype had it, we lost it or never built it, and no
   decision is recorded. These are fixed in PR #1346; they are listed near the end
   so you can see what moved.
-- **Blocked** — real gaps that sit in files three other pull requests are
-  currently editing. Listed with enough detail for a follow-up to act on.
+- **Still open** — real differences that are nobody's decision yet, listed near
+  the end with a recommendation each. Two of them cost more than a UI change and
+  need a product answer before an engineering one.
 
 Each deliberate item below is a decision you can make without reading code: what
 the prototype does, what we do, and what it costs either way. The engineering
@@ -40,7 +41,7 @@ would be wrong.
 **Ours:** the same quantity as a plain stat in the overview grid, labelled
 **People logged**, reading `40 of 120 · 33%`. No bar.
 
-**Evidence it was deliberate** — `AGENTS.md` line 89:
+**Evidence it was deliberate** — `AGENTS.md` line 92:
 
 > **No progress bar was added.** The sheet's people-logged stat already exists
 > and is worded per the "nothing says reached" note; a bar reading "40%
@@ -49,10 +50,10 @@ would be wrong.
 > with.
 
 **The reasoning.** A bar reads as "how much of this list is done". The number
-behind it is doors where *something* was written down — including "not home",
+behind it is doors where _something_ was written down — including "not home",
 "inaccessible" and "refused". A canvasser who knocked forty doors and spoke to
 nobody would see a bar most of the way across. The team's judgement was that the
-text version (`40 of 120 · 33%`, under the word *logged*) makes the same
+text version (`40 of 120 · 33%`, under the word _logged_) makes the same
 information available without the bar's implicit claim of completion.
 
 **Worth knowing before you decide:** the prototype's bar can't be ported
@@ -65,7 +66,7 @@ list of 68 doors holds 120 targeted people, and the two numbers move
 independently. Copying the bar without choosing a side lands on
 people-logged over doors, which can read past 100%.
 
-**Recommendation:** if product wants the bar back, ask for it over the *same*
+**Recommendation:** if product wants the bar back, ask for it over the _same_
 denominator the stat already uses (knockable people) and keep the word "logged"
 on it. That is a small change, and it is the one to ask for. What we should not
 do is copy the prototype's fraction across, because it does not mean the same
@@ -102,7 +103,57 @@ these figures upward.
 
 ---
 
-### 3. Counts on an unknocked list read "About 68 doors", not "68 doors"
+### 3. A canvasser can write a note on any door; the prototype only allows one after a conversation
+
+**Prototype:** the note field appears on the engaged branch only, after "do they
+support you" and "will they vote".
+
+**Ours:** the note field appears at the end of whichever branch was walked, so a
+not-home or inaccessible door can carry one too. It is never required.
+
+**Evidence** — `AGENTS.md` line 63 records this as one of exactly two deliberate
+departures from the prototype at the door:
+
+> The prototype puts the note field on the engaged branch only [...] **The
+> product owner overruled that specifically**, because most doors never open and
+> those are the ones a canvasser most often has something to say about: "dog in
+> the yard, come back Saturday" is the archetypal note.
+
+**Why it matters to product:** this is the one place the at-the-door flow
+knowingly does not match the prototype, and the same note warns future work not
+to "re-hide the note field" in the name of prototype fidelity. Worth confirming
+you still want it, since everything else in that flow was rebuilt to match the
+prototype exactly.
+
+**Recommendation:** keep. It also closed a real defect — with the field on the
+engaged branch only, a note typed there and then corrected to a not-home outcome
+was saved invisibly.
+
+---
+
+### 4. "Why aren't they a voter?" is asked after the door is saved, not before
+
+**Prototype:** choosing "Not a voter" opens a "What happened?" question (Moved /
+Deceased) inside the flow, and Save is blocked until it is answered.
+
+**Ours:** the door saves on the outcome alone, and the follow-up appears
+afterwards as an optional prompt.
+
+**Evidence** — `AGENTS.md` line 61, the second of the two deliberate departures:
+
+> ADR 0008's follow-up is **optional**, and a door that is only written once an
+> optional question has been answered is a door lost whenever the canvasser
+> walks away mid-question.
+
+**Plain version:** the prototype's version risks losing the knock entirely if the
+canvasser is interrupted between the outcome and the follow-up — which at a door
+is the normal case, not the edge case. Ours records the door first and then asks.
+
+**Recommendation:** keep.
+
+---
+
+### 5. Counts on an unknocked list read "About 68 doors", not "68 doors"
 
 **Prototype:** exact counts everywhere — `68 households`, `213 people`.
 
@@ -128,14 +179,14 @@ list" turn into 51 doors with no explanation.
 
 ---
 
-### 4. The audience breakdown covers party and age only
+### 6. The audience breakdown covers party and age only
 
 **Prototype:** four groups — support, party, age and **top issues** — plus a
 "Demographic highlights" summary ("62% Democrat", "31% aged 35–50").
 
 **Ours:** party and age, as labelled bars with counts and percentages.
 
-**Evidence** — `AGENTS.md` line 89 and `audienceMix.ts` lines 12–18:
+**Evidence** — `AGENTS.md` line 92 and `audienceMix.ts` lines 12–18:
 
 > The prototype's third and fourth groups have no honest equivalent here. "Top
 > issues" is not a fact this product holds about a voter — no pack dim, no route
@@ -144,9 +195,9 @@ list" turn into 51 doors with no explanation.
 > visual form on a surface opened from that rail is how two presentations of one
 > quantity start disagreeing.
 
-**Plain version.** *Top issues* was invented data in the prototype — we hold no
+**Plain version.** _Top issues_ was invented data in the prototype — we hold no
 issue preference per voter, from any source, so the group could only ever be
-empty or fabricated. *Support* is already on screen as the seven coloured status
+empty or fabricated. _Support_ is already on screen as the seven coloured status
 chips on the map rail, one click away; showing it twice invites the two to
 disagree. Party and age are shown because they are the only two facts that
 survive a list being knocked — every other dimension exists in the map snapshot
@@ -158,10 +209,10 @@ acquisition project, not a UI fix.
 
 ---
 
-### 5. A door nobody has visited reads "Support unknown", not "Not visited"
+### 7. A door nobody has visited reads "Support unknown", not "Not visited"
 
-**Prototype:** two separate states — *Not visited* (grey, never knocked) and
-*Support unknown* (answered but wouldn't say). Both labels are in
+**Prototype:** two separate states — _Not visited_ (grey, never knocked) and
+_Support unknown_ (answered but wouldn't say). Both labels are in
 `VoterPanel.tsx` lines 1086–1109, picked apart by whether the door has any
 history.
 
@@ -192,7 +243,7 @@ matches.
 
 ---
 
-### 6. Age groups are 18–25 / 25–35 / 35–50 / 50+, not the prototype's
+### 8. Age groups are 18–25 / 25–35 / 35–50 / 50+, not the prototype's
 
 **Prototype:** 18–34, 35–50, 51–64, 65+.
 
@@ -203,7 +254,7 @@ encoding "bound for bound", duplicated deliberately, "but the two **MUST** agree
 or knocking a list would silently re-shape its own age breakdown while the
 audience behind it never moved."
 
-**Note:** the age *filter* offered when building a list uses the newer ranges
+**Note:** the age _filter_ offered when building a list uses the newer ranges
 (18–24, 25–34, 35–49, 50–64, 65+) because those are the CRM's. So the breakdown
 groups and the filter groups genuinely do not line up. That is a real wart, and
 fixing it means changing how the map snapshot is encoded on the server — not a
@@ -213,7 +264,7 @@ UI change.
 
 ---
 
-### 7. Stop numbers appear on the map and on paper, but not in lists
+### 9. Stop numbers appear on the map and on paper, but not in lists
 
 **Prototype:** every list row is numbered 1, 2, 3…
 
@@ -231,16 +282,16 @@ step's door list).
 
 ---
 
-### 8. Delete is shown greyed-out with a reason; Edit disappears
+### 10. Delete is shown greyed-out with a reason; Edit disappears
 
 **Prototype:** a "…" menu on each list card holding Delete.
 
-**Ours:** Delete is a button on the list row *and* in the detail sheet. On a list
+**Ours:** Delete is a button on the list row _and_ in the detail sheet. On a list
 that has been knocked it renders disabled with the sentence "this list has
 already been knocked…" beside it. Rename/recolour, by contrast, is hidden
 entirely once a list is knocked.
 
-**Evidence** — `AGENTS.md` line 87:
+**Evidence** — `AGENTS.md` line 90:
 
 > It used to render only when `!liveTurf.locked`, which is how the feature got
 > reported as **missing entirely**: a candidate whose lists were all knocked
@@ -256,7 +307,7 @@ also accepts the polygon, which must not move after a route is bought).
 
 ---
 
-### 9. The list-building flow never shows two different totals side by side
+### 11. The list-building flow never shows two different totals side by side
 
 **Prototype:** the create flow shows counts freely as you filter and draw.
 
@@ -274,30 +325,38 @@ never on screen together.
 
 ---
 
-### 10. You can't see street addresses until a list is knocked
+### 12. A saved list doesn't show street addresses until it is knocked
+
+**This one has already moved most of the way toward the prototype**, in work that
+merged while this review was being written, so it is listed for completeness
+rather than as an open question.
 
 **Prototype:** addresses are visible everywhere, including while drawing.
 
-**Ours:** while drawing and on an unknocked saved list, we list the doors as
-anonymous rows and say "Street addresses arrive with the route, once you knock
-this list." After knocking, the detail sheet lists every door by address.
+**Ours, now:** the draw step lists the real street addresses inside the shape you
+have drawn, on request ("See the addresses"). The one surface still without them
+is the detail sheet of a saved list that hasn't been knocked, which says "Street
+addresses arrive with the route, once you knock this list."
 
-**Evidence** — `AGENTS.md` line 88: the map snapshot "is `positions`, two index
-arrays and demographic byte planes, carrying no name and no address at any
-price".
+**Evidence** — `AGENTS.md` line 91 records both halves: the map layer "is
+`positions`, two index arrays and demographic byte planes, carrying no name and
+no address at any price", and the draw step now answers from the server instead —
+"that sentence used to be shared with the draw step and no longer is". The same
+note says extending it to a saved list is "deliberately open rather than done".
 
-**Plain version:** the fast map layer physically does not contain addresses;
-reading them is the paid routing call that "Knock" makes. The prototype could
-skip this because its data was a spreadsheet loaded into the browser.
+**Plain version:** the fast map layer physically holds no addresses. Reading them
+costs a database scan, which the draw step now pays when a candidate asks for it.
+The saved-list sheet could be given the same treatment and hasn't been.
 
-**Recommendation:** keep — there is no version of this we could build differently
-without paying for routing on every shape someone drags.
+**Recommendation:** worth asking product whether the saved-list sheet should get
+the same "See the addresses" affordance the draw step now has. Everything needed
+is in place; it just hasn't been designed.
 
 ---
 
 ## Where the prototype is arguably wrong, and we should not copy it
 
-Three items above (1, 2 and 3) are in this category too. Two more:
+Three items above (1, 2 and 5) are in this category too. Two more:
 
 ### A. Per-list "N / M doors knocked" on the map rail — correct instinct, wrong mechanism
 
@@ -330,12 +389,12 @@ home orange, inaccessible purple, refused slate). Ours is a single bar with the
 seven per-status counts listed underneath it.
 
 The prototype's version is prettier and says less: five segments over a
-denominator of *everyone in the list* means the bar is mostly empty at the start
+denominator of _everyone in the list_ means the bar is mostly empty at the start
 of a walk and the segments are too thin to read at typical list sizes. Ours puts
 the same five numbers below the bar in words.
 
-**Recommendation:** a design call, not a bug. Listed in the blocked section below
-because that file is being edited by another pull request right now.
+**Recommendation:** a design call, not a bug — and one worth making explicitly,
+since it is the only place a canvasser sees progress while walking.
 
 ---
 
@@ -356,7 +415,7 @@ load-bearing here), people for **People**, a clock for **Travel time** /
 for **People logged**. The icons are marked decorative so screen readers read the
 label, not the glyph.
 
-*This is the "no emojis on overview components" report.*
+_This is the "no emojis on overview components" report._
 
 ### 2. Applied filters were an undifferentiated wall of pills
 
@@ -380,75 +439,87 @@ prototype's rail carries the line "Tap a list to highlight it on the map, or
 Knock to start at the first door." — restored, on the populated rail only (the
 empty state already explains how to make a first list).
 
-All three are covered by new tests.
+### 4. The door sheet's cards had lost their icons too
+
+The panel a canvasser opens at a door is a stack of bordered cards — Contact
+information, Household, Activity feed — whose headers were text alone, so
+finding the one with the phone number in it meant reading three near-identical
+bars on a phone screen. The prototype pairs each card title with a glyph at the
+far end of the row. Restored, along with the prototype's person glyph on the
+resident switcher, where a strip of names and coloured dots otherwise reads as
+filter chips rather than as the people behind one door.
+
+All four are covered by new tests.
 
 ---
 
-## Queued — blocked on in-flight pull requests
+## Still open — small differences nobody has ruled on
 
-These are real differences in files that PR #1327, PR #1340 and one live editing
-session are currently holding. Nothing below has been touched. A follow-up can
-act on them directly.
+These are real, and none of them is blocked on anything any more. They are here
+rather than fixed because each is either a judgement call that should be made
+deliberately, or costs more than a UI change.
 
-**`PersonSheet.tsx`** (blocked on #1327)
+1. **No map thumbnail of the door.** The prototype shows a small static map above
+   "Open in Maps" so a canvasser can see the house's position without leaving the
+   app (`MiniMap.tsx`). We have the coordinates already; what's missing is the
+   render, and it isn't free — the prototype used Google Maps, we use a different
+   mapping stack, and the door sheet is deliberately kept outside the heavy map
+   bundle so it opens instantly on a phone with one bar. Doing it properly means
+   a static image request per door opened. **Recommendation:** ask for it only if
+   canvassers say "Open in Maps" isn't enough; it is a real cost for a
+   nice-to-have.
 
-1. **Section headers carry no icon.** The prototype's door panel is a stack of
-   cards, each pairing its title with a muted icon: Contact information
-   (contact card), Household (house), Voter demographics (clipboard), Voter
-   Support (badge), Activity feed. Ours has three plain headers. `ActivityFeedCard`
-   is *not* blocked and I could have iconed it alone — I deliberately did not,
-   because one iconed header between two plain ones is worse than three plain
-   ones. Do all three at once: Contact information and Household
-   (`PersonSheet.tsx` lines 165 and 206) and Activity feed
-   (`ActivityFeedCard.tsx` lines 62–64). Suggested icons from `@styleguide`:
-   `CircleUserRoundIcon`, `HouseIcon`, `HistoryIcon`.
-2. **No map thumbnail of the door.** The prototype renders a small static map
-   above "Open in Maps" (`MiniMap.tsx`). We have the coordinates on the stop
-   already; only the render is missing. Cost: an extra map tile request per door
-   opened, on a phone in the field — worth a deliberate yes or no.
-3. **The resident switcher tabs have no person icon.** Prototype pairs each
-   name with a small user glyph plus the status dot (`VoterPanel.tsx` line 332);
-   ours has the name and the dot.
-4. **Far less about the voter than the prototype showed.** The prototype panel
-   carries registration status, voter status, marital status, children,
-   veteran, homeowner, business owner, education, income and ethnicity across
-   two cards. Ours shows age and party in the header and nothing else. Most of
-   that was invented in the prototype, but the underlying columns do exist in
-   the voter file — this is a product question (what should a canvasser see at
-   the door?) that needs the route payload widened before it is a UI question.
+2. **We show far less about the voter than the prototype did.** The prototype's
+   panel carries registration status, voter status, marital status, children,
+   veteran, homeowner, business owner, education, income and ethnicity across two
+   cards. Ours shows age and party in the header and nothing else. Most of that
+   was invented data in the prototype, but the columns do exist in the voter
+   file. **Recommendation:** this is a product question — what should a canvasser
+   see about a person before knocking? — and it needs answering before it is an
+   engineering one, because the door payload has to carry whatever is chosen.
 
-**`WalkView.tsx`** (blocked on #1327)
+3. **The map legend never names the route line.** The prototype's legend ends
+   with a short blue line labelled "Route". Ours legends the seven dot colours
+   and leaves the line unlabelled. **Recommendation:** leave it. Our legend chips
+   are not labels — they're filters, each carrying a count, and tapping one
+   narrows the map. A "Route" pill with no count that does nothing when tapped
+   would teach people the row is decorative. If it's wanted, it belongs beside
+   the map, not in that row.
 
-5. **Progress bar is single-colour rather than segmented by outcome.** See item B
-   above — a design call. Note ours already lists the per-status counts under the
-   bar, so the segments would be a second rendering of the same numbers.
+4. **The map doesn't shrink as you scroll during a walk.** The prototype
+   collapses its map band from 360px to 220px once the canvasser scrolls into the
+   stop list, giving the list more room mid-walk. Ours is a fixed 40% band.
+   **Recommendation:** lowest priority here; worth a look if canvassers complain
+   about list space on small phones.
 
-**`knockQuestions.ts`** (blocked on #1327)
-
-6. **Wording: "Will they vote?" vs the prototype's "Will they vote this
-   election?"** Ours is shorter; the prototype's is unambiguous about which
-   election. These strings are shared with the printed walk sheet, which is
-   transcribed back into the form, so changing one changes both — that is why it
-   is a queued item and not a one-line edit.
-
-**`NativeDoorKnockingPage.tsx` / `VoterMapCanvas.tsx`** (blocked on #1340 and a
-live session)
-
-7. **The map legend has no entry for the route line.** The prototype's legend
-   ends with a "Route" swatch — a short blue line — so the path drawn between
-   stops is named. Ours legends the seven dot colours and leaves the line
-   unlabelled (`Legend`/`RouteLineItems`, `DoorKnocking.tsx` lines 3119–3134).
-8. **The map does not shrink as you scroll.** The prototype collapses its map
-   band from 360px to 220px once the list below is scrolled into (`mapCompact`,
-   `DoorKnocking.tsx` lines 4419 and 4495), giving the stop list more room
-   mid-walk.
-   Ours is a fixed 40% band. Lowest priority of anything on this page — likely a
-   deliberate consequence of our different layout, but no decision is recorded.
+5. **The walk progress bar is one colour, not five.** See item B above — this is
+   the design call, and our version already prints the per-outcome counts below
+   the bar.
 
 **Not drift, for the record:** the prototype's "Recommended lists" — AI-suggested
 turf with a "why we recommend this" explanation — does not exist in our build at
-all. That is an unbuilt feature rather than UI drift, and it is not in scope for
+all. That is an unbuilt feature rather than UI drift, and it is out of scope for
 this review.
+
+---
+
+## What changed under this review while it was being written
+
+Three pieces of work merged mid-review, and two of them removed findings that
+were on this list in an earlier draft. Recording that here so the document can be
+trusted against the code as it stands today.
+
+- **The at-the-door flow now matches the prototype, and did not when this review
+  started.** It used to be a single row of seven one-tap result chips; it is now
+  the prototype's question walkthrough — "Did they answer?", then "Did they
+  engage?", then support, then will-vote, each question staying on screen as the
+  next appears. Everything I had recorded as drift in that flow is resolved,
+  including a wording difference ("Will they vote?" against the prototype's "Will
+  they vote this election?") which now matches exactly. The two departures that
+  remain there are items 3 and 4 above, and both are recorded as deliberate.
+- **The draw step now lists real street addresses**, which changes item 12 from a
+  flat difference into a question about one remaining surface.
+- The map's opening view changed, with no effect on anything in this document.
 
 ---
 
@@ -457,9 +528,12 @@ this review.
 `statusPresentation.ts` (the status names and the six colours are the
 prototype's, deliberately — "the vocabulary is the demo's: unknown grey, not
 home yellow, supporter green, non-supporter red, inaccessible dark grey, refused
-black", lines 25–27 — with a seventh, *Not a voter*, added for a case the
+black", lines 25–27 — with a seventh, _Not a voter_, added for a case the
 prototype had no data for), `TurfRoster.tsx` (has no
 prototype counterpart — the prototype never listed a saved list's doors), the
-create flow's three-step header and progress indicator, the door script
+at-the-door question walkthrough and every one of its question and answer labels
+(they match the prototype word for word, including "Will they vote this
+election?"), the create flow's three-step header and progress indicator, the
+door script
 (deliberately the candidate's own saved issues rather than the prototype's
-"AI-generated talking points" — `AGENTS.md` line 68), and the walk estimate copy.
+"AI-generated talking points" — `AGENTS.md` line 71), and the walk estimate copy.
