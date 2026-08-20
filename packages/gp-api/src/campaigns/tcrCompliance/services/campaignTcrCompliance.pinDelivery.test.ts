@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PinoLogger } from 'nestjs-pino'
 import { PrismaService } from '@/prisma/prisma.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { CronLockService } from '@/cron/services/cronLock.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import {
@@ -78,6 +79,13 @@ describe('CampaignTcrComplianceService - applyCvDetection', () => {
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
         { provide: PinoLogger, useValue: createMockLogger() },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()

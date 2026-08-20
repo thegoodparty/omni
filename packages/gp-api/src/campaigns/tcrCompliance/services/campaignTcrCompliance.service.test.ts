@@ -30,6 +30,7 @@ import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { CronLockService } from '@/cron/services/cronLock.service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { PrismaService } from '@/prisma/prisma.service'
@@ -162,6 +163,13 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
         },
         CampaignTcrComplianceService,
       ],
@@ -921,6 +929,13 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -1518,6 +1533,13 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
         {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
         },
         CampaignTcrComplianceService,
       ],
@@ -2214,6 +2236,13 @@ describe('CampaignTcrComplianceService - create (legacy) placeId guard', () => {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -2307,6 +2336,13 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
         {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
         },
         CampaignTcrComplianceService,
       ],
@@ -2586,6 +2622,13 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -2775,6 +2818,10 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     update: ReturnType<typeof vi.fn>
   }
   let mockPrisma: { tcrCompliance: typeof mockModel }
+  let mockCronLock: {
+    tryClaimHourlyRun: ReturnType<typeof vi.fn>
+    markHourlyCompleted: ReturnType<typeof vi.fn>
+  }
 
   const campaign = createMockCampaign({ id: 555 })
   const stuckRecord = {
@@ -2828,6 +2875,19 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       update: vi.fn().mockResolvedValue(undefined),
     }
     mockPrisma = { tcrCompliance: mockModel }
+    // Stands in for the DB-backed lock: one winner per (jobName, hour slot),
+    // so two invocations inside the same hour behave the way two prod replicas
+    // do. The real Postgres-level race is covered in cronLock.service.test.ts.
+    const claimedSlots = new Set<string>()
+    mockCronLock = {
+      tryClaimHourlyRun: vi.fn(async (jobName: string, now: Date) => {
+        const slot = `${jobName}-${now.toISOString().slice(0, 13)}`
+        if (claimedSlots.has(slot)) return false
+        claimedSlots.add(slot)
+        return true
+      }),
+      markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+    }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -2851,6 +2911,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
+        { provide: CronLockService, useValue: mockCronLock },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -2994,6 +3055,49 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       data: { status: TcrComplianceStatus.pending },
     })
   })
+
+  // The whole point of the cron lock: without it both prod replicas' timers
+  // fire a pass, and since submitUsecaseIfVerified has no per-record claim
+  // both would mint a CV token and approve the same brand — double-finalizing
+  // the 10DLC identity into Peerly's MNO queue.
+  it('runs exactly one pass when two replicas fire in the same hour', async () => {
+    mockModel.findMany.mockResolvedValue([stuckRecord])
+
+    await withEnv('prod', async () => {
+      await Promise.all([sweep(service), sweep(service)])
+    })
+
+    expect(mockCronLock.tryClaimHourlyRun).toHaveBeenCalledTimes(2)
+    expect(mockModel.findMany).toHaveBeenCalledTimes(1)
+    expect(mockPeerly.createCampaignVerifyToken).toHaveBeenCalledTimes(1)
+    expect(mockPeerly.submitCampaignVerifyTokenToBrand).toHaveBeenCalledTimes(1)
+  })
+
+  it('does no work at all when the claim is lost', async () => {
+    mockCronLock.tryClaimHourlyRun.mockResolvedValueOnce(false)
+
+    await sweep(service)
+
+    expect(mockModel.findMany).not.toHaveBeenCalled()
+    expect(mockCronLock.markHourlyCompleted).not.toHaveBeenCalled()
+  })
+
+  it('seals the claim even when the pass throws', async () => {
+    // A dangling claim would block the rest of the hour for nothing.
+    mockModel.findMany.mockRejectedValueOnce(new Error('db down'))
+
+    await expect(sweep(service)).rejects.toThrow('db down')
+
+    expect(mockCronLock.markHourlyCompleted).toHaveBeenCalledTimes(1)
+  })
+
+  it('claims and completes against the same pinned timestamp', async () => {
+    await sweep(service)
+
+    const claimAt = mockCronLock.tryClaimHourlyRun.mock.calls[0][1]
+    const completeAt = mockCronLock.markHourlyCompleted.mock.calls[0][1]
+    expect(completeAt).toBe(claimAt)
+  })
 })
 
 describe('CampaignTcrComplianceService - internal testing approval', () => {
@@ -3036,6 +3140,13 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
         {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
         },
         CampaignTcrComplianceService,
       ],
