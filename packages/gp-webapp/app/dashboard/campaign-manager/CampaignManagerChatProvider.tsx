@@ -143,10 +143,14 @@ export function CampaignManagerChatProvider({
   // The string mirrors gp-api's buildCampaignManagerGreeting (buildCampaign
   // ManagerIntro is its hand-synced client twin).
   const hiddenMessageContents = useMemo(() => {
+    // Only the two sentinels belong here. loadExisting skips the assistant turn
+    // that FOLLOWS a hidden user message, on the assumption that a hidden
+    // message's reply is a canned one it can safely drop. The ballot kickoff
+    // runs a real LLM turn, so hiding it would delete the candidate's filing
+    // answer from the transcript on every reload.
     const base = [
       CAMPAIGN_MANAGER_START_STORY_SENTINEL,
       CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
-      CAMPAIGN_MANAGER_BALLOT_KICKOFF,
     ]
     return pendingKickoff === CAMPAIGN_MANAGER_START_STORY_SENTINEL
       ? [...base, buildCampaignManagerIntro(firstName).join('\n\n')]
@@ -250,9 +254,20 @@ export function CampaignManagerChatProvider({
   // (asking about the ballot is not "meeting the manager").
   const startBallotAccess = useCallback(() => {
     if (resumingRef.current) return
+    // Closing the chat clears pendingKickoff, which resets the body's
+    // kicked-off ref, so a second card click would fire the kickoff again. The
+    // story sentinel can absorb that (its reply is canned); this one is a real
+    // LLM turn, so it would append a duplicate paid exchange to the transcript.
+    // Once a conversation is open, reopening it is all the card does — the
+    // answer is already in the thread, and if they arrived at that conversation
+    // another way the manager already leads with ballot access for them.
+    if (conversationId) {
+      setChatOpen(true)
+      return
+    }
     setPendingKickoff(CAMPAIGN_MANAGER_BALLOT_KICKOFF)
     void resumeAndOpen()
-  }, [resumeAndOpen])
+  }, [conversationId, resumeAndOpen])
 
   // The personalize deep link (`/dashboard?personalize=1`) is how the plan-tab
   // story gate's "Open"/"Edit in campaign manager" links start the same story

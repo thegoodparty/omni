@@ -1,10 +1,6 @@
 import { APIPollStatus, derivePollStatus } from '@/polls/polls.types'
 import { Message } from '@aws-sdk/client-sqs'
-import {
-  BadGatewayException,
-  Injectable,
-  InternalServerErrorException,
-} from '@nestjs/common'
+import { Injectable, InternalServerErrorException } from '@nestjs/common'
 import {
   Poll,
   PollIndividualMessageSender,
@@ -13,7 +9,6 @@ import {
 } from '../../generated/prisma'
 import { isPrismaError } from 'src/prisma/util/prismaErrors.util'
 import { SqsConsumerEventHandler, SqsMessageHandler } from '@ssut/nestjs-sqs'
-import { isAxiosError } from 'axios'
 import { addMinutes, format, isBefore, isValid, parseISO } from 'date-fns'
 import { groupBy } from 'es-toolkit'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -50,10 +45,8 @@ import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { CampaignTcrComplianceService } from '../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { csvEscape } from '../../shared/util/csv.util'
-import { isNestJsHttpException } from '../../shared/util/http.util'
 import { normalizePhoneNumber } from '../../shared/util/strings.util'
 import { ForwardEmailDomainResponse } from '../../vendors/forwardEmail/forwardEmail.types'
-import { PeerlyCvVerificationStatus } from '../../vendors/peerly/peerly.types'
 import { EVENTS } from '../../vendors/segment/segment.types'
 import { DomainsService } from '../../websites/services/domains.service'
 import {
@@ -62,6 +55,7 @@ import {
   CampaignPlanCompleteMessageSchema,
   AgentExperimentResultSchema,
   DomainEmailForwardingMessage,
+  CvStatusPollMessageSchema,
   Nightly10DlcReportMessageSchema,
   WeeklyTasksDigestMessageSchema,
   OcrAttachmentMessageSchema,
@@ -85,6 +79,7 @@ import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTyp
 import { PollIndividualMessageService } from '@/polls/services/pollIndividualMessage.service'
 import { WeeklyTasksDigestHandlerService } from '../../campaigns/tasks/services/weeklyTasksDigestHandler.service'
 import { Nightly10DlcReportService } from '../../campaigns/tcrCompliance/services/nightly10DlcReport.service'
+import { CvStatusPollService } from '../../campaigns/tcrCompliance/services/cvStatusPoll.service'
 import { v5 as uuidv5 } from 'uuid'
 import { PinoLogger } from 'nestjs-pino'
 import { OrgDistrict } from '@/organizations/organizations.types'
@@ -155,6 +150,7 @@ export class QueueConsumerService {
     private readonly organizationsService: OrganizationsService,
     private readonly weeklyTasksDigestHandler: WeeklyTasksDigestHandlerService,
     private readonly nightly10DlcReport: Nightly10DlcReportService,
+    private readonly cvStatusPollService: CvStatusPollService,
     private readonly experimentRunsService: ExperimentRunsService,
     private readonly meetingBriefings: MeetingBriefingsService,
     private readonly communityIssue: CommunityIssueService,
@@ -413,6 +409,16 @@ export class QueueConsumerService {
           )
           return await this.nightly10DlcReport.handleNightlyReport(reportData)
         })
+      case QueueType.CV_STATUS_POLL:
+        this.logger.info('received cvStatusPoll message')
+        // Acks immediately — the paced scan runs detached because it outlives
+        // the SQS visibility timeout (see CvStatusPollService). Wrapped so a
+        // malformed payload discards instead of redelivering forever.
+        return await this.withLegacyErrorSwallowing(message, async () =>
+          this.cvStatusPollService.handleCvStatusPoll(
+            CvStatusPollMessageSchema.parse(queueMessage.data),
+          ),
+        )
       case QueueType.AGENT_EXPERIMENT_RESULT:
         return await this.handleAgentExperimentResult(
           AgentExperimentResultSchema.parse(queueMessage.data),
@@ -477,50 +483,6 @@ export class QueueConsumerService {
     }
   }
 
-  private async getCvTokenStatus(
-    peerlyIdentityId: string,
-  ): Promise<PeerlyCvVerificationStatus | null> {
-    let cvTokenStatus: PeerlyCvVerificationStatus | null = null
-    try {
-      cvTokenStatus =
-        (await this.tcrComplianceService.getCvTokenStatus(peerlyIdentityId)) ||
-        null
-    } catch (e) {
-      // TODO: We have to do all this error handling because of how Peerly is
-      //  throwing `BadGatewayException` instead of just throwing the
-      //  `AxiosError` that caused the problem in the first place. We should revisit
-      //  this when we have more time: https://goodparty.clickup.com/t/86ac8y227
-      if (
-        isNestJsHttpException(e) &&
-        e instanceof BadGatewayException &&
-        isAxiosError(e.cause)
-      ) {
-        const requestError = e.cause
-        const status = requestError.response?.status
-        this.logger.warn(
-          { peerlyIdentityId, status, response: e.getResponse() },
-          `HTTP exception occurred while fetching CV token status: ${status} - ${e.message}`,
-        )
-        if (status && status === 404) {
-          this.logger.debug(
-            `Received 404 NOT FOUND. CV token has not been requested yet for identity ID ${peerlyIdentityId}`,
-          )
-        } else {
-          // Something else went wrong
-          this.logger.error(
-            { peerlyIdentityId, status, response: e.getResponse() },
-            `HTTP exception occurred while fetching CV token status: ${status} - ${e.message}`,
-          )
-          throw e.cause
-        }
-      } else {
-        // Something else went wrong. Just throw the error.
-        throw e
-      }
-    }
-    return cvTokenStatus
-  }
-
   // TODO: ALL of the below functions should be moved to their respective
   //  services. This is a queue consumer class. There should be no business
   //  logic in the queue consumer class. This GREATLY complicates development.
@@ -536,15 +498,19 @@ export class QueueConsumerService {
       return true // remove message from the queue
     }
 
-    const { campaign } = await this.tcrComplianceService.findFirstOrThrow({
+    const record = await this.tcrComplianceService.findFirstOrThrow({
       include: {
         campaign: true,
       },
       where: { peerlyIdentityId },
     })
-    const { userId } = campaign
+    const { userId } = record.campaign
 
-    const cvTokenStatus = await this.getCvTokenStatus(peerlyIdentityId)
+    // A `pending` record's CV is VERIFIED by definition (the usecase was
+    // submitted post-PIN), so the persisted mirror the CV status scan and
+    // PIN-entry path stamp is authoritative here — this used to be a live
+    // retrieve_cv read, part of the call volume Peerly flagged (2026-08-17).
+    const cvTokenStatus = record.peerlyCvStatus
 
     cvTokenStatus &&
       (await this.analytics.track(

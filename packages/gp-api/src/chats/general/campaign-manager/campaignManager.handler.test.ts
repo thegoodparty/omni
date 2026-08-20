@@ -279,6 +279,47 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
     fetchFilingFeeByRaceHash: vi.fn(() => Promise.resolve(null)),
   } as unknown as ElectionsService
 
+  // details is untyped JSON at the read site, so an unparseable date must not
+  // reach the prompt as NaN -- it would slip past every null-guard downstream.
+  it.each(['2025-Q1', 'not a date', ''])(
+    'returns null day/week counts for the unparseable date %o',
+    async (bad) => {
+      const store = {
+        findFirst: vi.fn(() =>
+          Promise.resolve({ id: 'c1', organizationSlug: ORG.slug }),
+        ),
+      } as unknown as GeneralChatStoreService
+      const campaigns = {
+        client: {
+          campaign: {
+            findFirst: vi.fn(() =>
+              Promise.resolve({
+                id: 5,
+                details: { electionDate: bad, filingPeriodsEnd: bad },
+                data: {},
+                user: null,
+              }),
+            ),
+          },
+          campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
+          organization: { findFirst: vi.fn(() => Promise.resolve(ORG)) },
+        },
+      } as unknown as CampaignsService
+      const handler = new CampaignManagerHandler(
+        store,
+        campaigns,
+        {} as ChatStoreService,
+        WIN_CONSTITUENT_TABLES,
+      )
+
+      const ctx = await handler.loadContext('c1', 7)
+
+      expect(ctx.daysToFilingDeadline).toBeNull()
+      expect(ctx.weeksToElection).toBeNull()
+      expect(handler.buildSystemPrompt(ctx)).not.toContain('NaN')
+    },
+  )
+
   it('keeps web search available when the campaign does not resolve', async () => {
     const store = {
       findFirst: vi.fn(() => Promise.resolve(null)),

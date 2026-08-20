@@ -98,6 +98,59 @@ describe('VoterDoorKnockingService', () => {
       expect(lastQuerySql().values.flat()).not.toContain(DISTRICT_ID)
     })
 
+    // ADR 0007. The one property that matters: an unconditional conjunct, not
+    // an override hung off some other filter's clause. This dto carries no
+    // filters at all, which is exactly the case where the idOverrides slot
+    // would have dropped the exclusion on the floor.
+    it('excludes do-not-knock ids unconditionally, with no filters present', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([])
+
+      await service.evaluate({
+        ...dto,
+        excludePersonIds: [OTHER_ID],
+      } as never)
+
+      const sql = lastQuerySql()
+      expect(sql.strings.join('?')).toContain('!= ALL(')
+      expect(sql.values.flat()).toContain(OTHER_ID)
+    })
+
+    // ADR 0008. Do-not-knock and not-a-voter arrive through this one slot,
+    // unioned by the caller — the query has no idea which reason produced
+    // which id, and does not need one. Still a single conjunct, so the same
+    // no-filters guarantee covers both.
+    it('excludes the union of every suppression reason in one conjunct', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([])
+
+      await service.evaluate({
+        ...dto,
+        excludePersonIds: [TARGET_ID, OTHER_ID],
+      } as never)
+
+      const sql = lastQuerySql()
+      expect(sql.strings.join('?').match(/!= ALL\(/g)).toHaveLength(1)
+      expect(sql.values).toContainEqual([TARGET_ID, OTHER_ID])
+    })
+
+    // Not cosmetic: `!= ALL('{}')` is always true, so emitting the clause
+    // anyway would change the SQL of every request from an org that has
+    // flagged nobody, for no behavioral gain.
+    it('leaves the query untouched when nobody is flagged', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([])
+      await service.evaluate(dto as never)
+      const baseline = lastQuerySql().strings.join('?')
+
+      mockClient = { $queryRaw: vi.fn().mockResolvedValueOnce([]) }
+      ;(service as unknown as { _peopleDb: PeopleDbService })._peopleDb = {
+        get instance() {
+          return mockClient
+        },
+      } as unknown as PeopleDbService
+      await service.evaluate({ ...dto, excludePersonIds: [] } as never)
+
+      expect(lastQuerySql().strings.join('?')).toBe(baseline)
+    })
+
     it('rejects instead of truncating when the cap is exceeded', async () => {
       mockClient.$queryRaw.mockResolvedValueOnce([
         evaluateRow(TARGET_ID),

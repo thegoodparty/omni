@@ -6,6 +6,10 @@ import type {
   DoorKnockingTurf,
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionResponse,
+  SetDoNotKnock,
+  SetDoNotKnockResponse,
+  SetNotAVoter,
+  SetNotAVoterResponse,
   UpdateDoorKnockingTurf,
   CreateOrdinanceRequest,
   ExperimentVariantsResponse,
@@ -22,6 +26,12 @@ import type {
   RaceOpponentResearchStatus,
   RaceOpponentFindingKind,
   SummarySource,
+  OutreachDetail,
+  SocialDraftRequest,
+  SocialDraftResponse,
+  SocialGenerateRequest,
+  SocialGenerateResponse,
+  SocialSaveRequest,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -236,6 +246,40 @@ export type APIEndpoints = {
   'GET /v1/outreach': {
     Request: {}
     Response: Outreach[]
+  }
+
+  // Row detail for the v2 history drawer: the spine row plus `social`
+  // (purpose, draft, per-platform assets) when the row is a social campaign.
+  // 404 when the row doesn't belong to the requester's campaign.
+  'GET /v1/outreach/:id': {
+    Request: {}
+    Response: OutreachDetail
+  }
+
+  // Synchronous, stateless: one structured LLM call writes the compose-step
+  // draft from purpose + tone (candidate name/office come from the session).
+  // With currentDraft it polishes that text in place instead (Improve with
+  // AI) — the only generated path allowed for the custom purpose.
+  // 502 on model failure — the UI shows a retry, never a canned fallback.
+  'POST /v1/outreach/social/draft': {
+    Request: SocialDraftRequest
+    Response: SocialDraftResponse
+  }
+
+  // Synchronous, stateless: one structured LLM call adapts the confirmed
+  // draft into per-platform assets. Nothing persists until save. 502 when
+  // the model returns an incomplete set — retry, never render partial.
+  'POST /v1/outreach/social/generate': {
+    Request: SocialGenerateRequest
+    Response: SocialGenerateResponse
+  }
+
+  // Persists the social campaign atomically (spine row + satellite +
+  // assets). Response is the created row so the hub updates without a
+  // refetch.
+  'POST /v1/outreach/social': {
+    Request: SocialSaveRequest
+    Response: OutreachDetail
   }
 
   // Server-side flag resolution: gp-api evaluates Amplitude Experiment for the
@@ -742,7 +786,7 @@ export type APIEndpoints = {
     Response: ArrayBuffer
   }
   'GET /v1/door-knocking/turfs': {
-    Request: { voterFileFilterId?: number }
+    Request: {}
     Response: DoorKnockingTurf[]
   }
   'POST /v1/door-knocking/turfs': {
@@ -768,6 +812,19 @@ export type APIEndpoints = {
   'POST /v1/door-knocking/interactions': {
     Request: RecordDoorKnockInteraction
     Response: RecordDoorKnockInteractionResponse
+  }
+  // ADR 0007. Separate from the interaction write because a do-not-knock is
+  // recordable with no outcome to log, and reversible on its own.
+  'POST /v1/door-knocking/do-not-knock': {
+    Request: SetDoNotKnock
+    Response: SetDoNotKnockResponse
+  }
+  // ADR 0008. The reason behind a `not_a_voter` outcome, asked as a follow-up
+  // and written separately: the interaction row is replay-idempotent on
+  // clientKey, so a correction made on a later visit could never reach it.
+  'POST /v1/door-knocking/not-a-voter': {
+    Request: SetNotAVoter
+    Response: SetNotAVoterResponse
   }
   'GET /v1/contacts/list-detail': {
     // Omitted segment = the universe row's detail (ENG-10778): the whole

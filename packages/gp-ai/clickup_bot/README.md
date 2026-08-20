@@ -20,8 +20,12 @@ ClickUp comment OR GitHub PR
 
 | Tag | Label | Model | Result |
 |-----|-------|-------|--------|
-| `gpbot-analyze` | analyze | opus | Posts bug analysis as [GP-Bot] comment |
+| `gpbot-analyze` | analyze | opus | Posts bug analysis as [GP-Bot] comment, and may queue an implementation run — see "Analyze before implement" |
 | `gpbot-work` | implement | opus | Creates PR and posts link to ClickUp |
+
+`gpbot-analyze` is the front door. `gpbot-work` is normally applied by an
+analysis that concluded there is a fix worth making, though applying it by hand
+still works and skips straight to the PR.
 
 ## Flow
 
@@ -61,9 +65,12 @@ ClickUp comment OR GitHub PR
    - Atomic dedup claim: conditional DynamoDB write on `{task_id}#{label}` —
      exactly one concurrent worker wins; losers skip quietly. See "Dedup
      semantics" below.
-   - Triggers Fargate, passing `CLICKUP_TASK_ID`, `INSTRUCTION`, and
-     `AGENT_MODEL` as container-override env vars (the instruction encodes the
-     analyze-vs-implement contract; there is no `OUTPUT_ACTION`)
+   - Triggers Fargate, passing `CLICKUP_TASK_ID`, `INSTRUCTION`, `AGENT_MODEL`
+     and `AGENT_LABEL` as container-override env vars (the instruction encodes
+     the analyze-vs-implement contract; there is no `OUTPUT_ACTION`).
+     `AGENT_LABEL` is what the agent gates escalation on — see "Analyze before
+     implement" — and is passed as a value so a prompt edit cannot silently
+     change whether a run may open a PR
    - Posts the `[GP-Bot] Processing started (...)` comment — which also tells
      the user the re-tag cooldown — only after the Fargate task actually
      launched. In the async worker it is retried once on failure (this comment
@@ -76,6 +83,9 @@ ClickUp comment OR GitHub PR
      only fail-loud channel — no caller receives an HTTP error) and attempt a
      failure comment.
 5. engineer_agent executes based on action type
+6. After an **analyze** run succeeds, the agent parses its own `GPBOT-VERDICT`
+   line and, on `fix` only, tags the ticket `gpbot-work` — re-entering at step 2.
+   Off by default; see "Analyze before implement"
 
 There is no feature flag and no logging-only mode. A matched tag always attempts the
 Fargate trigger. If the trigger fails for any reason (missing `ECS_*` env vars, IAM
@@ -85,7 +95,90 @@ on the task and returns HTTP 500.
 To retry after a failure (e.g. once the config is fixed): remove and re-add the tag.
 Failure comments do not mark the task as processed, so the retry re-triggers.
 
+## The sweep (why webhooks are not enough)
+
+**Subscribing to events does not catch every bug, and no subscription can.**
+
+On 2026-08-17, after `taskCreated` went live, 53 tasks were created workspace-wide.
+52 produced a webhook delivery. The one that did not was `DATA-2336` — the only
+HubSpot-filed ticket in the set, carrying `gpbot-analyze` from the moment it was
+created. It emitted **nothing all day**: no `taskCreated`, no `taskTagUpdated`, no
+delivery of any kind reached the Lambda.
+
+| | Tasks created | Delivered | Missed |
+|---|---|---|---|
+| Created in ClickUp by a human | 52 | 52 | 0 |
+| Filed by the HubSpot integration | 1 | 0 | **1** |
+
+That disproves the assumption behind "Why both events" below. When the tag arrives
+inside the HubSpot create call, ClickUp emits no event we can subscribe to, so
+adding another event type cannot fix it. The fix is to stop relying on being told:
+
+`handle_sweep` runs on a schedule (every 15 minutes, invoked with
+`{"gpbot_sweep": true}`), lists tasks tagged `gpbot-analyze` updated in the last
+`SWEEP_LOOKBACK_HOURS`, and triggers the ones the bot has never spoken on.
+
+The schedule lives in **`.github/workflows/gpbot-sweep.yml`**, not in Terraform, and
+that is a workaround rather than a preference. The deploy role
+(`github-actions-pulumi-deploy`) grants `lambda:*` but no `events:` action at all, so
+`aws_cloudwatch_event_rule` fails `AccessDenied` and takes the entire
+`prod/clickup-bot` apply down with it — including the function code update that
+already succeeded, which is how the sweep code first reached production with nothing
+to trigger it. Invoking the Lambda directly needs no permission the deploy role
+lacks. The trade is that GitHub's cron is best-effort and can run late, which this
+job absorbs because it is a backstop with a 24-hour lookback. To move it into
+Terraform, add `events:PutRule`, `PutTargets`, `DeleteRule`, `RemoveTargets`,
+`DescribeRule`, `ListTargetsByRule` and `TagResource` to
+`GitHubActionsPulumiDeployPolicy`; the rule/target/permission trio is described in
+`infrastructure/modules/clickup-bot/main.tf`.
+
+### Why the sweep needs its own idempotency
+
+**Do not let the sweep rely on the ordinary dedup layers.** Both of them expire
+after ~15 minutes *on purpose* — their job is to absorb retry storms while
+leaving a deliberate human re-tag free to re-run hours later (see
+`DEFAULT_DEDUP_COMMENT_WINDOW_SECONDS`). A 15-minute schedule against a 24-hour
+window would therefore re-analyze every ticket in the window on nearly every
+pass: ~96 agent runs per ticket per day, at $1.73–$4.79 each.
+
+So the sweep asks a different question and needs a permanent answer:
+`has_any_bot_comment` — *has this bot ever spoken on this ticket?* Unwindowed, so
+a ticket analyzed a month ago still counts as handled. The 15-minute layers still
+run underneath as the concurrency guard.
+
+The two checks fail in opposite directions, deliberately:
+
+| Check | On an unreadable comment | Why |
+|---|---|---|
+| `has_processing_started_comment` | does **not** block | A drift must not permanently disable re-tag re-runs; the DynamoDB layer still guards duplicates |
+| `sweep_should_skip` | **skips** | Guessing "not yet analyzed" on a schedule turns one ClickUp blip into a recurring charge. The webhook is still the primary path and the next sweep retries in 15 minutes |
+
+This also covers the worst failure this system has had. A webhook ClickUp suspends
+stops delivering **silently**, as it did from 2026-07-31 to 2026-08-14 while every
+dashboard read healthy. A schedule cannot be unsubscribed, so that outage becomes
+"up to 15 minutes late" instead of "off for two weeks".
+
+| Guard | Why |
+|---|---|
+| `has_any_bot_comment` (permanent) | The load-bearing one. A ticket the bot has ever commented on is never swept again — see above |
+| `SWEEP_LOOKBACK_HOURS` (default 24) | ~170 tickets already carry this tag. Without a window the first sweep would re-analyze bugs closed months ago at ~$4 each |
+| `SWEEP_MAX_TRIGGERS` (default 5) | Bounds the spend of any single pass. Hitting it logs `ERROR` and defers the rest to the next sweep |
+| `include_closed=false` | Closed tickets are settled work |
+| Analyze only | `gpbot-work` opens a PR, and the gap does not apply to it — hand-tagging and the escalation's own API tag write both fire `taskTagUpdated` normally (verified on ENG-10890/10891). A sweep for it would be a second, less-scrutinised route to opening PRs |
+| Declines don't consume the cap | A window full of already-handled tickets must not starve the one that still needs a run |
+| One bad task never ends the pass | The next ticket may be the bug nobody has looked at |
+
+To turn it off, disable the `gpbot reconciliation sweep` workflow — but understand
+what that restores: bugs filed by HubSpot with the tag applied at creation will
+silently never be analyzed.
+
 ## Why both events (`taskTagUpdated` and `taskCreated`)
+
+> **Read the sweep section above first.** `taskCreated` remains worth subscribing
+> to — it is the fast path, and it catches created-and-tagged tasks the moment
+> they appear rather than up to 15 minutes later. But it is *not* sufficient on
+> its own, and the measurement below overstated what it would fix.
+
 
 Subscribing to `taskTagUpdated` alone loses bugs, and it loses them silently.
 
@@ -123,9 +216,127 @@ Two consequences worth knowing:
   from Jul 31 to Aug 14 the last time it happened. A delivery we *know* is
   tagged still 500s so ClickUp redelivers. The outage itself still alarms.
 
-If real `taskCreated` payloads turn out to include tags in `history_items`, the
-free path already handles them (`find_matched_tag` runs first) and both the
-lookup and this exposure can be removed.
+**The lookup is not optional** (confirmed 2026-08-17 against a live delivery).
+A real `taskCreated` payload's `history_items` carries only `status` and
+`task_creation` entries — there is no `tag` field to read, even on a task created
+with tags:
+
+```json
+"history_items": [
+  {"field": "status",        "after": {"status": "to do", "type": "open"}},
+  {"field": "task_creation", "data": {"via": "api"}}
+]
+```
+
+`find_matched_tag` still runs first because it costs nothing and would catch a
+future payload change, but do not remove the `GET /task` fallback on the theory
+that the tag might be in the delta. It is not.
+
+## Analyze before implement
+
+Every reported bug gets an **analysis**. Only an analysis that concludes there is
+a real, bounded code defect queues an **implementation**.
+
+The reason is measured, not theoretical. The five bugs reported 2026-08-14..17
+analyzed out as:
+
+| Ticket | What it actually was |
+|--------|----------------------|
+| ENG-10892 | Real code bug: stale `did_win=false` fails `isActiveCampaign()` → `NO_ACTIVE_CAMPAIGN` on Pro checkout |
+| ENG-10890 | **The same bug as ENG-10892** |
+| ENG-10893 | Real code bug: Know Your Opponent silently drops opponents with zero collected sources |
+| ENG-10891 | Upstream L2 voter-file gap — nothing to fix in omni |
+| ENG-10889 | A feature request, not a bug |
+
+Pointing an implement agent at all five produces two PRs that should never have
+been written, plus a duplicate of a third. Two of five reported "bugs" not being
+code bugs at all is the normal state of an inbox fed by support tickets, so the
+filter has to exist somewhere — and the only thing cheap enough to run on
+everything, and informed enough to tell a vendor data gap from a defect, is a
+read-only agent with the codebase in front of it.
+
+**How it works.** The analyze prompt requires a final line:
+
+```
+GPBOT-VERDICT: fix | no-code-change | needs-human
+```
+
+After a successful analyze run, `engineer_agent/agent/escalation.py` parses that
+line and, on `fix` only, adds `gpbot-work` to the ticket. That re-enters through
+the ordinary webhook path — the same route a human tagging by hand takes — so the
+scope guard, both dedup layers, and the PR triage workflow all still apply. The
+judgement is the model's; the action is deterministic code, which is where the
+guard rails live:
+
+| Guard | Why |
+|---|---|
+| Only from an `analyze` run (`AGENT_LABEL`) | An implement run cannot queue another implement run |
+| Only on `status: success` | A budget-capped or deadline-killed run can leave a confident-looking partial analysis |
+| Only on a recognized `fix` verdict | Missing, malformed or unknown → leave the ticket alone |
+| Skipped if `gpbot-work` is already present | Re-adding an existing tag emits no webhook anyway |
+| Never raises | It runs after the analysis is already posted; failing here would turn a useful run into a task-failure alarm |
+
+The verdict is read from the **last** match in the response, because a model
+routinely restates the instructions it was given before answering.
+
+**Ramp switch / kill switch.** `GPBOT_ESCALATE_TO_WORK` on the engineer-agent task
+definition (`escalate_analysis_to_work` in `environments/prod/engineer-agent-fargate`).
+The module still defaults to **false**, so a new environment stays closed until
+someone opts in; prod has been **on since 2026-08-17**.
+
+To stop the bot opening PRs, set it back to `false` and apply. Prefer that over
+reverting code: it is one variable, it does not wait on a release train, and the
+analyze half keeps working while you decide. While it is off the agent still logs
+the verdict it *would* have acted on — grep `escalation disabled` to see the queue
+that would have formed.
+
+Turning it on has two hard prerequisites, both now met: `vars.GPBOT_PR_CHANNEL_ID`
+must be set (bot PRs otherwise arrive as a bare GitHub review request with no
+Slack context), and `secrets.GPBOT_SLACK_BOT_TOKEN` must carry an app that can
+actually post to that channel. Slack answers `not_in_channel` unless the app is a
+member or holds `chat:write.public`, so the app and the channel are one decision,
+not two — see "Slack wiring" below.
+
+The team also needs to know bot PRs are coming, that a bot approval does **not**
+merge them, and that closing a weak one is the expected outcome.
+
+## Slack wiring
+
+| Setting | Value | Why |
+|---|---|---|
+| `vars.GPBOT_PR_CHANNEL_ID` | `C022VR6PRQC` (`#bugs`) | Where the people who triage these bugs already are, and the home of the `@serve-bugs` / `@win-bugs` groups the message mentions |
+| `secrets.GPBOT_SLACK_BOT_TOKEN` | `gp_ai_bot` | A member of `#bugs` with `chat:write` |
+
+`@serve-bugs` and `@win-bugs` are two-week on-call rotations holding one person
+at a time, so `gpbot-pr-triage.yml` reads the current holder out of the group
+with `usergroups.users.list` and requests *that* person's GitHub review — the
+rotation is honoured with nothing to hand-maintain but the Slack-email →
+GitHub-login map in `.github/gpbot-reviewers.json`.
+
+That call needs **`usergroups:read`**, which the token does not yet carry. Until
+a Slack app admin adds the scope and reinstalls the app, the lookup answers
+`missing_scope` and every bot PR announces to the group — still the right
+person — with no individual review requested. Reinstalling can issue a new bot
+token, so plan on updating both `secrets.GPBOT_SLACK_BOT_TOKEN` and
+`AI_SECRETS_PROD.SLACK_BOT_TOKEN` when it happens.
+
+It is deliberately **not** `secrets.SLACK_APP_BOT_TOKEN`. That is the analytics
+app, which is a member of `#product-analytics` only; pointing it at `#bugs` fails
+every post with `not_in_channel`. Both gpbot workflows must carry the same app,
+since they post to the same channel.
+
+If you move the channel, check the new one against the app first — a token without
+`chat:write.public` can only post where it has been invited:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://slack.com/api/conversations.info?channel=<channel_id>" | jq '.channel.is_member'
+```
+
+**Cost.** A ticket that escalates pays for two runs, each capped independently at
+`AGENT_MAX_BUDGET_USD` (default $15). Observed analyze runs have cost $1.73–$4.79.
+The ceiling per escalated ticket is therefore $30, not $15 — budget for the
+two-phase flow, not the single run.
 
 ## Scope guard
 

@@ -33,6 +33,15 @@ const DV_JOIN = Prisma.sql`JOIN ${DV_TABLE} dv
 // to more accuracy tiers is a WHERE change here, not a contract change.
 const ROOFTOP_ONLY = Prisma.sql`v."Residence_Addresses_LatLongAccuracy" = 'GeoMatchRooftop'`
 
+// ADR 0007 and ADR 0008. An unconditional conjunct alongside ROOFTOP_ONLY
+// rather than an id-override on a filter clause: the override slots hang off a
+// specific filter (voterStatus, contacts-made) and vanish when that filter is
+// absent, which is the one failure mode a suppression must not have. Both
+// do-not-knock and not-a-voter arrive through this one clause — they differ in
+// what someone said at the door, not in what the query has to do about it.
+const excludeIdsSql = (personIds: string[]) =>
+  Prisma.sql`v."id" != ALL(${personIds}::uuid[])`
+
 const EMPTY_FILTERS: FilterData = {
   filters: [],
   filterValues: {},
@@ -94,7 +103,21 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
       state,
       districtId: effectiveDistrictId,
       filters: dto.filters,
-      extraConditions: [ROOFTOP_ONLY, buildBboxSql(dto.bbox)],
+      extraConditions: [
+        ROOFTOP_ONLY,
+        buildBboxSql(dto.bbox),
+        // Its own conjunct rather than folded into idOverrides below: those
+        // ride buildVoterFiltersSql, which contributes nothing when the turf's
+        // filter is empty, and a suppression has to hold regardless of what
+        // the candidate filtered on.
+        //
+        // Omitted when empty: an `!= ALL('{}')` is always true, but adding the
+        // clause anyway would change the SQL of every request that has nobody
+        // to suppress.
+        ...(dto.excludePersonIds?.length
+          ? [excludeIdsSql(dto.excludePersonIds)]
+          : []),
+      ],
       idOverrides: dto.idOverrides,
       contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
     })

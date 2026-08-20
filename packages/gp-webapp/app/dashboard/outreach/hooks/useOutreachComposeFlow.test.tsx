@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import { fireEvent, screen } from '@testing-library/react'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
+import { TCR_COMPLIANCE_QUERY_KEY } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import { CampaignContext } from '@shared/hooks/CampaignProvider'
-import { P2pUxEnabledContext } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
 import type { Campaign } from 'helpers/types'
 import {
   type ComposeFlowType,
@@ -65,16 +65,7 @@ const renderHarness = (
 ) =>
   render(
     <CampaignContext.Provider value={[{ id: 1, isPro } as Campaign]}>
-      <P2pUxEnabledContext.Provider
-        value={{
-          p2pUxEnabled: false,
-          tcrCompliant: true,
-          proUpdatedAtDate: new Date(),
-          resetP2pUxEnabled: () => undefined,
-        }}
-      >
-        <Harness {...props} />
-      </P2pUxEnabledContext.Provider>
+      <Harness {...props} />
     </CampaignContext.Provider>,
   )
 
@@ -108,6 +99,11 @@ describe('useOutreachComposeFlow', () => {
   })
 
   it('opens the text flow for a compliant Pro user with the due date', async () => {
+    // The gate treats an unresolved compliance query as not-yet-compliant, so
+    // seed the cache: this test is about the compliant-Pro pass, not the race.
+    testQueryClient.setQueryData(TCR_COMPLIANCE_QUERY_KEY, {
+      status: 'approved',
+    })
     renderHarness({ isPro: true }, { type: 'text', due: '2026-02-03' })
     fireEvent.click(screen.getByRole('button', { name: 'launch' }))
 

@@ -3,22 +3,26 @@ import {
   DoorKnockingResidentsResponse,
   DoorKnockingRoutePayload,
   DoorKnockStatus,
+  NotAVoterReason,
+  NotAVoterReasonSchema,
   RoutePayloadAddress,
+  RouteTargetActivity,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import {
   ContactStatusField,
+  DoNotKnockStatus,
   DoorKnockingStopTarget,
   Organization,
   Prisma,
 } from '../../generated/prisma'
+import { DoorKnockingActivityService } from './doorKnockingActivity.service'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import {
   deriveKnockStatus,
   overrideToKnockStatus,
-  rollupStopStatus,
 } from '../utils/knockStatus.util'
 
 const ROUTE_INCLUDE = {
@@ -58,6 +62,7 @@ export class DoorKnockingServeService extends createPrismaBase(
     private readonly peopleApi: DoorKnockingPeopleApiService,
     private readonly contacts: ContactsService,
     private readonly contactStatus: ContactStatusService,
+    private readonly activity: DoorKnockingActivityService,
   ) {
     super()
   }
@@ -104,10 +109,17 @@ export class DoorKnockingServeService extends createPrismaBase(
       residents.addresses.map((address) => [address.addressKey, address]),
     )
 
-    const statusByPersonId = await this.latestKnockStatuses(
-      organization.slug,
-      targetPersonIds,
-    )
+    const [
+      statusByPersonId,
+      doNotKnockPersonIds,
+      notAVoterReasons,
+      historyByPersonId,
+    ] = await Promise.all([
+      this.latestKnockStatuses(organization.slug, targetPersonIds),
+      this.doNotKnockPersonIds(organization.slug, targetPersonIds),
+      this.notAVoterReasons(organization.slug, targetPersonIds),
+      this.activity.historyByPersonId(organization.slug, targetPersonIds),
+    ])
 
     return {
       route: {
@@ -127,6 +139,9 @@ export class DoorKnockingServeService extends createPrismaBase(
           stop.displayAddress,
           liveByAddressKey,
           statusByPersonId,
+          doNotKnockPersonIds,
+          notAVoterReasons,
+          historyByPersonId,
         )
         return {
           id: stop.id,
@@ -136,11 +151,6 @@ export class DoorKnockingServeService extends createPrismaBase(
           displayAddress: stop.displayAddress,
           legSeconds: stop.legSeconds,
           legMeters: stop.legMeters,
-          knockStatus: rollupStopStatus(
-            addresses.flatMap((address) =>
-              address.targets.map((target) => target.knockStatus),
-            ),
-          ),
           addresses,
         }
       }),
@@ -152,6 +162,9 @@ export class DoorKnockingServeService extends createPrismaBase(
     stopDisplayAddress: string,
     liveByAddressKey: Map<string, LiveAddress>,
     statusByPersonId: Map<string, DoorKnockStatus>,
+    doNotKnockPersonIds: Set<string>,
+    notAVoterReasons: Map<string, NotAVoterReason>,
+    historyByPersonId: Map<string, RouteTargetActivity[]>,
   ): RoutePayloadAddress[] {
     const byAddressKey = new Map<string, DoorKnockingStopTarget[]>()
     for (const target of targets) {
@@ -189,7 +202,18 @@ export class DoorKnockingServeService extends createPrismaBase(
             cellPhone: livePerson?.cellPhone ?? null,
             landline: livePerson?.landline ?? null,
             knockStatus: statusByPersonId.get(target.personId) ?? 'unknown',
+            // mayHaveMoved is the voter file disagreeing with the frozen
+            // snapshot; notAVoterReason is a person at the door saying so.
+            // They are independent on purpose — the file lags, and a mover's
+            // live row is still where phone numbers come from.
             mayHaveMoved: !livePerson,
+            doNotKnock: doNotKnockPersonIds.has(target.personId),
+            notAVoterReason: notAVoterReasons.get(target.personId),
+            // ADR 0009. Keyed by personId, so it is this resident's history
+            // and not the household's — the two people behind one door often
+            // answered differently, and merging them at the door attributes a
+            // neighbor's refusal to whoever opens it.
+            history: historyByPersonId.get(target.personId) ?? [],
           }
         }),
         otherResidents: (live?.otherResidents ?? []).map((person) => ({
@@ -260,5 +284,47 @@ export class DoorKnockingServeService extends createPrismaBase(
       }
     }
     return statusByPersonId
+  }
+
+  // ADR 0007. Turf evaluation keeps flagged people out of new routes, but it
+  // cannot reach into a route already frozen — so the flag is read live here,
+  // scoped to this route's targets rather than the org's whole flagged set.
+  private async doNotKnockPersonIds(
+    organizationSlug: string,
+    personIds: string[],
+  ): Promise<Set<string>> {
+    if (personIds.length === 0) return new Set()
+    const byPersonId = await this.contactStatus.currentStatusForPeople(
+      organizationSlug,
+      ContactStatusField.do_not_knock,
+      personIds,
+    )
+    return new Set(
+      [...byPersonId.entries()]
+        .filter(([, value]) => value === DoNotKnockStatus.active)
+        .map(([personId]) => personId),
+    )
+  }
+
+  // ADR 0008. Same live read as the do-not-knock flag above and for the same
+  // reason: the route in someone's hand was frozen before this was recorded.
+  // `cleared` (and any value a future writer adds) parses out, so only a real
+  // reason reaches the payload.
+  private async notAVoterReasons(
+    organizationSlug: string,
+    personIds: string[],
+  ): Promise<Map<string, NotAVoterReason>> {
+    if (personIds.length === 0) return new Map()
+    const byPersonId = await this.contactStatus.currentStatusForPeople(
+      organizationSlug,
+      ContactStatusField.not_a_voter,
+      personIds,
+    )
+    return new Map(
+      [...byPersonId.entries()].flatMap(([personId, value]) => {
+        const reason = NotAVoterReasonSchema.safeParse(value)
+        return reason.success ? [[personId, reason.data] as const] : []
+      }),
+    )
   }
 }

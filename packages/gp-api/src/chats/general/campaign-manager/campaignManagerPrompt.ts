@@ -22,6 +22,8 @@ export interface CampaignManagerContext {
   // offices and petition thresholds vary by district, so ballot-access answers
   // are wrong without it.
   district: string | null
+  // From details.ballotLevel (BallotReady's position level, e.g. CITY), the
+  // field onboarding actually writes. details.level is never populated.
   officeLevel: string | null
   location: string | null
   weeksToElection: number | null
@@ -194,7 +196,13 @@ const filingWindowLine = (ctx: CampaignManagerContext): string => {
     )
   }
   const days = ctx.daysToFilingDeadline
-  if (days !== null && days < 0) {
+  // The record carries a date with no timezone and the count is computed from
+  // the server's clock, which runs ahead of every US timezone for part of each
+  // day. So a count of 0 or -1 could still be the deadline day where the
+  // candidate is standing, and claiming they missed a deadline that is actually
+  // today is the worst error this can make. Treat that boundary as urgent-today
+  // rather than passed, and only assert passed once it is unambiguous.
+  if (days !== null && days <= -2) {
     return (
       `The filing deadline on record is ${ctx.filingPeriodEnd}, ` +
       'which has already passed. Do not treat it as upcoming and do not tell ' +
@@ -210,10 +218,15 @@ const filingWindowLine = (ctx: CampaignManagerContext): string => {
     ? `Filing opens ${ctx.filingPeriodStart}. `
     : ''
   const remaining =
-    days !== null
-      ? ` That is ${days} day${days === 1 ? '' : 's'} from today, so lead ` +
-        'with how much time that leaves them.'
-      : ''
+    days === null
+      ? ''
+      : days <= 0
+        ? ' By our count that is TODAY, or close enough that it cannot be ' +
+          'told apart from today: treat it as due now, say it is down to the ' +
+          'wire, and make calling the filing office this minute the only ' +
+          'thing you ask of them.'
+        : ` That is ${days} day${days === 1 ? '' : 's'} from today, so lead ` +
+          'with how much time that leaves them.'
   return (
     `${opens}The filing deadline for this race is ${ctx.filingPeriodEnd}.` +
     `${remaining} This is the close of the race's filing period from ` +

@@ -1,5 +1,6 @@
-import { BadRequestException } from '@nestjs/common'
+import { BadRequestException, HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from '@/shared/constants/voterData.consts'
 import { VoterSampleService } from './voterSample.service'
 import type { PeopleDbService } from '../peopleDb.service'
 
@@ -9,7 +10,7 @@ describe('VoterSampleService', () => {
     findDistrictById: ReturnType<typeof vi.fn>
   }
   let mockStatsService: {
-    getTotalCounts: ReturnType<typeof vi.fn>
+    findTotalCounts: ReturnType<typeof vi.fn>
   }
   let mockPrisma: {
     $transaction: ReturnType<typeof vi.fn>
@@ -26,7 +27,7 @@ describe('VoterSampleService', () => {
     }
 
     mockStatsService = {
-      getTotalCounts: vi.fn().mockResolvedValue({
+      findTotalCounts: vi.fn().mockResolvedValue({
         totalConstituents: 5000,
         totalConstituentsWithCellPhone: 3000,
       }),
@@ -70,7 +71,7 @@ describe('VoterSampleService', () => {
     expect(mockDistrictService.findDistrictById).toHaveBeenCalledWith(
       '0e5bafca-93a9-86a5-2522-f373979720df',
     )
-    expect(mockStatsService.getTotalCounts).toHaveBeenCalledWith(
+    expect(mockStatsService.findTotalCounts).toHaveBeenCalledWith(
       '0e5bafca-93a9-86a5-2522-f373979720df',
     )
     expect(result).toHaveLength(1)
@@ -94,12 +95,29 @@ describe('VoterSampleService', () => {
     expect(mockDistrictService.findDistrictById).toHaveBeenCalledWith(
       'district-wy',
     )
-    expect(mockStatsService.getTotalCounts).toHaveBeenCalledWith('district-wy')
+    expect(mockStatsService.findTotalCounts).toHaveBeenCalledWith('district-wy')
     expect(result).toHaveLength(1)
   })
 
+  // Same standardisation as the query path: a missing stats row is the
+  // VOTER_DATA_UNAVAILABLE state, not a bare 404 nothing can branch on.
+  it('raises VOTER_DATA_UNAVAILABLE when the district has no stats row', async () => {
+    mockStatsService.findTotalCounts.mockResolvedValue(null)
+
+    await expect(
+      service.samplePeople({
+        districtId: 'district-wy',
+        size: 1,
+        hasCellPhone: false,
+      }),
+    ).rejects.toMatchObject({
+      status: HttpStatus.BAD_REQUEST,
+      response: { errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE },
+    })
+  })
+
   it('throws when remaining non-excluded constituents are insufficient', async () => {
-    mockStatsService.getTotalCounts.mockResolvedValue({
+    mockStatsService.findTotalCounts.mockResolvedValue({
       totalConstituents: 10,
       totalConstituentsWithCellPhone: 8,
     })
@@ -115,7 +133,7 @@ describe('VoterSampleService', () => {
   })
 
   it('applies excludeIds against total constituency pool when hasCellPhone=false', async () => {
-    mockStatsService.getTotalCounts.mockResolvedValue({
+    mockStatsService.findTotalCounts.mockResolvedValue({
       totalConstituents: 100,
       totalConstituentsWithCellPhone: 10,
     })

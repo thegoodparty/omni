@@ -5,6 +5,7 @@ import math
 import os
 import time
 from typing import Any, Literal
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 import boto3
@@ -234,6 +235,28 @@ or the reporter may have been incorrect.
 - State explicitly when something could not be verified.
 
 Post your analysis to ClickUp when done. Be concise.
+
+## VERDICT (required, last line of your final response)
+
+End your final response with exactly one of these lines, and nothing after it:
+
+```
+GPBOT-VERDICT: fix
+GPBOT-VERDICT: no-code-change
+GPBOT-VERDICT: needs-human
+```
+
+- `fix` — a real defect in omni code, you found the root cause, and the change
+  is small and bounded enough that a competent PR could be opened from what you
+  already know. **This one automatically queues an implementation run, so only
+  use it when you would be comfortable reviewing that PR yourself.**
+- `no-code-change` — not a code defect: works as designed, a feature request,
+  an upstream/vendor data gap, bad input data, or already fixed.
+- `needs-human` — a real defect, but the fix is broad, risky, ambiguous, needs a
+  product decision, or you could not establish the root cause.
+
+Pick the conservative verdict when torn. `needs-human` costs a human a read;
+`fix` on a bug you have not actually understood costs a human a wrong PR.
 """
 
 IMPLEMENT_INSTRUCTION = """## YOUR TASK: Implement and Create PR
@@ -241,6 +264,18 @@ IMPLEMENT_INSTRUCTION = """## YOUR TASK: Implement and Create PR
 **Approach this ticket with healthy skepticism.** It may be out of date - the issue
 could have been fixed, the data may have changed, the description may be incomplete,
 or the reporter may have been incorrect.
+
+## START FROM THE EXISTING ANALYSIS
+
+Read the ticket's comments first. An analyze run has usually already been here
+and posted a `[GP-Bot] Analysis` comment with the root cause and `file:line`
+citations. Build on it — re-deriving what it already established is paying twice
+for the same investigation.
+
+Treat it as a strong lead, not as proof: it was written by a run that could not
+edit code. Confirm the cited lines still say what the comment claims before you
+change them. If your own reading contradicts the analysis, trust the code, say so
+in the PR description, and stop if the disagreement means the fix is wrong.
 
 **BEFORE writing any code**, you MUST:
 1. Find all files that use/import the function or component you plan to modify
@@ -352,6 +387,109 @@ def get_task_comments(task_id: str) -> list[dict]:
 
 def get_task(task_id: str) -> dict:
     return clickup_request("GET", f"/task/{task_id}")
+
+
+# RECONCILIATION SWEEP.
+#
+# Webhooks are not sufficient, and this is measured rather than assumed. On
+# 2026-08-17, 52 of the 53 tasks created workspace-wide after the taskCreated
+# subscription went live produced a delivery. The one that did not was the only
+# HubSpot-filed ticket in the set (DATA-2336) — which is precisely the class of
+# task this bot exists to serve. It emitted neither taskCreated nor
+# taskTagUpdated: no delivery of any kind reached the Lambda all day.
+#
+# That kills the assumption behind the taskCreated fix. When the tag arrives
+# inside the HubSpot create call, ClickUp emits nothing we can subscribe to, so
+# no event subscription can close the gap. The only reliable answer is to stop
+# depending on being told and go look.
+#
+# The sweep also covers the worse failure this system has had: a suspended
+# webhook, which between 2026-07-31 and 2026-08-14 dropped every bug for two
+# weeks while every dashboard read healthy. A poller cannot be silently
+# unsubscribed.
+#
+# ANALYZE ONLY, deliberately. gpbot-analyze is the entry point and the cheap,
+# reversible half — it posts a comment. gpbot-work opens a PR, and the gap being
+# patched here does not apply to it: hand-tagging and the escalation's own API
+# tag write both fire taskTagUpdated normally (verified against ENG-10890/10891,
+# which delivered as soon as the tag was re-applied through the API). Sweeping
+# for gpbot-work would add a second, less-scrutinised route to opening PRs for
+# no reduction in missed work.
+SWEEP_TAG = ANALYZE_TAG
+CLICKUP_TEAM_ID = "90132012119"
+
+DEFAULT_SWEEP_LOOKBACK_HOURS = 24.0
+# ClickUp's team task endpoint pages at 100. Five pages is far more headroom
+# than a 24h window needs; it exists so a runaway result set terminates.
+SWEEP_MAX_PAGES = 5
+CLICKUP_PAGE_SIZE = 100
+# A ceiling on how many runs one sweep may start. The lookback bounds which
+# tasks are eligible, but a bulk re-tag or a ClickUp API change could still
+# return a large set, and each trigger is a real agent run costing real money.
+# Hitting this cap is logged loudly; the next sweep picks up the remainder.
+DEFAULT_SWEEP_MAX_TRIGGERS = 5
+
+
+def _positive_float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        print(f"Ignoring unusable {name}={raw!r}, using {default}")
+        return default
+    if value <= 0:
+        print(f"Ignoring non-positive {name}={raw!r}, using {default}")
+        return default
+    return value
+
+
+def sweep_lookback_ms() -> int:
+    return int(_positive_float_env("SWEEP_LOOKBACK_HOURS", DEFAULT_SWEEP_LOOKBACK_HOURS) * 3600 * 1000)
+
+
+def sweep_max_triggers() -> int:
+    return int(_positive_float_env("SWEEP_MAX_TRIGGERS", DEFAULT_SWEEP_MAX_TRIGGERS))
+
+
+def list_recently_updated_tagged_tasks(tag: str, since_ms: int) -> list[dict]:
+    # date_updated_gt, not date_created_gt: a ticket whose tag was applied hours
+    # after it was filed must still be picked up, and its creation timestamp
+    # would have aged out. The bound exists to keep the sweep off the ~170
+    # historical tickets that already carry this tag — re-running those would
+    # cost hundreds of dollars in agent runs to re-analyze bugs closed months
+    # ago.
+    tasks: list[dict] = []
+    for page in range(SWEEP_MAX_PAGES):
+        query = urlencode(
+            {
+                "tags[]": tag,
+                "date_updated_gt": since_ms,
+                "include_closed": "false",
+                "subtasks": "true",
+                "page": page,
+            },
+            # Emit `tags[]=` literally rather than urlencode's default
+            # `tags%5B%5D=`. ClickUp does currently normalize the escaped form
+            # (verified 2026-08-18: both spellings returned the same 27 tagged
+            # tasks, against 100 unfiltered of which 3 were tagged), so this is
+            # not a live bug — but the failure mode if that ever changes is the
+            # worst kind available here. An unrecognized filter is not an error:
+            # the endpoint would return every recently-updated task in the
+            # workspace, the sweep would silently stop being a tag query, and
+            # the only visible symptom would be the bot going quiet again.
+            quote_via=quote,
+            safe="[]",
+        )
+        result = clickup_request("GET", f"/team/{CLICKUP_TEAM_ID}/task?{query}")
+        batch = result.get("tasks", [])
+        if not isinstance(batch, list):
+            break
+        tasks.extend(t for t in batch if isinstance(t, dict))
+        if len(batch) < CLICKUP_PAGE_SIZE:
+            break
+    return tasks
 
 
 def out_of_scope_reason(task: Any) -> str | None:
@@ -953,7 +1091,141 @@ def handle_async_processing(event: dict) -> dict:
         return {"statusCode": 500, "body": json.dumps({"error": "async processing failed"})}
 
 
+def has_any_bot_comment(comments: list[dict]) -> bool:
+    """Has this bot EVER spoken on this ticket?
+
+    Deliberately unwindowed, unlike has_processing_started_comment. Both dedup
+    layers expire after ~15 minutes on purpose, because their job is to absorb
+    retry storms while leaving a deliberate human re-tag free to re-run. The
+    sweep runs on a 15-minute schedule against a 24-hour window, so leaning on
+    those layers would re-analyze every ticket in the window on nearly every
+    pass — roughly 96 runs per ticket per day at agent prices.
+
+    The sweep asks a different question, and needs a permanent answer: "has
+    anyone ever looked at this?" A ticket the bot has commented on has been
+    handled, whether that was ten minutes or ten days ago.
+
+    Fails toward NOT skipping on an unreadable comment shape, which costs at
+    most a duplicate run that the 15-minute layers still catch — the opposite
+    failure would make the sweep silently stop rescuing dropped tickets, which
+    is the entire reason it exists.
+    """
+    for comment in comments:
+        if not isinstance(comment, dict):
+            continue
+        comment_text = comment.get("comment_text")
+        if not isinstance(comment_text, str) or not comment_text:
+            # Same two-shape tolerance as has_processing_started_comment; see
+            # the SHAPE CONTRACT note there.
+            comment_text = "".join(
+                item["text"] if isinstance(item.get("text"), str) else ""
+                for item in comment.get("comment", [])
+                if isinstance(item, dict)
+            )
+        if BOT_PREFIX in comment_text:
+            return True
+    return False
+
+
+def sweep_should_skip(task_id: str) -> bool:
+    try:
+        return has_any_bot_comment(get_task_comments(task_id))
+    except Exception as e:
+        # FAIL CLOSED, unlike most of this handler. An unreadable comment list
+        # means we cannot tell whether this ticket was already analyzed, and
+        # guessing "no" on a schedule is how a single ClickUp blip turns into a
+        # repeating charge. The webhook remains the primary path, and the next
+        # sweep retries in 15 minutes.
+        print(f"Failed to read comments for {task_id} during sweep, skipping this pass: {e}")
+        return True
+
+
+def launched_a_run(result: Any) -> bool:
+    # Did dedup_check_then_trigger actually start an agent, or did it decline?
+    # Every decline path returns a "skipped" key; only a real launch does not.
+    # Counting the cap against declines would let a window full of
+    # already-handled tickets starve the one ticket that still needs a run.
+    if not isinstance(result, dict) or result.get("statusCode") != 200:
+        return False
+    body = result.get("body")
+    if not isinstance(body, str):
+        return False
+    try:
+        parsed = json.loads(body)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(parsed, dict) and "skipped" not in parsed
+
+
+def handle_sweep(event: dict) -> dict:
+    """Trigger any recently-tagged ticket the webhook never told us about.
+
+    Idempotent by construction: every candidate goes through
+    dedup_check_then_trigger, so the ack-comment check and the DynamoDB
+    conditional write decide whether anything actually runs. A ticket the
+    webhook already handled is claimed and skipped here.
+    """
+    since_ms = int(time.time() * 1000) - sweep_lookback_ms()
+    try:
+        tasks = list_recently_updated_tagged_tasks(SWEEP_TAG, since_ms)
+    except Exception as e:
+        # Alarm-matching: the sweep is the backstop for a webhook we now know
+        # drops work, so a sweep that cannot list is a silent return to
+        # missing bugs.
+        print(f"ERROR: Sweep failed to list tasks tagged {SWEEP_TAG}: {e}")
+        return {"statusCode": 500, "body": json.dumps({"error": "sweep listing failed"})}
+
+    cap = sweep_max_triggers()
+    triggered = 0
+    skipped = 0
+    for task in tasks:
+        # Shape-defensive independently of the listing's own filter: a response
+        # drift must skip the unreadable entry, never abort the sweep and strand
+        # every task behind it.
+        if not isinstance(task, dict):
+            continue
+        task_id = task.get("id")
+        if not isinstance(task_id, str) or not task_id:
+            continue
+        if triggered >= cap:
+            # Loud: either something bulk-tagged, or the sweep is failing to
+            # claim what it starts and is looping over the same backlog.
+            print(f"ERROR: Sweep hit its cap of {cap} triggers; {len(tasks)} candidates in window, remainder deferred")
+            break
+        # PERMANENT idempotency, checked before the 15-minute layers get a say.
+        # See has_any_bot_comment: without this the sweep re-runs its whole
+        # window every pass.
+        if sweep_should_skip(task_id):
+            skipped += 1
+            continue
+        try:
+            result = dedup_check_then_trigger(task_id, SWEEP_TAG, from_async_worker=True)
+        except Exception as e:
+            # One bad ticket must not end the sweep — the next one may be the
+            # bug nobody has looked at.
+            print(f"ERROR: Sweep failed on task {task_id}: {e}")
+            continue
+        if launched_a_run(result):
+            triggered += 1
+        else:
+            skipped += 1
+
+    # Quiet on the common path (everything already claimed), because this runs
+    # on a schedule forever and its normal state is "nothing to do".
+    print(f"Sweep complete: {len(tasks)} tagged in window, {triggered} triggered, {skipped} already handled")
+    return {
+        "statusCode": 200,
+        "body": json.dumps({"swept": len(tasks), "triggered": triggered, "skipped": skipped}),
+    }
+
+
 def handler(event: dict, context: Any) -> dict:
+    # INTERNAL SWEEP DISPATCH: EventBridge invokes this function directly with
+    # {"gpbot_sweep": true}. Same unspoofable-through-the-ALB reasoning as the
+    # async marker below.
+    if event.get("gpbot_sweep") and "headers" not in event and "requestContext" not in event:
+        return handle_sweep(event)
+
     # INTERNAL ASYNC DISPATCH: the fast-ack path re-invokes this same function
     # asynchronously with {"gpbot_async": true, ...}. Only dispatch to the
     # trusted worker path when the marker is top-level AND the event carries
@@ -1018,10 +1290,13 @@ def handler(event: dict, context: Any) -> dict:
     # Manager outage every created task now 500s alongside the tagged ones,
     # pushing harder on ClickUp's consecutive-failure counter (see README,
     # "After an outage"). Accepted because the alternative is the bug this
-    # replaces: silently never analyzing a reported bug. Tightenable later —
-    # if real taskCreated payloads turn out to carry tags in history_items,
-    # find_matched_tag above already catches them for free and the GET (with
-    # this exposure) can go away.
+    # replaces: silently never analyzing a reported bug.
+    #
+    # And it is NOT tightenable by reading the delta instead: a live taskCreated
+    # payload (captured 2026-08-17) carries only `status` and `task_creation`
+    # history_items — there is no tag field in it at all. find_matched_tag above
+    # still runs first because it is free and would catch a future payload
+    # change, but the GET is the load-bearing path, not a fallback.
 
     # Direct invocations (console/tests) can pass body as an already-parsed
     # dict; verifying a dict would raise AttributeError inside
@@ -1145,6 +1420,13 @@ def trigger_fargate_task(
                             {"name": "CLICKUP_TASK_ID", "value": task_id},
                             {"name": "INSTRUCTION", "value": instruction},
                             {"name": "AGENT_MODEL", "value": model},
+                            # Which KIND of run this is, as a value rather than
+                            # something inferred from the instruction prose. The
+                            # agent gates its post-run escalation on it, and
+                            # sniffing the instruction text for "analyze" would
+                            # make an unrelated prompt edit silently change
+                            # whether a run can queue an implementation.
+                            {"name": "AGENT_LABEL", "value": label},
                         ],
                     }
                 ]

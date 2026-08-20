@@ -6,8 +6,12 @@ export type DimSelections = Map<string, Set<number>>
 
 export interface FilterResult {
   people: number
-  households: number
-  dots: number
+  // Present only on a district-wide pass. `maskToPolygon` leaves it off
+  // because no surface reads a household count off a masked result: the one
+  // reader is the create flow's `districtHouseholds`, which renders only while
+  // the flow is open, and the mask runs only while it is closed. Optional
+  // rather than a sentinel so that interlock is the compiler's to enforce.
+  households?: number
   // Matched people per dot — a dot with 0 renders dimmed.
   matchedPerDot: Uint32Array
   // Most-actionable canvass status byte among each dot's matched people.
@@ -77,12 +81,7 @@ export const runFilter = (
     }
   }
 
-  let dots = 0
-  for (let i = 0; i < dotCount; i++) {
-    if ((matchedPerDot[i] ?? 0) > 0) dots++
-  }
-
-  return { people, households, dots, matchedPerDot, statusPerDot }
+  return { people, households, matchedPerDot, statusPerDot }
 }
 
 export interface PartySlice {
@@ -100,23 +99,13 @@ export interface PolygonStats {
   partyMix: PartySlice[]
 }
 
-// Everything the draw step reports about the shape being drawn, all on the
-// one denominator that matters there: what is INSIDE the ring. A district-wide
-// number next to an in-polygon one is how the footer previously managed to
-// read "12,000 matching households · 84 selected doors".
-//
-// The households count is person-level exact — a household counts only when a
-// person in it survives the filter — so it matches what runFilter would report
-// for the same audience, restricted to the ring. That is deliberately stricter
-// than maskToPolygon's dot-granular rollup, which counts every household
-// sharing a matched coordinate and is documented as a slight overcount.
-export const polygonStats = (
+// Ray-cast the dots once (bbox prefiltered) so a person pass is a lookup per
+// voter rather than a point-in-polygon test per voter.
+const dotsInRing = (
   pack: DecodedPack,
-  selections: DimSelections,
   ring: Array<[number, number]>,
-): PolygonStats => {
-  const { positions, personToHousehold, householdToDot, dimPlanes, manifest } =
-    pack
+): Uint8Array => {
+  const { positions, manifest } = pack
   let minX = Infinity
   let minY = Infinity
   let maxX = -Infinity
@@ -128,8 +117,6 @@ export const polygonStats = (
     if (y > maxY) maxY = y
   }
 
-  // Ray-cast the dots once (bbox prefiltered) so the person pass below is a
-  // lookup per voter rather than a point-in-polygon test per voter.
   const dotCount = manifest.counts.dots
   const insideDot = new Uint8Array(dotCount)
   for (let i = 0; i < dotCount; i++) {
@@ -139,6 +126,64 @@ export const polygonStats = (
     if (!pointInRing(x, y, ring)) continue
     insideDot[i] = 1
   }
+  return insideDot
+}
+
+// Per-status person counts for the scope a rail heading names: the whole pack
+// when `ring` is null, otherwise only the people whose dot falls inside a
+// turf's polygon. The landing legend was reading the raw canvassStatus plane,
+// so selecting a turf renamed the heading and left seven district-wide numbers
+// underneath it describing a different audience.
+//
+// `selections` is the scope's own filters, deliberately NOT the legend's own
+// chip narrowing: a legend that zeroed every status but the pressed one would
+// leave no count to press back.
+export const canvassStatusCounts = (
+  pack: DecodedPack,
+  selections: DimSelections,
+  ring: Array<[number, number]> | null,
+): number[] => {
+  const { personToHousehold, householdToDot, dimPlanes, manifest } = pack
+  const dim = manifest.dims.find((entry) => entry.key === 'canvassStatus')
+  const plane = dimPlanes.get('canvassStatus')
+  const counts = new Array<number>(dim?.values.length ?? 0).fill(0)
+  if (!dim || !plane) return counts
+
+  const insideDot = ring ? dotsInRing(pack, ring) : null
+  const active = activeDimMasks(pack, selections)
+
+  outer: for (let i = 0; i < personToHousehold.length; i++) {
+    for (let a = 0; a < active.length; a++) {
+      const entry = active[a]
+      if (entry && !entry.mask[entry.plane[i] ?? 0]) continue outer
+    }
+    if (insideDot) {
+      const dot = householdToDot[personToHousehold[i] ?? 0] ?? 0
+      if (!insideDot[dot]) continue
+    }
+    const status = plane[i] ?? 0
+    if (status < counts.length) counts[status] = (counts[status] ?? 0) + 1
+  }
+
+  return counts
+}
+
+// Everything the draw step reports about the shape being drawn, all on the
+// one denominator that matters there: what is INSIDE the ring. A district-wide
+// number next to an in-polygon one is how the footer previously managed to
+// read "12,000 matching households · 84 selected doors".
+//
+// The households count is person-level exact — a household counts only when a
+// person in it survives the filter — so it matches what runFilter would report
+// for the same audience, restricted to the ring.
+export const polygonStats = (
+  pack: DecodedPack,
+  selections: DimSelections,
+  ring: Array<[number, number]>,
+): PolygonStats => {
+  const { personToHousehold, householdToDot, dimPlanes, manifest } = pack
+  const dotCount = manifest.counts.dots
+  const insideDot = dotsInRing(pack, ring)
 
   const active = activeDimMasks(pack, selections)
   const partyDim = manifest.dims.find((dim) => dim.key === 'party')
@@ -182,14 +227,14 @@ export const polygonStats = (
 }
 
 // Restrict a filter result to the dots inside a turf polygon: dots outside
-// zero out (they render as unmatched grey) and the counts describe only the
-// turf. Used when a saved list is selected on the landing map.
+// zero out (they render as unmatched grey) and the people count describes only
+// the turf. Used when a saved list is selected on the landing map.
 export const maskToPolygon = (
   pack: DecodedPack,
   result: FilterResult,
   ring: Array<[number, number]>,
 ): FilterResult => {
-  const { positions, householdToDot } = pack
+  const { positions } = pack
   let minX = Infinity
   let minY = Infinity
   let maxX = -Infinity
@@ -203,7 +248,6 @@ export const maskToPolygon = (
   const matchedPerDot = new Uint32Array(result.matchedPerDot.length)
   const statusPerDot = new Uint8Array(result.statusPerDot.length).fill(255)
   let people = 0
-  let dots = 0
   for (let i = 0; i < result.matchedPerDot.length; i++) {
     const matched = result.matchedPerDot[i] ?? 0
     if (matched === 0) continue
@@ -214,17 +258,8 @@ export const maskToPolygon = (
     matchedPerDot[i] = matched
     statusPerDot[i] = result.statusPerDot[i] ?? 255
     people += matched
-    dots++
   }
-  // Household count is dot-granular here (any household at a matched dot),
-  // a slight overcount vs runFilter's person-level rollup — fine for the
-  // rail readout, and the canonical count is knock-time evaluation anyway.
-  let households = 0
-  for (let h = 0; h < householdToDot.length; h++) {
-    const dot = householdToDot[h] ?? 0
-    if ((matchedPerDot[dot] ?? 0) > 0) households++
-  }
-  return { people, households, dots, matchedPerDot, statusPerDot }
+  return { people, matchedPerDot, statusPerDot }
 }
 
 const pointInRing = (

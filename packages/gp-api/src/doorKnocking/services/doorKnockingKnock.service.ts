@@ -11,11 +11,16 @@ import {
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { GeoapifyRoutePlannerService } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
 import type { LngLat } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
+import { recordRoutePlannerCredits } from '@/vendors/geoapify/observability/geoapify.metrics'
 import {
   Campaign,
+  ContactStatusField,
+  DoNotKnockStatus,
   DoorKnockingRoute,
+  NotAVoterStatus,
   Organization,
   OutreachStatus,
   OutreachType,
@@ -77,6 +82,7 @@ export class DoorKnockingKnockService extends createPrismaBase(
     private readonly peopleApi: DoorKnockingPeopleApiService,
     private readonly geoapify: GeoapifyRoutePlannerService,
     private readonly contacts: ContactsService,
+    private readonly contactStatus: ContactStatusService,
   ) {
     super()
   }
@@ -92,6 +98,28 @@ export class DoorKnockingKnockService extends createPrismaBase(
     const districtId =
       await this.contacts.resolveEligibleDistrictId(organization)
 
+    // ADR 0007 and ADR 0008. Read outside the transaction, like the district
+    // resolution above: they touch a different table and adding them to the
+    // critical section would hold the turf lock across two more round trips.
+    // Both sets are the org's own flagged people, small by construction.
+    //
+    // One exclusion list, because evaluation has one job either way: leave
+    // this person's door out of the next route. Deduped because a person told
+    // "don't come back" who also moved is two facts about one door.
+    const [doNotKnockIds, notAVoterIds] = await Promise.all([
+      this.contactStatus.personIdsByFieldValue(
+        organization.slug,
+        ContactStatusField.do_not_knock,
+        [DoNotKnockStatus.active],
+      ),
+      this.contactStatus.personIdsByFieldValue(
+        organization.slug,
+        ContactStatusField.not_a_voter,
+        [NotAVoterStatus.moved, NotAVoterStatus.deceased],
+      ),
+    ])
+    const excludePersonIds = [...new Set([...doNotKnockIds, ...notAVoterIds])]
+
     return this.client.$transaction(
       async (tx) => {
         await lockTurf(tx, turfId)
@@ -104,9 +132,6 @@ export class DoorKnockingKnockService extends createPrismaBase(
             id: turfId,
             voterFileFilter: { organizationSlug: organization.slug },
           },
-          // activityConditions is a relation, so it has to be pulled in
-          // explicitly — without it the resolution below sees a list with no
-          // conditions and knocks the unfiltered roster.
           // activityConditions is a relation, so it has to be pulled in
           // explicitly — without it the resolution below sees a list with no
           // conditions and knocks the unfiltered roster.
@@ -154,6 +179,7 @@ export class DoorKnockingKnockService extends createPrismaBase(
           filters: resolved.filters,
           idOverrides: resolved.idOverrides,
           contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+          excludePersonIds,
         })
         const stops = this.buildStops(people, turf.geoPoly)
 
@@ -250,12 +276,30 @@ export class DoorKnockingKnockService extends createPrismaBase(
     turfId: number,
     stops: number,
   ): Promise<void> {
+    const credits = stops * GEOAPIFY_CREDITS_PER_LOCATION
+
+    // Emitted before the ledger write and independently of its outcome: the
+    // vendor has already billed, so this line — not the ledger — is what the
+    // spend queries and the global daily-credit ceiling alert count. Losing a
+    // ledger row is allowed to under-count one org's quota; it must not also
+    // hide the money. Carries organizationSlug so per-org-per-day spend (and
+    // any ENG-10901 overshoot past the 500-waypoint cap) is queryable in Loki
+    // without the cardinality cost of a Prometheus label.
+    this.logger.info({
+      event: 'DoorKnockingSpend',
+      organizationSlug,
+      turfId,
+      waypoints: stops,
+      credits,
+    })
+    recordRoutePlannerCredits(credits)
+
     try {
       await recordWaypointSpend(this.client, {
         organizationSlug,
         doorKnockingTurfId: turfId,
         waypoints: stops,
-        credits: stops * GEOAPIFY_CREDITS_PER_LOCATION,
+        credits,
       })
     } catch (error) {
       this.logger.error(

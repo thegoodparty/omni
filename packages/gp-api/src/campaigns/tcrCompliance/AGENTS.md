@@ -150,14 +150,88 @@ successor, so it keeps pointing at the superseded predecessor; if that successor
 retake. `AWAITING_RESUME` _is_ in the skip set — the resume sweep owns those, so the
 kickoff path must not race it.
 
-## Background sweeps (`@Interval`)
+## The twice-daily CV status scan (`CvStatusPollService`)
 
-| Sweep                                   | What it heals                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sweepStrandedAgenticKickoffs`          | Records `submitted` + no Peerly identity + `kickoffSentAt` null past staleness — re-enqueues the kickoff. **Only sweeps `campaign.isPro` records** so the agent never runs before payment. Applies the profile dispatch gate per record (`wouldBePublishableAfterFallbacks`, website content fetched per candidate): profile-incomplete records are skipped every cycle at no cost — this is the deferral self-heal loop.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `sweepUnsubmittedUsecases`              | Records whose Peerly Campaign Verify is `VERIFIED` but whose POLITICAL usecase was never submitted (the in-app approve threw) — submits the usecase so the identity doesn't strand "loading". **Acts only on `VERIFIED`, never `APPROVED`** — `APPROVED` can precede the candidate's PIN entry, so advancing it would skip them past the PIN screen.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `sweepPinDeliveryDetection` (ENG-10658) | Records `submitted`/`pending`/`approved` + Peerly identity + no `pinDeliveryMethod` yet — reads the enriched `retrieve_cv` and, **only when the live CV status is `APPROVED` or `VERIFIED`** (Peerly echoes back the `verification_method`/`filing_email` we submit from day one, so method presence alone is not proof a PIN went out — ENG-10785 false-nudge bug), records the channel + destination Peerly sent the PIN to on the record, fires the `CompliancePinSent` Segment event **once** (carrying `pin_delivery_method`, `pin_delivery_destination`, and `pin_sent_at` — the destination was originally withheld as PII but is synced since PR #777 so the nudge can name the exact inbox, e.g. a treasurer's contact from the state filing), then runs the CRM company sync so the `n10_dlc_pin_*` company properties are stamped directly by gp-api — the Segment→HubSpot event-property path silently drops properties missing from the destination's mapping, so the company sync is the guaranteed carrier and the event is only the workflow trigger. Candidate-facing reads still mask the destination. The same `retrieve_cv` read also detects a CV that flipped to `REJECTED` — or `WITHDRAWN`, which maps to the same terminal `rejected` status since `TcrComplianceStatus` has no withdrawn value — after submission: the sweep persists `status = rejected` via an atomic transition claim (removing the record from the sweep set, which would otherwise poll it forever) and fires the `ComplianceRejected` Segment event once (`rejection_source: cv_status_check`); the synchronous twin fires from `submitToPeerlyForAgent` when CV rejects at submit (`cv_submit`, via `PeerlyCvRejectionException`, which also stamps `status = rejected` in the rollback transaction). The `pinDeliveryMethod IS NULL` filter shrinks the set as PINs are detected (not a growing bulk loop). Once-only via an atomic `pinSentDetectedAt IS NULL` claim; if the event fire fails the claim is rolled back (scoped to its timestamp, and the rollback is itself try/caught so its failure can't mask the original error) so the next sweep retries. **Includes `pending` + `approved`** (not just `submitted`) because the in-app PIN entry / VERIFIED usecase sweep advance a record to `pending` then `approved` the moment the candidate acts — which can beat the hourly sweep — and pre-existing records were already `pending`/`approved` when this shipped; all three states imply the PIN went out, so this never fires for a never-sent record (`rejected`/`error` are failure states, excluded). |
-| `bootstrapTcrComplianceCheck`           | Re-queues `pending` records for status checking.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+`cvStatusPoll.service.ts` owns **every scheduled Peerly `retrieve_cv` read**.
+Cadence, set size, and pacing were agreed with Peerly (James/Patrick,
+2026-08-17) after their rate-limit complaint about the old hourly sweeps
+(~5,100 retrieve_cv calls/day for ~88 identities, doubled by the two prod
+replicas' independent `@Interval` timers):
+
+- **Schedule:** `@Cron('0 8,20 * * *', { timeZone: EASTERN_TIMEZONE })`,
+  **prod-only** (dev/qa would burn vendor-budgeted calls on their own queue,
+  and non-prod Peerly flows are stubbed anyway) — every replica's cron
+  fires, and the slot-keyed FIFO `deduplicationId`
+  (`cvStatusPoll-<yyyy-MM-dd-HH>`) collapses them so exactly one replica
+  scans (nightly10DlcReport pattern).
+- **Detached from the consumer:** the SQS handler acks immediately and runs
+  the scan un-awaited — a paced scan (~1 min/record) would outlive the 300s
+  visibility timeout and redeliver into a duplicate concurrent scan. A
+  process restart mid-scan leaves the tail for the next slot (oldest-touched
+  records poll first).
+- **CV pass (rate-limited):** polls only Pro/non-internal, identity-bearing
+  records in `submitted`/`pending` whose persisted `peerlyCvStatus` is still
+  movable — null, `REQUESTED`, `IN_REVIEW`, or `APPROVED`. `VERIFIED` and
+  rejected/withdrawn records never re-enter the set. Calls are spaced
+  `CV_SCAN_RETRIEVE_SPACING_MS` apart (60s default — Peerly's requested
+  absolute limit of 1 retrieve_cv call/minute regardless of identity). One
+  enriched `retrieveCampaignVerifyDetails` read per record feeds three
+  consumers, in order: `applyCvDetection` (PIN-delivery + late-rejection
+  handling, below — detection runs first so a failure keeps the record in
+  the poll set), the persisted status mirror
+  (`peerlyCvStatus`/`peerlyCvStatusChangedAt` + the ENG-10796 escalation
+  resets, moved here from the nightly poll), and — when the read observes
+  `VERIFIED` — an immediate first profile read.
+- **Profile pass (not rate-limited):** `VERIFIED` in-flight records get a
+  `getProfile` read (350ms spacing) to keep `peerlyProfileStatus` fresh for
+  the case-3a/3b stall sections — never another retrieve_cv.
+- **Demand-driven reads are unchanged** and outside the scan's budget:
+  `resolvePeerlyCvState` at `awaiting_pin` (PIN screen / agent poll), the
+  admin PIN-resend pre-check, and the pre-submit existence check.
+- The PIN-entry path (`retrieveCampaignVerifyToken`) stamps
+  `peerlyCvStatus = VERIFIED` directly on a successful verify, so
+  `sweepUnsubmittedUsecases` doesn't wait up to 12h for the next scan — and
+  it runs `applyCvDetection` off its own (demand-driven, enriched) read,
+  detached and best-effort. That stamp removes the record from the scan's
+  poll set, so a candidate who enters their PIN between scans would
+  otherwise never get `pinDeliveryMethod` recorded or `CompliancePinSent`
+  fired; entry time is the last observation, at zero extra Peerly calls.
+  This is deliberately NOT solved by widening the scan's status filter to
+  `approved` — legacy `approved` records carry a null persisted CV status
+  and would flood the paced scan (the stale set this design evicts).
+
+### `applyCvDetection` (ENG-10658, formerly `sweepPinDeliveryDetection`)
+
+Runs per-record on the scan's observation — no Peerly call of its own.
+**Only when the live CV status is `APPROVED` or `VERIFIED`** (Peerly echoes
+back the `verification_method`/`filing_email` we submit from day one, so
+method presence alone is not proof a PIN went out — ENG-10785 false-nudge
+bug), it records the channel + destination Peerly sent the PIN to, fires the
+`CompliancePinSent` Segment event **once** (carrying `pin_delivery_method`,
+`pin_delivery_destination`, and `pin_sent_at` — the destination is synced
+since PR #777 so the nudge can name the exact inbox), then runs the CRM
+company sync so the `n10_dlc_pin_*` company properties are stamped directly
+by gp-api (the Segment→HubSpot event-property path silently drops unmapped
+properties; the company sync is the guaranteed carrier). Candidate-facing
+reads still mask the destination. The same observation detects a CV that
+flipped to `REJECTED`/`WITHDRAWN` after submission: it persists
+`status = rejected` via an atomic transition claim and fires the
+`ComplianceRejected` event once (`rejection_source: cv_status_check`); the
+synchronous twin fires from `submitToPeerlyForAgent` (`cv_submit`). The
+rejection branch runs **before** the already-recorded
+(`pinDeliveryMethod` set) early-return, so a late rejection on a
+delivered-PIN record still stamps the terminal status. Once-only via an
+atomic `pinSentDetectedAt IS NULL` claim; if the event fire fails the claim
+is rolled back (scoped to its timestamp, rollback itself try/caught) and the
+error propagates to the scan's per-record catch, so the next scan retries.
+
+## Background sweeps
+
+| Sweep                          | What it heals |
+| ------------------------------ | ------------- |
+| `sweepStrandedAgenticKickoffs` | (`@Interval`, 10 min) Records `submitted` + no Peerly identity + `kickoffSentAt` null past staleness — re-enqueues the kickoff. **Only sweeps `campaign.isPro` records** so the agent never runs before payment. Applies the profile dispatch gate per record (`wouldBePublishableAfterFallbacks`, website content fetched per candidate): profile-incomplete records are skipped every cycle at no cost — this is the deferral self-heal loop. |
+| `sweepUnsubmittedUsecases`     | (`@Interval`, hourly) Records whose **persisted** `peerlyCvStatus` is `VERIFIED` (stamped by the CV status scan or the PIN-entry path — the sweep makes no retrieve_cv read of its own) but whose POLITICAL usecase was never submitted (the in-app approve threw) — submits the usecase so the identity doesn't strand "loading". **Acts only on `VERIFIED`, never `APPROVED`** — `APPROVED` can precede the candidate's PIN entry, so advancing it would skip them past the PIN screen. |
+| `bootstrapTcrComplianceCheck`  | (`@Cron('0 7,19 * * *')` ET) Re-queues `pending` records for usecase-activation checking (`get_usecases`, not rate-limited). Each message's FIFO `deduplicationId` is keyed `tcrStatusCheck-<recordId>-<slot>` so both replicas' simultaneous cron enqueues collapse to one. The consumer reads the persisted `peerlyCvStatus` for the token-status Segment event instead of the old live retrieve_cv call (a `pending` record's CV is `VERIFIED` by definition). |
 
 ## Nightly 10DLC health report (ENG-10667)
 
@@ -178,23 +252,17 @@ single-class `sweepStuckPeerlySubmissions` hourly digest (and its
   redelivers rather than silently skipping a night.
 - **Always posts** — a zero-stuck night gets an explicit ✅ all-clear with
   in-flight pipeline counts, so a _missing_ report is itself a signal.
-- **Peerly poll runs first (ENG-10793).** Before any section query,
-  `handleNightlyReport` fetches every Pro/non-internal record with a Peerly
-  identity in `submitted`/`pending` and polls its live state, so the sections
-  below read this run's fresh values, not last night's:
-  - `retrieveCampaignVerifyStatus` (`retrieve_cv`) → `TcrCompliance.peerlyCvStatus`
-    (raw string, not a Prisma enum — vendor values degrade gracefully, same
-    reasoning as `pinDeliveryMethod`). Only when the observed CV status is
-    `VERIFIED` does it also call `getIdentityProfile` (`getProfile`) →
-    `peerlyProfileStatus`. Each `*ChangedAt` companion column advances only
-    when the observed value differs from what's stored — an unchanged
-    observation writes nothing at all (not even a no-op `update`), so
-    `updatedAt` (which the awaiting-PIN section keys off) is untouched.
-  - Paced with the same `PEERLY_CV_READ_SPACING_MS` + sleep pattern as
-    `sweepPinDeliveryDetection`. Each record's poll is wrapped individually —
-    a thrown Peerly error logs + skips that record (keeping its stored
-    values) without stopping the rest of the poll or the report post. A
-    genuine null return (no CV request exists) _is_ persisted.
+- **The report makes no Peerly calls (since the 2026-08-17 rate-limit
+  work — the poll it used to run, ENG-10793, moved to the twice-daily CV
+  status scan above).** The sections read the persisted
+  `peerlyCvStatus`/`peerlyProfileStatus` columns, at most ~4h stale (last
+  scan slot 8pm ET, report at midnight ET); every section floor is ≥13h so
+  the staleness is immaterial. The columns store raw vendor strings (not
+  Prisma enums — vendor values degrade gracefully, same reasoning as
+  `pinDeliveryMethod`), and the `*ChangedAt` companions advance only when an
+  observed value differs from what's stored — an unchanged observation
+  writes nothing at all, so `updatedAt` (which the awaiting-PIN section keys
+  off) is untouched.
 - **A "Dispatch deferred" nudge section (ENG-10859):** `submitted` + no
   identity + `kickoffSentAt` null + >24h old + profile-incomplete (the
   publishability filter runs in code — content lives on the website
@@ -211,13 +279,16 @@ single-class `sweepStuckPeerlySubmissions` hourly digest (and its
   billing block (within `PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES`), domain
   purchase never completed (post-cutoff `registrantVerifiedAt` NULL — see
   the legacy-domain gotcha below), CV never reached (ENG-10795 case 1: identity
-  minted, `submitted` 3+ days ago, `peerlyCvStatus` still null — disjoint from
-  "submission never completed", which is `peerlyIdentityId: null` and never
-  even reached Peerly), PIN-verified-but-stalled (ENG-10795 case 3a:
+  minted, `submitted` 13+ hours ago — one full scan cycle plus margin, since
+  CV creates the request at `Requested` synchronously on submission
+  (confirmed with Peerly/Nate 2026-08-17), so a scan-observed null past that
+  window is a dropped submission, not propagation lag — `peerlyCvStatus`
+  still null; disjoint from "submission never completed", which is
+  `peerlyIdentityId: null` and never even reached Peerly),
+  PIN-verified-but-stalled (ENG-10795 case 3a:
   `peerlyCvStatus` `VERIFIED` + `peerlyProfileStatus` `pending` past a 20h
-  floor — i.e. the pair observed on two consecutive nightly polls, filtering
-  out records still mid-PIN-flow; the floor sits under 24h because `now` is
-  captured before the poll stamps the column), the two vendor-escalation
+  floor — i.e. the pair observed across multiple scan slots, filtering
+  out records still mid-PIN-flow), the two vendor-escalation
   mirror sections (ENG-10796 cases 2 and 3b — see below), and an awaiting-PIN
   > 7d nudge section that is reported but not counted as stuck. Sections cap
   > at 25 rows with an explicit `…and N more`.
@@ -239,8 +310,8 @@ Business-day math (`date-fns` `differenceInBusinessDays`, never calendar
 days — a Friday stall must not read as escalatable by Monday) can't live in
 the Prisma `where` clause, so `handleNightlyReport` fetches every
 currently-`IN_REVIEW` / currently-`waiting_to_finalize` candidate (same
-in-flight population as the poll) and applies the >3-business-day floor in
-code.
+in-flight population the CV status scan polls) and applies the
+>3-business-day floor in code.
 
 **Once-only per stall**, mirroring the `pinSentDetectedAt` claim/rollback
 pattern: an atomic `updateMany WHERE cvInReviewEscalatedAt IS NULL` (resp.
@@ -251,12 +322,13 @@ exact timestamp written) so the next nightly run retries. Escalation runs
 _after_ the internal report posts, so a first-night detection can render as
 "escalation pending" in the mirror section before the claim lands.
 
-**Reset on progress:** the same poll write (`pollRecordStatus`) that
-advances `peerlyCvStatus`/`peerlyProfileStatus` also clears the matching
-escalation column, but only when the _previous_ stored value was the
-escalatable one (`IN_REVIEW` / `waiting_to_finalize`) — i.e. only when the
-record is actually leaving that state. A later re-stall is a new incident
-and re-escalates.
+**Reset on progress:** the CV status scan's persist writes
+(`CvStatusPollService`) that advance `peerlyCvStatus`/`peerlyProfileStatus`
+also clear the matching escalation column, but only when the _previous_
+stored value was the escalatable one (`IN_REVIEW` / `waiting_to_finalize`) —
+i.e. only when the record is actually leaving that state. A later re-stall
+is a new incident and re-escalates. The PIN-entry path's VERIFIED stamp
+clears `cvInReviewEscalatedAt` the same way.
 
 **Vendor-appropriate content only:** the Slack message carries the Peerly
 identity ID, committee name, which state it's stuck in, and since-when
@@ -383,7 +455,7 @@ Which recovery applies depends entirely on `peerlyIdentityId`:
 | `peerlyIdentityId` | What happened                                                                                                                                                                                                | Recoverable by us                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | NULL               | CV rejected the submission synchronously (`PeerlyCvRejectionException`, `rejection_source: cv_submit`). The rollback stamped `rejected` and never persisted the identity, so no CV request exists at Peerly. | **Yes.** Correct the data, then `status` → `submitted`. The next run re-walks the full submit: it finds the orphaned Peerly identity by `identity_name` and reuses it (no duplicate), and mints a fresh CV request with the corrected values.                                                                                                                                                                                                                                                                                                                     |
-| set                | The CV was accepted at submit and later flipped `REJECTED`/`WITHDRAWN`; `sweepPinDeliveryDetection` stamped `rejected` (`rejection_source: cv_status_check`). Or it's a legacy `create()`-path record.       | **No — a status flip is a no-op.** `submitToPeerlyForAgent` short-circuits on a non-null `peerlyIdentityId` and returns the persisted response without calling Peerly. Nulling the identity locally doesn't help either: the resubmit reuses the identity and then `getCampaignVerifyRequest` returns the existing rejected CV with a `verification_status`, so the helper **skips** CV submission and the corrected filing URL never reaches CampaignVerify. Escalate to Peerly (`SlackChannel.sharedGoodpartyPeerly10Dlc`) to withdraw/recreate the CV request. |
+| set                | The CV was accepted at submit and later flipped `REJECTED`/`WITHDRAWN`; the CV status scan's `applyCvDetection` stamped `rejected` (`rejection_source: cv_status_check`). Or it's a legacy `create()`-path record.       | **No — a status flip is a no-op.** `submitToPeerlyForAgent` short-circuits on a non-null `peerlyIdentityId` and returns the persisted response without calling Peerly. Nulling the identity locally doesn't help either: the resubmit reuses the identity and then `getCampaignVerifyRequest` returns the existing rejected CV with a `verification_status`, so the helper **skips** CV submission and the corrected filing URL never reaches CampaignVerify. Escalate to Peerly (`SlackChannel.sharedGoodpartyPeerly10Dlc`) to withdraw/recreate the CV request. |
 
 All three currently-`rejected` prod rows (Aug 2026) are the second kind. The
 incident that produced this section (campaign 325819) was the first.
@@ -393,7 +465,7 @@ incident that produced this section (campaign 325819) was the first.
 `ComplianceRejected` Segment event, the `bot-10dlc-compliance` Slack alert, or the
 FAILED run's blocker `detail`.
 
-**`peerlyCvStatus` reads null while `rejected`.** The nightly Peerly poll only
+**`peerlyCvStatus` reads null while `rejected`.** The CV status scan only
 covers `submitted`/`pending`, and `resolvePeerlyCvState` only fires `retrieve_cv` at
 `awaiting_pin` — so the compliance-state read shows `peerlyCvStatus: null` at
 `tcr_rejected` no matter what Peerly thinks. After the reset flips the stage to
@@ -468,6 +540,22 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
   made the channel unreadable — one wrong digit from a candidate looked identical to
   a vendor outage. A nested **5xx** (CV itself down) and any non-CV Peerly 400 still
   alert. The HTTP status the caller gets is unchanged; only the alert is suppressed.
+- **The 🚨 error alert carries the request line and Peerly's response body — nothing
+  else.** `sendSlackErrorNotification` (`vendors/peerly/services/peerlyIdentity.service.ts`)
+  passes `requestSummary` (`METHOD url → status`) and the parsed `response.data` into
+  `buildPeerlySlackErrorMessage`; a non-Axios failure falls back to the error message.
+  An object body is pretty-printed and rendered in a `rich_text_preformatted` block
+  (a plain rich-text section collapses the indentation); a body that is already a
+  string — Peerly's gateway errors return HTML — passes through as-is, and an
+  oversized one is cut at 1500 chars with a `… (truncated)` marker so Slack doesn't
+  silently drop the tail.
+  It used to `JSON.stringify` the whole serialized Axios error, which posted
+  `config.headers.Authorization` — a live Peerly bearer token — plus the request body
+  (the candidate's CV PIN in cleartext) into `bot-10dlc-compliance` on every alert.
+  Never widen this payload back to the error object, `config`, headers, or a stack;
+  `peerlyIdentity.service.test.ts` asserts the rendered blocks contain no
+  `Authorization`. Grafana logs still get the full formatted error — that's fine,
+  they're access-controlled; Slack is not.
 - **PIN screen is gated on the live Peerly CV status (ENG-10654):**
   `deriveComplianceStage` still returns `awaiting_pin` from the DB `status` alone (a
   `submitted` record with a live site) — that stage value is unchanged because
@@ -491,9 +579,9 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
   destination never crosses the wire (the raw value stays on the DB record). The
   FE PIN screen composes the "we sent your PIN…" copy from it; `null` (method
   absent or unrecognized, or non-prod) falls back to the generic copy. Persisting the channel +
-  firing the `CompliancePinSent` event is the background `sweepPinDeliveryDetection`'s
-  job (see the sweeps table), **not** this read — the read only displays, so a candidate
-  who never opens the app is still detected + nudged.
+  firing the `CompliancePinSent` event is the CV status scan's
+  `applyCvDetection` job (see its section above), **not** this read — the read only
+  displays, so a candidate who never opens the app is still detected + nudged.
 - **A `rejected` record is not necessarily dead, and the admin Retry button is a
   silent no-op on one** — see "Recovering a rejected record" above before touching
   one.

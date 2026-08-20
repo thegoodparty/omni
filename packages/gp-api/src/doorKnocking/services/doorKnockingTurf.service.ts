@@ -54,15 +54,9 @@ export class DoorKnockingTurfService extends createPrismaBase(
     return toResponse(turf)
   }
 
-  async list(
-    organizationSlug: string,
-    voterFileFilterId?: number,
-  ): Promise<DoorKnockingTurf[]> {
+  async list(organizationSlug: string): Promise<DoorKnockingTurf[]> {
     const turfs = await this.model.findMany({
-      where: {
-        voterFileFilter: { organizationSlug },
-        ...(voterFileFilterId ? { voterFileFilterId } : {}),
-      },
+      where: { voterFileFilter: { organizationSlug } },
       orderBy: { name: 'asc' },
       include: ROUTE_ID_INCLUDE,
     })

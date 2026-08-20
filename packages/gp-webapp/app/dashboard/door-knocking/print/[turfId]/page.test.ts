@@ -42,9 +42,13 @@ class NotFoundError extends Error {}
 // assertions read the props it handed over.
 const sheetProps = async (
   turfId: string,
-): Promise<{ turfName: string; payload: unknown }> => {
+): Promise<{ turfId: string; turfName: string; payload: unknown }> => {
   const element = await Page({ params: Promise.resolve({ turfId }) })
-  return element.props as { turfName: string; payload: unknown }
+  return element.props as {
+    turfId: string
+    turfName: string
+    payload: unknown
+  }
 }
 
 const render = (turfId: string) => Page({ params: Promise.resolve({ turfId }) })
@@ -70,6 +74,7 @@ beforeEach(() => {
 describe('walk list print Page', () => {
   it('renders the sheet with the turf name', async () => {
     expect(await sheetProps('7')).toEqual({
+      turfId: '7',
       turfName: 'Elm & Cedar',
       payload: routePayload,
     })
@@ -126,6 +131,7 @@ describe('walk list print Page', () => {
     )
 
     expect(await sheetProps('7')).toEqual({
+      turfId: '7',
       turfName: 'Walk list',
       payload: routePayload,
     })

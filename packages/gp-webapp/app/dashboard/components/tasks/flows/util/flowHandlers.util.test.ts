@@ -29,7 +29,6 @@ describe('handleCreateOutreach - campaignPlanDueDate', () => {
       state: { schedule: { message: 'hi' } },
       campaignId: 42,
       campaignPlanDueDate: '2026-07-01',
-      p2pUxEnabled: false,
     })()
 
     expect(mockCreateOutreach).toHaveBeenCalledTimes(1)
@@ -44,7 +43,6 @@ describe('handleCreateOutreach - campaignPlanDueDate', () => {
       type: 'text',
       state: { schedule: { message: 'hi' } },
       campaignId: 42,
-      p2pUxEnabled: false,
     })()
 
     const payload = mockCreateOutreach.mock.calls[0]?.[0]
@@ -64,7 +62,6 @@ describe('handleCreateOutreach - text counts', () => {
       campaignId: 42,
       textCount: 5200,
       hasFreeTextsOffer: true,
-      p2pUxEnabled: false,
     })()
 
     const payload = mockCreateOutreach.mock.calls[0]?.[0]
@@ -80,7 +77,6 @@ describe('handleCreateOutreach - text counts', () => {
       campaignId: 42,
       textCount: 3000,
       hasFreeTextsOffer: true,
-      p2pUxEnabled: false,
     })()
 
     const payload = mockCreateOutreach.mock.calls[0]?.[0]
@@ -96,7 +92,6 @@ describe('handleCreateOutreach - text counts', () => {
       campaignId: 42,
       textCount: 300,
       hasFreeTextsOffer: false,
-      p2pUxEnabled: false,
     })()
 
     const payload = mockCreateOutreach.mock.calls[0]?.[0]
@@ -110,7 +105,6 @@ describe('handleCreateOutreach - text counts', () => {
       type: 'text',
       state: { schedule: {} },
       campaignId: 42,
-      p2pUxEnabled: false,
     })()
 
     const payload = mockCreateOutreach.mock.calls[0]?.[0]
@@ -131,7 +125,6 @@ describe('handleCreateOutreach - robocall saved-list voterFileFilterId', () => {
       type: 'robocall',
       state: { schedule: {}, voterFileFilter: { id: 42 } },
       campaignId: 42,
-      p2pUxEnabled: false,
     })()
 
     const payload = mockCreateOutreach.mock.calls[0]?.[0]
@@ -143,7 +136,6 @@ describe('handleCreateOutreach - robocall saved-list voterFileFilterId', () => {
       type: 'robocall',
       state: { schedule: {}, voterFileFilter: {} },
       campaignId: 42,
-      p2pUxEnabled: false,
     })()
 
     const payload = mockCreateOutreach.mock.calls[0]?.[0]

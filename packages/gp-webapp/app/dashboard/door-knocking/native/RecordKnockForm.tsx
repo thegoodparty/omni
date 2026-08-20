@@ -12,12 +12,15 @@ import {
 import { Button, Textarea, ToggleGroup, ToggleGroupItem } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useDictationAppend } from 'app/dashboard/briefings/shared/useDictationAppend'
-import { DictationMicButton } from 'app/dashboard/briefings/shared/DictationMicButton'
+import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
+import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
 import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
 import {
   OUTCOME_OPTIONS,
   OUTCOME_QUESTION,
+  QUICK_QUESTION,
+  QUICK_RESULTS,
+  QuickResult,
   SUPPORT_OPTIONS,
   SUPPORT_QUESTION,
   WILL_VOTE_OPTIONS,
@@ -79,6 +82,8 @@ export default function RecordKnockForm({
   clientKey,
   onRecorded,
 }: RecordKnockFormProps) {
+  // Starts on the fast path; the canvasser opts into the long form.
+  const [detail, setDetail] = useState(false)
   const [outcome, setOutcome] = useState<DoorKnockOutcome | undefined>()
   const [supportAnswer, setSupportAnswer] = useState<
     SupportAnswer | undefined
@@ -97,33 +102,106 @@ export default function RecordKnockForm({
     onChange: (next) => setNote(next.slice(0, NOTE_MAX_LENGTH)),
   })
 
+  // The payload travels as an argument rather than being read off state at
+  // send time: the quick path fires from inside a chip's own handler, one
+  // render before its state would settle.
   const record = useMutation({
-    mutationFn: () => {
-      if (!outcome) throw new Error('outcome required')
-      const answered = outcome === 'answered'
-      return clientRequest('POST /v1/door-knocking/interactions', {
+    mutationFn: (input: {
+      outcome: DoorKnockOutcome
+      supportAnswer?: SupportAnswer
+      willVote?: WillVoteAnswer
+      note?: string
+      // Not sent to the server — carried through so onSuccess can report
+      // which path the canvasser actually used.
+      logMode: 'quick' | 'detail'
+    }) =>
+      clientRequest('POST /v1/door-knocking/interactions', {
         stopTargetId: target.stopTargetId,
         clientKey,
-        outcome,
-        ...(answered && supportAnswer ? { supportAnswer } : {}),
-        ...(answered && willVote ? { willVote } : {}),
-        ...(note.trim() ? { note: note.trim() } : {}),
-      }).then((res) => res.data)
-    },
-    onSuccess: (data) => {
-      const answered = outcome === 'answered'
+        outcome: input.outcome,
+        ...(input.supportAnswer ? { supportAnswer: input.supportAnswer } : {}),
+        ...(input.willVote ? { willVote: input.willVote } : {}),
+        ...(input.note ? { note: input.note } : {}),
+      }).then((res) => res.data),
+    onSuccess: (data, input) => {
       trackEvent(EVENTS.DoorKnocking.DoorLogged, {
-        outcome,
+        outcome: input.outcome,
         knockStatus: data.knockStatus,
         // Whether a note was written, never what it said — notes are about
         // named voters and don't belong in an analytics payload.
-        hasNote: note.trim().length > 0,
-        ...(answered && supportAnswer ? { supportAnswer } : {}),
-        ...(answered && willVote ? { willVote } : {}),
+        hasNote: Boolean(input.note),
+        // The brief's two-tap claim is only worth anything if it's the path
+        // people take, so the split is measured rather than assumed.
+        logMode: input.logMode,
+        ...(input.supportAnswer ? { supportAnswer: input.supportAnswer } : {}),
+        ...(input.willVote ? { willVote: input.willVote } : {}),
       })
       onRecorded(data.personId, data.knockStatus)
     },
   })
+
+  const saveQuick = (result: QuickResult) =>
+    record.mutate({
+      outcome: result.outcome,
+      ...(result.supportAnswer ? { supportAnswer: result.supportAnswer } : {}),
+      logMode: 'quick',
+    })
+
+  const saveDetail = () => {
+    if (!outcome) return
+    const answered = outcome === 'answered'
+    record.mutate({
+      outcome,
+      ...(answered && supportAnswer ? { supportAnswer } : {}),
+      ...(answered && willVote ? { willVote } : {}),
+      ...(note.trim() ? { note: note.trim() } : {}),
+      logMode: 'detail',
+    })
+  }
+
+  // The two paths are exclusive on purpose. Showing the flat chips and the
+  // cascade together would offer two ways to answer the same question, and a
+  // chip that saves instantly sitting beside fields that don't is the kind of
+  // ambiguity that gets resolved by tapping the wrong thing.
+  if (!detail) {
+    return (
+      <div className="flex flex-col gap-3 rounded-md border border-border p-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-muted-foreground">
+            {QUICK_QUESTION}
+          </span>
+          <div className="flex flex-wrap justify-start gap-1.5">
+            {QUICK_RESULTS.map((result) => (
+              <button
+                key={result.id}
+                type="button"
+                disabled={record.isPending}
+                className={`${PILL_ITEM_CLASSNAME} disabled:opacity-50`}
+                onClick={() => saveQuick(result)}
+              >
+                {result.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {record.isPending && (
+          <p className="text-sm text-muted-foreground">Saving…</p>
+        )}
+        {record.isError && (
+          <p className="text-sm text-destructive">
+            Saving failed — try again, or add detail.
+          </p>
+        )}
+        <button
+          type="button"
+          className="self-start text-xs font-medium underline underline-offset-2"
+          onClick={() => setDetail(true)}
+        >
+          Add a note or more detail
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-3 rounded-md border border-border p-3">
@@ -180,7 +258,7 @@ export default function RecordKnockForm({
       <Button
         size="small"
         disabled={!outcome || record.isPending}
-        onClick={() => record.mutate()}
+        onClick={saveDetail}
       >
         {record.isPending ? 'Saving…' : 'Save knock'}
       </Button>
