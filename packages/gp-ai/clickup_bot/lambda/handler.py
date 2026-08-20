@@ -3,6 +3,7 @@ import hmac
 import json
 import math
 import os
+import re
 import time
 from typing import Any, Literal
 from urllib.parse import quote, urlencode
@@ -306,8 +307,76 @@ PRs target omni's `main` branch.
 Post the PR link to ClickUp when done.
 """
 
+# CI DRIVE: what a run launched by .github/workflows/gpbot-ci-drive.yml is told
+# once a failing check on a [GP-Bot] PR has already survived a re-run (see
+# clickup_bot/ci_triage.py for the triage that decides a failure has earned this).
+#
+# ONLY THE PR NUMBER IS INTERPOLATED, and it is validated as an integer before it
+# gets here. Check names, step names and log text are all deliberately left out:
+# they originate in CI output, and pasting them into a system prompt would make
+# every failing build a prompt-injection surface. The agent has `gh` and fetches
+# its own evidence, which is also better evidence than a truncated excerpt.
+CI_FIX_INSTRUCTION = """## YOUR TASK: Get CI green on an existing PR
+
+PR **#{pr_number}** in `thegoodparty/omni` was opened by you and has one or more
+failing checks. Drive it to green. Start with `gh pr checks {pr_number}` and
+`gh pr view {pr_number}`, and read the actual failing job logs
+(`gh run view --job <job-id> --log`) before forming any opinion.
+
+## DIAGNOSE BEFORE YOU CHANGE ANYTHING
+
+An automated triage already re-ran this check and it failed again, so it is
+probably deterministic — but "probably" is not "caused by this diff", and that
+distinction is the whole job. Most failures on these PRs have turned out to be
+infrastructure: a `playwright install` hanging on an Ubuntu mirror, a database
+statement timeout, a transient TLS error. Establish which one you are looking at:
+
+- **Your diff caused it** (a contract change broke another package's types, the
+  flow you changed now fails its spec) → fix it properly, at the root cause.
+- **Infrastructure, a flake, or already failing on `main`** → **change nothing.**
+  Post a comment on the PR saying what you found and why it is not the diff's
+  fault, and stop. A pre-existing breakage is not this PR's problem. Do not
+  "work around" it.
+
+Check `main` before concluding a failure is yours:
+`gh api repos/thegoodparty/omni/commits/main/check-runs`.
+
+## ABSOLUTE PROHIBITIONS
+
+These are not style preferences. Violating any of them is worse than leaving the
+PR red, because it converts a visible failure into a silent one:
+
+1. **NEVER weaken a test to make it pass.** Do not delete a test, do not mark it
+   `skip`/`only`/`todo`/`xfail`, do not loosen or remove an assertion, do not
+   widen a tolerance, do not add a retry or a `waitFor`/`sleep` to paper over a
+   real failure, and do not narrow a test's inputs so it stops exercising the
+   broken path. If the only way you can see to make a check pass is to make the
+   test ask for less, that is proof the production code is wrong — fix that, or
+   stop and report that you could not.
+2. **NEVER merge this PR.** No `gh pr merge`, no `--auto`, no enabling
+   auto-merge, ever. A bot may approve; a human decides what lands.
+3. **NEVER open a second PR.** Commit to the PR's existing branch and push
+   there. `gh pr checkout {pr_number}` puts you on it.
+4. **Stay inside the failure.** Do not refactor, do not fix unrelated things you
+   notice, and do not touch CI workflow files to make a check stop running.
+
+## BEFORE PUSHING
+
+Run the affected package's own lint/type/test steps (its `AGENTS.md` "Verify"
+section lists them). Never push a fix that fails locally — the push costs another
+full CI cycle to learn what you already could have known.
+
+Post a short comment on the PR saying what was actually broken and what you
+changed. If you could not fix it, say that instead and stop; a truthful "I could
+not work this out" is worth far more than a green check bought by a weakened test.
+"""
+
 ANALYZE_LABEL = "analyze"
 IMPLEMENT_LABEL = "implement"
+# Not in TAG_CONFIG, deliberately: a CI fix run has no ClickUp tag and must not
+# be reachable from the webhook or the sweep. Its only entry point is the
+# gpbot_ci_fix dispatch below, which GitHub Actions invokes directly.
+CI_FIX_LABEL = "ci-fix"
 
 ANALYZE_TAG = "gpbot-analyze"
 IMPLEMENT_TAG = "gpbot-work"
@@ -1219,12 +1288,99 @@ def handle_sweep(event: dict) -> dict:
     }
 
 
+# ClickUp task ids are short opaque alphanumeric strings (e.g. 86acb46d4). The
+# id is interpolated into a ClickUp URL path, so it is validated rather than
+# trusted: this payload arrives from a GitHub Actions workflow, not from the
+# signature-verified webhook path.
+CLICKUP_TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+# GitHub PR numbers are small positive integers. The bound is arbitrary but
+# finite; the point is that only an integer ever reaches the instruction string.
+MAX_PR_NUMBER = 10_000_000
+
+
+def handle_ci_fix(event: dict) -> dict:
+    """Launch an agent run to get a [GP-Bot] PR's failing checks green.
+
+    Called by .github/workflows/gpbot-ci-drive.yml, which has already done the
+    triage: this only ever runs for a failure that survived a re-run, is not
+    failing on main, and carries no infrastructure signature (see
+    clickup_bot/ci_triage.py). The per-PR cap lives in the drive's marker comment
+    — the dedup claim below is a concurrency guard, not the budget.
+
+    Same never-raise contract as handle_async_processing: the caller is an
+    `aws lambda invoke` in a workflow, so an unhandled exception here surfaces as
+    a red workflow with the Lambda's stack trace and nothing on the ticket.
+    """
+    task_id = None
+    holds_dedup_lock = False
+    try:
+        task_id = event.get("clickup_task_id")
+        pr_number = event.get("pr_number")
+        # FAIL LOUD AND LAUNCH NOTHING on a bad payload. Unlike the webhook path
+        # there is no user to tell and no tag to re-apply, so a malformed request
+        # must be an alarm rather than a best-effort guess at what was meant.
+        # bool is excluded explicitly: it is an int subclass, so True would
+        # otherwise pass as PR #1.
+        if not isinstance(task_id, str) or not CLICKUP_TASK_ID_PATTERN.match(task_id):
+            print("ERROR: CI fix request refused: missing or malformed clickup_task_id")
+            return {"statusCode": 400, "body": json.dumps({"error": "invalid ci fix payload"})}
+        if isinstance(pr_number, bool) or not isinstance(pr_number, int) or not 0 < pr_number < MAX_PR_NUMBER:
+            print("ERROR: CI fix request refused: missing or malformed pr_number")
+            return {"statusCode": 400, "body": json.dumps({"error": "invalid ci fix payload"})}
+
+        # Bounds concurrent launches for one ticket the same way every other
+        # trigger is bounded. Losing the race is the guard working, not a
+        # failure: quiet log, no launch, 200.
+        if not try_acquire_dedup_lock(task_id, CI_FIX_LABEL):
+            print(f"Duplicate CI fix trigger for {task_id} suppressed by dedup table")
+            return {"statusCode": 200, "body": json.dumps({"skipped": "duplicate suppressed"})}
+        holds_dedup_lock = True
+
+        result = trigger_fargate_task(
+            task_id,
+            CI_FIX_INSTRUCTION.format(pr_number=pr_number),
+            CI_FIX_LABEL,
+            "opus",
+            # The caller is a workflow step waiting on the response, not ClickUp
+            # counting a webhook timeout, so the ack retry is free here.
+            retry_ack=True,
+        )
+        if result.get("statusCode") != 200:
+            release_dedup_lock(task_id, CI_FIX_LABEL)
+        return result
+    except Exception as e:
+        print(f"ERROR: CI fix processing failed: {e}")
+        if task_id:
+            # SAME RULE AS EVERY OTHER FAILED LAUNCH: a claim outlives the
+            # invocation, so a claim held with nothing running behind it
+            # suppresses the drive's next attempt for the whole TTL. Not every
+            # raise comes from inside trigger_fargate_task's own try — building
+            # the ECS client and reading its env vars happen before it — so the
+            # release cannot be left to the statusCode check above.
+            if holds_dedup_lock:
+                release_dedup_lock(task_id, CI_FIX_LABEL)
+            # Exception type only in the public comment, same leak guard as
+            # trigger_fargate_task; full detail stays in CloudWatch.
+            post_failure_comment(task_id, f"{type(e).__name__} starting a CI fix run (see CloudWatch logs)")
+        return {"statusCode": 500, "body": json.dumps({"error": "ci fix processing failed"})}
+
+
 def handler(event: dict, context: Any) -> dict:
     # INTERNAL SWEEP DISPATCH: EventBridge invokes this function directly with
     # {"gpbot_sweep": true}. Same unspoofable-through-the-ALB reasoning as the
     # async marker below.
     if event.get("gpbot_sweep") and "headers" not in event and "requestContext" not in event:
         return handle_sweep(event)
+
+    # INTERNAL CI-DRIVE DISPATCH: gpbot-ci-drive.yml invokes this function
+    # directly with {"gpbot_ci_fix": true, ...} once its triage has decided a
+    # failing check on a bot PR is worth an agent run. Same
+    # unspoofable-through-the-ALB reasoning as the async marker below — and it
+    # matters more here, because this path opens no ticket and checks no tag:
+    # anything that reached it could launch a run that pushes code.
+    if event.get("gpbot_ci_fix") and "headers" not in event and "requestContext" not in event:
+        return handle_ci_fix(event)
 
     # INTERNAL ASYNC DISPATCH: the fast-ack path re-invokes this same function
     # asynchronously with {"gpbot_async": true, ...}. Only dispatch to the
