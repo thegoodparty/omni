@@ -2,7 +2,7 @@
 
 ## Overview
 
-gp-api has an automated alerting system that provisions [Grafana alert rules](https://goodparty.grafana.net) via Pulumi. Alerts are **only active in production** and live in a Grafana folder called `Alerts (provisioned via gp-api)`.
+gp-api has an automated alerting system that provisions [Grafana alert rules](https://goodparty.grafana.net) via Pulumi. **Both `dev` and `prod` provision the full set**, into `DEV Alerts (provisioned via gp-api)` and `PROD Alerts (provisioned via gp-api)` respectively, each rule carrying an `environment` label. Because the two are generated from the same definitions, every notification is prefixed with `[DEV]` or `[PROD]` -- without it the two pages are identical and there is no way to tell from Slack whether production is affected.
 
 There are two categories of alerts:
 
@@ -10,7 +10,7 @@ There are two categories of alerts:
 
 Every controller endpoint automatically gets one alert:
 
-- **Error count**: Fires when any requests return error status codes (≥ 400, excluding 401/403/404/409/498) within a 1-hour window. A controller listed in `SERVER_ERRORS_ONLY` uses `≥ 500` instead -- see [Server-errors-only controllers](#server-errors-only-controllers).
+- **Error count**: Fires when any requests return error status codes (≥ 400, excluding 401/403/404/409/498) within a 10-minute window. A controller listed in `SERVER_ERRORS_ONLY` uses `≥ 500` instead -- see [Server-errors-only controllers](#server-errors-only-controllers).
 
 These are generated automatically from the controllers in the codebase -- you don't write them by hand. **All controller alerts are disabled by default** and require explicit opt-in via the ownership mapping (see [Ownership](#ownership) below).
 
@@ -28,6 +28,7 @@ These cover system-wide concerns that aren't tied to a specific endpoint:
 
 When an alert fires, Grafana sends a notification to the `#dev-alerts` Slack channel. The notification includes:
 
+- The environment the alert fired in, as a `[DEV]` or `[PROD]` prefix
 - The alert name and a description with guidance on how to investigate
 - A link back to the alert in Grafana
 - A mention of the owning Slack group (`@serve-bugs` or `@win-bugs`) if applicable
@@ -64,6 +65,7 @@ All alerting configuration lives in `deploy/`:
 | `deploy/components/alerts.ts`                     | Ownership mapping and global alerts                       |
 | `deploy/components/alerting/controller-alerts.ts` | Generates error count alerts for each controller endpoint |
 | `deploy/components/alerting/alerts.types.ts`      | Type definitions for `Alert` and `SlackGroup`             |
+| `deploy/components/alerting/alert-description.ts` | Slack body: environment prefix and group mention          |
 | `deploy/components/grafana.ts`                    | Converts alerts into Grafana rule groups via Pulumi       |
 
 ## How to opt in a controller
@@ -117,5 +119,6 @@ Key things to know:
 
 - The `for` field is a grace period -- the threshold must be continuously exceeded for that duration before the alert actually fires.
 - `threshold` is compared with `>`, so `threshold: 0` means "fire if the value is greater than 0".
+- **A range vector wider than the fetch window is silently truncated.** The engine only pulls `timeRangeSeconds` of data per evaluation (600s by default), so a `[1h]` vector left at the default sees ten minutes, not an hour. Set `timeRangeSeconds` to at least the widest range vector in `expr`, and make sure any window your `message` quotes is the one that actually applies -- a message promising an hour sends whoever reads it looking through fifty minutes of logs the rule never queried.
 
 For more details on configuring alerts, see the [Grafana Alerting documentation](https://grafana.com/docs/grafana/latest/alerting/fundamentals/alert-rule-evaluation/).
