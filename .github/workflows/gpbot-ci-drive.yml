@@ -292,21 +292,45 @@ jobs:
 
             if [ "$action" = "none" ]; then echo "::endgroup::"; continue; fi
 
-            # Resolved BEFORE the counter is written, because a re-run attempt we
-            # cannot actually make must not cost one. A StatusContext failure
-            # (a Vercel deploy) has no /actions/runs/<id>/ in its URL, so nothing
-            # here is re-runnable — and spending the budget on it would escalate
-            # to a human after three passes in which no re-run was ever issued.
-            # This is a pure parse with no side effect, so it does not weaken the
-            # write-state-before-acting ordering below.
+            # EVERYTHING THE ACTION NEEDS IS RESOLVED BEFORE THE COUNTER IS
+            # WRITTEN, because an attempt we cannot actually make must not cost
+            # one. Both branches below can fail to produce their prerequisite,
+            # and in each case the budget would otherwise drain silently until
+            # the PR escalated to a human having done nothing at all.
+            #
+            # These are pure lookups with no side effect, so resolving them here
+            # does not weaken the write-state-before-acting ordering below.
             run_ids=''
-            if [ "$action" = "rerun" ]; then
-              run_ids="$(jq -r '.[] | .url' <<<"$failing" | sed -n 's#.*/actions/runs/\([0-9]*\)/.*#\1#p' | sort -u)"
-              if [ -z "$run_ids" ]; then
-                echo "::warning::#$pr has no re-runnable run for its failing checks; not spending an attempt"
-                echo "::endgroup::"; continue
-              fi
-            fi
+            task_id=''
+            case "$action" in
+              rerun)
+                # A StatusContext failure (a Vercel deploy) has no
+                # /actions/runs/<id>/ in its URL, so nothing here is re-runnable.
+                run_ids="$(jq -r '.[] | .url' <<<"$failing" | sed -n 's#.*/actions/runs/\([0-9]*\)/.*#\1#p' | sort -u)"
+                if [ -z "$run_ids" ]; then
+                  echo "::warning::#$pr has no re-runnable run for its failing checks; not spending an attempt"
+                  echo "::endgroup::"; continue
+                fi
+                ;;
+              fix)
+                # The ClickUp task is recovered from the branch's custom_id
+                # prefix (ENG-1234/gp-bot_...), the same route
+                # gpbot-pr-triage.yml uses.
+                custom_id="$(jq -r '.headRefName | split("/")[0]' <<<"$pr_json")"
+                if [[ "$custom_id" =~ ^[A-Za-z]+-[0-9]+$ ]] && [ -n "${CLICKUP_API_TOKEN:-}" ]; then
+                  task_id="$(curl -sS --max-time 20 -H "Authorization: $CLICKUP_API_TOKEN" \
+                    "https://api.clickup.com/api/v2/task/${custom_id}?custom_task_ids=true&team_id=90132012119" \
+                    | jq -r '.id // empty')"
+                fi
+                if [ -z "$task_id" ]; then
+                  # FAIL CLOSED on the expensive action, unlike the triage
+                  # workflow's fail-open reviewer lookup: a run launched without
+                  # its ticket cannot report back anywhere a human will look.
+                  echo "::error::cannot resolve the ClickUp task for #$pr; not launching a fix run"
+                  echo "::endgroup::"; continue
+                fi
+                ;;
+            esac
 
             # STATE IS WRITTEN BEFORE THE ACTION IS TAKEN, and the order is the
             # cap. If this job dies between the two, the round is recorded as
@@ -332,27 +356,11 @@ jobs:
                 ;;
 
               fix)
-                # The ClickUp task is recovered from the branch's custom_id
-                # prefix (ENG-1234/gp-bot_...), the same route
-                # gpbot-pr-triage.yml uses. Launching goes through the Lambda so
-                # the fix run reuses the one audited path to Fargate —
-                # trigger_fargate_task — rather than a second, less-scrutinised
-                # one wired straight to ECS from CI.
-                custom_id="$(jq -r '.headRefName | split("/")[0]' <<<"$pr_json")"
-                task_id=""
-                if [[ "$custom_id" =~ ^[A-Za-z]+-[0-9]+$ ]] && [ -n "${CLICKUP_API_TOKEN:-}" ]; then
-                  task_id="$(curl -sS --max-time 20 -H "Authorization: $CLICKUP_API_TOKEN" \
-                    "https://api.clickup.com/api/v2/task/${custom_id}?custom_task_ids=true&team_id=90132012119" \
-                    | jq -r '.id // empty')"
-                fi
-                if [ -z "$task_id" ]; then
-                  # FAIL CLOSED on the expensive action, unlike the triage
-                  # workflow's fail-open reviewer lookup. A run launched without
-                  # its ticket cannot report back anywhere a human will look.
-                  echo "::error::cannot resolve the ClickUp task for #$pr; not launching a fix run"
-                  echo "::endgroup::"; continue
-                fi
-
+                # Launching goes through the Lambda so the fix run reuses the one
+                # audited path to Fargate — trigger_fargate_task — rather than a
+                # second, less-scrutinised one wired straight to ECS from CI.
+                # task_id was resolved above, before the counter was spent.
+                #
                 # Only an integer and a validated id cross this boundary. Check
                 # names, step names and log text are deliberately left out: they
                 # come from CI output and would otherwise reach a system prompt.
