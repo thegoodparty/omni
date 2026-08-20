@@ -42,6 +42,11 @@ export class ProjectedTurnoutService extends createPrismaBase(
           state,
         },
       },
+      // The mart mints a row per model version, and the swap gate refuses a
+      // duplicate on (district, year, code) -- so one row is all that reaches
+      // Postgres today. Ordering makes that determinism local instead of
+      // inherited from a gate two systems upstream.
+      orderBy: { inferenceAt: 'desc' },
     })
   }
 
@@ -58,12 +63,12 @@ export class ProjectedTurnoutService extends createPrismaBase(
           rawElectionCode ?? this.determineElectionCode(electionDate),
         electionYear: this.resolveElectionYear(electionDate, electionYear),
       },
+      orderBy: { inferenceAt: 'desc' },
     })
   }
 
-  // A district carries one projection per election year, so a lookup that does
-  // not pin the year matches every one of them: Prisma drops an `undefined`
-  // from the predicate and `findFirst` has no ordering, so it returns an
+  // A lookup that does not pin the year matches every year the district has:
+  // Prisma drops an `undefined` from the predicate, so `findFirst` returns an
   // arbitrary vintage. Callers holding a year pass it; the rest get the year of
   // the election they asked about.
   private resolveElectionYear(

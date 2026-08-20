@@ -248,7 +248,7 @@ export class PositionsService extends createPrismaBase(MODELS.Position) {
 
     const electionCode =
       this.projectedTurnoutService.determineElectionCode(electionDate)
-    const electionYear = new Date(electionDate).getFullYear()
+    const electionYear = new Date(electionDate).getUTCFullYear()
     const filteredTurnout = ProjectedTurnouts.filter(
       (turnout) =>
         turnout.electionYear === electionYear &&

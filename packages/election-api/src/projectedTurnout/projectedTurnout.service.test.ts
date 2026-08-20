@@ -76,6 +76,8 @@ describe('ProjectedTurnoutService', () => {
           electionCode: ElectionCode.LocalOrMunicipal,
           electionYear: 2026,
         },
+        // Freshest vintage wins, so the row does not depend on storage order.
+        orderBy: { inferenceAt: 'desc' },
       })
     })
 
@@ -99,6 +101,7 @@ describe('ProjectedTurnoutService', () => {
             state: 'MO',
           },
         },
+        orderBy: { inferenceAt: 'desc' },
       })
     })
 

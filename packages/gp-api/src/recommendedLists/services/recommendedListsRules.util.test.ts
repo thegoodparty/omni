@@ -54,7 +54,6 @@ describe('electionCode', () => {
     // state no longer changes the answer.
     expect(electionCode(utc('2025-11-04'))).toBe('LocalOrMunicipal')
     expect(electionCode(utc('2027-11-02'))).toBe('LocalOrMunicipal')
-    expect(electionCode(utc('2025-11-04'))).toBe('LocalOrMunicipal')
   })
 
   it('classifies off-cycle dates as LocalOrMunicipal', () => {
