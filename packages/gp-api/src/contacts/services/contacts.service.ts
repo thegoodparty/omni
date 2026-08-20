@@ -47,6 +47,10 @@ import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
 import {
+  EXCLUDABLE_VOTER_COLUMNS,
+  type ExcludableVoterColumn,
+} from '@/peopleDb/voter.select'
+import {
   AggregatesDTO,
   DownloadPeopleDTO,
   GetPersonQueryDTO,
@@ -95,12 +99,11 @@ const ALL_CONTACTS_SEGMENT = 'all'
 export const PRO_FILTERING_REQUIRED_MESSAGE =
   'Filtering voter data is only available for pro campaigns'
 
-// Mirrors people-api's EXCLUDABLE_VOTER_COLUMNS entries (people.select.ts).
-// The CSV download is a Postgres COPY stream gp-api cannot post-process, so
-// an `eo-` org's download asks people-api to drop this column from the
-// projection instead (ENG-10696). downloadVoterFilePeople (the separate
-// outreach/task-flow audience download) still only excludes party — this
-// list is scoped to the CRM download (downloadContacts) below (ENG-10830).
+// The CSV download is a Postgres COPY stream gp-api cannot post-process, so an
+// `eo-` org's download drops this column from the projection instead
+// (ENG-10696). Only downloadVoterFilePeople (the separate outreach/task-flow
+// audience download) uses it alone; the CRM download excludes the wider
+// SERVE_EXCLUDED_DOWNLOAD_COLUMNS set below (ENG-10830).
 const PARTY_DOWNLOAD_COLUMN = 'Parties_Description'
 
 // people-api's Voter_Status vocabulary and the editable voter-likelihood
@@ -177,22 +180,13 @@ const extractContactsMadeSelection = (
 
 // Serve (`eo-`) CRM downloads must omit these columns entirely — a blank
 // column still reveals the field exists (ENG-10830). Party (completing
-// ENG-10696), turnout propensity, and vote history.
-const SERVE_EXCLUDED_DOWNLOAD_COLUMNS = [
-  PARTY_DOWNLOAD_COLUMN,
-  'Residence_HHParties_Description',
-  'VoterParties_Change_Changed_Party',
-  'VotingPerformanceEvenYearGeneral',
-  'VotingPerformanceEvenYearPrimary',
-  'VotingPerformanceEvenYearGeneralAndPrimary',
-  'General_2026',
-  'General_2024',
-  'General_2022',
-  'General_2020',
-  'Primary_2026',
-  'Primary_2024',
-  'Primary_2022',
-  'Primary_2020',
+// ENG-10696), turnout propensity, and vote history. `EXCLUDABLE_VOTER_COLUMNS`
+// already enumerates exactly that set and is type-pinned to real
+// `DOWNLOAD_COLUMNS` entries, so this reads it rather than restating it. A
+// hand-maintained copy silently omitted every column added to the download
+// after ENG-10830 (DATA-2281).
+const SERVE_EXCLUDED_DOWNLOAD_COLUMNS: ExcludableVoterColumn[] = [
+  ...EXCLUDABLE_VOTER_COLUMNS,
 ]
 
 // What the shared filter resolution actually consumes: the request DTO, a
@@ -1419,7 +1413,7 @@ export class ContactsService {
     idOverrides: IdOverrides | undefined,
     contactsMadeIdOverrides: IdOverrides | undefined,
     groupByHousehold: boolean,
-    excludeColumns: string[] | undefined,
+    excludeColumns: ExcludableVoterColumn[] | undefined,
     res: FastifyReply,
   ): Promise<void> {
     const gpDownloadCookie =
