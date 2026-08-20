@@ -104,7 +104,17 @@ describe('decodePack', () => {
     expect(Array.from(pack.personToHousehold)).toEqual([0, 0, 1, 2])
     expect(Array.from(pack.householdToDot)).toEqual([0, 0, 1])
     expect(pack.positions[0]).toBeCloseTo(-87.65, 4)
+    // All three planes, not just party. A dim's bytes are found by the manifest
+    // offset its `push` assigned, so the fixture's push order and its write
+    // order have to stay in step — insert a plane into one and not the other
+    // and every dim after it decodes as its neighbour. Nothing about that is
+    // visibly wrong: the demographics stay plausible, they are just the wrong
+    // dim's, which is exactly the kind of thing a merge introduces silently.
     expect(Array.from(pack.dimPlanes.get('party') ?? [])).toEqual([1, 2, 0, 0])
+    expect(Array.from(pack.dimPlanes.get('age') ?? [])).toEqual([3, 1, 3, 0])
+    expect(Array.from(pack.dimPlanes.get('canvassStatus') ?? [])).toEqual([
+      2, 0, 0, 0,
+    ])
   })
 
   it('throws on a pack missing a core array', () => {
