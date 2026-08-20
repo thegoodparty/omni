@@ -144,6 +144,61 @@ const packBounds = (
   ]
 }
 
+// Where the map opens when the page names a zoom instead of a framing. The
+// bounding box's midpoint is a geometric artifact rather than a place: an
+// L-shaped or crescent district, one split by a lake or a park, or two towns
+// with farmland between them all put it where nobody lives — and at street
+// zoom an empty midpoint is the entire screen, which is how the opening view
+// was reported as having no dots in it at all. The bbox is also the statistic
+// a single bad coordinate moves furthest, since it reads only the four
+// extremes and the pack's coordinates are unvalidated vendor data (gp-api's
+// voterPack service gates on rooftop accuracy and a numeric-text regex, never
+// on a range or on the district's own shape).
+//
+// So the anchor is a component-wise median and the answer is the real dot
+// nearest it. The median holds up where a mean would not: a cluster holding
+// more than half the dots brackets the median rank on both axes, so a
+// two-town district opens in the larger town rather than the fields between,
+// and one mis-keyed row moves the anchor by one rank instead of by its own
+// distance. Snapping to a real dot is what makes the guarantee unconditional
+// — the center is a coordinate someone lives at for any shape, including the
+// even two-way split where the median itself lands in the gap.
+export const packOpeningCenter = (
+  positions: Float32Array,
+): [number, number] | null => {
+  const dots = positions.length >> 1
+  if (dots === 0) return null
+  const lngs = new Float32Array(dots)
+  const lats = new Float32Array(dots)
+  for (let i = 0; i < dots; i++) {
+    lngs[i] = positions[i * 2] ?? 0
+    lats[i] = positions[i * 2 + 1] ?? 0
+  }
+  // TypedArray sort is numeric without a comparator. O(n log n) once at
+  // mount, in place of the O(n) sweep `packBounds` did on this branch.
+  lngs.sort()
+  lats.sort()
+  const mid = dots >> 1
+  const anchorLng = lngs[mid] ?? 0
+  const anchorLat = lats[mid] ?? 0
+  // Scaled for the reason distanceToSegment below scales: compared in bare
+  // degrees a district's east-west spread reads wider than it is on the
+  // ground, and the wrong dot wins.
+  const lngScale = Math.cos((anchorLat * Math.PI) / 180)
+  let best = 0
+  let bestDistance = Infinity
+  for (let i = 0; i < dots; i++) {
+    const dx = ((positions[i * 2] ?? 0) - anchorLng) * lngScale
+    const dy = (positions[i * 2 + 1] ?? 0) - anchorLat
+    const distance = dx * dx + dy * dy
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = i
+    }
+  }
+  return [positions[best * 2] ?? 0, positions[best * 2 + 1] ?? 0]
+}
+
 // Shortest distance from `point` to the segment a-b. Longitude is scaled by
 // cos(latitude) first because a degree of longitude is only ~0.75 of a degree
 // of latitude at US latitudes — compared in raw degrees, a tall narrow ring's
@@ -419,19 +474,14 @@ export default function VoterMapCanvas({
     map.on('touchend', endDrag)
     map.on('touchcancel', endDrag)
 
-    const bounds = packBounds(packRef.current.positions)
-    if (bounds) {
-      // Read at mount only: this names the opening view, not a controlled
-      // zoom — reacting to it later would fight the canvasser's own panning.
-      if (initialZoom === undefined) {
-        map.fitBounds(bounds, { padding: 48, animate: false })
-      } else {
-        const [[minX, minY], [maxX, maxY]] = bounds
-        map.jumpTo({
-          center: [(minX + maxX) / 2, (minY + maxY) / 2],
-          zoom: initialZoom,
-        })
-      }
+    // Read at mount only: this names the opening view, not a controlled
+    // zoom — reacting to it later would fight the canvasser's own panning.
+    if (initialZoom === undefined) {
+      const bounds = packBounds(packRef.current.positions)
+      if (bounds) map.fitBounds(bounds, { padding: 48, animate: false })
+    } else {
+      const center = packOpeningCenter(packRef.current.positions)
+      if (center) map.jumpTo({ center, zoom: initialZoom })
     }
 
     return () => {
