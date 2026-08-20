@@ -1,5 +1,7 @@
 import { queryOptions } from '@tanstack/react-query'
+import type { GeoJsonPolygon } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
+import type { VoterFileBackendFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 
 export const savedListsQueryOptions = queryOptions({
   queryKey: ['door-knocking-saved-lists'],
@@ -14,6 +16,32 @@ export const turfsQueryOptions = queryOptions({
   queryFn: () =>
     clientRequest('GET /v1/door-knocking/turfs', {}).then((res) => res.data),
 })
+
+// The exact audience inside a drawn shape, addresses included (ADR 0010).
+// Keyed on the polygon and the filter draft, which is what makes the answer
+// belong to one shape: move a vertex and the key changes, so a stale preview
+// can never be read as describing the ring now on screen.
+//
+// There is no debounce and nothing refetches on its own. The draw step asks
+// for this once, when the candidate presses for it, because the alternative
+// is a people-db scan per vertex — see ADR 0010.
+export const addressPreviewQueryOptions = (
+  geoPoly: GeoJsonPolygon,
+  filters: VoterFileBackendFilters,
+) =>
+  queryOptions({
+    queryKey: ['door-knocking-address-preview', geoPoly, filters],
+    queryFn: () =>
+      clientRequest('POST /v1/door-knocking/address-preview', {
+        geoPoly,
+        filters,
+      }).then((res) => res.data),
+    // The shape and the filters are the whole input, so a preview for them
+    // cannot go stale while the candidate is still looking at that shape.
+    // Back from confirm returns to the same ring and is served from cache
+    // rather than billing a second scan.
+    staleTime: Infinity,
+  })
 
 // Shared by the create flow and the edit dialog so the two can't disagree on
 // what a valid name is.

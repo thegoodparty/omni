@@ -25,60 +25,41 @@ vi.mocked(useSnackbar).mockReturnValue({
 // A triangle around both dots, tapped one vertex at a time, so the draw step
 // can be walked the way a canvasser walks it: the stub reports each tap the
 // way the canvas does, including its three-point gate on the ring.
-const { drawSession, packFixture, packControl, rosterPasses } = vi.hoisted(
-  () => ({
-    // Lets one test hold the pack in flight while the saved lists settle — the
-    // ordinary cache ordering, and the one the rail used to misread as failure.
-    packControl: { pending: false },
-    // The roster is a whole extra pass over every person in the district, and
-    // "it only runs when the panel is open" is the reason the page owns that
-    // flag at all — so the claim is counted rather than trusted.
-    rosterPasses: { count: 0 },
-    drawSession: {
-      placed: [] as Array<[number, number]>,
-      taps: [
-        [-87.67, 41.885],
-        [-87.63, 41.885],
-        [-87.65, 41.95],
-      ] as Array<[number, number]>,
+const { drawSession, packFixture, packControl } = vi.hoisted(() => ({
+  // Lets one test hold the pack in flight while the saved lists settle — the
+  // ordinary cache ordering, and the one the rail used to misread as failure.
+  packControl: { pending: false },
+  drawSession: {
+    placed: [] as Array<[number, number]>,
+    taps: [
+      [-87.67, 41.885],
+      [-87.63, 41.885],
+      [-87.65, 41.95],
+    ] as Array<[number, number]>,
+  },
+  packFixture: {
+    manifest: {
+      version: 1,
+      generatedAt: '2026-07-21T12:00:00Z',
+      counts: { people: 4, households: 3, dots: 2 },
+      dims: [
+        {
+          key: 'canvassStatus',
+          values: ['unknown', 'not_home', 'supporter'],
+        },
+        { key: 'party', values: ['Unknown', 'Democratic', 'Republican'] },
+      ],
+      arrays: [],
     },
-    packFixture: {
-      manifest: {
-        version: 1,
-        generatedAt: '2026-07-21T12:00:00Z',
-        counts: { people: 4, households: 3, dots: 2 },
-        dims: [
-          {
-            key: 'canvassStatus',
-            values: ['unknown', 'not_home', 'supporter'],
-          },
-          { key: 'party', values: ['Unknown', 'Democratic', 'Republican'] },
-        ],
-        arrays: [],
-      },
-      positions: new Float32Array([-87.65, 41.9, -87.66, 41.91]),
-      personToHousehold: new Uint32Array([0, 0, 1, 2]),
-      householdToDot: new Uint32Array([0, 0, 1]),
-      dimPlanes: new Map([
-        ['canvassStatus', new Uint8Array([2, 0, 0, 0])],
-        ['party', new Uint8Array([1, 2, 0, 0])],
-      ]),
-    },
-  }),
-)
-
-vi.mock('./filterEngine', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./filterEngine')>()
-  return {
-    ...actual,
-    polygonRoster: (
-      ...args: Parameters<typeof actual.polygonRoster>
-    ): ReturnType<typeof actual.polygonRoster> => {
-      rosterPasses.count += 1
-      return actual.polygonRoster(...args)
-    },
-  }
-})
+    positions: new Float32Array([-87.65, 41.9, -87.66, 41.91]),
+    personToHousehold: new Uint32Array([0, 0, 1, 2]),
+    householdToDot: new Uint32Array([0, 0, 1]),
+    dimPlanes: new Map([
+      ['canvassStatus', new Uint8Array([2, 0, 0, 0])],
+      ['party', new Uint8Array([1, 2, 0, 0])],
+    ]),
+  },
+}))
 
 vi.mock('./useVoterPack', () => ({
   voterPackQueryOptions: {
@@ -745,10 +726,37 @@ describe('NativeDoorKnockingPage list visibility', () => {
 // two-pane desktop layout is the same markup at lg, so the toggle only ever
 // swaps a display class — it never unmounts the lists or the legend, and
 // nothing reads the viewport to decide what to render.
+// A scan of people-db for one shape, so "it only runs when it is asked for"
+// is counted rather than trusted — the ring changes with every vertex, and a
+// request per change is the failure mode this panel is designed around.
+const previewCalls = { count: 0 }
+const mockPreview = () => {
+  previewCalls.count = 0
+  api.mock('POST /v1/door-knocking/address-preview', () => {
+    previewCalls.count += 1
+    return {
+      status: 200,
+      data: {
+        stops: 2,
+        doors: 3,
+        people: 4,
+        locations: [
+          {
+            doors: [
+              { address: '1200 W Elm St Apt 1', people: 2 },
+              { address: '1200 W Elm St Apt 2', people: 1 },
+            ],
+          },
+          { doors: [{ address: '14 N Oak Ave', people: 1 }] },
+        ],
+      },
+    }
+  })
+}
+
 describe('NativeDoorKnockingPage small-screen shell', () => {
   beforeEach(() => {
     testQueryClient.clear()
-    rosterPasses.count = 0
   })
 
   it('peeks the rail over the map and opens it in one tap', async () => {
@@ -896,13 +904,13 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
     expect(screen.getByLabelText('Route name')).toBeInTheDocument()
   })
 
-  // The roster and the doors figure are two readings of one pass over the pack,
-  // so the rows have to come out at the number the button beside them commits
-  // to — a list one row short of its own headline is worse than no list. The
-  // fixture's three households sit on two coordinates, so this also covers the
-  // block-of-flats case: one stop, two doors.
-  it('lists one door per household inside the drawn ring, on request', async () => {
+  // What the walkthrough asked for: the actual houses, at the one moment the
+  // shape can still be changed. The pack has no addresses in it, so these come
+  // from gp-api's evaluation — and a block of flats reads as the several doors
+  // it is under the single coordinate the router will visit.
+  it('lists the addresses inside the drawn ring, on request', async () => {
     drawSession.placed = []
+    mockPreview()
     renderPage()
     await screen.findByText(/voters in your district with a mapped address/)
 
@@ -915,24 +923,44 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
     fireEvent.click(tapMap)
 
     await screen.findByRole('button', { name: 'Continue (3 doors)' })
-    // Shut, the roster costs nothing — there is no panel to read a count off.
+    // Drawing the shape asks nothing of the server, and a shut panel has no
+    // count to read off.
+    expect(previewCalls.count).toBe(0)
     expect(document.getElementById('draw-step-doors')).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: 'See the doors' }))
+    fireEvent.click(screen.getByRole('button', { name: 'See the addresses' }))
+    await screen.findByText('1200 W Elm St Apt 1')
 
     const panel = document.getElementById('draw-step-doors')
     expect(panel?.querySelectorAll('li li')).toHaveLength(3)
     expect(screen.getByText('2 doors at one location')).toBeInTheDocument()
+    expect(previewCalls.count).toBe(1)
   })
 
-  // Backing out to the filters re-cuts the audience, and the step forward from
-  // it wipes the shape — so a doors panel left open would spring back over a
-  // list nobody has asked about yet, and pay a pass over every person in the
-  // district to do it. Same stranding closeFlow resets the rail's sheet for.
-  // The count is asserted and not assumed: "it only runs when the panel is
-  // open" is the whole reason the page owns the flag.
-  it('asks about the doors again after the filters are re-cut', async () => {
+  // The rule the create flow has already broken once: one quantity, one
+  // number. The pack's estimate is a superset — it can't shade by every filter
+  // and it can't drop a do-not-knock resident — so once the exact count
+  // exists the estimate is not a second opinion to print beside it. The
+  // fixture's ring holds 3 doors by the pack and 3 by the server on purpose:
+  // the counts here are deliberately different so the swap is visible.
+  it('reports the server count once it has one', async () => {
     drawSession.placed = []
+    api.mock('POST /v1/door-knocking/address-preview', () => ({
+      status: 200,
+      data: {
+        stops: 1,
+        doors: 2,
+        people: 2,
+        locations: [
+          {
+            doors: [
+              { address: '1200 W Elm St Apt 1', people: 1 },
+              { address: '1200 W Elm St Apt 2', people: 1 },
+            ],
+          },
+        ],
+      },
+    }))
     renderPage()
     await screen.findByText(/voters in your district with a mapped address/)
 
@@ -944,21 +972,51 @@ describe('NativeDoorKnockingPage small-screen shell', () => {
     fireEvent.click(tapMap)
     fireEvent.click(tapMap)
     await screen.findByRole('button', { name: 'Continue (3 doors)' })
-    // Nothing has been asked for yet, so nothing has been counted yet.
-    expect(rosterPasses.count).toBe(0)
 
-    fireEvent.click(screen.getByRole('button', { name: 'See the doors' }))
-    expect(rosterPasses.count).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: 'See the addresses' }))
+
+    // The pack's 3 doors is gone from the button, not printed next to the
+    // server's 2.
+    await screen.findByRole('button', { name: 'Continue (2 doors)' })
+    expect(
+      screen.queryByRole('button', { name: 'Continue (3 doors)' }),
+    ).toBeNull()
+  })
+
+  // Backing out to the filters re-cuts the audience, and the step forward from
+  // it wipes the shape — so an address panel left open would spring back over
+  // a list nobody has asked about yet, and spend a scan of people-db to do it.
+  // Same stranding closeFlow resets the rail's sheet for. The request count is
+  // asserted and not assumed: "it only runs when it is asked for" is the whole
+  // reason the page owns the flag.
+  it('asks about the addresses again after the filters are re-cut', async () => {
+    drawSession.placed = []
+    mockPreview()
+    renderPage()
+    await screen.findByText(/voters in your district with a mapped address/)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create list' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    await screen.findByRole('button', { name: 'Continue (3 doors)' })
+    expect(previewCalls.count).toBe(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'See the addresses' }))
+    await screen.findByText('1200 W Elm St Apt 1')
 
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    const passesOnLeaving = rosterPasses.count
+    const callsOnLeaving = previewCalls.count
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(document.getElementById('draw-step-doors')).toBeNull()
     expect(
-      screen.getByRole('button', { name: 'See the doors' }),
+      screen.getByRole('button', { name: 'See the addresses' }),
     ).toHaveAttribute('aria-expanded', 'false')
-    expect(rosterPasses.count).toBe(passesOnLeaving)
+    expect(previewCalls.count).toBe(callsOnLeaving)
   })
 })
 

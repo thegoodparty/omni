@@ -321,6 +321,48 @@ PII), so the proxy never patches bytes. Map-minimal SELECT: no
 AddressLine, accuracy in WHERE only (v1 = `GeoMatchRooftop` only),
 `registered` computed as `(StateVoterID IS NOT NULL)`.
 
+## The address preview (draw step)
+
+`POST /v1/door-knocking/address-preview` answers "which houses are inside this
+shape?" **before** anything is bought — see
+[ADR 0010](adr/0010-draw-time-address-preview.md). The pack above carries no
+address at all, so it cannot; this runs the knock's own evaluation instead.
+
+`DoorKnockingPreviewService` repeats what
+[`doorKnockingKnock.service.ts`](../src/doorKnocking/services/doorKnockingKnock.service.ts)
+does right up to the vendor call and then stops:
+`resolveEligibleDistrictId`, `resolveSavedFilterForQuery` on the **unsaved**
+filter draft (so activity conditions, support status, contacts-made and the
+voter-likelihood overrides are applied, exactly as they will be at knock time),
+ADR 0007 + ADR 0008 exclusions deduped into one `excludePersonIds`, then
+`evaluate` over the polygon's bbox with an in-process ray-cast. Nothing is
+written, nothing is frozen and no Geoapify credit is spent.
+
+Three things about it are load-bearing:
+
+- **Its counts are the draw step's counts.** `stops`, `doors` and `people` come
+  back on the response and the webapp shows them **instead of** the pack's
+  estimate rather than beside it. The two count different audiences at different
+  granularities — the pack's household key is `AddressLine`-level, this is
+  unit-level like the freeze — so printing both is the two-denominator failure
+  the feature has a standing rule against. ADR 0010 is the whole argument.
+- **One request per explicit press.** The ring changes with every vertex, so
+  nothing is fetched by drawing: the candidate asks, and a shape edited
+  afterwards makes the answer *stale* rather than triggering another scan. A
+  debounce was rejected — it bills every shape passed through on the way to the
+  intended one.
+- **An empty shape returns zeros, not a 400.** The knock throws there because a
+  turf is being committed; a shape still being drawn is allowed to enclose
+  nobody.
+
+`locations` is capped at `MAX_STOPS` (exported from the knock service, so one
+constant blocks the save and bounds the listing) while `stops` reports the true
+total — whole locations only, so a listed stop always shows every door behind it.
+The rendered address comes from the shared `renderUnitAddress`
+(`src/doorKnocking/utils/unitAddress.util.ts`), which the route serve also uses,
+so one door cannot be spelled two ways. The payload is `{ address, people }` per
+door and carries no names, ages, party or phones.
+
 ## Interim geo — and what changes when the data team delivers
 
 people_db has no geometry column yet. Until it does: the people-db evaluation
@@ -514,6 +556,7 @@ it is across Contacts. Refusal is that method's `BadRequestException`, 400 with
 | `DELETE /turfs/:id`     | yes    |
 | `GET /turfs/:id/route`  | yes    |
 | `GET /pack`             | yes    |
+| `POST /address-preview` | yes    |
 | `POST /interactions`    | yes    |
 | `POST /turfs/:id/knock` | yes    |
 | `POST /do-not-knock`    | **no** |

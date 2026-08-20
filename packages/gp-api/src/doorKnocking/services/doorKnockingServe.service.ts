@@ -24,6 +24,7 @@ import {
   deriveKnockStatus,
   overrideToKnockStatus,
 } from '../utils/knockStatus.util'
+import { renderUnitAddress } from '../utils/unitAddress.util'
 
 const ROUTE_INCLUDE = {
   stops: {
@@ -40,19 +41,6 @@ const composeName = (
   person
     ? [person.firstName, person.lastName].filter(Boolean).join(' ') || null
     : null
-
-// The frozen unit key renders back to a human address line: street parts
-// joined in display order, apartment suffixed. Old line-format keys (a
-// single AddressLine first segment) degrade gracefully to that segment.
-const renderUnitAddress = (addressKey: string): string => {
-  const parts = addressKey.split('|')
-  if (parts.length < 7) return parts[0] ?? addressKey
-  const [house, prefixDir, street, designator, suffixDir, apartment] = parts
-  const line = [house, prefixDir, street, designator, suffixDir]
-    .filter((part) => part && part.length > 0)
-    .join(' ')
-  return apartment && apartment.length > 0 ? `${line} Apt ${apartment}` : line
-}
 
 @Injectable()
 export class DoorKnockingServeService extends createPrismaBase(

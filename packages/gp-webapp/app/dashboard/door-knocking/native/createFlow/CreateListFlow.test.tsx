@@ -48,10 +48,32 @@ const baseProps = {
   onSaved: vi.fn(),
   isElectedOfficial: false,
   unpreviewableKeys: [],
-  turfRoster: null,
-  rosterOpen: false,
-  onToggleRoster: vi.fn(),
+  addressPreview: null,
+  previewPending: false,
+  previewFailed: false,
+  previewStale: false,
+  onShowAddresses: vi.fn(),
+  onHideAddresses: vi.fn(),
+  onRetryAddresses: vi.fn(),
 }
+
+const preview = (
+  locations: Array<{ doors: Array<{ address: string; people: number }> }>,
+  totals?: { stops: number; doors: number; people: number },
+) => ({
+  locations,
+  stops: totals?.stops ?? locations.length,
+  doors:
+    totals?.doors ??
+    locations.reduce((sum, location) => sum + location.doors.length, 0),
+  people:
+    totals?.people ??
+    locations.reduce(
+      (sum, location) =>
+        sum + location.doors.reduce((doors, door) => doors + door.people, 0),
+      0,
+    ),
+})
 
 describe('CreateListFlow', () => {
   beforeEach(() => {
@@ -577,21 +599,21 @@ describe('CreateListFlow', () => {
   // never said which doors it meant, at the one moment the shape can still be
   // changed. One row per door, and a block of flats reads as the several doors
   // it is under the single coordinate the router will visit.
-  it('lists the enclosed doors, grouping the ones that share a location', () => {
+  it('lists the enclosed addresses, grouping the ones that share a location', () => {
     render(
       <CreateListFlow
         {...baseProps}
         step="draw"
         turfStats={turfStats(2, 3)}
-        rosterOpen
-        turfRoster={{
-          locations: [
-            { doors: [{ people: 2 }, { people: 1 }] },
-            { doors: [{ people: 4 }] },
-          ],
-          shownDoors: 3,
-          totalDoors: 3,
-        }}
+        addressPreview={preview([
+          {
+            doors: [
+              { address: '1200 W Elm St Apt 1', people: 2 },
+              { address: '1200 W Elm St Apt 2', people: 1 },
+            ],
+          },
+          { doors: [{ address: '14 N Oak Ave', people: 4 }] },
+        ])}
       />,
     )
 
@@ -603,101 +625,198 @@ describe('CreateListFlow', () => {
     // row would imply one the canvasser is held to.
     expect(panel?.querySelectorAll('li li')).toHaveLength(3)
     expect(panel?.querySelector('ol')).toBeNull()
-    expect(screen.getByText('2 matching voters')).toBeInTheDocument()
-    expect(screen.getByText('1 matching voter')).toBeInTheDocument()
-    expect(screen.getByText('4 matching voters')).toBeInTheDocument()
+    expect(screen.getByText('1200 W Elm St Apt 1')).toBeInTheDocument()
+    expect(screen.getByText('1200 W Elm St Apt 2')).toBeInTheDocument()
+    expect(screen.getByText('14 N Oak Ave')).toBeInTheDocument()
   })
 
-  // The roster is the pack's, so it is the same superset the counts above it
-  // are — and it is the surface that most looks like a finished list, so it
-  // has to say so in the words the rail and the details sheet already use.
-  it('says the roster is wider than the walk, and where addresses come from', () => {
-    render(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        turfStats={turfStats(2, 1)}
-        rosterOpen
-        turfRoster={{
-          locations: [{ doors: [{ people: 1 }] }],
-          shownDoors: 1,
-          totalDoors: 1,
-        }}
-      />,
-    )
-
-    const caveat = screen.getByText(/knock fewer doors than this/)
-    expect(caveat.textContent).toContain('do-not-knock')
-    expect(caveat.textContent).toContain('not a voter')
-    expect(
-      screen.getByText(/Street addresses arrive with the route/),
-    ).toBeInTheDocument()
-  })
-
-  // A ring drawn over half a district holds more doors than a phone should be
-  // asked to render, so the list stops and the count admits it stopped —
-  // silently showing 200 of 4,000 is the reading that misleads.
-  it('says how many doors it left off the list', () => {
+  // The rule this feature has already broken once: one quantity gets one
+  // number. The preview counts the same doors the route will be built from,
+  // so it REPLACES the pack's estimate — and the hedges that estimate needed
+  // go with it, because they explain a shortfall these counts don't have.
+  it('reports the preview counts and retires the estimate that stood in', () => {
     const { rerender } = render(
       <CreateListFlow
         {...baseProps}
         step="draw"
-        turfStats={turfStats(2, 2)}
-        rosterOpen
-        turfRoster={{
-          locations: [{ doors: [{ people: 1 }, { people: 1 }] }],
-          shownDoors: 2,
-          totalDoors: 2,
+        turfStats={{
+          stops: 14,
+          people: 22,
+          households: 9,
+          partyMix: [],
+          ageMix: [],
         }}
+        unpreviewableKeys={['age65Plus']}
       />,
     )
-    expect(screen.queryByText(/Showing/)).toBeNull()
+
+    expect(screen.getByText('9')).toBeInTheDocument()
+    expect(screen.getByText(/The map can’t shade by/)).toBeInTheDocument()
 
     rerender(
       <CreateListFlow
         {...baseProps}
         step="draw"
-        turfStats={turfStats(900, 2000)}
-        rosterOpen
-        turfRoster={{
-          locations: [{ doors: [{ people: 1 }, { people: 1 }] }],
-          shownDoors: 2,
-          totalDoors: 2000,
+        turfStats={{
+          stops: 14,
+          people: 22,
+          households: 9,
+          partyMix: [],
+          ageMix: [],
         }}
+        unpreviewableKeys={['age65Plus']}
+        addressPreview={preview(
+          [{ doors: [{ address: '14 N Oak Ave', people: 3 }] }],
+          { stops: 6, doors: 7, people: 12 },
+        )}
       />,
     )
-    expect(screen.getByText('Showing 2 of 2,000 doors.')).toBeInTheDocument()
+
+    // The pack's 9 doors / 14 stops / 22 people are gone from the bar, not
+    // beside it.
+    expect(screen.getByText('7')).toBeInTheDocument()
+    expect(screen.getByText('6')).toBeInTheDocument()
+    expect(screen.getByText('12')).toBeInTheDocument()
+    expect(screen.queryByText('9')).toBeNull()
+    expect(screen.queryByText('14')).toBeNull()
+    expect(screen.queryByText('22')).toBeNull()
+    expect(screen.queryByText(/The map can’t shade by/)).toBeNull()
+    // What the preview does still owe the reader: these are suppressed
+    // already, so a shorter walk than this is not the expectation.
+    expect(screen.getByText(/already out/)).toBeInTheDocument()
   })
 
-  // Building the roster is a second pass over every person in the district, so
-  // the panel is a request the page answers rather than something the flow
-  // renders off state it already has.
-  it('asks the page for the roster instead of holding it open', () => {
-    const onToggleRoster = vi.fn()
+  // A ring over half a district holds more stops than a route can and more
+  // rows than a phone should render, so the list stops and says it stopped —
+  // silently showing 150 of 900 is the reading that misleads. The shortfall is
+  // counted in stops, the unit the cap above it is stated in.
+  it('says how many stops it left off the list', () => {
+    const { rerender } = render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        addressPreview={preview([
+          {
+            doors: [
+              { address: '1 A St', people: 1 },
+              { address: '3 A St', people: 1 },
+            ],
+          },
+        ])}
+      />,
+    )
+    expect(screen.queryByText(/Showing the first/)).toBeNull()
+
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        addressPreview={preview(
+          [
+            {
+              doors: [
+                { address: '1 A St', people: 1 },
+                { address: '3 A St', people: 1 },
+              ],
+            },
+          ],
+          { stops: 900, doors: 2000, people: 4000 },
+        )}
+      />,
+    )
+    expect(
+      screen.getByText('Showing the first 1 of 900 stops.'),
+    ).toBeInTheDocument()
+  })
+
+  // The preview is a scan of people-db for one shape. Drawing must never
+  // trigger one, so the panel is a request the page answers rather than
+  // something the flow opens off state it already has.
+  it('asks the page for the addresses instead of opening the panel itself', () => {
+    const onShowAddresses = vi.fn()
     render(
       <CreateListFlow
         {...baseProps}
         step="draw"
         turfStats={turfStats(2, 3)}
-        onToggleRoster={onToggleRoster}
+        onShowAddresses={onShowAddresses}
       />,
     )
 
     expect(document.getElementById('draw-step-doors')).toBeNull()
-    const toggle = screen.getByRole('button', { name: 'See the doors' })
+    const toggle = screen.getByRole('button', { name: 'See the addresses' })
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
     fireEvent.click(toggle)
-    expect(onToggleRoster).toHaveBeenCalledTimes(1)
+    expect(onShowAddresses).toHaveBeenCalledTimes(1)
   })
 
-  // Nothing to list, so nothing to offer: the button would open an empty panel
-  // beside a Continue that already says there are no doors here.
-  it('offers no door list for a shape holding nothing', () => {
+  // A list of addresses under a boundary that has since moved is the worst
+  // reading this panel can produce: it looks like the answer and describes a
+  // different shape. It is withdrawn, the counts fall back to the estimate,
+  // and asking again is the candidate's press rather than an automatic
+  // round trip on every vertex.
+  it('withdraws a list whose boundary moved, and offers to ask again', () => {
+    const onShowAddresses = vi.fn()
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        turfStats={{
+          stops: 14,
+          people: 22,
+          households: 9,
+          partyMix: [],
+          ageMix: [],
+        }}
+        previewStale
+        onShowAddresses={onShowAddresses}
+      />,
+    )
+
+    expect(screen.getByText(/Your boundary changed/)).toBeInTheDocument()
+    expect(document.querySelectorAll('#draw-step-doors li')).toHaveLength(0)
+    expect(screen.getByText('9')).toBeInTheDocument()
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Show the addresses here' }),
+    )
+    expect(onShowAddresses).toHaveBeenCalledTimes(1)
+  })
+
+  // A failed lookup leaves the estimate standing rather than blanking the
+  // step: the shape is still drawable and still savable without it.
+  it('offers a retry when the lookup fails', () => {
+    const onRetryAddresses = vi.fn()
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        turfStats={{
+          stops: 14,
+          people: 22,
+          households: 9,
+          partyMix: [],
+          ageMix: [],
+        }}
+        previewFailed
+        onRetryAddresses={onRetryAddresses}
+      />,
+    )
+
+    expect(screen.getByText('9')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(onRetryAddresses).toHaveBeenCalledTimes(1)
+  })
+
+  // Nothing to list, so nothing to offer: the button would spend a scan on a
+  // shape that Continue already says holds no doors.
+  it('offers no address list for a shape holding nothing', () => {
     render(
       <CreateListFlow {...baseProps} step="draw" turfStats={turfStats(0, 0)} />,
     )
 
-    expect(screen.queryByRole('button', { name: 'See the doors' })).toBeNull()
+    expect(
+      screen.queryByRole('button', { name: 'See the addresses' }),
+    ).toBeNull()
   })
 
   // gp-api 400s a contacts-made selection from an elected-office org

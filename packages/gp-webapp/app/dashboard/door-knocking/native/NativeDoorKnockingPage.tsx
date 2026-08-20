@@ -15,6 +15,7 @@ import { Campaign } from 'helpers/types'
 import {
   INCOME_KEY_TO_RANGE,
   LANGUAGE_KEY_TO_CODE,
+  transformVoterFileFiltersForBackend,
   type VoterFileFilters,
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
@@ -22,12 +23,12 @@ import { voterPackQueryOptions } from './useVoterPack'
 import {
   canvassStatusCounts,
   maskToPolygon,
-  polygonRoster,
   polygonStats,
   runFilter,
   type FilterResult,
 } from './filterEngine'
 import {
+  addressPreviewQueryOptions,
   routeQueryOptions,
   savedListsQueryOptions,
   turfsQueryOptions,
@@ -72,14 +73,6 @@ interface NativeDoorKnockingPageProps {
 // speaks. The backend stores income and language as string arrays rather than
 // booleans, so both have to be re-expanded or a scoped preview silently
 // ignores those filters.
-// How many doors the draw step's roster materializes before it stops and
-// reports the rest as a count. A savable list holds at most 150 stops, so this
-// covers one with a couple of doors at every stop; past it the shape is either
-// over the cap or dense enough that the point of the list — is this a
-// reasonable evening — is already answered. Rendering (and rebuilding, on
-// every ring change) thousands of rows on a phone is what this exists to stop.
-const ROSTER_DOOR_LIMIT = 200
-
 const savedListFilterKeys = (
   list: SegmentResponse | undefined,
 ): Record<string, boolean> => {
@@ -137,10 +130,13 @@ export default function NativeDoorKnockingPage({
   const [undoDrawToken, setUndoDrawToken] = useState(0)
   const [drawPointCount, setDrawPointCount] = useState(0)
   const [drawHintDismissed, setDrawHintDismissed] = useState(false)
-  // Whether the draw step is listing the doors it encloses. The page owns it
-  // because it owns the pack: the roster is a second pass over every person,
-  // and a closed panel must not pay for one on every vertex the canvas moves.
-  const [rosterOpen, setRosterOpen] = useState(false)
+  // The shape the candidate asked for addresses about (ADR 0010). Not a
+  // boolean, because it is what makes an answer belong to one ring: a preview
+  // is fetched for the shape that was on screen when it was asked for, and a
+  // vertex moved since means the list on screen describes a boundary that no
+  // longer exists. Null is the panel shut, and shut is also what pays
+  // nothing — no request is ever made by drawing.
+  const [previewRing, setPreviewRing] = useState<PolygonRing | null>(null)
   // Landing-map legend filter: chip clicks narrow the dots to those statuses,
   // within the selected list when there is one. Deliberately inert while the
   // create flow is open — the flow's own filter draft drives the preview there.
@@ -417,25 +413,42 @@ export default function NativeDoorKnockingPage({
         : null,
     [packQuery.data, selections, ring],
   )
-  // The doors behind those counts, on exactly the same inputs — the same ring,
-  // the same draft selections — so the roster's own total is the doors figure
-  // the step is already reporting rather than a second answer to the question.
-  // It rides `ring`, which the canvas re-emits when a drag ends, so a roster
-  // this long is never rebuilt mid-gesture.
-  //
-  // Gated on the draw step as well as on the panel, because the ring OUTLIVES
-  // that step: Back keeps it and so does Continue. Without the step in the
-  // condition, a panel left open and then backed out of would run a full pass
-  // over every person behind a list nobody can see — and land it on the
-  // filters step, whose pills recolor the dots on every tap and are the most
-  // pressed control in the flow.
-  const turfRoster = useMemo(
-    () =>
-      rosterOpen && flowStep === 'draw' && packQuery.data && ring && selections
-        ? polygonRoster(packQuery.data, selections, ring, ROSTER_DOOR_LIMIT)
-        : null,
-    [rosterOpen, flowStep, packQuery.data, selections, ring],
+  // The addresses inside the shape that was asked about, from gp-api's
+  // evaluation rather than from the pack — the pack carries no address at all
+  // (ADR 0010). Closing the ring the way the save path does, so the polygon
+  // previewed and the polygon saved are the same geometry.
+  const previewPolygon = useMemo(() => {
+    if (!previewRing) return null
+    const closed =
+      previewRing[0]?.[0] !== previewRing[previewRing.length - 1]?.[0] ||
+      previewRing[0]?.[1] !== previewRing[previewRing.length - 1]?.[1]
+        ? [...previewRing, previewRing[0] as [number, number]]
+        : previewRing
+    return { type: 'Polygon' as const, coordinates: [closed] }
+  }, [previewRing])
+  const previewFilters = useMemo(
+    () => transformVoterFileFiltersForBackend(filters),
+    [filters],
   )
+  const previewQuery = useQuery({
+    ...addressPreviewQueryOptions(
+      previewPolygon ?? { type: 'Polygon', coordinates: [[]] },
+      previewFilters,
+    ),
+    // Gated on the draw step as well as on the ring, because the ring
+    // OUTLIVES that step: Back keeps it and so does Continue. Without the
+    // step here, a panel left open and backed out of would re-fetch behind a
+    // list nobody can see. The resets below are the behaviour; this gate is
+    // what stops the invariant depending on every call site remembering it.
+    enabled: previewPolygon !== null && flowStep === 'draw',
+  })
+  // A preview describes the ring it was asked about. Once a vertex moves it
+  // describes a boundary that is no longer on screen, so it stops being an
+  // answer — the panel says the boundary changed and the draw step goes back
+  // to reporting the pack's estimate, together, in one render. Nothing
+  // refetches on its own: re-asking is the candidate's press.
+  const previewCurrent = previewRing !== null && previewRing === ring
+  const addressPreview = previewCurrent ? (previewQuery.data ?? null) : null
   // Landing-rail status chips: person-level counts over the scope the heading
   // names, so selecting a list rescopes them with it. Memoized on the scope
   // and not on `selections`, so pressing a chip doesn't recompute them — and
@@ -531,7 +544,7 @@ export default function NativeDoorKnockingPage({
     // and endWalk reset the rail's sheet and the status chips for. Continuing
     // to confirm deliberately does NOT reset it: that is one shape being
     // reviewed, and Back has to return the step as it was left.
-    if (next === 'filters') setRosterOpen(false)
+    if (next === 'filters') setPreviewRing(null)
     setFlowStep(next)
     setSelectedTurf(null)
   }
@@ -547,7 +560,7 @@ export default function NativeDoorKnockingPage({
     setClearDrawToken((token) => token + 1)
     // The doors panel is display state of the same kind, and the next create
     // flow starts with no shape to list.
-    setRosterOpen(false)
+    setPreviewRing(null)
     // Same reason, for the phone sheet: the rail is unmounted while the flow is
     // open, so a sheet left pulled up on the way in would spring back over the
     // map on the way out with nobody having asked for it.
@@ -565,7 +578,7 @@ export default function NativeDoorKnockingPage({
       setFlowStep('draw')
       // A saved list is finished business, so the next shape is asked about
       // from scratch — same rule as backing out to the filters.
-      setRosterOpen(false)
+      setPreviewRing(null)
       setStartDrawToken((token) => token + 1)
       setDrawHintDismissed(false)
     } else {
@@ -958,9 +971,20 @@ export default function NativeDoorKnockingPage({
               districtHouseholds={filterResult?.households ?? 0}
               ring={ring}
               turfStats={turfStats}
-              turfRoster={turfRoster}
-              rosterOpen={rosterOpen}
-              onToggleRoster={() => setRosterOpen((open) => !open)}
+              addressPreview={addressPreview}
+              previewPending={previewCurrent && previewQuery.isPending}
+              previewFailed={previewCurrent && previewQuery.isError}
+              // Open-but-for-another-shape: the list on screen described a
+              // boundary that has since moved, so the panel says so instead of
+              // showing it, and the counts revert to the pack in the same
+              // render.
+              previewStale={previewRing !== null && !previewCurrent}
+              onShowAddresses={() => setPreviewRing(ring)}
+              onHideAddresses={() => setPreviewRing(null)}
+              // Re-asking for the same shape is a refetch, not a state
+              // change: the ring hasn't moved, so setting it again would be
+              // the same value and nothing would go out.
+              onRetryAddresses={() => void previewQuery.refetch()}
               drawPointCount={drawPointCount}
               onUndoPoint={() => setUndoDrawToken((token) => token + 1)}
               // Clear is a fresh drawing session: the start-draw effect
