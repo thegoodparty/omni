@@ -15,9 +15,10 @@ import {
 import './configrc'
 import { PrismaService } from './prisma/prisma.service'
 import {
-  TEMPLATE_DB,
   TEMPLATE_LOCK_KEY,
+  TEST_POOL_LIMIT,
   startTestPostgres,
+  templateDbName,
 } from './test-postgres'
 import { ClerkUserEnricherService } from './vendors/clerk/services/clerk-user-enricher.service'
 import { ElectionApiTokenService } from './vendors/clerk/services/electionApiToken.service'
@@ -145,16 +146,16 @@ export const useTestService = (): TestServiceContext => {
     // operation, which is what keeps 60+ suites off a per-suite migration
     // replay against the one shared container.
     //
-    // Held in shared mode: a concurrent vitest run process's globalSetup can
-    // be rebuilding this same template (see test-global-setup.ts) right now.
-    // The shared lock blocks only while that rebuild's exclusive lock is
-    // held, so the clone can't land against a template mid-drop/rebuild.
+    // Held in shared mode against globalSetup's exclusive lock. Nothing
+    // rebuilds a template in place any more, but globalSetup does sweep
+    // superseded ones, and this is what stops a sweep dropping the template
+    // this clone is reading.
     const admin = new Client({ connectionString: baseConnectionUri })
     await admin.connect()
     try {
       await admin.query(`SELECT pg_advisory_lock_shared(${TEMPLATE_LOCK_KEY})`)
       await admin.query(
-        `CREATE DATABASE ${uniqueDbName} TEMPLATE ${TEMPLATE_DB}`,
+        `CREATE DATABASE ${uniqueDbName} TEMPLATE ${templateDbName()}`,
       )
     } finally {
       await admin.query(
@@ -165,7 +166,10 @@ export const useTestService = (): TestServiceContext => {
 
     const databaseUrl = baseConnectionUri.replace(
       '/postgres',
-      `/${uniqueDbName}`,
+      // One container serves every checkout on the machine, so the pool
+      // Prisma would size itself (cores * 2 + 1 per worker) lets concurrent
+      // runs exhaust max_connections.
+      `/${uniqueDbName}?connection_limit=${TEST_POOL_LIMIT}`,
     )
     // Set DATABASE_URL for Prisma with the unique database
     process.env.DATABASE_URL = databaseUrl
