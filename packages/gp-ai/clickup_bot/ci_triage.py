@@ -321,9 +321,19 @@ def decide(checks: Any, state: Any) -> dict:
 
     if fixes < MAX_FIX_RUNS:
         names = ", ".join(c["name"] for c in unknown)
+        # Deliberately does NOT claim the failure reproduced. It usually has, but
+        # the counters are per-PR rather than per-check, so when the re-run budget
+        # was spent on an infrastructure failure that has since cleared, a
+        # newly-appearing check can reach here having been seen exactly once.
+        # Distinguishing the two would need per-check state; overstating the
+        # evidence in a line a human reads to decide whether to trust the fix run
+        # is the worse of the two costs.
         return {
             "action": ACTION_FIX,
-            "reason": f"{names} reproduced across a re-run, so it is deterministic (fix run {fixes + 1} of {MAX_FIX_RUNS})",
+            "reason": (
+                f"{names} still failing after {reruns} re-run(s) and carries no infrastructure signature "
+                f"(fix run {fixes + 1} of {MAX_FIX_RUNS})"
+            ),
             "classifications": classifications,
             "next_state": {"reruns": reruns, "fixes": fixes + 1, "escalated": False},
         }

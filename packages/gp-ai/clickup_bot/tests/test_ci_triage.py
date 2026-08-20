@@ -163,6 +163,18 @@ class TestUnknownFailuresBuyOneRerunBeforeAnAgent:
         assert decision["action"] == ACTION_RERUN
         assert decision["next_state"]["fixes"] == 0
 
+    def test_the_fix_reason_does_not_overstate_the_evidence(self):
+        # The counters are per-PR, not per-check, so when the re-run budget was
+        # spent on an infrastructure failure that has since cleared, a
+        # newly-appearing check reaches a fix run having been seen exactly once.
+        # The reason line is what a human reads to decide whether to trust that
+        # run, so it must not claim the failure reproduced when it may not have.
+        decision = decide([a_check()], {"reruns": MAX_RERUNS, "fixes": 0, "escalated": False})
+
+        assert decision["action"] == ACTION_FIX
+        assert "reproduced" not in decision["reason"]
+        assert "deterministic" not in decision["reason"]
+
     def test_a_failure_that_survives_a_rerun_has_earned_a_fix_run(self):
         # Reproducing across a re-run is the evidence that promotes a failure
         # from "unattributable" to "deterministic". Without this the feature

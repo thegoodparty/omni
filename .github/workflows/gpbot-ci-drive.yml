@@ -188,9 +188,16 @@ jobs:
           # status ever posted for the commit, so a context that failed and was
           # later re-reported green would still show up as failing and wrongly
           # excuse a genuine regression. /status returns the latest per context.
+          # Every non-green terminal conclusion counts, not just "failure". A
+          # check that consistently times out or is killed on main is exactly the
+          # broken-infrastructure case this signal exists to catch, and matching
+          # only "failure" would let it burn a PR's whole budget. Reading a
+          # superseded (cancelled) run on main as pre-existing is the acceptable
+          # side of that trade: it reports the check to a human instead of
+          # spending ~$10 to rediscover that main is red.
           main_failing="$({ \
             gh api "repos/$REPO/commits/main/check-runs" --paginate \
-              --jq '.check_runs[] | select(.conclusion == "failure") | .name' 2>/dev/null; \
+              --jq '.check_runs[] | select(.conclusion | IN("failure","cancelled","timed_out","startup_failure","action_required")) | .name' 2>/dev/null; \
             gh api "repos/$REPO/commits/main/status" \
               --jq '.statuses[] | select(.state == "failure" or .state == "error") | .context' 2>/dev/null; \
           } | sort -u)"
@@ -265,8 +272,14 @@ jobs:
             # The marker comment is the durable half of the caps: it is the only
             # thing that stops a fix run that failed from re-triggering itself for
             # the life of the PR.
+            # AUTHOR-SCOPED, not just marker-scoped. The body is public and
+            # anyone who can comment on the repo could otherwise post a forged
+            # `gpbot-ci-state` block; because the newest match wins, that would
+            # reset the counters to zero and let the same PR be cycled through a
+            # fresh budget on demand. Only this workflow's own comments count,
+            # and it posts as github-actions[bot].
             marker="$(gh api "repos/$REPO/issues/$pr/comments" --paginate \
-              --jq '[.[] | select(.body | contains("<!-- gpbot-ci-drive -->"))] | last')"
+              --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- gpbot-ci-drive -->")))] | last')"
             comment_id="$(jq -r 'if . == null then "" else .id end' <<<"${marker:-null}")"
 
             decision="$(jq -n --argjson checks "$enriched" \
@@ -278,6 +291,22 @@ jobs:
             echo "decision: $action — $(jq -r .reason <<<"$decision")"
 
             if [ "$action" = "none" ]; then echo "::endgroup::"; continue; fi
+
+            # Resolved BEFORE the counter is written, because a re-run attempt we
+            # cannot actually make must not cost one. A StatusContext failure
+            # (a Vercel deploy) has no /actions/runs/<id>/ in its URL, so nothing
+            # here is re-runnable — and spending the budget on it would escalate
+            # to a human after three passes in which no re-run was ever issued.
+            # This is a pure parse with no side effect, so it does not weaken the
+            # write-state-before-acting ordering below.
+            run_ids=''
+            if [ "$action" = "rerun" ]; then
+              run_ids="$(jq -r '.[] | .url' <<<"$failing" | sed -n 's#.*/actions/runs/\([0-9]*\)/.*#\1#p' | sort -u)"
+              if [ -z "$run_ids" ]; then
+                echo "::warning::#$pr has no re-runnable run for its failing checks; not spending an attempt"
+                echo "::endgroup::"; continue
+              fi
+            fi
 
             # STATE IS WRITTEN BEFORE THE ACTION IS TAKEN, and the order is the
             # cap. If this job dies between the two, the round is recorded as
@@ -294,12 +323,12 @@ jobs:
               rerun)
                 # --failed, not a full re-run: the passing shards on #1306 cost
                 # ~4 minutes each and re-running them proves nothing.
-                jq -r '.[] | .url' <<<"$failing" | sed -n 's#.*/actions/runs/\([0-9]*\)/.*#\1#p' | sort -u \
-                  | while read -r run_id; do
-                      echo "re-running failed jobs in run $run_id"
-                      gh run rerun "$run_id" --repo "$REPO" --failed || \
-                        echo "::warning::could not re-run $run_id"
-                    done
+                while read -r run_id; do
+                  [ -n "$run_id" ] || continue
+                  echo "re-running failed jobs in run $run_id"
+                  gh run rerun "$run_id" --repo "$REPO" --failed || \
+                    echo "::warning::could not re-run $run_id"
+                done <<<"$run_ids"
                 ;;
 
               fix)
