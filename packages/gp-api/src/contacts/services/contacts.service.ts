@@ -3,10 +3,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
+import { OrgDistrict } from '@/organizations/organizations.types'
 import {
   MAX_OVERLAP_SAVED_FILTER_SETS,
   SupportStatusRollupSchema,
   VoterLikelihoodSchema,
+  type BallotReadyPositionLevel,
   type ContactStatuses,
   type IdOverrides,
   type ListDetailContactsResponse,
@@ -537,9 +539,17 @@ export class ContactsService {
     }
   }
 
-  private async resolveDistrictInfoFromOrg(
-    org: Organization,
-  ): Promise<{ districtId: string | null }> {
+  // `eligibility` carries what assertVoterDataEligibility would otherwise
+  // re-derive from scratch. It is populated only on the position path: the
+  // override branch deliberately does not fetch the district row, so it has
+  // nothing to hand over and the gate falls back to resolving it itself.
+  private async resolveDistrictInfoFromOrg(org: Organization): Promise<{
+    districtId: string | null
+    eligibility?: {
+      district: OrgDistrict
+      ballotLevel: BallotReadyPositionLevel | null
+    }
+  }> {
     if (org.overrideDistrictId) {
       return { districtId: org.overrideDistrictId }
     }
@@ -554,7 +564,18 @@ export class ContactsService {
         org.slug,
         position.district,
       )
-      return { districtId: routed.id }
+      return {
+        districtId: routed.id,
+        eligibility: {
+          district: {
+            id: routed.id,
+            state: routed.state,
+            l2Type: routed.L2DistrictType,
+            l2Name: routed.L2DistrictName,
+          },
+          ballotLevel: position.level ?? null,
+        },
+      }
     }
 
     return { districtId: null }
@@ -574,7 +595,8 @@ export class ContactsService {
     org: Organization,
     fn: (params: { districtId: string }) => Promise<Result>,
   ): Promise<Result> {
-    const { districtId } = await this.resolveDistrictInfoFromOrg(org)
+    const { districtId, eligibility } =
+      await this.resolveDistrictInfoFromOrg(org)
 
     if (!districtId) {
       throw new BadRequestException({
@@ -584,7 +606,7 @@ export class ContactsService {
       })
     }
 
-    await this.assertVoterDataEligibility(org)
+    await this.assertVoterDataEligibility(org, eligibility)
 
     return fn({ districtId })
   }
@@ -594,7 +616,13 @@ export class ContactsService {
   // office without L2 district data (or the canDownloadFederal override) gets
   // a clean ineligible 4xx instead of querying People-API with an unusable
   // district.
-  private async assertVoterDataEligibility(org: Organization): Promise<void> {
+  private async assertVoterDataEligibility(
+    org: Organization,
+    resolved?: {
+      district: OrgDistrict
+      ballotLevel: BallotReadyPositionLevel | null
+    },
+  ): Promise<void> {
     if (this.hasElectedOfficeAccess(org)) return
 
     const campaign = await this.campaigns.findFirst({
@@ -602,8 +630,13 @@ export class ContactsService {
     })
     if (!campaign) return
 
+    // Reuse the caller's already-routed district when it has one. Re-deriving
+    // it here meant a second org lookup, a second position fetch and a second
+    // routing round trip for the same answer, on every read of the contacts
+    // surface.
     const { district, ballotLevel } =
-      await this.organizations.getDistrictAndBallotLevelForOrgSlug(org.slug)
+      resolved ??
+      (await this.organizations.getDistrictAndBallotLevelForOrgSlug(org.slug))
 
     if (
       !this.voterFileDownloadAccess.canDownload(campaign, district, ballotLevel)

@@ -2001,6 +2001,46 @@ describe('ContactsService', () => {
         expect(mockElectionsService.getPositionById).not.toHaveBeenCalled()
       })
 
+      // The eligibility gate used to re-derive the district from scratch, so a
+      // single read cost two org lookups, two position fetches and two routing
+      // round trips. These two tests pin the split that removed the duplicate:
+      // the position path hands its resolved district over, the override path
+      // has none to hand over and still resolves it itself.
+      it('does not re-resolve the district for the eligibility gate', async () => {
+        mockElectionsService.getPositionById.mockResolvedValue({
+          id: POSITION_ID_FIXTURE,
+          level: 'FEDERAL',
+          district: currentCongressional,
+        })
+        mockRouteWinDistrict.mockResolvedValue(proposedCongressional)
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: true })
+
+        const org = makeOrganization({ positionId: POSITION_ID_FIXTURE })
+
+        await service.resolveEligibleDistrictId(org)
+
+        expect(
+          mockOrganizationsService.getDistrictAndBallotLevelForOrgSlug,
+        ).not.toHaveBeenCalled()
+        expect(mockRouteWinDistrict).toHaveBeenCalledTimes(1)
+        expect(mockElectionsService.getPositionById).toHaveBeenCalledTimes(1)
+      })
+
+      it('still resolves the district for the gate on the override path', async () => {
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: true })
+
+        const org = makeOrganization({
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+          positionId: POSITION_ID_FIXTURE,
+        })
+
+        await service.resolveEligibleDistrictId(org)
+
+        expect(
+          mockOrganizationsService.getDistrictAndBallotLevelForOrgSlug,
+        ).toHaveBeenCalledWith(org.slug)
+      })
+
       it('routes the position district for a Win org', async () => {
         mockElectionsService.getPositionById.mockResolvedValue({
           id: POSITION_ID_FIXTURE,

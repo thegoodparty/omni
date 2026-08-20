@@ -1,7 +1,7 @@
+import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ElectionsService } from './elections.service'
 import { DistrictRoutingService } from './districtRouting.service'
-import { PinoLogger } from 'nestjs-pino'
 
 const currentOhio4 = {
   id: 'current-oh-4',
@@ -29,11 +29,7 @@ describe('DistrictRoutingService', () => {
       {
         findProposedCongressionalDistrict: mockFindProposed,
       } as unknown as ElectionsService,
-      {
-        setContext: vi.fn(),
-        info: vi.fn(),
-        warn: vi.fn(),
-      } as unknown as PinoLogger,
+      createMockLogger(),
     )
   })
 
@@ -93,36 +89,20 @@ describe('DistrictRoutingService', () => {
     expect(mockFindProposed).not.toHaveBeenCalled()
   })
 
-  it('does not route when the current name is not a number', async () => {
-    const result = await service.routeWinDistrict('odd-campaign', {
-      ...currentOhio4,
-      id: 'current-odd',
-      L2DistrictName: 'AT LARGE',
-    })
+  // Asserting the lookup was never reached, not just the returned id: the mock
+  // resolves null by default, so an id-only assertion would pass even if the
+  // guard were gone.
+  it.each(['AT LARGE', '', '   '])(
+    'does not route when the current name is %j',
+    async (name) => {
+      const result = await service.routeWinDistrict('odd-campaign', {
+        ...currentOhio4,
+        id: 'current-odd',
+        L2DistrictName: name,
+      })
 
-    expect(result.id).toBe('current-odd')
-    expect(mockFindProposed).not.toHaveBeenCalled()
-  })
-
-  it('does not route when the current name is empty', async () => {
-    const result = await service.routeWinDistrict('blank-campaign', {
-      ...currentOhio4,
-      id: 'current-blank',
-      L2DistrictName: '',
-    })
-
-    expect(result.id).toBe('current-blank')
-    expect(mockFindProposed).not.toHaveBeenCalled()
-  })
-
-  it('does not route when the current name is whitespace-only', async () => {
-    const result = await service.routeWinDistrict('whitespace-campaign', {
-      ...currentOhio4,
-      id: 'current-whitespace',
-      L2DistrictName: '   ',
-    })
-
-    expect(result.id).toBe('current-whitespace')
-    expect(mockFindProposed).not.toHaveBeenCalled()
-  })
+      expect(result.id).toBe('current-odd')
+      expect(mockFindProposed).not.toHaveBeenCalled()
+    },
+  )
 })

@@ -471,11 +471,11 @@ export class OrganizationsService extends createPrismaBase(
         : Promise.resolve(null),
     ])
 
-    const rawDistrict = overrideDistrict
-      ? overrideDistrict
-      : position?.district
+    const rawDistrict =
+      overrideDistrict ??
+      (position?.district
         ? await this.districtRouting.routeWinDistrict(slug, position.district)
-        : undefined
+        : undefined)
     const district: OrgDistrict | null = rawDistrict
       ? {
           id: rawDistrict.id,
@@ -513,11 +513,11 @@ export class OrganizationsService extends createPrismaBase(
         : Promise.resolve(null),
     ])
 
-    const rawDistrict = overrideDistrict
-      ? overrideDistrict
-      : position?.district
+    const rawDistrict =
+      overrideDistrict ??
+      (position?.district
         ? await this.districtRouting.routeWinDistrict(slug, position.district)
-        : undefined
+        : undefined)
     const district: OrgDistrict | null = rawDistrict
       ? {
           id: rawDistrict.id,
@@ -638,14 +638,14 @@ export class OrganizationsService extends createPrismaBase(
         : Promise.resolve(null),
     ])
 
-    const district = overrideDistrict
-      ? overrideDistrict
-      : position?.district
+    const district =
+      overrideDistrict ??
+      (position?.district
         ? await this.districtRouting.routeWinDistrict(
             org.slug,
             position.district,
           )
-        : undefined
+        : undefined)
     if (!district) return null
 
     return {
