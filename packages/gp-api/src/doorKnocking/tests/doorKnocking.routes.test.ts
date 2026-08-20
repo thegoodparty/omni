@@ -8,6 +8,8 @@ import { useTestService } from '@/test-service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { DoorKnockingPeopleApiService } from '../services/doorKnockingPeopleApi.service'
 import { DoorKnockingKnockService } from '../services/doorKnockingKnock.service'
+import { DoorKnockingServeService } from '../services/doorKnockingServe.service'
+import { DoorKnockingTurfCountsService } from '../services/doorKnockingTurfCounts.service'
 import {
   Campaign,
   OutreachStatus,
@@ -1425,6 +1427,220 @@ describe('door-knocking routes', () => {
       expect(res.status).toBe(404)
     })
   })
+
+  // The rail's per-list counts. The requirement is not "three plausible
+  // numbers" — it is that a list reads the same on the rail as it does in the
+  // details sheet one tap later, so these assert the rail's counts against the
+  // SERVE PAYLOAD's own derivation rather than against constants alone. The
+  // constants are here too, so a change that breaks both sides identically
+  // still fails.
+  describe('turf counts', () => {
+    const PERSON_1 = '00000001-1111-1111-1111-111111111111'
+    const PERSON_2 = '00000002-1111-1111-1111-111111111111'
+    const PERSON_3 = '00000003-1111-1111-1111-111111111111'
+    const PERSON_4 = '00000004-1111-1111-1111-111111111111'
+
+    type PayloadTarget = {
+      personId: string
+      knockStatus: string
+      doNotKnock: boolean
+      notAVoterReason?: string
+    }
+    type PayloadStop = { addresses: Array<{ targets: PayloadTarget[] }> }
+
+    // `routeCounts.ts` in gp-webapp, transcribed: this is what the details
+    // sheet and the walk view compute off the same payload. Kept as an
+    // independent reference on purpose — gp-api cannot import the webapp
+    // module, so the equivalence is asserted rather than assumed.
+    const fromPayload = (stops: PayloadStop[]) => {
+      const doors = stops.reduce(
+        (total, stop) => total + stop.addresses.length,
+        0,
+      )
+      const knockable = stops.flatMap((stop) =>
+        stop.addresses.flatMap((address) =>
+          address.targets.filter(
+            (target) => !target.doNotKnock && !target.notAVoterReason,
+          ),
+        ),
+      )
+      return {
+        doorCount: doors,
+        peopleCount: knockable.length,
+        loggedCount: knockable.filter(
+          (target) => target.knockStatus !== 'unknown',
+        ).length,
+      }
+    }
+
+    const listTurfs = async () => {
+      const res = await service.client.get(
+        '/v1/door-knocking/turfs',
+        orgHeaders(),
+      )
+      expect(res.status).toBe(200)
+      return res.data as Array<{
+        id: number
+        locked: boolean
+        doorCount: number | null
+        peopleCount: number | null
+        loggedCount: number | null
+      }>
+    }
+
+    const serveRoute = async (turfId: number) => {
+      const res = await service.client.get(
+        `/v1/door-knocking/turfs/${turfId}/route`,
+        orgHeaders(),
+      )
+      expect(res.status).toBe(200)
+      return res.data.stops as PayloadStop[]
+    }
+
+    // Every way the three numbers can diverge from a naive count, in one
+    // route: a shared door (doors < people), a do-not-knock resident and a
+    // not-a-voter resident (people < targets), an answered-but-unsure knock
+    // that derives back to `unknown` (logged < knocked), and a not-home knock
+    // that counts as logged even though nobody was reached.
+    const messyFixture = async () => {
+      await service.prisma.contactCurrentStatus.createMany({
+        data: [
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_1,
+            field: 'do_not_knock',
+            value: 'active',
+          },
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_3,
+            field: 'not_a_voter',
+            value: 'moved',
+          },
+        ],
+      })
+      await service.prisma.contactInteractionDoorKnock.createMany({
+        data: [
+          // Logged: nobody was reached, but the door has an answer written
+          // down, which is what "logged" means.
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_2,
+            occurredAt: new Date('2026-07-02T10:00:00Z'),
+            outcome: 'not_home',
+          },
+          // NOT logged: `deriveKnockStatus` collapses answered-but-unsure to
+          // `unknown` on purpose — the door is still worth knocking.
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_4,
+            occurredAt: new Date('2026-07-03T10:00:00Z'),
+            outcome: 'answered',
+            supportAnswer: 'unsure',
+          },
+          // A flagged resident's own knock: it must not reach `loggedCount`,
+          // because they are not in `peopleCount` to begin with.
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_1,
+            occurredAt: new Date('2026-07-04T10:00:00Z'),
+            outcome: 'answered',
+            supportAnswer: 'supporter',
+          },
+        ],
+      })
+    }
+
+    it('reports counts the details sheet derives identically for the same list', async () => {
+      await messyFixture()
+      const turf = await createTurf()
+      stubVendors()
+      expect((await knock(turf.id)).status).toBe(201)
+
+      const stops = await serveRoute(turf.id)
+      const [row] = await listTurfs()
+
+      expect({
+        doorCount: row?.doorCount,
+        peopleCount: row?.peopleCount,
+        loggedCount: row?.loggedCount,
+      }).toEqual(fromPayload(stops))
+      // Two people share PIPED_KEY at one coordinate, so three doors hold
+      // four targets; the two flags drop two of them; one of the two
+      // survivors has an answer written down.
+      expect(row).toMatchObject({
+        locked: true,
+        doorCount: 3,
+        peopleCount: 2,
+        loggedCount: 1,
+      })
+    })
+
+    // The point at which a naive count diverges, stated as a comparison
+    // rather than a constant: the frozen route really does hold four targets.
+    it('drops do-not-knock and not-a-voter residents from people, but not their doors', async () => {
+      await messyFixture()
+      const turf = await createTurf()
+      stubVendors()
+      await knock(turf.id)
+
+      const frozenTargets = await service.prisma.doorKnockingStopTarget.count()
+      const [row] = await listTurfs()
+
+      expect(frozenTargets).toBe(4)
+      expect(row?.peopleCount).toBe(2)
+      // A flagged resident is still behind a door somebody walks past, and
+      // the details sheet's roster still lists them — so the door count is
+      // unmoved by the flags.
+      expect(row?.doorCount).toBe(3)
+      // PERSON_1 is flagged AND has a supporter knock on file. Counting them
+      // would put `loggedCount` above `peopleCount`.
+      expect(row?.loggedCount).toBe(1)
+    })
+
+    it('carries no counts on an unlocked list, and no zeroes either', async () => {
+      const turf = await createTurf()
+
+      const [before] = await listTurfs()
+      expect(before).toMatchObject({
+        locked: false,
+        doorCount: null,
+        peopleCount: null,
+        loggedCount: null,
+      })
+
+      stubVendors()
+      await knock(turf.id)
+
+      const [after] = await listTurfs()
+      expect(after).toMatchObject({ locked: true, doorCount: 3 })
+    })
+
+    // The cost rule. `serve` is the feature's heaviest read — a nested route
+    // fetch, a people-api round trip and four CRM queries — so the rail must
+    // never reach for it, and the aggregate behind the counts must not grow a
+    // round trip per list.
+    it('answers every list from one batched aggregate, never a serve per list', async () => {
+      const countsService = service.app.get(DoorKnockingTurfCountsService)
+      const serveService = service.app.get(DoorKnockingServeService)
+      const forRoutes = vi.spyOn(countsService, 'forRoutes')
+      const serve = vi.spyOn(serveService, 'serve')
+
+      stubVendors()
+      for (const name of ['Ash St', 'Birch Ave', 'Cedar Ln']) {
+        await knock((await createTurf(name)).id)
+      }
+
+      const rows = await listTurfs()
+
+      expect(rows).toHaveLength(3)
+      expect(rows.every((row) => row.doorCount === 3)).toBe(true)
+      expect(forRoutes).toHaveBeenCalledTimes(1)
+      expect(forRoutes.mock.calls[0]?.[1]).toHaveLength(3)
+      expect(serve).not.toHaveBeenCalled()
+    })
+  })
+
   describe('interactions', () => {
     const CLIENT_KEY = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
 
