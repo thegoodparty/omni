@@ -338,6 +338,113 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 The ceiling per escalated ticket is therefore $30, not $15 — budget for the
 two-phase flow, not the single run.
 
+## Driving the PR after it opens
+
+`IMPLEMENT_INSTRUCTION` ends at "Post the PR link to ClickUp when done", and the
+run exits there. If CI then failed, nothing happened. PR #1306 was opened
+2026-08-18, approved by `delegate-reviewer[bot]`, and sat for two days on a red
+`E2E` check because no one was watching. #1318 sat the same way.
+
+`.github/workflows/gpbot-ci-drive.yml` closes that gap. It fires when a CI
+workflow completes, and when every check on a `[GP-Bot]` PR has resolved and at
+least one is red, it triages the failure and acts.
+
+**Triage comes before action, and that ordering is the whole design.** Most
+bot-PR check failures we have actually observed were infrastructure, not
+regressions. #1306's failing `E2E Shard (1)` never ran a test: it hung in
+`Install Playwright browsers` (an `apt-get` against azure.archive.ubuntu.com)
+for 29 minutes until the job's 30-minute timeout cancelled it, while shards 2-4
+passed. PR #1319 hit the identical signature twice consecutively. A mechanism
+that reflexively asks a model to "fix CI" would answer all of those by editing
+application code to satisfy a failure the diff never caused — strictly worse
+than leaving the PR alone.
+
+`clickup_bot/ci_triage.py` holds the judgement, as pure functions over JSON so
+it is unit-testable against real captured failures rather than in production:
+
+| Evidence | Class | Action |
+|---|---|---|
+| The same check is red on `main` | pre-existing | Report it. Never fixed, never re-run — it is not this PR's bug |
+| Job conclusion `cancelled`/`timed_out`, or a known infra signature in the log | infra | Re-run. **Never** escalates to an agent run |
+| Anything else | unknown | Re-run **once** first; only a failure that reproduced buys an agent run |
+
+Re-running an unattributable failure before paying for it is the cheap half of
+the trade: a flake clears for free, and a real regression comes back with
+evidence that it is deterministic. The taxonomy and the round caps are lifted
+from `.claude/skills/ship-pr/SKILL.md` "Phase 3" — this automates a judgement
+humans already make here rather than inventing a new one.
+
+### Caps, and where they live
+
+| Cap | Value | Why |
+|---|---|---|
+| Re-runs | 3 | Costs CI minutes and no model spend, so the number is set by observation rather than price: #1319 hit the same apt-get hang **twice in a row**, so 1 or 2 would have escalated a pure flake to a human |
+| Fix runs | 2 | Matches ship-pr Phase 3's "stop after 2 check-fix rounds". At $1.50-$5 a run this holds the feature to ~$10 per PR, on top of the ~$30 an escalated ticket may already have spent |
+
+Both are **per-PR and cumulative for the life of the PR**, deliberately not
+per-commit. A fix run pushes a commit, and resetting on a new commit would let a
+fix run that failed re-trigger itself forever — the money-burning loop the caps
+exist to prevent.
+
+They survive across invocations in an upserted PR comment carrying
+`<!-- gpbot-ci-state: {...} -->` (the same device as delegate's
+`delegate-finding-id` markers). The workflow **writes the new counters before it
+takes the action**: a crash between the two costs the PR one attempt, where the
+reverse order would let a crash-looping drive spend the same round forever. An
+unreadable or hand-edited marker counts as exhausted, not fresh.
+
+On exhaustion the drive stops and announces in `#bugs` through the same
+`vars.GPBOT_PR_CHANNEL_ID` / `secrets.GPBOT_SLACK_BOT_TOKEN` path as the other
+two gpbot workflows. Nothing the bot does clears an escalation; a human deletes
+the marker comment to hand it back.
+
+### Why `workflow_run` and not `check_suite`
+
+`check_suite` cannot work here at all. GitHub does not deliver it "if the check
+suite was created by GitHub Actions", and every check on an omni PR is created
+by GitHub Actions, so the workflow would simply never fire. `workflow_run` has
+no such restriction and additionally carries secrets and a write token, which
+the Slack post and the Lambda invoke both need.
+
+Neither could be replaced by making the agent run poll: `E2E` waits on a full
+gp-api preview deploy before its suite starts and routinely takes ~45 minutes,
+which is the agent's entire `DEFAULT_DEADLINE_SECONDS`. Polling would spend the
+whole run idling on Fargate with nothing left for the fix.
+
+A 30-minute `schedule` backs the event up, for the same reason the
+reconciliation sweep exists: subscribing does not catch everything. It covers
+three known gaps — GitHub suppresses events for actions taken with
+`GITHUB_TOKEN`, so a re-run this workflow requests may not emit `workflow_run`
+when it finishes; the concurrency group keeps only one queued run per group; and
+a workflow added later is not in the watched list.
+
+### The fix run
+
+A fix run is launched through this Lambda (`{"gpbot_ci_fix": true, ...}` →
+`handle_ci_fix`), not by a second path wired straight to ECS, so it reuses the
+one audited route to Fargate. It carries `AGENT_LABEL=ci-fix`, which keeps it
+out of the analyze→implement escalation, and `ci-fix` is deliberately **not** in
+`TAG_CONFIG`: a ClickUp tag must never be able to launch a run that pushes to an
+arbitrary PR.
+
+**Only the PR number and the ClickUp task id cross that boundary**, both
+validated as an integer and a character-class-checked id. Check names, step
+names and log text are left out on purpose — they originate in CI output, and
+interpolating them into a system prompt would make every failing build a
+prompt-injection surface. The agent holds `gh` and fetches its own evidence.
+
+The instruction (`CI_FIX_INSTRUCTION`) forbids, in order of how much damage
+they do: weakening a test to make it pass (deleting, skipping, loosening an
+assertion, or adding a retry to hide a real failure), merging, opening a second
+PR, and touching anything outside the failure. It also tells the agent to check
+`main` and change nothing if the failure is infra or pre-existing — a second
+line of the same defence, because the signature list in `ci_triage.py` is not
+exhaustive.
+
+**Nothing in this feature merges anything.** `gpbot-ci-drive.yml` carries the
+same header contract as `gpbot-pr-triage.yml`: the bot getting CI green is not
+the bot deciding what lands.
+
 ## Scope guard
 
 `gpbot-work` used to be applied by hand, one ticket at a time, so a human

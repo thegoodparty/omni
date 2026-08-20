@@ -1,0 +1,355 @@
+name: gpbot CI drive
+
+# Keeps driving a [GP-Bot] PR after it is opened, instead of walking away from it.
+#
+# PR #1306 was opened 2026-08-18, approved by delegate-reviewer[bot], and then sat
+# for two days on a red `E2E` check because the run that opened it had already
+# exited. The implement instruction ends at "Post the PR link to ClickUp when
+# done", and nothing came after that.
+#
+# WHY THIS IS AN EVENT AND NOT PART OF THE AGENT RUN: `E2E` waits on a full gp-api
+# preview deploy before its suite starts and routinely takes ~45 minutes, which is
+# the agent's entire DEFAULT_DEADLINE_SECONDS (engineer_agent/agent/config.py).
+# "Poll until the checks finish" would spend the whole run idling on Fargate and
+# have nothing left for the fix.
+#
+# WHY `workflow_run` AND NOT `check_suite`: `check_suite` cannot work here at all.
+# GitHub does not deliver it "if the check suite was created by GitHub Actions",
+# and every check on an omni PR is created by GitHub Actions, so the workflow
+# would simply never fire. `workflow_run` has no such restriction, carries secrets
+# and a write token, and is the only one of the two that is actually delivered.
+#
+# THIS WORKFLOW MUST NEVER MERGE ANYTHING — same contract as gpbot-pr-triage.yml.
+# delegate-reviewer approves every PR, which satisfies the ruleset's one-approval
+# requirement, so the only thing keeping a human in the loop is that nothing calls
+# merge. Do not add `gh pr merge` and do not add `--auto`. Getting CI green is the
+# end of this workflow's job; a human still decides what lands.
+
+on:
+  workflow_run:
+    # Only workflows that contribute a merge-gating check. This list is a latency
+    # optimisation, not the correctness boundary — whichever watched workflow
+    # finishes last is the one that sees a fully-resolved board, and the schedule
+    # below covers anything this list misses.
+    #
+    # gpbot-* workflows are deliberately absent: watching itself would recurse.
+    workflows:
+      - agents-md
+      - candidate-sites
+      - contracts
+      - dependency-review
+      - election-api
+      - gp-admin
+      - gp-ai
+      - gp-api
+      - gp-sdk
+      - gp-webapp
+      - prototypes
+      - styleguide
+      - Publish PMF experiments
+    types: [completed]
+  schedule:
+    # BACKSTOP, and load-bearing rather than decorative — the same lesson the
+    # reconciliation sweep learned (see clickup_bot/README.md, "The sweep"):
+    # subscribing to events does not catch everything.
+    #
+    # Three known gaps it covers. GitHub suppresses events triggered by actions
+    # taken with GITHUB_TOKEN, so the re-run this workflow requests may not
+    # produce a `workflow_run` event when it finishes. The concurrency group below
+    # keeps only one queued run per group and cancels the rest. And a workflow
+    # added later that is not in the list above contributes a check nobody is
+    # watching for.
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Drive a single PR (leave blank to sweep every open bot PR)'
+        required: false
+
+permissions:
+  contents: read
+  # Re-running the failed jobs of an existing run, which is the cheap action this
+  # whole design is built around reaching for first.
+  actions: write
+  # The marker comment that makes the attempt counters durable.
+  pull-requests: write
+  # OIDC for the Lambda invoke that launches a fix run.
+  id-token: write
+
+concurrency:
+  # One drive at a time, repo-wide. The marker comment is read-modify-written, so
+  # two concurrent drives on one PR could both read the same pre-write counters
+  # and each spend a round against it. Serialising removes that race outright, and
+  # a pass is only a handful of API calls.
+  group: gpbot-ci-drive
+  cancel-in-progress: false
+
+env:
+  REPO: ${{ github.repository }}
+  GH_TOKEN: ${{ github.token }}
+  # Terminal statuses that mean a check produced no usable verdict or a bad one.
+  # NEUTRAL and SKIPPED are absent on purpose: an advisory or skipped check is not
+  # a merge gate, and treating one as a failure would drive every PR forever.
+  FAILED_CONCLUSIONS: 'FAILURE,CANCELLED,TIMED_OUT,STARTUP_FAILURE,ACTION_REQUIRED'
+
+jobs:
+  drive:
+    name: Drive bot PRs to green
+    runs-on: ubuntu-latest
+    # Bounds a stall. cancel-in-progress is false, so a job hung on a slow API
+    # would otherwise hold the group for GitHub's default six hours and stop every
+    # bot PR being driven at all.
+    timeout-minutes: 15
+    env:
+      # gp_ai_bot — see the same note in gpbot-pr-triage.yml. All three gpbot
+      # workflows post to the same channel, so they must carry the same app.
+      SLACK_TOKEN: ${{ secrets.GPBOT_SLACK_BOT_TOKEN }}
+      CHANNEL: ${{ vars.GPBOT_PR_CHANNEL_ID }}
+      CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: packages/gp-ai/clickup_bot/ci_triage.py
+          sparse-checkout-cone-mode: false
+
+      # AWS is only needed for the fix action, but credentials cannot be acquired
+      # conditionally mid-script. Assuming the role costs nothing when unused.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-west-2
+
+      # Which PRs to look at. A workflow_run event names one commit, which may
+      # belong to no PR at all (a push to main) — that is the common case and must
+      # exit silently.
+      - name: Resolve candidate PRs
+        id: candidates
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          INPUT_PR: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${INPUT_PR:-}" ]; then
+            prs="$INPUT_PR"
+          elif [ "$EVENT_NAME" = "workflow_run" ]; then
+            # Resolved from the commit rather than read off
+            # event.workflow_run.pull_requests, which is empty for a fork PR and
+            # has been observed empty otherwise.
+            prs="$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" --jq '.[] | select(.state == "open") | .number' || true)"
+          else
+            # Schedule: every open bot PR. Gated on the same two signals as
+            # gpbot-pr-triage.yml, because the two come from different places (the
+            # agent's git commands vs. its gh call) and either alone has been
+            # wrong before.
+            prs="$(gh pr list --repo "$REPO" --state open --limit 100 \
+              --json number,title,headRefName \
+              --jq '.[] | select((.title | startswith("[GP-Bot]")) or (.headRefName | contains("/gp-bot_"))) | .number' || true)"
+          fi
+
+          echo "candidates: ${prs:-<none>}"
+          {
+            echo 'prs<<PRS_EOF'
+            printf '%s\n' "${prs:-}"
+            echo 'PRS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Triage and drive
+        if: steps.candidates.outputs.prs != ''
+        env:
+          PR_NUMBERS: ${{ steps.candidates.outputs.prs }}
+          LAMBDA_FUNCTION: clickup-bot-prod
+        run: |
+          # Deliberately not `-e`. One unreadable PR must not strand every PR
+          # behind it — the next one may be the bot PR that has been red for two
+          # days, which is the whole point of this workflow.
+          set -uo pipefail
+          triage=packages/gp-ai/clickup_bot/ci_triage.py
+
+          # Fetched once rather than per check. This is the signal behind the hard
+          # rule that a breakage already red on main is not this PR's problem, so
+          # an empty result here (an API blip) must fail toward "not pre-existing"
+          # — which costs a re-run, not a wrong fix.
+          main_failing="$(gh api "repos/$REPO/commits/main/check-runs" --paginate \
+            --jq '.check_runs[] | select(.conclusion == "failure") | .name' 2>/dev/null | sort -u)"
+          echo "failing on main: ${main_failing:-<none>}"
+
+          for pr in $PR_NUMBERS; do
+            echo "::group::PR #$pr"
+
+            pr_json="$(gh pr view "$pr" --repo "$REPO" \
+              --json number,title,state,url,headRefName,statusCheckRollup)" || { echo "::endgroup::"; continue; }
+
+            # Same two-signal bot gate as gpbot-pr-triage.yml. The schedule path
+            # already filtered on it; the workflow_run path has not.
+            if ! jq -e '(.title | startswith("[GP-Bot]")) or (.headRefName | contains("/gp-bot_"))' <<<"$pr_json" >/dev/null; then
+              echo "not a bot PR"; echo "::endgroup::"; continue
+            fi
+            if [ "$(jq -r .state <<<"$pr_json")" != "OPEN" ]; then
+              echo "not open"; echo "::endgroup::"; continue
+            fi
+
+            # Normalise both rollup shapes into one list. GitHub Actions jobs
+            # arrive as CheckRun (status + conclusion); external reporters such as
+            # Vercel arrive as StatusContext (a single state field).
+            checks="$(jq -c '[.statusCheckRollup[] |
+              if .__typename == "CheckRun" then
+                {name: .name, pending: (.status != "COMPLETED"), conclusion: (.conclusion // "" | ascii_upcase), url: .detailsUrl}
+              else
+                {name: (.context // .name // "status"), pending: ((.state // "") | ascii_upcase | . == "PENDING" or . == "EXPECTED"),
+                 conclusion: ((.state // "") | ascii_upcase), url: (.targetUrl // "")}
+              end]' <<<"$pr_json")"
+
+            # A board with anything still running has no verdict yet. Exiting here
+            # is what makes this workflow self-limiting: it fires once per watched
+            # workflow completion, and only the last one to finish gets past this.
+            if [ "$(jq '[.[] | select(.pending)] | length' <<<"$checks")" != "0" ]; then
+              echo "checks still running"; echo "::endgroup::"; continue
+            fi
+
+            failing="$(jq -c --arg bad "$FAILED_CONCLUSIONS" \
+              '[.[] | select(.conclusion as $c | ($bad | split(",")) | index($c))]' <<<"$checks")"
+            if [ "$(jq 'length' <<<"$failing")" = "0" ]; then
+              echo "all checks green"; echo "::endgroup::"; continue
+            fi
+
+            # Enrich each failure with the two things the classifier judges on:
+            # whether main is red for the same check, and the tail of the job log.
+            enriched='[]'
+            while read -r row; do
+              [ -n "$row" ] || continue
+              name="$(jq -r .name <<<"$row")"
+              url="$(jq -r .url <<<"$row")"
+              job_id="${url##*/job/}"
+
+              log=""
+              if [ "$job_id" != "$url" ] && [ -n "$job_id" ]; then
+                # Only the tail: every signature in INFRA_LOG_SIGNATURES appears
+                # near the end of a failed job, and the classifier caps what it
+                # reads anyway.
+                log="$(gh api "repos/$REPO/actions/jobs/${job_id}/logs" 2>/dev/null | tail -c 20000)"
+              fi
+
+              on_main=false
+              if [ -n "$main_failing" ] && grep -Fxq "$name" <<<"$main_failing"; then
+                on_main=true
+              fi
+
+              enriched="$(jq -c --argjson acc "$enriched" --arg n "$name" --arg l "$log" --argjson m "$on_main" \
+                --arg c "$(jq -r .conclusion <<<"$row")" \
+                '$acc + [{name: $n, conclusion: ($c | ascii_downcase), failing_on_main: $m, log_excerpt: $l}]' <<<'null')"
+            done < <(jq -c '.[]' <<<"$failing")
+
+            # The marker comment is the durable half of the caps: it is the only
+            # thing that stops a fix run that failed from re-triggering itself for
+            # the life of the PR.
+            marker="$(gh api "repos/$REPO/issues/$pr/comments" --paginate \
+              --jq '[.[] | select(.body | contains("<!-- gpbot-ci-drive -->"))] | last')"
+            comment_id="$(jq -r 'if . == null then "" else .id end' <<<"${marker:-null}")"
+
+            decision="$(jq -n --argjson checks "$enriched" \
+              --arg body "$(jq -r 'if . == null then "" else .body end' <<<"${marker:-null}")" \
+              '{checks: $checks, state_comment: (if $body == "" then null else $body end)}' \
+              | python3 "$triage")" || { echo "::error::triage failed for #$pr"; echo "::endgroup::"; continue; }
+
+            action="$(jq -r .action <<<"$decision")"
+            echo "decision: $action — $(jq -r .reason <<<"$decision")"
+
+            if [ "$action" = "none" ]; then echo "::endgroup::"; continue; fi
+
+            # STATE IS WRITTEN BEFORE THE ACTION IS TAKEN, and the order is the
+            # cap. If this job dies between the two, the round is recorded as
+            # spent and at worst the PR loses one attempt; recording it after
+            # would let a crash-looping drive spend the same round forever.
+            body="$(jq -r .comment_body <<<"$decision")"
+            if [ -n "$comment_id" ]; then
+              gh api -X PATCH "repos/$REPO/issues/comments/$comment_id" -f body="$body" >/dev/null
+            else
+              gh api -X POST "repos/$REPO/issues/$pr/comments" -f body="$body" >/dev/null
+            fi
+
+            case "$action" in
+              rerun)
+                # --failed, not a full re-run: the passing shards on #1306 cost
+                # ~4 minutes each and re-running them proves nothing.
+                jq -r '.[] | .url' <<<"$failing" | sed -n 's#.*/actions/runs/\([0-9]*\)/.*#\1#p' | sort -u \
+                  | while read -r run_id; do
+                      echo "re-running failed jobs in run $run_id"
+                      gh run rerun "$run_id" --repo "$REPO" --failed || \
+                        echo "::warning::could not re-run $run_id"
+                    done
+                ;;
+
+              fix)
+                # The ClickUp task is recovered from the branch's custom_id
+                # prefix (ENG-1234/gp-bot_...), the same route
+                # gpbot-pr-triage.yml uses. Launching goes through the Lambda so
+                # the fix run reuses the one audited path to Fargate —
+                # trigger_fargate_task — rather than a second, less-scrutinised
+                # one wired straight to ECS from CI.
+                custom_id="$(jq -r '.headRefName | split("/")[0]' <<<"$pr_json")"
+                task_id=""
+                if [[ "$custom_id" =~ ^[A-Za-z]+-[0-9]+$ ]] && [ -n "${CLICKUP_API_TOKEN:-}" ]; then
+                  task_id="$(curl -sS --max-time 20 -H "Authorization: $CLICKUP_API_TOKEN" \
+                    "https://api.clickup.com/api/v2/task/${custom_id}?custom_task_ids=true&team_id=90132012119" \
+                    | jq -r '.id // empty')"
+                fi
+                if [ -z "$task_id" ]; then
+                  # FAIL CLOSED on the expensive action, unlike the triage
+                  # workflow's fail-open reviewer lookup. A run launched without
+                  # its ticket cannot report back anywhere a human will look.
+                  echo "::error::cannot resolve the ClickUp task for #$pr; not launching a fix run"
+                  echo "::endgroup::"; continue
+                fi
+
+                # Only an integer and a validated id cross this boundary. Check
+                # names, step names and log text are deliberately left out: they
+                # come from CI output and would otherwise reach a system prompt.
+                aws lambda invoke \
+                  --function-name "$LAMBDA_FUNCTION" \
+                  --cli-binary-format raw-in-base64-out \
+                  --payload "$(jq -nc --arg t "$task_id" --argjson p "$pr" \
+                      '{gpbot_ci_fix: true, clickup_task_id: $t, pr_number: $p}')" \
+                  --cli-read-timeout 120 \
+                  /tmp/ci-fix-response.json > /tmp/ci-fix-meta.json
+                cat /tmp/ci-fix-meta.json /tmp/ci-fix-response.json
+
+                # A handled exception inside the function still returns HTTP 200,
+                # so checking the status code alone would report a run that never
+                # launched as a launched one.
+                if grep -q '"FunctionError"' /tmp/ci-fix-meta.json ||
+                   [ "$(jq -r '.statusCode // empty' /tmp/ci-fix-response.json)" != "200" ]; then
+                  echo "::error::fix run for #$pr did not launch"
+                fi
+                ;;
+
+              report|escalate)
+                # The established route to the humans who triage these bugs.
+                # Degrades quietly when the channel or token is unset so this
+                # workflow can land before that wiring is confirmed.
+                if [ -n "${SLACK_TOKEN:-}" ] && [ -n "${CHANNEL:-}" ]; then
+                  # jq assembles the text so a summary containing quotes or
+                  # backslashes cannot break out of the JSON, and so no line of
+                  # it has to sit at column 0 inside this block scalar.
+                  jq -n --arg channel "$CHANNEL" \
+                    --arg url "$(jq -r .url <<<"$pr_json")" \
+                    --arg pr "$pr" \
+                    --arg summary "$(jq -r .summary <<<"$decision")" \
+                    '{channel: $channel,
+                      text: ("*gpbot could not get <" + $url + "|#" + $pr + "> green.*\n" + $summary
+                             + "\nThe bot has stopped driving it. Closing the PR is a fine outcome if the fix is not worth it.")}' \
+                    | curl -sSf -X POST https://slack.com/api/chat.postMessage \
+                        -H "Authorization: Bearer $SLACK_TOKEN" \
+                        -H 'Content-type: application/json; charset=utf-8' \
+                        --data @- \
+                    | tee /dev/stderr | jq -e '.ok' > /dev/null \
+                    || echo "::error::could not announce #$pr in Slack"
+                fi
+                ;;
+            esac
+
+            echo "::endgroup::"
+          done

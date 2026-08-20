@@ -3408,3 +3408,159 @@ def test_the_permanent_check_is_unwindowed_unlike_the_dedup_layers():
 
     assert handler.has_any_bot_comment(ancient) is True
     assert handler.has_processing_started_comment(ancient, "analyze") is False
+
+
+# ---------------------------------------------------------------------------
+# CI drive: launching a run to get a [GP-Bot] PR's checks green
+#
+# This dispatch is reachable only by something holding AWS credentials
+# (.github/workflows/gpbot-ci-drive.yml), and unlike every other trigger it
+# consults no tag and opens no ticket — so the payload guards are the only thing
+# standing between a malformed request and an agent that can push code.
+# ---------------------------------------------------------------------------
+
+
+def ci_fix_event(task_id: str | None = "abc123", pr_number=1306) -> dict:
+    event: dict = {"gpbot_ci_fix": True, "pr_number": pr_number}
+    if task_id is not None:
+        event["clickup_task_id"] = task_id
+    return event
+
+
+def test_ci_fix_request_launches_a_run_labelled_ci_fix(fake_clickup, fake_ecs, ecs_env):
+    # AGENT_LABEL is what engineer_agent gates its analyze->implement escalation
+    # on, so a CI fix run carrying "analyze" could queue an implementation run
+    # off the back of a CI failure. It must be its own label.
+    handler.handler(ci_fix_event(), None)
+
+    assert len(fake_ecs.run_task_calls) == 1
+    env = engineer_agent_env(fake_ecs.run_task_calls[0])
+    assert env["AGENT_LABEL"] == handler.CI_FIX_LABEL
+    assert env["CLICKUP_TASK_ID"] == "abc123"
+
+
+def test_the_fix_instruction_names_the_pr_to_push_to(fake_clickup, fake_ecs, ecs_env):
+    # A fix run that cannot tell which PR it is fixing is a fix run that opens a
+    # second PR, which is the outcome this whole path exists to avoid.
+    handler.handler(ci_fix_event(pr_number=1306), None)
+
+    assert "#1306" in engineer_agent_env(fake_ecs.run_task_calls[0])["INSTRUCTION"]
+
+
+def test_the_fix_instruction_forbids_weakening_tests_and_merging(fake_clickup, fake_ecs, ecs_env):
+    # The two prohibitions that turn this feature from useful into dangerous if
+    # they are ever dropped from the prompt. A green check bought by a deleted
+    # test is strictly worse than the red check it replaced, and the contract of
+    # the whole bot is that a human decides what lands.
+    handler.handler(ci_fix_event(), None)
+
+    instruction = engineer_agent_env(fake_ecs.run_task_calls[0])["INSTRUCTION"].lower()
+    assert "never weaken a test" in instruction
+    assert "never merge this pr" in instruction
+    assert "gh pr merge" in instruction
+    assert "never open a second pr" in instruction
+
+
+def test_the_fix_instruction_tells_the_agent_to_stop_on_an_infra_failure(fake_clickup, fake_ecs, ecs_env):
+    # The triage in ci_triage.py only sends deterministic failures here, but its
+    # signature list is not exhaustive, so the agent is the second line of the
+    # same defence: an infra or pre-existing failure must produce a comment, not
+    # a code change.
+    handler.handler(ci_fix_event(), None)
+
+    instruction = engineer_agent_env(fake_ecs.run_task_calls[0])["INSTRUCTION"].lower()
+    assert "change nothing" in instruction
+    assert "main" in instruction
+
+
+@pytest.mark.parametrize(
+    "task_id",
+    [None, "", "not a task id", "../../etc/passwd", "abc/def", "x" * 65],
+)
+def test_a_malformed_task_id_launches_nothing(fake_clickup, fake_ecs, ecs_env, capsys, task_id):
+    # The id is interpolated into a ClickUp URL path and this payload does not
+    # come through the signature-verified webhook, so it is validated rather
+    # than trusted.
+    resp = handler.handler(ci_fix_event(task_id=task_id), None)
+
+    assert resp["statusCode"] == 400
+    assert_no_side_effects(fake_clickup, fake_ecs)
+    assert_alarm_log_emitted(capsys)
+
+
+@pytest.mark.parametrize("pr_number", [None, 0, -1, "1306", 1.5, True, 10_000_000])
+def test_a_malformed_pr_number_launches_nothing(fake_clickup, fake_ecs, ecs_env, capsys, pr_number):
+    # True is in the list on purpose: bool subclasses int, so an isinstance check
+    # alone would accept it and format the instruction against "PR #True".
+    resp = handler.handler(ci_fix_event(pr_number=pr_number), None)
+
+    assert resp["statusCode"] == 400
+    assert_no_side_effects(fake_clickup, fake_ecs)
+    assert_alarm_log_emitted(capsys)
+
+
+def test_a_ci_fix_payload_arriving_through_the_alb_is_not_dispatched(fake_clickup, fake_ecs, ecs_env):
+    # Same unspoofable-through-the-ALB contract as the async and sweep markers,
+    # and it matters most here: this dispatch checks no tag and no signature, so
+    # a public request that reached it could launch a run that pushes code. An
+    # ALB-wrapped request always carries "headers", and its JSON stays a string
+    # inside event["body"].
+    resp = handler.handler({"headers": {}, "body": json.dumps(ci_fix_event())}, None)
+
+    assert resp["statusCode"] != 200 or response_body(resp).get("status") != "triggered"
+    assert_no_side_effects(fake_clickup, fake_ecs)
+
+
+def test_a_second_concurrent_ci_fix_for_one_ticket_is_suppressed(
+    fake_clickup, fake_ecs, ecs_env, dedup_table_env, fake_dynamodb
+):
+    # The per-PR budget lives in the drive's marker comment, but two workflow
+    # runs racing on the same PR would both read the same pre-write state. The
+    # existing atomic claim is the concurrency guard underneath it.
+    fake_dynamodb.put_item_exception = conditional_check_failed()
+
+    resp = handler.handler(ci_fix_event(), None)
+
+    assert response_body(resp)["skipped"] == "duplicate suppressed"
+    assert_no_side_effects(fake_clickup, fake_ecs)
+
+
+def test_a_failed_ci_fix_launch_releases_its_claim(fake_clickup, fake_ecs, ecs_env, dedup_table_env, fake_dynamodb):
+    # A claim left behind by a launch that never happened would suppress the
+    # next attempt for the whole TTL, silently costing the PR a round.
+    fake_ecs.exception = RuntimeError("ECS is down")
+
+    handler.handler(ci_fix_event(), None)
+
+    assert len(fake_dynamodb.delete_item_calls) == 1
+
+
+def test_the_ci_fix_claim_is_scoped_to_its_own_label(fake_clickup, fake_ecs, ecs_env, dedup_table_env, fake_dynamodb):
+    # Sharing a claim key with the implement run would let a recent gpbot-work
+    # launch silently suppress the CI drive for the same ticket.
+    handler.handler(ci_fix_event(), None)
+
+    assert fake_dynamodb.put_item_calls[0]["Item"]["pk"]["S"] == f"abc123#{handler.CI_FIX_LABEL}"
+
+
+def test_ci_fix_never_raises_into_the_lambda_runtime(fake_clickup, fake_ecs, ecs_env, monkeypatch, capsys):
+    # The caller is an `aws lambda invoke` step in a workflow. An escaping
+    # exception surfaces there as a Lambda stack trace with nothing on the
+    # ticket, so failures are logged fail-loud and returned instead.
+    monkeypatch.setattr(handler, "trigger_fargate_task", _raise_boom)
+
+    resp = handler.handler(ci_fix_event(), None)
+
+    assert resp["statusCode"] == 500
+    assert_alarm_log_emitted(capsys)
+
+
+def _raise_boom(*args, **kwargs):
+    raise RuntimeError("boom")
+
+
+def test_ci_fix_is_not_reachable_from_a_clickup_tag():
+    # gpbot-work and gpbot-analyze are applied by ClickUp Automations, one of
+    # them workspace-wide. A tag that could launch a PR-pushing run against an
+    # arbitrary PR number has no business existing.
+    assert handler.CI_FIX_LABEL not in {config["label"] for config in handler.TAG_CONFIG.values()}
