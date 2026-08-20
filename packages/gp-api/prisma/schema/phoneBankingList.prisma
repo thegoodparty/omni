@@ -1,3 +1,16 @@
+// Storage vocabulary for PhoneBankingCreateSchema's purpose (contracts uses
+// kebab/plain values like "vote-early"; Postgres enum labels must be valid
+// identifiers, so these are the snake_case equivalents — the service layer
+// maps between the two).
+enum PhoneBankingPurpose {
+  introduce
+  persuade
+  event
+  vote_early
+  election_day
+  custom
+}
+
 model PhoneBankingList {
   id                              Int                              @id @default(autoincrement())
   createdAt                       DateTime                         @default(now()) @map("created_at")
@@ -12,6 +25,7 @@ model PhoneBankingList {
   name                            String
   script                          String                           @db.Text
   sheetCount                      Int                              @map("sheet_count") @db.SmallInt
+  purpose                         PhoneBankingPurpose
   entries                         PhoneBankingListEntry[]
   outreach                        Outreach?
   contactInteractionPhoneBankings ContactInteractionPhoneBanking[]

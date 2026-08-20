@@ -63,4 +63,11 @@ describe('RecordPhoneBankingCallSchema', () => {
     }
     expect(() => RecordPhoneBankingCallSchema.parse(call)).not.toThrow()
   })
+
+  it('rejects markHouseholdDone when outcome is not answered', () => {
+    const call = { entryId: 1, outcome: 'no_answer', markHouseholdDone: true }
+    expect(() => RecordPhoneBankingCallSchema.parse(call)).toThrow(
+      /markHouseholdDone is only valid when outcome is answered/,
+    )
+  })
 })

@@ -1,6 +1,9 @@
 -- CreateEnum
 CREATE TYPE "PhoneBankCallOutcome" AS ENUM ('answered', 'no_answer', 'voicemail', 'wrong_number', 'refused');
 
+-- CreateEnum
+CREATE TYPE "PhoneBankingPurpose" AS ENUM ('introduce', 'persuade', 'event', 'vote_early', 'election_day', 'custom');
+
 -- AlterEnum
 ALTER TYPE "OutreachType" ADD VALUE 'nativePhoneBanking';
 
@@ -34,6 +37,7 @@ CREATE TABLE "phone_banking_list" (
     "name" TEXT NOT NULL,
     "script" TEXT NOT NULL,
     "sheet_count" SMALLINT NOT NULL,
+    "purpose" "PhoneBankingPurpose" NOT NULL,
 
     CONSTRAINT "phone_banking_list_pkey" PRIMARY KEY ("id")
 );

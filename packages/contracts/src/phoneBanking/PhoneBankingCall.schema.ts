@@ -62,6 +62,15 @@ export const RecordPhoneBankingCallSchema = z
       path: ['willVote'],
     },
   )
+  .refine(
+    (v) =>
+      !v.markHouseholdDone ||
+      v.outcome === PhoneBankCallOutcomeSchema.enum.answered,
+    {
+      message: 'markHouseholdDone is only valid when outcome is answered',
+      path: ['markHouseholdDone'],
+    },
+  )
 
 export type RecordPhoneBankingCall = z.infer<
   typeof RecordPhoneBankingCallSchema

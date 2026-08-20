@@ -22,6 +22,7 @@ describe('PhoneBankingListSchema', () => {
       name: 'GOTV week 1',
       script: 'Hi, this is a volunteer...',
       sheetCount: 1,
+      purpose: 'persuade',
       createdAt: '2026-08-20T12:00:00Z',
       entries: [
         {
@@ -42,6 +43,7 @@ describe('PhoneBankingListSchema', () => {
       name: 'GOTV week 1',
       script: 'Hi, this is a volunteer...',
       sheetCount: 1,
+      purpose: 'persuade',
       createdAt: '2026-08-20T12:00:00Z',
       entries: [
         {

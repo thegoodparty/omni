@@ -5,6 +5,7 @@ import {
   WillVoteAnswerSchema,
 } from '../generated/enums'
 import { zCoerceDate } from '../shared/Date.schema'
+import { PhoneBankingPurposeSchema } from './PhoneBankingCreate.schema'
 
 // The saved interaction for one person on the list, or null if nobody has
 // logged a call with them yet.
@@ -49,6 +50,7 @@ export const PhoneBankingListSchema = z.object({
   name: z.string(),
   script: z.string(),
   sheetCount: z.number().int(),
+  purpose: PhoneBankingPurposeSchema,
   createdAt: zCoerceDate(),
   entries: z.array(PhoneBankingListEntrySchema),
 })
