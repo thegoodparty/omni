@@ -3094,8 +3094,10 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
   it('claims and completes against the same pinned timestamp', async () => {
     await sweep(service)
 
-    const claimAt = mockCronLock.tryClaimHourlyRun.mock.calls[0][1]
-    const completeAt = mockCronLock.markHourlyCompleted.mock.calls[0][1]
+    const claimAt = firstOrThrow(mockCronLock.tryClaimHourlyRun.mock.calls)[1]
+    const completeAt = firstOrThrow(
+      mockCronLock.markHourlyCompleted.mock.calls,
+    )[1]
     expect(completeAt).toBe(claimAt)
   })
 })
