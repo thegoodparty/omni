@@ -340,26 +340,53 @@ export class ElectionsService {
     try {
       const districts = await this.electionApiGet<
         District[],
-        { state: string; L2DistrictType: string; districtColumns: string }
+        {
+          state: string
+          L2DistrictType: string
+          districtColumns: string
+          projectedTurnoutColumns: string
+        }
       >(ElectionApiRoutes.districts.list.path, {
         state,
         L2DistrictType: PROPOSED_DISTRICT_TYPE,
         districtColumns: 'id,state,L2DistrictType,L2DistrictName',
+        // Omitting this makes election-api include every ProjectedTurnout row
+        // for every district it returns, which is a large payload to discard
+        // on a path this hot. There is no way to ask for none, so ask for the
+        // narrowest.
+        projectedTurnoutColumns: 'id',
       })
 
-      return (
-        districts?.find(
+      const matches =
+        districts?.filter(
           (district) =>
             parseProposedCongressionalNumber(district.L2DistrictName) ===
             districtNumber,
-        ) ?? null
-      )
+        ) ?? []
+
+      // The name parse accepts any four-digit year and the list endpoint has no
+      // ordering, so if the vendor ever carries two cycles' proposed maps at
+      // once, picking one would be a coin flip that could land differently
+      // between requests. Decline instead: the caller keeps the current
+      // district, which is wrong in a visible way rather than a silent one.
+      if (matches.length > 1) {
+        this.logger.warn(
+          { state, districtNumber, matched: matches.length },
+          'Ambiguous proposed congressional district; refusing to route',
+        )
+        return null
+      }
+
+      return matches[0] ?? null
     } catch (error) {
-      this.logger.warn(
-        { error, state, districtNumber },
-        'Election API GET districts/list (proposed) failed',
-      )
-      return null
+      // Only a not-found degrades to null, and it is the ordinary case: a state
+      // with no adopted map has no row, and this endpoint 404s on an empty
+      // result rather than returning []. A 5xx or a network fault is a genuine
+      // failure and must surface — swallowing it would let transient flakiness
+      // silently move a campaign between electorates request to request, so a
+      // count and the list behind it could disagree.
+      if (error instanceof NotFoundException) return null
+      throw error
     }
   }
 

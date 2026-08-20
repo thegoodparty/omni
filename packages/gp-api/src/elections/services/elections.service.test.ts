@@ -1008,20 +1008,53 @@ describe('ElectionsService', () => {
       ).toBeNull()
     })
 
-    it('returns null (swallows) when election-api errors (genuine bug)', async () => {
+    // A genuine fault must NOT degrade to null. Swallowing one would let
+    // transient flakiness move a campaign between electorates between
+    // requests, so a count and the list behind it could be computed against
+    // different maps seconds apart.
+    it('rethrows a 5xx rather than degrading to the current map', async () => {
       mockHttpGet.mockReturnValue(
         throwError(() => makeAxiosError(500, 'internal error')),
       )
 
-      expect(
-        await service.findProposedCongressionalDistrict('OH', 4),
-      ).toBeNull()
+      await expect(
+        service.findProposedCongressionalDistrict('OH', 4),
+      ).rejects.toThrow()
     })
 
-    it('returns null (swallows) on a network failure', async () => {
+    it('rethrows a network failure rather than degrading', async () => {
       mockHttpGet.mockImplementation(() => {
         throw new Error('boom')
       })
+
+      await expect(
+        service.findProposedCongressionalDistrict('OH', 4),
+      ).rejects.toThrow()
+    })
+
+    // The name parse accepts any four-digit year and the endpoint has no
+    // ordering, so two cycles present at once would make the choice a coin
+    // flip that could land differently between requests.
+    it('refuses to route when two cycles match the same number', async () => {
+      mockHttpGet.mockReturnValue(
+        of({
+          data: [
+            {
+              id: 'd-2024',
+              state: 'OH',
+              L2DistrictType: 'Proposed_District',
+              L2DistrictName: '2024 PROPOSED CONG DIST 04 (EST.)',
+            },
+            {
+              id: 'd-2026',
+              state: 'OH',
+              L2DistrictType: 'Proposed_District',
+              L2DistrictName: '2026 PROPOSED CONG DIST 04 (EST.)',
+            },
+          ],
+          status: 200,
+        }),
+      )
 
       expect(
         await service.findProposedCongressionalDistrict('OH', 4),

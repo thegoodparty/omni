@@ -1,4 +1,5 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { NotFoundException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ElectionsService } from './elections.service'
 import { DistrictRoutingService } from './districtRouting.service'
@@ -51,17 +52,24 @@ describe('DistrictRoutingService', () => {
     expect(mockFindProposed).not.toHaveBeenCalled()
   })
 
-  it('keeps the current district when findProposedCongressionalDistrict rejects', async () => {
-    // Pins the invariant the whole "safe by construction" design rests on:
-    // a lookup failure must never turn into a broken Win surface. Fixed at
-    // its source in elections.service.ts (findProposedCongressionalDistrict
-    // degrades any failure to null) — this test exercises the same
-    // guarantee from routeWinDistrict's own vantage point.
-    mockFindProposed.mockRejectedValue(new Error('election-api down'))
+  // The fail-safe is scoped to "no adopted map", not to any failure. A
+  // missing map keeps the current district; a genuine fault propagates,
+  // because degrading it would let flakiness silently move a campaign
+  // between electorates between requests.
+  it('keeps the current district when the lookup throws not-found', async () => {
+    mockFindProposed.mockRejectedValue(new NotFoundException('no districts'))
 
     const result = await service.routeWinDistrict('oh-4-campaign', currentOhio4)
 
     expect(result.id).toBe('current-oh-4')
+  })
+
+  it('propagates a genuine lookup failure', async () => {
+    mockFindProposed.mockRejectedValue(new Error('election-api down'))
+
+    await expect(
+      service.routeWinDistrict('oh-4-campaign', currentOhio4),
+    ).rejects.toThrow('election-api down')
   })
 
   it('keeps the current district when the state has no adopted map', async () => {

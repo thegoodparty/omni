@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, NotFoundException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { District } from '../types/elections.types'
 import { US_CONGRESSIONAL_DISTRICT_TYPE } from '../util/proposedDistrictName.util'
@@ -36,13 +36,21 @@ export class DistrictRoutingService {
         districtNumber,
       )
     } catch (error) {
-      // findProposedCongressionalDistrict already degrades a missing-map
-      // 404 to null (elections.service.ts) — this catch is a second line of
-      // defense so any failure here still resolves to "current district
-      // stands," the one guarantee this whole routing policy exists for.
+      // Only a missing map keeps the current district. The lookup already maps
+      // that case to null, so reaching here means a collaborator broke that
+      // contract — degrade, but say so loudly.
+      //
+      // A genuine fault is deliberately NOT caught. Swallowing one would let
+      // transient election-api flakiness move a campaign between electorates
+      // between requests, so a count and the list behind it could be computed
+      // against different maps seconds apart. Failing the request is the
+      // honest outcome, and the caller was already depending on election-api
+      // to have resolved its position at all.
+      if (!(error instanceof NotFoundException)) throw error
+
       this.logger.warn(
         { error, orgSlug, state: current.state, districtNumber },
-        'findProposedCongressionalDistrict failed; keeping current district',
+        'Proposed-district lookup threw not-found; keeping current district',
       )
       return current
     }
