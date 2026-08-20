@@ -1,8 +1,18 @@
-import { BadRequestException } from '@nestjs/common'
+import { BadRequestException, GatewayTimeoutException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Prisma } from '../../generated/people-prisma'
 import { VoterDoorKnockingService } from './voterDoorKnocking.service'
 import type { PeopleDbService } from '../peopleDb.service'
+
+const sqlOf = (call: unknown): string => (call as { sql?: string })?.sql ?? ''
+
+// Mirrors the real Prisma raw-query error for SQLSTATE 57014 (statement
+// cancelled by statement_timeout).
+const statementTimeoutError = () =>
+  new Prisma.PrismaClientKnownRequestError(
+    'Raw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`',
+    { code: 'P2010', clientVersion: 'test', meta: { code: '57014' } },
+  )
 
 const DISTRICT_ID = '457a1cd7-4184-f823-49d3-f207af693521'
 const TARGET_ID = '11111111-1111-1111-1111-111111111111'
@@ -21,7 +31,11 @@ const evaluateRow = (id: string) => ({
 
 describe('VoterDoorKnockingService', () => {
   let service: VoterDoorKnockingService
-  let mockClient: { $queryRaw: ReturnType<typeof vi.fn> }
+  let mockClient: {
+    $queryRaw: ReturnType<typeof vi.fn>
+    $executeRaw: ReturnType<typeof vi.fn>
+    $transaction: ReturnType<typeof vi.fn>
+  }
   const mockDistrictService = {
     findDistrictById: vi.fn().mockResolvedValue({
       id: DISTRICT_ID,
@@ -32,7 +46,13 @@ describe('VoterDoorKnockingService', () => {
   }
 
   beforeEach(() => {
-    mockClient = { $queryRaw: vi.fn() }
+    mockClient = {
+      $queryRaw: vi.fn(),
+      $executeRaw: vi.fn().mockResolvedValue(0),
+      $transaction: vi
+        .fn()
+        .mockImplementation((ops: Promise<unknown>[]) => Promise.all(ops)),
+    }
     service = new VoterDoorKnockingService(mockDistrictService as never)
     ;(service as unknown as { _peopleDb: PeopleDbService })._peopleDb = {
       get instance() {
@@ -140,7 +160,13 @@ describe('VoterDoorKnockingService', () => {
       await service.evaluate(dto as never)
       const baseline = lastQuerySql().strings.join('?')
 
-      mockClient = { $queryRaw: vi.fn().mockResolvedValueOnce([]) }
+      mockClient = {
+        $queryRaw: vi.fn().mockResolvedValueOnce([]),
+        $executeRaw: vi.fn().mockResolvedValue(0),
+        $transaction: vi
+          .fn()
+          .mockImplementation((ops: Promise<unknown>[]) => Promise.all(ops)),
+      }
       ;(service as unknown as { _peopleDb: PeopleDbService })._peopleDb = {
         get instance() {
           return mockClient
@@ -286,6 +312,60 @@ describe('VoterDoorKnockingService', () => {
       const [address] = result.addresses
       expect(address?.targets).toEqual([])
       expect(address?.otherResidents).toHaveLength(1)
+    })
+  })
+
+  // Without the statement timeout these queries are bounded only by the
+  // connection's socket_timeout (60s), which abandons the connection while
+  // the query keeps running on people-db. Prod 2026-08-20: residents() ran
+  // 60,209ms and 500'd while every guarded path failed cleanly at ~25,013ms.
+  describe('statement timeout', () => {
+    const evaluateDto = {
+      districtId: DISTRICT_ID,
+      bbox: { minLat: 41.8, maxLat: 41.9, minLng: -87.7, maxLng: -87.6 },
+      filters: { filters: [], filterValues: {}, filterOperators: {} },
+      maxPeople: 3,
+    }
+    const residentsDto = {
+      districtId: DISTRICT_ID,
+      addressKeys: [ADDRESS_KEY],
+      targetPersonIds: [TARGET_ID],
+    }
+
+    it.each([
+      ['evaluate', evaluateDto],
+      ['residents', residentsDto],
+    ])('runs %s under the 25s statement timeout', async (method, dto) => {
+      mockClient.$queryRaw.mockResolvedValueOnce([])
+
+      await service[method as 'evaluate' | 'residents'](dto as never)
+
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
+      expect(mockClient.$transaction.mock.calls[0]?.[0]).toHaveLength(2)
+      expect(sqlOf(mockClient.$executeRaw.mock.calls[0]?.[0])).toBe(
+        "SET LOCAL statement_timeout = '25000ms'",
+      )
+    })
+
+    it.each([
+      ['evaluate', evaluateDto],
+      ['residents', residentsDto],
+    ])('maps a %s statement timeout to a 504', async (method, dto) => {
+      mockClient.$transaction.mockRejectedValueOnce(statementTimeoutError())
+
+      await expect(
+        service[method as 'evaluate' | 'residents'](dto as never),
+      ).rejects.toThrow(GatewayTimeoutException)
+    })
+
+    it('lets a non-timeout database error surface unchanged', async () => {
+      mockClient.$transaction.mockRejectedValueOnce(
+        new Error('connection lost'),
+      )
+
+      await expect(service.residents(residentsDto as never)).rejects.toThrow(
+        'connection lost',
+      )
     })
   })
 })

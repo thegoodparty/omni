@@ -22,6 +22,7 @@ import {
   DoorKnockingResidentsDTO,
 } from '../schemas/doorKnocking.schema'
 import { buildBboxSql } from '../utils/bboxSql.util'
+import { runUnderStatementTimeout } from '../utils/statementTimeout.util'
 
 const VOTER_TABLE = Prisma.raw(`"${DATABASE_SCHEMA}"."Voter"`)
 const DV_TABLE = Prisma.raw(`"${DATABASE_SCHEMA}"."DistrictVoter"`)
@@ -126,7 +127,9 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
     // fails, so an oversized polygon can't silently truncate to a wrong
     // roster or stream a whole voter file. LIMIT +1 detects the overflow
     // without counting.
-    const rows = await this.client.$queryRaw<EvaluateRow[]>(Prisma.sql`
+    const rows = await runUnderStatementTimeout<EvaluateRow>(
+      this.client,
+      Prisma.sql`
       SELECT v."id",
         v."FirstName" AS "firstName",
         v."LastName" AS "lastName",
@@ -137,7 +140,11 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
       FROM ${VOTER_TABLE} v
       ${joinClause}
       ${whereClause}
-      LIMIT ${dto.maxPeople + 1}`)
+      LIMIT ${dto.maxPeople + 1}`,
+      this.logger,
+      'Evaluating this turf took too long. Shrink the polygon or narrow the ' +
+        'filters and try again.',
+    )
 
     if (rows.length > dto.maxPeople) {
       throw new BadRequestException(
@@ -169,7 +176,9 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
     })
 
     const residentsCap = dto.targetPersonIds.length * 10
-    const rows = await this.client.$queryRaw<ResidentRow[]>(Prisma.sql`
+    const rows = await runUnderStatementTimeout<ResidentRow>(
+      this.client,
+      Prisma.sql`
       SELECT v."id",
         v."FirstName" AS "firstName",
         v."LastName" AS "lastName",
@@ -182,7 +191,10 @@ export class VoterDoorKnockingService extends createPeopleDbBase(
       FROM ${VOTER_TABLE} v
       ${joinClause}
       ${whereClause}
-      LIMIT ${residentsCap + 1}`)
+      LIMIT ${residentsCap + 1}`,
+      this.logger,
+      'Loading residents for this route took too long. Try again in a moment.',
+    )
 
     // Mirrors evaluate's guard: reject rather than silently truncate — a
     // truncated response would serve wrong rosters. The cap is generous
