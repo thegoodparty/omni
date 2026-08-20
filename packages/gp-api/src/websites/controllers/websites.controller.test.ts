@@ -1083,6 +1083,7 @@ describe('WebsitesController', () => {
         campaignId: 7,
         status: WebsiteStatus.published,
         vanityPath: 'jane',
+        legacyTitleOverride: null,
         hasEverBeenPublished: true,
         content: completeContent,
         campaign: {
@@ -1109,6 +1110,7 @@ describe('WebsitesController', () => {
         hasEverBeenPublished: false,
         vanityPath: 'jane',
         content: completeContent,
+        legacyTitleOverride: null,
         createdAt: new Date(),
         updatedAt: new Date(),
         domain: {
@@ -1151,6 +1153,7 @@ describe('WebsitesController', () => {
         hasEverBeenPublished: true,
         vanityPath: 'jane',
         content: completeContent,
+        legacyTitleOverride: null,
         createdAt: new Date(),
         updatedAt: new Date(),
         domain: {

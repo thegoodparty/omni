@@ -14,6 +14,18 @@ model Website {
   vanityPath           String           @unique @map("vanity_path")
   /// [WebsiteContent]
   content              Json?            @default("{}") @db.JsonB
+  /// TEMPORARY (remove after the 2026-11-03 general election).
+  /// Candidate-authored hero headline, preserved for the 47 published Pro sites
+  /// that had one when headlines became derived from the owner's name. Only the
+  /// hero and the page <title> read it; the "paid for by" footer and the SMS
+  /// privacy/terms copy always use the derived name, which is the legally
+  /// correct entity there. Nothing writes this column: it was populated once by
+  /// 20260817090000_strip_website_main_title from the ID list in that migration,
+  /// and no endpoint, MCP tool or admin surface sets it. Do not add one — a new
+  /// custom headline would reintroduce the stale-name divergence this replaced.
+  /// Dropping the column changes those sites' headline to the derived form, so
+  /// schedule it deliberately rather than as cleanup.
+  legacyTitleOverride  String?          @map("legacy_title_override")
   domain               Domain?
   contacts             WebsiteContact[]
   views                WebsiteView[]

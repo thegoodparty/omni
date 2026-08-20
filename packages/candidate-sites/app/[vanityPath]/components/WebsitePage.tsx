@@ -86,7 +86,10 @@ export default function WebsitePage({
       <HeroSection
         activeTheme={activeTheme}
         content={content}
-        headline={getCandidateHeadline(website.campaign?.user)}
+        headline={
+          website.legacyTitleOverride ||
+          getCandidateHeadline(website.campaign?.user)
+        }
         imageDimensions={imageDimensions}
       />
       <AboutSection activeTheme={activeTheme} content={content} />

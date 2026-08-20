@@ -15,6 +15,7 @@ export type Website = {
   campaignId: number
   status: string
   vanityPath: string
+  legacyTitleOverride: string | null
   content: {
     main: {
       image: string
