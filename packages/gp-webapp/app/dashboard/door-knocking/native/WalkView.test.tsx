@@ -379,18 +379,17 @@ describe('WalkView', () => {
   })
 
   // The note is free text about a named voter, so only its existence travels.
+  // Walked on the door that never opened, because that is the majority of
+  // them and the one the note field was restored for.
   it('reports that a note was written without shipping what it said', async () => {
     api.mock('POST /v1/door-knocking/interactions', {
       status: 200,
-      data: { personId: 'person-1', knockStatus: 'supporter' },
+      data: { personId: 'person-1', knockStatus: 'not_home' },
     })
 
     render(<WalkView turfId={3} />)
     await openPersonSheet('105 Elm St')
-    answerQuestion('Did they answer?', 'Answered')
-    answerQuestion('Did they engage?', 'Engaged')
-    answerQuestion('Do they support you?', 'Yes')
-    answerQuestion('Will they vote this election?', 'Yes')
+    answerQuestion('Did they answer?', 'Not home')
     fireEvent.change(screen.getByPlaceholderText('Notes (optional)'), {
       target: { value: 'Dog in the yard, come back Saturday' },
     })
@@ -398,10 +397,8 @@ describe('WalkView', () => {
 
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
-        outcome: 'answered',
-        supportAnswer: 'supporter',
-        willVote: 'yes',
-        knockStatus: 'supporter',
+        outcome: 'not_home',
+        knockStatus: 'not_home',
         hasNote: true,
       }),
     )

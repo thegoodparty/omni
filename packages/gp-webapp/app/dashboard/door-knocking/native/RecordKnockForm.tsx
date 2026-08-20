@@ -166,6 +166,14 @@ export default function RecordKnockForm({
       // they had picked inside it.
       ...(engaged && supportAnswer ? { supportAnswer } : {}),
       ...(engaged && willVote ? { willVote } : {}),
+      // The note is deliberately NOT guarded the same way. Support and
+      // will-vote are answers to questions this door was never asked, but a
+      // note is text a person wrote, and the contract takes one on any outcome
+      // (only the two answers are refined to `answered`). A canvasser who
+      // types "dog in the yard" while walking the engaged branch and then
+      // corrects the door to not-home meant the note either way — dropping it
+      // here would delete what they wrote to enforce a tidiness the schema
+      // never asked for.
       ...(trimmed ? { note: trimmed } : {}),
     })
   }
@@ -176,6 +184,10 @@ export default function RecordKnockForm({
         label={OUTCOME_QUESTION}
         options={ANSWER_OPTIONS}
         value={outcome}
+        // Changing the outcome drops the answers underneath it but keeps the
+        // note. Collapsing a row discards answers it would otherwise re-offer
+        // pre-filled and unnoticed; it never discards text the canvasser
+        // typed, which stays in state and comes back with the field.
         onChange={(value) => {
           setOutcome(value)
           setEngagement(undefined)
@@ -230,8 +242,16 @@ export default function RecordKnockForm({
         />
       )}
 
-      {/* Last, and only on the branch that had a conversation to write down. */}
-      {engaged && supportAnswer && willVote && (
+      {/* Last on every branch, and it arrives with Save: `complete` is exactly
+          "this branch has nothing left to ask", so the note is always the final
+          thing offered and never a thing standing between two questions. On the
+          engaged branch that keeps it after will-vote, where it already sat; on
+          a one-question door it puts it one tap in, which is the point — "dog in
+          the yard, come back Saturday" belongs on a not-home door, and the
+          prototype having no field there is the one part of its layout we
+          overruled. Never required: `complete` doesn't consult it, so Save is
+          live the moment the questions are done. */}
+      {complete && (
         <div className="flex flex-col gap-1">
           <span className="text-xs font-medium text-muted-foreground">
             {NOTE_QUESTION}
