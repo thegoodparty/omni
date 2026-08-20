@@ -256,12 +256,16 @@ or knocking a list would silently re-shape its own age breakdown while the
 audience behind it never moved."
 
 **Note:** the age _filter_ offered when building a list uses the newer ranges
-(18–24, 25–34, 35–49, 50–64, 65+) because those are the CRM's. So the breakdown
-groups and the filter groups genuinely do not line up. That is a real wart, and
-fixing it means changing how the map snapshot is encoded on the server — not a
-UI change.
+(18–24, 25–34, 35–49, 50–64, 65+). The breakdown's groups are the CRM's **older**
+ranges, which were replaced when those were made non-overlapping — so a candidate
+can filter a list to 35–49 and read its breakdown in a 35–50 bucket. That is a
+real wart, and closing it means changing how the map snapshot encodes age on the
+server, not a UI change.
 
 **Recommendation:** keep for now; log as data-platform work if product cares.
+Worth knowing that lists built before the ranges changed still carry the old ones
+and are read correctly — that was a live gap in the filter pills, found during
+review of this work and fixed in PR #1346.
 
 ---
 
@@ -440,7 +444,16 @@ prototype's rail carries the line "Tap a list to highlight it on the map, or
 Knock to start at the first door." — restored, on the populated rail only (the
 empty state already explains how to make a first list).
 
-### 4. The door sheet's cards had lost their icons too
+### 4. Lists cut on age alone showed no filters at all
+
+Not a prototype difference — a bug the grouping work above uncovered. The pills
+are labelled from the list of filters the app currently offers, and the age
+ranges changed at some point from overlapping bands to exclusive ones. Any list
+saved before that still carries the old ranges, which are no longer in that list,
+so a list targeting 35–50-year-olds displayed **no filter pills whatsoever** —
+indistinguishable on screen from a list that targets everybody. Now labelled.
+
+### 5. The door sheet's cards had lost their icons too
 
 The panel a canvasser opens at a door is a stack of bordered cards — Contact
 information, Household, Activity feed — whose headers were text alone, so
@@ -450,7 +463,7 @@ far end of the row. Restored, along with the prototype's person glyph on the
 resident switcher, where a strip of names and coloured dots otherwise reads as
 filter chips rather than as the people behind one door.
 
-All four are covered by new tests.
+All five are covered by new tests.
 
 ---
 
