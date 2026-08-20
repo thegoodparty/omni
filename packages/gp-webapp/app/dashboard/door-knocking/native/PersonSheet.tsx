@@ -6,7 +6,15 @@ import {
   RoutePayloadStop,
   RoutePayloadTarget,
 } from '@goodparty_org/contracts'
-import { IconButton, MapPinIcon, XMarkIcon } from '@styleguide'
+import {
+  CircleUserRoundIcon,
+  HouseIcon,
+  IconButton,
+  MapPinIcon,
+  UserIcon,
+  XMarkIcon,
+} from '@styleguide'
+import SheetSectionHeader from './SheetSectionHeader'
 import RecordKnockForm from './RecordKnockForm'
 import DoorScript from './DoorScript'
 import { useDoorScript } from './useDoorScript'
@@ -148,6 +156,14 @@ export default function PersonSheet({
                     }`}
                     onClick={() => onSelectTarget(candidate.stopTargetId)}
                   >
+                    {/* The tab strip holds names and status dots and reads as a
+                        row of filter chips until something says the tabs are
+                        people. Decorative, per the section headers. */}
+                    <UserIcon
+                      size={12}
+                      aria-hidden="true"
+                      className="shrink-0 text-muted-foreground"
+                    />
                     {candidate.name ?? 'Unnamed'}
                     {marker ? (
                       <ResidentMarker marker={marker} />
@@ -161,9 +177,10 @@ export default function PersonSheet({
           )}
 
           <section className="mb-4 rounded-lg border border-border">
-            <h3 className="border-b border-border px-4 py-3 text-sm font-semibold">
-              Contact information
-            </h3>
+            <SheetSectionHeader
+              icon={CircleUserRoundIcon}
+              title="Contact information"
+            />
             <div className="flex flex-col gap-3 p-4 text-sm">
               <div>
                 <p className="text-xs text-muted-foreground">Address</p>
@@ -202,9 +219,7 @@ export default function PersonSheet({
           </section>
 
           <section className="mb-4 rounded-lg border border-border">
-            <h3 className="border-b border-border px-4 py-3 text-sm font-semibold">
-              Household
-            </h3>
+            <SheetSectionHeader icon={HouseIcon} title="Household" />
             <div className="flex flex-col gap-2 p-4 text-sm">
               {targets.map((member) => {
                 const marker = targetMarker(member)

@@ -1,10 +1,12 @@
 import { RouteTargetActivity } from '@goodparty_org/contracts'
+import { HistoryIcon } from '@styleguide'
 import {
   DoorKnockActivityRow,
   RobocallActivityRow,
   StatusChangeActivityRow,
   TextActivityRow,
 } from 'app/dashboard/contacts/crm/person/ActivityFeedEntry'
+import SheetSectionHeader from './SheetSectionHeader'
 
 // ADR 0009. What this campaign already did to this resident, newest first,
 // read off the route payload rather than fetched — the sheet has to render a
@@ -59,9 +61,7 @@ export default function ActivityFeedCard({
 }) {
   return (
     <section className="mb-4 rounded-lg border border-border">
-      <h3 className="border-b border-border px-4 py-3 text-sm font-semibold">
-        Activity feed
-      </h3>
+      <SheetSectionHeader icon={HistoryIcon} title="Activity feed" />
       <div className="p-4 text-sm">
         {history.length === 0 ? (
           // Named as a fact about this resident, not the household: the
