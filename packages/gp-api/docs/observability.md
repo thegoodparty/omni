@@ -23,6 +23,7 @@ These cover system-wide concerns that aren't tied to a specific endpoint:
 - **Missing health check logs** (no `/v1/health` requests logged for 2 min)
 - **Slow Prisma connection acquisitions** (10+ connections exceeding 150ms in a 2-minute window)
 - **Door-knocking route planner spend ceiling** (>10,000 Geoapify credits across all organizations in 6h) -- the global view the per-org waypoint quota can't give. See gp-api `docs/door-knocking.md` § Spend visibility.
+- **Public campaign lookup failing** (>10% of resolvable `GET /v1/public-campaigns` lookups returning 5xx over 10 min) -- a rate-based rule for a route the generated one can't serve. See [High-volume routes](#high-volume-routes-prefer-a-ratio).
 
 ## Where do alerts show up?
 
@@ -73,6 +74,24 @@ All alerting configuration lives in `deploy/`:
 Opting in a controller means assigning it an owner. Add the controller to the appropriate team in `ALERT_OWNERSHIP` in `deploy/components/alerts.ts`. The controller name is the string from the `@Controller('...')` decorator (e.g., `@Controller('contacts')` -> `'contacts'`), and will be typesafe and autocompleted by your editor.
 
 All of that controller's endpoint alerts become active on the next deploy.
+
+### High-volume routes: prefer a ratio
+
+The generated rule has a threshold of 0: one error in the window pages. That is
+the right default for a route that should never error, and the wrong one for a
+route with enough traffic to carry a standing error rate. `public-campaigns`
+serves roughly 2 req/s from the marketing site's candidate pages; opting it in
+would have paged continuously and been muted within a day, which is no better
+than the no-coverage state it was actually in.
+
+For a route like that, leave it out of `ALERT_OWNERSHIP` and hand-write a
+global alert expressing error *share* rather than error *count* -- see
+`public-campaigns-lookup-error-ratio` in `deploy/components/alerts.ts`. Two
+things are worth copying from it: pick a denominator that excludes statuses the
+route returns by design (there, the 404 that means "candidate hasn't claimed a
+profile", ~95% of its traffic), and `and` in a minimum-volume clause so a quiet
+window can't turn one stray error into a page. Below that floor the query
+returns no data, which `grafana.ts` maps to OK, not Alerting.
 
 ## How to override thresholds
 
