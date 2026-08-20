@@ -371,6 +371,14 @@ describe('buildPlanData registered voters', () => {
     expect(rowFor('Registered voters', plan)?.notes).toMatch(/voter file/i)
   })
 
+  it("makes no turnout-rate assumption on the candidate's behalf", () => {
+    // The 18-24% off-year municipal band was the deleted heuristic's rationale,
+    // asserted for every race including state and federal.
+    const plan = buildPlanData(makeInput({ registeredVoters: null }))
+
+    expect(plan.keyAssumptions.join(' ')).not.toMatch(/18 to 24 percent/)
+  })
+
   it('cites no voter-file source when there is no count to source', () => {
     const plan = buildPlanData(makeInput({ registeredVoters: null }))
 

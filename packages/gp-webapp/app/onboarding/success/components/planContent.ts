@@ -81,7 +81,7 @@ export interface PlanInput {
   filingRequirementsText: string | null
   // From raceTargetMetrics (election-api campaign-strategy-context). All
   // nullable — null when the BR race hash didn't resolve or upstream data is
-  // sparse. When null, fallback heuristics kick in.
+  // sparse. A null is served as absent; nothing is synthesized in its place.
   registeredVoters: number | null
   uniqueCellphones: number | null
   uniqueLandlines: number | null
@@ -765,7 +765,6 @@ const FUNDRAISING_MIX: FundraisingRow[] = [
 ]
 
 const KEY_ASSUMPTIONS: string[] = [
-  'Turnout behaves like recent comparable off-year municipal elections in your area, roughly 18 to 24 percent of registered voters.',
   'Voter preferences distribute across the field without one opponent dominating. A plurality near 40 percent is often sufficient to win, but we plan to the more conservative 50% + 1 threshold.',
   'You will execute the contact cadence on schedule. Any slippage materially reduces the probability of hitting the contact goal.',
 ]
@@ -780,7 +779,7 @@ const GLOSSARY: GlossaryRow[] = [
   {
     term: 'Registered Voters',
     definition:
-      'The total pool of voters eligible to cast a ballot for a race, pulled from the latest voter file.',
+      'The total pool of voters eligible to cast a ballot for a race.',
   },
   {
     term: 'Projected Votes Needed to Win',
@@ -1081,11 +1080,8 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     winNumber,
   )
 
-  // The real registered-voter count from election-api, or nothing. There used
-  // to be a ~22%-turnout heuristic behind it, which back-derived an electorate
-  // size from the turnout projection whenever the count was missing. A count is
-  // not a projection, and the plan showed the invented figure as coming from the
-  // voter file. Where the count is absent the plan now shows no number.
+  // A count is not a projection: nothing derives this from turnout. Absent means
+  // absent, and every surface that cites it keys off the same null.
   const registeredVoters =
     input.registeredVoters && input.registeredVoters > 0
       ? input.registeredVoters
