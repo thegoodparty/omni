@@ -22,7 +22,7 @@ import { unpreviewableDisclosureLabels } from './voterFilterPreview'
 import { MAX_TURF_NAME_LENGTH, TURF_COLORS } from '../turfQueries'
 import { DOORS_PER_HOUR, estimateWalkTime } from '../walkEstimate'
 import type { PolygonRing } from '../VoterMapCanvas'
-import type { PolygonStats } from '../filterEngine'
+import type { PolygonRoster, PolygonStats } from '../filterEngine'
 
 // The demo's pill look (same selected-state convention as the CRM wizard's
 // PILL_TOGGLE_ITEM_CLASSNAME).
@@ -70,6 +70,14 @@ interface CreateListFlowProps {
   ring: PolygonRing | null
   // In-polygon counts for the drawn shape, computed by the page from the pack.
   turfStats: PolygonStats | null
+  // The doors behind those counts, grouped by the coordinate they sit at.
+  // Null whenever the panel is shut, because the page only computes it while
+  // it is open — the same in-polygon world as turfStats, never the district.
+  turfRoster: PolygonRoster | null
+  // Whether that panel is open. Owned by the page for the same reason Undo
+  // and Clear are: it is what decides whether the roster pass runs at all.
+  rosterOpen: boolean
+  onToggleRoster: () => void
   // Boundary points placed so far. `ring` only exists from three points, so
   // this is the only thing that knows there is a one- or two-point shape to
   // undo — and it counts adds, not drags, which never change the total.
@@ -161,6 +169,9 @@ export default function CreateListFlow({
   districtHouseholds,
   ring,
   turfStats,
+  turfRoster,
+  rosterOpen,
+  onToggleRoster,
   drawPointCount,
   onUndoPoint,
   onClearPoints,
@@ -386,67 +397,137 @@ export default function CreateListFlow({
           </div>
         </div>
         <div className="pointer-events-auto border-t border-border bg-background px-4 py-4 sm:px-6">
-          {/* Stacked on a phone: side by side, the stats wrap to four lines in
+          <div className="mx-auto flex w-full max-w-2xl flex-col gap-3">
+            {/* Stacked on a phone: side by side, the stats wrap to four lines in
               a sliver of a column while the button squeezes to nothing. */}
-          <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-            {/* Everything here describes the drawn shape, not the district —
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+              {/* Everything here describes the drawn shape, not the district —
                 these numbers are what the candidate commits to. */}
-            <div className="min-w-0 flex-1">
-              <p className="text-sm">
-                <span className="font-semibold tabular-nums">
-                  {doors.toLocaleString()}
-                </span>{' '}
-                doors ·{' '}
-                <span className="font-semibold tabular-nums">
-                  {stops.toLocaleString()}
-                </span>{' '}
-                stops ·{' '}
-                <span className="font-semibold tabular-nums">
-                  {(turfStats?.people ?? 0).toLocaleString()}
-                </span>{' '}
-                people
-              </p>
-              {doors > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  About {estimateWalkTime(doors)} of knocking, at{' '}
-                  {DOORS_PER_HOUR} doors an hour
+              <div className="min-w-0 flex-1">
+                <p className="text-sm">
+                  <span className="font-semibold tabular-nums">
+                    {doors.toLocaleString()}
+                  </span>{' '}
+                  doors ·{' '}
+                  <span className="font-semibold tabular-nums">
+                    {stops.toLocaleString()}
+                  </span>{' '}
+                  stops ·{' '}
+                  <span className="font-semibold tabular-nums">
+                    {(turfStats?.people ?? 0).toLocaleString()}
+                  </span>{' '}
+                  people
                 </p>
-              )}
-              {unpreviewableLabels.length > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  The map can&rsquo;t shade by {unpreviewableLabels.join(', ')}{' '}
-                  yet, so these counts include people that filter will exclude.
-                  Your saved list still applies it when you knock.
-                </p>
-              )}
-              {(turfStats?.partyMix.length ?? 0) > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {turfStats?.partyMix
-                    .map(
-                      (slice) =>
-                        `${slice.people.toLocaleString()} ${slice.label}`,
-                    )
-                    .join(' · ')}
-                </p>
-              )}
-              {overCap && (
-                <p className="text-sm text-destructive">
-                  Over the {HARD_STOP_LIMIT}-stop limit — draw a smaller area.
-                </p>
-              )}
-              {longWalk && (
-                <p className="text-sm text-warning">
-                  Over {SOFT_STOP_LIMIT} stops is a long evening. You can still
-                  save it, or draw a smaller area.
-                </p>
-              )}
+                {doors > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    About {estimateWalkTime(doors)} of knocking, at{' '}
+                    {DOORS_PER_HOUR} doors an hour
+                  </p>
+                )}
+                {unpreviewableLabels.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    The map can&rsquo;t shade by{' '}
+                    {unpreviewableLabels.join(', ')} yet, so these counts
+                    include people that filter will exclude. Your saved list
+                    still applies it when you knock.
+                  </p>
+                )}
+                {(turfStats?.partyMix.length ?? 0) > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {turfStats?.partyMix
+                      .map(
+                        (slice) =>
+                          `${slice.people.toLocaleString()} ${slice.label}`,
+                      )
+                      .join(' · ')}
+                  </p>
+                )}
+                {overCap && (
+                  <p className="text-sm text-destructive">
+                    Over the {HARD_STOP_LIMIT}-stop limit — draw a smaller area.
+                  </p>
+                )}
+                {longWalk && (
+                  <p className="text-sm text-warning">
+                    Over {SOFT_STOP_LIMIT} stops is a long evening. You can
+                    still save it, or draw a smaller area.
+                  </p>
+                )}
+                {doors > 0 && (
+                  <Button
+                    size="small"
+                    variant="ghost"
+                    className="-ml-3 mt-1"
+                    aria-expanded={rosterOpen}
+                    aria-controls="draw-step-doors"
+                    onClick={onToggleRoster}
+                  >
+                    {rosterOpen ? 'Hide the doors' : 'See the doors'}
+                  </Button>
+                )}
+              </div>
+              <Button
+                disabled={!ring || stops === 0 || overCap}
+                onClick={() => onStepChange('confirm')}
+              >
+                {continueLabel}
+              </Button>
             </div>
-            <Button
-              disabled={!ring || stops === 0 || overCap}
-              onClick={() => onStepChange('confirm')}
-            >
-              {continueLabel}
-            </Button>
+            {/* Capped in height rather than allowed to grow: the step is a map
+              being drawn on, and a list that eats the viewport takes away the
+              thing the candidate is checking it against. */}
+            {rosterOpen && turfRoster && (
+              <div
+                id="draw-step-doors"
+                className="max-h-[40dvh] overflow-y-auto rounded-lg border border-border p-3"
+              >
+                <p className="text-sm font-semibold">
+                  The doors inside your boundary
+                </p>
+                {/* Same claim the landing rail makes about its own count, in the
+                  same words: the shape is a superset of who gets knocked, and
+                  the shortfall is the map's rather than the filter's. */}
+                <p className="text-xs text-muted-foreground">
+                  The map can&rsquo;t show every filter your list applies, and
+                  knocking also skips anyone marked do-not-knock or &ldquo;not a
+                  voter&rdquo; — so you&rsquo;ll knock fewer doors than this.
+                </p>
+                {/* The pack the map is drawn from carries coordinates and no
+                  addresses; the street address of a door is frozen onto the
+                  route, which is bought when the list is knocked. */}
+                <p className="text-xs text-muted-foreground">
+                  Street addresses arrive with the route, once you knock this
+                  list.
+                </p>
+                {/* No numbering: nothing has decided a visiting order yet, and
+                  the Aug 14 walkthrough asked numerals out of the list view. */}
+                <ul className="mt-2 divide-y divide-border">
+                  {turfRoster.locations.map((location, index) => (
+                    <li key={index} className="py-2">
+                      {location.doors.length > 1 && (
+                        <p className="text-xs font-medium">
+                          {location.doors.length} doors at one location
+                        </p>
+                      )}
+                      <ul>
+                        {location.doors.map((door, doorIndex) => (
+                          <li key={doorIndex} className="text-sm">
+                            {door.people.toLocaleString()} matching{' '}
+                            {door.people === 1 ? 'voter' : 'voters'}
+                          </li>
+                        ))}
+                      </ul>
+                    </li>
+                  ))}
+                </ul>
+                {turfRoster.shownDoors < turfRoster.totalDoors && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Showing {turfRoster.shownDoors.toLocaleString()} of{' '}
+                    {turfRoster.totalDoors.toLocaleString()} doors.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
