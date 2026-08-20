@@ -413,8 +413,9 @@ for route type, a calendar for the created date, a tick for progress. Ours was
 six unadorned label-and-number pairs — six numbers in a two-column grid told
 apart only by reading their labels.
 
-Restored, using the design system's own icon set rather than the prototype's:
-a door for **Doors** (we count doors, not households — that distinction is
+PR #1346 restores them, using the design system's own icon set rather than the
+prototype's: a door for **Doors** (we count doors, not households — that
+distinction is
 load-bearing here), people for **People**, a clock for **Travel time** /
 **Knocking time**, a pin for **Route type**, a calendar for **Created**, a tick
 for **People logged**. The icons are marked decorative so screen readers read the
@@ -431,7 +432,7 @@ as one flat run of pills.
 That is legible for "Democrat" and meaningless for "Unknown", which is an option
 on **eleven** of these filters, and for "Yes", which is on four. A list filtered
 to veterans with an unknown homeowner flag rendered as `Yes  Unknown` and
-identified neither. The pills are now grouped under their field, in the same
+identified neither. PR #1346 groups the pills under their field, in the same
 order and with the same headings the list-building flow uses, so a candidate
 reads their list back in the shape they picked it.
 
@@ -441,8 +442,8 @@ Tapping a list's **name** is what focuses the map on it and rescopes the voter
 count and the seven status chips below. Details, Knock and the hide toggle are
 labelled buttons; the name is just a name, and nothing said it was a target. The
 prototype's rail carries the line "Tap a list to highlight it on the map, or
-Knock to start at the first door." — restored, on the populated rail only (the
-empty state already explains how to make a first list).
+Knock to start at the first door." — PR #1346 restores it, on the populated rail
+only (the empty state already explains how to make a first list).
 
 ### 4. Lists cut on age alone showed no filters at all
 
@@ -451,7 +452,7 @@ are labelled from the list of filters the app currently offers, and the age
 ranges changed at some point from overlapping bands to exclusive ones. Any list
 saved before that still carries the old ranges, which are no longer in that list,
 so a list targeting 35–50-year-olds displayed **no filter pills whatsoever** —
-indistinguishable on screen from a list that targets everybody. That PR labels
+indistinguishable on screen from a list that targets everybody. PR #1346 labels
 them.
 
 ### 5. The door sheet's cards had lost their icons too
@@ -460,11 +461,11 @@ The panel a canvasser opens at a door is a stack of bordered cards — Contact
 information, Household, Activity feed — whose headers were text alone, so
 finding the one with the phone number in it meant reading three near-identical
 bars on a phone screen. The prototype pairs each card title with a glyph at the
-far end of the row. Restored, along with the prototype's person glyph on the
-resident switcher, where a strip of names and coloured dots otherwise reads as
-filter chips rather than as the people behind one door.
+far end of the row. PR #1346 restores these, along with the prototype's person
+glyph on the resident switcher, where a strip of names and coloured dots
+otherwise reads as filter chips rather than as the people behind one door.
 
-All five are covered by new tests in that PR.
+All five carry new tests in that PR.
 
 ---
 
