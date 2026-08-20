@@ -8,8 +8,8 @@ difference into one of three piles:
   why. These are listed below for product to confirm or overturn. Nothing here
   has been changed.
 - **Accidental** — the prototype had it, we lost it or never built it, and no
-  decision is recorded. These have been fixed in this branch; they are listed at
-  the end so you can see what moved.
+  decision is recorded. These are fixed in PR #1346; they are listed near the end
+  so you can see what moved.
 - **Blocked** — real gaps that sit in files three other pull requests are
   currently editing. Listed with enough detail for a follow-up to act on.
 
@@ -49,10 +49,10 @@ would be wrong.
 > with.
 
 **The reasoning.** A bar reads as "how much of this list is done". The number
-behind it is doors where _something_ was written down — including "not home",
+behind it is doors where *something* was written down — including "not home",
 "inaccessible" and "refused". A canvasser who knocked forty doors and spoke to
 nobody would see a bar most of the way across. The team's judgement was that the
-text version (`40 of 120 · 33%`, under the word _logged_) makes the same
+text version (`40 of 120 · 33%`, under the word *logged*) makes the same
 information available without the bar's implicit claim of completion.
 
 **Worth knowing before you decide:** the prototype's bar can't be ported
@@ -65,7 +65,7 @@ list of 68 doors holds 120 targeted people, and the two numbers move
 independently. Copying the bar without choosing a side lands on
 people-logged over doors, which can read past 100%.
 
-**Recommendation:** if product wants the bar back, ask for it over the _same_
+**Recommendation:** if product wants the bar back, ask for it over the *same*
 denominator the stat already uses (knockable people) and keep the word "logged"
 on it. That is a small change, and it is the one to ask for. What we should not
 do is copy the prototype's fraction across, because it does not mean the same
@@ -144,9 +144,9 @@ list" turn into 51 doors with no explanation.
 > visual form on a surface opened from that rail is how two presentations of one
 > quantity start disagreeing.
 
-**Plain version.** _Top issues_ was invented data in the prototype — we hold no
+**Plain version.** *Top issues* was invented data in the prototype — we hold no
 issue preference per voter, from any source, so the group could only ever be
-empty or fabricated. _Support_ is already on screen as the seven coloured status
+empty or fabricated. *Support* is already on screen as the seven coloured status
 chips on the map rail, one click away; showing it twice invites the two to
 disagree. Party and age are shown because they are the only two facts that
 survive a list being knocked — every other dimension exists in the map snapshot
@@ -160,8 +160,8 @@ acquisition project, not a UI fix.
 
 ### 5. A door nobody has visited reads "Support unknown", not "Not visited"
 
-**Prototype:** two separate states — _Not visited_ (grey, never knocked) and
-_Support unknown_ (answered but wouldn't say). Both labels are in
+**Prototype:** two separate states — *Not visited* (grey, never knocked) and
+*Support unknown* (answered but wouldn't say). Both labels are in
 `VoterPanel.tsx` lines 1086–1109, picked apart by whether the door has any
 history.
 
@@ -203,7 +203,7 @@ encoding "bound for bound", duplicated deliberately, "but the two **MUST** agree
 or knocking a list would silently re-shape its own age breakdown while the
 audience behind it never moved."
 
-**Note:** the age _filter_ offered when building a list uses the newer ranges
+**Note:** the age *filter* offered when building a list uses the newer ranges
 (18–24, 25–34, 35–49, 50–64, 65+) because those are the CRM's. So the breakdown
 groups and the filter groups genuinely do not line up. That is a real wart, and
 fixing it means changing how the map snapshot is encoded on the server — not a
@@ -235,7 +235,7 @@ step's door list).
 
 **Prototype:** a "…" menu on each list card holding Delete.
 
-**Ours:** Delete is a button on the list row _and_ in the detail sheet. On a list
+**Ours:** Delete is a button on the list row *and* in the detail sheet. On a list
 that has been knocked it renders disabled with the sentence "this list has
 already been knocked…" beside it. Rename/recolour, by contrast, is hidden
 entirely once a list is knocked.
@@ -330,7 +330,7 @@ home orange, inaccessible purple, refused slate). Ours is a single bar with the
 seven per-status counts listed underneath it.
 
 The prototype's version is prettier and says less: five segments over a
-denominator of _everyone in the list_ means the bar is mostly empty at the start
+denominator of *everyone in the list* means the bar is mostly empty at the start
 of a walk and the segments are too thin to read at typical list sizes. Ours puts
 the same five numbers below the bar in words.
 
@@ -339,7 +339,7 @@ because that file is being edited by another pull request right now.
 
 ---
 
-## What was accidental, and has been fixed in this branch
+## What was accidental, and has been fixed (PR #1346)
 
 ### 1. The detail sheet's overview stats had lost their icons
 
@@ -356,7 +356,7 @@ load-bearing here), people for **People**, a clock for **Travel time** /
 for **People logged**. The icons are marked decorative so screen readers read the
 label, not the glyph.
 
-_This is the "no emojis on overview components" report._
+*This is the "no emojis on overview components" report.*
 
 ### 2. Applied filters were an undifferentiated wall of pills
 
@@ -396,7 +396,7 @@ act on them directly.
    cards, each pairing its title with a muted icon: Contact information
    (contact card), Household (house), Voter demographics (clipboard), Voter
    Support (badge), Activity feed. Ours has three plain headers. `ActivityFeedCard`
-   is _not_ blocked and I could have iconed it alone — I deliberately did not,
+   is *not* blocked and I could have iconed it alone — I deliberately did not,
    because one iconed header between two plain ones is worse than three plain
    ones. Do all three at once: Contact information and Household
    (`PersonSheet.tsx` lines 165 and 206) and Activity feed
@@ -457,7 +457,7 @@ this review.
 `statusPresentation.ts` (the status names and the six colours are the
 prototype's, deliberately — "the vocabulary is the demo's: unknown grey, not
 home yellow, supporter green, non-supporter red, inaccessible dark grey, refused
-black", lines 25–27 — with a seventh, _Not a voter_, added for a case the
+black", lines 25–27 — with a seventh, *Not a voter*, added for a case the
 prototype had no data for), `TurfRoster.tsx` (has no
 prototype counterpart — the prototype never listed a saved list's doors), the
 create flow's three-step header and progress indicator, the door script
