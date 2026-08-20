@@ -38,6 +38,7 @@ import {
 import {
   parseProposedCongressionalNumber,
   PROPOSED_DISTRICT_TYPE,
+  US_CONGRESSIONAL_DISTRICT_TYPE,
 } from '../util/proposedDistrictName.util'
 
 @Injectable()
@@ -196,6 +197,48 @@ export class ElectionsService {
         : String(error)
 
     return `*${title}*\n${contextLines}\n\n\`\`\`\n${errorDetails}\n\`\`\``
+  }
+
+  // A proposed district carries no ProjectedTurnout row, so a Win campaign in
+  // an adopted state necessarily gets its win number from the previous map's
+  // projection. Falling back is not a choice — there is nothing else to use,
+  // and routing this path without the fallback would collapse the metrics to
+  // the -1 sentinel and take the candidate's targets away entirely.
+  //
+  // What the fallback costs is accuracy: the projection covers a different
+  // electorate than the campaign's voter file. OH-4's old map holds ~7% more
+  // registered voters than its new one; Utah diverges 68%, so there the
+  // projection describes a substantially different population. The win number
+  // inherits that error, and the multipliers pass it straight into the
+  // voter-contact goal.
+  //
+  // Logged rather than returned, deliberately: no consumer contract changes
+  // yet, and the first thing worth knowing is how many campaigns this touches.
+  private async isTurnoutFromPreviousMap(
+    hasTurnout: boolean,
+    district: { state: string; L2DistrictType: string; L2DistrictName: string },
+  ): Promise<boolean> {
+    if (!hasTurnout) return false
+    if (district.L2DistrictType !== US_CONGRESSIONAL_DISTRICT_TYPE) return false
+
+    const districtNumber = Number(district.L2DistrictName)
+    if (!Number.isInteger(districtNumber) || districtNumber < 1) return false
+
+    // Never let a diagnostic break the thing it describes. The caller's catch
+    // logs a failure and pages on anything but a not-found, so a flaky lookup
+    // here would turn a working win number into an alert.
+    try {
+      return !!(await this.findProposedCongressionalDistrict(
+        district.state,
+        districtNumber,
+      ))
+    } catch (error) {
+      this.logger.warn(
+        { error, state: district.state, districtNumber },
+        'Could not determine whether turnout is from the previous map',
+      )
+      return false
+    }
   }
 
   private calculateRaceTargetMetrics(
@@ -474,6 +517,11 @@ export class ElectionsService {
       const { L2DistrictType: districtType, L2DistrictName: districtName } =
         district
 
+      const turnoutFromPreviousMap = await this.isTurnoutFromPreviousMap(
+        hasTurnout,
+        district,
+      )
+
       this.logger.info({
         event: 'DistrictMatch',
         matchType: 'gold',
@@ -486,7 +534,21 @@ export class ElectionsService {
         districtType,
         districtName,
         projectedTurnout: turnoutValue,
+        turnoutFromPreviousMap,
       })
+      if (turnoutFromPreviousMap) {
+        this.logger.warn(
+          {
+            event: 'TurnoutFromPreviousMap',
+            campaignId,
+            state: district.state,
+            districtType,
+            districtName,
+            projectedTurnout: turnoutValue,
+          },
+          'Win number derives from the pre-redistricting map',
+        )
+      }
       return {
         district,
         ...(hasTurnout

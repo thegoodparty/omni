@@ -54,6 +54,7 @@ describe('ElectionsService', () => {
   let service: ElectionsService
   let mockHttpGet: ReturnType<typeof vi.fn>
   let mockFormattedMessage: ReturnType<typeof vi.fn>
+  let mockLogger: ReturnType<typeof createMockLogger>
 
   beforeEach(async () => {
     process.env.ELECTION_API_URL = 'http://test-election-api'
@@ -86,7 +87,7 @@ describe('ElectionsService', () => {
 
     service = module.get<ElectionsService>(ElectionsService)
 
-    const mockLogger = createMockLogger()
+    mockLogger = createMockLogger()
     Object.defineProperty(service, 'logger', {
       get: () => mockLogger,
       configurable: true,
@@ -127,6 +128,96 @@ describe('ElectionsService', () => {
         expect.stringContaining('positions/by-ballotready-id/br-pos-1'),
         expect.objectContaining({ headers: AUTH_HEADER }),
       )
+    })
+
+    // A proposed district has no ProjectedTurnout, so a routed Win campaign's
+    // win number necessarily comes from the previous map. There is nothing else
+    // to use — the point of these tests is that the fallback is silent in the
+    // response and loud in the logs.
+    describe('turnout from the previous map', () => {
+      const congressionalPosition = (turnout: number) => ({
+        ...makePosition(turnout),
+        district: {
+          ...makePosition(turnout).district,
+          state: 'OH',
+          L2DistrictType: 'US_Congressional_District',
+          L2DistrictName: '4',
+        },
+      })
+
+      const proposedRow = {
+        id: 'proposed-oh-4',
+        state: 'OH',
+        L2DistrictType: 'Proposed_District',
+        L2DistrictName: '2026 PROPOSED CONG DIST 04 (EST.)',
+      }
+
+      it('flags it when the state has an adopted proposed map', async () => {
+        mockHttpGet
+          .mockReturnValueOnce(
+            of({ data: congressionalPosition(1000), status: 200 }),
+          )
+          .mockReturnValueOnce(of({ data: [proposedRow], status: 200 }))
+
+        const { winNumber, projectedTurnout } =
+          await service.getPositionMatchedRaceTargetDetails(brIdParams)
+
+        // The metrics are unchanged — the fallback is the only option.
+        expect(projectedTurnout).toBe(1000)
+        expect(winNumber).toBe(501)
+
+        expect(mockLogger.warn).toHaveBeenCalledWith(
+          expect.objectContaining({ event: 'TurnoutFromPreviousMap' }),
+          expect.stringContaining('pre-redistricting map'),
+        )
+      })
+
+      it('does not flag a state with no adopted proposed map', async () => {
+        mockHttpGet
+          .mockReturnValueOnce(
+            of({ data: congressionalPosition(1000), status: 200 }),
+          )
+          .mockReturnValueOnce(
+            throwError(() => makeAxiosError(404, 'No districts found')),
+          )
+
+        const { winNumber } =
+          await service.getPositionMatchedRaceTargetDetails(brIdParams)
+
+        expect(winNumber).toBe(501)
+        expect(mockLogger.warn).not.toHaveBeenCalledWith(
+          expect.objectContaining({ event: 'TurnoutFromPreviousMap' }),
+          expect.anything(),
+        )
+      })
+
+      // The caller's catch logs a failure and pages on anything but a
+      // not-found, so a flaky diagnostic must not reach it.
+      it('still returns metrics when the flag lookup fails', async () => {
+        mockHttpGet
+          .mockReturnValueOnce(
+            of({ data: congressionalPosition(1000), status: 200 }),
+          )
+          .mockReturnValueOnce(
+            throwError(() => makeAxiosError(500, 'internal error')),
+          )
+
+        const { winNumber, projectedTurnout } =
+          await service.getPositionMatchedRaceTargetDetails(brIdParams)
+
+        expect(projectedTurnout).toBe(1000)
+        expect(winNumber).toBe(501)
+      })
+
+      it('does not look up anything for a non-congressional district', async () => {
+        mockHttpGet.mockReturnValue(
+          of({ data: makePosition(1000), status: 200 }),
+        )
+
+        await service.getPositionMatchedRaceTargetDetails(brIdParams)
+
+        expect(mockHttpGet).toHaveBeenCalledTimes(1)
+      })
     })
 
     it('returns calculated metrics when district and turnout are present (GP ID)', async () => {
