@@ -658,6 +658,18 @@ describe('TurfDetailsSheet applied filters', () => {
   // Income ranges persist as the range strings themselves and language as
   // codes, so neither arrives as an option key — they still have to land in
   // the group they belong to rather than in an "Other" bucket.
+  it('still names the age ranges a list saved before ENG-10752 carries', async () => {
+    renderSheet({
+      // The pickers stopped offering these when the ranges were made mutually
+      // exclusive, but saved rows kept them, so a list cut on age alone showed
+      // no pills at all — indistinguishable from a list that filters nothing.
+      savedLists: [{ id: 7, age35_50: true }],
+    })
+
+    expect(await screen.findByText('Age')).toBeInTheDocument()
+    expect(screen.getByText('35-50')).toBeInTheDocument()
+  })
+
   it('groups income ranges and languages with the rest', async () => {
     renderSheet({
       savedLists: [

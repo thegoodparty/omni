@@ -18,7 +18,9 @@ import {
   XMarkIcon,
 } from '@styleguide'
 import EditTurfDialog from './EditTurfDialog'
-import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
+import filterSections, {
+  legacyAgeOptions,
+} from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
 import { LANGUAGE_KEY_TO_CODE } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import {
   routeQueryOptions,
@@ -34,12 +36,23 @@ import DeleteTurfControl, { LOCKED_TURF_MESSAGE } from './DeleteTurfControl'
 import TurfRoster from './TurfRoster'
 import { countDoors, knockableTargets } from '../routeCounts'
 
+// The age field's own options plus the retired overlapping ranges ENG-10752
+// replaced. The pickers only offer the new ones, but a list saved before that
+// change still carries the old keys, and a config-only reading of this map has
+// no entry for them — so an age-only legacy list rendered its pills as though
+// it filtered on nothing. `ListFilterSummary` reads them for the same reason.
+const optionsForField = (field: {
+  key: string
+  options: { key: string; label: string }[]
+}) =>
+  field.key === 'age' ? [...field.options, ...legacyAgeOptions] : field.options
+
 // option key -> pill label, straight from the sections config the create
 // flow renders, so Details always speaks the same vocabulary.
 const OPTION_LABELS: Record<string, string> = Object.fromEntries(
   filterSections.flatMap((section) =>
     section.fields.flatMap((field) =>
-      field.options.map((option) => [option.key, option.label]),
+      optionsForField(field).map((option) => [option.key, option.label]),
     ),
   ),
 )
@@ -54,7 +67,7 @@ const OPTION_LABELS: Record<string, string> = Object.fromEntries(
 const OPTION_FIELD_LABELS: Record<string, string> = Object.fromEntries(
   filterSections.flatMap((section) =>
     section.fields.flatMap((field) =>
-      field.options.map((option) => [option.key, field.label]),
+      optionsForField(field).map((option) => [option.key, field.label]),
     ),
   ),
 )
