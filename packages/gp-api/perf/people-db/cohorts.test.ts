@@ -34,6 +34,9 @@ describe('checkDrift', () => {
     districtId: 'x',
     expectedMin: 4000,
     expectedMax: 6000,
+    district: 'a district',
+    partition: 'CA (429M rows / 63GB)',
+    description: 'a cohort',
   }
   it('passes when the actual count is inside the band', () => {
     expect(checkDrift(cohort, 5000).ok).toBe(true)
