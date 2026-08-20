@@ -467,6 +467,28 @@ describe('RecordKnockForm saving', () => {
       question('Did they answer?').getByRole('radio', { name: 'Not home' }),
     ).toHaveAttribute('data-state', 'on')
   })
+
+  // The banner is not gated on the walk, so a Cancel that clears the answers
+  // would otherwise leave it promising that they are still here.
+  it('clears a failed save when the walk is cancelled', async () => {
+    api.mock('POST /v1/door-knocking/interactions', {
+      status: 500,
+      data: { message: 'nope' },
+    })
+    renderForm()
+
+    answer('Did they answer?', 'Not home')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() =>
+      expect(screen.getByText(/Saving failed/)).toBeInTheDocument(),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.queryByText(/Saving failed/)).toBeNull()
+    answer('Did they answer?', 'Not home')
+    expect(screen.queryByText(/Saving failed/)).toBeNull()
+  })
 })
 
 // The note lives at the end of whichever branch was walked, so dictation has

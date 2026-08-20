@@ -154,6 +154,10 @@ export default function RecordKnockForm({
     setSupportAnswer(undefined)
     setWillVote(undefined)
     setNote('')
+    // The failure banner isn't gated on the walk, so without this a Cancel
+    // after a failed save leaves it sitting over an empty form promising that
+    // "your answers are still here" — which Cancel has just made untrue.
+    record.reset()
   }
 
   const save = () => {
