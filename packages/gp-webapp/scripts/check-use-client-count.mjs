@@ -203,7 +203,12 @@ import { dirname, join, relative } from 'node:path'
 // RobocallFlow (flow state) and RobocallPurposeStep (onClick selection) are
 // interactive drawer surfaces mirroring the social flow, so both are client
 // components.
-const BASELINE = 584
+// 2026-08-20: 584 -> 585 for the robocall audience step (phase 3, slice 2):
+// OutreachAudienceStep — the shared, reusable saved-list picker + in-flow
+// builder — owns the popover open state and click handlers, so it's a client
+// component. Its data hook useOutreachAudience.ts stays directive-free (no JSX,
+// pulled into the client graph by its importers).
+const BASELINE = 585
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
