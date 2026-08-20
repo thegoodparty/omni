@@ -208,6 +208,38 @@ describe('VoterDoorKnockingService', () => {
       cellPhone: '(615) 555-0142',
       landline: null,
       addressKey,
+      // Raw column values, as the voter file spells them — the point of these
+      // fixtures is that the service runs them through the display mappers
+      // rather than passing the file's own vocabulary to a canvasser.
+      registered: true,
+      Voter_Status: 'Super',
+      Marital_Status: 'Inferred Married',
+      Presence_Of_Children: 'Y',
+      Veteran_Status: 'Yes',
+      Homeowner_Probability_Model: 'Probable Home Owner',
+      Business_Owner: 'Y',
+      Education_Of_Person: 'Completed Graduate School Likely',
+      Estimated_Income_Amount_Int: 82000,
+      Language_Code: 'Spanish',
+      EthnicGroups_EthnicGroup1Desc: 'Hispanic and Portuguese',
+    })
+
+    // A person with nothing on file. This is the common case in the voter
+    // file, not an edge — the exploration pack reserves a no-data bucket on
+    // every one of these dimensions — so the null path is the one that has to
+    // be right.
+    const sparseRow = (id: string) => ({
+      ...residentRow(id),
+      Voter_Status: 'Unknown',
+      Marital_Status: null,
+      Presence_Of_Children: null,
+      Veteran_Status: null,
+      Homeowner_Probability_Model: null,
+      Business_Owner: null,
+      Education_Of_Person: null,
+      Estimated_Income_Amount_Int: null,
+      Language_Code: null,
+      EthnicGroups_EthnicGroup1Desc: null,
     })
 
     it('partitions live residents into targets and otherResidents', async () => {
@@ -229,13 +261,163 @@ describe('VoterDoorKnockingService', () => {
           politicalParty: 'Independent',
           cellPhone: '(615) 555-0142',
           landline: null,
+          // The eleven attributes, each through the display mapper
+          // /v1/contacts person detail already uses — so what reaches the door
+          // is "Likely Married" and "Graduate Degree", never the file's
+          // "Inferred Married" and "Completed Graduate School Likely".
+          registeredVoter: true,
+          turnoutLikelihood: 'Super',
+          maritalStatus: 'Likely Married',
+          hasChildrenUnder18: 'Yes',
+          veteranStatus: 'Yes',
+          homeowner: 'Likely',
+          businessOwner: 'Yes',
+          levelOfEducation: 'Graduate Degree',
+          estimatedIncomeAmount: 82000,
+          language: 'Spanish',
+          ethnicityGroup: 'Hispanic',
         },
       ])
       // Household context stays name-only: a non-target resident is context for
-      // the conversation, not someone the candidate asked to contact.
+      // the conversation, not someone the candidate asked to contact. `toEqual`
+      // and not `toMatchObject`, so this fails if the demographic profile ever
+      // widens to reach them.
       expect(address?.otherResidents).toEqual([
         { personId: OTHER_ID, firstName: 'Marisol', lastName: 'Vega' },
       ])
+    })
+
+    // The same row that produced a full profile for a target above produces
+    // three keys for a non-target, which is the property worth asserting: the
+    // columns were selected and then deliberately not handed over.
+    it('withholds the demographic profile from a non-target resident', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([residentRow(OTHER_ID)])
+
+      const result = await service.residents(dto as never)
+
+      const [resident] = result.addresses[0]?.otherResidents ?? []
+      expect(Object.keys(resident ?? {}).sort()).toEqual([
+        'firstName',
+        'lastName',
+        'personId',
+      ])
+    })
+
+    it('selects every demographic column', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([residentRow(TARGET_ID)])
+
+      await service.residents(dto as never)
+
+      const sql = lastQuerySql().strings.join('?')
+      for (const column of [
+        'StateVoterID',
+        'Voter_Status',
+        'Marital_Status',
+        'Presence_Of_Children',
+        'Veteran_Status',
+        'Homeowner_Probability_Model',
+        'Business_Owner',
+        'Education_Of_Person',
+        'Estimated_Income_Amount_Int',
+        'Language_Code',
+        'EthnicGroups_EthnicGroup1Desc',
+      ]) {
+        expect(sql).toContain(column)
+      }
+    })
+
+    // Widening the projection must not touch the predicate, the cap or the
+    // guard — this is the module's fragile query (peopleDb/AGENTS.md), and its
+    // cost lives in the scan rather than in the column list.
+    it('leaves the address-key predicate and the cap alone', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([])
+
+      await service.residents(dto as never)
+
+      const sql = lastQuerySql()
+      expect(sql.strings.join('?')).toContain('= ANY(')
+      expect(sql.strings.join('?')).toContain('GeoMatchRooftop')
+      // targetPersonIds.length * 10, + 1 to detect the overflow.
+      expect(sql.values).toContain(11)
+    })
+
+    // Sparseness is the normal condition of this file. Every attribute has to
+    // reach the door as an explicit null so one renderer decision covers all
+    // eleven, rather than some arriving absent and others as a sentinel.
+    it('emits null for every attribute a sparse person has no data for', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([sparseRow(TARGET_ID)])
+
+      const result = await service.residents(dto as never)
+
+      expect(result.addresses[0]?.targets[0]).toMatchObject({
+        // 'Unknown' is the file's own sentinel and is not a turnout band, so
+        // it maps to null rather than being carried through as a value.
+        turnoutLikelihood: null,
+        maritalStatus: null,
+        hasChildrenUnder18: null,
+        veteranStatus: null,
+        homeowner: null,
+        businessOwner: null,
+        levelOfEducation: null,
+        estimatedIncomeAmount: null,
+        ethnicityGroup: null,
+      })
+    })
+
+    // `mapLanguage` returns 'Other' for an absent value, which is right for the
+    // CSV and wrong at the door: it would tell a canvasser this person speaks
+    // something other than English or Spanish on the strength of an empty
+    // column. Same shape as the politicalParty rule directly above it.
+    it('leaves language null when the column is empty, rather than Other', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([sparseRow(TARGET_ID)])
+
+      const result = await service.residents(dto as never)
+
+      expect(result.addresses[0]?.targets[0]?.language).toBeNull()
+    })
+
+    it('still maps a present but unrecognized language to Other', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([
+        { ...residentRow(TARGET_ID), Language_Code: 'Portuguese' },
+      ])
+
+      const result = await service.residents(dto as never)
+
+      expect(result.addresses[0]?.targets[0]?.language).toBe('Other')
+    })
+
+    // Presence-only columns: a value meaning yes, or nothing at all. There is
+    // no 'No' to emit, and the contract's z.enum(['Yes']) is what enforces it —
+    // absence is indistinguishable from unknown, so claiming "No" would state
+    // a fact the data does not support.
+    it.each([
+      ['veteranStatus', 'Veteran_Status'],
+      ['businessOwner', 'Business_Owner'],
+    ] as const)(
+      'emits null rather than No for an absent %s',
+      async (field, column) => {
+        mockClient.$queryRaw.mockResolvedValueOnce([
+          { ...residentRow(TARGET_ID), [column]: null },
+        ])
+
+        const result = await service.residents(dto as never)
+
+        expect(result.addresses[0]?.targets[0]?.[field]).toBeNull()
+      },
+    )
+
+    // The pack's own definition of the word (voterPack.service.ts): a person
+    // with no state voter id is not registered in this file. Unlike the Person
+    // contract's `registeredVoter`, which is hardcoded 'Yes' and reads no
+    // column at all.
+    it('derives registeredVoter from the presence of a state voter id', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([
+        { ...residentRow(TARGET_ID), registered: false },
+      ])
+
+      const result = await service.residents(dto as never)
+
+      expect(result.addresses[0]?.targets[0]?.registeredVoter).toBe(false)
     })
 
     // The voter file is inconsistent about blank vs NULL, and an empty string
