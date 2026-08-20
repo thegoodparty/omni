@@ -3,8 +3,10 @@ import {
   Campaign,
   DoorKnockOutcome,
   OutreachType,
+  PhoneBankCallOutcome,
   SupportAnswer,
   VoterOutreachAttributionSource,
+  WillVoteAnswer,
 } from '../../generated/prisma'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { ConstituentActivityType } from '../contactEngagement.types'
@@ -122,6 +124,70 @@ describe('ContactEngagement routes', () => {
         answeredAt: null,
         voicemailLeftAt: '2026-01-04T10:05:00.000Z',
         outreachId: null,
+      })
+    })
+
+    it('unions phone banking interactions — an answered call with support/will-vote fields and a fan-out no_answer', async () => {
+      const personId = 'person-win-phone-banking'
+
+      await service.prisma.contactInteractionPhoneBanking.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-05T10:00:00Z'),
+          outcome: PhoneBankCallOutcome.answered,
+          supportAnswer: SupportAnswer.supporter,
+          willVote: WillVoteAnswer.yes,
+          note: 'Confirmed will vote early',
+          manual: true,
+        },
+      })
+      // A fan-out no_answer write logs one row per person reached in the same
+      // call session — only this person's row should surface in their feed.
+      await service.prisma.contactInteractionPhoneBanking.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-06T10:00:00Z'),
+          outcome: PhoneBankCallOutcome.no_answer,
+          manual: false,
+        },
+      })
+      await service.prisma.contactInteractionPhoneBanking.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId: 'person-win-phone-banking-other',
+          occurredAt: new Date('2026-01-06T10:00:00Z'),
+          outcome: PhoneBankCallOutcome.no_answer,
+          manual: false,
+        },
+      })
+
+      const result = await service.client.get(
+        `/v1/contact-engagement/${personId}/activities`,
+        { headers: { 'x-organization-slug': campaignOrgSlug } },
+      )
+
+      expect(result.status).toBe(200)
+      expect(result.data.results.map((r: { type: string }) => r.type)).toEqual([
+        ConstituentActivityType.PHONE_BANKING,
+        ConstituentActivityType.PHONE_BANKING,
+      ])
+
+      const [noAnswer, answered] = result.data.results
+      expect(noAnswer.data).toMatchObject({
+        outcome: PhoneBankCallOutcome.no_answer,
+        supportAnswer: null,
+        willVote: null,
+        note: null,
+        manual: false,
+      })
+      expect(answered.data).toMatchObject({
+        outcome: PhoneBankCallOutcome.answered,
+        supportAnswer: SupportAnswer.supporter,
+        willVote: WillVoteAnswer.yes,
+        note: 'Confirmed will vote early',
+        manual: true,
       })
     })
 

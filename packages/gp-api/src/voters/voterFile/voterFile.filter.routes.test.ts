@@ -311,12 +311,35 @@ describe('activity conditions and supportStatus on a segment', () => {
       '/v1/voters/voter-file/filter',
       {
         name: 'Bad channel',
-        activityConditions: [{ outreachType: 'phoneBanking', actions: [] }],
+        activityConditions: [{ outreachType: 'socialMedia', actions: [] }],
       },
       { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
     )
 
     expect(result.status).toBe(400)
+  })
+
+  it('accepts a phone-banking activity condition', async () => {
+    await seedWinCampaign()
+
+    const result = await service.client.post(
+      '/v1/voters/voter-file/filter',
+      {
+        name: 'Phone banked',
+        activityConditions: [
+          { outreachType: 'phoneBanking', actions: ['answered', 'no_answer'] },
+        ],
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+    expect(result.data.activityConditions).toEqual([
+      expect.objectContaining({
+        outreachType: 'phoneBanking',
+        actions: ['answered', 'no_answer'],
+      }),
+    ])
   })
 
   it('rejects a specific outreachId that has not completed', async () => {
