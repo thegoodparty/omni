@@ -276,8 +276,8 @@ describe('ContactsService — people-db (sole path)', () => {
   })
 
   // fetchPeopleAggregates is private; drive it through getListDetail's
-  // universe-detail path (no segment), which fans out to it four times
-  // (base + cellphone + landline + address).
+  // universe-detail path (no segment), which fans out to it five times
+  // (base + cellphone + landline + anyPhone + address).
   describe('list-detail aggregates (fetchPeopleAggregates)', () => {
     it('calls VoterQueryService.getAggregates and validates ListDetailContactsResponse', async () => {
       const org = makeOrganization()
@@ -285,7 +285,7 @@ describe('ContactsService — people-db (sole path)', () => {
 
       const result = await service.getListDetail({ segment: undefined }, org)
 
-      expect(mockVoterQueryService.getAggregates).toHaveBeenCalledTimes(4)
+      expect(mockVoterQueryService.getAggregates).toHaveBeenCalledTimes(5)
       expect(mockVoterQueryService.getAggregates).toHaveBeenCalledWith(
         expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
       )
