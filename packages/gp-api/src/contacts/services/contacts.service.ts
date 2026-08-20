@@ -823,8 +823,10 @@ export class ContactsService {
   // activity-condition/support-status parts resolve to a person-id set
   // exactly as the live count does, so activity-based saved lists
   // participate correctly. Capped at the org's most-recently-saved
-  // MAX_OVERLAP_SAVED_FILTER_SETS lists (small N per org — the lists index is
-  // an accepted N+1 today); truncation is logged, never a silent cap. A
+  // MAX_OVERLAP_SAVED_FILTER_SETS lists (small N per org — do NOT justify that
+  // premise with the lists index: its per-row N+1 was a real defect that 504'd
+  // prod and is now capped client-side); truncation is logged, never a silent
+  // cap. A
   // saved list whose resolution is empty (matches nobody, e.g. a
   // now-orphaned activity condition) contributes nothing to the OR, so it's
   // dropped rather than sent as a meaningless filter set.
