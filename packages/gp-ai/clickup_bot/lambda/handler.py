@@ -1313,6 +1313,7 @@ def handle_ci_fix(event: dict) -> dict:
     a red workflow with the Lambda's stack trace and nothing on the ticket.
     """
     task_id = None
+    holds_dedup_lock = False
     try:
         task_id = event.get("clickup_task_id")
         pr_number = event.get("pr_number")
@@ -1334,6 +1335,7 @@ def handle_ci_fix(event: dict) -> dict:
         if not try_acquire_dedup_lock(task_id, CI_FIX_LABEL):
             print(f"Duplicate CI fix trigger for {task_id} suppressed by dedup table")
             return {"statusCode": 200, "body": json.dumps({"skipped": "duplicate suppressed"})}
+        holds_dedup_lock = True
 
         result = trigger_fargate_task(
             task_id,
@@ -1350,6 +1352,14 @@ def handle_ci_fix(event: dict) -> dict:
     except Exception as e:
         print(f"ERROR: CI fix processing failed: {e}")
         if task_id:
+            # SAME RULE AS EVERY OTHER FAILED LAUNCH: a claim outlives the
+            # invocation, so a claim held with nothing running behind it
+            # suppresses the drive's next attempt for the whole TTL. Not every
+            # raise comes from inside trigger_fargate_task's own try — building
+            # the ECS client and reading its env vars happen before it — so the
+            # release cannot be left to the statusCode check above.
+            if holds_dedup_lock:
+                release_dedup_lock(task_id, CI_FIX_LABEL)
             # Exception type only in the public comment, same leak guard as
             # trigger_fargate_task; full detail stays in CloudWatch.
             post_failure_comment(task_id, f"{type(e).__name__} starting a CI fix run (see CloudWatch logs)")

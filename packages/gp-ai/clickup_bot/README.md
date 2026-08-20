@@ -365,7 +365,7 @@ it is unit-testable against real captured failures rather than in production:
 | Evidence | Class | Action |
 |---|---|---|
 | The same check is red on `main` | pre-existing | Report it. Never fixed, never re-run — it is not this PR's bug |
-| Job conclusion `cancelled`/`timed_out`, or a known infra signature in the log | infra | Re-run. **Never** escalates to an agent run |
+| A conclusion that is not a verdict (`cancelled`, `timed_out`, `stale`, `startup_failure`, `action_required`), or a known infra signature in the log | infra | Re-run. **Never** escalates to an agent run |
 | Anything else | unknown | Re-run **once** first; only a failure that reproduced buys an agent run |
 
 Re-running an unattributable failure before paying for it is the cheap half of
@@ -392,6 +392,14 @@ They survive across invocations in an upserted PR comment carrying
 takes the action**: a crash between the two costs the PR one attempt, where the
 reverse order would let a crash-looping drive spend the same round forever. An
 unreadable or hand-edited marker counts as exhausted, not fresh.
+
+The same comment records **when** a fix run was launched, because launching one
+changes nothing observable: no check goes pending until the agent actually
+pushes, so the 30-minute schedule would otherwise return to an identical red
+board, read it as "nothing has happened", and put a second agent on the same
+branch. Until an hour has passed — the agent's own 45-minute deadline plus room
+to start — the drive waits instead of acting. The Lambda's dedup claim does not
+cover this on its own: its TTL is 15 minutes, shorter than the run it guards.
 
 On exhaustion the drive stops and announces in `#bugs` through the same
 `vars.GPBOT_PR_CHANNEL_ID` / `secrets.GPBOT_SLACK_BOT_TOKEN` path as the other

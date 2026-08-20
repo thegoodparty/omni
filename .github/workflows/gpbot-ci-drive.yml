@@ -94,7 +94,11 @@ env:
   # reported "all checks green".
   # NEUTRAL and SKIPPED are absent on purpose: an advisory or skipped check is not
   # a merge gate, and treating one as a failure would drive every PR forever.
-  FAILED_CONCLUSIONS: 'FAILURE,ERROR,CANCELLED,TIMED_OUT,STARTUP_FAILURE,ACTION_REQUIRED'
+  # Everything else GitHub can conclude with belongs here, including STALE, which
+  # is a run the platform abandoned: a conclusion missing from this list is
+  # dropped from the failing set entirely and the PR is reported "all checks
+  # green", which is the one wrong answer this workflow must never give.
+  FAILED_CONCLUSIONS: 'FAILURE,ERROR,CANCELLED,TIMED_OUT,STARTUP_FAILURE,ACTION_REQUIRED,STALE'
 
 jobs:
   drive:
@@ -195,6 +199,12 @@ jobs:
           # superseded (cancelled) run on main as pre-existing is the acceptable
           # side of that trade: it reports the check to a human instead of
           # spending ~$10 to rediscover that main is red.
+          # Set when an action was decided, its slot spent, and it then failed to
+          # happen. Raised at the end of the loop rather than exiting on the
+          # spot, so one PR whose fix run would not launch cannot stop the
+          # remaining PRs from being driven.
+          action_failed=0
+
           main_failing="$({ \
             gh api "repos/$REPO/commits/main/check-runs" --paginate \
               --jq '.check_runs[] | select(.conclusion | IN("failure","cancelled","timed_out","startup_failure","action_required")) | .name' 2>/dev/null; \
@@ -378,7 +388,12 @@ jobs:
                 # launched as a launched one.
                 if grep -q '"FunctionError"' /tmp/ci-fix-meta.json ||
                    [ "$(jq -r '.statusCode // empty' /tmp/ci-fix-response.json)" != "200" ]; then
+                  # THE STEP MUST GO RED. The slot is already spent, so a green
+                  # step here means the PR quietly lost a fix run that never
+                  # ran, twice over, and then escalated with nothing to show a
+                  # human for the budget.
                   echo "::error::fix run for #$pr did not launch"
+                  action_failed=1
                 fi
                 ;;
 
@@ -409,3 +424,5 @@ jobs:
 
             echo "::endgroup::"
           done
+
+          exit "$action_failed"

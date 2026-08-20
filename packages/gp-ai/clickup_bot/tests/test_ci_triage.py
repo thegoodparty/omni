@@ -19,6 +19,7 @@ from ci_triage import (
     ACTION_NONE,
     ACTION_REPORT,
     ACTION_RERUN,
+    FIX_RUN_GRACE_SECONDS,
     INFRA,
     MAX_FIX_RUNS,
     MAX_RERUNS,
@@ -49,7 +50,11 @@ PR_1306_E2E_SHARD_1 = {
     ),
 }
 
-FRESH_STATE = {"reruns": 0, "fixes": 0, "escalated": False}
+FRESH_STATE = {"reruns": 0, "fixes": 0, "escalated": False, "fix_started_at": 0}
+
+# A fixed instant, so the in-flight window is asserted against arithmetic rather
+# than against how long the test suite happened to take.
+NOW = 1_755_000_000
 
 
 def a_check(**overrides):
@@ -117,6 +122,16 @@ class TestClassifyRealFailures:
         result = classify_check(a_check(log_excerpt="ETIMEDOUT connecting to upstream"))
 
         assert result["classification"] == INFRA
+
+    def test_every_conclusion_that_produced_no_verdict_is_infrastructure(self):
+        # Each of these means the job never judged the diff: the runner failed to
+        # boot, GitHub abandoned the run, or a manual approval gate is holding
+        # it. Any one of them missing from the set falls through to UNKNOWN and
+        # can eventually buy an agent run to "fix" code that never executed.
+        for conclusion in ("cancelled", "timed_out", "stale", "startup_failure", "action_required"):
+            result = classify_check(a_check(conclusion=conclusion, log_excerpt=""))
+
+            assert result["classification"] == INFRA, f"{conclusion} was not recognised as a non-verdict"
 
 
 class TestPreExistingFailuresAreNeverFought:
@@ -247,18 +262,68 @@ class TestCapsBoundTheSpend:
         assert decision["next_state"]["fixes"] == 0
 
 
+class TestAnInFlightFixRunIsNotDuplicated:
+    def test_a_fix_run_that_has_not_pushed_yet_does_not_buy_a_second_one(self):
+        # The window this closes: launching a fix run changes nothing on the PR
+        # until the agent pushes, so the 30-minute schedule comes back to an
+        # identical red board. Without this guard it reads that as "nothing has
+        # happened" and launches a second agent onto the same branch — two runs
+        # pushing the same branch, both fix slots gone before either finished.
+        state = {"reruns": 1, "fixes": 1, "escalated": False, "fix_started_at": NOW - 600}
+
+        decision = decide([a_check()], state, now=NOW)
+
+        assert decision["action"] == ACTION_NONE
+        assert decision["next_state"]["fixes"] == 1
+
+    def test_the_wait_ends_once_the_run_has_outlived_the_agent_deadline(self):
+        # A run that is past its own deadline is not coming back, so the PR must
+        # start moving again rather than sit for the life of the marker comment.
+        state = {"reruns": 1, "fixes": 1, "escalated": False, "fix_started_at": NOW - FIX_RUN_GRACE_SECONDS - 1}
+
+        decision = decide([a_check()], state, now=NOW)
+
+        assert decision["action"] == ACTION_FIX
+
+    def test_launching_a_fix_run_stamps_the_window_in_the_same_write(self):
+        # The stamp has to land in the state that spends the slot. Written
+        # separately, a crash between the two writes leaves a launched run with
+        # no guard against being launched again.
+        decision = decide([a_check()], {"reruns": 1, "fixes": 0, "escalated": False}, now=NOW)
+
+        assert decision["action"] == ACTION_FIX
+        assert decision["next_state"]["fix_started_at"] == NOW
+
+    def test_a_rerun_does_not_open_an_in_flight_window(self):
+        # Re-runs put checks back into pending within seconds, which the
+        # workflow's own "checks still running" guard already covers. Stamping
+        # here would idle the PR for an hour for no reason.
+        decision = decide([PR_1306_E2E_SHARD_1], FRESH_STATE, now=NOW)
+
+        assert decision["next_state"]["fix_started_at"] == 0
+
+    def test_an_unreadable_stamp_does_not_park_the_pr(self):
+        # Unlike the counters, this field fails toward acting: a garbled stamp
+        # that read as "in flight" would freeze the PR an hour at a time, and the
+        # counters still bound the spend either way.
+        for bad in ("soon", -5, True, None):
+            state = {"reruns": 1, "fixes": 0, "escalated": False, "fix_started_at": bad}
+
+            assert decide([a_check()], state, now=NOW)["action"] == ACTION_FIX, f"fix_started_at={bad!r} parked the PR"
+
+
 class TestStateSurvivesBetweenInvocations:
     def test_counters_round_trip_through_the_marker_comment(self):
         # The durability contract: what render_state writes into the PR comment
         # is what parse_state reads back on the next CI completion. If these drift
         # the caps silently stop applying.
-        state = {"reruns": 2, "fixes": 1, "escalated": False}
+        state = {"reruns": 2, "fixes": 1, "escalated": False, "fix_started_at": NOW}
 
         assert parse_state(f"some text\n{render_state(state)}\nmore text") == state
 
     def test_a_missing_comment_means_nothing_has_been_spent(self):
-        assert parse_state(None) == {"reruns": 0, "fixes": 0, "escalated": False}
-        assert parse_state("") == {"reruns": 0, "fixes": 0, "escalated": False}
+        assert parse_state(None) == FRESH_STATE
+        assert parse_state("") == FRESH_STATE
 
     def test_an_unparseable_state_comment_is_treated_as_exhausted(self):
         # Fails toward spending nothing. Reading a corrupted marker as "fresh"

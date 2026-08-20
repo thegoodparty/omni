@@ -41,6 +41,7 @@ gathers the facts and executes the verdict; nothing decides anything in YAML.
 import json
 import re
 import sys
+import time
 from typing import Any
 
 # How a failing check is classified. The classification is about EVIDENCE; the
@@ -73,6 +74,22 @@ MAX_RERUNS = 3
 # to ~$10 per PR on top of the ~$30 the ticket may already have spent on
 # analyze-then-implement.
 MAX_FIX_RUNS = 2
+
+# How long a launched fix run is assumed to still be working.
+#
+# WHY THIS IS NEEDED AT ALL: launching a fix run changes nothing observable. It
+# queues a Fargate task; no check goes pending until that task actually pushes a
+# commit, which is many minutes later. The 30-minute schedule would otherwise
+# come back to the same red board, see the same evidence, and launch a second
+# agent against the same branch — two runs pushing the same branch, and both fix
+# slots gone before either had finished. The Lambda's dedup claim does not cover
+# this: its TTL is 15 minutes, shorter than the run it would be guarding.
+#
+# The value is the agent's own ceiling plus room to start:
+# DEFAULT_DEADLINE_SECONDS is 45 minutes (engineer_agent/agent/config.py) and a
+# Fargate task takes a few minutes to pull and boot. Erring long costs one
+# schedule tick of latency; erring short buys a duplicate agent run.
+FIX_RUN_GRACE_SECONDS = 60 * 60
 
 # Log fragments that prove a failure was environmental. Matched case-insensitively
 # against the tail of the failed job's log.
@@ -114,11 +131,21 @@ INFRA_LOG_SIGNATURES = (
     "429 too many requests",
 )
 
-# A job the runner killed rather than one that reported a verdict. #1306's
-# `E2E Shard (1)` is `cancelled`: it hit `timeout-minutes: 30` with `Run
-# Playwright tests` still pending, so it never observed the diff at all. A
-# conclusion in this set is by itself proof that no test result was produced.
-KILLED_CONCLUSIONS = frozenset({"cancelled", "timed_out", "stale"})
+# Conclusions that are not a verdict on the diff. #1306's `E2E Shard (1)` is
+# `cancelled`: it hit `timeout-minutes: 30` with `Run Playwright tests` still
+# pending, so it never observed the diff at all. A conclusion in this set is by
+# itself proof that no test result was produced, which is why it short-circuits
+# the log scan — and why it must be exhaustive. Anything missing here falls
+# through to UNKNOWN and can eventually buy an agent run to "fix" code that was
+# never executed. The value is what a human reads on escalation, so it says what
+# happened to the job rather than naming the branch that was taken.
+NO_VERDICT_CONCLUSIONS = {
+    "cancelled": "the runner killed it, so it never reported a test result",
+    "timed_out": "it hit its job timeout, so it never reported a test result",
+    "stale": "GitHub marked the run stale and abandoned it without a verdict",
+    "startup_failure": "the runner never started, so no test ran at all",
+    "action_required": "it is parked on a manual approval gate, not on anything in the diff",
+}
 
 # The marker that makes the attempt counters durable across invocations. Same
 # device as delegate's `<!-- delegate-finding-id: ... -->`: state lives in an
@@ -161,11 +188,11 @@ def classify_check(check: Any) -> dict:
 
     conclusion = check.get("conclusion")
     conclusion = conclusion.lower() if isinstance(conclusion, str) else ""
-    if conclusion in KILLED_CONCLUSIONS:
+    if conclusion in NO_VERDICT_CONCLUSIONS:
         return {
             "name": name,
             "classification": INFRA,
-            "evidence": f"the job ended '{conclusion}' — the runner killed it, so it never reported a test result",
+            "evidence": f"the job ended '{conclusion}' — {NO_VERDICT_CONCLUSIONS[conclusion]}",
         }
 
     log_excerpt = check.get("log_excerpt")
@@ -198,6 +225,15 @@ def _coerce_count(value: Any) -> int:
     return value
 
 
+def _coerce_timestamp(value: Any) -> int:
+    # Unreadable means "assume a run is NOT in flight", the opposite direction to
+    # _coerce_count. Failing the other way would let a garbled marker park a PR
+    # for an hour at a time; the counters still cap the spend either way.
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+        return 0
+    return int(value)
+
+
 def parse_state(comment_body: Any) -> dict:
     """Read the attempt counters out of the drive's own PR comment.
 
@@ -205,23 +241,25 @@ def parse_state(comment_body: Any) -> dict:
     exhausted rather than fresh: guessing "fresh" on a state comment we cannot
     read is how a bounded feature becomes an unbounded bill.
     """
+    exhausted = {"reruns": MAX_RERUNS, "fixes": MAX_FIX_RUNS, "escalated": True, "fix_started_at": 0}
     if not isinstance(comment_body, str) or not comment_body.strip():
-        return {"reruns": 0, "fixes": 0, "escalated": False}
+        return {"reruns": 0, "fixes": 0, "escalated": False, "fix_started_at": 0}
 
     match = _STATE_PATTERN.search(comment_body)
     if not match:
-        return {"reruns": MAX_RERUNS, "fixes": MAX_FIX_RUNS, "escalated": True}
+        return exhausted
     try:
         parsed = json.loads(match.group(1))
     except json.JSONDecodeError:
-        return {"reruns": MAX_RERUNS, "fixes": MAX_FIX_RUNS, "escalated": True}
+        return exhausted
     if not isinstance(parsed, dict):
-        return {"reruns": MAX_RERUNS, "fixes": MAX_FIX_RUNS, "escalated": True}
+        return exhausted
 
     return {
         "reruns": _coerce_count(parsed.get("reruns")),
         "fixes": _coerce_count(parsed.get("fixes")),
         "escalated": parsed.get("escalated") is True,
+        "fix_started_at": _coerce_timestamp(parsed.get("fix_started_at")),
     }
 
 
@@ -229,19 +267,24 @@ def render_state(state: dict) -> str:
     return "<!-- gpbot-ci-state: " + json.dumps(state, sort_keys=True) + " -->"
 
 
-def decide(checks: Any, state: Any) -> dict:
+def decide(checks: Any, state: Any, now: float | None = None) -> dict:
     """Turn classified failures plus what has already been spent into one action.
 
     One action for the whole PR, not one per check: a re-run re-runs every failed
     job at once, and an agent run is pointed at the PR rather than at a single
     check. Ordering is cheap-first — a re-run that clears the board costs no model
     spend and no code change.
+
+    `now` is injected so the in-flight window below is exercised by tests at
+    fixed instants rather than by whatever the clock happens to say.
     """
+    now = time.time() if now is None else now
     if not isinstance(state, dict):
         state = {}
     reruns = _coerce_count(state.get("reruns"))
     fixes = _coerce_count(state.get("fixes"))
     already_escalated = state.get("escalated") is True
+    fix_started_at = _coerce_timestamp(state.get("fix_started_at"))
 
     classifications = [classify_check(check) for check in (checks if isinstance(checks, list) else [])]
 
@@ -250,7 +293,12 @@ def decide(checks: Any, state: Any) -> dict:
             "action": ACTION_NONE,
             "reason": "no failing checks",
             "classifications": [],
-            "next_state": {"reruns": reruns, "fixes": fixes, "escalated": already_escalated},
+            "next_state": {
+                "reruns": reruns,
+                "fixes": fixes,
+                "escalated": already_escalated,
+                "fix_started_at": fix_started_at,
+            },
         }
 
     if already_escalated:
@@ -261,7 +309,22 @@ def decide(checks: Any, state: Any) -> dict:
             "action": ACTION_NONE,
             "reason": "already escalated to a human on this PR; not spending anything further",
             "classifications": classifications,
-            "next_state": {"reruns": reruns, "fixes": fixes, "escalated": True},
+            "next_state": {"reruns": reruns, "fixes": fixes, "escalated": True, "fix_started_at": fix_started_at},
+        }
+
+    # A fix run in flight leaves the board red and untouched until it pushes, so
+    # every trigger in that window sees identical evidence. Without this, the
+    # 30-minute schedule reads "still red, nothing changed" and launches a second
+    # agent onto the same branch. Waiting is always right here: the run either
+    # pushes (checks go pending, the guard in the workflow takes over) or it
+    # gives up, and either way the next pass has new information.
+    if fix_started_at and now - fix_started_at < FIX_RUN_GRACE_SECONDS:
+        minutes_left = int((FIX_RUN_GRACE_SECONDS - (now - fix_started_at)) // 60)
+        return {
+            "action": ACTION_NONE,
+            "reason": f"a fix run is still in flight; waiting up to {minutes_left} more minute(s) for it to push",
+            "classifications": classifications,
+            "next_state": {"reruns": reruns, "fixes": fixes, "escalated": False, "fix_started_at": fix_started_at},
         }
 
     actionable = [c for c in classifications if c["classification"] != PRE_EXISTING]
@@ -273,7 +336,7 @@ def decide(checks: Any, state: Any) -> dict:
             "action": ACTION_REPORT,
             "reason": "every failing check is already failing on main; not this PR's regression",
             "classifications": classifications,
-            "next_state": {"reruns": reruns, "fixes": fixes, "escalated": True},
+            "next_state": {"reruns": reruns, "fixes": fixes, "escalated": True, "fix_started_at": fix_started_at},
         }
 
     infra = [c for c in actionable if c["classification"] == INFRA]
@@ -288,7 +351,7 @@ def decide(checks: Any, state: Any) -> dict:
             "action": ACTION_RERUN,
             "reason": f"re-running {names} (attempt {reruns + 1} of {MAX_RERUNS})",
             "classifications": classifications,
-            "next_state": {"reruns": reruns + 1, "fixes": fixes, "escalated": False},
+            "next_state": {"reruns": reruns + 1, "fixes": fixes, "escalated": False, "fix_started_at": 0},
         }
 
     # INFRA NEVER BECOMES AN AGENT RUN. An environmental failure that survived
@@ -316,7 +379,7 @@ def decide(checks: Any, state: Any) -> dict:
                 )
             ),
             "classifications": classifications,
-            "next_state": {"reruns": reruns, "fixes": fixes, "escalated": True},
+            "next_state": {"reruns": reruns, "fixes": fixes, "escalated": True, "fix_started_at": fix_started_at},
         }
 
     if fixes < MAX_FIX_RUNS:
@@ -335,14 +398,17 @@ def decide(checks: Any, state: Any) -> dict:
                 f"(fix run {fixes + 1} of {MAX_FIX_RUNS})"
             ),
             "classifications": classifications,
-            "next_state": {"reruns": reruns, "fixes": fixes + 1, "escalated": False},
+            # Stamped here rather than by the workflow so the in-flight window
+            # opens in the same write that spends the slot. Two separate writes
+            # could crash between them and leave a launched run unguarded.
+            "next_state": {"reruns": reruns, "fixes": fixes + 1, "escalated": False, "fix_started_at": int(now)},
         }
 
     return {
         "action": ACTION_ESCALATE,
         "reason": f"spent {reruns} re-run(s) and {fixes} fix run(s) without getting CI green",
         "classifications": classifications,
-        "next_state": {"reruns": reruns, "fixes": fixes, "escalated": True},
+        "next_state": {"reruns": reruns, "fixes": fixes, "escalated": True, "fix_started_at": fix_started_at},
     }
 
 

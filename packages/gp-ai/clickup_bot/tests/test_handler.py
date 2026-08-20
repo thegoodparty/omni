@@ -3555,6 +3555,35 @@ def test_ci_fix_never_raises_into_the_lambda_runtime(fake_clickup, fake_ecs, ecs
     assert_alarm_log_emitted(capsys)
 
 
+def test_a_ci_fix_that_raises_before_returning_still_releases_its_claim(
+    fake_clickup, fake_ecs, ecs_env, dedup_table_env, fake_dynamodb, monkeypatch
+):
+    # trigger_fargate_task handles its own failures and returns a status, but not
+    # all of it is inside that try — building the ECS client and reading its env
+    # vars run first, so a boto3 failure there propagates out. Releasing only on
+    # the returned status leaves the claim held for the full TTL, and the drive's
+    # next attempt on that PR is then suppressed with no run behind it.
+    monkeypatch.setattr(handler, "trigger_fargate_task", _raise_boom)
+
+    handler.handler(ci_fix_event(), None)
+
+    assert len(fake_dynamodb.delete_item_calls) == 1
+
+
+def test_a_ci_fix_refused_before_it_claims_anything_releases_nothing(
+    fake_clickup, fake_ecs, ecs_env, dedup_table_env, fake_dynamodb, monkeypatch
+):
+    # The other half of the same guard. Deleting unconditionally in the handler
+    # would let a request that never held the claim delete the one a concurrent
+    # launch is holding, which is exactly the duplicate-agent race the claim
+    # exists to prevent.
+    monkeypatch.setattr(handler, "try_acquire_dedup_lock", _raise_boom)
+
+    handler.handler(ci_fix_event(), None)
+
+    assert fake_dynamodb.delete_item_calls == []
+
+
 def _raise_boom(*args, **kwargs):
     raise RuntimeError("boom")
 
