@@ -199,7 +199,11 @@ import { dirname, join, relative } from 'node:path'
 // same reason statusPresentation.ts does. (Written as 567 -> 568 before this
 // branch was rebased onto Voter Outreach 2.0 and the PIN gate; the +1 is what
 // this change is responsible for, and the entries above are the rest.)
-const BASELINE = 582
+// 2026-08-20: 582 -> 584 for Voter Outreach 2.0 phase 3 (robocall) slice 0/1:
+// RobocallFlow (flow state) and RobocallPurposeStep (onClick selection) are
+// interactive drawer surfaces mirroring the social flow, so both are client
+// components.
+const BASELINE = 584
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
