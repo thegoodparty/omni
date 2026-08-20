@@ -412,6 +412,16 @@ describe('buildPlanData registered voters', () => {
     const row = plan.metrics.find((m) => m.metric === 'Registered Voters')
     expect(row?.target).toBe('41,230 registered voters')
   })
+
+  it('attributes projected turnout to the model, not a cycle average', () => {
+    // The old note credited a 3-cycle average, which is not how the served
+    // projection is produced.
+    const plan = buildPlanData(makeInput())
+
+    const notes = rowFor('Projected voter turnout', plan)?.notes
+    expect(notes).not.toMatch(/cycle/i)
+    expect(notes).toMatch(/turnout model/i)
+  })
 })
 
 describe('buildPlanData prediction intervals', () => {
