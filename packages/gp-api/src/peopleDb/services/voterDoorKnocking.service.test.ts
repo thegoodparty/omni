@@ -341,10 +341,18 @@ describe('VoterDoorKnockingService', () => {
       await service[method as 'evaluate' | 'residents'](dto as never)
 
       expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
-      expect(mockClient.$transaction.mock.calls[0]?.[0]).toHaveLength(2)
       expect(sqlOf(mockClient.$executeRaw.mock.calls[0]?.[0])).toBe(
         "SET LOCAL statement_timeout = '25000ms'",
       )
+
+      // Order is the invariant, not just membership: Prisma serializes a batch
+      // transaction's array on one connection, so a SET LOCAL placed after the
+      // data query would apply to nothing. Compare operation identity rather
+      // than array length, which a swap would still satisfy.
+      const txOps = mockClient.$transaction.mock.calls[0]?.[0] as unknown[]
+      expect(txOps).toHaveLength(2)
+      expect(txOps[0]).toBe(mockClient.$executeRaw.mock.results[0]?.value)
+      expect(txOps[1]).toBe(mockClient.$queryRaw.mock.results[0]?.value)
     })
 
     it.each([
