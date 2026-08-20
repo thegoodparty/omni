@@ -2370,6 +2370,166 @@ describe('door-knocking routes', () => {
     })
   })
 
+  // ADR 0010. The knock's own evaluation, run without the vendor call, so the
+  // draw step can name the doors before anything is bought.
+  describe('address preview', () => {
+    const previewOpts = () => ({ ...orgHeaders(), validateStatus: () => true })
+
+    const preview = (body: Record<string, unknown> = {}) =>
+      service.client.post(
+        '/v1/door-knocking/address-preview',
+        { geoPoly: GEO_POLY, filters: {}, ...body },
+        previewOpts(),
+      )
+
+    const lastEvaluateArg = () => {
+      const { evaluate } = service.app.get(DoorKnockingPeopleApiService)
+      const { calls } = (evaluate as unknown as ReturnType<typeof vi.fn>).mock
+      return calls.at(-1)?.[0] as Record<string, unknown> | undefined
+    }
+
+    // A second unit at the first building's coordinate: one stop the router
+    // visits, two doors a canvasser knocks. The whole reason the preview
+    // reports stops and doors as different numbers.
+    const OTHER_UNIT_KEY = '1200|W|ELM|ST||4A|62704'
+
+    it('lists unit addresses by stop, on the counts the freeze would produce', async () => {
+      stubVendors({
+        people: [
+          person(1, 41.9, -87.65, PIPED_KEY),
+          person(2, 41.9, -87.65, PIPED_KEY),
+          person(3, 41.9, -87.65, OTHER_UNIT_KEY),
+          person(4, 41.901, -87.651),
+          bboxOnlyPerson,
+        ],
+      })
+
+      const res = await preview()
+
+      expect(res.status).toBe(201)
+      // Two coordinates survive the ray-cast — the bbox-only person is
+      // dropped, so neither their stop nor their door is counted anywhere.
+      // Addresses render through the same helper the frozen route uses, so
+      // the door previewed here and the door walked later read identically.
+      expect(res.data).toEqual({
+        stops: 2,
+        doors: 3,
+        people: 4,
+        locations: [
+          {
+            doors: [
+              { address: '1200 W ELM ST Apt 3B', people: 2 },
+              { address: '1200 W ELM ST Apt 4A', people: 1 },
+            ],
+          },
+          { doors: [{ address: 'KEY-4', people: 1 }] },
+        ],
+      })
+    })
+
+    // A shape drawn over nothing is an ordinary moment in drawing, not a
+    // failure — the knock 400s here because it is committing a turf.
+    it('answers an empty shape with zeros instead of the knock 400', async () => {
+      stubVendors({ people: [] })
+
+      const res = await preview()
+
+      expect(res.status).toBe(201)
+      expect(res.data).toEqual({
+        stops: 0,
+        doors: 0,
+        people: 0,
+        locations: [],
+      })
+    })
+
+    it('asks evaluation to drop the org suppressed people (ADR 0007/0008)', async () => {
+      const turf = await createTurf()
+      stubVendors()
+      expect((await knock(turf.id)).status).toBe(201)
+      const target =
+        await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+          orderBy: { id: 'asc' },
+        })
+      await service.client.post(
+        '/v1/door-knocking/do-not-knock',
+        { stopTargetId: target.id, value: 'active' },
+        previewOpts(),
+      )
+
+      expect((await preview()).status).toBe(201)
+
+      // The exclusion is a WHERE clause, and its SQL half is asserted in
+      // voterDoorKnocking.service.test.ts; what matters here is that the
+      // preview asks for it at all. A door whose every resident is flagged
+      // therefore has nobody to evaluate and never reaches the list — the
+      // route built from this shape would not contain it either.
+      expect(lastEvaluateArg()).toMatchObject({
+        excludePersonIds: [target.personId],
+      })
+    })
+
+    // The saved list is resolved through the identical three steps the knock
+    // runs, so a draft carrying activity conditions previews the audience it
+    // will knock rather than the one convertVoterFileFilterToFilters alone
+    // would produce.
+    it('resolves the draft filters and bounds the scan by the ring bbox', async () => {
+      stubVendors()
+
+      expect((await preview({ filters: { partyDemocrat: true } })).status).toBe(
+        201,
+      )
+
+      const arg = lastEvaluateArg()
+      expect(arg?.districtId).toBe(DISTRICT_ID)
+      expect(arg?.bbox).toEqual({
+        minLat: 41.89,
+        maxLat: 41.91,
+        minLng: -87.66,
+        maxLng: -87.64,
+      })
+    })
+
+    it('spends no vendor credit and freezes nothing', async () => {
+      const fetchSpy = stubVendors()
+
+      expect((await preview()).status).toBe(201)
+
+      expect(
+        fetchSpy.mock.calls.filter(([url]) =>
+          String(url).includes('routeplanner'),
+        ),
+      ).toHaveLength(0)
+      expect(await service.prisma.doorKnockingRoute.count()).toBe(0)
+      expect(await service.prisma.doorKnockingStop.count()).toBe(0)
+      expect(await service.prisma.doorKnockingRoutePlannerSpend.count()).toBe(0)
+    })
+
+    // The counts are the draw step's only figures once a preview exists, so
+    // the cap must bound what is materialized without bounding what is
+    // reported — a shape the candidate has to shrink still has to say by how
+    // much.
+    it('caps the listing at the stop limit while still counting every stop', async () => {
+      const crowd = Array.from({ length: 160 }, (_, index) =>
+        person(index + 1, 41.895, -87.655 + index * 0.00005, `KEY-${index}`),
+      )
+      stubVendors({ people: crowd })
+
+      const res = await preview()
+
+      expect(res.status).toBe(201)
+      expect(res.data.stops).toBe(160)
+      expect(res.data.doors).toBe(160)
+      expect(res.data.locations).toHaveLength(150)
+      // Whole locations only: every listed stop shows all of its doors.
+      expect(
+        (res.data.locations as Array<{ doors: unknown[] }>).every(
+          (location) => location.doors.length === 1,
+        ),
+      ).toBe(true)
+    })
+  })
+
   describe('Pro gate (ENG-10888)', () => {
     const downgrade = () =>
       service.prisma.campaign.update({
@@ -2398,6 +2558,12 @@ describe('door-knocking routes', () => {
         ['put', `/v1/door-knocking/turfs/${turfId}`, { name: 'Renamed' }],
         ['get', `/v1/door-knocking/turfs/${turfId}/route`, undefined],
         ['get', '/v1/door-knocking/pack', undefined],
+        // ADR 0010: a read of voter data, so it is gated with the rest.
+        [
+          'post',
+          '/v1/door-knocking/address-preview',
+          { geoPoly: GEO_POLY, filters: {} },
+        ],
         [
           'post',
           '/v1/door-knocking/interactions',

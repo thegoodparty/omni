@@ -34,8 +34,10 @@ import {
 } from '../utils/waypointQuota.util'
 
 // Leadership-approved hard cap; the DB CHECK on stop.seq enforces the same
-// bound.
-const MAX_STOPS = 150
+// bound. Exported so the draw-step preview materializes addresses only up to
+// the number of stops a savable list can hold, rather than carrying a second
+// 150 that can drift from this one.
+export const MAX_STOPS = 150
 // Geoapify bills the Route Planner at 10 credits per location (the
 // schema-documented meaning of route.credits).
 const GEOAPIFY_CREDITS_PER_LOCATION = 10

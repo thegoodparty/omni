@@ -777,6 +777,15 @@ export {
 } from './doorKnocking/DoorKnockingResidents.schema'
 
 export {
+  DoorKnockingPreviewDoorSchema,
+  type DoorKnockingPreviewDoor,
+  DoorKnockingPreviewLocationSchema,
+  type DoorKnockingPreviewLocation,
+  DoorKnockingAddressPreviewResponseSchema,
+  type DoorKnockingAddressPreviewResponse,
+} from './doorKnocking/DoorKnockingAddressPreview.schema'
+
+export {
   DoorKnockingPackRequestSchema,
   type DoorKnockingPackRequest,
   PACK_ARRAY_TYPES,

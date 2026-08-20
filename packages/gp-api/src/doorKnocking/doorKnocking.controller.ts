@@ -26,6 +26,7 @@ import {
   SetNotAVoter,
   SetNotAVoterSchema,
   SetNotAVoterResponseSchema,
+  DoorKnockingAddressPreviewResponseSchema,
   DoorKnockingKnockRequest,
   DoorKnockingKnockRequestSchema,
   DoorKnockingKnockResponseSchema,
@@ -47,6 +48,11 @@ import { DoorKnockingKnockService } from './services/doorKnockingKnock.service'
 import { DoorKnockingServeService } from './services/doorKnockingServe.service'
 import { DoorKnockingInteractionService } from './services/doorKnockingInteraction.service'
 import { DoorKnockingPackService } from './services/doorKnockingPack.service'
+import { DoorKnockingPreviewService } from './services/doorKnockingPreview.service'
+import {
+  DoorKnockingAddressPreview,
+  DoorKnockingAddressPreviewSchema,
+} from './schemas/doorKnockingAddressPreview.schema'
 
 // Every route here is Pro-gated through ContactsService.assertProAccess — the
 // CRM's own predicate, so an `eo-` (Serve) org keeps access without isPro —
@@ -61,6 +67,7 @@ export class DoorKnockingController {
     private readonly serveService: DoorKnockingServeService,
     private readonly interactionService: DoorKnockingInteractionService,
     private readonly packService: DoorKnockingPackService,
+    private readonly previewService: DoorKnockingPreviewService,
     private readonly contacts: ContactsService,
   ) {}
 
@@ -141,6 +148,23 @@ export class DoorKnockingController {
   async pack(@ReqOrganization() organization: Organization) {
     await this.contacts.assertProAccess(organization)
     return new StreamableFile(await this.packService.build(organization))
+  }
+
+  // The draw step's address list (ADR 0010). A read of voter data, so it is
+  // Pro-gated with the rest — the two holes below are instructions about a
+  // door, and this is neither. A POST because the shape and the filter draft
+  // are a body, not a query string; nothing is written and no vendor credit
+  // is spent.
+  @Post('address-preview')
+  @UseOrganization()
+  @ResponseSchema(DoorKnockingAddressPreviewResponseSchema)
+  async previewAddresses(
+    @ReqOrganization() organization: Organization,
+    @Body(new ZodValidationPipe(DoorKnockingAddressPreviewSchema))
+    input: DoorKnockingAddressPreview,
+  ) {
+    await this.contacts.assertProAccess(organization)
+    return this.previewService.preview(organization, input)
   }
 
   @Post('interactions')
