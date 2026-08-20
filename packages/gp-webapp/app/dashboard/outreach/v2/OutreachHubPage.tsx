@@ -18,6 +18,7 @@ import { ChannelTileGrid } from './ChannelTileGrid'
 import { OutreachHistoryTable } from './OutreachHistoryTable'
 import { OutreachDetailsDrawer } from './OutreachDetailsDrawer'
 import { SocialFlow } from './social/SocialFlow'
+import { RobocallFlow } from './robocall/RobocallFlow'
 import { useSeedOutreachDetail } from './useOutreachDetail'
 import type { HistoryRow } from './historyStatus.util'
 
@@ -44,6 +45,7 @@ const OutreachHubContent = ({
   const [outreaches, setOutreaches] = useOutreach()
   const [detailsRow, setDetailsRow] = useState<HistoryRow | null>(null)
   const [socialFlowOpen, setSocialFlowOpen] = useState(false)
+  const [robocallFlowOpen, setRobocallFlowOpen] = useState(false)
   const seedOutreachDetail = useSeedOutreachDetail()
 
   // The save response is the created row: seed the detail cache (so the
@@ -82,11 +84,16 @@ const OutreachHubContent = ({
         tcrCompliance={tcrCompliance}
         preselectedListId={preselectedListId}
         onCreateSocial={() => setSocialFlowOpen(true)}
+        onCreateRobocall={() => setRobocallFlowOpen(true)}
       />
       <SocialFlow
         open={socialFlowOpen}
         onClose={() => setSocialFlowOpen(false)}
         onSaved={handleSocialSaved}
+      />
+      <RobocallFlow
+        open={robocallFlowOpen}
+        onClose={() => setRobocallFlowOpen(false)}
       />
       <Suspense>
         <OutreachComposeDeepLink tcrCompliance={tcrCompliance} />
