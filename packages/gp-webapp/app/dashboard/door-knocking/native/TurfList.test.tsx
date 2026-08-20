@@ -4,7 +4,18 @@ import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { useSnackbar } from 'helpers/useSnackbar'
 import TurfList from './TurfList'
+
+// The test renderer wraps only QueryClientProvider, and the row's delete
+// control reports through useSnackbar, which throws outside its provider.
+vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
+const successSnackbar = vi.fn()
+const errorSnackbar = vi.fn()
+vi.mocked(useSnackbar).mockReturnValue({
+  successSnackbar,
+  errorSnackbar,
+} as unknown as ReturnType<typeof useSnackbar>)
 
 const turf = (overrides: Partial<DoorKnockingTurf>): DoorKnockingTurf => ({
   id: 1,
@@ -37,6 +48,7 @@ const renderList = (props: Partial<ComponentProps<typeof TurfList>> = {}) =>
       onToggleTurfVisibility={vi.fn()}
       onShowDetails={vi.fn()}
       onKnockTurf={vi.fn()}
+      onDeletedTurf={vi.fn()}
       {...props}
     />,
   )
@@ -65,9 +77,7 @@ describe('TurfList', () => {
     )
     expect(screen.getAllByRole('button', { name: 'Details' })).toHaveLength(2)
     expect(screen.getAllByRole('button', { name: 'Knock' })).toHaveLength(2)
-    // No route/delete affordances on the card.
     expect(screen.queryByRole('button', { name: 'Route' })).toBeNull()
-    expect(screen.queryByRole('button', { name: /Delete/ })).toBeNull()
 
     fireEvent.click(screen.getByText('Elm St & 5th'))
     expect(onFocusTurf).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }))
@@ -164,6 +174,78 @@ describe('TurfList', () => {
 
     fireEvent.click(hide)
     expect(onToggleTurfVisibility).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 1 }),
+    )
+  })
+
+  // The rail is where a candidate compares lists, so per-list controls belong
+  // on the row. Delete used to live only inside the details sheet, which is
+  // two clicks from the row it acts on and covers that row while it is open —
+  // and the walkthrough reported the feature as missing entirely.
+  it('offers delete on the row, named for its own list', async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [
+        turf({ id: 1, name: 'Elm St & 5th' }),
+        turf({ id: 2, name: 'Riverside loop' }),
+      ],
+    })
+
+    renderList()
+
+    // Named per list rather than a column of identical trash icons — and a
+    // different name from the details sheet's own trigger, which is mounted at
+    // the same time on the page.
+    expect(
+      await screen.findByRole('button', { name: 'Delete Elm St & 5th list' }),
+    ).toBeEnabled()
+    expect(
+      screen.getByRole('button', { name: 'Delete Riverside loop list' }),
+    ).toBeEnabled()
+  })
+
+  // gp-api's assertNotLocked 409s a knocked turf, so this can't be pressable.
+  // It renders anyway: an affordance that deletes itself for the lists a
+  // candidate has actually walked is indistinguishable from one that was never
+  // built, which is exactly how it got reported.
+  it('shows delete disabled rather than absent on a knocked list', async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [turf({ id: 2, name: 'Riverside loop', locked: true })],
+    })
+
+    renderList()
+
+    expect(
+      await screen.findByRole('button', { name: 'Delete Riverside loop list' }),
+    ).toBeDisabled()
+  })
+
+  it('deletes from the row after confirmation and tells the page', async () => {
+    let deletedId: string | undefined
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [turf({ id: 1, name: 'Elm St & 5th' })],
+    })
+    api.mock('DELETE /v1/door-knocking/turfs/:id', ({ params }) => {
+      deletedId = params.id
+      return { status: 200, data: undefined }
+    })
+    const onDeletedTurf = vi.fn()
+
+    renderList({ onDeletedTurf })
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Delete Elm St & 5th list' }),
+    )
+    // The confirm lives in the dialog, so the row's trigger alone must not
+    // delete a list out from under someone who brushed a trash icon.
+    expect(deletedId).toBeUndefined()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => expect(deletedId).toBe('1'))
+    expect(onDeletedTurf).toHaveBeenCalledWith(
       expect.objectContaining({ id: 1 }),
     )
   })

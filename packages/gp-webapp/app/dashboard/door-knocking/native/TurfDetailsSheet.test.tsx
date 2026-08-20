@@ -153,21 +153,54 @@ describe('TurfDetailsSheet delete', () => {
     vi.mocked(trackEvent).mockClear()
   })
 
-  // gp-api's assertNotLocked 409s on a knocked turf, so offering the button
-  // there would only ever produce an error.
-  it('offers delete only while the turf is unlocked', () => {
+  // gp-api's assertNotLocked 409s on a knocked turf, so the button can't be
+  // pressable — but it used to be absent, and an affordance that removes
+  // itself is indistinguishable from one that was never built. That is the
+  // report this branch exists to answer: disabled, and with the rule in words
+  // beside it.
+  it('disables delete on a locked turf and says why', () => {
     renderSheet({ prop: { locked: true } })
-    expect(screen.queryByLabelText('Delete Elm St & 5th')).toBeNull()
+
+    expect(screen.getByLabelText('Delete Elm St & 5th')).toBeDisabled()
+    expect(screen.getByText(/already been knocked/)).toBeInTheDocument()
+  })
+
+  it('leaves delete pressable and unexplained while the turf is unlocked', () => {
+    renderSheet()
+
+    expect(screen.getByLabelText('Delete Elm St & 5th')).toBeEnabled()
+    expect(screen.queryByText(/already been knocked/)).toBeNull()
   })
 
   // The prop is a snapshot taken when the row was clicked, so a turf knocked
-  // since then must not still offer delete.
-  it('retires the affordance when the live row is locked but the prop is stale', async () => {
+  // since then must stop offering a delete that can now only 409.
+  it('disables the affordance when the live row is locked but the prop is stale', async () => {
     renderSheet({ prop: { locked: false }, live: { locked: true } })
 
     await waitFor(() =>
-      expect(screen.queryByLabelText('Delete Elm St & 5th')).toBeNull(),
+      expect(screen.getByLabelText('Delete Elm St & 5th')).toBeDisabled(),
     )
+  })
+
+  // Same rule as the header and Edit: this sheet can rename the list, so a
+  // control that named it from the click-time snapshot would ask "Delete Elm
+  // St & 5th?" about a list renamed to Riverside loop a moment earlier — and
+  // the confirm dialog is the last thing read before something is destroyed.
+  it('names the live list, not the snapshot, in the delete affordance', async () => {
+    renderSheet({
+      prop: { name: 'Elm St & 5th' },
+      live: { name: 'Riverside loop' },
+    })
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Delete Riverside loop')).toBeEnabled(),
+    )
+    expect(screen.queryByLabelText('Delete Elm St & 5th')).toBeNull()
+
+    fireEvent.click(screen.getByLabelText('Delete Riverside loop'))
+    expect(
+      await screen.findByText('Delete Riverside loop?'),
+    ).toBeInTheDocument()
   })
 
   // Same stale snapshot, other direction: the route exists once it's locked, so
@@ -313,6 +346,7 @@ const listStats = (overrides: Partial<PolygonStats> = {}): PolygonStats => ({
   households: 68,
   people: 213,
   partyMix: [],
+  ageMix: [],
   ...overrides,
 })
 
@@ -415,8 +449,9 @@ describe('TurfDetailsSheet overview', () => {
   it('waits for the pack instead of reporting an empty shape', () => {
     renderSheet({ listStats: null, listStatsPending: true })
 
-    // Doors, people, and the knocking estimate.
-    expect(screen.getAllByText('Loading')).toHaveLength(3)
+    // Doors, people, the knocking estimate — and the audience breakdown,
+    // which is read off the same pack pass and must not settle before it.
+    expect(screen.getAllByText('Loading')).toHaveLength(4)
     expect(screen.queryByText('0')).toBeNull()
     expect(screen.queryByText(/doors an hour/)).toBeNull()
   })
@@ -565,6 +600,315 @@ describe('TurfDetailsSheet overview', () => {
     renderSheet({ prop: { locked: false }, live: { locked: true } })
 
     expect(await screen.findByRole('link', { name: 'PDF' })).toBeInTheDocument()
+  })
+})
+
+describe('TurfDetailsSheet roster', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+  })
+
+  // The reported gap: aggregate counts, and no way to see WHICH doors. A
+  // frozen route is the only place an address exists — `evaluate` reads it at
+  // knock time and freezes it onto the stop — so this is the branch that can
+  // answer, and it answers exactly.
+  it('lists the frozen route doors by address', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: routeWithDoors,
+    })
+    renderSheet({ prop: { locked: true } })
+
+    expect(await screen.findByText('105 Elm St Apt 1')).toBeInTheDocument()
+    expect(screen.getByText('105 Elm St Apt 2')).toBeInTheDocument()
+    // One stop, two doors: the roster lists doors, the same quantity
+    // `countDoors` reports, never the coordinate the router visits.
+    expect(screen.queryByText('105 Elm St')).toBeNull()
+  })
+
+  // The Aug 14 walkthrough asked numerals out of the list view: `seq` still
+  // orders the map and paper, but nothing holds a canvasser to walking a list
+  // top to bottom, so a numbered row promises an order the product doesn't keep.
+  it('puts no sequence numbers on the rows', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: routeWithDoors,
+    })
+    renderSheet({ prop: { locked: true } })
+
+    const door = await screen.findByText('105 Elm St Apt 1')
+    expect(door.textContent).not.toMatch(/^\s*1[.)]/)
+  })
+
+  // ADR 0007 / 0008. `targetMarker` is the one source for this, and the roster
+  // is a new surface that lists people beside each other — the same person
+  // must not read "Do not knock" in the walk view and "Support unknown" here.
+  it('replaces a flagged resident status with their marker', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: {
+        ...routeWithDoors,
+        stops: [
+          {
+            ...routeWithDoors.stops[0]!,
+            addresses: [
+              {
+                addressKey: '105|elm|st|1',
+                address: '105 Elm St Apt 1',
+                otherResidents: [],
+                targets: [
+                  { ...resident, stopTargetId: 21, doNotKnock: true },
+                  {
+                    ...resident,
+                    stopTargetId: 22,
+                    personId: 'person-2',
+                    name: 'Ada Vance',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      } satisfies DoorKnockingRoutePayload,
+    })
+    renderSheet({ prop: { locked: true } })
+
+    expect(await screen.findByText('Do not knock')).toBeInTheDocument()
+    // The flagged resident's status is replaced, not printed beside the marker.
+    expect(screen.getAllByText('Support unknown')).toHaveLength(1)
+    // Listed but not counted, exactly as the printed sheet does it — so the
+    // roster says which way round that is rather than reading as a broken count.
+    expect(screen.getByText(/left out of the counts above/)).toBeInTheDocument()
+  })
+
+  // Phones ride the route payload for PersonSheet, which shows them one
+  // resident at a time behind a tap. A roster is a different act of disclosure
+  // wearing the same permission, and has no use for them.
+  it('prints no phone numbers', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: {
+        ...routeWithDoors,
+        stops: [
+          {
+            ...routeWithDoors.stops[0]!,
+            addresses: [
+              {
+                addressKey: '105|elm|st|1',
+                address: '105 Elm St Apt 1',
+                otherResidents: [{ name: 'Unlisted Roommate' }],
+                targets: [
+                  {
+                    ...resident,
+                    stopTargetId: 21,
+                    cellPhone: '615-555-0143',
+                    landline: '615-555-0199',
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      } satisfies DoorKnockingRoutePayload,
+    })
+    renderSheet({ prop: { locked: true } })
+
+    expect(await screen.findByText('105 Elm St Apt 1')).toBeInTheDocument()
+    expect(screen.queryByText(/615-555/)).toBeNull()
+    // Nor household context: an untargeted resident is not in this list, and
+    // listing them would contradict the People stat directly above.
+    expect(screen.queryByText('Unlisted Roommate')).toBeNull()
+  })
+
+  // The disclaimer says these residents are "listed here", so it has to be
+  // about rows on screen. Computed over every door it fired above a capped
+  // list whose visible fifty held no marker — a caveat explaining something
+  // the reader cannot see.
+  it('holds the flagged-resident note when no flagged row survives the cap', async () => {
+    // 51 doors: the flagged one is the last, so the cap drops exactly it.
+    const addresses = Array.from({ length: 51 }, (_, index) => ({
+      addressKey: `door-${index}`,
+      address: `${100 + index} Elm St`,
+      otherResidents: [],
+      targets: [
+        {
+          ...resident,
+          stopTargetId: 100 + index,
+          personId: `person-${index}`,
+          doNotKnock: index === 50,
+        },
+      ],
+    }))
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: {
+        ...routeWithDoors,
+        stops: [{ ...routeWithDoors.stops[0]!, addresses }],
+      } satisfies DoorKnockingRoutePayload,
+    })
+    renderSheet({ prop: { locked: true } })
+
+    expect(await screen.findByText('100 Elm St')).toBeInTheDocument()
+    expect(screen.queryByText(/left out of the counts above/)).toBeNull()
+    // The cap itself still says it bit, so the missing door is accounted for.
+    expect(
+      screen.getByText(/Showing the first 50 of 51 doors/),
+    ).toBeInTheDocument()
+  })
+
+  // The pack is positions, two index arrays and demographic byte planes — it
+  // carries no address and no name at any price. The honest answer is to say
+  // so, in the draw step's own words, rather than approximate a roster or fall
+  // back on some other query that would list the polygon instead of the list.
+  it('says where addresses come from on an unknocked list', () => {
+    renderSheet({ listStats: listStats() })
+
+    expect(
+      screen.getByText(/Street addresses arrive with the route/),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Doors in this list')).toBeInTheDocument()
+  })
+})
+
+describe('TurfDetailsSheet audience', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+  })
+
+  // "Applied filters" says what was ASKED FOR; this says what the audience IS.
+  // Pre-route it is the pack's, so it is the same superset the counts are, and
+  // it sits directly under the two lines that disclose that.
+  it('breaks the pack audience down by party and age', () => {
+    renderSheet({
+      listStats: listStats({
+        partyMix: [
+          { label: 'Democratic', people: 60 },
+          { label: 'Republican', people: 40 },
+        ],
+        ageMix: [{ label: '35_50', people: 100 }],
+      }),
+    })
+
+    expect(screen.getByText('Party')).toBeInTheDocument()
+    expect(screen.getByText('Democratic')).toBeInTheDocument()
+    expect(screen.getByText('60 · 60%')).toBeInTheDocument()
+    // The pack ships raw bucket keys; the sheet is what turns them into prose.
+    expect(screen.getByText('35–50')).toBeInTheDocument()
+    expect(screen.queryByText('35_50')).toBeNull()
+  })
+
+  // The frozen route's targets are the audience, so its breakdown is built off
+  // them rather than off the pack — and off the KNOCKABLE ones, so it sums to
+  // the People stat above instead of quietly using a wider denominator.
+  it('breaks a frozen route down from its own targets', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: {
+        ...routeWithDoors,
+        stops: [
+          {
+            ...routeWithDoors.stops[0]!,
+            addresses: [
+              {
+                addressKey: '105|elm|st|1',
+                address: '105 Elm St Apt 1',
+                otherResidents: [],
+                targets: [
+                  {
+                    ...resident,
+                    stopTargetId: 21,
+                    age: 40,
+                    politicalParty: 'Democratic' as const,
+                  },
+                  {
+                    ...resident,
+                    stopTargetId: 22,
+                    personId: 'person-2',
+                    age: 70,
+                    politicalParty: 'Democratic' as const,
+                    // Flagged, so out of the breakdown as well as the count.
+                    doNotKnock: true,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      } satisfies DoorKnockingRoutePayload,
+    })
+    renderSheet({ prop: { locked: true }, listStats: listStats() })
+
+    expect(await screen.findByText('31m')).toBeInTheDocument()
+    // One knockable Democrat aged 40 — the 50+ do-not-knock resident is not in
+    // the audience the People stat reports, so they are not in its breakdown.
+    // Both dims report the same lone person, hence two identical figures.
+    expect(screen.getAllByText('1 · 100%')).toHaveLength(2)
+    expect(screen.getByText('Democratic')).toBeInTheDocument()
+    expect(screen.getByText('35–50')).toBeInTheDocument()
+    expect(screen.queryByText('50+')).toBeNull()
+    // The pack's own mix must not leak through once a route exists.
+    expect(screen.queryByText('Republican')).toBeNull()
+  })
+
+  // Every slice here holds at least one person, because both sources drop
+  // empty buckets — so a lone person in a large list rounds to zero and the
+  // row contradicts itself. "1 · 0%" beside an invisible bar reads as broken
+  // rendering rather than as a small number.
+  it('floors a sub-one-percent slice instead of printing zero', () => {
+    renderSheet({
+      listStats: listStats({
+        partyMix: [
+          { label: 'Democratic', people: 400 },
+          { label: 'Republican', people: 1 },
+        ],
+      }),
+    })
+
+    expect(screen.getByText('1 · <1%')).toBeInTheDocument()
+    expect(screen.queryByText('1 · 0%')).toBeNull()
+  })
+
+  // The mix is built from `knockableTargets`, so a locked list whose every
+  // resident is flagged empties it — which is not the same claim as a list
+  // with nobody in it, and saying "yet" to someone holding a walked list
+  // reads as the sheet having lost their route.
+  it('says why a fully flagged route has no audience, without saying yet', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: {
+        ...routeWithDoors,
+        stops: [
+          {
+            ...routeWithDoors.stops[0]!,
+            addresses: [
+              {
+                addressKey: '105|elm|st|1',
+                address: '105 Elm St Apt 1',
+                otherResidents: [],
+                targets: [{ ...resident, stopTargetId: 21, doNotKnock: true }],
+              },
+            ],
+          },
+        ],
+      } satisfies DoorKnockingRoutePayload,
+    })
+    renderSheet({ prop: { locked: true } })
+
+    expect(
+      await screen.findByText(/no audience left to break down/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/No one to describe in this list yet/)).toBeNull()
+    // The roster still lists them, which is exactly why "no one" would have
+    // contradicted the surface it sits on.
+    expect(screen.getByText('105 Elm St Apt 1')).toBeInTheDocument()
+  })
+
+  // Settled with nothing is a different claim from still loading, and 'no bars'
+  // must not be the rendering of either.
+  it('does not render an empty breakdown when the audience is unavailable', () => {
+    renderSheet({ listStats: null, listStatsPending: false })
+
+    expect(screen.getByText(/No breakdown to show/)).toBeInTheDocument()
   })
 })
 

@@ -9,13 +9,18 @@ import {
 } from './filterEngine'
 
 // Hand-built pack matching the wire framing: 4 people, 3 households, 2 dots,
-// two dims (party, canvassStatus). Mirrors the people-api encoder layout.
+// three dims (party, age, canvassStatus). Mirrors the people-api encoder
+// layout.
 const buildFixture = (): ArrayBuffer => {
   const counts = { people: 4, households: 3, dots: 2 }
   const positions = new Float32Array([-87.65, 41.9, -87.66, 41.91])
   const personToHousehold = new Uint32Array([0, 0, 1, 2])
   const householdToDot = new Uint32Array([0, 0, 1])
   const party = new Uint8Array([1, 2, 0, 0]) // Dem, Rep, Unknown, Unknown
+  // Deliberately a different shape from `party` — same four people bucketed
+  // unevenly — so a stat that read the wrong plane produces the wrong answer
+  // rather than coincidentally the right one.
+  const age = new Uint8Array([3, 1, 3, 0]) // 35_50, 18_25, 35_50, Unknown
   const canvass = new Uint8Array([2, 0, 0, 0]) // supporter, unknown...
 
   const pad4 = (n: number) => Math.ceil(n / 4) * 4
@@ -24,6 +29,7 @@ const buildFixture = (): ArrayBuffer => {
     personToHousehold.byteLength +
     householdToDot.byteLength +
     party.byteLength +
+    age.byteLength +
     canvass.byteLength
 
   let dataStart = 4
@@ -44,6 +50,7 @@ const buildFixture = (): ArrayBuffer => {
     push('personToHousehold', 'u32', counts.people, 4)
     push('householdToDot', 'u32', counts.households, 4)
     push('dim:party', 'u8', counts.people, 1)
+    push('dim:age', 'u8', counts.people, 1)
     push('dim:canvassStatus', 'u8', counts.people, 1)
     manifestJson = JSON.stringify({
       version: 1,
@@ -51,6 +58,11 @@ const buildFixture = (): ArrayBuffer => {
       counts,
       dims: [
         { key: 'party', values: ['Unknown', 'Democratic', 'Republican'] },
+        // gp-api's AGE_VALUES, in its order — the byte IS the index into this.
+        {
+          key: 'age',
+          values: ['Unknown', '18_25', '25_35', '35_50', '50_plus'],
+        },
         {
           key: 'canvassStatus',
           values: ['unknown', 'not_home', 'supporter'],
@@ -79,6 +91,7 @@ const buildFixture = (): ArrayBuffer => {
   write(personToHousehold)
   write(householdToDot)
   write(party)
+  write(age)
   write(canvass)
   return buffer
 }
@@ -91,7 +104,17 @@ describe('decodePack', () => {
     expect(Array.from(pack.personToHousehold)).toEqual([0, 0, 1, 2])
     expect(Array.from(pack.householdToDot)).toEqual([0, 0, 1])
     expect(pack.positions[0]).toBeCloseTo(-87.65, 4)
+    // All three planes, not just party. A dim's bytes are found by the manifest
+    // offset its `push` assigned, so the fixture's push order and its write
+    // order have to stay in step — insert a plane into one and not the other
+    // and every dim after it decodes as its neighbour. Nothing about that is
+    // visibly wrong: the demographics stay plausible, they are just the wrong
+    // dim's, which is exactly the kind of thing a merge introduces silently.
     expect(Array.from(pack.dimPlanes.get('party') ?? [])).toEqual([1, 2, 0, 0])
+    expect(Array.from(pack.dimPlanes.get('age') ?? [])).toEqual([3, 1, 3, 0])
+    expect(Array.from(pack.dimPlanes.get('canvassStatus') ?? [])).toEqual([
+      2, 0, 0, 0,
+    ])
   })
 
   it('throws on a pack missing a core array', () => {
@@ -211,6 +234,48 @@ describe('polygonStats', () => {
     ])
   })
 
+  // Age is the details sheet's second breakdown and reads its own plane, so it
+  // gets the same three assertions party does. The fixture buckets the four
+  // people differently across the two dims on purpose: a stat that read the
+  // party plane for age would otherwise still produce a plausible answer.
+  it('breaks the ring down by age, biggest bucket first', () => {
+    const pack = decodePack(buildFixture())
+
+    const stats = polygonStats(pack, new Map(), wholeDistrictRing)
+
+    // Persons 0 and 2 are 35_50, person 1 is 18_25, person 3 Unknown — and the
+    // labels are the manifest's raw bucket keys, which the sheet formats.
+    // The two one-person buckets tie, and the sort is stable, so they hold
+    // manifest order (Unknown is index 0) rather than an arbitrary one.
+    expect(stats.ageMix).toEqual([
+      { label: '35_50', people: 2 },
+      { label: 'Unknown', people: 1 },
+      { label: '18_25', people: 1 },
+    ])
+  })
+
+  it('counts age only for the people inside the ring', () => {
+    const pack = decodePack(buildFixture())
+
+    // Dot 0 holds households 0 and 1, i.e. persons 0, 1 and 2.
+    expect(polygonStats(pack, new Map(), dotZeroRing).ageMix).toEqual([
+      { label: '35_50', people: 2 },
+      { label: '18_25', people: 1 },
+    ])
+  })
+
+  it('drops age buckets the filter excluded rather than showing them at zero', () => {
+    const pack = decodePack(buildFixture())
+    const demsOnly: DimSelections = new Map([['party', new Set([1])]])
+
+    // Person 0 is the only Democrat, and they are 35_50 — so the other three
+    // age buckets go, rather than reporting the polygon's whole age spread
+    // beside a people count of 1.
+    expect(polygonStats(pack, demsOnly, wholeDistrictRing).ageMix).toEqual([
+      { label: '35_50', people: 1 },
+    ])
+  })
+
   it('returns an empty turf when the ring encloses no dot', () => {
     const pack = decodePack(buildFixture())
 
@@ -226,6 +291,7 @@ describe('polygonStats', () => {
       people: 0,
       households: 0,
       partyMix: [],
+      ageMix: [],
     })
   })
 })

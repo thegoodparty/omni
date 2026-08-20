@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { Button, EyeIcon, EyeOffIcon, IconButton } from '@styleguide'
 import { turfsQueryOptions } from './turfQueries'
+import DeleteTurfControl from './DeleteTurfControl'
 
 interface TurfListProps {
   // Highlights the list whose dots are currently scoped on the map.
@@ -17,6 +18,10 @@ interface TurfListProps {
   // Knock on an unknocked turf builds the route; on a knocked turf it opens
   // the existing route (the backend call is idempotent either way).
   onKnockTurf: (turf: DoorKnockingTurf) => void
+  // The page drops its own references to a deleted turf (map scope, camera
+  // focus, hidden set), which would otherwise go on masking the map to a ring
+  // the refetched rail no longer contains.
+  onDeletedTurf: (turf: DoorKnockingTurf) => void
 }
 
 export default function TurfList({
@@ -26,6 +31,7 @@ export default function TurfList({
   onToggleTurfVisibility,
   onShowDetails,
   onKnockTurf,
+  onDeletedTurf,
 }: TurfListProps) {
   const turfsQuery = useQuery(turfsQueryOptions)
 
@@ -135,6 +141,20 @@ export default function TurfList({
             <Button size="small" onClick={() => onKnockTurf(turf)}>
               Knock
             </Button>
+            {/* Per-list controls belong on the rail, which is where a candidate
+                compares lists — and delete lived only inside the details sheet,
+                two clicks from the row it acts on. Rendered for a locked list
+                too, disabled: gp-api's assertNotLocked still refuses the call,
+                but a control that removes itself teaches a candidate the
+                feature does not exist. The details sheet carries the sentence
+                explaining why it's off; a disabled button has no tooltip to
+                carry it here. */}
+            <DeleteTurfControl
+              turf={turf}
+              locked={turf.locked}
+              onDeleted={onDeletedTurf}
+              compact
+            />
           </div>
         )
       })}

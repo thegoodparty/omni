@@ -1,8 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FetchError } from 'ofetch'
+import { useQuery } from '@tanstack/react-query'
 import { DoorKnockingMode, DoorKnockingTurf } from '@goodparty_org/contracts'
 import {
   Button,
@@ -10,13 +9,8 @@ import {
   PencilIcon,
   ToggleGroup,
   ToggleGroupItem,
-  Trash2Icon,
   XMarkIcon,
 } from '@styleguide'
-import { clientRequest } from 'gpApi/typed-request'
-import { useSnackbar } from 'helpers/useSnackbar'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { ConfirmDeleteDialog } from 'app/dashboard/shared/ConfirmDeleteDialog'
 import EditTurfDialog from './EditTurfDialog'
 import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
 import { LANGUAGE_KEY_TO_CODE } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
@@ -28,16 +22,11 @@ import {
 import { DOORS_PER_HOUR, estimateWalkTime } from './walkEstimate'
 import { estimateTravelSeconds } from './travelMode'
 import { unpreviewableDisclosureLabels } from './createFlow/voterFilterPreview'
-import type { PolygonStats } from './filterEngine'
+import type { DimSlice, PolygonStats } from './filterEngine'
+import { ageBucketLabel, routeAudienceMix } from './audienceMix'
+import DeleteTurfControl, { LOCKED_TURF_MESSAGE } from './DeleteTurfControl'
+import TurfRoster from './TurfRoster'
 import { countDoors, knockableTargets } from '../routeCounts'
-
-// gp-api refuses to delete a knocked turf: doorKnockingTurf.delete runs
-// assertNotLocked first, and lockedness IS the frozen route row, so a turf
-// with logged knocks 409s. The affordance follows that rule rather than
-// duplicating it — and the 409 is still handled, since a teammate can knock
-// the turf while this sheet is open.
-const LOCKED_TURF_MESSAGE =
-  'This list has already been knocked, so its route is frozen and it can no longer be deleted.'
 
 // option key -> pill label, straight from the sections config the create
 // flow renders, so Details always speaks the same vocabulary.
@@ -90,6 +79,62 @@ const Stat = ({
   </div>
 )
 
+// What the resulting audience IS, next to the "Applied filters" pills that say
+// what was ASKED FOR. Percentages are of the slices' own total rather than of
+// the People stat, so the bars always sum to 100% of the thing being broken
+// down — a pre-route mix is computed over the same pack pass as People, and a
+// post-route one over the same knockable targets, so the two agree anyway.
+const Breakdown = ({
+  title,
+  slices,
+  format,
+}: {
+  title: string
+  slices: DimSlice[]
+  format?: (label: string) => string
+}) => {
+  const total = slices.reduce((sum, slice) => sum + slice.people, 0)
+  if (total === 0) return null
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs font-medium text-muted-foreground">{title}</p>
+      <ul className="flex flex-col gap-1.5">
+        {slices.map((slice) => {
+          const percent = Math.round((slice.people / total) * 100)
+          // Both sources drop empty buckets, so every slice here holds at
+          // least one person — and one person in a list of 201 rounds to
+          // zero. "1 · 0%" is a row contradicting itself, and a 0%-wide bar
+          // reads as a rendering fault rather than as a small number, so the
+          // percent floors at "<1" and the bar at a visible sliver.
+          const percentLabel = percent === 0 ? '<1' : String(percent)
+          const barWidth = Math.max(percent, 1)
+          return (
+            <li key={slice.label} className="flex flex-col gap-1">
+              <div className="flex items-baseline justify-between gap-3 text-sm">
+                <span className="truncate">
+                  {format ? format(slice.label) : slice.label}
+                </span>
+                <span className="shrink-0 tabular-nums text-muted-foreground">
+                  {`${slice.people.toLocaleString()} · ${percentLabel}%`}
+                </span>
+              </div>
+              <span
+                aria-hidden="true"
+                className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+              >
+                <span
+                  className="block h-full rounded-full bg-tertiary-dark"
+                  style={{ width: `${barWidth}%` }}
+                />
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 interface TurfDetailsSheetProps {
   turf: DoorKnockingTurf
   // This list's own audience inside its polygon — the page runs the same
@@ -131,11 +176,7 @@ export default function TurfDetailsSheet({
   onClose,
   onDeleted,
 }: TurfDetailsSheetProps) {
-  const queryClient = useQueryClient()
-  const { successSnackbar, errorSnackbar } = useSnackbar()
-  const [confirmOpen, setConfirmOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
   // Which mode the travel figure is being read in. Display-only and
   // deliberately never persisted: door_knocking_route.doorKnockingTurfId is
   // unique, the row is never written after the knock transaction commits (both
@@ -157,39 +198,6 @@ export default function TurfDetailsSheet({
   const turfsQuery = useQuery(turfsQueryOptions)
   const liveTurf =
     turfsQuery.data?.find((candidate) => candidate.id === turf.id) ?? turf
-  const deleteTurf = useMutation({
-    mutationFn: () =>
-      clientRequest('DELETE /v1/door-knocking/turfs/:id', {
-        id: String(turf.id),
-      }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: turfsQueryOptions.queryKey,
-      })
-      trackEvent(EVENTS.DoorKnocking.ListDeleted, { turfId: turf.id })
-      successSnackbar('List deleted')
-      setConfirmOpen(false)
-      onDeleted(turf)
-    },
-    onError: async (error) => {
-      if (error instanceof FetchError && error.status === 409) {
-        // Someone knocked it while this sheet was open, so this is permanent,
-        // not retryable: close the confirm rather than leaving an enabled
-        // Delete that can only 409 again, and explain in a snackbar that
-        // outlives the dialog. The refetch then flips liveTurf.locked and the
-        // trigger retires itself.
-        setConfirmOpen(false)
-        setDeleteError(null)
-        errorSnackbar(LOCKED_TURF_MESSAGE, { autoHideDuration: 6000 })
-        await queryClient.invalidateQueries({
-          queryKey: turfsQueryOptions.queryKey,
-        })
-        return
-      }
-      // Generic failures are worth retrying, so the dialog stays put.
-      setDeleteError('The list could not be deleted. Try again.')
-    },
-  })
   const routeQuery = useQuery({
     ...routeQueryOptions(turf.id),
     // liveTurf, not the prop: a turf knocked while this sheet is open has real
@@ -285,6 +293,24 @@ export default function TurfDetailsSheet({
   const discloseApproximation =
     !liveTurf.locked && !preRoutePending && !preRouteFailed
 
+  // The audience's own shape, on the same split every other figure here
+  // follows: the frozen route once there is one (exact, and drawn from the
+  // knockable targets so it sums to the People stat above), otherwise the
+  // pack's pass over this list's ring and saved filters (a superset, disclosed
+  // by the two lines directly above this section). Party and age are the only
+  // dims both sources hold — see audienceMix.ts for why the pack's other
+  // fourteen don't earn a place.
+  const routeMix = route ? routeAudienceMix(targets) : null
+  const partyMix = routeMix?.partyMix ?? listStats?.partyMix ?? []
+  const ageMix = routeMix?.ageMix ?? listStats?.ageMix ?? []
+  // Same three states as the stats: a pack still decoding has no mix, and
+  // neither has one that settled with nothing — and 'no bars' must not be the
+  // rendering of either.
+  const audienceUnavailable = route
+    ? false
+    : routeFailed || preRouteFailed || (!liveTurf.locked && !listStats)
+  const audiencePending = routePending || preRoutePending
+
   const builtMode = route?.route.mode ?? null
   const shownMode = travelModeView ?? builtMode
   // Reading the travel figure in the mode we did NOT buy. The distance is the
@@ -310,6 +336,17 @@ export default function TurfDetailsSheet({
             <p className="text-sm text-muted-foreground">
               Overview of this list, its route, and applied filters.
             </p>
+            {/* The lock's consequence, said out loud on the surface carrying
+                the control it disables. Delete used to render nothing at all
+                here, which is indistinguishable from the feature not existing
+                — and that is precisely how it was reported. The disabled
+                control cannot show a title tooltip (it has
+                `pointer-events-none`), so the explanation has to be text. */}
+            {liveTurf.locked && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {LOCKED_TURF_MESSAGE}
+              </p>
+            )}
           </div>
           {/* Paper without opening the walk first, same rule and same markup
               as the TurfList row: only a locked list has a route to print, so
@@ -338,23 +375,20 @@ export default function TurfDetailsSheet({
               Edit
             </Button>
           )}
-          {!liveTurf.locked && (
-            <Button
-              size="small"
-              variant="outline"
-              // Named for the turf so it doesn't collide with the confirm
-              // dialog's own "Delete", for screen readers and tests alike.
-              aria-label={`Delete ${liveTurf.name}`}
-              className="shrink-0 text-destructive hover:bg-destructive/10"
-              onClick={() => {
-                setDeleteError(null)
-                setConfirmOpen(true)
-              }}
-            >
-              <Trash2Icon size={14} />
-              Delete
-            </Button>
-          )}
+          {/* Rendered locked or not — disabled rather than absent. gp-api still
+              refuses the call, so this changes nothing about what is possible;
+              it changes whether a candidate can tell that Delete exists. */}
+          {/* liveTurf, like Edit beside it: this control names the list in its
+              label and in the confirm dialog's title, and the sheet can rename
+              it, so the prop snapshot would ask "Delete Elm St?" about a list
+              renamed to Riverside a moment earlier. Identity is unaffected —
+              liveTurf is found BY turf.id, so the id the mutation sends is the
+              same object either way. */}
+          <DeleteTurfControl
+            turf={liveTurf}
+            locked={liveTurf.locked}
+            onDeleted={onDeleted}
+          />
           <IconButton aria-label="Close details" onClick={onClose}>
             <XMarkIcon size={18} />
           </IconButton>
@@ -551,6 +585,54 @@ export default function TurfDetailsSheet({
               </p>
             )}
           </section>
+          {/* Directly under Overview, and deliberately not at the foot of the
+              sheet where the prototype puts it: these are pack-derived numbers
+              on an unknocked list, and the two disclosure lines that qualify
+              them are the last thing above. Moving this below "Applied filters"
+              would separate the caveat from the figures it is about. */}
+          <section className="flex flex-col gap-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-info">
+              Audience
+            </h3>
+            {audiencePending ? (
+              <p className="py-0.5">
+                <span className="block h-4 w-40 animate-pulse rounded bg-muted" />
+                <span className="sr-only">Loading</span>
+              </p>
+            ) : audienceUnavailable ? (
+              // Deliberately not a second account of WHY: Overview already
+              // prints the one explanation, and a sheet that gives the same
+              // failure two wordings teaches a candidate to read them as two
+              // different failures.
+              <p className="text-sm text-muted-foreground">
+                No breakdown to show — the numbers above are unavailable.
+              </p>
+            ) : partyMix.length === 0 && ageMix.length === 0 ? (
+              // A frozen route reaching here is not an empty list — it is a
+              // list whose every resident is flagged, since the mix is built
+              // from `knockableTargets` and ADR 0007 / 0008 drop those. Saying
+              // "yet" to someone holding a walked list reads as the sheet
+              // having lost their route, and "no one" contradicts the roster
+              // below it, which still lists every one of them.
+              <p className="text-sm text-muted-foreground">
+                {route
+                  ? 'Everyone in this list is marked do-not-knock or “not a voter”, so there is no audience left to break down.'
+                  : 'No one to describe in this list yet.'}
+              </p>
+            ) : (
+              <>
+                <Breakdown title="Party" slices={partyMix} />
+                {/* The pack ships raw bucket keys ('35_50'), and the route's
+                    raw ages are bucketed onto the same ones, so one formatter
+                    serves both branches. */}
+                <Breakdown
+                  title="Age"
+                  slices={ageMix}
+                  format={ageBucketLabel}
+                />
+              </>
+            )}
+          </section>
           <section className="flex flex-col gap-2">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-info">
               Applied filters
@@ -574,24 +656,53 @@ export default function TurfDetailsSheet({
               </div>
             )}
           </section>
+          <section className="flex flex-col gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-info">
+              Doors in this list
+            </h3>
+            {!liveTurf.locked ? (
+              // The honest answer, and the one the prototype's fixture data let
+              // it skip. The voter pack is positions plus u8 category planes —
+              // it can say how many people are in this ring and what they are,
+              // which is what everything above is built from, but it holds no
+              // name, no address line and no person id. The only roster that
+              // exists anywhere is the frozen route's, and building one is the
+              // billed Geoapify call `Knock` makes.
+              //
+              // First sentence is the draw step's, word for word: the same
+              // candidate meets this limitation while drawing a ring and again
+              // here on the list they saved from it, and one limitation worded
+              // two ways is how they learn to trust neither surface.
+              //
+              // Says nothing about whether the counts above succeeded, because
+              // it is true either way — a fact about the data model, not a
+              // report on a fetch. That is also what keeps it from ever
+              // becoming the "here is everyone in the polygon" fallback.
+              <p className="text-sm text-muted-foreground">
+                Street addresses arrive with the route, once you knock this
+                list. The map data these counts come from records where people
+                are and what they are, not who they are — so there is nobody to
+                name here yet.
+              </p>
+            ) : routePending ? (
+              <p className="py-0.5">
+                <span className="block h-4 w-40 animate-pulse rounded bg-muted" />
+                <span className="sr-only">Loading</span>
+              </p>
+            ) : routeFailed || !route ? (
+              <p className="text-sm text-muted-foreground">
+                No doors to list — this list&rsquo;s route is unavailable.
+              </p>
+            ) : (
+              <TurfRoster stops={route.stops} />
+            )}
+          </section>
         </div>
       </div>
       <EditTurfDialog
         turf={liveTurf}
         open={editOpen}
         onOpenChange={setEditOpen}
-      />
-      <ConfirmDeleteDialog
-        open={confirmOpen}
-        onOpenChange={(next) => {
-          setConfirmOpen(next)
-          if (!next) setDeleteError(null)
-        }}
-        title={`Delete ${liveTurf.name}?`}
-        description="The drawn area and its filters are removed for good. The saved list stays in Contacts, and no logged knocks are affected."
-        onConfirm={() => deleteTurf.mutate()}
-        confirming={deleteTurf.isPending}
-        errorMessage={deleteError}
       />
     </div>
   )
