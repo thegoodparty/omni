@@ -197,6 +197,18 @@ class TestInfrastructureNeverBecomesAnAgentRun:
 
         assert decision["action"] == ACTION_RERUN
 
+    def test_an_unknown_failure_cannot_smuggle_a_fix_run_past_a_persisting_infra_one(self):
+        # The hole this closes: with re-runs spent, a second failing check that
+        # matched no signature used to exempt the whole board from escalation and
+        # buy an agent run — while the environment was still visibly broken. The
+        # infra failure is the most likely cause of the unknown one (an apt
+        # mirror that hangs one job starves another into a signature-less
+        # timeout), so the unknown check is being judged on bad evidence.
+        decision = decide([PR_1306_E2E_SHARD_1, a_check()], {"reruns": MAX_RERUNS, "fixes": 0, "escalated": False})
+
+        assert decision["action"] == ACTION_ESCALATE
+        assert decision["next_state"]["fixes"] == 0
+
 
 class TestCapsBoundTheSpend:
     def test_fix_runs_stop_at_the_cap(self):

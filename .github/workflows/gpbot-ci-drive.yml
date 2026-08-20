@@ -88,9 +88,13 @@ env:
   REPO: ${{ github.repository }}
   GH_TOKEN: ${{ github.token }}
   # Terminal statuses that mean a check produced no usable verdict or a bad one.
+  # Spans both rollup shapes: CheckRun conclusions and the Commit Statuses API's
+  # states, whose failure spelling is ERROR as well as FAILURE — without ERROR a
+  # crashed Vercel deployment is dropped from the failing set and the PR is
+  # reported "all checks green".
   # NEUTRAL and SKIPPED are absent on purpose: an advisory or skipped check is not
   # a merge gate, and treating one as a failure would drive every PR forever.
-  FAILED_CONCLUSIONS: 'FAILURE,CANCELLED,TIMED_OUT,STARTUP_FAILURE,ACTION_REQUIRED'
+  FAILED_CONCLUSIONS: 'FAILURE,ERROR,CANCELLED,TIMED_OUT,STARTUP_FAILURE,ACTION_REQUIRED'
 
 jobs:
   drive:
@@ -173,8 +177,23 @@ jobs:
           # rule that a breakage already red on main is not this PR's problem, so
           # an empty result here (an API blip) must fail toward "not pre-existing"
           # — which costs a re-run, not a wrong fix.
-          main_failing="$(gh api "repos/$REPO/commits/main/check-runs" --paginate \
-            --jq '.check_runs[] | select(.conclusion == "failure") | .name' 2>/dev/null | sort -u)"
+          #
+          # BOTH APIs, because the rollup below reads both shapes. check-runs
+          # covers GitHub Actions jobs; external reporters (Vercel and friends)
+          # post to the Commit Statuses API and are invisible to it, so without
+          # the second call a StatusContext red on main reads as UNKNOWN here and
+          # could buy a fix run for a breakage the PR did not introduce.
+          #
+          # The COMBINED /status endpoint, not /statuses: /statuses returns every
+          # status ever posted for the commit, so a context that failed and was
+          # later re-reported green would still show up as failing and wrongly
+          # excuse a genuine regression. /status returns the latest per context.
+          main_failing="$({ \
+            gh api "repos/$REPO/commits/main/check-runs" --paginate \
+              --jq '.check_runs[] | select(.conclusion == "failure") | .name' 2>/dev/null; \
+            gh api "repos/$REPO/commits/main/status" \
+              --jq '.statuses[] | select(.state == "failure" or .state == "error") | .context' 2>/dev/null; \
+          } | sort -u)"
           echo "failing on main: ${main_failing:-<none>}"
 
           for pr in $PR_NUMBERS; do

@@ -295,12 +295,25 @@ def decide(checks: Any, state: Any) -> dict:
     # every re-run is a broken mirror or a sick database, and the single most
     # damaging thing this feature could do is point a model at application code
     # to satisfy it. Out of re-runs means out of moves.
-    if infra and not unknown:
+    #
+    # A persisting infra failure blocks a fix run even when an unrecognized
+    # failure is red beside it, which is the stricter reading and the correct
+    # one: the broken environment is the most likely CAUSE of the unknown
+    # failure (an apt mirror that hangs one job starves another into a timeout
+    # that matches no signature). Judging the unknown check while the
+    # environment is still broken means judging it on bad evidence, so it has to
+    # wait until the infrastructure is healthy — which is a human's job here.
+    if infra:
         return {
             "action": ACTION_ESCALATE,
             "reason": (
-                f"{MAX_RERUNS} re-runs did not clear an infrastructure failure; "
-                "it is not a code defect, so no fix run is attempted"
+                f"{MAX_RERUNS} re-runs did not clear an infrastructure failure. It is not a code defect, so no "
+                "fix run is attempted"
+                + (
+                    "; the other failing check cannot be judged while the environment is still broken"
+                    if unknown
+                    else ""
+                )
             ),
             "classifications": classifications,
             "next_state": {"reruns": reruns, "fixes": fixes, "escalated": True},
