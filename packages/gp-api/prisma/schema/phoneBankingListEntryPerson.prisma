@@ -1,0 +1,19 @@
+model PhoneBankingListEntryPerson {
+  id                      Int                   @id @default(autoincrement())
+  createdAt               DateTime              @default(now()) @map("created_at")
+  updatedAt               DateTime              @updatedAt @map("updated_at")
+  entry                   PhoneBankingListEntry @relation(fields: [phoneBankingListEntryId], references: [id], onDelete: Cascade)
+  phoneBankingListEntryId Int                   @map("phone_banking_list_entry_id")
+  // people-api person UUID (hash-derived from the L2 id). Raw LALVOTERIDs
+  // never enter these tables.
+  personId                String                @map("person_id")
+  // Required: people with no name in the voter file are excluded as call
+  // targets at build time. Privacy deletion blanks this in place rather
+  // than nulling it — the row is never removed.
+  name                    String
+
+  // A person appears at most once per entry, mirroring
+  // DoorKnockingStopTarget's per-stop uniqueness.
+  @@unique([phoneBankingListEntryId, personId])
+  @@map("phone_banking_list_entry_person")
+}

@@ -8,6 +8,7 @@ import {
   type SocialAssetPlatform,
 } from '../generated/enums'
 import { zCoerceDate } from '../shared/Date.schema'
+import { PhoneBankingOutreachDetailSchema } from '../phoneBanking/PhoneBankingList.schema'
 
 export const SOCIAL_PURPOSE_VALUES = [
   'introduce_myself',
@@ -140,6 +141,7 @@ export const OutreachDetailSchema = z.object({
   imageUrl: z.string().nullable(),
   voterFileFilterId: z.number().nullable(),
   doorKnockingRouteId: z.number().nullable(),
+  phoneBankingListId: z.number().nullable(),
   phoneListId: z.number().nullable(),
   identityId: z.string().nullable(),
   didState: z.string().nullable(),
@@ -150,5 +152,6 @@ export const OutreachDetailSchema = z.object({
   campaignPlanDueDate: z.string().nullable(),
   organizationSlug: z.string().nullable(),
   social: OutreachSocialDetailSchema.optional(),
+  phoneBanking: PhoneBankingOutreachDetailSchema.optional(),
 })
 export type OutreachDetail = z.infer<typeof OutreachDetailSchema>
