@@ -850,6 +850,59 @@ describe('TurfDetailsSheet audience', () => {
     expect(screen.queryByText('Republican')).toBeNull()
   })
 
+  // Every slice here holds at least one person, because both sources drop
+  // empty buckets — so a lone person in a large list rounds to zero and the
+  // row contradicts itself. "1 · 0%" beside an invisible bar reads as broken
+  // rendering rather than as a small number.
+  it('floors a sub-one-percent slice instead of printing zero', () => {
+    renderSheet({
+      listStats: listStats({
+        partyMix: [
+          { label: 'Democratic', people: 400 },
+          { label: 'Republican', people: 1 },
+        ],
+      }),
+    })
+
+    expect(screen.getByText('1 · <1%')).toBeInTheDocument()
+    expect(screen.queryByText('1 · 0%')).toBeNull()
+  })
+
+  // The mix is built from `knockableTargets`, so a locked list whose every
+  // resident is flagged empties it — which is not the same claim as a list
+  // with nobody in it, and saying "yet" to someone holding a walked list
+  // reads as the sheet having lost their route.
+  it('says why a fully flagged route has no audience, without saying yet', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: {
+        ...routeWithDoors,
+        stops: [
+          {
+            ...routeWithDoors.stops[0]!,
+            addresses: [
+              {
+                addressKey: '105|elm|st|1',
+                address: '105 Elm St Apt 1',
+                otherResidents: [],
+                targets: [{ ...resident, stopTargetId: 21, doNotKnock: true }],
+              },
+            ],
+          },
+        ],
+      } satisfies DoorKnockingRoutePayload,
+    })
+    renderSheet({ prop: { locked: true } })
+
+    expect(
+      await screen.findByText(/no audience left to break down/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/No one to describe in this list yet/)).toBeNull()
+    // The roster still lists them, which is exactly why "no one" would have
+    // contradicted the surface it sits on.
+    expect(screen.getByText('105 Elm St Apt 1')).toBeInTheDocument()
+  })
+
   // Settled with nothing is a different claim from still loading, and 'no bars'
   // must not be the rendering of either.
   it('does not render an empty breakdown when the audience is unavailable', () => {

@@ -101,6 +101,13 @@ const Breakdown = ({
       <ul className="flex flex-col gap-1.5">
         {slices.map((slice) => {
           const percent = Math.round((slice.people / total) * 100)
+          // Both sources drop empty buckets, so every slice here holds at
+          // least one person — and one person in a list of 201 rounds to
+          // zero. "1 · 0%" is a row contradicting itself, and a 0%-wide bar
+          // reads as a rendering fault rather than as a small number, so the
+          // percent floors at "<1" and the bar at a visible sliver.
+          const percentLabel = percent === 0 ? '<1' : String(percent)
+          const barWidth = Math.max(percent, 1)
           return (
             <li key={slice.label} className="flex flex-col gap-1">
               <div className="flex items-baseline justify-between gap-3 text-sm">
@@ -108,7 +115,7 @@ const Breakdown = ({
                   {format ? format(slice.label) : slice.label}
                 </span>
                 <span className="shrink-0 tabular-nums text-muted-foreground">
-                  {`${slice.people.toLocaleString()} · ${percent}%`}
+                  {`${slice.people.toLocaleString()} · ${percentLabel}%`}
                 </span>
               </div>
               <span
@@ -117,7 +124,7 @@ const Breakdown = ({
               >
                 <span
                   className="block h-full rounded-full bg-tertiary-dark"
-                  style={{ width: `${percent}%` }}
+                  style={{ width: `${barWidth}%` }}
                 />
               </span>
             </li>
@@ -601,8 +608,16 @@ export default function TurfDetailsSheet({
                 No breakdown to show — the numbers above are unavailable.
               </p>
             ) : partyMix.length === 0 && ageMix.length === 0 ? (
+              // A frozen route reaching here is not an empty list — it is a
+              // list whose every resident is flagged, since the mix is built
+              // from `knockableTargets` and ADR 0007 / 0008 drop those. Saying
+              // "yet" to someone holding a walked list reads as the sheet
+              // having lost their route, and "no one" contradicts the roster
+              // below it, which still lists every one of them.
               <p className="text-sm text-muted-foreground">
-                No one to describe in this list yet.
+                {route
+                  ? 'Everyone in this list is marked do-not-knock or “not a voter”, so there is no audience left to break down.'
+                  : 'No one to describe in this list yet.'}
               </p>
             ) : (
               <>
