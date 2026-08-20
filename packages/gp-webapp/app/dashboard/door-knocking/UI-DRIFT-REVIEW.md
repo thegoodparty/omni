@@ -265,7 +265,7 @@ server, not a UI change.
 **Recommendation:** keep for now; log as data-platform work if product cares.
 Worth knowing that lists built before the ranges changed still carry the old ones
 and are read correctly — that was a live gap in the filter pills, found during
-review of this work and fixed in PR #1346.
+review of this work and will be fixed in PR #1346 (open, not yet merged).
 
 ---
 
@@ -451,7 +451,8 @@ are labelled from the list of filters the app currently offers, and the age
 ranges changed at some point from overlapping bands to exclusive ones. Any list
 saved before that still carries the old ranges, which are no longer in that list,
 so a list targeting 35–50-year-olds displayed **no filter pills whatsoever** —
-indistinguishable on screen from a list that targets everybody. Now labelled.
+indistinguishable on screen from a list that targets everybody. That PR labels
+them.
 
 ### 5. The door sheet's cards had lost their icons too
 
