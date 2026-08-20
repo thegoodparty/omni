@@ -34,8 +34,19 @@ export class ZodResponseInterceptor implements NestInterceptor {
       map((data) => {
         const result = schema.safeParse(data)
         if (!result.success) {
+          // `flatten()` only reports top-level keys, so every nested failure
+          // collapses onto its parent: a bad `details.officeTermLength` logged
+          // as `fieldErrors: { details: [...] }`, indistinguishable from any
+          // other field under `details`. `issues` carries the full path, so
+          // the log names the offending field for every @ResponseSchema route.
           this.logger.error(
-            result.error.flatten(),
+            {
+              issues: result.error.issues.map((issue) => ({
+                path: issue.path.join('.') || '<root>',
+                code: issue.code,
+                message: issue.message,
+              })),
+            },
             'Response validation failed:',
           )
           throw new InternalServerErrorException('Response validation failed')
