@@ -371,6 +371,26 @@ describe('buildPlanData registered voters', () => {
     expect(rowFor('Registered voters', plan)?.notes).toMatch(/voter file/i)
   })
 
+  it('cites no voter-file source when there is no count to source', () => {
+    const plan = buildPlanData(makeInput({ registeredVoters: null }))
+
+    expect(
+      plan.dataSources.some(
+        (d) => d.metric === 'Registered voters in your district',
+      ),
+    ).toBe(false)
+  })
+
+  it('cites the voter-file source when there is a count', () => {
+    const plan = buildPlanData(makeInput({ registeredVoters: 41_230 }))
+
+    expect(
+      plan.dataSources.some(
+        (d) => d.metric === 'Registered voters in your district',
+      ),
+    ).toBe(true)
+  })
+
   it('drops the registered-voter metric row when there is no count', () => {
     const plan = buildPlanData(makeInput({ registeredVoters: null }))
 

@@ -1271,7 +1271,13 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     civicEvents,
     pressOutlets,
     contactSchedule,
-    dataSources: DATA_SOURCES,
+    // Same rule as the confidence row above: with no count in the plan, the
+    // methodology section must not cite a source for it.
+    dataSources: registeredVoters
+      ? DATA_SOURCES
+      : DATA_SOURCES.filter(
+          (d) => d.metric !== 'Registered voters in your district',
+        ),
     keyAssumptions: KEY_ASSUMPTIONS,
     confidenceEstimates,
     planDoesNotDo: PLAN_DOES_NOT_DO,
