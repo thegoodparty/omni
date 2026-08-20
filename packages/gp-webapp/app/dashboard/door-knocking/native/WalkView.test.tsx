@@ -1687,7 +1687,7 @@ describe('WalkView map pin taps', () => {
 
     // Nothing left ahead, so logging this door closes the sheet — and it has
     // to stay closed.
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    knockNotHome()
     await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
 
     expect(screen.queryByText('Log this door')).toBeNull()
