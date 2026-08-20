@@ -20,7 +20,7 @@ const seedCampaign = async (args: {
     einNumber?: string
     subscriptionId?: string
     campaignCommittee?: string
-    officeTermLength?: string | number
+    officeTermLength?: string | number | null
     customIssues?: Array<Record<string, string | number>>
   }
 }) => {
@@ -242,6 +242,24 @@ describe('GET /v1/public-campaigns', () => {
 
     expect(res.status).toBe(200)
     expect(res.data.details.officeTermLength).toBe('4 years')
+  })
+
+  // No row stores a null term length today, but `details` is free-form JSON
+  // that holds nulls in other keys, and coercing one to the string "null"
+  // would be worse than passing it through.
+  it('passes a null officeTermLength through as null', async () => {
+    await seedCampaign({
+      id: 23,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+      details: { officeTermLength: null },
+    })
+
+    const res = await find({ raceId: MONICA_RACE, ...MONICA })
+
+    expect(res.status).toBe(200)
+    expect(res.data.details.officeTermLength).toBeNull()
   })
 
   // Legacy customIssues entries carry a numeric `order` alongside the strings.

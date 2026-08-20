@@ -55,9 +55,16 @@ const PublicCampaignDetailsSchema = z.object({
   // still hold the number and every one of them 500s this endpoint. Normalize
   // to the declared string rather than widening to string | number, which
   // would push the legacy shape onto the generated DTO and every consumer.
+  //
+  // `.nullable()` is defence, not a fix for observed data: no row in the table
+  // stores a null here. But `details` is unconstrained JSON that does hold
+  // nulls in other keys (raceId, partisanType, level — all already nullable
+  // below), and a null reaching this field would be another 500 on a public
+  // route. It passes through as null rather than the string "null".
   officeTermLength: z
     .union([z.string(), z.number()])
     .transform(String)
+    .nullable()
     .optional(),
   district: z.string().optional(),
   city: z.string().nullable().optional(),
