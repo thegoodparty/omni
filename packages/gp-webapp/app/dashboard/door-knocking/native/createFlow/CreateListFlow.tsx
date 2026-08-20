@@ -21,8 +21,9 @@ import {
 import { unpreviewableDisclosureLabels } from './voterFilterPreview'
 import { MAX_TURF_NAME_LENGTH, TURF_COLORS } from '../turfQueries'
 import { DOORS_PER_HOUR, estimateWalkTime } from '../walkEstimate'
+import type { DoorKnockingAddressPreviewResponse } from '@goodparty_org/contracts'
 import type { PolygonRing } from '../VoterMapCanvas'
-import type { PolygonRoster, PolygonStats } from '../filterEngine'
+import type { PolygonStats } from '../filterEngine'
 
 // The demo's pill look (same selected-state convention as the CRM wizard's
 // PILL_TOGGLE_ITEM_CLASSNAME).
@@ -69,15 +70,26 @@ interface CreateListFlowProps {
   districtHouseholds: number
   ring: PolygonRing | null
   // In-polygon counts for the drawn shape, computed by the page from the pack.
+  // The estimate: instant on every ring change, and a superset, since the pack
+  // carries no addresses and cannot shade by every filter a list applies.
   turfStats: PolygonStats | null
-  // The doors behind those counts, grouped by the coordinate they sit at.
-  // Null whenever the panel is shut, because the page only computes it while
-  // it is open — the same in-polygon world as turfStats, never the district.
-  turfRoster: PolygonRoster | null
-  // Whether that panel is open. Owned by the page for the same reason Undo
-  // and Clear are: it is what decides whether the roster pass runs at all.
-  rosterOpen: boolean
-  onToggleRoster: () => void
+  // gp-api's answer for the shape the candidate asked about — the addresses
+  // themselves, and the exact counts that come with them. Non-null only while
+  // it describes the ring currently on screen, and when it is non-null it is
+  // what this step reports (ADR 0010): the estimate above becomes the loading
+  // state for it rather than a second figure beside it.
+  addressPreview: DoorKnockingAddressPreviewResponse | null
+  previewPending: boolean
+  previewFailed: boolean
+  // Asked for, answered, and then a vertex moved. The answer describes a
+  // boundary that is no longer on screen, so it is not shown and not counted.
+  previewStale: boolean
+  // Ask / stop asking / ask again. The page owns the request for the same
+  // reason it owns Undo and Clear, and because a shut panel must never pay
+  // for a scan of people-db.
+  onShowAddresses: () => void
+  onHideAddresses: () => void
+  onRetryAddresses: () => void
   // Boundary points placed so far. `ring` only exists from three points, so
   // this is the only thing that knows there is a one- or two-point shape to
   // undo — and it counts adds, not drags, which never change the total.
@@ -169,9 +181,13 @@ export default function CreateListFlow({
   districtHouseholds,
   ring,
   turfStats,
-  turfRoster,
-  rosterOpen,
-  onToggleRoster,
+  addressPreview,
+  previewPending,
+  previewFailed,
+  previewStale,
+  onShowAddresses,
+  onHideAddresses,
+  onRetryAddresses,
   drawPointCount,
   onUndoPoint,
   onClearPoints,
@@ -262,6 +278,25 @@ export default function CreateListFlow({
     Array.isArray(value) ? value.length > 0 : Boolean(value),
   ).length
 
+  // Stops are what the router and its 150-stop cap are denominated in; doors
+  // are what the candidate walks and what the time estimate is worth. At a
+  // multi-unit building one stop is many doors, so reporting stops as doors
+  // understated the evening exactly where buildings are densest.
+  //
+  // One quantity, one number: the preview REPLACES the estimate rather than
+  // sitting beside it (ADR 0010). Its counts are the ones the route will be
+  // built from — the same evaluation, the same suppressions, the same
+  // unit-level door — so once they exist the pack's superset is not a second
+  // opinion worth printing, it is the thing that was standing in for them.
+  const exactCounts = addressPreview !== null
+  // Four states of one panel — waiting, failed, describing a boundary that
+  // has moved, and answered — so the toggle reads the same in all of them.
+  const panelOpen =
+    exactCounts || previewPending || previewFailed || previewStale
+  const stops = addressPreview?.stops ?? turfStats?.stops ?? 0
+  const doors = addressPreview?.doors ?? turfStats?.households ?? 0
+  const people = addressPreview?.people ?? turfStats?.people ?? 0
+
   const save = useMutation({
     mutationFn: async (drawAnother: boolean) => {
       if (!ring) throw new Error('no polygon')
@@ -290,8 +325,8 @@ export default function CreateListFlow({
     },
     onSuccess: (drawAnother) => {
       trackEvent(EVENTS.DoorKnocking.ListCreated, {
-        stops: turfStats?.stops ?? 0,
-        people: turfStats?.people ?? 0,
+        stops,
+        people,
         // Without shipping which filters — the demographics themselves stay
         // out of the analytics payload.
         filterCount: activeFilterCount,
@@ -309,12 +344,6 @@ export default function CreateListFlow({
     },
   })
 
-  // Stops are what the router and its 150-stop cap are denominated in; doors
-  // (households) are what the candidate walks and what the time estimate is
-  // worth. At a multi-unit building one stop is many doors, so reporting stops
-  // as doors understated the evening exactly where buildings are densest.
-  const stops = turfStats?.stops ?? 0
-  const doors = turfStats?.households ?? 0
   const overCap = stops > HARD_STOP_LIMIT
   const longWalk = stops > SOFT_STOP_LIMIT && !overCap
   // Continue is the finish gesture, so while it is disabled it says what it
@@ -414,7 +443,7 @@ export default function CreateListFlow({
                   </span>{' '}
                   stops ·{' '}
                   <span className="font-semibold tabular-nums">
-                    {(turfStats?.people ?? 0).toLocaleString()}
+                    {people.toLocaleString()}
                   </span>{' '}
                   people
                 </p>
@@ -424,7 +453,12 @@ export default function CreateListFlow({
                     {DOORS_PER_HOUR} doors an hour
                   </p>
                 )}
-                {unpreviewableLabels.length > 0 && (
+                {/* Both of these hedge the pack, so both go when the pack is
+                  no longer what is on screen: the disclosure explains a
+                  shortfall the exact counts don't have, and the party mix is
+                  a breakdown of the superset's people that would no longer
+                  add up to the people figure above it. */}
+                {!exactCounts && unpreviewableLabels.length > 0 && (
                   <p className="text-xs text-muted-foreground">
                     The map can&rsquo;t shade by{' '}
                     {unpreviewableLabels.join(', ')} yet, so these counts
@@ -432,7 +466,7 @@ export default function CreateListFlow({
                     still applies it when you knock.
                   </p>
                 )}
-                {(turfStats?.partyMix.length ?? 0) > 0 && (
+                {!exactCounts && (turfStats?.partyMix.length ?? 0) > 0 && (
                   <p className="text-xs text-muted-foreground">
                     {turfStats?.partyMix
                       .map(
@@ -458,11 +492,11 @@ export default function CreateListFlow({
                     size="small"
                     variant="ghost"
                     className="-ml-3 mt-1"
-                    aria-expanded={rosterOpen}
+                    aria-expanded={panelOpen}
                     aria-controls="draw-step-doors"
-                    onClick={onToggleRoster}
+                    onClick={panelOpen ? onHideAddresses : onShowAddresses}
                   >
-                    {rosterOpen ? 'Hide the doors' : 'See the doors'}
+                    {panelOpen ? 'Hide the addresses' : 'See the addresses'}
                   </Button>
                 )}
               </div>
@@ -476,7 +510,7 @@ export default function CreateListFlow({
             {/* Capped in height rather than allowed to grow: the step is a map
               being drawn on, and a list that eats the viewport takes away the
               thing the candidate is checking it against. */}
-            {rosterOpen && turfRoster && (
+            {panelOpen && (
               <div
                 id="draw-step-doors"
                 className="max-h-[40dvh] overflow-y-auto rounded-lg border border-border p-3"
@@ -484,47 +518,93 @@ export default function CreateListFlow({
                 <p className="text-sm font-semibold">
                   The doors inside your boundary
                 </p>
-                {/* Same claim the landing rail makes about its own count, in the
-                  same words: the shape is a superset of who gets knocked, and
-                  the shortfall is the map's rather than the filter's. */}
-                <p className="text-xs text-muted-foreground">
-                  The map can&rsquo;t show every filter your list applies, and
-                  knocking also skips anyone marked do-not-knock or &ldquo;not a
-                  voter&rdquo; — so you&rsquo;ll knock fewer doors than this.
-                </p>
-                {/* The pack the map is drawn from carries coordinates and no
-                  addresses; the street address of a door is frozen onto the
-                  route, which is bought when the list is knocked. */}
-                <p className="text-xs text-muted-foreground">
-                  Street addresses arrive with the route, once you knock this
-                  list.
-                </p>
-                {/* No numbering: nothing has decided a visiting order yet, and
-                  the Aug 14 walkthrough asked numerals out of the list view. */}
-                <ul className="mt-2 divide-y divide-border">
-                  {turfRoster.locations.map((location, index) => (
-                    <li key={index} className="py-2">
-                      {location.doors.length > 1 && (
-                        <p className="text-xs font-medium">
-                          {location.doors.length} doors at one location
-                        </p>
-                      )}
-                      <ul>
-                        {location.doors.map((door, doorIndex) => (
-                          <li key={doorIndex} className="text-sm">
-                            {door.people.toLocaleString()} matching{' '}
-                            {door.people === 1 ? 'voter' : 'voters'}
-                          </li>
-                        ))}
-                      </ul>
-                    </li>
-                  ))}
-                </ul>
-                {turfRoster.shownDoors < turfRoster.totalDoors && (
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Showing {turfRoster.shownDoors.toLocaleString()} of{' '}
-                    {turfRoster.totalDoors.toLocaleString()} doors.
+                {previewPending && (
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Looking up the addresses…
                   </p>
+                )}
+                {previewFailed && (
+                  <>
+                    <p className="mt-2 text-sm text-destructive">
+                      Couldn&rsquo;t load the addresses.
+                    </p>
+                    <Button
+                      size="small"
+                      variant="secondary"
+                      className="mt-2"
+                      onClick={onRetryAddresses}
+                    >
+                      Try again
+                    </Button>
+                  </>
+                )}
+                {/* The list is of one boundary, and that boundary moved. It is
+                  not narrowed or widened to fit the new one — showing it under
+                  a shape it doesn't describe is the failure this panel exists
+                  to avoid — so it is withdrawn until it is asked for again. */}
+                {previewStale && (
+                  <>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Your boundary changed, so these addresses are for the
+                      shape you drew before.
+                    </p>
+                    <Button
+                      size="small"
+                      variant="secondary"
+                      className="mt-2"
+                      onClick={onShowAddresses}
+                    >
+                      Show the addresses here
+                    </Button>
+                  </>
+                )}
+                {addressPreview && (
+                  <>
+                    {/* No hedge on these counts, because there is nothing left
+                      to hedge: this is the evaluation the route is built from,
+                      with do-not-knock and "not a voter" residents already
+                      out. What it does need to say is that it is a snapshot,
+                      since a list saved tomorrow is evaluated again. */}
+                    <p className="text-xs text-muted-foreground">
+                      Everyone your filters target, as of now — people marked
+                      do-not-knock or &ldquo;not a voter&rdquo; are already out.
+                    </p>
+                    {/* No numbering: nothing has decided a visiting order yet,
+                      and the Aug 14 walkthrough asked numerals out of the list
+                      view. */}
+                    <ul className="mt-2 divide-y divide-border">
+                      {addressPreview.locations.map((location, index) => (
+                        <li key={index} className="py-2">
+                          {location.doors.length > 1 && (
+                            <p className="text-xs font-medium">
+                              {location.doors.length} doors at one location
+                            </p>
+                          )}
+                          <ul>
+                            {location.doors.map((door, doorIndex) => (
+                              <li key={doorIndex} className="text-sm">
+                                {door.address}
+                                <span className="text-muted-foreground">
+                                  {' '}
+                                  · {door.people.toLocaleString()}{' '}
+                                  {door.people === 1 ? 'voter' : 'voters'}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </li>
+                      ))}
+                    </ul>
+                    {/* The cap is on stops, so it is stops the shortfall is
+                      counted in — the same unit the 150 limit above is. */}
+                    {addressPreview.locations.length < addressPreview.stops && (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Showing the first{' '}
+                        {addressPreview.locations.length.toLocaleString()} of{' '}
+                        {addressPreview.stops.toLocaleString()} stops.
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
             )}
@@ -644,7 +724,7 @@ export default function CreateListFlow({
                 <span className="text-sm font-semibold">This list</span>
                 <span className="text-sm tabular-nums text-muted-foreground">
                   {doors.toLocaleString()} doors · {stops.toLocaleString()}{' '}
-                  stops · {(turfStats?.people ?? 0).toLocaleString()} voters
+                  stops · {people.toLocaleString()} voters
                 </span>
               </div>
               {save.isError && (

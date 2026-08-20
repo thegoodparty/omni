@@ -1,9 +1,11 @@
 import type {
   CreateDoorKnockingTurf,
+  DoorKnockingAddressPreviewResponse,
   DoorKnockingKnockRequest,
   DoorKnockingKnockResponse,
   DoorKnockingRoutePayload,
   DoorKnockingTurf,
+  GeoJsonPolygon,
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionResponse,
   SetDoNotKnock,
@@ -808,6 +810,19 @@ export type APIEndpoints = {
   'GET /v1/door-knocking/turfs/:id/route': {
     Request: {}
     Response: DoorKnockingRoutePayload
+  }
+  // ADR 0010. The exact in-ring audience for a shape being drawn, addresses
+  // included — the knock's own evaluation without the billed vendor call. The
+  // filter half of the request is the same unsaved-draft grammar
+  // `POST /v1/voters/voter-file/filter` takes (no filter row exists yet at
+  // draw time), so it is typed here the way that endpoint is rather than
+  // restated as a contract; the response is a contracts schema.
+  'POST /v1/door-knocking/address-preview': {
+    Request: {
+      geoPoly: GeoJsonPolygon
+      filters: Record<string, unknown>
+    }
+    Response: DoorKnockingAddressPreviewResponse
   }
   'POST /v1/door-knocking/interactions': {
     Request: RecordDoorKnockInteraction
