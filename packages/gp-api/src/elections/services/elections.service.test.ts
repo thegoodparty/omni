@@ -907,6 +907,11 @@ describe('ElectionsService', () => {
             official_office_name: null,
             primary_election_date: null,
             projected_turnout: 200,
+            // election-api still sends this; gp-api no longer declares it. Kept
+            // here on purpose so the fixture is the old producer's payload and
+            // proves the extra key passes through untouched -- the property this
+            // rollout depends on until the producer-side removal ships.
+            projected_voter_turnout: null,
             registered_voters: 900,
             unique_cellphones: 500,
             unique_landlines: 300,
