@@ -137,6 +137,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | Campaign plan PDF sharing                                | `src/campaignPlanShares/AGENTS.md`                   |
 | Voter file / L2 lookups                                  | `src/voters/AGENTS.md`                               |
 | Stripe payments / pro upgrades                           | `src/payments/AGENTS.md`                             |
+| Voter outreach (Peerly texting, social, AI compose)      | `src/outreach/AGENTS.md`                             |
 | Campaign websites / domains                              | `src/websites/AGENTS.md`                             |
 | Opposition research (Know Your Opponent)                 | `src/raceOpponent/AGENTS.md`                         |
 | Ordinances / drafting / quality loop                     | `src/ordinances/AGENTS.md`                           |
