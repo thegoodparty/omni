@@ -93,6 +93,34 @@ describe('TurfList', () => {
     )
   })
 
+  // Tapping the name is what scopes the map, the count line and the legend to
+  // one list, and it is the only affordance on the row without a label saying
+  // so — a name between two buttons reads as a caption rather than a target.
+  it('says what tapping a list does', async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [turf({ id: 1, name: 'Elm St & 5th' })],
+    })
+
+    renderList()
+
+    expect(
+      await screen.findByText(/Tap a list to highlight it on the map/),
+    ).toBeInTheDocument()
+  })
+
+  // The hint is about rows, so it belongs to the branch that has some: the
+  // empty state already explains how to make a first list, and telling someone
+  // with no lists to tap one is instructions for a screen they aren't on.
+  it('keeps the tap hint off the empty state', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+
+    renderList()
+
+    expect(await screen.findByText(/No lists yet/)).toBeInTheDocument()
+    expect(screen.queryByText(/Tap a list to highlight/)).toBeNull()
+  })
+
   // The literal first screen a new candidate sees. Rendering nothing left the
   // rail with a heading, status chips and no account of what a list is.
   it('explains how to get a list when there are none', async () => {

@@ -119,6 +119,7 @@ const renderSheet = ({
   listStatsPending = false,
   unpreviewableKeys = [],
   onDeleted = vi.fn(),
+  savedLists = [],
 }: {
   prop?: Partial<DoorKnockingTurf>
   live?: Partial<DoorKnockingTurf>
@@ -126,8 +127,14 @@ const renderSheet = ({
   listStatsPending?: boolean
   unpreviewableKeys?: string[]
   onDeleted?: () => void
+  savedLists?: Record<string, unknown>[]
 } = {}) => {
-  api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+  api.mock('GET /v1/voters/voter-file/filters', {
+    status: 200,
+    // The saved list rows carry one boolean per filter option; the fixtures
+    // below set only the handful each assertion is about.
+    data: savedLists as never,
+  })
   api.mock('GET /v1/door-knocking/turfs', {
     status: 200,
     data: [turf(live ?? prop)],
@@ -472,6 +479,18 @@ describe('TurfDetailsSheet overview', () => {
     expect(screen.queryByText(/doors an hour/)).toBeNull()
   })
 
+  // Six numbers in a two-column grid, told apart by their labels alone. The
+  // glyph is what makes the grid scannable, and it is decorative — the label
+  // beside it already names the figure, so a screen reader must not meet it.
+  it('marks each overview stat with the icon for its own quantity', () => {
+    renderSheet({ listStats: listStats() })
+
+    const doors = screen.getByText('Doors').closest('div')?.parentElement
+    const icon = doors?.querySelector('svg')
+    expect(icon).toBeInTheDocument()
+    expect(icon).toHaveAttribute('aria-hidden', 'true')
+  })
+
   // Route type and progress are true from lockedness alone, so they must not
   // flicker a skeleton every time the sheet opens.
   it('still answers route type and progress while the pack loads', () => {
@@ -600,6 +619,80 @@ describe('TurfDetailsSheet overview', () => {
     renderSheet({ prop: { locked: false }, live: { locked: true } })
 
     expect(await screen.findByRole('link', { name: 'PDF' })).toBeInTheDocument()
+  })
+})
+
+describe('TurfDetailsSheet applied filters', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+  })
+
+  // The pills are what was ASKED FOR, and 'Unknown' is an option on eleven of
+  // these fields while 'Yes' is on four — so a flat wrap of them named a
+  // veterans-with-unknown-homeowner list "Yes, Unknown" and identified
+  // neither. The group headings come from the same config the create flow
+  // picks with, so a candidate reads their list back in the shape they built
+  // it.
+  it('groups the pills under the filter each one answers', async () => {
+    renderSheet({
+      savedLists: [
+        {
+          id: 7,
+          partyDemocrat: true,
+          veteranYes: true,
+          homeownerUnknown: true,
+        },
+      ],
+    })
+
+    expect(await screen.findByText('Political Party')).toBeInTheDocument()
+    expect(screen.getByText('Democrat')).toBeInTheDocument()
+    // Both of these render as bare 'Yes'/'Unknown'; the heading above each is
+    // the only thing that says which question it answers.
+    expect(screen.getByText('Veteran Status')).toBeInTheDocument()
+    expect(screen.getByText('Homeowner')).toBeInTheDocument()
+    expect(screen.getByText('Yes')).toBeInTheDocument()
+    expect(screen.getByText('Unknown')).toBeInTheDocument()
+  })
+
+  // Income ranges persist as the range strings themselves and language as
+  // codes, so neither arrives as an option key — they still have to land in
+  // the group they belong to rather than in an "Other" bucket.
+  it('still names the age ranges a list saved before ENG-10752 carries', async () => {
+    renderSheet({
+      // The pickers stopped offering these when the ranges were made mutually
+      // exclusive, but saved rows kept them, so a list cut on age alone showed
+      // no pills at all — indistinguishable from a list that filters nothing.
+      savedLists: [{ id: 7, age35_50: true }],
+    })
+
+    expect(await screen.findByText('Age')).toBeInTheDocument()
+    expect(screen.getByText('35-50')).toBeInTheDocument()
+  })
+
+  it('groups income ranges and languages with the rest', async () => {
+    renderSheet({
+      savedLists: [
+        {
+          id: 7,
+          incomeRanges: ['$50k - $75k'],
+          languageCodes: ['es'],
+        },
+      ],
+    })
+
+    expect(
+      await screen.findByText('Household Income Range'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('$50k - $75k')).toBeInTheDocument()
+    expect(screen.getByText('Language')).toBeInTheDocument()
+    expect(screen.getByText('Spanish')).toBeInTheDocument()
+  })
+
+  it('says so when a list applies no filters at all', async () => {
+    renderSheet({ savedLists: [{ id: 7 }] })
+
+    expect(await screen.findByText(/No filters applied/)).toBeInTheDocument()
   })
 })
 

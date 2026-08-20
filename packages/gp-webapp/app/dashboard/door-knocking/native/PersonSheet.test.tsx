@@ -96,6 +96,22 @@ describe('PersonSheet header', () => {
   })
 })
 
+describe('PersonSheet section headers', () => {
+  it('marks each card with a glyph for what it holds', () => {
+    renderSheet([target()])
+
+    for (const title of ['Contact information', 'Household', 'Activity feed']) {
+      const icon = screen
+        .getByRole('heading', { name: title })
+        .querySelector('svg')
+      expect(icon).toBeInTheDocument()
+      // Decorative: the heading is the accessible name, which is also what
+      // every other assertion in this file finds these cards by.
+      expect(icon).toHaveAttribute('aria-hidden', 'true')
+    }
+  })
+})
+
 describe('PersonSheet phone numbers', () => {
   it('shows both numbers as tappable tel links', () => {
     renderSheet([
