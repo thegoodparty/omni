@@ -218,6 +218,62 @@ describe('VoterMapCanvas drawing', () => {
     vi.clearAllMocks()
   })
 
+  const packOfDots = (dots: Array<[number, number]>): DecodedPack => ({
+    manifest: {
+      ...manifest,
+      counts: {
+        people: dots.length,
+        households: dots.length,
+        dots: dots.length,
+      },
+      arrays: manifest.arrays.map((array) => ({
+        ...array,
+        elementCount:
+          array.name === 'positions' ? dots.length * 2 : dots.length,
+      })),
+    },
+    positions: new Float32Array(dots.flat()),
+    personToHousehold: new Uint32Array(dots.map((_, index) => index)),
+    householdToDot: new Uint32Array(dots.map((_, index) => index)),
+    dimPlanes: new Map([['canvassStatus', new Uint8Array(dots.length)]]),
+  })
+
+  // Mounts the canvas over a district shaped by `dots` and reports where it
+  // put the camera. Goes through the real mount effect rather than calling the
+  // helper directly, since the wiring is half of what regressed.
+  const openingCenterOf = (dots: Array<[number, number]>): [number, number] => {
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        pack={packOfDots(dots)}
+        initialZoom={16}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    const jump = gl.map.jumpTo.mock.calls.at(-1)?.[0] as
+      | { center: [number, number]; zoom: number }
+      | undefined
+    expect(jump?.zoom).toBe(16)
+    return jump!.center
+  }
+
+  // The pack's coordinates are f32, so a dot only round-trips to about a
+  // metre — identity is proximity, not equality.
+  const expectIsOneOf = (
+    center: [number, number],
+    dots: Array<[number, number]>,
+  ) => {
+    const match = dots.find(
+      ([lng, lat]) =>
+        Math.abs(lng - center[0]) < 1e-5 && Math.abs(lat - center[1]) < 1e-5,
+    )
+    expect(
+      match,
+      `opened at ${center.join(', ')}, where there is no dot`,
+    ).toBeDefined()
+  }
+
   it('undoes the most recently placed point', () => {
     const onPolygonChange = vi.fn()
     const onDrawPointCount = vi.fn()
@@ -593,10 +649,80 @@ describe('VoterMapCanvas drawing', () => {
         onDrawPointCount={vi.fn()}
       />,
     )
-    // The pack's coordinates are f32, so the midpoint is only approximate.
     expect(gl.map.jumpTo).toHaveBeenCalledWith({
-      center: [expect.closeTo(-87.65, 4), expect.closeTo(41.93, 4)],
+      center: expect.anything(),
       zoom: 16,
     })
+  })
+
+  // The reported bug: correctly zoomed, wrongly centered. The map opened on
+  // the midpoint of the pack's bounding box, which on a district that isn't a
+  // rectangle is a spot nobody lives at — and at zoom 16 that spot is the
+  // whole screen.
+  it('opens on a real dot for a district whose bbox midpoint is empty', () => {
+    // An L: a bar along the south edge and a bar up the west edge. The bbox
+    // spans lng -87.70..-87.60 and lat 41.90..41.98, so its midpoint is
+    // (-87.65, 41.94) — the empty north-east quadrant the L wraps around.
+    const dots: Array<[number, number]> = [
+      [-87.7, 41.9],
+      [-87.68, 41.9],
+      [-87.66, 41.9],
+      [-87.64, 41.9],
+      [-87.62, 41.9],
+      [-87.6, 41.9],
+      [-87.7, 41.92],
+      [-87.7, 41.94],
+      [-87.7, 41.96],
+      [-87.7, 41.98],
+    ]
+
+    const center = openingCenterOf(dots)
+
+    expect(center).not.toEqual([-87.65, 41.94])
+    expectIsOneOf(center, dots)
+  })
+
+  // The case that breaks a mean as badly as it breaks the bbox midpoint: two
+  // population centers with nothing between them. Both put the camera in the
+  // farmland; the median lands in the larger town, because a cluster holding
+  // more than half the dots brackets the median rank on both axes.
+  it('opens in the larger town of a two-cluster district', () => {
+    const town: Array<[number, number]> = [
+      [-87.7, 41.9],
+      [-87.69, 41.9],
+      [-87.7, 41.91],
+      [-87.69, 41.91],
+      [-87.695, 41.905],
+      [-87.68, 41.9],
+      [-87.68, 41.91],
+    ]
+    const village: Array<[number, number]> = [
+      [-87.4, 42.2],
+      [-87.39, 42.2],
+      [-87.4, 42.21],
+    ]
+
+    const center = openingCenterOf([...town, ...village])
+
+    expectIsOneOf(center, town)
+  })
+
+  // One voter record geocoded hundreds of miles away drags min/max — and so
+  // the bbox midpoint — most of the way to it, because the box reads only the
+  // four extremes. Nothing in the pack's read path bounds a coordinate, so
+  // this is a shape the data can take.
+  it('is not moved by a single far-away coordinate', () => {
+    const neighborhood: Array<[number, number]> = [
+      [-87.7, 41.9],
+      [-87.69, 41.9],
+      [-87.7, 41.91],
+      [-87.69, 41.91],
+      [-87.695, 41.905],
+    ]
+    const strays: Array<[number, number]> = [[-74.0, 40.71]]
+
+    const center = openingCenterOf([...neighborhood, ...strays])
+
+    expectIsOneOf(center, neighborhood)
   })
 })
