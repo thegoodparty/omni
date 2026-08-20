@@ -186,7 +186,11 @@ import { dirname, join, relative } from 'node:path'
 // asset cards / detail-fetch hook are all interactive drawer/wizard surfaces
 // (flag reads, mutations, flow state) that can't be server components. Net
 // +13 after deleting P2pUxEnabledProvider + useTcrComplianceCheck.
-const BASELINE = 580
+// 2026-08-20: 580 -> 581 for useCvPinGate — the shared CampaignVerify PIN gate.
+// It owns a react-query subscription and returns a state the three PIN surfaces
+// branch on, so it has to run in the browser; it replaces per-surface inline
+// logic rather than adding a new client boundary.
+const BASELINE = 581
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

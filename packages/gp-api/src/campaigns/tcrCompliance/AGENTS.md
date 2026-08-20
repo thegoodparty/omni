@@ -227,11 +227,11 @@ error propagates to the scan's per-record catch, so the next scan retries.
 
 ## Background sweeps
 
-| Sweep                          | What it heals |
-| ------------------------------ | ------------- |
-| `sweepStrandedAgenticKickoffs` | (`@Interval`, 10 min) Records `submitted` + no Peerly identity + `kickoffSentAt` null past staleness — re-enqueues the kickoff. **Only sweeps `campaign.isPro` records** so the agent never runs before payment. Applies the profile dispatch gate per record (`wouldBePublishableAfterFallbacks`, website content fetched per candidate): profile-incomplete records are skipped every cycle at no cost — this is the deferral self-heal loop. |
+| Sweep                          | What it heals                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sweepStrandedAgenticKickoffs` | (`@Interval`, 10 min) Records `submitted` + no Peerly identity + `kickoffSentAt` null past staleness — re-enqueues the kickoff. **Only sweeps `campaign.isPro` records** so the agent never runs before payment. Applies the profile dispatch gate per record (`wouldBePublishableAfterFallbacks`, website content fetched per candidate): profile-incomplete records are skipped every cycle at no cost — this is the deferral self-heal loop.                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `sweepUnsubmittedUsecases`     | (`@Cron('23 * * * *')` ET, behind `CronLockService.tryClaimHourlyRun`) Records whose **persisted** `peerlyCvStatus` is `VERIFIED` (stamped by the CV status scan or the PIN-entry path — the sweep makes no retrieve_cv read of its own) but whose POLITICAL usecase was never submitted (the in-app approve threw) — submits the usecase so the identity doesn't strand "loading". **Acts only on `VERIFIED`, never `APPROVED`** — `APPROVED` can precede the candidate's PIN entry, so advancing it would skip them past the PIN screen. **The hourly cron lock is load-bearing:** `submitUsecaseIfVerified` has no per-record claim, so two concurrent passes would both mint a CV token and both approve, double-finalizing the 10DLC brand into the MNO queue (manual vendor cleanup). It was an `@Interval` — per-replica and deploy-phase-reset — until that was fixed. See `docs/scheduled-jobs.md`. |
-| `bootstrapTcrComplianceCheck`  | (`@Cron('0 7,19 * * *')` ET) Re-queues `pending` records for usecase-activation checking (`get_usecases`, not rate-limited). Each message's FIFO `deduplicationId` is keyed `tcrStatusCheck-<recordId>-<slot>` so both replicas' simultaneous cron enqueues collapse to one. The consumer reads the persisted `peerlyCvStatus` for the token-status Segment event instead of the old live retrieve_cv call (a `pending` record's CV is `VERIFIED` by definition). |
+| `bootstrapTcrComplianceCheck`  | (`@Cron('0 7,19 * * *')` ET) Re-queues `pending` records for usecase-activation checking (`get_usecases`, not rate-limited). Each message's FIFO `deduplicationId` is keyed `tcrStatusCheck-<recordId>-<slot>` so both replicas' simultaneous cron enqueues collapse to one. The consumer reads the persisted `peerlyCvStatus` for the token-status Segment event instead of the old live retrieve_cv call (a `pending` record's CV is `VERIFIED` by definition).                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 ## Nightly 10DLC health report (ENG-10667)
 
@@ -261,8 +261,9 @@ single-class `sweepStuckPeerlySubmissions` hourly digest (and its
   Prisma enums — vendor values degrade gracefully, same reasoning as
   `pinDeliveryMethod`), and the `*ChangedAt` companions advance only when an
   observed value differs from what's stored — an unchanged observation
-  writes nothing at all, so `updatedAt` (which the awaiting-PIN section keys
-  off) is untouched.
+  writes nothing at all. No report section may age anything from `updatedAt`
+  regardless: any write to the row resets it, which is exactly the bug the
+  ENG-10866 clock note below fixes.
 - **A "Dispatch deferred" nudge section (ENG-10859):** `submitted` + no
   identity + `kickoffSentAt` null + >24h old + profile-incomplete (the
   publishability filter runs in code — content lives on the website
@@ -292,6 +293,33 @@ single-class `sweepStuckPeerlySubmissions` hourly digest (and its
   mirror sections (ENG-10796 cases 2 and 3b — see below), and an awaiting-PIN
   > 7d nudge section that is reported but not counted as stuck. Sections cap
   > at 25 rows with an explicit `…and N more`.
+- **The awaiting-PIN nudge is `peerlyCvStatus = APPROVED` only (ENG-10866).**
+  It used to be `{ not: null, notIn: [VERIFIED] }`, which swept in `REQUESTED`
+  and `IN_REVIEW` and printed `PIN out Nd` for records where CampaignVerify had
+  never issued a PIN — sending staff to nudge candidates straight into the
+  PIN-entry bug above. One query still fetches all three statuses (call order
+  in the report's `Promise.all` is load-bearing for the tests); the split into
+  the nudge vs. a separate "CampaignVerify still reviewing >7d (no PIN issued —
+  do not nudge)" section happens in code. Neither section counts toward the
+  stuck total. `IN_REVIEW` past the business-day floor still escalates to Peerly
+  through case 2.
+- **Neither section's clock may come from `updatedAt` (ENG-10866).** The poll
+  bumps it on every CV transition, so a record that moved `REQUESTED →
+IN_REVIEW` reported a three-week wait as `0d` the next night — hiding exactly
+  the stalls the section exists to surface. `PIN out Nd` ages from
+  `pinSentDetectedAt ?? peerlyCvStatusChangedAt` (when CV reached `APPROVED` is
+  when Peerly issues the PIN); the no-PIN section ages from
+  `peerlySubmissionStartedAt ?? createdAt`, the total wait, because a sideways
+  CV transition is not a delivery. Both floors are applied **in code** for the
+  same reason — the SQL keeps only a coarse `createdAt` floor, which cannot
+  over-exclude.
+- **Internal accounts are excluded via `NOT: { OR: [...] }`, not `NOT: [...]`.**
+  Prisma reads a bare `NOT: [a, b]` as `NOT(a AND b)`; since no address ends
+  with both `@goodparty.org` and `@test.goodparty.org`, that form was always
+  true and every report section silently included staff records. The semantics
+  are covered against real Postgres in
+  `services/nightly10DlcReportScope.test.ts` — a structural assertion on the
+  `where` object can't catch this class of bug.
 
 ### Vendor escalation into the shared Peerly channel (ENG-10796)
 
@@ -311,7 +339,8 @@ days — a Friday stall must not read as escalatable by Monday) can't live in
 the Prisma `where` clause, so `handleNightlyReport` fetches every
 currently-`IN_REVIEW` / currently-`waiting_to_finalize` candidate (same
 in-flight population the CV status scan polls) and applies the
->3-business-day floor in code.
+
+> 3-business-day floor in code.
 
 **Once-only per stall**, mirroring the `pinSentDetectedAt` claim/rollback
 pattern: an atomic `updateMany WHERE cvInReviewEscalatedAt IS NULL` (resp.
@@ -452,10 +481,10 @@ move too.
 
 Which recovery applies depends entirely on `peerlyIdentityId`:
 
-| `peerlyIdentityId` | What happened                                                                                                                                                                                                | Recoverable by us                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| NULL               | CV rejected the submission synchronously (`PeerlyCvRejectionException`, `rejection_source: cv_submit`). The rollback stamped `rejected` and never persisted the identity, so no CV request exists at Peerly. | **Yes.** Correct the data, then `status` → `submitted`. The next run re-walks the full submit: it finds the orphaned Peerly identity by `identity_name` and reuses it (no duplicate), and mints a fresh CV request with the corrected values.                                                                                                                                                                                                                                                                                                                     |
-| set                | The CV was accepted at submit and later flipped `REJECTED`/`WITHDRAWN`; the CV status scan's `applyCvDetection` stamped `rejected` (`rejection_source: cv_status_check`). Or it's a legacy `create()`-path record.       | **No — a status flip is a no-op.** `submitToPeerlyForAgent` short-circuits on a non-null `peerlyIdentityId` and returns the persisted response without calling Peerly. Nulling the identity locally doesn't help either: the resubmit reuses the identity and then `getCampaignVerifyRequest` returns the existing rejected CV with a `verification_status`, so the helper **skips** CV submission and the corrected filing URL never reaches CampaignVerify. Escalate to Peerly (`SlackChannel.sharedGoodpartyPeerly10Dlc`) to withdraw/recreate the CV request. |
+| `peerlyIdentityId` | What happened                                                                                                                                                                                                      | Recoverable by us                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| NULL               | CV rejected the submission synchronously (`PeerlyCvRejectionException`, `rejection_source: cv_submit`). The rollback stamped `rejected` and never persisted the identity, so no CV request exists at Peerly.       | **Yes.** Correct the data, then `status` → `submitted`. The next run re-walks the full submit: it finds the orphaned Peerly identity by `identity_name` and reuses it (no duplicate), and mints a fresh CV request with the corrected values.                                                                                                                                                                                                                                                                                                                     |
+| set                | The CV was accepted at submit and later flipped `REJECTED`/`WITHDRAWN`; the CV status scan's `applyCvDetection` stamped `rejected` (`rejection_source: cv_status_check`). Or it's a legacy `create()`-path record. | **No — a status flip is a no-op.** `submitToPeerlyForAgent` short-circuits on a non-null `peerlyIdentityId` and returns the persisted response without calling Peerly. Nulling the identity locally doesn't help either: the resubmit reuses the identity and then `getCampaignVerifyRequest` returns the existing rejected CV with a `verification_status`, so the helper **skips** CV submission and the corrected filing URL never reaches CampaignVerify. Escalate to Peerly (`SlackChannel.sharedGoodpartyPeerly10Dlc`) to withdraw/recreate the CV request. |
 
 All three currently-`rejected` prod rows (Aug 2026) are the second kind. The
 incident that produced this section (campaign 325819) was the first.
@@ -562,14 +591,29 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
   `submitToPeerlyForAgent`'s gate depends on it. What changed is that
   `findStateForCampaign` now also resolves the _live_ CV status into
   `ComplianceStateOutput.peerlyCvStatus`, and only at the `awaiting_pin` stage (so the
-  extra Peerly `retrieve_cv` read stays off the other stages the agent polls). The FE
-  (`ProUpgrade3Compliance.tsx`) shows the PIN-entry box only when `peerlyCvStatus` is
-  `APPROVED`/`VERIFIED`; for `REQUESTED`/`IN_REVIEW`/`null` (Peerly hasn't issued a PIN
-  yet) it shows a "verification in progress" state instead. `resolvePeerlyCvState`
-  short-circuits to `APPROVED` in non-prod (Peerly is stubbed there, mirroring
-  `retrieveCampaignVerifyToken`'s bypass) so testers still reach the PIN screen, and
-  parses Peerly's status defensively so an unrecognized value degrades to the
+  extra Peerly `retrieve_cv` read stays off the other stages the agent polls). Every FE
+  PIN surface shows the entry box only when `peerlyCvStatus` is `APPROVED`/`VERIFIED`;
+  for `REQUESTED`/`IN_REVIEW`/`REJECTED`/`null` (Peerly hasn't issued a PIN yet) it
+  shows a "verification in progress" state instead. The gate is one shared hook,
+  `useCvPinGate` (`texting-compliance/shared/useCvPinGate.ts`) — it was originally
+  written inline in `ProUpgrade3Compliance.tsx` only, and the surfaces that gated on the
+  DB status alone (`/enter-pin`, `/submit-pin`) is how ENG-10866 happened. Add a new PIN
+  surface by calling the hook, never by re-deriving the condition.
+  `resolvePeerlyCvState` short-circuits to `APPROVED` in non-prod (Peerly is stubbed
+  there, mirroring `retrieveCampaignVerifyToken`'s bypass) so testers still reach the PIN
+  screen, and parses Peerly's status defensively so an unrecognized value degrades to the
   in-progress state rather than 500ing the read.
+- **`APPROVED` is the only CV status where a PIN exists (ENG-10866).** `REQUESTED`,
+  `IN_REVIEW` and `null` mean CampaignVerify has not issued one; `VERIFIED` means one was
+  issued and already consumed. `retrieveCampaignVerifyToken` is a three-way branch on
+  that: `VERIFIED` skips verification and mints the token (the retry path above),
+  `APPROVED` calls `verify_pin`, and **everything else throws
+  `CampaignVerifyPinNotIssuedException` (409) without contacting Peerly**. Before this,
+  every non-`VERIFIED` status fell through to `verify_pin`, so a candidate whose CV was
+  still `IN_REVIEW` got Peerly's rejection reported back as "That PIN didn't match" and
+  retried an unanswerable prompt for days. The 409 is deliberately distinct from the 422
+  a genuinely wrong PIN returns — it is what lets `useSubmitCvPin` tell the two apart.
+  Don't collapse them.
 - **PIN delivery channel is surfaced live + to HubSpot (ENG-10658):**
   `resolvePeerlyCvState` uses one `retrieveCampaignVerifyDetails` call (enriched
   `retrieve_cv`) to return both `peerlyCvStatus` and `ComplianceStateOutput.pinDelivery`
