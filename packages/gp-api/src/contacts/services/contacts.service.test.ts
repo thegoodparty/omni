@@ -1184,8 +1184,10 @@ describe('ContactsService', () => {
           groupByHousehold: false,
         },
         {
+          // ENG-10914: phoneBanking is any phone, cell or landline — not
+          // landline-only.
           segment: 'phoneBanking',
-          filters: { hasLandline: true },
+          filters: { hasAnyPhone: true },
           groupByHousehold: false,
         },
       ]
@@ -1628,7 +1630,7 @@ describe('ContactsService', () => {
         ])
       })
 
-      it('runs base/cellphone/landline/address aggregate calls in parallel and maps reachability channels', async () => {
+      it('runs base/cellphone/landline/anyPhone/address aggregate calls in parallel and maps reachability channels', async () => {
         const org = makeOrganization({
           slug: 'campaign-1',
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
@@ -1643,9 +1645,13 @@ describe('ContactsService', () => {
         mockVoterQueryService.getAggregates
           .mockResolvedValueOnce(aggregatesResponse(100, 42, 55000))
           .mockResolvedValueOnce(aggregatesResponse(60))
-          // Distinct from the cellphone count so a phoneBanking/sms mix-up
-          // (both reading the same mocked value) would fail this assertion.
+          // Distinct from the cellphone/anyPhone counts so a channel
+          // mix-up (reading the wrong mocked value) would fail this
+          // assertion.
           .mockResolvedValueOnce(aggregatesResponse(45))
+          // phoneBanking's any-phone count (ENG-10914) — distinct from
+          // both cellphone and landline so it can't silently mirror either.
+          .mockResolvedValueOnce(aggregatesResponse(80))
           .mockResolvedValueOnce(aggregatesResponse(30))
         const createSpy = vi.spyOn(AggregatesDTO, 'create')
 
@@ -1659,25 +1665,26 @@ describe('ContactsService', () => {
         expect(result.reachability).toEqual({
           sms: 60,
           // Robocall/telemarketing reach landlines, not cell phones — same
-          // aggregate phoneBanking uses, distinct from the cellphone/sms
-          // count (ENG-10798).
+          // aggregate phoneBanking used to use, distinct from the
+          // cellphone/sms count (ENG-10798).
           robocall: 45,
-          // phoneBanking mirrors segmentsToFiltersMap.const.ts: landline-only,
-          // not the cellphone count sms/robocall use.
-          phoneBanking: 45,
+          // phoneBanking (ENG-10914): any phone, cell or landline — its own
+          // aggregate call, no longer landline-only.
+          phoneBanking: 80,
           doorKnocking: 30,
           // Polls are delivered by text, so they mirror the sms count.
           polls: 60,
         })
 
-        expect(mockVoterQueryService.getAggregates).toHaveBeenCalledTimes(4)
+        expect(mockVoterQueryService.getAggregates).toHaveBeenCalledTimes(5)
         const filtersByCall = createSpy.mock.calls.map((call) =>
           filtersOf(call[0]),
         )
         expect(filtersByCall[0]).toEqual({})
         expect(filtersByCall[1]).toEqual({ hasCellPhone: true })
         expect(filtersByCall[2]).toEqual({ hasLandline: true })
-        expect(filtersByCall[3]).toEqual({ hasAddress: true })
+        expect(filtersByCall[3]).toEqual({ hasAnyPhone: true })
+        expect(filtersByCall[4]).toEqual({ hasAddress: true })
       })
 
       it('merges a resolved activity-condition id filter into every outgoing aggregate call', async () => {
@@ -1750,6 +1757,9 @@ describe('ContactsService', () => {
             .mockResolvedValueOnce(aggregatesResponse(85696, 47, 61000))
             .mockResolvedValueOnce(aggregatesResponse(60000))
             .mockResolvedValueOnce(aggregatesResponse(45000))
+            // phoneBanking's any-phone count (ENG-10914) — distinct from
+            // both cellphone and landline.
+            .mockResolvedValueOnce(aggregatesResponse(75000))
             .mockResolvedValueOnce(aggregatesResponse(30000))
           const createSpy = vi.spyOn(AggregatesDTO, 'create')
 
@@ -1773,7 +1783,8 @@ describe('ContactsService', () => {
             // Robocall/telemarketing reach landlines, not cell phones
             // (ENG-10798).
             robocall: 45000,
-            phoneBanking: 45000,
+            // phoneBanking (ENG-10914): any phone, cell or landline.
+            phoneBanking: 75000,
             doorKnocking: 30000,
             polls: 60000,
           })
@@ -1785,7 +1796,8 @@ describe('ContactsService', () => {
           expect(filtersByCall[0]).toEqual({})
           expect(filtersByCall[1]).toEqual({ hasCellPhone: true })
           expect(filtersByCall[2]).toEqual({ hasLandline: true })
-          expect(filtersByCall[3]).toEqual({ hasAddress: true })
+          expect(filtersByCall[3]).toEqual({ hasAnyPhone: true })
+          expect(filtersByCall[4]).toEqual({ hasAddress: true })
         })
       })
     })

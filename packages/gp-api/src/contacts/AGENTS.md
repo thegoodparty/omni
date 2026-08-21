@@ -147,14 +147,10 @@ filters (`convertVoterFileFilterToFilters` in
 with a small page; person detail adds derived `supportStatus` and
 `optedOutAt` (`ContactInteractionTextService.latestOptOutAt`). The count
 endpoint runs the identical translation with `resultsPerPage: 1` and
-returns `{ count, fenced }` — `fenced` (ENG-10804) mirrors
-`pagination.fenced`: true when the people-db query layer's statement-timeout guard
-floored the total at `FENCE_LIMIT` (10k), a lower bound rather than an
-exact figure. `GET /v1/contacts`'s own `pagination.fenced` carries the
-same signal for the list total. The webapp renders a fenced count via
-`formatFencedCount` ("10,000+") and never persists it as an exact
-`voterCount`; the assistant's `count_contacts` tool reports it as "at
-least N".
+returns `{ count }`. Every people-db query runs under a hard 25s statement
+timeout (`runUnderStatementTimeout`); a pathological plan fails loudly as a
+`GatewayTimeoutException` (504) rather than degrading into a floored or
+partial count — see `src/peopleDb/CLAUDE.md`.
 
 ### Activity-condition + support-status resolution
 
@@ -350,9 +346,11 @@ so channels without an interaction model still lock the filter.
 
 1. Stamp the filter lock (if a filter is attached — p2p can carry a phone
    list without one).
-2. Only `text | p2p | robocall` materialize. `doorKnocking` is permanently
-   excluded (the door-knock tool writes its own rows);
-   `phoneBanking`/`socialMedia` have no model yet.
+2. Only `text | p2p | robocall` materialize. `doorKnocking` and
+   `phoneBanking` are permanently excluded — each writes its own rows from
+   its own logging endpoint (the phone-banking call-outcome endpoint,
+   `src/phoneBanking/`, ENG-10915) rather than at launch; `socialMedia` has
+   no model yet.
 3. p2p/text with a captured Peerly phone list: rows come from
    `PeerlyPhoneListRecipient` — the actual SMS-reachable recipients — one
    `ContactInteractionText` per person (`createMany` +
@@ -481,21 +479,31 @@ over interaction rows with a non-null `support_answer`; a "list" =
   join); never assume it's set.
 - `ContactInteractionText.unsubscribedAt` was dropped before anything
   wrote it (SMS "unsubscribed" folded into `opted_out`, 2026-07-16).
-- Support answers are captured by door knocking only (for now); the
-  filter buckets exist in **both** modes.
+- Support answers are captured by door knocking and phone banking
+  (`SupportStatusService.derivedStatusSql` UNIONs both
+  `contact_interaction_door_knock` and `contact_interaction_phone_banking`,
+  ENG-10915); the filter buckets exist in **both** modes.
 - No paginated member browsing anywhere, by locked design — the list
   detail never shows people; individuals are reached via typeahead only.
   Don't add a member table.
 - Reachability has five channels: sms, robocall, phoneBanking, doorKnocking,
   polls. `email`/`metaAds` were removed (ENG-10783, no data source ever
   existed for them); `polls` mirrors the sms (has-cell-phone) count 1:1.
-- `fetchListDetailAggregates`'s four people-db aggregate calls (base, cellphone,
-  landline, address) settle independently (ENG-10806, `Promise.allSettled`):
-  a failed cellphone/landline/address call nulls only the reachability
-  channels it backs (`ListDetailReachabilitySchema`'s channels are
-  nullable) — the route still 200s and the other tiles render real numbers.
-  Only a failed base call still 502s (`BadGatewayException`); there's
-  nothing to show without it.
+  `phoneBanking` is reachable-by-any-phone (cell OR landline non-null,
+  ENG-10914) — it used to mirror `robocall`'s landline-only count, but the
+  list builder freezes any phone (cell first), so the tile now agrees with
+  the built list. `robocall` stays landline-only. The `hasAnyPhone`
+  people-db filter key (`src/peopleDb/utils/filters.sql.util.ts`) backs
+  both the tile and the `phoneBanking` entry in
+  `segmentsToFiltersMap.const.ts` (the built-in CRM segment/CSV export).
+- `fetchListDetailAggregates`'s five people-db aggregate calls (base,
+  cellphone, landline, anyPhone, address) settle independently
+  (ENG-10806, `Promise.allSettled`): a failed cellphone/landline/anyPhone/
+  address call nulls only the reachability channels it backs
+  (`ListDetailReachabilitySchema`'s channels are nullable) — the route
+  still 200s and the other tiles render real numbers. Only a failed base
+  call still 502s (`BadGatewayException`); there's nothing to show
+  without it.
 - Age filter ranges are mutually exclusive since ENG-10752/10753; the
   catalog + `voterFilterBase.schema.ts` own the vocabulary.
 - Download does not re-apply a stored `search` (the download path has no

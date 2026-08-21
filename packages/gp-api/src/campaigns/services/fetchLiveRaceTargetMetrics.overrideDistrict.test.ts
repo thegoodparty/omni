@@ -46,7 +46,6 @@ const raceContext: CampaignStrategyContextResponse = {
   projected_turnout: RACE_DISTRICT_TURNOUT,
   projected_turnout_lower: 96_000,
   projected_turnout_upper: 156_000,
-  projected_voter_turnout: RACE_DISTRICT_TURNOUT,
   registered_voters: 200_000,
   unique_cellphones: 90_000,
   unique_landlines: 30_000,
@@ -160,7 +159,6 @@ describe('fetchLiveRaceTargetMetrics — overrideDistrictId (DATA-2226)', () => 
       registeredVoters: overrideDistrict.registeredVoters,
       uniqueCellphones: overrideDistrict.uniqueCellphones,
       uniqueLandlines: overrideDistrict.uniqueLandlines,
-      projectedVoterTurnout: null,
       // The prediction interval brackets the race district's turnout, so it
       // cannot travel with the override district's point values.
       projectedTurnoutLower: null,
@@ -277,7 +275,6 @@ describe('fetchLiveRaceTargetMetrics — overrideDistrictId (DATA-2226)', () => 
       registeredVoters: raceContext.registered_voters,
       uniqueCellphones: raceContext.unique_cellphones,
       uniqueLandlines: raceContext.unique_landlines,
-      projectedVoterTurnout: raceContext.projected_voter_turnout,
       projectedTurnoutLower: raceContext.projected_turnout_lower,
       projectedTurnoutUpper: raceContext.projected_turnout_upper,
       winNumberLower: raceContext.win_number_lower,

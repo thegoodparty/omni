@@ -1,4 +1,7 @@
 import type { Summary } from './stats'
+import { COHORTS } from './cohorts'
+import { FILTER_VARIANTS, ID_SAMPLE_SEED, ID_SET_SIZE } from './filterVariants'
+import { QUERY_DESCRIPTIONS, type QueryType } from './cases'
 
 export type CaseResult = {
   id: string
@@ -19,13 +22,36 @@ export const artifactPath = (meta: {
 }): string =>
   `scripts/output/people-db-bench-${meta.env}-${meta.gitSha}-${meta.mode}.json`
 
+// The descriptions travel WITH the results so anything downstream (the HTML
+// artifact, a future CI dashboard) renders the same words the console legend
+// printed, without re-deriving them from a copy that can drift.
 export const buildArtifact = (
   meta: { env: string; mode: string; gitSha: string; startedAt: string },
   results: unknown[],
-): object => ({ ...meta, results })
+): object => ({
+  ...meta,
+  idSet: { size: ID_SET_SIZE, seed: ID_SAMPLE_SEED },
+  descriptions: {
+    queries: QUERY_DESCRIPTIONS,
+    variants: Object.fromEntries(
+      FILTER_VARIANTS.map((v) => [v.name, v.description]),
+    ),
+    bands: Object.fromEntries(
+      COHORTS.map((c) => [
+        c.band,
+        {
+          district: c.district,
+          partition: c.partition,
+          description: c.description,
+        },
+      ]),
+    ),
+  },
+  results,
+})
 
 const BAND_ORDER = ['small', 'medium', 'large', 'mega', 'statewide']
-const QUERY_ORDER = [
+const QUERY_ORDER: QueryType[] = [
   'list',
   'count',
   'list-detail',
@@ -44,11 +70,41 @@ const VARIANT_ORDER = [
   'numeric-range',
   'channel-landline',
   'channel-address',
+  'outreach-include',
+  'outreach-exclude',
+  'outreach-mixed',
 ]
 // list and count run across every filter variant; list-detail runs two
 // (unfiltered universe row + a saved list); the rest run one representative
 // (no-filter) cell per cohort.
 const VARIED = new Set(['list', 'count', 'list-detail'])
+
+// The legend prints the SAME description strings the JSON artifact carries, so
+// the console and the HTML table can never disagree about what a row means.
+const LABEL_WIDTH = 24
+const LINE_WIDTH = 78
+
+const describe = (name: string, description: string): string[] => {
+  const label = `  ${name.padEnd(LABEL_WIDTH)}`
+  const indent = ' '.repeat(label.length)
+  const lines: string[] = []
+  let current = label
+  for (const word of description.split(' ')) {
+    if (
+      current.trimEnd().length > label.length &&
+      `${current}${word}`.length > LINE_WIDTH
+    ) {
+      lines.push(current.trimEnd())
+      current = indent
+    }
+    current += `${word} `
+  }
+  lines.push(current.trimEnd())
+  return lines
+}
+
+const describeAll = (entries: [string, string][]): string[] =>
+  entries.flatMap(([name, description]) => describe(name, description))
 
 // Always printed above the matrix so a first-time reader can decode it without
 // hunting through the code.
@@ -64,25 +120,10 @@ export const buildLegend = (): string =>
     "CA's 63GB — as of 2026-08-16 large was the slowest count of the three.",
     '',
     'Query types (the people-db service methods under test):',
-    '  list    a page of contacts + the pagination total (runs a count too)',
-    '  count   count + avg age/income for a filtered set (getAggregates)',
-    '  list-detail  ONE whole GET /v1/contacts/list-detail: the base count then',
-    '          its 3 channel tiles in parallel (~4 counts, not 1)',
-    '  search  name search (trigram)',
-    '  sample  random sample of contacts',
-    '  overlap saved-list overlap count',
-    '  csv     full unfiltered CSV export (skipped for mega/statewide: ~mins)',
-    '  stats   precomputed district totals (no live scan)',
+    ...describeAll(QUERY_ORDER.map((q) => [q, QUERY_DESCRIPTIONS[q]])),
     '',
     'Filter variants (list and count are run against each; the rest use none):',
-    '  none                    no filter — the whole district',
-    '  single-boolean          one yes/no flag (has a cell phone)',
-    '  single-multivalue       one field, pick-from-a-list (party in {Dem,Rep})',
-    '  broad-lowselectivity    keeps MOST people (gender & education present)',
-    '  narrow-highselectivity  15 conditions at once, keeps VERY FEW people',
-    '  numeric-range           number between X and Y (age 18-65, income band)',
-    '  channel-landline        has a landline (list-detail phone-banking tile)',
-    '  channel-address         has an address (list-detail door-knocking tile)',
+    ...describeAll(FILTER_VARIANTS.map((v) => [v.name, v.description])),
     '  (selectivity = how much a filter narrows the crowd; low = keeps most,',
     '   high = keeps few. multivalue = choose from a list. range = between.)',
     '',

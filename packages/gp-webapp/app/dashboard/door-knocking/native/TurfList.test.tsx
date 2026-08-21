@@ -34,6 +34,9 @@ const turf = (overrides: Partial<DoorKnockingTurf>): DoorKnockingTurf => ({
     ],
   },
   locked: false,
+  doorCount: null,
+  peopleCount: null,
+  loggedCount: null,
   createdAt: new Date('2026-07-21T00:00:00Z'),
   updatedAt: new Date('2026-07-21T00:00:00Z'),
   ...overrides,
@@ -90,6 +93,82 @@ describe('TurfList', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Knock' })[1]!)
     expect(onKnockTurf).toHaveBeenCalledWith(
       expect.objectContaining({ id: 2, locked: true }),
+    )
+  })
+
+  // The row carries the numbers gp-api derived from the frozen route. It does
+  // not compute them: the details sheet one tap away derives its own from the
+  // route payload, and a rail that disagreed with it would be worse than a
+  // rail with no numbers on it at all.
+  it('prints doors and the logged pair on a knocked list', async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [
+        turf({
+          id: 2,
+          name: 'Riverside loop',
+          locked: true,
+          doorCount: 24,
+          peopleCount: 31,
+          loggedCount: 8,
+        }),
+      ],
+    })
+
+    renderList()
+
+    // Two figures, not one ratio: doors and people are different
+    // populations, and the logged pair is people over people — the same
+    // quantity the details sheet labels "People logged".
+    expect(await screen.findByText(/24 doors/)).toBeInTheDocument()
+    expect(screen.getByText(/8 of 31/)).toBeInTheDocument()
+    // Never the prototype's people-over-doors pairing.
+    expect(screen.queryByText(/8 of 24/)).toBeNull()
+    expect(screen.queryByText(/knocked/i)).toBeNull()
+    // The word is "logged": not-home, inaccessible and refused all count
+    // toward it, and none of them is a conversation.
+    expect(screen.queryByText(/reached/i)).toBeNull()
+  })
+
+  // An unlocked list has no route, so there is nothing to count — and a zero
+  // would claim a list somebody walked and found empty.
+  it('shows no numbers on a list that has never been knocked', async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [turf({ id: 1, name: 'Elm St & 5th' })],
+    })
+
+    renderList()
+
+    expect(await screen.findByText('Elm St & 5th')).toBeInTheDocument()
+    expect(screen.queryByText(/doors/)).toBeNull()
+    expect(screen.queryByText(/logged/)).toBeNull()
+    expect(screen.queryByText(/^0 /)).toBeNull()
+  })
+
+  // "8 of 31 logged" leaves its noun to the visible column layout, which a
+  // screen reader has none of — and the three numbers on this surface are
+  // exactly the ones that must never be confused for each other.
+  it('names the population for a screen reader', async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [
+        turf({
+          id: 2,
+          locked: true,
+          doorCount: 1,
+          peopleCount: 3,
+          loggedCount: 2,
+        }),
+      ],
+    })
+
+    renderList()
+
+    // The visible line reads "1 door · 2 of 3 logged"; the noun is only in
+    // the full text content, which is what a screen reader announces.
+    expect(await screen.findByText(/1 door ·/)).toHaveTextContent(
+      '1 door · 2 of 3 people logged',
     )
   })
 

@@ -208,7 +208,20 @@ import { dirname, join, relative } from 'node:path'
 // builder — owns the popover open state and click handlers, so it's a client
 // component. Its data hook useOutreachAudience.ts stays directive-free (no JSX,
 // pulled into the client graph by its importers).
-const BASELINE = 585
+// 2026-08-20: 584 -> 590 for the phone-banking create flow (ENG-10919):
+// PhoneBankingFlow (flow state) and its five step components (PurposeStep,
+// WhoStep, ScriptStep, SheetCountStep, DownloadStep) are all interactive
+// drawer-step surfaces mirroring SocialFlow's shape, so all six are client
+// components.
+// 2026-08-21: 590 -> 594 for ENG-10921, the phone banking in-app caller page.
+// PhoneBankingCallerPage (progress/entries + delete + query wiring),
+// PhoneBankingEntryPanel (sheet/drawer switcher), PhoneBankingOutcomeForm
+// (the outcome cascade + save mutation), and PhoneBankingNotes (notes CRUD)
+// all hold client state, mutations, or event handlers, so all four must be
+// client components; the route's page.tsx stays a server component.
+// 2026-08-21: merge reconciliation — main's 594 (phone banking) plus this
+// branch's OutreachAudienceStep (+1) = 595.
+const BASELINE = 595
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

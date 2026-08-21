@@ -121,12 +121,17 @@ const Stat = ({
   value,
   hint,
   pending,
+  progress,
 }: {
   icon: React.ComponentType<{ size?: number; className?: string }>
   label: string
   value: string
   hint?: string
   pending?: boolean
+  // Percent 0-100, or undefined for a stat that isn't a proportion. Undefined
+  // rather than null so the bar has to be asked for: five of the six stats in
+  // this grid report a quantity with no denominator to be a fraction of.
+  progress?: number
 }) => (
   <div className="flex items-start gap-2 rounded-lg border border-border p-3">
     <Icon
@@ -143,6 +148,24 @@ const Stat = ({
         </p>
       ) : (
         <p className="text-sm font-semibold">{value}</p>
+      )}
+      {/* Decorative, exactly like `Breakdown`'s: the value above already reads
+          "12 of 40 · 30%", so a screen reader gains nothing from the bar and
+          would only hear the same figure twice. Unlike `Breakdown`, this one
+          is NOT floored to a visible sliver at zero — there a 0%-wide bar
+          meant "fewer than one percent of the audience", here it means no
+          door has been logged, and drawing a sliver would credit the walk
+          with a door it never knocked. */}
+      {progress !== undefined && !pending && (
+        <span
+          aria-hidden="true"
+          className="mt-2 block h-1.5 w-full overflow-hidden rounded-full bg-muted"
+        >
+          <span
+            className="block h-full rounded-full bg-info"
+            style={{ width: `${progress}%` }}
+          />
+        </span>
       )}
       {hint && !pending && (
         <p className="text-xs text-muted-foreground">{hint}</p>
@@ -319,6 +342,10 @@ export default function TurfDetailsSheet({
   const logged = targets.filter(
     (target) => target.knockStatus !== 'unknown',
   ).length
+  // One expression feeding both the printed percent and the bar's width, so
+  // the number and the picture of it cannot round differently.
+  const loggedPercent =
+    targets.length > 0 ? Math.round((logged / targets.length) * 100) : 0
   // Lockedness IS the frozen route row, so a locked turf has a route by
   // construction: until it arrives, every route-derived stat is loading or
   // broken — never 'Not knocked yet'. Rendering the pre-route copy through
@@ -564,18 +591,21 @@ export default function TurfDetailsSheet({
               />
               {/* Logged, not reached: not-home, inaccessible and refused all
                   count here, and none of them is a conversation. */}
+              {/* The bar is the route's or it is absent. An unlocked list
+                  reads "Not knocked yet", and a 0% bar beside those words
+                  would draw an empty walk as a walk barely started; a failed
+                  or in-flight fetch has no figure to draw at all. So it hangs
+                  off `route` — the same value `routeStat` branches on — rather
+                  than off `loggedPercent`, which is 0 in all four states. */}
               <Stat
                 icon={CheckCircleIcon}
                 label="People logged"
                 {...routeStat(
                   route
-                    ? `${logged} of ${targets.length} · ${
-                        targets.length > 0
-                          ? Math.round((logged / targets.length) * 100)
-                          : 0
-                      }%`
+                    ? `${logged} of ${targets.length} · ${loggedPercent}%`
                     : 'Not knocked yet',
                 )}
+                progress={route && !routeFailed ? loggedPercent : undefined}
               />
             </div>
             {/* The route is frozen, so this is a reading of it and not an edit

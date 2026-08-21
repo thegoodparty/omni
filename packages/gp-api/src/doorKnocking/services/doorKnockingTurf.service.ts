@@ -11,6 +11,10 @@ import {
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { Prisma } from '../../generated/prisma'
 import { lockTurf } from '../utils/turfLock.util'
+import {
+  DoorKnockingTurfCounts,
+  DoorKnockingTurfCountsService,
+} from './doorKnockingTurfCounts.service'
 
 const ROUTE_ID_INCLUDE = {
   route: { select: { id: true } },
@@ -20,13 +24,23 @@ type TurfWithRouteId = Prisma.DoorKnockingTurfGetPayload<{
   include: typeof ROUTE_ID_INCLUDE
 }>
 
-const toResponse = (turf: TurfWithRouteId): DoorKnockingTurf => ({
+// The counts are null rather than 0 without a route, and that is the whole
+// reason the contract makes them nullable: an unlocked list has nothing to
+// count — no doors were ever frozen — while `0 of 0 logged` would read as a
+// list someone walked and found empty.
+const toResponse = (
+  turf: TurfWithRouteId,
+  counts?: DoorKnockingTurfCounts,
+): DoorKnockingTurf => ({
   id: turf.id,
   voterFileFilterId: turf.voterFileFilterId,
   name: turf.name,
   color: turf.color,
   geoPoly: turf.geoPoly,
   locked: turf.route !== null,
+  doorCount: counts?.doorCount ?? null,
+  peopleCount: counts?.peopleCount ?? null,
+  loggedCount: counts?.loggedCount ?? null,
   createdAt: turf.createdAt,
   updatedAt: turf.updatedAt,
 })
@@ -35,6 +49,10 @@ const toResponse = (turf: TurfWithRouteId): DoorKnockingTurf => ({
 export class DoorKnockingTurfService extends createPrismaBase(
   MODELS.DoorKnockingTurf,
 ) {
+  constructor(private readonly counts: DoorKnockingTurfCountsService) {
+    super()
+  }
+
   async create(
     organizationSlug: string,
     input: CreateDoorKnockingTurf,
@@ -54,13 +72,22 @@ export class DoorKnockingTurfService extends createPrismaBase(
     return toResponse(turf)
   }
 
+  // The rail is the first screen a candidate lands on, so the counts ride the
+  // list rather than costing a fetch per row: ONE batched aggregate across
+  // every locked turf in the org, whatever the list count.
   async list(organizationSlug: string): Promise<DoorKnockingTurf[]> {
     const turfs = await this.model.findMany({
       where: { voterFileFilter: { organizationSlug } },
       orderBy: { name: 'asc' },
       include: ROUTE_ID_INCLUDE,
     })
-    return turfs.map(toResponse)
+    const counts = await this.counts.forRoutes(
+      organizationSlug,
+      turfs.flatMap((turf) => (turf.route ? [turf.route.id] : [])),
+    )
+    return turfs.map((turf) =>
+      toResponse(turf, turf.route ? counts.get(turf.route.id) : undefined),
+    )
   }
 
   async findForOrganization(
@@ -77,8 +104,16 @@ export class DoorKnockingTurfService extends createPrismaBase(
     return turf
   }
 
+  // Same aggregate over one route. `create` and `update` skip it on purpose:
+  // a turf being created has no route, and `update` runs `assertNotLocked`, so
+  // both can only ever answer null.
   async get(id: number, organizationSlug: string): Promise<DoorKnockingTurf> {
-    return toResponse(await this.findForOrganization(id, organizationSlug))
+    const turf = await this.findForOrganization(id, organizationSlug)
+    if (!turf.route) return toResponse(turf)
+    const counts = await this.counts.forRoutes(organizationSlug, [
+      turf.route.id,
+    ])
+    return toResponse(turf, counts.get(turf.route.id))
   }
 
   async update(

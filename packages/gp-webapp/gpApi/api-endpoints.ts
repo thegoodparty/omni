@@ -12,6 +12,7 @@ import type {
   SetDoNotKnockResponse,
   SetNotAVoter,
   SetNotAVoterResponse,
+  PhoneBankingList,
   UpdateDoorKnockingTurf,
   CreateOrdinanceRequest,
   ExperimentVariantsResponse,
@@ -34,6 +35,12 @@ import type {
   SocialGenerateRequest,
   SocialGenerateResponse,
   SocialSaveRequest,
+  RecordPhoneBankingCall,
+  RecordPhoneBankingCallResponse,
+  PhoneBankingScriptDraftRequest,
+  PhoneBankingScriptDraftResponse,
+  PhoneBankingCreate,
+  PhoneBankingCreateResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -282,6 +289,22 @@ export type APIEndpoints = {
   'POST /v1/outreach/social': {
     Request: SocialSaveRequest
     Response: OutreachDetail
+  }
+
+  // Stateless script draft/improve for the phone-banking create flow —
+  // mirrors the social draft endpoint (purpose + tone; currentDraft polishes
+  // in place instead of writing fresh). 502 on model failure.
+  'POST /v1/outreach/phone-banking/draft': {
+    Request: PhoneBankingScriptDraftRequest
+    Response: PhoneBankingScriptDraftResponse
+  }
+
+  // Freezes the chosen script, sheet count, and audience (exactly one of
+  // voterFileFilterId or filters+filterName) into a phone-banking list.
+  // Pro-gated; 400 when the resolved audience is empty.
+  'POST /v1/phone-banking/lists': {
+    Request: PhoneBankingCreate
+    Response: PhoneBankingCreateResponse
   }
 
   // Server-side flag resolution: gp-api evaluates Amplitude Experiment for the
@@ -1254,6 +1277,31 @@ export type APIEndpoints = {
   'GET /v1/campaigns/mine/race-opponent/opponents/activity': {
     Request: {}
     Response: RaceOpponentActivityResponse
+  }
+
+  // The frozen phone-banking list plus its live per-person enrichment and
+  // logged interactions (PhoneBankingController.get). 404 when the list
+  // doesn't belong to the requester's organization.
+  'GET /v1/phone-banking/lists/:id': {
+    Request: {}
+    Response: PhoneBankingList
+  }
+
+  // Logs one call outcome. An answered call carries the active tab's
+  // personId (optionally markHouseholdDone); a number-level outcome
+  // (no_answer/voicemail/wrong_number/refused) carries no personId and
+  // fans out to every person on the entry server-side. The response reads
+  // from the persisted rows, so the caller can patch every affected
+  // person's cache entry from `results` without a refetch.
+  'POST /v1/phone-banking/lists/:id/calls': {
+    Request: RecordPhoneBankingCall
+    Response: RecordPhoneBankingCallResponse
+  }
+
+  // Deletes the list (and its entries/persons/interactions via cascade).
+  'DELETE /v1/phone-banking/lists/:id': {
+    Request: {}
+    Response: void
   }
 }
 
