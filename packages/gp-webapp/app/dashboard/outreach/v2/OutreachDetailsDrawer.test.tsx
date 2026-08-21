@@ -59,6 +59,59 @@ const completedRow: HistoryRow = {
   status: 'completed',
 }
 
+// The list endpoint joins the whole VoterFileFilter row onto each envelope, so
+// a history row carries the saved list's name alongside its criteria flags.
+const rowWithFilter = (voterFileFilter: Record<string, unknown>): HistoryRow =>
+  ({ ...inProgressRow, voterFileFilter }) as HistoryRow
+
+describe('OutreachDetailsDrawer — applied filters', () => {
+  const mockDetail = () =>
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { ...baseDetail, status: 'in_progress' as const },
+    })
+
+  it('renders the saved list as an Audience pill alongside the Filters pills', async () => {
+    mockDetail()
+
+    render(
+      <OutreachDetailsDrawer
+        row={rowWithFilter({ name: 'Renters in 98103', age50Plus: true })}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(await screen.findByText('Applied filters')).toBeInTheDocument()
+    expect(screen.getByText('Audience')).toBeInTheDocument()
+    expect(screen.getByText('Renters in 98103')).toBeInTheDocument()
+    expect(screen.getByText('Filters')).toBeInTheDocument()
+  })
+
+  it('drops the Audience group for a row with no saved list, keeping Filters', async () => {
+    mockDetail()
+
+    render(
+      <OutreachDetailsDrawer
+        row={rowWithFilter({ age50Plus: true })}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(await screen.findByText('Applied filters')).toBeInTheDocument()
+    expect(screen.getByText('Filters')).toBeInTheDocument()
+    expect(screen.queryByText('Audience')).not.toBeInTheDocument()
+  })
+
+  it('hides the whole section when the row has neither a list nor filters', async () => {
+    mockDetail()
+
+    render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
+
+    expect(await screen.findByText('Overview')).toBeInTheDocument()
+    expect(screen.queryByText('Applied filters')).not.toBeInTheDocument()
+  })
+})
+
 describe('OutreachDetailsDrawer — phone banking', () => {
   it('renders the in-progress section order, progress math, and the Continue calling footer', async () => {
     api.mock('GET /v1/outreach/:id', {

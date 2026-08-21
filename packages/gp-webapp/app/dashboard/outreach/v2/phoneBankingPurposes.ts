@@ -3,14 +3,16 @@ import {
   type PhoneBankingPurpose,
 } from '@goodparty_org/contracts'
 
-// Contract slugs → the design's card copy, mirroring socialPurposes.ts.
+// Contract slugs → the design canvas's card copy. Phone banking has its own
+// wording ("Introduce myself to voters", "Encourage voters to vote early");
+// it is deliberately NOT social's shorter copy.
 export const PHONE_BANKING_PURPOSE_LABELS: Record<PhoneBankingPurpose, string> =
   {
-    introduce: 'Introduce myself',
+    introduce: 'Introduce myself to voters',
     persuade: 'Persuade likely voters',
-    event: 'Invite people to a local event',
-    'vote-early': 'Encourage early voting',
-    'election-day': 'Election day turnout',
+    event: 'Invite voters to a local event',
+    'vote-early': 'Encourage voters to vote early',
+    'election-day': 'Encourage voters to vote on election day',
     custom: 'Write my own script',
   }
 
