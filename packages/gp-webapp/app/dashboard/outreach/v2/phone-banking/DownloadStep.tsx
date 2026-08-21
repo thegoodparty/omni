@@ -1,42 +1,89 @@
 'use client'
 
-import { Input, Label } from '@styleguide'
+import type { PhoneBankingCreateResponse } from '@goodparty_org/contracts'
+import { Button, Card } from '@styleguide'
+import { DownloadIcon } from '@styleguide/components/ui/icons'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { CHANNEL_META } from '../channelMeta'
 import { Intro } from '../social/Intro'
 
 interface DownloadStepProps {
-  name: string
-  onNameChange: (name: string) => void
-  sheetCount: number
-  createErrorMessage: string | null
+  response: PhoneBankingCreateResponse
+  audienceLabel: string
 }
 
+// The "ready" screen (step 5): replaces the old naming-only download step and
+// the separate SuccessScreen. Rendered only once the create call has already
+// succeeded, so there's nothing left to input here — just the summary and the
+// download/next-step actions.
 export const DownloadStep = ({
-  name,
-  onNameChange,
-  sheetCount,
-  createErrorMessage,
-}: DownloadStepProps) => (
-  <div className="space-y-6">
-    <Intro
-      channel="phoneBanking"
-      title="Ready to build your call list"
-      body={`We'll build ${sheetCount} sheet${sheetCount === 1 ? '' : 's'} of 60 numbers each from your audience and script.`}
-    />
-    <div className="space-y-2">
-      <Label htmlFor="phone-banking-campaign-name">Campaign name</Label>
-      <Input
-        id="phone-banking-campaign-name"
-        value={name}
-        maxLength={60}
-        onChange={(e) => onNameChange(e.target.value)}
-        placeholder="Name this campaign"
+  response,
+  audienceLabel,
+}: DownloadStepProps) => {
+  const isZip = response.sheetCount > 1
+  const href = `/dashboard/outreach/phone-banking/print/${response.id}/pdf`
+
+  const handleDownloadClick = () => {
+    trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded, {
+      listId: response.id,
+      contactCount: response.personCount,
+    })
+  }
+
+  return (
+    <div className="space-y-6">
+      <Intro
+        channel="phoneBanking"
+        title={isZip ? 'Your call lists are ready' : 'Your call list is ready'}
+        body={`Download the ${isZip ? 'PDFs' : 'PDF'} for your volunteers, then go to the calling page to start making calls and marking outcomes.`}
       />
-      <p className="text-xs text-muted-foreground">
-        How this campaign appears in your outreach history.
-      </p>
+
+      <Card className="gap-3 p-4 text-sm">
+        <div className="flex items-center gap-3">
+          <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-warning/10 text-warning [&_svg]:size-6">
+            {CHANNEL_META.phoneBanking.icon}
+          </span>
+          <div className="min-w-0">
+            <p className="font-medium text-foreground">
+              {isZip
+                ? `${response.sheetCount} phone banking call sheets`
+                : 'Phone banking call sheet'}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {audienceLabel} · {response.personCount.toLocaleString()} contacts
+              {isZip ? ` split across ${response.sheetCount} lists` : ''}
+            </p>
+          </div>
+        </div>
+        <div className="border-t border-border pt-3 text-sm text-muted-foreground">
+          <p>The PDF includes:</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li>Your call script</li>
+            <li>Contacts with name, phone, and status checkboxes</li>
+            <li>
+              Statuses: Answered, No answer, Voicemail left, Wrong number,
+              Refused
+            </li>
+            <li>Support (Y / U / N) and notes column</li>
+          </ul>
+        </div>
+      </Card>
+
+      <Button
+        asChild
+        variant="outline"
+        className="w-full"
+        onClick={handleDownloadClick}
+      >
+        {/* The PDF/ZIP is built by a route handler (ENG-10918) — a plain
+            anchor, same precedent as door-knocking's print link. */}
+        <a href={href} target="_blank" rel="noreferrer">
+          <DownloadIcon className="size-4" />
+          {isZip
+            ? `Download ${response.sheetCount} call sheets (ZIP)`
+            : 'Download call sheet (PDF)'}
+        </a>
+      </Button>
     </div>
-    {createErrorMessage && (
-      <p className="text-sm text-destructive">{createErrorMessage}</p>
-    )}
-  </div>
-)
+  )
+}

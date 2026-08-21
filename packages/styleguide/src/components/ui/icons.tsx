@@ -43,6 +43,7 @@ export {
   Download as DownloadIcon,
   ExternalLink as ExternalLinkIcon,
   FileText as FileTextIcon,
+  Filter as FilterIcon,
   Flag as FlagIcon,
   Globe as GlobeIcon,
   GripVertical as GripVerticalIcon,
