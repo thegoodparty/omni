@@ -235,6 +235,102 @@ describe('OutreachHistoryTable — unified history', () => {
     expect(onRowClick).toHaveBeenCalledWith(expect.objectContaining({ id: 5 }))
   })
 
+  it('shows people-called and supporters for a nativePhoneBanking row from the detail fetch', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        id: 11,
+        createdAt: new Date('2026-08-10T00:00:00Z'),
+        updatedAt: new Date('2026-08-10T00:00:00Z'),
+        campaignId: 1,
+        outreachType: 'nativePhoneBanking',
+        projectId: null,
+        name: 'GOTV calls',
+        status: 'in_progress',
+        error: null,
+        audienceRequest: null,
+        script: null,
+        message: null,
+        date: null,
+        imageUrl: null,
+        voterFileFilterId: null,
+        doorKnockingRouteId: null,
+        phoneBankingListId: 5,
+        phoneListId: null,
+        identityId: null,
+        didState: null,
+        didNpaSubset: [],
+        title: null,
+        textCount: null,
+        billableTextCount: null,
+        campaignPlanDueDate: null,
+        organizationSlug: null,
+        phoneBanking: {
+          listId: 5,
+          entriesTotal: 10,
+          entriesCalled: 4,
+          peopleTotal: 16,
+          peopleCalled: 6,
+          byOutcome: {
+            answered: 3,
+            no_answer: 1,
+            voicemail: 0,
+            wrong_number: 0,
+            refused: 0,
+          },
+          supporters: 2,
+          unsure: 1,
+          nonSupporters: 0,
+        },
+      },
+    })
+
+    const rows: HistoryRow[] = [
+      {
+        id: 11,
+        createdAt: '2026-08-10T00:00:00Z',
+        outreachType: 'nativePhoneBanking',
+        name: 'GOTV calls',
+        status: 'in_progress',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    expect(
+      await within(desktopTable()).findByText('6 people called'),
+    ).toBeInTheDocument()
+    expect(within(desktopTable()).getByText('2 supporters')).toBeInTheDocument()
+    expect(
+      within(desktopTable()).getByText('Phone banking'),
+    ).toBeInTheDocument()
+    // in_progress means callers are actively dialing — never the non-p2p
+    // map's "Scheduled".
+    expect(within(desktopTable()).getByText('In progress')).toBeInTheDocument()
+    expect(
+      within(desktopTable()).queryByText('Scheduled'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('leaves a legacy phoneBanking row rendering n/a and an em-dash', () => {
+    const rows: HistoryRow[] = [
+      {
+        id: 12,
+        date: '2026-07-15',
+        outreachType: 'phoneBanking',
+        name: 'Legacy phone bank',
+        status: 'completed',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    const table = within(desktopTable())
+    expect(table.getByText('n/a')).toBeInTheDocument()
+    expect(table.getByText('—')).toBeInTheDocument()
+    expect(table.getByText('Phone banking')).toBeInTheDocument()
+  })
+
   it('sorts a freshly created row (createdAt, no date — the phone-banking optimistic-prepend shape) above older dated rows', () => {
     const rows: HistoryRow[] = [
       {

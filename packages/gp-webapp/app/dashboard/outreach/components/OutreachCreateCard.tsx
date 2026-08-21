@@ -13,6 +13,7 @@ type OutreachType =
   | 'robocall'
   | 'doorKnocking'
   | 'phoneBanking'
+  | 'nativePhoneBanking'
   | 'socialMedia'
 
 interface OutreachCreateCardProps {

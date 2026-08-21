@@ -124,24 +124,43 @@ export class OutreachSocialService extends createPrismaBase(
   private async computePhoneBankingDetail(
     listId: number,
   ): Promise<PhoneBankingOutreachDetail> {
-    const [entriesTotal, peopleTotal, peopleCalled, supporters, calledEntries] =
-      await Promise.all([
-        this.client.phoneBankingListEntry.count({
-          where: { phoneBankingListId: listId },
-        }),
-        this.client.phoneBankingListEntryPerson.count({
-          where: { entry: { phoneBankingListId: listId } },
-        }),
-        this.client.contactInteractionPhoneBanking.count({
-          where: { phoneBankingListId: listId },
-        }),
-        this.client.contactInteractionPhoneBanking.count({
-          where: {
-            phoneBankingListId: listId,
-            supportAnswer: SupportAnswer.supporter,
-          },
-        }),
-        this.client.$queryRaw<{ outcome: PhoneBankCallOutcome }[]>(Prisma.sql`
+    const [
+      entriesTotal,
+      peopleTotal,
+      peopleCalled,
+      supporters,
+      unsure,
+      nonSupporters,
+      calledEntries,
+    ] = await Promise.all([
+      this.client.phoneBankingListEntry.count({
+        where: { phoneBankingListId: listId },
+      }),
+      this.client.phoneBankingListEntryPerson.count({
+        where: { entry: { phoneBankingListId: listId } },
+      }),
+      this.client.contactInteractionPhoneBanking.count({
+        where: { phoneBankingListId: listId },
+      }),
+      this.client.contactInteractionPhoneBanking.count({
+        where: {
+          phoneBankingListId: listId,
+          supportAnswer: SupportAnswer.supporter,
+        },
+      }),
+      this.client.contactInteractionPhoneBanking.count({
+        where: {
+          phoneBankingListId: listId,
+          supportAnswer: SupportAnswer.unsure,
+        },
+      }),
+      this.client.contactInteractionPhoneBanking.count({
+        where: {
+          phoneBankingListId: listId,
+          supportAnswer: SupportAnswer.non_supporter,
+        },
+      }),
+      this.client.$queryRaw<{ outcome: PhoneBankCallOutcome }[]>(Prisma.sql`
           SELECT DISTINCT ON (entry.id) interaction.outcome
           FROM phone_banking_list_entry entry
           JOIN phone_banking_list_entry_person person
@@ -152,7 +171,7 @@ export class OutreachSocialService extends createPrismaBase(
           WHERE entry.phone_banking_list_id = ${listId}
           ORDER BY entry.id, interaction.occurred_at DESC, interaction.id DESC
         `),
-      ])
+    ])
 
     const byOutcome: Record<PhoneBankCallOutcome, number> = {
       [PhoneBankCallOutcome.answered]: 0,
@@ -173,6 +192,8 @@ export class OutreachSocialService extends createPrismaBase(
       peopleCalled,
       byOutcome,
       supporters,
+      unsure,
+      nonSupporters,
     }
   }
 }
