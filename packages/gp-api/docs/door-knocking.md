@@ -77,6 +77,18 @@ org scope is a cross-tenant read that review catches, while a missing
 actually has, and only misbehaves on a deleted one. Four call sites need it,
 across three services.
 
+**One path deliberately opts out**, and it reads like an oversight, so it is
+pinned by a test. `doorKnockingInteraction.service.ts` resolves an
+already-issued `stopTargetId` so a canvasser can record what happened at a
+door, and it does *not* require the turf to be alive. The phone snapshots the
+route and syncs later, so a list deleted mid-walk would turn every queued write
+into a 404 and discard work that was actually done — and these rows hang off
+the organization rather than the turf, so they outlive the list by design. The
+org scope still applies, so nothing resolves across a tenant. Contrast the
+knock freeze, which does filter: that one bills a Geoapify route. The rule is
+that `activeTurfScope` guards anything that *hands out* a turf or its route,
+not anything that records against one already handed out.
+
 **Archived rows are still returned by `GET turfs`.** They carry `archivedAt`
 and the client sections them. Filtering them out server-side would leave
 nothing to restore, and would silently degrade the print path:

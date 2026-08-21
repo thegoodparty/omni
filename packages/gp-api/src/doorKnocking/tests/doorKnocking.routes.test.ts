@@ -385,6 +385,16 @@ describe('door-knocking routes', () => {
       expect(restored.data.archivedAt).toBeNull()
     })
 
+    // Same reasoning as completing twice: the card renders "archived since".
+    it('archiving twice keeps the original timestamp', async () => {
+      const { turf } = await knockedTurf()
+
+      const first = await setArchived(turf.id, true)
+      const second = await setArchived(turf.id, true)
+
+      expect(second.data.archivedAt).toBe(first.data.archivedAt)
+    })
+
     it('hard-deletes an unknocked list, because there is nothing to keep', async () => {
       const turf = await createTurf()
 
@@ -478,6 +488,36 @@ describe('door-knocking routes', () => {
       // The one that would be silent: re-knocking a deleted list would bill a
       // second route against a list the candidate believes is gone.
       expect((await knock(turf.id)).status).toBe(404)
+    })
+
+    // The deliberate exception to the line above, pinned because it reads like
+    // an oversight. The phone snapshots the route and syncs later, so a list
+    // deleted mid-walk must not turn a canvasser's queued knocks into 404s and
+    // throw away work they actually did. These rows hang off the organization
+    // rather than the turf, so they outlive the list by design.
+    it('still accepts a knock synced against a tombstoned list', async () => {
+      const { turf, routeId } = await knockedTurf()
+      const target =
+        await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+          where: { stop: { doorKnockingRouteId: routeId } },
+        })
+
+      await service.client.delete(
+        `/v1/door-knocking/turfs/${turf.id}`,
+        orgHeaders(),
+      )
+
+      const logged = await service.client.post(
+        '/v1/door-knocking/interactions',
+        {
+          stopTargetId: target.id,
+          clientKey: 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff',
+          outcome: 'not_home',
+        },
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+      expect(logged.status).toBe(201)
+      expect(await service.prisma.contactInteractionDoorKnock.count()).toBe(1)
     })
   })
 

@@ -94,7 +94,7 @@ export class DoorKnockingTurfService extends createPrismaBase(
   // different case and really are gone.
   async list(organizationSlug: string): Promise<DoorKnockingTurf[]> {
     const turfs = await this.model.findMany({
-      where: { voterFileFilter: { organizationSlug }, deletedAt: null },
+      where: activeTurfScope(organizationSlug),
       orderBy: { name: 'asc' },
       include: ROUTE_ID_INCLUDE,
     })
@@ -214,6 +214,11 @@ export class DoorKnockingTurfService extends createPrismaBase(
   ): Promise<DoorKnockingTurf> {
     const turf = await this.client.$transaction(async (tx) => {
       const locked = await this.lockAndFindKnocked(tx, id, organizationSlug)
+      // Idempotent in the archiving direction for the same reason complete()
+      // is: the card renders "archived since", and a double-tap or a client
+      // retry must not walk that date forward. Un-archiving has nothing to
+      // preserve — it writes null either way.
+      if (archived && locked.archivedAt) return locked
       return this.stampKnocked(tx, locked, {
         archivedAt: archived ? new Date() : null,
       })
