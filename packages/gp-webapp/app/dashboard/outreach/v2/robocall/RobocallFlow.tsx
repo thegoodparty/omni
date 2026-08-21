@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/components/OutreachCreateCards'
@@ -11,19 +11,28 @@ import {
   type OutreachAudienceCopy,
 } from '../audience/OutreachAudienceStep'
 import { useOutreachAudience } from '../audience/useOutreachAudience'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import { RobocallPurposeStep } from './RobocallPurposeStep'
+import { RobocallScheduleStep } from './RobocallScheduleStep'
+import { combineScheduledAt, resolveCampaignTimeZone } from './scheduleTimeZone'
 
-// Steps grow as later slices land (schedule, record/compliance, review + pay).
-// For now: pick a purpose, pick/build the audience, then a placeholder for the
-// not-yet-built remainder.
-type StepId = 'purpose' | 'audience' | 'placeholder'
-const STEP_ORDER: StepId[] = ['purpose', 'audience', 'placeholder']
+// Steps grow as later slices land (record/compliance, review + pay). For now:
+// pick a purpose, pick/build the audience, choose when it goes out, then a
+// placeholder for the not-yet-built remainder.
+type StepId = 'purpose' | 'audience' | 'schedule' | 'placeholder'
+const STEP_ORDER: StepId[] = ['purpose', 'audience', 'schedule', 'placeholder']
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
   audience: 'Who do you want to reach?',
+  schedule: 'When should it go out?',
   placeholder: 'Robocall is coming soon',
 }
+
+// Hard 48h lead time (the compliance floor the design enforces). No upper
+// bound here — the payment-window ceiling is a pay-step concern.
+const MIN_LEAD_HOURS = 48
+const MIN_LEAD_MS = MIN_LEAD_HOURS * 60 * 60 * 1000
 
 // Robocall dials landlines, so the reachable count and the in-flow builder
 // count both use the landline dimension: reachability.robocall for a saved
@@ -58,6 +67,18 @@ interface RobocallFlowProps {
 export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<RobocallPurpose | null>(null)
+  const [campaignName, setCampaignName] = useState('')
+  const [scheduledDay, setScheduledDay] = useState<Date | undefined>(undefined)
+  const [time, setTime] = useState('')
+  // Pinned per open so the lead-time floor and picker bounds don't drift as the
+  // component re-renders while the user fills the step in.
+  const [now, setNow] = useState<Date>(() => new Date())
+  // The last name we auto-filled; lets us refresh it when the list changes
+  // without clobbering a name the user typed themselves.
+  const lastAutoName = useRef('')
+
+  const [campaign] = useCampaign()
+  const timeZone = resolveCampaignTimeZone(campaign?.details?.state)
 
   const audience = useOutreachAudience({
     open,
@@ -72,8 +93,22 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     if (!open) return
     setStepId('purpose')
     setPurpose(null)
+    setCampaignName('')
+    lastAutoName.current = ''
+    setScheduledDay(undefined)
+    setTime('')
+    setNow(new Date())
     resetAudience()
   }, [open, resetAudience])
+
+  // Validate against the combined UTC instant so it's tz-correct: the send must
+  // be at least 48h out. `earliest` (now + lead) drives both the "earliest
+  // send" hint and the violation alert, mirroring the design's flowWhen.
+  const scheduledAt = combineScheduledAt(scheduledDay, time, timeZone)
+  const earliest = new Date(now.getTime() + MIN_LEAD_MS)
+  const violatesLeadTime =
+    scheduledAt !== null && scheduledAt.getTime() < earliest.getTime()
+  const isScheduleValid = scheduledAt !== null && !violatesLeadTime
 
   const stepIndex = STEP_ORDER.indexOf(stepId)
 
@@ -106,10 +141,28 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
     setStepId(previous)
   }
 
+  const goToSchedule = () => {
+    // Auto-fill the campaign name from the chosen list (the design auto-fills
+    // it). Refresh it when the list changes as long as the user hasn't edited
+    // it (tracked via lastAutoName), so the name can't silently mismatch the
+    // selected list; a hand-typed name is never clobbered.
+    const listName = audience.selectedList?.name
+    // Clamp to the name field's own maxLength (60): setCampaignName bypasses the
+    // input's limit, so a long list name would otherwise auto-fill over-length.
+    const auto = (
+      listName ? `${listName} robocall` : 'Robocall campaign'
+    ).slice(0, 60)
+    if (campaignName.trim() === '' || campaignName === lastAutoName.current) {
+      setCampaignName(auto)
+      lastAutoName.current = auto
+    }
+    setStepId('schedule')
+  }
+
   const handleCreateListContinue = async () => {
     try {
       await audience.createList()
-      setStepId('placeholder')
+      goToSchedule()
     } catch {
       // createListError renders the inline message below the step.
     }
@@ -122,43 +175,52 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
 
   const dirty = purpose !== null
 
-  const cta: FlowShellCta | null =
-    stepId !== 'audience'
-      ? null
-      : audience.mode === 'filters'
+  const audienceCta: FlowShellCta =
+    audience.mode === 'filters'
+      ? {
+          label: audience.builderCounting
+            ? 'Continue'
+            : `Continue (${(audience.builderCount ?? 0).toLocaleString()})`,
+          onClick: () => audience.setMode('name'),
+          disabled:
+            !hasBuilderSelection ||
+            audience.builderCounting ||
+            audience.builderZeroMatch ||
+            audience.builderCapError,
+          loading: hasBuilderSelection && audience.builderCounting,
+        }
+      : audience.mode === 'name'
         ? {
-            label: audience.builderCounting
-              ? 'Continue'
-              : `Continue (${(audience.builderCount ?? 0).toLocaleString()})`,
-            onClick: () => audience.setMode('name'),
-            disabled:
-              !hasBuilderSelection ||
-              audience.builderCounting ||
-              audience.builderZeroMatch ||
-              audience.builderCapError,
-            loading: hasBuilderSelection && audience.builderCounting,
+            label: 'Create list',
+            onClick: () => {
+              void handleCreateListContinue()
+            },
+            disabled: audience.builderName.trim().length === 0,
+            loading: audience.createListPending,
           }
-        : audience.mode === 'name'
-          ? {
-              label: 'Create list',
-              onClick: () => {
-                void handleCreateListContinue()
-              },
-              disabled: audience.builderName.trim().length === 0,
-              loading: audience.createListPending,
-            }
-          : {
-              label:
-                audience.reachableCount !== null
-                  ? `Continue (${audience.reachableCount.toLocaleString()})`
-                  : 'Continue',
-              onClick: () => setStepId('placeholder'),
-              disabled:
-                !audience.selectedList ||
-                audience.reachableLoading ||
-                audience.reachableCount === null ||
-                audience.reachableCount === 0,
-            }
+        : {
+            label:
+              audience.reachableCount !== null
+                ? `Continue (${audience.reachableCount.toLocaleString()})`
+                : 'Continue',
+            onClick: goToSchedule,
+            disabled:
+              !audience.selectedList ||
+              audience.reachableLoading ||
+              audience.reachableCount === null ||
+              audience.reachableCount === 0,
+          }
+
+  const cta: FlowShellCta | null =
+    stepId === 'audience'
+      ? audienceCta
+      : stepId === 'schedule'
+        ? {
+            label: 'Continue',
+            onClick: () => setStepId('placeholder'),
+            disabled: campaignName.trim().length === 0 || !isScheduleValid,
+          }
+        : null
 
   return (
     <OutreachFlowShell
@@ -208,14 +270,27 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
             </p>
           )}
         </>
+      ) : stepId === 'schedule' ? (
+        <RobocallScheduleStep
+          campaignName={campaignName}
+          onCampaignNameChange={setCampaignName}
+          scheduledDay={scheduledDay}
+          onScheduledDayChange={setScheduledDay}
+          time={time}
+          onTimeChange={setTime}
+          timeZone={timeZone}
+          minLeadHours={MIN_LEAD_HOURS}
+          earliest={earliest}
+          violates={violatesLeadTime}
+        />
       ) : (
         <div className="space-y-2 py-8 text-center">
           <h3 className="text-xl font-semibold text-foreground">
             More coming soon
           </h3>
           <p className="text-base text-muted-foreground">
-            The rest of the robocall flow (schedule, recording, and payment) is
-            still being built.
+            The rest of the robocall flow (recording and payment) is still being
+            built.
           </p>
         </div>
       )}

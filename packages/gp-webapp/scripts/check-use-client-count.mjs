@@ -221,7 +221,11 @@ import { dirname, join, relative } from 'node:path'
 // client components; the route's page.tsx stays a server component.
 // 2026-08-21: merge reconciliation — main's 594 (phone banking) plus this
 // branch's OutreachAudienceStep (+1) = 595.
-const BASELINE = 595
+// 2026-08-21: 595 -> 596 for the robocall schedule step (phase 3): the
+// RobocallScheduleStep drawer surface owns the name/date/time inputs and their
+// selection handlers, so it's a client component. Its scheduleTimeZone.ts
+// helper is directive-free (pure date/tz functions, no JSX).
+const BASELINE = 596
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
