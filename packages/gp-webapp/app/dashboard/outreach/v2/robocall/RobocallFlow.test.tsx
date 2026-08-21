@@ -281,6 +281,28 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
   })
 
+  it('discards the selected list when backing off the audience step', async () => {
+    mockSavedLists()
+    mockListDetail(80)
+    await gotoAudience()
+
+    // Pick a list so the selection is live (Continue enabled at 80).
+    await userEvent.click(await screen.findByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Renters in 98103'))
+    await screen.findByRole('button', { name: /Continue \(80\)/ })
+
+    // Back to purpose discards the pick; re-entering audience is a fresh picker
+    // with Continue disabled, not a resumed selection.
+    fireEvent.click(screen.getByLabelText('Back'))
+    expect(screen.getByText('Introduce myself')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Persuade likely voters'))
+
+    expect(await screen.findByText('Choose a voter list')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled(),
+    )
+  })
+
   it('resets to the purpose step when reopened after cancelling mid-flow', async () => {
     mockSavedLists()
     const onClose = vi.fn()

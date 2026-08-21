@@ -97,7 +97,13 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
       return
     }
     const previous = STEP_ORDER[stepIndex - 1]
-    if (previous) setStepId(previous)
+    if (!previous) return
+    // Backing OFF the audience step discards the picked list so a re-entry
+    // starts from an empty picker instead of resuming a selection the user
+    // just backed out of (which would leave Continue enabled on a stale list).
+    // Backing INTO audience from a later step keeps the selection.
+    if (stepId === 'audience') resetAudience()
+    setStepId(previous)
   }
 
   const handleCreateListContinue = async () => {

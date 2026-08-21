@@ -139,6 +139,11 @@ export const useOutreachAudience = ({
       return detail.reachability[reachabilityKey]
     },
     enabled: open && selectedListId !== null,
+    // Refetch on every (re)selection so the isFetching-driven spinner below
+    // actually fires: under the app's 5-min default staleTime a re-picked list
+    // is still "fresh", no background refetch runs, isFetching stays false, and
+    // a stale count would render with no loading state (matches listsQuery).
+    staleTime: 0,
   })
   const reachableCount = reachabilityQuery.data ?? null
 
