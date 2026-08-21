@@ -95,6 +95,7 @@ interface OutreachTypes {
   text: 'text'
   p2p: 'p2p'
   doorKnocking: 'doorKnocking'
+  nativeDoorKnocking: 'nativeDoorKnocking'
   phoneBanking: 'phoneBanking'
   nativePhoneBanking: 'nativePhoneBanking'
   socialMedia: 'socialMedia'
@@ -106,6 +107,7 @@ export const OUTREACH_TYPES: OutreachTypes = {
   text: 'text',
   p2p: 'p2p',
   doorKnocking: 'doorKnocking',
+  nativeDoorKnocking: 'nativeDoorKnocking',
   phoneBanking: 'phoneBanking',
   nativePhoneBanking: 'nativePhoneBanking',
   socialMedia: 'socialMedia',

@@ -3,6 +3,7 @@ import { createContext, useContext, useState, ReactNode } from 'react'
 type OutreachType =
   | 'text'
   | 'doorKnocking'
+  | 'nativeDoorKnocking'
   | 'phoneBanking'
   | 'nativePhoneBanking'
   | 'socialMedia'
