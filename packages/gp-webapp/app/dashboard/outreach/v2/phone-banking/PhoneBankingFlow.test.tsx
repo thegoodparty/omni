@@ -90,7 +90,7 @@ const openFlow = (onSaved?: (outreachId: number, name: string) => void) => {
 }
 
 const advanceToWho = async () => {
-  await user.click(screen.getByText('Introduce myself'))
+  await user.click(screen.getByText('Introduce myself to voters'))
   expect(
     (await screen.findAllByText('Who are you calling?')).length,
   ).toBeGreaterThan(0)
@@ -272,7 +272,7 @@ describe('PhoneBankingFlow', () => {
     await advanceToScript()
 
     const nameInput = screen.getByLabelText('Campaign name')
-    expect(nameInput).toHaveValue('Introduce myself')
+    expect(nameInput).toHaveValue('Introduce myself to voters')
 
     await user.clear(nameInput)
     await waitFor(() =>

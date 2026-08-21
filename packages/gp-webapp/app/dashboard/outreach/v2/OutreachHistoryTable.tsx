@@ -143,7 +143,7 @@ const CHANNEL_FILTERS = [
   {
     key: 'door',
     label: 'Door knocking',
-    types: [OUTREACH_TYPES.doorKnocking],
+    types: [OUTREACH_TYPES.doorKnocking, OUTREACH_TYPES.nativeDoorKnocking],
   },
 ] as const
 
@@ -162,6 +162,7 @@ const STATUS_FILTERS = [
   'In review',
   'Denied',
   'Scheduled',
+  'In progress',
   'Done',
   'Pending payment',
 ] as const

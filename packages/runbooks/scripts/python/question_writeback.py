@@ -79,6 +79,7 @@ def fetch_current_state(
     """{task_id: state key} from the list as it stands, so we only write real changes."""
     kwargs = {"requester": requester} if requester else {}
     label_to_key = {v: k for k, v in STATE_LABELS.items()}
+    wanted = state_field_name.strip().lower()
     out: dict[str, str] = {}
     page = 0
     while True:
@@ -89,7 +90,10 @@ def fetch_current_state(
         tasks = payload.get("tasks") or []
         for task in tasks:
             for field in task.get("custom_fields") or []:
-                if field.get("name") != state_field_name:
+                # Case-insensitive: an exact match against a differently-cased field name yields
+                # an empty map, which reads as "nothing has a state yet" and rewrites every task
+                # on every run — the notification churn this map exists to prevent.
+                if str(field.get("name") or "").strip().lower() != wanted:
                     continue
                 label = _option_label(field)
                 if label in label_to_key:

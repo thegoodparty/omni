@@ -174,6 +174,7 @@ describe('<PhoneBankingCallerPage>', () => {
       within(dialog).getByRole('tab', { name: /Casey Household/ }),
     )
     await user.click(within(dialog).getByRole('radio', { name: 'Answered' }))
+    await user.click(within(dialog).getByRole('radio', { name: 'Engaged' }))
     // Will-vote only appears once a support answer is picked — click support
     // Yes first (the only "Yes" on screen), then will-vote's own Yes appears.
     await user.click(within(dialog).getByRole('radio', { name: 'Yes' }))
@@ -292,7 +293,7 @@ describe('<PhoneBankingCallerPage>', () => {
     ).not.toBeDisabled()
   })
 
-  it('shows the will-vote question only after a support answer is chosen', async () => {
+  it('reveals the cascade one question at a time and Save only at a terminal state', async () => {
     const user = userEvent.setup()
     mockGetList(buildList())
 
@@ -302,7 +303,21 @@ describe('<PhoneBankingCallerPage>', () => {
     await user.click(screen.getByText('Alex Solo'))
     const dialog = await screen.findByRole('dialog')
 
+    expect(
+      within(dialog).queryByRole('button', { name: 'Save' }),
+    ).not.toBeInTheDocument()
+
     await user.click(within(dialog).getByRole('radio', { name: 'Answered' }))
+    expect(within(dialog).getByText('Did they engage?')).toBeInTheDocument()
+    expect(
+      within(dialog).queryByText('Do they support you?'),
+    ).not.toBeInTheDocument()
+    expect(
+      within(dialog).queryByRole('button', { name: 'Save' }),
+    ).not.toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('radio', { name: 'Engaged' }))
+    expect(within(dialog).getByText('Do they support you?')).toBeInTheDocument()
     expect(
       within(dialog).queryByText('Will they vote this election?'),
     ).not.toBeInTheDocument()
@@ -311,6 +326,82 @@ describe('<PhoneBankingCallerPage>', () => {
     expect(
       within(dialog).getByText('Will they vote this election?'),
     ).toBeInTheDocument()
+    expect(
+      within(dialog).queryByRole('button', { name: 'Save' }),
+    ).not.toBeInTheDocument()
+
+    const willVoteYes = (
+      await within(dialog).findAllByRole('radio', { name: 'Yes' })
+    )[1]!
+    await user.click(willVoteYes)
+    expect(
+      within(dialog).getByRole('button', { name: 'Save' }),
+    ).toBeInTheDocument()
+  })
+
+  it('engage = Refused reveals Save immediately and posts a person-attributed refused', async () => {
+    const user = userEvent.setup()
+    mockGetList(buildList())
+
+    let capturedRequest: RecordPhoneBankingCall | undefined
+    api.mock('POST /v1/phone-banking/lists/:id/calls', ({ body }) => {
+      capturedRequest = body
+      const response: RecordPhoneBankingCallResponse = {
+        entryId: 1,
+        results: [
+          {
+            personId: 'solo-1',
+            interaction: {
+              outcome: 'refused',
+              supportAnswer: null,
+              willVote: null,
+              occurredAt: new Date(),
+            },
+          },
+        ],
+        envelopeCompleted: false,
+      }
+      return { status: 200, data: response }
+    })
+
+    render(<PhoneBankingCallerPage listId={LIST_ID} />)
+    await screen.findByText('August GOTV')
+
+    await user.click(screen.getByText('Alex Solo'))
+    const dialog = await screen.findByRole('dialog')
+
+    await user.click(within(dialog).getByRole('radio', { name: 'Answered' }))
+    // Two "Refused" pills exist now: the top-level outcome and the engage
+    // answer — the second is the engage one.
+    const engageRefused = within(dialog).getAllByRole('radio', {
+      name: 'Refused',
+    })[1]!
+    await user.click(engageRefused)
+
+    expect(
+      within(dialog).queryByText('Do they support you?'),
+    ).not.toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(capturedRequest).toBeDefined())
+    expect(capturedRequest).toEqual({
+      entryId: 1,
+      outcome: 'refused',
+      personId: 'solo-1',
+    })
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Outreach.PhoneBanking.CallLogged,
+      {
+        listId: LIST_ID,
+        contactId: 'solo-1',
+        listRank: 1,
+        answerStatus: 'refused',
+        engagementStatus: 'refused',
+        supportStatus: undefined,
+        voterStatus: undefined,
+      },
+    )
   })
 
   it('markHouseholdDone rides the same request when the household action is used', async () => {
@@ -357,6 +448,12 @@ describe('<PhoneBankingCallerPage>', () => {
 
     const dialog = await screen.findByRole('dialog')
     await user.click(within(dialog).getByRole('radio', { name: 'Answered' }))
+    await user.click(within(dialog).getByRole('radio', { name: 'Engaged' }))
+    await user.click(within(dialog).getByRole('radio', { name: 'Yes' }))
+    const willVoteYes = (
+      await within(dialog).findAllByRole('radio', { name: 'Yes' })
+    )[1]!
+    await user.click(willVoteYes)
     await user.click(
       within(dialog).getByRole('button', {
         name: 'Save & mark rest of household done',

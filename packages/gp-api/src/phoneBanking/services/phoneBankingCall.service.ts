@@ -123,14 +123,22 @@ export class PhoneBankingCallService extends createPrismaBase(
 
     const rows: ContactInteractionPhoneBanking[] = []
 
-    if (input.outcome === PhoneBankCallOutcome.answered) {
-      // Zod's refine on RecordPhoneBankingCallSchema already enforces this
-      // at the controller boundary; the check here is for TS narrowing.
-      if (input.personId === undefined) {
-        throw new BadRequestException(
-          'personId is required when outcome is answered',
-        )
-      }
+    // Zod's refine on RecordPhoneBankingCallSchema already enforces this
+    // at the controller boundary; the check here is for TS narrowing.
+    if (
+      input.outcome === PhoneBankCallOutcome.answered &&
+      input.personId === undefined
+    ) {
+      throw new BadRequestException(
+        'personId is required when outcome is answered',
+      )
+    }
+
+    // personId present = person-attributed: an answered conversation, or a
+    // `refused` that means "answered but refused to engage" (logged on the
+    // person who picked up, never fanned out). personId absent = a
+    // number-level dial result that fans out to the whole household.
+    if (input.personId !== undefined) {
       const { personId } = input
       rows.push(
         await this.upsertRow(tx, {
@@ -138,7 +146,7 @@ export class PhoneBankingCallService extends createPrismaBase(
           phoneBankingListId: listId,
           personId,
           occurredAt,
-          outcome: PhoneBankCallOutcome.answered,
+          outcome: input.outcome,
           supportAnswer: input.supportAnswer ?? null,
           willVote: input.willVote ?? null,
           note: input.note ?? null,

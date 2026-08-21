@@ -85,18 +85,6 @@ export type VoterIssue = {
 
 export type VoterIssueLevel = 'local' | 'regional' | 'state' | 'federal'
 
-export enum ProjectedTurnoutSourceColumns {
-  id = 'id',
-  createdAt = 'createdAt',
-  updatedAt = 'updatedAt',
-  electionYear = 'electionYear',
-  electionCode = 'electionCode',
-  projectedTurnout = 'projectedTurnout',
-  inferenceAt = 'inferenceAt',
-  modelVersion = 'modelVersion',
-  districtId = 'districtId',
-}
-
 export enum DistrictSourceColumns {
   id = 'id',
   createdAt = 'createdAt',

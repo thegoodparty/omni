@@ -275,6 +275,50 @@ describe('phone banking call outcome routes', () => {
     })
   })
 
+  describe('person-attributed refused (answered but refused to engage)', () => {
+    it('logs refused on the named person only; housemates stay un-logged', async () => {
+      const { listId, entry } = await buildList(
+        [{ firstName: 'A' }, { firstName: 'B' }],
+        '3075551014',
+      )
+      const [personA, personB] = entry.persons
+
+      const res = await postCall(listId, {
+        entryId: entry.id,
+        outcome: 'refused',
+        personId: personA!.personId,
+      })
+      expect(res.status).toBe(201)
+
+      const rows = await service.prisma.contactInteractionPhoneBanking.findMany(
+        { where: { phoneBankingListId: listId } },
+      )
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.personId).toBe(personA!.personId)
+      expect(rows[0]?.outcome).toBe('refused')
+      expect(rows[0]?.supportAnswer).toBeNull()
+
+      const rowB =
+        await service.prisma.contactInteractionPhoneBanking.findFirst({
+          where: { phoneBankingListId: listId, personId: personB!.personId },
+        })
+      expect(rowB).toBeNull()
+    })
+
+    it('404s a personId not on the entry', async () => {
+      const { listId, entry } = await buildList(
+        [{ firstName: 'A' }],
+        '3075551015',
+      )
+      const res = await postCall(listId, {
+        entryId: entry.id,
+        outcome: 'refused',
+        personId: randomUUID(),
+      })
+      expect(res.status).toBe(404)
+    })
+  })
+
   describe('number-level outcomes', () => {
     it('no_answer on a 2-person entry creates two rows with the same occurredAt', async () => {
       const { listId, entry } = await buildList(

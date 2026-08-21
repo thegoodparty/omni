@@ -66,7 +66,7 @@ const OutreachHubContent = ({
   // so the history table doesn't stay stale until the next full load.
   // Status is in_progress (not completed) to match what
   // phoneBankingList.service.ts actually creates — historyStatus.util.ts
-  // maps that to "Scheduled" until the user reloads and gets the real state.
+  // maps that to "In progress" for the native channels.
   const handlePhoneBankingSaved = (outreachId: number, name: string) => {
     setOutreaches([
       {
