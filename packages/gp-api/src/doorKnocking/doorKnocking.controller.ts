@@ -27,6 +27,8 @@ import {
   SetNotAVoterSchema,
   SetNotAVoterResponseSchema,
   DoorKnockingAddressPreviewResponseSchema,
+  DoorKnockingArchiveRequest,
+  DoorKnockingArchiveRequestSchema,
   DoorKnockingKnockRequest,
   DoorKnockingKnockRequestSchema,
   DoorKnockingKnockResponseSchema,
@@ -129,6 +131,36 @@ export class DoorKnockingController {
   ) {
     await this.contacts.assertProAccess(organization)
     await this.turfService.delete(id, organization.slug)
+  }
+
+  // POST, not PATCH on the turf: "end the session" and "shelve the list" are
+  // events, not field edits, and PUT turfs/:id refuses a knocked turf outright
+  // — these apply only to knocked ones.
+  @Post('turfs/:id/complete')
+  @UseOrganization()
+  @ResponseSchema(DoorKnockingTurfSchema)
+  async completeTurf(
+    @Param('id', ParseIntPipe) id: number,
+    @ReqOrganization() organization: Organization,
+  ) {
+    await this.contacts.assertProAccess(organization)
+    return this.turfService.complete(id, organization.slug)
+  }
+
+  // One route with a body rather than archive/unarchive as a pair: the client
+  // is toggling a shelf, and splitting it would make the restore path a second
+  // thing to remember to gate and test.
+  @Post('turfs/:id/archive')
+  @UseOrganization()
+  @ResponseSchema(DoorKnockingTurfSchema)
+  async archiveTurf(
+    @Param('id', ParseIntPipe) id: number,
+    @ReqOrganization() organization: Organization,
+    @Body(new ZodValidationPipe(DoorKnockingArchiveRequestSchema))
+    input: DoorKnockingArchiveRequest,
+  ) {
+    await this.contacts.assertProAccess(organization)
+    return this.turfService.setArchived(id, organization.slug, input.archived)
   }
 
   @Get('turfs/:id/route')

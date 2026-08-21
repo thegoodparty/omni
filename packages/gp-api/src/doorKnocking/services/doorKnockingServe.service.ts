@@ -20,6 +20,7 @@ import { DoorKnockingActivityService } from './doorKnockingActivity.service'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { DoorKnockingStatusService } from './doorKnockingStatus.service'
 import { renderUnitAddress } from '../utils/unitAddress.util'
+import { activeTurfScope } from '../utils/turfScope.util'
 
 const ROUTE_INCLUDE = {
   stops: {
@@ -89,10 +90,7 @@ export class DoorKnockingServeService extends createPrismaBase(
     organization: Organization,
   ): Promise<DoorKnockingRoutePayload> {
     const turf = await this.client.doorKnockingTurf.findFirst({
-      where: {
-        id: turfId,
-        voterFileFilter: { organizationSlug: organization.slug },
-      },
+      where: { id: turfId, ...activeTurfScope(organization.slug) },
       include: { route: { include: ROUTE_INCLUDE } },
     })
     if (!turf) {

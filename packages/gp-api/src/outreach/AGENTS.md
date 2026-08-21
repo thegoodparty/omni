@@ -75,11 +75,26 @@ never send `pending_payment` themselves.
   `PhoneBankingCallService` (`src/phoneBanking/`, ENG-10915), in the same
   transaction as the interaction-row upsert that logs the last un-logged
   person, once every person on every entry has a row. `nativeDoorKnocking`
-  has no such flip today — it stays `in_progress` for the life of the route.
+  flips too, but on a different trigger: the canvasser ending the session
+  (`POST /v1/door-knocking/turfs/:id/complete`), not exhaustion of the roster
+  — a walk is routinely finished with doors left unlogged, so "every person
+  has a row" would almost never fire. The turf's `completedAt` is the source
+  of truth and the envelope's status is a mirror of it, because the envelope
+  needs a `campaignId` and Serve orgs knock without one; see
+  `docs/door-knocking.md`.
 - `Outreach.archivedAt` (nullable, unset at creation) backs the v2 history
   drawer's archive/restore action. `OutreachService.setArchived` scopes the
   update by `organizationSlug` (not `campaignId`) and reads the response back
   from the persisted row rather than trusting the request body.
+- **Door knocking archives on the turf, not here, and the two are not yet
+  wired together.** `DoorKnockingTurf.archivedAt` is what the list rail acts
+  on, for the same reason `completedAt` lives there: a Serve org archives a
+  list it has no envelope for. So a walk can currently read as archived on the
+  door-knocking surface and unarchived in the history drawer, or the reverse.
+  The status mirror above is the pattern to copy when the unified details
+  drawer lands — the turf is the object the user acts on, the envelope is the
+  campaign-reporting projection of it — but nothing mirrors `archivedAt` yet.
+  Don't assume the two agree.
 
 ## Contracts / models
 

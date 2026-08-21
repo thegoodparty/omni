@@ -141,6 +141,15 @@ export class DoorKnockingInteractionService extends createPrismaBase(
   // Resolving through the route -> turf -> filter chain is the authorization:
   // holding a stopTargetId proves nothing on its own, but a target that
   // resolves under the caller's org is one the caller was routed to.
+  //
+  // Deliberately does NOT filter `deletedAt: null` the way `activeTurfScope`
+  // does. The phone snapshots the route and syncs knocks later, so a list
+  // deleted mid-walk would turn every queued write into a 404 and discard work
+  // a canvasser actually did — and these rows hang off the organization, not
+  // the turf, so they outlive the list by design. The org scope still holds,
+  // so this resolves nothing across a tenant; it simply does not require the
+  // list to have survived the walk. Contrast the knock freeze, which does
+  // filter: that one bills a Geoapify route.
   private async personIdForTarget(
     organizationSlug: string,
     stopTargetId: number,
