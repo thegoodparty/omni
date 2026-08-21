@@ -243,14 +243,13 @@ perf-critical invariant, not an oversight. `PEOPLE_STATE_ENUM=false` switches
 the comparison to plain text for loader-built (non-Prisma-managed) clusters;
 the default keeps the `"public"."USState"` cast.
 
-## The Databricks store: `USE_DATABRICKS_PEOPLE_DB`
+## Databricks is where voter data comes from
 
-`databricks/` is a second backing store for the same voter queries, selected at
-request time by `USE_DATABRICKS_PEOPLE_DB=true` (default false = the Postgres
-path above). The services keep their interfaces — `VoterQueryService`,
-`StatsService` and `VoterDownloadService` each branch at their entry point — so
-callers, contracts and the `perf/people-db/` benchmark suite are unchanged and
-the store is a config flip rather than a deploy.
+`databricks/` serves the voter queries: aggregates, list/search, saved-list
+overlap, district stats and the CSV export. There is no runtime store
+selection — no flag, no fallback. `VoterQueryService`, `StatsService` and
+`VoterDownloadService` keep their interfaces, so callers, contracts and the
+`perf/people-db/` benchmark suite are unchanged.
 
 It queries `goodparty_data_catalog.dbt` (the dbt-modelled mirror of the same L2
 data) through the Statement Execution API, using the `PEOPLE_DATABRICKS_*`
@@ -264,21 +263,40 @@ That principal's grant is least-privilege and covers exactly two tables,
 query is a permission error in production, which is what
 `databricksVoterSql.util.test.ts`'s grant test pins.
 
-**The flag alone does not route.** `useDatabricksPeopleDb()` also requires the
-credential to resolve, so an environment with the flag on but
-`PEOPLE_DATABRICKS_*` unset keeps serving from Postgres (warning once) instead
-of failing every voter request. That is what lets the flag ship ahead of the
-service principal.
+If `PEOPLE_DATABRICKS_*` is unset or the credential is rejected, voter queries
+fail (see below) — there is nothing to fall back to.
 
-**Not everything routes.** `groupByHousehold` (door-knocking's DISTINCT ON
-de-dup), `findPerson`, `samplePeople`, `VoterDoorKnockingService` and
-`VoterPackService` stay on Postgres with the flag on. Only the aggregate,
-list/search, overlap, stats and CSV-download surfaces cross over.
+**What people-db still serves.** Five surfaces have no Databricks
+implementation yet and still read the Postgres mirror, which is why
+`PeopleDbService`, `peopleDbUrl.provider.ts`, `createPeopleDbBase` and the
+people-Prisma client are all still here:
 
-One cross-store read is deliberate: `VoterSampleService` samples from Postgres
-but sizes its buckets from `StatsService.findTotalCounts`, which the flag routes
-to Databricks. The two stores agree on those totals, and routing it is what
-keeps the `VOTER_DATA_UNAVAILABLE` throw for a district with no voters.
+| Surface | Why it has not moved |
+| --- | --- |
+| `findPeople` with `groupByHousehold` | `DISTINCT ON` household de-dup has no direct equivalent |
+| CSV export with `groupByHousehold` | same de-dup, in the COPY projection |
+| `findPerson` | single-row lookup, not yet ported |
+| `VoterSampleService` | hash-bucket sampling over the id space |
+| `VoterDoorKnockingService`, `VoterPackService` | bbox scans and the address-key predicate |
+
+Porting those is the next piece of work, and until it lands the Postgres
+connection cannot be removed. One cross-store read is deliberate:
+`VoterSampleService` samples from Postgres but sizes its buckets from
+`StatsService.findTotalCounts`, which now computes from Databricks. The two
+agree on those totals, and it is what preserves the `VOTER_DATA_UNAVAILABLE`
+throw for a district with no voters.
+
+### Failing without a fallback
+
+Because there is no second store, an unreachable warehouse is a hard failure —
+and it must not be confusable with an empty district, because a district with no
+voters is a MEANINGFUL null that the product renders as "no constituent data for
+this office yet". So every way of failing to reach Databricks (missing
+credential, expired or under-granted token, 401/403/429/5xx from the API, a
+failed token exchange) raises `PeopleDbxUnavailableError`, which the callers
+translate to **502** with the reason logged. A statement over the byte ceiling
+is a **400** (the caller's selection is too large), and a statement past the
+time ceiling is a **504**. None of those can present as zero voters.
 
 ### Wide-column district scoping — never the junction table
 
@@ -443,7 +461,7 @@ strings, and the services are driven through a stubbed statement client.
 | `utils/buildAggregatesSql.util.ts`      | Aggregate/stats SQL builders                                          |
 | `utils/resolveDistrict.util.ts`         | District join/resolution helper                                       |
 | `util/hash.util.ts`                     | `personId` hash derivation (stable hash of `LALVOTERID`)              |
-| `databricks/peopleDbx.config.ts`        | `USE_DATABRICKS_PEOPLE_DB` flag + connection/warehouse resolution     |
+| `databricks/peopleDbx.config.ts`        | `PEOPLE_DATABRICKS_*` connection + warehouse resolution               |
 | `databricks/peopleDbxStatement.client.ts` | Statement Execution API client (queries + CSV external links)       |
 | `databricks/databricksVoterSql.util.ts` | Filter/search/scope → Databricks SQL, incl. wide-column scoping       |
 | `databricks/databricksDistrictStatsSql.util.ts` | On-demand DistrictStats query + bucket mapping                |
@@ -460,6 +478,7 @@ add or adjust a case so it stays covered: a new query type needs a branch in
 a new filter shape worth measuring is a `FilterVariant` in
 `perf/people-db/filterVariants.ts`. See `perf/people-db/CLAUDE.md`.
 
-The suite runs against either store — `--store=postgres` (default) or
-`--store=databricks` sets `USE_DATABRICKS_PEOPLE_DB` before the Nest graph
-boots, and the same cases exercise the production code path either way.
+The suite runs unmodified and measures whatever the services read, so on this
+code it measures Databricks (except the `sample` cells, which exercise the one
+remaining Postgres surface). Compare against a run of the same suite on `main`
+for the before/after.

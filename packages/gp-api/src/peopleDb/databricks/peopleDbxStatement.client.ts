@@ -6,6 +6,7 @@ import {
   resolvePeopleDbxConfig,
   type PeopleDbxConfig,
 } from './peopleDbx.config'
+import type { DbxParam, DbxStatement } from './databricksVoterSql.util'
 
 // Serverless warehouse resume can eat the first 10-20s after an idle period,
 // so this ceiling is deliberately looser than the Postgres path's 25s. That
@@ -21,6 +22,11 @@ const STATEMENT_TIMEOUT_MS = 60_000
 // both id-override pairs can exceed this where the Postgres path (one bound
 // array per set) would not.
 const MAX_STATEMENT_BYTES = 16_777_216
+
+// Measured against the API: "20000 parameters were given but the limit is
+// 10000". Bound values are the norm here, so this is the ceiling that a
+// pathologically wide filter selection would hit first.
+const MAX_STATEMENT_PARAMETERS = 10_000
 const POLL_INTERVAL_MS = 500
 const TOKEN_EXPIRY_SKEW_MS = 60_000
 
@@ -118,16 +124,19 @@ export class PeopleDbxStatementTooLargeError extends Error {
   }
 }
 
+// Voter data has no second source behind it, so every way of failing to reach
+// Databricks funnels through this one type and the caller answers 502. That
+// matters beyond tidiness: a district with no voters is a MEANINGFUL null that
+// the product renders as "no constituent data for this office", so an auth or
+// connectivity failure must never be able to present as that.
 export class PeopleDbxUnavailableError extends Error {
-  constructor() {
-    super(
-      'Databricks people-db is not configured — set DATABRICKS_SERVER_HOSTNAME' +
-        ', DATABRICKS_HTTP_PATH and a credential',
-    )
+  constructor(reason: string) {
+    super(`Databricks voter data is unreachable: ${reason}`)
   }
 }
 
 const TERMINAL_FAILURE_STATES = new Set(['FAILED', 'CANCELED', 'CLOSED'])
+const UNREACHABLE_STATUSES = new Set([401, 403, 429, 502, 503, 504])
 const SUCCEEDED = 'SUCCEEDED'
 
 @Injectable()
@@ -137,17 +146,22 @@ export class PeopleDbxStatementClient {
 
   private config(): PeopleDbxConfig {
     const config = resolvePeopleDbxConfig()
-    if (!config) throw new PeopleDbxUnavailableError()
+    if (!config) {
+      throw new PeopleDbxUnavailableError(
+        'PEOPLE_DATABRICKS_SERVER_HOSTNAME, PEOPLE_DATABRICKS_HTTP_PATH and a ' +
+          'credential must all be set',
+      )
+    }
     return config
   }
 
   // Rows come back positionally as strings (or null) under JSON_ARRAY, which
   // is why callers coerce per column rather than trusting a driver's typing.
-  async query(sql: string): Promise<PeopleDbxRows> {
+  async query(statement: DbxStatement): Promise<PeopleDbxRows> {
     const config = this.config()
     const startedAt = Date.now()
-    const first = await this.post(config, {
-      statement: sql,
+    const first = await this.post(config, statement, {
+      statement: statement.sql,
       catalog: PEOPLE_DBX_CATALOG,
       schema: PEOPLE_DBX_SCHEMA,
       format: 'JSON_ARRAY',
@@ -172,11 +186,11 @@ export class PeopleDbxStatementClient {
   // SUCCEEDED here does NOT mean every byte is written — chunks materialize
   // lazily on fetch, which is what lets the download start streaming within
   // seconds of the request instead of after the whole export.
-  async startCsvExport(sql: string): Promise<PeopleDbxCsvExport> {
+  async startCsvExport(statement: DbxStatement): Promise<PeopleDbxCsvExport> {
     const config = this.config()
     const startedAt = Date.now()
-    const first = await this.post(config, {
-      statement: sql,
+    const first = await this.post(config, statement, {
+      statement: statement.sql,
       catalog: PEOPLE_DBX_CATALOG,
       schema: PEOPLE_DBX_SCHEMA,
       format: 'CSV',
@@ -267,17 +281,22 @@ export class PeopleDbxStatementClient {
 
   private async post(
     config: PeopleDbxConfig,
+    statement: DbxStatement,
     body: Record<string, string>,
   ): Promise<StatementResponse> {
     const bytes = Buffer.byteLength(body.statement ?? '', 'utf8')
     if (bytes > MAX_STATEMENT_BYTES) {
       throw new PeopleDbxStatementTooLargeError(bytes)
     }
+    if (statement.params.length > MAX_STATEMENT_PARAMETERS) {
+      throw new PeopleDbxStatementTooLargeError(statement.params.length)
+    }
     const response = await this.request(
       config,
       '/api/2.0/sql/statements',
       'POST',
       body,
+      statement.params,
     )
     return statementResponseSchema.parse(await response.json())
   }
@@ -296,6 +315,7 @@ export class PeopleDbxStatementClient {
     path: string,
     method: 'GET' | 'POST',
     body?: Record<string, string>,
+    params?: DbxParam[],
   ): Promise<Response> {
     const token = await this.accessToken(config)
     const response = await fetch(`https://${config.hostname}${path}`, {
@@ -305,13 +325,24 @@ export class PeopleDbxStatementClient {
         'Content-Type': 'application/json',
       },
       body: body
-        ? JSON.stringify({ ...body, warehouse_id: config.warehouseId })
+        ? JSON.stringify({
+            ...body,
+            warehouse_id: config.warehouseId,
+            ...(params && params.length > 0 ? { parameters: params } : {}),
+          })
         : undefined,
     })
     if (!response.ok) {
+      const body = await response.text()
+      // 401/403 is an expired or under-granted credential — the failure this
+      // cutover is most likely to hit, and the one worth naming precisely.
+      if (UNREACHABLE_STATUSES.has(response.status)) {
+        throw new PeopleDbxUnavailableError(
+          `${method} ${path} returned ${response.status}: ${body}`,
+        )
+      }
       throw new Error(
-        `Databricks ${method} ${path} failed with ${response.status}: ` +
-          (await response.text()),
+        `Databricks ${method} ${path} failed with ${response.status}: ${body}`,
       )
     }
     return response
@@ -322,7 +353,7 @@ export class PeopleDbxStatementClient {
     const cached = this.token
     if (cached && cached.expiresAt > Date.now()) return cached.value
     if (!config.oauthClientId || !config.oauthClientSecret) {
-      throw new PeopleDbxUnavailableError()
+      throw new PeopleDbxUnavailableError('no usable credential is configured')
     }
     const credential = Buffer.from(
       `${config.oauthClientId}:${config.oauthClientSecret}`,
@@ -336,9 +367,8 @@ export class PeopleDbxStatementClient {
       body: 'grant_type=client_credentials&scope=all-apis',
     })
     if (!response.ok) {
-      throw new Error(
-        `Databricks token request failed with ${response.status}: ` +
-          (await response.text()),
+      throw new PeopleDbxUnavailableError(
+        `token request returned ${response.status}: ${await response.text()}`,
       )
     }
     const parsed = tokenResponseSchema.parse(await response.json())

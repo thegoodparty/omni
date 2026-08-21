@@ -14,30 +14,80 @@ import { PEOPLE_DBX_CATALOG, PEOPLE_DBX_SCHEMA } from './peopleDbx.config'
 const TABLE = (name: string): string =>
   `${PEOPLE_DBX_CATALOG}.${PEOPLE_DBX_SCHEMA}.${name}`
 
-export const VOTER_TABLE = TABLE('m_people_api__voter')
+const VOTER_TABLE_NAME = 'm_people_api__voter'
+
+export const VOTER_TABLE = TABLE(VOTER_TABLE_NAME)
 export const DISTRICT_TABLE = TABLE('m_people_api__district')
 
 const MIN_SUBSTRING_TOKEN_LENGTH = 3
 
-// Spark string literals treat backslash as an escape character, so both the
-// backslash and the quote have to be escaped — doubling quotes alone would
-// leave a `\` in a name able to swallow the following character.
-export const lit = (value: string): string =>
-  `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
+// Everything a caller supplies is a BOUND parameter, never spliced into the
+// statement. Two things cannot be bound and are handled below instead: the L2
+// district column, which is an identifier rather than a value, and uuid id
+// sets, which can exceed the API's 10,000-parameter ceiling.
+export type DbxParamType = 'STRING' | 'INT'
+
+export type DbxParam = {
+  name: string
+  value: string | null
+  type: DbxParamType
+}
+
+export type DbxStatement = { sql: string; params: DbxParam[] }
+
+export type Bag = {
+  params: DbxParam[]
+  bind: (value: string | number | null, type?: DbxParamType) => string
+}
+
+export const createBag = (): Bag => {
+  const params: DbxParam[] = []
+  return {
+    params,
+    bind: (value, type = 'STRING') => {
+      const name = `p${params.length}`
+      params.push({
+        name,
+        value: value === null ? null : String(value),
+        type,
+      })
+      return `:${name}`
+    },
+  }
+}
 
 const ident = (name: string): string => `\`${name.replace(/`/g, '``')}\``
 
 const col = (name: string): string => `v.${ident(name)}`
 
-const num = (value: string | number): string => {
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+// The one value-shaped exception to binding: an id set can carry up to
+// MAX_ID_FILTER_VALUES entries per side, well past the API's 10,000-parameter
+// ceiling, so these are interpolated. The uuid shape is re-checked HERE rather
+// than trusted from the schema, so the thing that makes interpolation safe is
+// enforced at the point of interpolation. Lowercased because the column is
+// STRING and compares byte-exact, where Postgres compared as `uuid` and
+// normalized case — an exclude set that matches nothing silently WIDENS an
+// audience.
+const idList = (values: ReadonlyArray<string | number>): string =>
+  values
+    .map((value) => {
+      const id = String(value).toLowerCase()
+      if (!UUID_RE.test(id)) {
+        throw new Error(`Refusing to inline a non-uuid id: ${String(value)}`)
+      }
+      return `'${id}'`
+    })
+    .join(', ')
+
+const num = (value: string | number): number => {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) {
     throw new Error(`Non-finite numeric filter value: ${String(value)}`)
   }
-  return String(parsed)
+  return parsed
 }
-
-const inList = (values: readonly string[]): string => values.map(lit).join(', ')
 
 export type DbxDistrict = {
   districtId: string
@@ -96,16 +146,18 @@ const buildHasAddressFilter = (op?: FilterOperator): string | null => {
 }
 
 const buildFieldFilter = (
+  bag: Bag,
   field: string,
   op?: FilterOperator,
 ): string | null => {
   if (!op) return null
   const target = col(field)
   if (op.operator === 'in' && op.values && op.values.length > 0) {
-    return `${target} IN (${inList(op.values.map(String))})`
+    const markers = op.values.map((value) => bag.bind(String(value)))
+    return `${target} IN (${markers.join(', ')})`
   }
   if (op.operator === 'eq' && op.value !== undefined) {
-    return `${target} = ${lit(String(op.value))}`
+    return `${target} = ${bag.bind(String(op.value))}`
   }
   if (op.operator === 'is' && op.value === 'not_null') {
     return `${target} IS NOT NULL`
@@ -117,6 +169,7 @@ const buildFieldFilter = (
 }
 
 const buildMappedFieldFilter = (
+  bag: Bag,
   field: string,
   op: FilterOperator | undefined,
   mapValue: (value: string) => string | null,
@@ -126,7 +179,7 @@ const buildMappedFieldFilter = (
   if (op.operator === 'eq' && op.value) {
     const mapped = mapValue(String(op.value))
     if (mapped === null) return `${target} IS NULL`
-    return buildFieldFilter(field, { ...op, value: mapped })
+    return buildFieldFilter(bag, field, { ...op, value: mapped })
   }
   if (op.operator === 'in' && op.values && op.values.length > 0) {
     const original = op.values.map(String)
@@ -135,15 +188,15 @@ const buildMappedFieldFilter = (
       .filter((value): value is string => value !== null)
     const hasNull = original.some((value) => mapValue(value) === null)
     if (hasNull && mapped.length > 0) {
-      const sql = buildFieldFilter(field, { ...op, values: mapped })
+      const sql = buildFieldFilter(bag, field, { ...op, values: mapped })
       if (sql) return `(${sql} OR ${target} IS NULL)`
     } else if (hasNull) {
       return `${target} IS NULL`
     } else if (mapped.length > 0) {
-      return buildFieldFilter(field, { ...op, values: mapped })
+      return buildFieldFilter(bag, field, { ...op, values: mapped })
     }
   }
-  return buildFieldFilter(field, op)
+  return buildFieldFilter(bag, field, op)
 }
 
 const buildBusinessOwnerFilter = (op?: FilterOperator): string | null => {
@@ -170,7 +223,7 @@ const buildBusinessOwnerFilter = (op?: FilterOperator): string | null => {
   return null
 }
 
-const buildLanguageFilter = (op?: FilterOperator): string | null => {
+const buildLanguageFilter = (bag: Bag, op?: FilterOperator): string | null => {
   if (!op) return null
   const target = col('Language_Code')
   if (op.operator === 'is' && op.value === 'not_null') {
@@ -192,33 +245,36 @@ const buildLanguageFilter = (op?: FilterOperator): string | null => {
   if (hasEnglish && hasSpanish && hasOther) return null
 
   const conditions: string[] = []
-  if (hasEnglish) conditions.push(`${target} = 'English'`)
-  if (hasSpanish) conditions.push(`${target} = 'Spanish'`)
+  if (hasEnglish) conditions.push(`${target} = ${bag.bind('English')}`)
+  if (hasSpanish) conditions.push(`${target} = ${bag.bind('Spanish')}`)
   if (hasOther) {
-    conditions.push(
-      `(${target} NOT IN ('English', 'Spanish') OR ${target} IS NULL)`,
-    )
+    const known = [bag.bind('English'), bag.bind('Spanish')].join(', ')
+    conditions.push(`(${target} NOT IN (${known}) OR ${target} IS NULL)`)
   }
   return `(${conditions.join(' OR ')})`
 }
 
-const buildPartyValuePredicate = (value: string): string | null => {
+const buildPartyValuePredicate = (bag: Bag, value: string): string | null => {
   const target = col('Parties_Description')
   if (value === POLITICAL_PARTY_OTHER) {
-    const known = inList([...ALL_KNOWN_PARTY_VALUES])
-    return `(${target} IS NULL OR ${target} NOT IN (${known}))`
+    const known = ALL_KNOWN_PARTY_VALUES.map((party) => bag.bind(party))
+    return `(${target} IS NULL OR ${target} NOT IN (${known.join(', ')}))`
   }
   if ((RULED_POLITICAL_PARTIES as readonly string[]).includes(value)) {
     // The includes() check above confirms membership at runtime; TS cannot
     // narrow a plain string to the literal union from Array#includes.
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     const party = value as RuledParty
-    return `${target} IN (${inList([...POLITICAL_PARTY_EXACT_VALUES[party]])})`
+    const exact = POLITICAL_PARTY_EXACT_VALUES[party].map((v) => bag.bind(v))
+    return `${target} IN (${exact.join(', ')})`
   }
   return null
 }
 
-const buildPoliticalPartyFilter = (op?: FilterOperator): string | null => {
+const buildPoliticalPartyFilter = (
+  bag: Bag,
+  op?: FilterOperator,
+): string | null => {
   if (!op) return null
   const target = col('Parties_Description')
   if (op.operator === 'is' && op.value === 'not_null') {
@@ -233,13 +289,14 @@ const buildPoliticalPartyFilter = (op?: FilterOperator): string | null => {
         ? [String(op.value)]
         : []
   const predicates = selected
-    .map(buildPartyValuePredicate)
+    .map((value) => buildPartyValuePredicate(bag, value))
     .filter((predicate): predicate is string => predicate !== null)
   if (predicates.length === 0) return null
   return `(${predicates.join(' OR ')})`
 }
 
 const buildNumericFilter = (
+  bag: Bag,
   field: string,
   op?: FilterOperator,
 ): string | null => {
@@ -247,24 +304,28 @@ const buildNumericFilter = (
   const target = col(field)
   let base: string | null = null
 
+  const bindInt = (value: string | number): string =>
+    bag.bind(num(value), 'INT')
+
   if (op.operator === 'in' && op.values && op.values.length > 0) {
     // Rounded to mirror the Postgres path's `::integer[]` cast. Both numeric
     // columns are non-negative, so half-away-from-zero and Math.round agree.
-    base = `${target} IN (${op.values
-      .map((value) => Math.round(Number(num(value))))
-      .join(', ')})`
+    const markers = op.values.map((value) =>
+      bag.bind(Math.round(num(value)), 'INT'),
+    )
+    base = `${target} IN (${markers.join(', ')})`
   } else if (op.operator === 'eq' && op.value !== undefined) {
-    base = `${target} = ${num(op.value)}`
+    base = `${target} = ${bindInt(op.value)}`
   } else if (
     op.operator === 'range' &&
     op.gte !== undefined &&
     op.lte !== undefined
   ) {
-    base = `${target} >= ${num(op.gte)} AND ${target} <= ${num(op.lte)}`
+    base = `${target} >= ${bindInt(op.gte)} AND ${target} <= ${bindInt(op.lte)}`
   } else if (op.operator === 'gte' && op.value !== undefined) {
-    base = `${target} >= ${num(op.value)}`
+    base = `${target} >= ${bindInt(op.value)}`
   } else if (op.operator === 'lte' && op.value !== undefined) {
-    base = `${target} <= ${num(op.value)}`
+    base = `${target} <= ${bindInt(op.value)}`
   } else if (op.operator === 'or' && op.orRanges) {
     const orClauses = op.orRanges
       .map((range) => {
@@ -272,12 +333,12 @@ const buildNumericFilter = (
         const hasLte = range.lte !== undefined && range.lte !== null
         if (hasGte && hasLte) {
           return (
-            `(${target} >= ${num(range.gte ?? 0)}` +
-            ` AND ${target} <= ${num(range.lte ?? 0)})`
+            `(${target} >= ${bindInt(range.gte ?? 0)}` +
+            ` AND ${target} <= ${bindInt(range.lte ?? 0)})`
           )
         }
-        if (hasGte) return `${target} >= ${num(range.gte ?? 0)}`
-        if (hasLte) return `${target} <= ${num(range.lte ?? 0)}`
+        if (hasGte) return `${target} >= ${bindInt(range.gte ?? 0)}`
+        if (hasLte) return `${target} <= ${bindInt(range.lte ?? 0)}`
         return null
       })
       .filter((clause): clause is string => clause !== null)
@@ -305,9 +366,6 @@ const buildNumericFilter = (
 // Postgres path casts to `::uuid[]`, which normalizes case, so an uppercase id
 // that matched there would match nothing here — and an exclude set that
 // matches nothing silently WIDENS the audience.
-const normalizedIds = (values: ReadonlyArray<string | number>): string =>
-  inList(values.map((value) => String(value).toLowerCase()))
-
 const buildIdFilter = (op?: FilterOperator): string | null => {
   if (!op) return null
   if (
@@ -315,7 +373,7 @@ const buildIdFilter = (op?: FilterOperator): string | null => {
     op.values &&
     op.values.length > 0
   ) {
-    const ids = normalizedIds(op.values)
+    const ids = idList(op.values)
     return op.operator === 'in'
       ? `${col('id')} IN (${ids})`
       : `${col('id')} NOT IN (${ids})`
@@ -332,14 +390,15 @@ const composeIdOverridesClause = (
 ): string => {
   const base = baseClause ?? 'TRUE'
   const scoped = idOverrides.exclude?.length
-    ? `(${base} AND ${col('id')} NOT IN (${normalizedIds(idOverrides.exclude)}))`
+    ? `(${base} AND ${col('id')} NOT IN (${idList(idOverrides.exclude)}))`
     : base
   return idOverrides.include?.length
-    ? `(${scoped} OR ${col('id')} IN (${normalizedIds(idOverrides.include)}))`
+    ? `(${scoped} OR ${col('id')} IN (${idList(idOverrides.include)}))`
     : scoped
 }
 
 export const buildVoterFiltersSql = (
+  bag: Bag,
   filterData: FilterData,
   idOverrides?: IdOverrides,
   contactsMadeIdOverrides?: IdOverrides,
@@ -372,6 +431,7 @@ export const buildVoterFiltersSql = (
         break
       case 'maritalStatus':
         sql = buildMappedFieldFilter(
+          bag,
           'Marital_Status',
           op,
           VALUE_MAPPERS.maritalStatus,
@@ -379,6 +439,7 @@ export const buildVoterFiltersSql = (
         break
       case 'veteranStatus':
         sql = buildMappedFieldFilter(
+          bag,
           'Veteran_Status',
           op,
           VALUE_MAPPERS.veteranStatus,
@@ -386,6 +447,7 @@ export const buildVoterFiltersSql = (
         break
       case 'educationLevel':
         sql = buildMappedFieldFilter(
+          bag,
           'Education_Of_Person',
           op,
           VALUE_MAPPERS.educationLevel,
@@ -393,6 +455,7 @@ export const buildVoterFiltersSql = (
         break
       case 'ethnicity':
         sql = buildMappedFieldFilter(
+          bag,
           'EthnicGroups_EthnicGroup1Desc',
           op,
           VALUE_MAPPERS.ethnicity,
@@ -403,6 +466,7 @@ export const buildVoterFiltersSql = (
         break
       case 'presenceOfChildren':
         sql = buildMappedFieldFilter(
+          bag,
           'Presence_Of_Children',
           op,
           VALUE_MAPPERS.presenceOfChildren,
@@ -410,32 +474,33 @@ export const buildVoterFiltersSql = (
         break
       case 'homeowner':
         sql = buildMappedFieldFilter(
+          bag,
           'Homeowner_Probability_Model',
           op,
           VALUE_MAPPERS.homeowner,
         )
         break
       case 'language':
-        sql = buildLanguageFilter(op)
+        sql = buildLanguageFilter(bag, op)
         break
       case 'estimatedIncomeAmountInt':
-        sql = buildNumericFilter('Estimated_Income_Amount_Int', op)
+        sql = buildNumericFilter(bag, 'Estimated_Income_Amount_Int', op)
         break
       case 'voterStatus': {
-        const voterStatusClause = buildFieldFilter('Voter_Status', op)
+        const voterStatusClause = buildFieldFilter(bag, 'Voter_Status', op)
         sql = hasIdOverrides(idOverrides)
           ? composeIdOverridesClause(voterStatusClause, idOverrides)
           : voterStatusClause
         break
       }
       case 'politicalParty':
-        sql = buildPoliticalPartyFilter(op)
+        sql = buildPoliticalPartyFilter(bag, op)
         break
       case 'gender':
-        sql = buildMappedFieldFilter('Gender', op, VALUE_MAPPERS.gender)
+        sql = buildMappedFieldFilter(bag, 'Gender', op, VALUE_MAPPERS.gender)
         break
       case 'ageInt':
-        sql = buildNumericFilter('Age_Int', op)
+        sql = buildNumericFilter(bag, 'Age_Int', op)
         break
     }
     if (sql) andClauses.push(sql)
@@ -461,15 +526,16 @@ export const getNormalizedPhoneNumber = (phone: string): string | null => {
 // The doubled backslash in `ESCAPE '\\'` is deliberate — it renders as a
 // one-character escape only while spark.sql.parser.escapedStringLiterals is
 // false, which is the default. Do not "simplify" it to a single backslash.
-export const buildSearchSql = (search: string): string | null => {
+export const buildSearchSql = (bag: Bag, search: string): string | null => {
   const trimmed = search.trim()
   if (!trimmed) return null
 
   const phone = getNormalizedPhoneNumber(trimmed)
   if (phone) {
+    const marker = bag.bind(phone)
     return (
-      `(${col('VoterTelephones_CellPhoneFormatted')} = ${lit(phone)}` +
-      ` OR ${col('VoterTelephones_LandlineFormatted')} = ${lit(phone)})`
+      `(${col('VoterTelephones_CellPhoneFormatted')} = ${marker}` +
+      ` OR ${col('VoterTelephones_LandlineFormatted')} = ${marker})`
     )
   }
 
@@ -482,39 +548,39 @@ export const buildSearchSql = (search: string): string | null => {
         token.length >= MIN_SUBSTRING_TOKEN_LENGTH
           ? `%${escaped}%`
           : `${escaped}%`
-      const value = lit(pattern)
+      const marker = bag.bind(pattern)
       return (
-        `(lower(${col('FirstName')}) LIKE ${value} ESCAPE '\\\\'` +
-        ` OR lower(${col('LastName')}) LIKE ${value} ESCAPE '\\\\')`
+        `(lower(${col('FirstName')}) LIKE ${marker} ESCAPE '\\\\'` +
+        ` OR lower(${col('LastName')}) LIKE ${marker} ESCAPE '\\\\')`
       )
     })
   return clauses.length ? clauses.join(' AND ') : null
 }
 
-// District scoping goes through the L2 district column already on the voter
-// row, and NEVER through a district-membership join: that table is clustered
-// by voter id, so a district filter prunes nothing in it and runs in seconds
-// regardless of district size — and it is outside this principal's grant.
-// `districtType` IS the voter column name and `districtName` is its value. The
-// State predicate stays on every query: the voter table is liquid-clustered by
-// State, so that is what prunes.
-export const buildScopeSql = (args: DbxScopeArgs): string => {
+// FROM/WHERE for one district-scoped population. The state and district NAME
+// are bound; only the district COLUMN is interpolated, because it is an
+// identifier. `DatabricksVoterService.resolveDistrict` validates that column
+// against the voter table's real column set before it ever reaches here.
+export const buildScopeSql = (bag: Bag, args: DbxScopeArgs): string => {
   const { district, filters, search, idOverrides } = args
-  const parts: string[] = [`${col('State')} = ${lit(district.state)}`]
+  const parts: string[] = [`${col('State')} = ${bag.bind(district.state)}`]
 
-  // A State district whose name is the state has no junction rows at all,
+  // A State district whose name is the state has no membership rows at all,
   // which is why resolveDistrict special-cases it; scoping on State alone is
   // the same population.
   if (!district.useVoterOnlyPath) {
-    parts.push(`${col(district.districtType)} = ${lit(district.districtName)}`)
+    parts.push(
+      `${col(district.districtType)} = ${bag.bind(district.districtName)}`,
+    )
   }
 
   if (search) {
-    const searchSql = buildSearchSql(search)
+    const searchSql = buildSearchSql(bag, search)
     if (searchSql) parts.push(searchSql)
   }
 
   const filterSql = buildVoterFiltersSql(
+    bag,
     filters,
     idOverrides,
     args.contactsMadeIdOverrides,
@@ -524,35 +590,61 @@ export const buildScopeSql = (args: DbxScopeArgs): string => {
   return `WHERE ${parts.join(' AND ')}`
 }
 
-export const buildDistrictSql = (districtId: string): string =>
-  `SELECT id, state, type, name FROM ${DISTRICT_TABLE}` +
-  ` WHERE id = ${lit(districtId)}`
+export const buildDistrictSql = (districtId: string): DbxStatement => {
+  const bag = createBag()
+  const sql =
+    `SELECT id, state, type, name FROM ${DISTRICT_TABLE}` +
+    ` WHERE id = ${bag.bind(districtId)}`
+  return { sql, params: bag.params }
+}
 
-export const buildAggregatesSql = (args: DbxScopeArgs): string =>
-  `SELECT COUNT(*) AS count,` +
-  ` AVG(${col('Age_Int')}) AS avgAge,` +
-  ` AVG(${col('Estimated_Income_Amount_Int')}) AS avgIncome` +
-  ` FROM ${VOTER_TABLE} v ${buildScopeSql(args)}`
+// The voter table's column set, used to validate a district `type` before it is
+// interpolated as an identifier. Filtered by grant, so it also proves the
+// principal can see the table at all.
+export const buildVoterColumnsSql = (): DbxStatement => {
+  const bag = createBag()
+  const sql =
+    `SELECT column_name FROM ${PEOPLE_DBX_CATALOG}.information_schema.columns` +
+    ` WHERE table_schema = ${bag.bind(PEOPLE_DBX_SCHEMA)}` +
+    ` AND table_name = ${bag.bind(VOTER_TABLE_NAME)}`
+  return { sql, params: bag.params }
+}
 
-export const buildCountSql = (args: DbxScopeArgs): string =>
-  `SELECT COUNT(*) AS voter_count FROM ${VOTER_TABLE} v` +
-  ` ${buildScopeSql(args)}`
+export const buildAggregatesSql = (args: DbxScopeArgs): DbxStatement => {
+  const bag = createBag()
+  const sql =
+    `SELECT COUNT(*) AS count,` +
+    ` AVG(${col('Age_Int')}) AS avgAge,` +
+    ` AVG(${col('Estimated_Income_Amount_Int')}) AS avgIncome` +
+    ` FROM ${VOTER_TABLE} v ${buildScopeSql(bag, args)}`
+  return { sql, params: bag.params }
+}
+
+export const buildCountSql = (args: DbxScopeArgs): DbxStatement => {
+  const bag = createBag()
+  const sql =
+    `SELECT COUNT(*) AS voter_count FROM ${VOTER_TABLE} v` +
+    ` ${buildScopeSql(bag, args)}`
+  return { sql, params: bag.params }
+}
 
 export const buildOverlapCountSql = (
   args: DbxScopeArgs & { savedFilterSets: FilterData[] },
-): string => {
+): DbxStatement => {
+  const bag = createBag()
+  const scope = buildScopeSql(bag, args)
   // A saved set with no predicates matches every row in scope, so it becomes
   // bare TRUE rather than being dropped from the OR; zero saved sets is the
   // union of nothing, so it becomes FALSE.
   const savedClauses = args.savedFilterSets.map(
-    (saved) => buildVoterFiltersSql(saved) ?? 'TRUE',
+    (saved) => buildVoterFiltersSql(bag, saved) ?? 'TRUE',
   )
   const savedSetsClause =
     savedClauses.length > 0 ? `(${savedClauses.join(' OR ')})` : 'FALSE'
-  return (
+  const sql =
     `SELECT COUNT(*) AS overlap_count FROM ${VOTER_TABLE} v` +
-    ` ${buildScopeSql(args)} AND ${savedSetsClause}`
-  )
+    ` ${scope} AND ${savedSetsClause}`
+  return { sql, params: bag.params }
 }
 
 export const buildPageSql = (
@@ -561,14 +653,18 @@ export const buildPageSql = (
     take: number
     skip: number
   },
-): string => {
+): DbxStatement => {
+  const bag = createBag()
   const projection = args.columns
     .map((column) => `${col(column)} AS ${ident(column)}`)
     .join(', ')
-  return (
-    `SELECT ${projection} FROM ${VOTER_TABLE} v ${buildScopeSql(args)}` +
-    ` ORDER BY ${col('id')} LIMIT ${num(args.take)} OFFSET ${num(args.skip)}`
-  )
+  const scope = buildScopeSql(bag, args)
+  const sql =
+    `SELECT ${projection} FROM ${VOTER_TABLE} v ${scope}` +
+    ` ORDER BY ${col('id')}` +
+    ` LIMIT ${bag.bind(num(args.take), 'INT')}` +
+    ` OFFSET ${bag.bind(num(args.skip), 'INT')}`
+  return { sql, params: bag.params }
 }
 
 // CSV export projection. Every column is cast to string and null-coalesced
@@ -577,7 +673,8 @@ export const buildPageSql = (
 // download would be full of the word "null".
 export const buildCsvSql = (
   args: DbxScopeArgs & { excludeColumns?: ExcludableVoterColumn[] },
-): string => {
+): DbxStatement => {
+  const bag = createBag()
   const excluded = new Set<string>(args.excludeColumns ?? [])
   const projection = DOWNLOAD_COLUMNS.filter(
     ({ column }) => !excluded.has(column),
@@ -587,5 +684,6 @@ export const buildCsvSql = (
         `nvl(CAST(${col(column)} AS STRING), '') AS ${ident(header)}`,
     )
     .join(', ')
-  return `SELECT ${projection} FROM ${VOTER_TABLE} v ${buildScopeSql(args)}`
+  const sql = `SELECT ${projection} FROM ${VOTER_TABLE} v ${buildScopeSql(bag, args)}`
+  return { sql, params: bag.params }
 }

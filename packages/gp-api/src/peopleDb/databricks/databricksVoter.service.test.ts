@@ -1,4 +1,10 @@
-import { GatewayTimeoutException, NotFoundException } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  GatewayTimeoutException,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   aggregatesSchema,
@@ -8,7 +14,9 @@ import {
 import { DatabricksVoterService } from './databricksVoter.service'
 import {
   PeopleDbxStatementClient,
+  PeopleDbxStatementTooLargeError,
   PeopleDbxTimeoutError,
+  PeopleDbxUnavailableError,
   type PeopleDbxRows,
 } from './peopleDbxStatement.client'
 
@@ -22,6 +30,16 @@ const districtRows = (
 ): PeopleDbxRows => ({
   columns: ['id', 'state', 'type', 'name'],
   rows: [[id, 'CA', type, name]],
+})
+
+// The district `type` is interpolated as an identifier, so resolveDistrict
+// validates it against the voter table's real column set — a second query on
+// every resolution that is not the State-only path.
+const VOTER_COLUMNS = ['id', 'State', 'US_Congressional_District', 'Age_Int']
+
+const columnRows = (): PeopleDbxRows => ({
+  columns: ['column_name'],
+  rows: VOTER_COLUMNS.map((column) => [column]),
 })
 
 describe('DatabricksVoterService', () => {
@@ -38,15 +56,18 @@ describe('DatabricksVoterService', () => {
 
   describe('resolveDistrict', () => {
     it('scopes a normal district on its L2 column, not the junction', async () => {
-      query.mockResolvedValueOnce(
-        districtRows('US_Congressional_District', '29'),
-      )
+      query
+        .mockResolvedValueOnce(districtRows('US_Congressional_District', '29'))
+        .mockResolvedValueOnce(columnRows())
 
       const district = await service.resolveDistrict(DISTRICT_ID)
 
       expect(district.districtType).toBe('US_Congressional_District')
       expect(district.districtName).toBe('29')
       expect(district.useVoterOnlyPath).toBe(false)
+      expect(query.mock.calls[1]?.[0].sql).toContain(
+        'information_schema.columns',
+      )
     })
 
     it('takes the voter-only path for a State district named for its state', async () => {
@@ -57,10 +78,14 @@ describe('DatabricksVoterService', () => {
       const district = await service.resolveDistrict(STATE_DISTRICT_ID)
 
       expect(district.useVoterOnlyPath).toBe(true)
+      // Nothing is interpolated on this path, so there is no column to check.
+      expect(query).toHaveBeenCalledTimes(1)
     })
 
     it('keeps the district predicate for a State district named otherwise', async () => {
-      query.mockResolvedValueOnce(districtRows('State', 'Statewide'))
+      query
+        .mockResolvedValueOnce(districtRows('State', 'Statewide'))
+        .mockResolvedValueOnce(columnRows())
 
       const district = await service.resolveDistrict(DISTRICT_ID)
 
@@ -76,20 +101,53 @@ describe('DatabricksVoterService', () => {
     })
 
     it('resolves a district once and reuses it', async () => {
-      query.mockResolvedValue(districtRows('US_Congressional_District', '29'))
+      query
+        .mockResolvedValueOnce(districtRows('US_Congressional_District', '29'))
+        .mockResolvedValueOnce(columnRows())
 
       await service.resolveDistrict(DISTRICT_ID)
       await service.resolveDistrict(DISTRICT_ID)
 
-      expect(query).toHaveBeenCalledTimes(1)
+      // The district row plus the one column-list lookup, nothing more.
+      expect(query).toHaveBeenCalledTimes(2)
+    })
+
+    // A `type` that is not a column would be interpolated straight into the
+    // statement, so it is refused rather than queried.
+    it('refuses a district whose type is not a voter column', async () => {
+      query
+        .mockResolvedValueOnce(districtRows('Bogus_Column', '29'))
+        .mockResolvedValueOnce(columnRows())
+
+      await expect(service.resolveDistrict(DISTRICT_ID)).rejects.toThrow(
+        InternalServerErrorException,
+      )
+    })
+
+    it('fetches the voter column list once and reuses it', async () => {
+      query
+        .mockResolvedValueOnce(districtRows('US_Congressional_District', '29'))
+        .mockResolvedValueOnce(columnRows())
+        .mockResolvedValueOnce(
+          districtRows('State', 'Statewide', STATE_DISTRICT_ID),
+        )
+
+      await service.resolveDistrict(DISTRICT_ID)
+      await service.resolveDistrict(STATE_DISTRICT_ID)
+
+      expect(query).toHaveBeenCalledTimes(3)
+      const columnQueries = query.mock.calls.filter(([statement]) =>
+        String(statement.sql).includes('information_schema.columns'),
+      )
+      expect(columnQueries).toHaveLength(1)
     })
   })
 
   describe('getAggregates', () => {
     beforeEach(() => {
-      query.mockResolvedValueOnce(
-        districtRows('US_Congressional_District', '29'),
-      )
+      query
+        .mockResolvedValueOnce(districtRows('US_Congressional_District', '29'))
+        .mockResolvedValueOnce(columnRows())
     })
 
     it('coerces the string row the API returns into numbers', async () => {
@@ -132,6 +190,31 @@ describe('DatabricksVoterService', () => {
       ).rejects.toThrow(GatewayTimeoutException)
     })
 
+    // There is no fallback store, so an unreachable warehouse has to surface as
+    // a diagnosable 502 — and critically NOT as an empty result, which the
+    // product reads as "this office has no constituent data".
+    it('translates an unreachable warehouse into a 502, not a 500', async () => {
+      query.mockRejectedValueOnce(
+        new PeopleDbxUnavailableError('GET /statements returned 401: expired'),
+      )
+
+      await expect(
+        service.getAggregates(
+          aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+        ),
+      ).rejects.toThrow(BadGatewayException)
+    })
+
+    it('translates an oversized selection into a 400', async () => {
+      query.mockRejectedValueOnce(new PeopleDbxStatementTooLargeError(20e6))
+
+      await expect(
+        service.getAggregates(
+          aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+        ),
+      ).rejects.toThrow(BadRequestException)
+    })
+
     it('lets any other query failure propagate', async () => {
       query.mockRejectedValueOnce(new Error('TABLE_OR_VIEW_NOT_FOUND'))
 
@@ -147,6 +230,7 @@ describe('DatabricksVoterService', () => {
     it('returns the counted overlap', async () => {
       query
         .mockResolvedValueOnce(districtRows('US_Congressional_District', '29'))
+        .mockResolvedValueOnce(columnRows())
         .mockResolvedValueOnce({
           columns: ['overlap_count'],
           rows: [['1234']],
@@ -179,9 +263,9 @@ describe('DatabricksVoterService', () => {
     ]
 
     beforeEach(() => {
-      query.mockResolvedValueOnce(
-        districtRows('US_Congressional_District', '29'),
-      )
+      query
+        .mockResolvedValueOnce(districtRows('US_Congressional_District', '29'))
+        .mockResolvedValueOnce(columnRows())
     })
 
     it('runs the count and the page as separate queries', async () => {
@@ -215,8 +299,8 @@ describe('DatabricksVoterService', () => {
       )
 
       expect(result.pagination.totalResults).toBe(0)
-      // district lookup + the page, and no count.
-      expect(query).toHaveBeenCalledTimes(2)
+      // district lookup + the column list + the page, and no count.
+      expect(query).toHaveBeenCalledTimes(3)
     })
 
     it('reports the page it actually fetched', async () => {
@@ -240,9 +324,9 @@ describe('DatabricksVoterService', () => {
 
   describe('findStats', () => {
     beforeEach(() => {
-      query.mockResolvedValueOnce(
-        districtRows('US_Congressional_District', '29'),
-      )
+      query
+        .mockResolvedValueOnce(districtRows('US_Congressional_District', '29'))
+        .mockResolvedValueOnce(columnRows())
     })
 
     it('maps a zero-voter district back to null', async () => {
@@ -276,7 +360,7 @@ describe('DatabricksVoterService', () => {
 
       expect(stats?.totalConstituents).toBe(100)
       expect(stats?.totalConstituentsWithCellPhone).toBe(40)
-      expect(stats?.buckets.age.buckets).toEqual([
+      expect(stats?.buckets.age).toEqual([
         { label: '18-25', count: 100, percent: 100 },
       ])
     })

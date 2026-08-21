@@ -15,7 +15,7 @@ import {
 
 export const runLatency = async (
   harness: Harness,
-  opts: { env: string; store: string; gitSha: string },
+  opts: { env: string; gitSha: string },
 ): Promise<CaseResult[]> => {
   // Drift guard: warn (do not fail) if a pinned district has left its band.
   for (const cohort of COHORTS) {
@@ -95,7 +95,6 @@ export const runLatency = async (
   const path = artifactPath({
     env: opts.env,
     mode: 'latency',
-    store: opts.store,
     gitSha: opts.gitSha,
   })
   mkdirSync(dirname(path), { recursive: true })
@@ -106,7 +105,6 @@ export const runLatency = async (
         {
           env: opts.env,
           mode: 'latency',
-          store: opts.store,
           gitSha: opts.gitSha,
           startedAt: new Date().toISOString(),
         },

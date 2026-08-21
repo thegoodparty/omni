@@ -21,7 +21,7 @@ type ScenarioResult = { id: string; levels: LevelResult[]; passed: boolean }
 
 export const runLoad = async (
   harness: Harness,
-  opts: { env: string; store: string; gitSha: string },
+  opts: { env: string; gitSha: string },
 ): Promise<{ ok: boolean }> => {
   const scenarios: ScenarioResult[] = []
   let ok = true
@@ -104,7 +104,6 @@ export const runLoad = async (
   const path = artifactPath({
     env: opts.env,
     mode: 'load',
-    store: opts.store,
     gitSha: opts.gitSha,
   })
   mkdirSync(dirname(path), { recursive: true })
@@ -115,7 +114,6 @@ export const runLoad = async (
         {
           env: opts.env,
           mode: 'load',
-          store: opts.store,
           gitSha: opts.gitSha,
           startedAt: new Date().toISOString(),
         },

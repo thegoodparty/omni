@@ -86,13 +86,13 @@ credentials from the environment. Three consumers exist today:
   tool stays unregistered if neither host/path nor a usable credential is set.
 - **gp-api's voter engine** — `packages/gp-api/src/peopleDb/databricks/` serves the
   CRM's voter queries (aggregates, list/search, overlap, district stats, CSV export)
-  from `goodparty_data_catalog.dbt` instead of the people-db Postgres cluster, behind
-  `USE_DATABRICKS_PEOPLE_DB`. It uses the `PEOPLE_DATABRICKS_` prefix
+  from `goodparty_data_catalog.dbt` rather than the people-db Postgres cluster, with
+  no runtime store selection. It uses the `PEOPLE_DATABRICKS_` prefix
   (`sp_people_db`, its own warehouse, a least-privilege grant on
   `m_people_api__voter` and `m_people_api__district` only), and talks to the
   Statement Execution API rather than the SQL connector, because a CSV export needs
-  `EXTERNAL_LINKS` chunks. With the flag on but that credential unresolved it falls
-  back to Postgres rather than failing. See
+  `EXTERNAL_LINKS` chunks. There is no fallback store, so an unreachable warehouse
+  is a 502 rather than an empty result. See
   `packages/gp-api/src/peopleDb/AGENTS.md`.
 - **runbooks** — `packages/runbooks/scripts/python/databricks_query.py` uses a PAT.
 

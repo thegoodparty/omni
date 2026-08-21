@@ -1,7 +1,9 @@
 import {
+  BadGatewayException,
   BadRequestException,
   GatewayTimeoutException,
   Injectable,
+  InternalServerErrorException,
   Logger,
   NotFoundException,
 } from '@nestjs/common'
@@ -18,12 +20,14 @@ import {
 } from '../schemas/people.schema'
 import { buildVoterSelectSql, type BaseDbPerson } from '../voter.select'
 import { transformToPersonOutput } from '../utils/transformToPersonOutput.util'
+import type { DbxStatement } from './databricksVoterSql.util'
 import {
   buildAggregatesSql,
   buildCountSql,
   buildDistrictSql,
   buildOverlapCountSql,
   buildPageSql,
+  buildVoterColumnsSql,
   type DbxDistrict,
 } from './databricksVoterSql.util'
 import {
@@ -35,12 +39,17 @@ import {
   PeopleDbxStatementClient,
   PeopleDbxStatementTooLargeError,
   PeopleDbxTimeoutError,
+  PeopleDbxUnavailableError,
 } from './peopleDbxStatement.client'
 
 const STATE_DISTRICT_TYPE = 'State'
 
 const TIMEOUT_MESSAGE =
   'The voter query took too long to run. Narrow the audience and try again.'
+
+const UNAVAILABLE_MESSAGE =
+  'Voter data is temporarily unavailable. This is a connection problem, not ' +
+  'an empty district — try again shortly.'
 
 const TOO_LARGE_MESSAGE =
   'This selection carries too many individually listed people to query. ' +
@@ -61,6 +70,10 @@ export class DatabricksVoterService {
   // resolves the same district four times over, so caching saves three round
   // trips per request rather than shaving a query.
   private readonly districts = new Map<string, DbxDistrict>()
+  // The district `type` is interpolated as an identifier, so it is checked
+  // against the voter table's real column set rather than a pattern. Fetched
+  // once per process: the schema does not change under a running task.
+  private voterColumns: Set<string> | null = null
 
   constructor(private readonly client: PeopleDbxStatementClient) {}
 
@@ -81,12 +94,36 @@ export class DatabricksVoterService {
       state,
       districtType: type,
       districtName: name,
-      // A State district whose name is the state has no junction rows at all,
-      // which is why the Postgres path drops the district predicate for it.
+      // A State district whose name is the state has no membership rows at
+      // all, which is why the Postgres path drops the district predicate.
       useVoterOnlyPath: type === STATE_DISTRICT_TYPE && name === state,
+    }
+    if (!district.useVoterOnlyPath) {
+      const columns = await this.ensureVoterColumns()
+      if (!columns.has(type)) {
+        throw new InternalServerErrorException(
+          `District ${districtId} has type "${type}", which is not a column ` +
+            'on the voter table',
+        )
+      }
     }
     this.districts.set(districtId, district)
     return district
+  }
+
+  private async ensureVoterColumns(): Promise<Set<string>> {
+    if (this.voterColumns) return this.voterColumns
+    const { rows } = await this.run(buildVoterColumnsSql())
+    const columns = new Set(
+      rows
+        .map(([name]) => name)
+        .filter((name): name is string => typeof name === 'string'),
+    )
+    if (columns.size === 0) {
+      throw new BadGatewayException(UNAVAILABLE_MESSAGE)
+    }
+    this.voterColumns = columns
+    return columns
   }
 
   async getAggregates(dto: AggregatesDTO): Promise<PeopleAggregatesResponse> {
@@ -179,13 +216,20 @@ export class DatabricksVoterService {
     return mapDistrictStatsRow(districtId, rows[0], new Date())
   }
 
-  private async run(sql: string) {
+  private async run(statement: DbxStatement) {
     try {
-      return await this.client.query(sql)
+      return await this.client.query(statement)
     } catch (err) {
       if (err instanceof PeopleDbxStatementTooLargeError) {
         this.logger.error({ err }, 'databricks voter query is too large')
         throw new BadRequestException(TOO_LARGE_MESSAGE)
+      }
+      // 502, never a bare 500 and never an empty result: voter data has no
+      // fallback store now, so an unreachable warehouse has to be diagnosable
+      // and must not be mistaken for a district that simply has no voters.
+      if (err instanceof PeopleDbxUnavailableError) {
+        this.logger.error({ err }, 'databricks voter data is unreachable')
+        throw new BadGatewayException(UNAVAILABLE_MESSAGE)
       }
       if (!(err instanceof PeopleDbxTimeoutError)) throw err
       this.logger.error({ err }, 'databricks voter query exceeded its ceiling')

@@ -1,5 +1,12 @@
-import type { DistrictStats } from '../../generated/people-prisma'
-import { lit, VOTER_TABLE, type DbxDistrict } from './databricksVoterSql.util'
+import { formatISO } from 'date-fns'
+import {
+  VOTER_TABLE,
+  buildScopeSql,
+  createBag,
+  type DbxDistrict,
+  type DbxStatement,
+} from './databricksVoterSql.util'
+import { filtersSchema } from '../schemas/filters.schema'
 
 type Bucket = { label: string; when: string }
 
@@ -9,6 +16,12 @@ const EDUCATION_COLUMN = 'v.`Education_Of_Person`'
 const HOMEOWNER_COLUMN = 'v.`Homeowner_Probability_Model`'
 const CHILDREN_COLUMN = 'v.`Presence_Of_Children`'
 const CELL_COLUMN = 'v.`VoterTelephones_CellPhoneFormatted`'
+
+// The bucket predicates are built once at module load, before any request
+// exists, from the fixed L2 vocabulary in this file — these are code constants,
+// not caller input, which is why they are embedded rather than bound.
+const constant = (value: string): string =>
+  `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
 
 const AGE_BUCKETS: Bucket[] = [
   { label: 'Unknown', when: `${AGE_COLUMN} IS NULL` },
@@ -68,13 +81,13 @@ const EDUCATION_VALUES: Array<{ label: string; value: string }> = [
 const EDUCATION_BUCKETS: Bucket[] = [
   ...EDUCATION_VALUES.map(({ label, value }) => ({
     label,
-    when: `${EDUCATION_COLUMN} = ${lit(value)}`,
+    when: `${EDUCATION_COLUMN} = ${constant(value)}`,
   })),
   {
     label: 'Unknown',
     when:
       `${EDUCATION_COLUMN} IS NULL OR ${EDUCATION_COLUMN} NOT IN (` +
-      `${EDUCATION_VALUES.map(({ value }) => lit(value)).join(', ')})`,
+      `${EDUCATION_VALUES.map(({ value }) => constant(value)).join(', ')})`,
   },
 ]
 
@@ -107,11 +120,12 @@ const CHILDREN_BUCKETS: Bucket[] = [
   },
 ]
 
-// The bucket shape is declared here rather than reused from
-// PrismaJson.DistrictStatsBucketSummary: the generated client annotates the
-// column as `PrismaJson.DistrictStatsBuckets`, a name nothing declares, so
-// skipLibCheck silently degrades that type to `any` and nothing in this
-// mapping would be checked.
+// The shape is declared here rather than reused from the Prisma row's `buckets`
+// column: the generated client annotates it as
+// `PrismaJson.DistrictStatsBuckets`, a name nothing declares, so skipLibCheck
+// degrades it to `any` and nothing in this mapping would be checked. It mirrors
+// `StatsResponse` / `onboardingStatsResponseSchema` — each dimension is an
+// ARRAY of buckets, and that schema is validated at runtime on the way out.
 export type StatsDimensionKey =
   | 'age'
   | 'education'
@@ -119,12 +133,22 @@ export type StatsDimensionKey =
   | 'presenceOfChildren'
   | 'estimatedIncomeRange'
 
+export type DistrictStatsBucket = {
+  label: string
+  count: number
+  percent: number
+}
+
 export type DistrictStatsBuckets = Record<
   StatsDimensionKey,
-  { buckets: Array<{ label: string; count: number; percent: number }> }
+  DistrictStatsBucket[]
 >
 
-export type ComputedDistrictStats = Omit<DistrictStats, 'buckets'> & {
+export type ComputedDistrictStats = {
+  districtId: string
+  computedAt: string
+  totalConstituents: number
+  totalConstituentsWithCellPhone: number
   buckets: DistrictStatsBuckets
 }
 
@@ -141,11 +165,7 @@ export const STATS_DIMENSIONS = [
 
 // One pass over the district's rows: a count_if per label plus the two totals,
 // rather than the precomputed DistrictStats table, which runs 8-22 days stale.
-export const buildDistrictStatsSql = (district: DbxDistrict): string => {
-  const scope = [`v.\`State\` = ${lit(district.state)}`]
-  if (!district.useVoterOnlyPath) {
-    scope.push(`v.\`${district.districtType}\` = ${lit(district.districtName)}`)
-  }
+export const buildDistrictStatsSql = (district: DbxDistrict): DbxStatement => {
   const aggregates = [
     'COUNT(*) AS total',
     `COUNT(${CELL_COLUMN}) AS with_cell`,
@@ -153,15 +173,20 @@ export const buildDistrictStatsSql = (district: DbxDistrict): string => {
       buckets.map(({ when }, index) => `count_if(${when}) AS ${key}_${index}`),
     ),
   ]
-  return (
-    `SELECT ${aggregates.join(', ')} FROM ${VOTER_TABLE} v` +
-    ` WHERE ${scope.join(' AND ')}`
-  )
+  // Reuses the same scope builder as every other query, so the district
+  // predicate and its bound parameters cannot drift from the filter paths.
+  const bag = createBag()
+  const scope = buildScopeSql(bag, {
+    district,
+    filters: filtersSchema.parse({}),
+  })
+  return {
+    sql: `SELECT ${aggregates.join(', ')} FROM ${VOTER_TABLE} v ${scope}`,
+    params: bag.params,
+  }
 }
 
 const toCount = (value: string | null | undefined): number => Number(value ?? 0)
-
-const EMPTY_DIMENSION = { buckets: [] }
 
 // A district with zero voters must come back as null, not a zero-filled row.
 // "No stats row" is load-bearing product behavior: polls gate on it,
@@ -185,31 +210,29 @@ export const mapDistrictStatsRow = (
       count: toCount(row[cursor + index]),
     }))
     cursor += buckets.length
-    summary[key] = {
-      buckets: labelled
-        // A label nobody falls into is omitted entirely rather than shown as
-        // a zero row, which is what the precomputed table does.
-        .filter(({ count }) => count > 0)
-        .sort((a, b) => (a.label < b.label ? 1 : a.label > b.label ? -1 : 0))
-        .map(({ label, count }) => ({
-          label,
-          count,
-          percent: Math.round((count * 10000) / total) / 100,
-        })),
-    }
+    summary[key] = labelled
+      // A label nobody falls into is omitted entirely rather than shown as a
+      // zero row, which is what the mirrored stats table does.
+      .filter(({ count }) => count > 0)
+      .sort((a, b) => (a.label < b.label ? 1 : a.label > b.label ? -1 : 0))
+      .map(({ label, count }) => ({
+        label,
+        count,
+        percent: Math.round((count * 10000) / total) / 100,
+      }))
   }
 
   return {
     districtId,
-    updatedAt: computedAt,
+    computedAt: formatISO(computedAt),
     totalConstituents: total,
     totalConstituentsWithCellPhone: toCount(row[1]),
     buckets: {
-      age: summary.age ?? EMPTY_DIMENSION,
-      education: summary.education ?? EMPTY_DIMENSION,
-      homeowner: summary.homeowner ?? EMPTY_DIMENSION,
-      presenceOfChildren: summary.presenceOfChildren ?? EMPTY_DIMENSION,
-      estimatedIncomeRange: summary.estimatedIncomeRange ?? EMPTY_DIMENSION,
+      age: summary.age ?? [],
+      education: summary.education ?? [],
+      homeowner: summary.homeowner ?? [],
+      presenceOfChildren: summary.presenceOfChildren ?? [],
+      estimatedIncomeRange: summary.estimatedIncomeRange ?? [],
     },
   }
 }

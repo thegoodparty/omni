@@ -1,3 +1,4 @@
+import { parseISO } from 'date-fns'
 import { describe, expect, it } from 'vitest'
 import type { DbxDistrict } from './databricksVoterSql.util'
 import {
@@ -33,28 +34,33 @@ const buildRow = (
 
 describe('buildDistrictStatsSql', () => {
   it('scopes on the voter row L2 district column', () => {
-    const sql = buildDistrictStatsSql(DISTRICT)
+    const { sql, params } = buildDistrictStatsSql(DISTRICT)
 
     expect(sql).toContain(
-      "WHERE v.`State` = 'CA' AND v.`US_Congressional_District` = '29'",
+      'WHERE v.`State` = :p0 AND v.`US_Congressional_District` = :p1',
     )
+    expect(params).toEqual([
+      { name: 'p0', value: 'CA', type: 'STRING' },
+      { name: 'p1', value: '29', type: 'STRING' },
+    ])
     expect(sql.toLowerCase()).not.toContain('districtstats')
   })
 
   it('drops the district predicate on the voter-only path', () => {
-    const sql = buildDistrictStatsSql({
+    const { sql, params } = buildDistrictStatsSql({
       ...DISTRICT,
       districtType: 'State',
       districtName: 'CA',
       useVoterOnlyPath: true,
     })
 
-    expect(sql).toContain("WHERE v.`State` = 'CA'")
+    expect(sql).toContain('WHERE v.`State` = :p0')
+    expect(params).toEqual([{ name: 'p0', value: 'CA', type: 'STRING' }])
     expect(sql).not.toContain('US_Congressional_District')
   })
 
   it('counts the two totals plus one count_if per bucket', () => {
-    const sql = buildDistrictStatsSql(DISTRICT)
+    const { sql } = buildDistrictStatsSql(DISTRICT)
 
     expect(sql).toContain('COUNT(*) AS total')
     expect(sql).toContain(
@@ -64,7 +70,7 @@ describe('buildDistrictStatsSql', () => {
   })
 
   it('cuts age at 25, 35 and 50 with a null Unknown bucket', () => {
-    const sql = buildDistrictStatsSql(DISTRICT)
+    const { sql } = buildDistrictStatsSql(DISTRICT)
 
     expect(sql).toContain('count_if(v.`Age_Int` IS NULL) AS age_0')
     expect(sql).toContain('count_if(v.`Age_Int` <= 25) AS age_1')
@@ -78,7 +84,7 @@ describe('buildDistrictStatsSql', () => {
   })
 
   it('uses half-open income bands from below-15k up to 250k+', () => {
-    const sql = buildDistrictStatsSql(DISTRICT)
+    const { sql } = buildDistrictStatsSql(DISTRICT)
     const income = 'v.`Estimated_Income_Amount_Int`'
 
     expect(sql).toContain(`count_if(${income} < 15000)`)
@@ -90,7 +96,7 @@ describe('buildDistrictStatsSql', () => {
   })
 
   it('folds Probable Home Owner into Yes, with no Likely bucket', () => {
-    const sql = buildDistrictStatsSql(DISTRICT)
+    const { sql } = buildDistrictStatsSql(DISTRICT)
     const labels = STATS_DIMENSIONS.find(
       ({ key }) => key === 'homeowner',
     )?.buckets.map(({ label }) => label)
@@ -103,7 +109,7 @@ describe('buildDistrictStatsSql', () => {
   })
 
   it('maps presence of children from the Y/N column', () => {
-    const sql = buildDistrictStatsSql(DISTRICT)
+    const { sql } = buildDistrictStatsSql(DISTRICT)
 
     expect(sql).toContain(
       "count_if(v.`Presence_Of_Children` = 'Y') AS presenceOfChildren_0",
@@ -114,7 +120,7 @@ describe('buildDistrictStatsSql', () => {
   })
 
   it('treats an unrecognized education value as Unknown', () => {
-    const sql = buildDistrictStatsSql(DISTRICT)
+    const { sql } = buildDistrictStatsSql(DISTRICT)
 
     expect(sql).toContain(
       'count_if(v.`Education_Of_Person` IS NULL OR ' +
@@ -144,7 +150,9 @@ describe('mapDistrictStatsRow', () => {
     expect(stats?.districtId).toBe('d1')
     expect(stats?.totalConstituents).toBe(100)
     expect(stats?.totalConstituentsWithCellPhone).toBe(42)
-    expect(stats?.updatedAt).toBe(COMPUTED_AT)
+    expect(parseISO(stats?.computedAt ?? '').getTime()).toBe(
+      COMPUTED_AT.getTime(),
+    )
   })
 
   it('omits zero-count labels entirely', () => {
@@ -154,7 +162,7 @@ describe('mapDistrictStatsRow', () => {
       COMPUTED_AT,
     )
 
-    expect(stats?.buckets.age.buckets).toEqual([
+    expect(stats?.buckets.age).toEqual([
       { label: '18-25', count: 10, percent: 100 },
     ])
   })
@@ -171,7 +179,7 @@ describe('mapDistrictStatsRow', () => {
       COMPUTED_AT,
     )
 
-    expect(stats?.buckets.age.buckets.map((b) => b.label)).toEqual([
+    expect(stats?.buckets.age.map((b) => b.label)).toEqual([
       'Unknown',
       '51+',
       '26-35',
@@ -185,7 +193,7 @@ describe('mapDistrictStatsRow', () => {
       buildRow(3, 0, { 'age:18-25': 1, 'age:26-35': 2 }),
       COMPUTED_AT,
     )
-    const percents = stats?.buckets.age.buckets.map((b) => b.percent)
+    const percents = stats?.buckets.age.map((b) => b.percent)
 
     expect(percents).toEqual([66.67, 33.33])
   })
@@ -206,7 +214,7 @@ describe('mapDistrictStatsRow', () => {
     )
 
     for (const { key } of STATS_DIMENSIONS) {
-      const sum = stats?.buckets[key].buckets.reduce(
+      const sum = stats?.buckets[key].reduce(
         (total, bucket) => total + bucket.count,
         0,
       )
@@ -224,8 +232,9 @@ describe('mapDistrictStatsRow', () => {
       COMPUTED_AT,
     )
 
-    expect(
-      stats?.buckets.estimatedIncomeRange.buckets.map((b) => b.label),
-    ).toEqual(['250k+', '1k–15k'])
+    expect(stats?.buckets.estimatedIncomeRange.map((b) => b.label)).toEqual([
+      '250k+',
+      '1k–15k',
+    ])
   })
 })

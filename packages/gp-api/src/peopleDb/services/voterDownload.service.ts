@@ -20,7 +20,6 @@ import { buildHouseholdKeySql } from '../utils/buildHouseholdKeySql.util'
 import { inlinePrismaSql } from '../utils/inlinePrismaSql.util'
 import { resolveDistrict } from '../utils/resolveDistrict.util'
 import { DatabricksVoterDownloadService } from '../databricks/databricksVoterDownload.service'
-import { useDatabricksPeopleDb } from '../databricks/peopleDbx.config'
 
 const DATABASE_SCHEMA = 'green'
 const VOTER_TABLENAME = 'Voter'
@@ -123,9 +122,10 @@ export class VoterDownloadService
       extraHeaders?: Record<string, string>
     },
   ): Promise<void> {
-    // groupByHousehold stays on Postgres: its DISTINCT ON de-dup has no direct
-    // Databricks equivalent and door-knocking was not part of this cutover.
-    if (useDatabricksPeopleDb() && !dto.groupByHousehold) {
+    // Household de-dup is the one export shape still served from people-db by
+    // COPY: its DISTINCT ON has no direct equivalent here, and door-knocking is
+    // its only caller. Every other export streams from Databricks.
+    if (!dto.groupByHousehold) {
       return this.databricks.streamPeopleCsv(dto, res, responseOptions)
     }
     const { state, useVoterOnlyPath, districtId } = await resolveDistrict(

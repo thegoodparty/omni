@@ -1,11 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import {
-  resolvePeopleDbxConfig,
-  useDatabricksPeopleDb,
-} from './peopleDbx.config'
+import { resolvePeopleDbxConfig } from './peopleDbx.config'
 
 const DATABRICKS_ENV_KEYS = [
-  'USE_DATABRICKS_PEOPLE_DB',
   'PEOPLE_DATABRICKS_SERVER_HOSTNAME',
   'PEOPLE_DATABRICKS_HTTP_PATH',
   'PEOPLE_DATABRICKS_CLIENT_ID',
@@ -40,44 +36,6 @@ describe('peopleDbx config', () => {
       if (value === undefined) delete process.env[key]
       else process.env[key] = value
     }
-  })
-
-  describe('useDatabricksPeopleDb', () => {
-    it('is off unless the flag is exactly true', () => {
-      configureCredential()
-
-      expect(useDatabricksPeopleDb()).toBe(false)
-      process.env.USE_DATABRICKS_PEOPLE_DB = 'false'
-      expect(useDatabricksPeopleDb()).toBe(false)
-      process.env.USE_DATABRICKS_PEOPLE_DB = '1'
-      expect(useDatabricksPeopleDb()).toBe(false)
-    })
-
-    it('is on when the flag is true and the credential resolves', () => {
-      configureCredential()
-      process.env.USE_DATABRICKS_PEOPLE_DB = 'true'
-
-      expect(useDatabricksPeopleDb()).toBe(true)
-    })
-
-    // The flag can ship ahead of the service principal, so "on but
-    // unconfigured" has to keep serving from Postgres instead of failing every
-    // voter request.
-    it('falls back to Postgres when the flag is on but unconfigured', () => {
-      process.env.USE_DATABRICKS_PEOPLE_DB = 'true'
-
-      expect(useDatabricksPeopleDb()).toBe(false)
-    })
-
-    it('does not fall back to the Serve or Campaign Manager credential', () => {
-      process.env.USE_DATABRICKS_PEOPLE_DB = 'true'
-      process.env.DATABRICKS_SERVER_HOSTNAME = 'dbc-1.cloud.databricks.com'
-      process.env.DATABRICKS_HTTP_PATH = '/sql/1.0/warehouses/wh-serve'
-      process.env.DATABRICKS_CLIENT_ID = 'serve-client'
-      process.env.DATABRICKS_CLIENT_SECRET = 'serve-secret'
-
-      expect(useDatabricksPeopleDb()).toBe(false)
-    })
   })
 
   describe('resolvePeopleDbxConfig', () => {

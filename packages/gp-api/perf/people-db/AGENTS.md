@@ -10,22 +10,19 @@ MUST run with the swc-node loader (the `perf:people-db` npm script does this).
 `tsx` does NOT work: esbuild drops decorator metadata and Nest DI resolves to
 `undefined`.
 
-`--store` chooses which store the run measures: it sets
-`USE_DATABRICKS_PEOPLE_DB` for the process (`postgres` -> `false`, the default;
-`databricks` -> `true`) before the harness boots the Nest graph. The same cases,
-iterations, and measurements run against either store, so two passes differ only
-in their numbers.
+The suite measures whatever the services read, which on this code is Databricks
+for every cell except `sample` (the one remaining people-db Postgres surface).
+For a before/after, run the same suite on `main` and on this branch.
 
 ```bash
-# Postgres. Export the target people-db read-only URL first (SSM/Secrets
-# Manager per the workspace CLAUDE.md). prod requires the VPN.
-export PEOPLE_DATABASE_URL='<connection-string>'
-npm run perf:people-db -- --mode=latency --env=prod --store=postgres
+# Needs the PEOPLE_DATABRICKS_* credentials the peopleDb client reads (see
+# src/peopleDb/AGENTS.md). The `sample` cells additionally need
+# PEOPLE_DATABASE_URL — they are the one query type still reading people-db, and
+# they error without it while every other cell runs. prod requires the VPN for
+# those.
+export PEOPLE_DATABASE_URL='<connection-string>'   # for `sample` cells only
 
-# Databricks. Needs the PEOPLE_DATABRICKS_* credentials the peopleDb Databricks
-# client reads (see src/peopleDb/AGENTS.md); no VPN.
-npm run perf:people-db -- --mode=latency --env=prod --store=databricks
-
+npm run perf:people-db -- --mode=latency --env=prod
 npm run perf:people-db -- --mode=load --env=dev   # concurrency sweep + gate
 npm run perf:people-db -- --smoke --env=dev       # one case, boot check
 ```

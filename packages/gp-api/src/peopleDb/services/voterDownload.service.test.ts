@@ -132,6 +132,7 @@ describe('VoterDownloadService', () => {
         {
           districtId: DISTRICT_UUID,
           filters: { filters: [], filterOperators: {} },
+          groupByHousehold: true,
         } as never,
         res,
       )
@@ -169,6 +170,7 @@ describe('VoterDownloadService', () => {
         {
           districtId: DISTRICT_UUID,
           filters: { filters: [], filterOperators: {} },
+          groupByHousehold: true,
         } as never,
         res,
       )
@@ -183,7 +185,7 @@ describe('VoterDownloadService', () => {
         ({ column, header }) =>
           `v."${column}" AS "${header.replace(/"/g, '""')}"`,
       ).join(', ')
-      expect(sql).toContain(`SELECT ${expectedSelectList}`)
+      expect(sql).toContain(`${expectedSelectList}`)
     })
 
     // ENG-10696: the CSV is a Postgres COPY stream gp-api can't post-process,
@@ -197,6 +199,7 @@ describe('VoterDownloadService', () => {
         {
           districtId: DISTRICT_UUID,
           filters: { filters: [], filterOperators: {} },
+          groupByHousehold: true,
           excludeColumns: ['Parties_Description'],
         } as never,
         res,
@@ -226,6 +229,7 @@ describe('VoterDownloadService', () => {
         {
           districtId: DISTRICT_UUID,
           filters: { filters: [], filterOperators: {} },
+          groupByHousehold: true,
           excludeColumns: [...EXCLUDABLE_VOTER_COLUMNS],
         } as never,
         res,
@@ -262,6 +266,7 @@ describe('VoterDownloadService', () => {
         {
           districtId: DISTRICT_UUID,
           filters: { filters: [], filterOperators: {} },
+          groupByHousehold: true,
         } as never,
         res,
       )
@@ -284,6 +289,7 @@ describe('VoterDownloadService', () => {
         {
           districtId: stateDistrict.id,
           filters: { filters: [], filterOperators: {} },
+          groupByHousehold: true,
         } as never,
         res,
       )
@@ -313,6 +319,7 @@ describe('VoterDownloadService', () => {
               ageInt: { operator: 'range', gte: 30, lte: 50 },
             },
           },
+          groupByHousehold: true,
         } as never,
         res,
       )
@@ -356,27 +363,6 @@ describe('VoterDownloadService', () => {
       expect(sql).toContain('ORDER BY')
     })
 
-    it('does not de-dupe when groupByHousehold is omitted', async () => {
-      const { to: copyTo } = await import('pg-copy-streams')
-
-      const { res, raw } = makeRawResponse()
-      const completion = service.streamPeopleCsv(
-        {
-          districtId: DISTRICT_UUID,
-          filters: { filters: [], filterOperators: {} },
-        } as never,
-        res,
-      )
-
-      copyStream.end()
-      raw.destroy()
-
-      await completion
-
-      const sql = vi.mocked(copyTo).mock.calls[0]?.[0] as string
-      expect(sql).not.toContain('DISTINCT ON')
-    })
-
     it('pipes COPY stream output into res.raw', async () => {
       const { res, raw } = makeRawResponse()
       const chunks: Buffer[] = []
@@ -386,6 +372,7 @@ describe('VoterDownloadService', () => {
         {
           districtId: DISTRICT_UUID,
           filters: { filters: [], filterOperators: {} },
+          groupByHousehold: true,
         } as never,
         res,
       )
@@ -410,6 +397,7 @@ describe('VoterDownloadService', () => {
         {
           districtId: DISTRICT_UUID,
           filters: { filters: [], filterOperators: {} },
+          groupByHousehold: true,
         } as never,
         res,
       )
@@ -426,6 +414,7 @@ describe('VoterDownloadService', () => {
         {
           districtId: DISTRICT_UUID,
           filters: { filters: [], filterOperators: {} },
+          groupByHousehold: true,
         } as never,
         res,
       )
@@ -443,6 +432,7 @@ describe('VoterDownloadService', () => {
         {
           districtId: DISTRICT_UUID,
           filters: { filters: [], filterOperators: {} },
+          groupByHousehold: true,
         } as never,
         res,
       )
@@ -464,6 +454,7 @@ describe('VoterDownloadService', () => {
           {
             districtId: DISTRICT_UUID,
             filters: { filters: [], filterOperators: {} },
+            groupByHousehold: true,
           } as never,
           res,
         ),
@@ -476,6 +467,7 @@ describe('VoterDownloadService', () => {
         {
           districtId: DISTRICT_UUID,
           filters: { filters: [], filterOperators: {} },
+          groupByHousehold: true,
         } as never,
         res,
       )
@@ -528,6 +520,7 @@ describe('VoterDownloadService', () => {
         {
           districtId: DISTRICT_UUID,
           filters: { filters: [], filterOperators: {} },
+          groupByHousehold: true,
         } as never,
         res,
       )
@@ -567,6 +560,7 @@ describe('VoterDownloadService', () => {
         {
           districtId: DISTRICT_UUID,
           filters: { filters: [], filterOperators: {} },
+          groupByHousehold: true,
         } as never,
         res,
         {
@@ -598,6 +592,7 @@ describe('VoterDownloadService', () => {
           {
             districtId: DISTRICT_UUID,
             filters: { filters: [], filterOperators: {} },
+            groupByHousehold: true,
           } as never,
           res,
         ),
@@ -618,6 +613,7 @@ describe('VoterDownloadService', () => {
           {
             districtId: DISTRICT_UUID,
             filters: { filters: [], filterOperators: {} },
+            groupByHousehold: true,
           } as never,
           res,
         ),
@@ -638,6 +634,7 @@ describe('VoterDownloadService', () => {
           {
             districtId: DISTRICT_UUID,
             filters: { filters: [], filterOperators: {} },
+            groupByHousehold: true,
           } as never,
           res,
         ),
@@ -664,6 +661,7 @@ describe('VoterDownloadService', () => {
           {
             districtId: DISTRICT_UUID,
             filters: { filters: [], filterOperators: {} },
+            groupByHousehold: true,
           } as never,
           res,
         ),
@@ -775,6 +773,7 @@ describe('VoterDownloadService', () => {
           {
             districtId: DISTRICT_UUID,
             filters: { filters: [], filterOperators: {} },
+            groupByHousehold: true,
           } as never,
           res,
         ),

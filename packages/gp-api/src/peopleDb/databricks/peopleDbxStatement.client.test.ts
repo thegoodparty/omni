@@ -5,6 +5,9 @@ import {
   PeopleDbxTimeoutError,
   PeopleDbxUnavailableError,
 } from './peopleDbxStatement.client'
+import type { DbxStatement } from './databricksVoterSql.util'
+
+const stmt = (sql: string): DbxStatement => ({ sql, params: [] })
 
 const ENV_KEYS = [
   'PEOPLE_DATABRICKS_SERVER_HOSTNAME',
@@ -65,7 +68,7 @@ describe('PeopleDbxStatementClient', () => {
 
   describe('query', () => {
     it('submits against the catalog and schema the voter data lives in', async () => {
-      await client.query('SELECT 1')
+      await client.query(stmt('SELECT 1'))
 
       const body: Record<string, string> = JSON.parse(
         String(callAt(0).init?.body),
@@ -86,7 +89,7 @@ describe('PeopleDbxStatementClient', () => {
     it('returns rows positionally with nulls preserved', async () => {
       fetchMock.mockResolvedValue(jsonResponse(succeeded([['7828', null]])))
 
-      expect(await client.query('SELECT 1')).toEqual({
+      expect(await client.query(stmt('SELECT 1'))).toEqual({
         columns: ['count'],
         rows: [['7828', null]],
       })
@@ -102,7 +105,7 @@ describe('PeopleDbxStatementClient', () => {
         )
         .mockResolvedValueOnce(jsonResponse(succeeded([['1']])))
 
-      const result = await client.query('SELECT 1')
+      const result = await client.query(stmt('SELECT 1'))
 
       expect(result.rows).toEqual([['1']])
       expect(callAt(1).url).toContain('/api/2.0/sql/statements/s1')
@@ -124,7 +127,10 @@ describe('PeopleDbxStatementClient', () => {
         )
         .mockResolvedValueOnce(jsonResponse({ data_array: [['b']] }))
 
-      expect((await client.query('SELECT 1')).rows).toEqual([['a'], ['b']])
+      expect((await client.query(stmt('SELECT 1'))).rows).toEqual([
+        ['a'],
+        ['b'],
+      ])
     })
 
     it('surfaces a failed statement with the warehouse error message', async () => {
@@ -138,7 +144,7 @@ describe('PeopleDbxStatementClient', () => {
         }),
       )
 
-      await expect(client.query('SELECT 1')).rejects.toThrow(
+      await expect(client.query(stmt('SELECT 1'))).rejects.toThrow(
         'Databricks statement FAILED: INSUFFICIENT_PERMISSIONS',
       )
     })
@@ -146,12 +152,12 @@ describe('PeopleDbxStatementClient', () => {
     it('surfaces an HTTP failure with its body', async () => {
       fetchMock.mockResolvedValue({
         ok: false,
-        status: 403,
-        text: () => Promise.resolve('no USE SCHEMA'),
+        status: 400,
+        text: () => Promise.resolve('malformed statement'),
       })
 
-      await expect(client.query('SELECT 1')).rejects.toThrow(
-        /403: no USE SCHEMA/,
+      await expect(client.query(stmt('SELECT 1'))).rejects.toThrow(
+        /400: malformed statement/,
       )
     })
 
@@ -164,7 +170,7 @@ describe('PeopleDbxStatementClient', () => {
         jsonResponse({ statement_id: 's1', status: { state: 'RUNNING' } }),
       )
 
-      const pending = client.query('SELECT 1')
+      const pending = client.query(stmt('SELECT 1'))
       vi.spyOn(Date, 'now').mockImplementation(() => start + 61_000)
 
       await expect(pending).rejects.toThrow(PeopleDbxTimeoutError)
@@ -176,7 +182,7 @@ describe('PeopleDbxStatementClient', () => {
     it('refuses a statement over the API byte ceiling before sending it', async () => {
       const oversized = `SELECT ${'x'.repeat(16_777_217)}`
 
-      await expect(client.query(oversized)).rejects.toThrow(
+      await expect(client.query(stmt(oversized))).rejects.toThrow(
         PeopleDbxStatementTooLargeError,
       )
       expect(fetchMock).not.toHaveBeenCalled()
@@ -185,7 +191,7 @@ describe('PeopleDbxStatementClient', () => {
     it('sends a statement that is just within the ceiling', async () => {
       const atLimit = 'S'.repeat(16_777_216)
 
-      await client.query(atLimit)
+      await client.query(stmt(atLimit))
 
       expect(fetchMock).toHaveBeenCalled()
     })
@@ -193,7 +199,33 @@ describe('PeopleDbxStatementClient', () => {
     it('refuses to run when no credential is configured', async () => {
       delete process.env.PEOPLE_DATABRICKS_API_KEY
 
-      await expect(client.query('SELECT 1')).rejects.toThrow(
+      await expect(client.query(stmt('SELECT 1'))).rejects.toThrow(
+        PeopleDbxUnavailableError,
+      )
+    })
+
+    // An expired or under-granted token is the failure this cutover is most
+    // likely to hit, and it has to be distinguishable from a query error.
+    it('classifies an auth rejection as unreachable, not a query error', async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 401,
+        text: () => Promise.resolve('token expired'),
+      })
+
+      await expect(client.query(stmt('SELECT 1'))).rejects.toThrow(
+        PeopleDbxUnavailableError,
+      )
+    })
+
+    it('classifies a warehouse 503 as unreachable', async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 503,
+        text: () => Promise.resolve('unavailable'),
+      })
+
+      await expect(client.query(stmt('SELECT 1'))).rejects.toThrow(
         PeopleDbxUnavailableError,
       )
     })
@@ -218,7 +250,7 @@ describe('PeopleDbxStatementClient', () => {
         }),
       )
 
-      const result = await client.startCsvExport('SELECT 1')
+      const result = await client.startCsvExport(stmt('SELECT 1'))
 
       const body: Record<string, string> = JSON.parse(
         String(callAt(0).init?.body),
@@ -251,7 +283,7 @@ describe('PeopleDbxStatementClient', () => {
         }),
       )
 
-      await expect(client.startCsvExport('SELECT 1')).rejects.toThrow(
+      await expect(client.startCsvExport(stmt('SELECT 1'))).rejects.toThrow(
         'returned no first chunk',
       )
     })
@@ -302,8 +334,8 @@ describe('PeopleDbxStatementClient', () => {
         ),
       )
 
-      await client.query('SELECT 1')
-      await client.query('SELECT 2')
+      await client.query(stmt('SELECT 1'))
+      await client.query(stmt('SELECT 2'))
 
       expect(callsMatching('/oidc/v1/token')).toHaveLength(1)
       expect(callAt(0).init?.body).toBe(

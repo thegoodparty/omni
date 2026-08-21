@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   Injectable,
   InternalServerErrorException,
@@ -13,6 +14,7 @@ import { DatabricksVoterService } from './databricksVoter.service'
 import {
   PeopleDbxStatementClient,
   PeopleDbxStatementTooLargeError,
+  PeopleDbxUnavailableError,
   type PeopleDbxCsvChunk,
 } from './peopleDbxStatement.client'
 
@@ -56,6 +58,12 @@ export class DatabricksVoterDownloadService {
         throw new BadRequestException(
           'This selection carries too many individually listed people to ' +
             'export. Narrow it and try again.',
+        )
+      }
+      if (err instanceof PeopleDbxUnavailableError) {
+        throw new BadGatewayException(
+          'Voter data is temporarily unavailable, so the export could not ' +
+            'start. This is a connection problem, not an empty district.',
         )
       }
       throw new InternalServerErrorException('Failed to start download')

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { PeopleFiltersSchema } from '@goodparty_org/contracts'
 import { filtersSchema, type FilterData } from '../schemas/filters.schema'
+import { ALL_KNOWN_PARTY_VALUES } from '../utils/politicalParty.rules'
+import { PEOPLE_DBX_SCHEMA } from './peopleDbx.config'
 import {
   buildAggregatesSql,
   buildCountSql,
@@ -10,8 +12,9 @@ import {
   buildPageSql,
   buildScopeSql,
   buildSearchSql,
+  buildVoterColumnsSql,
   buildVoterFiltersSql,
-  lit,
+  createBag,
   type DbxDistrict,
 } from './databricksVoterSql.util'
 
@@ -39,18 +42,26 @@ const parseFilters = (
 
 describe('buildScopeSql', () => {
   it('scopes on the voter row L2 district column, not the junction', () => {
-    const sql = buildScopeSql({
+    const bag = createBag()
+    const sql = buildScopeSql(bag, {
       district: CONGRESSIONAL,
       filters: noFilters(),
     })
 
     expect(sql).toBe(
-      "WHERE v.`State` = 'CA' AND v.`US_Congressional_District` = '29'",
+      'WHERE v.`State` = :p0 AND v.`US_Congressional_District` = :p1',
     )
+    expect(bag.params).toEqual([
+      { name: 'p0', value: 'CA', type: 'STRING' },
+      { name: 'p1', value: '29', type: 'STRING' },
+    ])
   })
 
   it('never joins the district-voter junction table', () => {
-    const sql = buildCountSql({ district: CONGRESSIONAL, filters: noFilters() })
+    const { sql } = buildCountSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+    })
 
     expect(sql.toLowerCase()).not.toContain('districtvoter')
     expect(sql.toLowerCase()).not.toContain('join')
@@ -68,9 +79,10 @@ describe('buildScopeSql', () => {
       buildOverlapCountSql({ ...scope, savedFilterSets: [] }),
       buildCsvSql(scope),
       buildDistrictSql(CONGRESSIONAL.districtId),
+      buildVoterColumnsSql(),
     ]
 
-    for (const sql of statements) {
+    for (const { sql } of statements) {
       const tables = sql.match(/m_people_api__[a-z_]+/g) ?? []
       expect(new Set(tables).size).toBeLessThanOrEqual(1)
       for (const table of tables) {
@@ -79,89 +91,169 @@ describe('buildScopeSql', () => {
         )
       }
     }
+
+    // The column list is the one statement that reads a catalog view, and it
+    // names no voter table at all: the table it asks about is a bound value.
+    const columns = buildVoterColumnsSql()
+    expect(columns.sql).toContain('information_schema.columns')
+    expect(columns.sql).not.toContain('m_people_api__voter')
+    expect(columns.params.map(({ value }) => value)).toEqual([
+      PEOPLE_DBX_SCHEMA,
+      'm_people_api__voter',
+    ])
   })
 
   it('drops the district predicate for a state-named State district', () => {
-    const sql = buildScopeSql({ district: STATEWIDE, filters: noFilters() })
+    const bag = createBag()
+    const sql = buildScopeSql(bag, {
+      district: STATEWIDE,
+      filters: noFilters(),
+    })
 
-    expect(sql).toBe("WHERE v.`State` = 'CA'")
+    expect(sql).toBe('WHERE v.`State` = :p0')
+    expect(bag.params).toEqual([{ name: 'p0', value: 'CA', type: 'STRING' }])
   })
 
   it('keeps the state predicate on every query', () => {
-    const withFilters = buildScopeSql({
+    const bag = createBag()
+    const withFilters = buildScopeSql(bag, {
       district: CONGRESSIONAL,
       filters: parseFilters({ hasCellPhone: true }),
       search: 'smith',
     })
 
-    expect(withFilters.startsWith("WHERE v.`State` = 'CA' AND")).toBe(true)
+    expect(withFilters.startsWith('WHERE v.`State` = :p0 AND')).toBe(true)
+    expect(bag.params[0]).toEqual({ name: 'p0', value: 'CA', type: 'STRING' })
   })
 })
 
 describe('buildSearchSql', () => {
   it('matches a 10-digit phone against both formatted columns', () => {
-    expect(buildSearchSql('4155551234')).toBe(
-      "(v.`VoterTelephones_CellPhoneFormatted` = '(415) 555-1234'" +
-        " OR v.`VoterTelephones_LandlineFormatted` = '(415) 555-1234')",
+    const bag = createBag()
+
+    expect(buildSearchSql(bag, '4155551234')).toBe(
+      '(v.`VoterTelephones_CellPhoneFormatted` = :p0' +
+        ' OR v.`VoterTelephones_LandlineFormatted` = :p0)',
     )
+    expect(bag.params).toEqual([
+      { name: 'p0', value: '(415) 555-1234', type: 'STRING' },
+    ])
   })
 
   it('strips a leading 1 from an 11-digit phone', () => {
-    expect(buildSearchSql('14155551234')).toContain("'(415) 555-1234'")
+    const bag = createBag()
+    buildSearchSql(bag, '14155551234')
+
+    expect(bag.params.map(({ value }) => value)).toEqual(['(415) 555-1234'])
   })
 
   it('treats a 9-digit number as a name token, not a phone', () => {
-    const sql = buildSearchSql('415555123')
+    const bag = createBag()
+    const sql = buildSearchSql(bag, '415555123')
 
-    expect(sql).toContain('lower(v.`FirstName`) LIKE')
-    expect(sql).toContain("'%415555123%'")
+    expect(sql).toContain('lower(v.`FirstName`) LIKE :p0')
+    expect(bag.params.map(({ value }) => value)).toEqual(['%415555123%'])
   })
 
   it('uses an infix pattern for tokens of three or more chars', () => {
-    expect(buildSearchSql('smith')).toBe(
-      "(lower(v.`FirstName`) LIKE '%smith%' ESCAPE '\\\\'" +
-        " OR lower(v.`LastName`) LIKE '%smith%' ESCAPE '\\\\')",
+    const bag = createBag()
+
+    expect(buildSearchSql(bag, 'smith')).toBe(
+      "(lower(v.`FirstName`) LIKE :p0 ESCAPE '\\\\'" +
+        " OR lower(v.`LastName`) LIKE :p0 ESCAPE '\\\\')",
     )
+    expect(bag.params).toEqual([
+      { name: 'p0', value: '%smith%', type: 'STRING' },
+    ])
   })
 
   it('anchors tokens of one or two chars to a prefix', () => {
-    const sql = buildSearchSql('li')
+    const bag = createBag()
+    const sql = buildSearchSql(bag, 'li')
 
-    expect(sql).toContain("LIKE 'li%'")
-    expect(sql).not.toContain("'%li%'")
+    expect(sql).toContain('LIKE :p0')
+    expect(bag.params.map(({ value }) => value)).toEqual(['li%'])
   })
 
   it('AND-joins multiple tokens, each matching either name column', () => {
-    const sql = buildSearchSql('jane doe') ?? ''
+    const bag = createBag()
+    const sql = buildSearchSql(bag, 'jane doe') ?? ''
 
-    expect(sql).toContain("'%jane%'")
-    expect(sql).toContain("'%doe%'")
+    expect(bag.params.map(({ value }) => value)).toEqual(['%jane%', '%doe%'])
+    expect(sql).toContain(':p0')
+    expect(sql).toContain(':p1')
     expect(sql.split(' AND ')).toHaveLength(2)
   })
 
   it('escapes LIKE metacharacters so they cannot widen the match', () => {
-    expect(buildSearchSql('a_b')).toContain("'%a\\\\_b%'")
-    expect(buildSearchSql('a%b')).toContain("'%a\\\\%b%'")
+    const underscore = createBag()
+    buildSearchSql(underscore, 'a_b')
+    const percent = createBag()
+    buildSearchSql(percent, 'a%b')
+
+    expect(underscore.params.map(({ value }) => value)).toEqual(['%a\\_b%'])
+    expect(percent.params.map(({ value }) => value)).toEqual(['%a\\%b%'])
   })
 
   it('escapes a backslash in the token', () => {
-    const sql = buildSearchSql('a\\b')
+    const bag = createBag()
+    buildSearchSql(bag, 'a\\b')
 
-    expect(sql).toContain("'%a\\\\\\\\b%'")
+    expect(bag.params.map(({ value }) => value)).toEqual(['%a\\\\b%'])
   })
 
   it('returns null for blank input', () => {
-    expect(buildSearchSql('   ')).toBeNull()
+    const bag = createBag()
+
+    expect(buildSearchSql(bag, '   ')).toBeNull()
+    expect(bag.params).toEqual([])
   })
 })
 
-describe('lit', () => {
-  it('escapes a quote so a name like O’Brien cannot break the SQL', () => {
-    expect(lit("O'Brien")).toBe("'O\\'Brien'")
+// Nothing a caller supplies is spliced into the statement, which is a stronger
+// property than escaping it correctly: a quote or a backslash reaches the
+// warehouse as a bound VALUE, and the statement text never carries it at all.
+describe('caller values are bound, never spliced into the SQL', () => {
+  it('binds a quoted search term instead of escaping it', () => {
+    const bag = createBag()
+    const sql = buildSearchSql(bag, "O'Brien") ?? ''
+
+    expect(sql).toContain('lower(v.`FirstName`) LIKE :p0')
+    expect(sql).not.toContain("O'Brien")
+    expect(sql).not.toContain('brien')
+    expect(bag.params).toEqual([
+      { name: 'p0', value: "%o'brien%", type: 'STRING' },
+    ])
   })
 
-  it('escapes a backslash', () => {
-    expect(lit('a\\b')).toBe("'a\\\\b'")
+  it('binds a backslash search term instead of escaping it', () => {
+    const bag = createBag()
+    const sql = buildSearchSql(bag, 'a\\b\\c') ?? ''
+
+    expect(sql).toContain('lower(v.`FirstName`) LIKE :p0')
+    expect(sql).not.toContain('a\\')
+    // The only doubling left is the LIKE escape, which is pattern semantics
+    // rather than SQL quoting, and it happens inside the bound value.
+    expect(bag.params).toEqual([
+      { name: 'p0', value: '%a\\\\b\\\\c%', type: 'STRING' },
+    ])
+  })
+
+  it('binds a district name carrying a quote, verbatim', () => {
+    const bag = createBag()
+    const sql = buildScopeSql(bag, {
+      district: { ...CONGRESSIONAL, districtName: "O'Brien Township" },
+      filters: noFilters(),
+    })
+
+    expect(sql).toBe(
+      'WHERE v.`State` = :p0 AND v.`US_Congressional_District` = :p1',
+    )
+    expect(sql).not.toContain("O'Brien")
+    expect(bag.params).toEqual([
+      { name: 'p0', value: 'CA', type: 'STRING' },
+      { name: 'p1', value: "O'Brien Township", type: 'STRING' },
+    ])
   })
 })
 
@@ -196,70 +288,101 @@ describe('buildVoterFiltersSql', () => {
     )
     for (const [key, value] of Object.entries(sample)) {
       expect(
-        buildVoterFiltersSql(parseFilters({ [key]: value })),
+        buildVoterFiltersSql(createBag(), parseFilters({ [key]: value })),
       ).not.toBeNull()
     }
   })
 
   it('maps homeowner display values to their L2 values', () => {
+    const bag = createBag()
     const sql = buildVoterFiltersSql(
+      bag,
       parseFilters({ homeowner: { in: ['Yes'] } }),
     )
 
-    expect(sql).toBe("v.`Homeowner_Probability_Model` IN ('Home Owner')")
+    expect(sql).toBe('v.`Homeowner_Probability_Model` IN (:p0)')
+    expect(bag.params).toEqual([
+      { name: 'p0', value: 'Home Owner', type: 'STRING' },
+    ])
   })
 
   it('treats an Unknown selection as a null check', () => {
+    const bag = createBag()
     const sql = buildVoterFiltersSql(
+      bag,
       parseFilters({ gender: { in: ['Unknown'] } }),
     )
 
     expect(sql).toBe('v.`Gender` IS NULL')
+    expect(bag.params).toEqual([])
   })
 
   it('ORs the null branch when Unknown is mixed with real values', () => {
+    const bag = createBag()
     const sql = buildVoterFiltersSql(
+      bag,
       parseFilters({ gender: { in: ['F', 'Unknown'] } }),
     )
 
-    expect(sql).toBe("(v.`Gender` IN ('F') OR v.`Gender` IS NULL)")
+    expect(sql).toBe('(v.`Gender` IN (:p0) OR v.`Gender` IS NULL)')
+    expect(bag.params).toEqual([{ name: 'p0', value: 'F', type: 'STRING' }])
   })
 
   it('builds the political-party Other predicate with an explicit null', () => {
+    const bag = createBag()
     const sql = buildVoterFiltersSql(
+      bag,
       parseFilters({ politicalParty: { in: ['Other'] } }),
     )
 
     expect(sql).toContain('v.`Parties_Description` IS NULL OR')
-    expect(sql).toContain('NOT IN (')
+    expect(sql).toContain('NOT IN (:p0')
+    expect(bag.params.map(({ value }) => value)).toEqual([
+      ...ALL_KNOWN_PARTY_VALUES,
+    ])
   })
 
   it('includes nulls in a numeric range when asked', () => {
+    const bag = createBag()
     const sql = buildVoterFiltersSql(
+      bag,
       parseFilters({ ageInt: { gte: 30, lte: 40, _includeNull: true } }),
     )
 
     expect(sql).toBe(
-      '(v.`Age_Int` >= 30 AND v.`Age_Int` <= 40 OR v.`Age_Int` IS NULL)',
+      '(v.`Age_Int` >= :p0 AND v.`Age_Int` <= :p1 OR v.`Age_Int` IS NULL)',
     )
+    expect(bag.params).toEqual([
+      { name: 'p0', value: '30', type: 'INT' },
+      { name: 'p1', value: '40', type: 'INT' },
+    ])
   })
 
   it('renders hasAnyPhone as cell OR landline', () => {
-    expect(buildVoterFiltersSql(parseFilters({ hasAnyPhone: true }))).toBe(
+    const bag = createBag()
+
+    expect(buildVoterFiltersSql(bag, parseFilters({ hasAnyPhone: true }))).toBe(
       '(v.`VoterTelephones_CellPhoneFormatted` IS NOT NULL OR ' +
         'v.`VoterTelephones_LandlineFormatted` IS NOT NULL)',
     )
+    expect(bag.params).toEqual([])
   })
 
+  // Id sets stay interpolated rather than bound: the contract permits 100k ids
+  // per set, well past the API's 10,000-parameter ceiling.
   it('renders an id set as IN / NOT IN over the primary key', () => {
     const id = '11111111-1111-1111-1111-111111111111'
+    const inBag = createBag()
+    const notInBag = createBag()
 
-    expect(buildVoterFiltersSql(parseFilters({ id: { in: [id] } }))).toBe(
-      `v.\`id\` IN ('${id}')`,
-    )
-    expect(buildVoterFiltersSql(parseFilters({ id: { notIn: [id] } }))).toBe(
-      `v.\`id\` NOT IN ('${id}')`,
-    )
+    expect(
+      buildVoterFiltersSql(inBag, parseFilters({ id: { in: [id] } })),
+    ).toBe(`v.\`id\` IN ('${id}')`)
+    expect(
+      buildVoterFiltersSql(notInBag, parseFilters({ id: { notIn: [id] } })),
+    ).toBe(`v.\`id\` NOT IN ('${id}')`)
+    expect(inBag.params).toEqual([])
+    expect(notInBag.params).toEqual([])
   })
 
   // The comparison here is on STRING, not uuid. Postgres casts to `::uuid[]`,
@@ -268,18 +391,21 @@ describe('buildVoterFiltersSql', () => {
   it('lowercases ids so a mixed-case uuid still matches', () => {
     const mixed = '11111111-1111-4111-A111-111111111111'
 
-    expect(buildVoterFiltersSql(parseFilters({ id: { in: [mixed] } }))).toBe(
-      `v.\`id\` IN ('${mixed.toLowerCase()}')`,
-    )
-    expect(buildVoterFiltersSql(parseFilters({ id: { notIn: [mixed] } }))).toBe(
-      `v.\`id\` NOT IN ('${mixed.toLowerCase()}')`,
-    )
+    expect(
+      buildVoterFiltersSql(createBag(), parseFilters({ id: { in: [mixed] } })),
+    ).toBe(`v.\`id\` IN ('${mixed.toLowerCase()}')`)
+    expect(
+      buildVoterFiltersSql(
+        createBag(),
+        parseFilters({ id: { notIn: [mixed] } }),
+      ),
+    ).toBe(`v.\`id\` NOT IN ('${mixed.toLowerCase()}')`)
   })
 
   it('lowercases override id sets too', () => {
     const include = ['AAAAAAAA-1111-4111-8111-111111111111']
     const exclude = ['BBBBBBBB-2222-4222-8222-222222222222']
-    const sql = buildVoterFiltersSql(noFilters(), undefined, {
+    const sql = buildVoterFiltersSql(createBag(), noFilters(), undefined, {
       include,
       exclude,
     })
@@ -290,46 +416,87 @@ describe('buildVoterFiltersSql', () => {
     expect(sql).not.toContain('BBBBBBBB')
   })
 
+  // The uuid shape is what makes interpolating an id set safe, so it is
+  // re-checked at the point of interpolation rather than trusted from the
+  // schema: anything else is refused instead of reaching the statement.
+  it('refuses to interpolate an id that is not a uuid', () => {
+    expect(() =>
+      buildVoterFiltersSql(createBag(), noFilters(), undefined, {
+        include: ["' OR 1=1 --"],
+      }),
+    ).toThrow('Refusing to inline a non-uuid id')
+    expect(() =>
+      buildVoterFiltersSql(
+        createBag(),
+        parseFilters({ voterStatus: { in: ['Super'] } }),
+        { exclude: ['not-a-uuid'] },
+      ),
+    ).toThrow('Refusing to inline a non-uuid id')
+  })
+
   // Mirrors the Postgres path's `::integer[]` cast, which rounds. Without it a
   // fractional value the contract permits would match zero rows here and some
   // rows there.
   it('rounds a fractional value in a numeric in-list', () => {
-    expect(buildVoterFiltersSql(parseFilters({ ageInt: { in: [30.5] } }))).toBe(
-      'v.`Age_Int` IN (31)',
-    )
+    const bag = createBag()
+
+    expect(
+      buildVoterFiltersSql(bag, parseFilters({ ageInt: { in: [30.5] } })),
+    ).toBe('v.`Age_Int` IN (:p0)')
+    expect(bag.params).toEqual([{ name: 'p0', value: '31', type: 'INT' }])
   })
 
   it('scopes idOverrides to the voterStatus clause only', () => {
     const include = ['11111111-1111-1111-1111-111111111111']
     const exclude = ['22222222-2222-2222-2222-222222222222']
+    const bag = createBag()
     const sql = buildVoterFiltersSql(
+      bag,
       parseFilters({ voterStatus: { in: ['Super'] }, hasCellPhone: true }),
       { include, exclude },
     )
 
     expect(sql).toContain(
-      "((v.`Voter_Status` IN ('Super') AND v.`id` NOT IN " +
+      '((v.`Voter_Status` IN (:p0) AND v.`id` NOT IN ' +
         `('${exclude[0]}')) OR v.\`id\` IN ('${include[0]}'))`,
     )
     // The channel filter stays outside the override composite.
     expect(sql).toContain('v.`VoterTelephones_CellPhoneFormatted` IS NOT NULL')
+    expect(bag.params).toEqual([{ name: 'p0', value: 'Super', type: 'STRING' }])
   })
 
   it('composes contactsMadeIdOverrides as its own top-level clause', () => {
     const include = ['11111111-1111-1111-1111-111111111111']
-    const sql = buildVoterFiltersSql(noFilters(), undefined, { include })
+    const bag = createBag()
+    const sql = buildVoterFiltersSql(bag, noFilters(), undefined, { include })
 
     expect(sql).toBe(`(TRUE OR v.\`id\` IN ('${include[0]}'))`)
+    expect(bag.params).toEqual([])
   })
 
   it('returns null when nothing is filtered', () => {
-    expect(buildVoterFiltersSql(noFilters())).toBeNull()
+    const bag = createBag()
+
+    expect(buildVoterFiltersSql(bag, noFilters())).toBeNull()
+    expect(bag.params).toEqual([])
+  })
+})
+
+describe('buildDistrictSql', () => {
+  it('binds the district id rather than splicing it in', () => {
+    const districtId = CONGRESSIONAL.districtId
+    const { sql, params } = buildDistrictSql(districtId)
+
+    expect(sql).toContain('SELECT id, state, type, name FROM')
+    expect(sql.endsWith('WHERE id = :p0')).toBe(true)
+    expect(sql).not.toContain(districtId)
+    expect(params).toEqual([{ name: 'p0', value: districtId, type: 'STRING' }])
   })
 })
 
 describe('aggregate and page queries', () => {
   it('selects count and both averages', () => {
-    const sql = buildAggregatesSql({
+    const { sql } = buildAggregatesSql({
       district: CONGRESSIONAL,
       filters: noFilters(),
     })
@@ -340,7 +507,7 @@ describe('aggregate and page queries', () => {
   })
 
   it('orders a page by id and applies LIMIT/OFFSET', () => {
-    const sql = buildPageSql({
+    const { sql, params } = buildPageSql({
       district: CONGRESSIONAL,
       filters: noFilters(),
       columns: ['id', 'FirstName'],
@@ -349,11 +516,17 @@ describe('aggregate and page queries', () => {
     })
 
     expect(sql).toContain('SELECT v.`id` AS `id`, v.`FirstName` AS `FirstName`')
-    expect(sql.endsWith('ORDER BY v.`id` LIMIT 50 OFFSET 100')).toBe(true)
+    expect(sql.endsWith('ORDER BY v.`id` LIMIT :p2 OFFSET :p3')).toBe(true)
+    expect(params).toEqual([
+      { name: 'p0', value: 'CA', type: 'STRING' },
+      { name: 'p1', value: '29', type: 'STRING' },
+      { name: 'p2', value: '50', type: 'INT' },
+      { name: 'p3', value: '100', type: 'INT' },
+    ])
   })
 
   it('ORs the saved sets into the overlap count', () => {
-    const sql = buildOverlapCountSql({
+    const { sql, params } = buildOverlapCountSql({
       district: CONGRESSIONAL,
       filters: noFilters(),
       savedFilterSets: [parseFilters({ hasCellPhone: true }), parseFilters({})],
@@ -362,10 +535,11 @@ describe('aggregate and page queries', () => {
     expect(sql).toContain(
       'AND (v.`VoterTelephones_CellPhoneFormatted` IS NOT NULL OR TRUE)',
     )
+    expect(params.map(({ value }) => value)).toEqual(['CA', '29'])
   })
 
   it('matches nothing when there are no saved sets', () => {
-    const sql = buildOverlapCountSql({
+    const { sql } = buildOverlapCountSql({
       district: CONGRESSIONAL,
       filters: noFilters(),
       savedFilterSets: [],
@@ -377,7 +551,10 @@ describe('aggregate and page queries', () => {
 
 describe('buildCsvSql', () => {
   it('null-coalesces every column so NULL is a blank field, not "null"', () => {
-    const sql = buildCsvSql({ district: CONGRESSIONAL, filters: noFilters() })
+    const { sql, params } = buildCsvSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+    })
 
     expect(sql).toContain(
       "nvl(CAST(v.`LALVOTERID` AS STRING), '') AS `Voter ID`",
@@ -385,10 +562,11 @@ describe('buildCsvSql', () => {
     expect(sql).toContain(
       "nvl(CAST(v.`FirstName` AS STRING), '') AS `First Name`",
     )
+    expect(params.map(({ value }) => value)).toEqual(['CA', '29'])
   })
 
   it('omits excluded columns from the projection', () => {
-    const sql = buildCsvSql({
+    const { sql } = buildCsvSql({
       district: CONGRESSIONAL,
       filters: noFilters(),
       excludeColumns: ['Parties_Description'],

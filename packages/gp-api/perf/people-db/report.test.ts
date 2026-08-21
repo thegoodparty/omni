@@ -26,39 +26,19 @@ describe('report', () => {
       {
         env: 'dev',
         mode: 'latency',
-        store: 'databricks',
         gitSha: 'abc123',
         startedAt: '2026-07-31T00:00:00Z',
       },
       [mk({})],
-    ) as { env: string; store: string; results: unknown[] }
+    ) as { env: string; results: unknown[] }
     expect(a.env).toBe('dev')
-    // meta is spread wholesale, so the store travels with the numbers rather
-    // than being re-derived by whatever reads the JSON.
-    expect(a.store).toBe('databricks')
     expect(a.results).toHaveLength(1)
   })
 
   it('derives the artifact path', () => {
     expect(
-      artifactPath({
-        env: 'prod',
-        mode: 'load',
-        store: 'postgres',
-        gitSha: 'deadbeef',
-      }),
-    ).toBe('scripts/output/people-db-bench-prod-postgres-deadbeef-load.json')
-  })
-
-  it('keeps the two stores from overwriting each other', () => {
-    // Same env, same commit, same mode: only the store segment separates them.
-    const meta = { env: 'prod', mode: 'latency', gitSha: 'deadbeef' }
-    expect(artifactPath({ ...meta, store: 'postgres' })).not.toBe(
-      artifactPath({ ...meta, store: 'databricks' }),
-    )
-    expect(artifactPath({ ...meta, store: 'databricks' })).toBe(
-      'scripts/output/people-db-bench-prod-databricks-deadbeef-latency.json',
-    )
+      artifactPath({ env: 'prod', mode: 'load', gitSha: 'deadbeef' }),
+    ).toBe('scripts/output/people-db-bench-prod-deadbeef-load.json')
   })
 
   it('legend defines the jargon a first-time reader needs', () => {

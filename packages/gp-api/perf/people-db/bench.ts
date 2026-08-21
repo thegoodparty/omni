@@ -7,38 +7,22 @@ import { runLoad } from './runLoad'
 
 export const parseArgs = (
   argv: string[],
-): {
-  mode: 'latency' | 'load'
-  env: string
-  store: 'postgres' | 'databricks'
-  smoke: boolean
-} => {
+): { mode: 'latency' | 'load'; env: string; smoke: boolean } => {
   const { values } = nodeParseArgs({
     args: argv,
     options: {
       mode: { type: 'string', default: 'latency' },
       env: { type: 'string', default: 'dev' },
-      store: { type: 'string', default: 'postgres' },
       smoke: { type: 'boolean', default: false },
     },
   })
   const mode = values.mode === 'load' ? 'load' : 'latency'
-  const store = values.store === 'databricks' ? 'databricks' : 'postgres'
-  return {
-    mode,
-    env: String(values.env),
-    store,
-    smoke: Boolean(values.smoke),
-  }
+  return { mode, env: String(values.env), smoke: Boolean(values.smoke) }
 }
 
 const main = async (): Promise<void> => {
   const args = parseArgs(process.argv.slice(2))
   if (args.mode === 'load') console.log(`load mode target env=${args.env}`)
-  // Set before createHarness(): the harness boots the Nest graph, which reads
-  // the flag when it picks which people-db implementation to bind.
-  process.env.USE_DATABRICKS_PEOPLE_DB =
-    args.store === 'databricks' ? 'true' : 'false'
   const harness = await createHarness()
   try {
     if (args.smoke) {
@@ -51,19 +35,11 @@ const main = async (): Promise<void> => {
     }
     const gitSha = execSync('git rev-parse --short HEAD').toString().trim()
     if (args.mode === 'latency') {
-      await runLatency(harness, {
-        env: args.env,
-        store: args.store,
-        gitSha,
-      })
+      await runLatency(harness, { env: args.env, gitSha })
       return
     }
     if (args.mode === 'load') {
-      const { ok } = await runLoad(harness, {
-        env: args.env,
-        store: args.store,
-        gitSha,
-      })
+      const { ok } = await runLoad(harness, { env: args.env, gitSha })
       if (!ok) process.exitCode = 1
       return
     }

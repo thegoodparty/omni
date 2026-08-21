@@ -66,7 +66,7 @@ candidate cluster and live prod are very different runs.
 ```bash
 cd packages/gp-api
 export PEOPLE_DATABASE_URL='<from SSM>'
-npm run perf:people-db -- --smoke --env=prod --store=postgres
+npm run perf:people-db -- --smoke --env=prod
 ```
 
 One case, boots the Nest graph. If this fails on DI (`undefined` service), the
@@ -76,16 +76,14 @@ npm script does. `tsx` silently drops decorator metadata.
 ### 3. Latency, then load — never together
 
 ```bash
-npm run perf:people-db -- --mode=latency --env=prod --store=postgres
-npm run perf:people-db -- --mode=load --env=prod --store=postgres
+npm run perf:people-db -- --mode=latency --env=prod
+npm run perf:people-db -- --mode=load --env=prod
 ```
 
-`--store` picks the backing store for the run (`postgres`, the default, or
-`databricks`) by setting `USE_DATABRICKS_PEOPLE_DB` before the Nest graph
-boots. The cases and what they measure are identical either way — the
-Databricks run needs the `PEOPLE_DATABRICKS_*` credentials instead of
-`PEOPLE_DATABASE_URL`, and no VPN. The store is part of the artifact filename
-and its provenance table, so the two runs never overwrite each other.
+The suite measures whatever the services read. Voter queries come from
+Databricks (needs `PEOPLE_DATABRICKS_*`), and the `sample` cells still read
+people-db (needs `PEOPLE_DATABASE_URL`, and the VPN for prod). For a
+before/after comparison, run the same suite on `main` and on the branch.
 
 Run them **sequentially**. Concurrently they contend for the same 50-connection
 pool and neither number means anything.
@@ -108,8 +106,8 @@ The suite's own guidance is off-peak only. Before running it against live prod:
 Each run prints both paths:
 
 ```
-artifact: scripts/output/people-db-bench-<env>-<store>-<sha>-<mode>.json
-artifact (html): scripts/output/people-db-bench-<env>-<store>-<sha>-<mode>.html
+artifact: scripts/output/people-db-bench-<env>-<sha>-<mode>.json
+artifact (html): scripts/output/people-db-bench-<env>-<sha>-<mode>.html
 ```
 
 Publish the `.html` with the Artifact tool as-is. Do not edit it, do not
@@ -123,7 +121,7 @@ regenerate it by hand, do not add sections.
 To re-render an older JSON after the renderer changes (no re-run needed):
 
 ```bash
-npm run perf:people-db:html -- scripts/output/people-db-bench-prod-postgres-<sha>-latency.json
+npm run perf:people-db:html -- scripts/output/people-db-bench-prod-<sha>-latency.json
 ```
 
 Older JSON predating a new variant renders fine — the matrix just has fewer

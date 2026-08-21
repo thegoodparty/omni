@@ -3,17 +3,15 @@ import { Module } from '@nestjs/common'
 import type { IdOverrides, PeopleFilters } from '@goodparty_org/contracts'
 import { PeopleDbModule } from '@/peopleDb/peopleDb.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
-import { PeopleDbService } from '@/peopleDb/peopleDb.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
-import { DistrictService } from '@/peopleDb/services/district.service'
 import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
-import { resolveDistrict } from '@/peopleDb/utils/resolveDistrict.util'
-import { stateEquals } from '@/peopleDb/utils/buildVoterWhereSql.util'
 import { DatabricksVoterService } from '@/peopleDb/databricks/databricksVoter.service'
 import { PeopleDbxStatementClient } from '@/peopleDb/databricks/peopleDbxStatement.client'
-import { useDatabricksPeopleDb } from '@/peopleDb/databricks/peopleDbx.config'
-import { lit, VOTER_TABLE } from '@/peopleDb/databricks/databricksVoterSql.util'
+import {
+  createBag,
+  VOTER_TABLE,
+} from '@/peopleDb/databricks/databricksVoterSql.util'
 import {
   listPeopleSchema,
   aggregatesSchema,
@@ -49,20 +47,12 @@ export type Harness = {
 }
 
 export const createHarness = async (): Promise<Harness> => {
-  const useDbx = useDatabricksPeopleDb()
-  if (!useDbx && !process.env.PEOPLE_DATABASE_URL) {
-    throw new Error(
-      'PEOPLE_DATABASE_URL must be set before booting the harness',
-    )
-  }
   const app = await NestFactory.createApplicationContext(BenchModule, {
     logger: false,
   })
   const voterQuery = app.get(VoterQueryService)
   const stats = app.get(StatsService)
   const download = app.get(VoterDownloadService)
-  const districts = app.get(DistrictService)
-  const peopleDb = app.get(PeopleDbService)
   const dbxVoters = app.get(DatabricksVoterService)
   const dbxClient = app.get(PeopleDbxStatementClient)
 
@@ -76,19 +66,25 @@ export const createHarness = async (): Promise<Harness> => {
   // branch beyond dropping that column predicate.
   const sampleIdsFromDbx = async (districtId: string): Promise<string[]> => {
     const district = await dbxVoters.resolveDistrict(districtId)
-    const scope = [`v.\`State\` = ${lit(district.state)}`]
+    const bag = createBag()
+    const scope = [`v.\`State\` = ${bag.bind(district.state)}`]
     if (district.useVoterOnlyPath) {
-      scope.push(`substr(md5(v.\`id\`), 1, 2) = ${lit(STATEWIDE_ID_BUCKET)}`)
+      scope.push(
+        `substr(md5(v.\`id\`), 1, 2) = ${bag.bind(STATEWIDE_ID_BUCKET)}`,
+      )
     } else {
       scope.push(
-        `v.\`${district.districtType}\` = ${lit(district.districtName)}`,
+        `v.\`${district.districtType}\` = ${bag.bind(district.districtName)}`,
       )
     }
-    const { rows } = await dbxClient.query(
-      `SELECT v.\`id\` FROM ${VOTER_TABLE} v WHERE ${scope.join(' AND ')}` +
-        ` ORDER BY md5(concat(v.\`id\`, ${lit(ID_SAMPLE_SEED)}))` +
-        ` LIMIT ${ID_SET_SIZE}`,
-    )
+    const seed = bag.bind(ID_SAMPLE_SEED)
+    const limit = bag.bind(ID_SET_SIZE, 'INT')
+    const { rows } = await dbxClient.query({
+      sql:
+        `SELECT v.\`id\` FROM ${VOTER_TABLE} v WHERE ${scope.join(' AND ')}` +
+        ` ORDER BY md5(concat(v.\`id\`, ${seed})) LIMIT ${limit}`,
+      params: bag.params,
+    })
     return rows
       .map(([id]) => id)
       .filter((id): id is string => typeof id === 'string')
@@ -97,41 +93,7 @@ export const createHarness = async (): Promise<Harness> => {
   const sampleIds = async (districtId: string): Promise<string[]> => {
     const cached = idSets.get(districtId)
     if (cached) return cached
-    if (useDbx) {
-      const dbxIds = await sampleIdsFromDbx(districtId)
-      if (dbxIds.length === 0) {
-        throw new Error(`no ids sampled for district ${districtId}`)
-      }
-      idSets.set(districtId, dbxIds)
-      return dbxIds
-    }
-    const { useVoterOnlyPath, state } = await resolveDistrict(districts, {
-      districtId,
-    })
-    const client = peopleDb.instance
-    // A State district has NO DistrictVoter rows at all (verified against prod:
-    // count is 0), so the voter-only path is required here, not merely faster.
-    // stateEquals inlines the state as a literal because a bound-and-cast
-    // parameter breaks the planner's constant propagation; the bucket predicate
-    // keeps the sort off the whole 23M-row partition.
-    const rows = useVoterOnlyPath
-      ? await client.$queryRaw<{ id: string }[]>`
-          SELECT v."id"::text AS id
-          FROM "green"."Voter" v
-          WHERE ${stateEquals('v', state)}
-            AND substr(md5(v."id"::text), 1, 2) = ${STATEWIDE_ID_BUCKET}
-          ORDER BY md5(v."id"::text || ${ID_SAMPLE_SEED})
-          LIMIT ${ID_SET_SIZE}`
-      : // No join to Voter: dv."voter_id" IS the id we want, and joining costs
-        // one random probe into a cold multi-GB state partition per sampled
-        // row (measured 44-60s per cohort against ~1s without it).
-        await client.$queryRaw<{ id: string }[]>`
-          SELECT dv."voter_id"::text AS id
-          FROM "green"."DistrictVoter" dv
-          WHERE dv."district_id" = ${districtId}::uuid
-          ORDER BY md5(dv."voter_id"::text || ${ID_SAMPLE_SEED})
-          LIMIT ${ID_SET_SIZE}`
-    const ids = rows.map((r) => r.id)
+    const ids = await sampleIdsFromDbx(districtId)
     if (ids.length === 0) {
       throw new Error(`no ids sampled for district ${districtId}`)
     }
