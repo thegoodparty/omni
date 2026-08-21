@@ -75,7 +75,13 @@ never send `pending_payment` themselves.
   `PhoneBankingCallService` (`src/phoneBanking/`, ENG-10915), in the same
   transaction as the interaction-row upsert that logs the last un-logged
   person, once every person on every entry has a row. `nativeDoorKnocking`
-  has no such flip today — it stays `in_progress` for the life of the route.
+  flips too, but on a different trigger: the canvasser ending the session
+  (`POST /v1/door-knocking/turfs/:id/complete`), not exhaustion of the roster
+  — a walk is routinely finished with doors left unlogged, so "every person
+  has a row" would almost never fire. The turf's `completedAt` is the source
+  of truth and the envelope's status is a mirror of it, because the envelope
+  needs a `campaignId` and Serve orgs knock without one; see
+  `docs/door-knocking.md`.
 
 ## Contracts / models
 
