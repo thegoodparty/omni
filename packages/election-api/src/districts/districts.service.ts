@@ -27,8 +27,7 @@ export class DistrictsService extends createPrismaBase(MODELS.District) {
   async getDistricts(dto: GetDistrictsDTO) {
     const { districtColumns } = dto
 
-    // turnoutWhere still feeds the excludeInvalid existence filter below; only
-    // the eager turnout payload is gone.
+    // Feeds the excludeInvalid existence filter in buildDistrictWhere.
     const turnoutWhere = this.buildTurnoutWhere(dto)
     const where = this.buildDistrictWhere(dto, turnoutWhere)
 
