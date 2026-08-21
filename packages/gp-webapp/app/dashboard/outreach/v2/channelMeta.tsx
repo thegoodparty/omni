@@ -3,6 +3,7 @@ import { Badge, StatusText } from '@styleguide'
 import {
   CalendarClockIcon,
   CheckCircleIcon,
+  CircleDotIcon,
   ClockIcon,
   DoorOpenIcon,
   HeadphonesIcon,
@@ -69,6 +70,15 @@ export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
     iconTint: 'bg-success-light',
     badgeTint: 'border-transparent bg-success-light text-foreground',
   },
+  // Same presentation as the legacy type: a candidate reading the history has
+  // no use for the distinction between an eCanvasser draft and a native walk,
+  // and a channel that renders two ways reads as two channels.
+  nativeDoorKnocking: {
+    label: 'Door knocking',
+    icon: <DoorOpenIcon />,
+    iconTint: 'bg-success-light',
+    badgeTint: 'border-transparent bg-success-light text-foreground',
+  },
 }
 
 export const getChannelLabel = (type: string | undefined): string => {
@@ -99,6 +109,7 @@ const STATUS_DISPLAY: Record<
   'In review': { icon: <ClockIcon />, tone: 'primary' },
   Denied: { icon: <XCircleIcon />, tone: 'destructive' },
   Scheduled: { icon: <CalendarClockIcon />, tone: 'primary' },
+  'In progress': { icon: <CircleDotIcon />, tone: 'primary' },
   Done: { icon: <CheckCircleIcon />, tone: 'primary' },
   'Pending payment': { icon: <ClockIcon />, tone: 'warning' },
 }

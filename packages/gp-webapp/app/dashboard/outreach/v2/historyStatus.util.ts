@@ -69,10 +69,15 @@ export const getHistoryStatusLabel = (row: HistoryRow): string | null => {
   if (!status || !isStatusKey(status)) {
     return null
   }
-  // nativePhoneBanking only ever carries in_progress/completed, and its
-  // in_progress means callers are actively dialing — not the non-p2p map's
-  // "Scheduled" (a legacy pre-send state).
-  if (row.outreachType === 'nativePhoneBanking' && status === 'in_progress') {
+  // The native channels only ever carry in_progress/completed, and their
+  // in_progress means the work is actively happening — callers dialing, a
+  // canvasser walking — not the non-p2p map's "Scheduled", which is a legacy
+  // pre-send state. Both read "In progress" so one vocabulary covers both.
+  if (
+    (row.outreachType === 'nativePhoneBanking' ||
+      row.outreachType === 'nativeDoorKnocking') &&
+    status === 'in_progress'
+  ) {
     return 'In progress'
   }
   return nonP2pStatusLabels[status]
