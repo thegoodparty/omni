@@ -328,20 +328,24 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "writeback-questions":
         import question_writeback as qwb
+        import questions_clickup as qc
 
+        # The ids default from code (they are pointers, not secrets), so the token is the
+        # only thing that can be missing. An env var of the same name still wins.
         api_key = os.environ.get("CLICKUP_API_KEY")
-        list_id = os.environ.get("GP_QUESTIONS_LIST_ID")
-        state_field = os.environ.get("GP_QUESTIONS_STATE_FIELD_ID")
-        checked_field = os.environ.get("GP_QUESTIONS_CHECKED_FIELD_ID")
+        list_id = os.environ.get("GP_QUESTIONS_LIST_ID") or qc.LIST_ID
+        state_field = os.environ.get("GP_QUESTIONS_STATE_FIELD_ID") or qc.STATE_FIELD_ID
+        checked_field = os.environ.get("GP_QUESTIONS_CHECKED_FIELD_ID") or qc.CHECKED_FIELD_ID
         options = {
-            "answerable": os.environ.get("GP_QUESTIONS_OPT_ANSWERABLE", ""),
-            "partially_answerable": os.environ.get("GP_QUESTIONS_OPT_PARTIAL", ""),
-            "not_answerable": os.environ.get("GP_QUESTIONS_OPT_NOT", ""),
+            key: os.environ.get(env_name) or qc.OPTION_IDS[key]
+            for key, env_name in (
+                ("answerable", "GP_QUESTIONS_OPT_ANSWERABLE"),
+                ("partially_answerable", "GP_QUESTIONS_OPT_PARTIAL"),
+                ("not_answerable", "GP_QUESTIONS_OPT_NOT"),
+            )
         }
-        if not all([api_key, list_id, state_field, checked_field, *options.values()]):
-            print("ClickUp write-back needs CLICKUP_API_KEY, GP_QUESTIONS_LIST_ID, "
-                  "GP_QUESTIONS_STATE_FIELD_ID, GP_QUESTIONS_CHECKED_FIELD_ID and the three "
-                  "GP_QUESTIONS_OPT_* option ids", file=sys.stderr)
+        if not api_key:
+            print("ClickUp write-back needs CLICKUP_API_KEY", file=sys.stderr)
             return 2
         rows = question_rows_for_refresh()
         current = qwb.fetch_current_state(api_key, list_id)
