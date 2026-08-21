@@ -215,13 +215,10 @@ export class ElectionsService {
   ) {
     return this.electionApiGet<
       PositionWithOptionalDistrict,
-      { includeDistrict: boolean; includeTurnout: boolean }
+      { includeDistrict: boolean }
     >(
       ElectionApiRoutes.positions.findByBrId.path + `/${ballotreadyPositionId}`,
-      {
-        includeDistrict: options?.includeDistrict ?? false,
-        includeTurnout: false,
-      },
+      { includeDistrict: options?.includeDistrict ?? false },
     )
   }
   // Resolve election-api's internal Position id from a value that may be
@@ -246,7 +243,6 @@ export class ElectionsService {
     positionId: string,
     options?: {
       includeDistrict?: boolean
-      includeTurnout?: boolean
       electionDate?: string
     },
   ) {
@@ -254,12 +250,10 @@ export class ElectionsService {
       PositionWithOptionalDistrict,
       {
         includeDistrict: boolean
-        includeTurnout: boolean
         electionDate?: string
       }
     >(`${ElectionApiRoutes.positions.findById.path}/${positionId}`, {
       includeDistrict: options?.includeDistrict ?? false,
-      includeTurnout: options?.includeTurnout ?? false,
       electionDate: options?.electionDate,
     })
   }
@@ -384,13 +378,11 @@ export class ElectionsService {
         {
           electionDate: string | undefined
           includeDistrict: boolean
-          includeTurnout: boolean
           includeFilingFee: boolean
         }
       >(path, {
         electionDate: electionDate ?? undefined,
         includeDistrict: true,
-        includeTurnout: false,
         includeFilingFee: true,
       })
 

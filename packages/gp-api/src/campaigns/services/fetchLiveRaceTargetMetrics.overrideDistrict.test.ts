@@ -62,7 +62,6 @@ const overrideDistrict: District = {
   state: 'CO',
   L2DistrictType: 'County',
   L2DistrictName: 'LARIMER COUNTY',
-  projectedTurnout: null,
   registeredVoters: 7_500,
   uniqueCellphones: 3_100,
   uniqueLandlines: 900,

@@ -608,7 +608,6 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
         state: 'CA',
         L2DistrictType: 'County',
         L2DistrictName: 'Test County',
-        projectedTurnout: null,
       })
 
   // People data resolves through the in-process people-db services now
@@ -989,7 +988,6 @@ describe('count + download for a saved segment', () => {
         state: 'CA',
         L2DistrictType: 'County',
         L2DistrictName: 'Test County',
-        projectedTurnout: null,
       })
 
   it('counts a saved segment scoped to the campaign district incl. party', async () => {
