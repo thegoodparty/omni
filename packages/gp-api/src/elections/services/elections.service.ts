@@ -390,7 +390,7 @@ export class ElectionsService {
       >(path, {
         electionDate: electionDate ?? undefined,
         includeDistrict: true,
-        includeTurnout,
+        includeTurnout: false,
         includeFilingFee: true,
       })
 
@@ -401,8 +401,19 @@ export class ElectionsService {
         )
       }
 
-      const turnoutValue = district.projectedTurnout?.projectedTurnout
-      const hasTurnout = includeTurnout && !!turnoutValue
+      // Turnout comes from the district-keyed endpoint, the same one the
+      // override-district path uses, rather than a relation embedded in the
+      // position response. It returns null on any failure, so a miss degrades
+      // to the sentinels below instead of throwing.
+      const details =
+        includeTurnout && electionDate
+          ? await this.buildRaceTargetDetails({
+              districtId: district.id,
+              electionDate,
+            })
+          : null
+      const turnoutValue = details?.projectedTurnout
+      const hasTurnout = !!turnoutValue
       const { L2DistrictType: districtType, L2DistrictName: districtName } =
         district
 
@@ -421,8 +432,8 @@ export class ElectionsService {
       })
       return {
         district,
-        ...(hasTurnout
-          ? this.calculateRaceTargetMetrics(turnoutValue)
+        ...(details && hasTurnout
+          ? details
           : {
               // Sentinel values: turnout unavailable or not requested
               winNumber: -1,
@@ -455,7 +466,6 @@ export class ElectionsService {
         officeName,
         districtType: district?.L2DistrictType,
         districtName: district?.L2DistrictName,
-        projectedTurnout: district?.projectedTurnout?.projectedTurnout,
       })
       if (!isNoMatch) {
         const message = this.buildSlackErrorMessage(
