@@ -234,4 +234,30 @@ describe('OutreachHistoryTable — unified history', () => {
 
     expect(onRowClick).toHaveBeenCalledWith(expect.objectContaining({ id: 5 }))
   })
+
+  it('sorts a freshly created row (createdAt, no date — the phone-banking optimistic-prepend shape) above older dated rows', () => {
+    const rows: HistoryRow[] = [
+      {
+        id: 20,
+        date: '2020-01-01',
+        outreachType: 'robocall',
+        name: 'Old campaign',
+        status: 'completed',
+      },
+      {
+        id: 21,
+        createdAt: new Date().toISOString(),
+        outreachType: 'phoneBanking',
+        name: 'Freshly created',
+        status: 'in_progress',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    const names = within(desktopTable())
+      .getAllByText(/^(Old campaign|Freshly created)$/)
+      .map((el) => el.textContent)
+    expect(names).toEqual(['Freshly created', 'Old campaign'])
+  })
 })
