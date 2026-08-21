@@ -112,8 +112,21 @@ describe('ElectionsService', () => {
       officeName: undefined,
     }
 
+    // Two calls now: the position lookup, then the district-keyed turnout.
+    const mockPositionThenTurnout = (turnout: number | null) =>
+      mockHttpGet.mockImplementation((url: string) =>
+        of({
+          data: url.includes('projectedTurnout')
+            ? turnout === null
+              ? null
+              : { projectedTurnout: turnout }
+            : makePosition(null),
+          status: 200,
+        }),
+      )
+
     it('returns calculated metrics when district and turnout are present (BR ID)', async () => {
-      mockHttpGet.mockReturnValue(of({ data: makePosition(1000), status: 200 }))
+      mockPositionThenTurnout(1000)
 
       const { district, projectedTurnout, winNumber, voterContactGoal } =
         await service.getPositionMatchedRaceTargetDetails(brIdParams)
@@ -127,10 +140,16 @@ describe('ElectionsService', () => {
         expect.stringContaining('positions/by-ballotready-id/br-pos-1'),
         expect.objectContaining({ headers: AUTH_HEADER }),
       )
+      expect(mockHttpGet).toHaveBeenCalledWith(
+        expect.stringContaining('projectedTurnout'),
+        expect.objectContaining({
+          params: { districtId: 'district-1', electionDate: '2024-11-05' },
+        }),
+      )
     })
 
     it('returns calculated metrics when district and turnout are present (GP ID)', async () => {
-      mockHttpGet.mockReturnValue(of({ data: makePosition(1000), status: 200 }))
+      mockPositionThenTurnout(1000)
 
       const { district, projectedTurnout, winNumber, voterContactGoal } =
         await service.getPositionMatchedRaceTargetDetails(gpIdParams)
@@ -147,7 +166,7 @@ describe('ElectionsService', () => {
     })
 
     it('returns district with sentinel values when turnout is null', async () => {
-      mockHttpGet.mockReturnValue(of({ data: makePosition(null), status: 200 }))
+      mockPositionThenTurnout(null)
 
       const { district, winNumber, voterContactGoal, projectedTurnout } =
         await service.getPositionMatchedRaceTargetDetails(brIdParams)

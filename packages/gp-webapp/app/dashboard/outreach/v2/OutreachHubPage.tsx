@@ -19,6 +19,7 @@ import { OutreachHistoryTable } from './OutreachHistoryTable'
 import { OutreachDetailsDrawer } from './OutreachDetailsDrawer'
 import { SocialFlow } from './social/SocialFlow'
 import { RobocallFlow } from './robocall/RobocallFlow'
+import { PhoneBankingFlow } from './phone-banking/PhoneBankingFlow'
 import { useSeedOutreachDetail } from './useOutreachDetail'
 import type { HistoryRow } from './historyStatus.util'
 
@@ -46,6 +47,7 @@ const OutreachHubContent = ({
   const [detailsRow, setDetailsRow] = useState<HistoryRow | null>(null)
   const [socialFlowOpen, setSocialFlowOpen] = useState(false)
   const [robocallFlowOpen, setRobocallFlowOpen] = useState(false)
+  const [phoneBankingFlowOpen, setPhoneBankingFlowOpen] = useState(false)
   const seedOutreachDetail = useSeedOutreachDetail()
 
   // The save response is the created row: seed the detail cache (so the
@@ -55,6 +57,29 @@ const OutreachHubContent = ({
     seedOutreachDetail(detail)
     setOutreaches([
       { ...detail, outreachType: 'socialMedia' },
+      ...(outreaches ?? []),
+    ])
+  }
+
+  // The phone-banking create response is the list, not a full OutreachDetail
+  // (unlike social's save) — no detail to seed, just enough to prepend a row
+  // so the history table doesn't stay stale until the next full load.
+  // Status is in_progress (not completed) to match what
+  // phoneBankingList.service.ts actually creates — historyStatus.util.ts
+  // maps that to "Scheduled" until the user reloads and gets the real state.
+  const handlePhoneBankingSaved = (outreachId: number, name: string) => {
+    setOutreaches([
+      {
+        id: outreachId,
+        name,
+        outreachType: 'phoneBanking',
+        status: 'in_progress',
+        // OutreachHistoryTable sorts newest-first off date ?? createdAt
+        // (rowTime falls back to 0 with neither); the create response
+        // carries no timestamp, so without this the row sorts to the
+        // bottom despite being prepended.
+        createdAt: new Date().toISOString(),
+      },
       ...(outreaches ?? []),
     ])
   }
@@ -85,6 +110,7 @@ const OutreachHubContent = ({
         preselectedListId={preselectedListId}
         onCreateSocial={() => setSocialFlowOpen(true)}
         onCreateRobocall={() => setRobocallFlowOpen(true)}
+        onCreatePhoneBanking={() => setPhoneBankingFlowOpen(true)}
       />
       <SocialFlow
         open={socialFlowOpen}
@@ -94,6 +120,11 @@ const OutreachHubContent = ({
       <RobocallFlow
         open={robocallFlowOpen}
         onClose={() => setRobocallFlowOpen(false)}
+      />
+      <PhoneBankingFlow
+        open={phoneBankingFlowOpen}
+        onClose={() => setPhoneBankingFlowOpen(false)}
+        onSaved={handlePhoneBankingSaved}
       />
       <Suspense>
         <OutreachComposeDeepLink tcrCompliance={tcrCompliance} />
