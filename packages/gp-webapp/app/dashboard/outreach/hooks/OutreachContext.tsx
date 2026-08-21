@@ -3,6 +3,7 @@ import { createContext, useContext, useState, ReactNode } from 'react'
 type OutreachType =
   | 'text'
   | 'doorKnocking'
+  | 'nativeDoorKnocking'
   | 'phoneBanking'
   | 'nativePhoneBanking'
   | 'socialMedia'
@@ -39,6 +40,7 @@ export interface Outreach {
   title?: string | null
   billableTextCount?: number | null
   textCount?: number | null
+  archivedAt?: Date | string | null
 }
 
 type OutreachContextValue = [Outreach[], (outreaches: Outreach[]) => void]

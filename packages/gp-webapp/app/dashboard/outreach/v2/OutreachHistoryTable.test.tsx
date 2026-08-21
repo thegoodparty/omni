@@ -121,6 +121,85 @@ describe('OutreachHistoryTable — unified history', () => {
     expect(table.queryByText('Done call')).not.toBeInTheDocument()
   })
 
+  // The knock transaction writes a nativeDoorKnocking envelope, but the type
+  // was missing from CHANNEL_META, so getChannelLabel fell through to its
+  // capitalize fallback and every walk rendered as a grey "NativeDoorKnocking".
+  it('labels a nativeDoorKnocking row as Door knocking', () => {
+    const rows: HistoryRow[] = [
+      {
+        id: 1,
+        date: '2026-08-20',
+        outreachType: 'nativeDoorKnocking',
+        name: 'Elm & Cedar',
+        status: 'in_progress',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    const table = within(desktopTable())
+    expect(table.getByText('Door knocking')).toBeInTheDocument()
+    expect(table.queryByText('NativeDoorKnocking')).not.toBeInTheDocument()
+  })
+
+  // in_progress means a canvasser is walking, not the non-p2p map's
+  // "Scheduled" — the same call nativePhoneBanking already makes.
+  it('renders in_progress as In progress for a nativeDoorKnocking row', () => {
+    const rows: HistoryRow[] = [
+      {
+        id: 1,
+        date: '2026-08-20',
+        outreachType: 'nativeDoorKnocking',
+        name: 'Elm & Cedar',
+        status: 'in_progress',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    expect(within(desktopTable()).getByText('In progress')).toBeInTheDocument()
+    expect(within(desktopTable()).queryByText('Scheduled')).toBeNull()
+  })
+
+  // Rows the filters cannot name always show, so before nativeDoorKnocking
+  // joined the door channel and "In progress" joined the status list, neither
+  // pill could hide a walk. Both directions are asserted because "always
+  // visible" passes a naive presence check.
+  it('lets the door and In progress filters hide a native walk', async () => {
+    const rows: HistoryRow[] = [
+      {
+        id: 1,
+        date: '2026-08-20',
+        outreachType: 'nativeDoorKnocking',
+        name: 'Elm & Cedar',
+        status: 'in_progress',
+      },
+      {
+        id: 2,
+        date: '2026-08-19',
+        outreachType: 'robocall',
+        name: 'Budget hearing reminder',
+        status: 'pending',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Filters' }))
+
+    await userEvent.click(screen.getByLabelText('Door knocking'))
+    expect(within(desktopTable()).queryByText('Elm & Cedar')).toBeNull()
+    expect(
+      within(desktopTable()).getByText('Budget hearing reminder'),
+    ).toBeInTheDocument()
+
+    await userEvent.click(screen.getByLabelText('Door knocking'))
+    expect(within(desktopTable()).getByText('Elm & Cedar')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByLabelText('In progress'))
+    expect(within(desktopTable()).queryByText('Elm & Cedar')).toBeNull()
+  })
+
   it('shows the platform count for a social row from the detail fetch', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
@@ -150,6 +229,7 @@ describe('OutreachHistoryTable — unified history', () => {
         billableTextCount: null,
         campaignPlanDueDate: null,
         organizationSlug: null,
+        archivedAt: null,
         social: {
           purpose: 'introduce_myself',
           draftMessage: 'Hello neighbors',
@@ -265,6 +345,7 @@ describe('OutreachHistoryTable — unified history', () => {
         billableTextCount: null,
         campaignPlanDueDate: null,
         organizationSlug: null,
+        archivedAt: null,
         phoneBanking: {
           listId: 5,
           entriesTotal: 10,
@@ -355,5 +436,98 @@ describe('OutreachHistoryTable — unified history', () => {
       .getAllByText(/^(Old campaign|Freshly created)$/)
       .map((el) => el.textContent)
     expect(names).toEqual(['Freshly created', 'Old campaign'])
+  })
+
+  it('hides archived rows by default and shows only them once toggled', async () => {
+    const rows: HistoryRow[] = [
+      {
+        id: 30,
+        date: '2026-08-01',
+        outreachType: 'robocall',
+        name: 'Active campaign',
+        status: 'completed',
+      },
+      {
+        id: 31,
+        date: '2026-07-01',
+        outreachType: 'robocall',
+        name: 'Archived campaign',
+        status: 'completed',
+        archivedAt: '2026-08-10T00:00:00Z',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    let table = within(desktopTable())
+    expect(table.getByText('Active campaign')).toBeInTheDocument()
+    expect(table.queryByText('Archived campaign')).not.toBeInTheDocument()
+
+    const toggle = screen.getByRole('button', { name: 'Archive' })
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+
+    await userEvent.click(toggle)
+
+    expect(screen.getByText('Archived outreach')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Completed and cancelled campaigns from earlier cycles.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Back to active' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+
+    table = within(desktopTable())
+    expect(table.getByText('Archived campaign')).toBeInTheDocument()
+    expect(table.queryByText('Active campaign')).not.toBeInTheDocument()
+  })
+
+  it('an active filter hiding every archived row reads as a filter miss, not an empty archive', async () => {
+    const rows: HistoryRow[] = [
+      {
+        id: 32,
+        date: '2026-07-01',
+        outreachType: 'robocall',
+        name: 'Archived robocall',
+        status: 'completed',
+        archivedAt: '2026-08-10T00:00:00Z',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Filters' }))
+    await userEvent.click(screen.getByLabelText('Robocall'))
+    await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+
+    expect(
+      within(desktopTable()).getByText('No campaigns match your filters.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('No archived campaigns.')).not.toBeInTheDocument()
+  })
+
+  it('an all-archived history points at the Archive toggle, not the filters', () => {
+    const rows: HistoryRow[] = [
+      {
+        id: 33,
+        date: '2026-07-01',
+        outreachType: 'robocall',
+        name: 'Archived robocall',
+        status: 'completed',
+        archivedAt: '2026-08-10T00:00:00Z',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    expect(
+      within(desktopTable()).getByText(
+        'All your campaigns are archived. Click “Archive” to view them.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('No campaigns match your filters.'),
+    ).not.toBeInTheDocument()
   })
 })

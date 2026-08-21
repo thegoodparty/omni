@@ -221,7 +221,26 @@ import { dirname, join, relative } from 'node:path'
 // client components; the route's page.tsx stays a server component.
 // 2026-08-21: merge reconciliation — main's 594 (phone banking) plus this
 // branch's OutreachAudienceStep (+1) = 595.
-const BASELINE = 595
+// 2026-08-21: 595 -> 599 for the four door-knocking surface seams
+// (DoorKnockingManageView, CreateListSurface, TurfDetailsDrawer, WalkSurface).
+// This is the one entry here that costs the browser nothing: it is a pure
+// decomposition of NativeDoorKnockingPage, already a client component behind
+// next/dynamic, into four files it is the sole importer of — the same modules
+// in the same graph, split so four agents can rebuild four surfaces without
+// editing one orchestrator. Each holds state, a query or handlers (rail sheet
+// state, the address-preview query, polygonStats over a react-query read, the
+// walk's open-stop request), so none could render on the server even in
+// isolation. Directive-free was the alternative, since a module imported only
+// from a client module inherits the boundary — rejected because these are the
+// files four agents are about to build interactive surfaces in, and a
+// directive-free stateful component reads as an oversight to copy. The
+// genuinely inert new module, savedListFilters.ts, does stay directive-free,
+// same rule as statusPresentation.ts.
+// 2026-08-21: 599 -> 600 for the robocall schedule step (phase 3): the
+// RobocallScheduleStep drawer surface owns the name/date/time inputs and their
+// selection handlers, so it's a client component. Its scheduleTimeZone.ts
+// helper is directive-free (pure date/tz functions, no JSX).
+const BASELINE = 600
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

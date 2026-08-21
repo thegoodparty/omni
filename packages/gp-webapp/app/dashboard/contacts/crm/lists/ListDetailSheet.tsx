@@ -191,7 +191,7 @@ export default function ListDetailSheet({
           isWinContext
             ? EVENTS.VoterData.ListExported
             : EVENTS.ConstituentData.ListExported,
-          { listSize },
+          { listSize, surface: 'listDetail' },
         )
       }
     })

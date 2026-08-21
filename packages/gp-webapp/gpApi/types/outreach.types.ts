@@ -2,6 +2,7 @@
 export type OutreachType =
   | 'text'
   | 'doorKnocking'
+  | 'nativeDoorKnocking'
   | 'phoneBanking'
   | 'nativePhoneBanking'
   | 'socialMedia'
@@ -126,5 +127,6 @@ export interface CreateOutreachResponse {
   didState: string | null
   didNpaSubset: string[] | null
   title: string | null
+  archivedAt?: string | null
   voterFileFilter: VoterFileFilterInOutreach | null
 }

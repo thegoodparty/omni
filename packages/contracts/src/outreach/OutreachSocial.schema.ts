@@ -153,6 +153,7 @@ export const OutreachDetailSchema = z.object({
   billableTextCount: z.number().nullable(),
   campaignPlanDueDate: z.string().nullable(),
   organizationSlug: z.string().nullable(),
+  archivedAt: zCoerceDate().nullable(),
   social: OutreachSocialDetailSchema.optional(),
   phoneBanking: PhoneBankingOutreachDetailSchema.optional(),
 })

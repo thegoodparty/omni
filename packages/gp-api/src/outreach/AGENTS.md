@@ -11,7 +11,7 @@ phone banking also carries `@UseOrganization()` for the Pro gate)
 | Route | Where | What |
 | --- | --- | --- |
 | `POST /outreach` (multipart) + `GET /outreach` | `outreach.controller.ts` | Legacy create/list. Create accepts `draft: true` (p2p only) → row stored `pending_payment`, hidden from the list. Image required for text/p2p |
-| `POST /outreach/social/draft` / `social/generate` / `social` (save), `GET /outreach/:id` | `outreachSocial.controller.ts` | Social flow (VO 2.0 phase 1): stateless draft/improve, per-platform asset generation, atomic save, detail read |
+| `POST /outreach/social/draft` / `social/generate` / `social` (save), `GET /outreach/:id`, `PATCH /outreach/:id/archive` | `outreachSocial.controller.ts` | Social flow (VO 2.0 phase 1): stateless draft/improve, per-platform asset generation, atomic save, detail read; archive/restore for the history drawer, org-scoped via `@UseOrganization()` |
 | `POST /outreach/phone-banking/draft` | `outreachPhoneBanking.controller.ts` | Phone banking script draft/improve (VO 2.0 phone banking): stateless, Pro-gated (`@UseOrganization()` + `ContactsService.assertProAccess`) — the create flow freezes the chosen text onto the list itself via `POST /phone-banking/lists` (`src/phoneBanking/`) |
 
 `GET /outreach/:id` deliberately lives on the social controller: detail reads
@@ -82,6 +82,19 @@ never send `pending_payment` themselves.
   of truth and the envelope's status is a mirror of it, because the envelope
   needs a `campaignId` and Serve orgs knock without one; see
   `docs/door-knocking.md`.
+- `Outreach.archivedAt` (nullable, unset at creation) backs the v2 history
+  drawer's archive/restore action. `OutreachService.setArchived` scopes the
+  update by `organizationSlug` (not `campaignId`) and reads the response back
+  from the persisted row rather than trusting the request body.
+- **Door knocking archives on the turf, not here, and the two are not yet
+  wired together.** `DoorKnockingTurf.archivedAt` is what the list rail acts
+  on, for the same reason `completedAt` lives there: a Serve org archives a
+  list it has no envelope for. So a walk can currently read as archived on the
+  door-knocking surface and unarchived in the history drawer, or the reverse.
+  The status mirror above is the pattern to copy when the unified details
+  drawer lands — the turf is the object the user acts on, the envelope is the
+  campaign-reporting projection of it — but nothing mirrors `archivedAt` yet.
+  Don't assume the two agree.
 
 ## Contracts / models
 

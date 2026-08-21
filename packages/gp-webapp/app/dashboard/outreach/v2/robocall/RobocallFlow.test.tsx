@@ -15,6 +15,32 @@ vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'test-org' }),
 }))
 
+// react-day-picker is impractical to drive in jsdom (same call the repo's
+// ElectionResultPage test makes), so stub the styleguide Calendar to buttons
+// that fire onSelect with a valid-future or too-soon date.
+vi.mock('@styleguide', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@styleguide')>()
+  return {
+    ...actual,
+    Calendar: ({ onSelect }: { onSelect: (day?: Date) => void }) => (
+      <div>
+        <button
+          type="button"
+          onClick={() => onSelect(new Date(Date.now() + 60 * 86_400_000))}
+        >
+          mock-pick-future
+        </button>
+        <button
+          type="button"
+          onClick={() => onSelect(new Date(Date.now() - 10 * 86_400_000))}
+        >
+          mock-pick-past
+        </button>
+      </div>
+    ),
+  }
+})
+
 // The CRM wizard's dumb steps have their own tests; stub them to light
 // stand-ins so this test can drive RobocallFlow's builder path without
 // coupling to the wizard's pill/label internals.
@@ -91,6 +117,20 @@ const gotoAudience = async () => {
   fireEvent.click(screen.getByText('Persuade likely voters'))
 }
 
+// Purpose -> audience -> pick a saved list -> Continue, landing on the schedule
+// ("When") step.
+const gotoSchedule = async () => {
+  mockSavedLists()
+  mockListDetail(80)
+  await gotoAudience()
+  await userEvent.click(await screen.findByText('Choose a voter list'))
+  await userEvent.click(await screen.findByText('Renters in 98103'))
+  await userEvent.click(
+    await screen.findByRole('button', { name: /Continue \(80\)/ }),
+  )
+  await screen.findByLabelText('Campaign name')
+}
+
 describe('RobocallFlow', () => {
   // useElectedOffice fires on mount (no enable guard); 404 => not an elected
   // official (data null), exercising the hook's real 404->null branch.
@@ -104,7 +144,7 @@ describe('RobocallFlow', () => {
   it('opens on the purpose step with the robocall purposes', () => {
     mockSavedLists()
     render(<RobocallFlow open onClose={vi.fn()} />)
-    expect(screen.getByText('Introduce myself')).toBeInTheDocument()
+    expect(screen.getByText('Introduce myself to voters')).toBeInTheDocument()
     expect(screen.getByText('Persuade likely voters')).toBeInTheDocument()
   })
 
@@ -114,14 +154,16 @@ describe('RobocallFlow', () => {
     expect(
       screen.getByText(/We only call voters with a landline/),
     ).toBeInTheDocument()
-    expect(screen.queryByText('Introduce myself')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Introduce myself to voters'),
+    ).not.toBeInTheDocument()
   })
 
   it('returns to the purpose step on Back from the audience picker', async () => {
     mockSavedLists()
     await gotoAudience()
     fireEvent.click(screen.getByLabelText('Back'))
-    expect(screen.getByText('Introduce myself')).toBeInTheDocument()
+    expect(screen.getByText('Introduce myself to voters')).toBeInTheDocument()
   })
 
   it('shows the landline reachable count and advances on Continue', async () => {
@@ -141,7 +183,8 @@ describe('RobocallFlow', () => {
       name: /Continue \(80\)/,
     })
     await userEvent.click(continueBtn)
-    expect(screen.getByText('More coming soon')).toBeInTheDocument()
+    // Advancing lands on the schedule ("When") step, not the placeholder.
+    expect(await screen.findByLabelText('Campaign name')).toBeInTheDocument()
   })
 
   it('disables Continue while the reachable count is loading', async () => {
@@ -213,7 +256,7 @@ describe('RobocallFlow', () => {
     expect(screen.getByText('Build a voter list')).toBeInTheDocument()
   })
 
-  it('builds a list, creates it, and advances to the placeholder', async () => {
+  it('builds a list, creates it, and advances to the schedule step', async () => {
     mockSavedLists()
     mockBuilderCount(50)
     mockCreateList()
@@ -232,13 +275,13 @@ describe('RobocallFlow', () => {
       ),
     )
 
-    // Name step -> Create list -> POST /voter-file/filter -> placeholder.
+    // Name step -> Create list -> POST /voter-file/filter -> schedule step.
     await userEvent.type(
       screen.getByLabelText('mock list name'),
       'My landline list',
     )
     await userEvent.click(screen.getByRole('button', { name: 'Create list' }))
-    expect(await screen.findByText('More coming soon')).toBeInTheDocument()
+    expect(await screen.findByLabelText('Campaign name')).toBeInTheDocument()
   })
 
   it('surfaces an inline create error without advancing', async () => {
@@ -338,7 +381,7 @@ describe('RobocallFlow', () => {
     // Back to purpose discards the pick; re-entering audience is a fresh picker
     // with Continue disabled, not a resumed selection.
     fireEvent.click(screen.getByLabelText('Back'))
-    expect(screen.getByText('Introduce myself')).toBeInTheDocument()
+    expect(screen.getByText('Introduce myself to voters')).toBeInTheDocument()
     fireEvent.click(screen.getByText('Persuade likely voters'))
 
     expect(await screen.findByText('Choose a voter list')).toBeInTheDocument()
@@ -362,9 +405,84 @@ describe('RobocallFlow', () => {
     rerender(<RobocallFlow open={false} onClose={onClose} />)
     rerender(<RobocallFlow open onClose={onClose} />)
 
-    expect(screen.getByText('Introduce myself')).toBeInTheDocument()
+    expect(screen.getByText('Introduce myself to voters')).toBeInTheDocument()
     expect(
       screen.queryByText(/We only call voters with a landline/),
     ).not.toBeInTheDocument()
+  })
+
+  it('shows the schedule step with a pre-filled name and Continue disabled until valid', async () => {
+    await gotoSchedule()
+
+    // Intro copy + the three inputs; the name is auto-filled from the list.
+    expect(
+      screen.getByText(/We recommend mid-morning or early evening/),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Campaign name')).toHaveValue(
+      'Renters in 98103 robocall',
+    )
+    expect(screen.getByText('Pick a date')).toBeInTheDocument()
+    expect(
+      screen.getByRole('combobox', { name: /Send time/ }),
+    ).toBeInTheDocument()
+
+    // No date/time chosen yet -> Continue disabled.
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
+  it('refreshes the auto-filled name when a different list is chosen', async () => {
+    await gotoSchedule()
+    expect(screen.getByLabelText('Campaign name')).toHaveValue(
+      'Renters in 98103 robocall',
+    )
+
+    // Back to the picker, choose a different saved list, continue again: the
+    // untouched auto-name follows the new list rather than going stale.
+    fireEvent.click(screen.getByLabelText('Back'))
+    await userEvent.click(await screen.findByText('Renters in 98103'))
+    await userEvent.click(await screen.findByText('All registered voters'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Continue \(80\)/ }),
+    )
+
+    expect(await screen.findByLabelText('Campaign name')).toHaveValue(
+      'All registered voters robocall',
+    )
+  })
+
+  it('advances to the placeholder once a valid date and time are set', async () => {
+    await gotoSchedule()
+
+    // Open the date popover and pick a comfortably-future day (clears the 48h
+    // floor), then a time.
+    await userEvent.click(screen.getByText('Pick a date'))
+    await userEvent.click(await screen.findByText('mock-pick-future'))
+    await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
+    await userEvent.click(
+      await screen.findByRole('option', { name: '10:00 AM' }),
+    )
+
+    const continueBtn = screen.getByRole('button', { name: 'Continue' })
+    await waitFor(() => expect(continueBtn).toBeEnabled())
+    await userEvent.click(continueBtn)
+    expect(await screen.findByText('More coming soon')).toBeInTheDocument()
+  })
+
+  it('warns and blocks when the chosen day+time is inside the 48-hour window', async () => {
+    await gotoSchedule()
+
+    // A past day is unambiguously inside the 48h floor; the combined-instant
+    // check (not the calendar) is the gate.
+    await userEvent.click(screen.getByText('Pick a date'))
+    await userEvent.click(await screen.findByText('mock-pick-past'))
+    await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
+    await userEvent.click(
+      await screen.findByRole('option', { name: '10:00 AM' }),
+    )
+
+    expect(
+      await screen.findByText(/Sends need at least 48 hours/),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
 })

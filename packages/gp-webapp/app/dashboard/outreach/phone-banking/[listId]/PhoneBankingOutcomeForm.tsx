@@ -24,10 +24,12 @@ import {
   WILL_VOTE_ANSWER_LABEL,
   buildRecordCallRequest,
   draftFromInteraction,
+  draftWithEngagement,
   draftWithOutcome,
   draftWithSupportAnswer,
   draftWithWillVote,
   engagementStatusFor,
+  isDraftComplete,
   type PhoneBankingOutcomeDraft,
 } from './phoneBankingOutcome.util'
 
@@ -64,12 +66,18 @@ export default function PhoneBankingOutcomeForm({
 
   const logCallAnalytics = (savedDraft: PhoneBankingOutcomeDraft): void => {
     if (!savedDraft.outcome) return
+    // What the API stored, not the raw pill: engage = Refused persists as a
+    // `refused` outcome on this person.
+    const savedOutcome =
+      savedDraft.outcome === 'answered' && savedDraft.engagement === 'refused'
+        ? 'refused'
+        : savedDraft.outcome
     trackEvent(EVENTS.Outreach.PhoneBanking.CallLogged, {
       listId,
       contactId: personId,
       listRank: entrySeq,
-      answerStatus: savedDraft.outcome,
-      engagementStatus: engagementStatusFor(savedDraft.outcome),
+      answerStatus: savedOutcome,
+      engagementStatus: engagementStatusFor(savedOutcome),
       supportStatus: savedDraft.supportAnswer,
       voterStatus: savedDraft.willVote,
     })
@@ -140,7 +148,7 @@ export default function PhoneBankingOutcomeForm({
     )
   }
 
-  const canSave = draft.outcome !== undefined
+  const showActions = isDraftComplete(draft)
 
   return (
     <div className="flex flex-col gap-4">
@@ -171,6 +179,31 @@ export default function PhoneBankingOutcomeForm({
       </div>
 
       {draft.outcome === 'answered' && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Did they engage?
+          </p>
+          <div className="mt-2">
+            <FilterPillGroup
+              type="single"
+              value={draft.engagement ?? ''}
+              onValueChange={(value) =>
+                setDraft((current) =>
+                  draftWithEngagement(
+                    current,
+                    (value || undefined) as typeof draft.engagement,
+                  ),
+                )
+              }
+            >
+              <FilterPill value="engaged">Engaged</FilterPill>
+              <FilterPill value="refused">Refused</FilterPill>
+            </FilterPillGroup>
+          </div>
+        </div>
+      )}
+
+      {draft.outcome === 'answered' && draft.engagement === 'engaged' && (
         <>
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -224,40 +257,46 @@ export default function PhoneBankingOutcomeForm({
         </>
       )}
 
-      <div className="flex flex-col gap-2 pt-1">
-        <Button
-          className="w-full"
-          disabled={!canSave || saveMutation.isPending}
-          loading={saveMutation.isPending && saveMutation.variables === false}
-          onClick={() => saveMutation.mutate(false)}
-        >
-          Save
-        </Button>
-        {draft.outcome === 'answered' && householdHasOthersUnlogged && (
+      {showActions && (
+        <div className="flex flex-col gap-2 pt-1">
+          <Button
+            className="w-full"
+            disabled={saveMutation.isPending}
+            loading={saveMutation.isPending && saveMutation.variables === false}
+            onClick={() => saveMutation.mutate(false)}
+          >
+            Save
+          </Button>
+          {draft.outcome === 'answered' &&
+            draft.engagement === 'engaged' &&
+            householdHasOthersUnlogged && (
+              <Button
+                variant="outline"
+                className="w-full"
+                disabled={saveMutation.isPending}
+                loading={
+                  saveMutation.isPending && saveMutation.variables === true
+                }
+                onClick={() => saveMutation.mutate(true)}
+              >
+                Save &amp; mark rest of household done
+              </Button>
+            )}
           <Button
             variant="outline"
             className="w-full"
-            disabled={!canSave || saveMutation.isPending}
-            loading={saveMutation.isPending && saveMutation.variables === true}
-            onClick={() => saveMutation.mutate(true)}
+            disabled={saveMutation.isPending}
+            onClick={handleCancel}
           >
-            Save &amp; mark rest of household done
+            Cancel
           </Button>
-        )}
-        <Button
-          variant="outline"
-          className="w-full"
-          disabled={saveMutation.isPending}
-          onClick={handleCancel}
-        >
-          Cancel
-        </Button>
-        {saveMutation.isError && (
-          <p className="text-sm text-destructive">
-            Couldn&apos;t save this call. Please try again.
-          </p>
-        )}
-      </div>
+          {saveMutation.isError && (
+            <p className="text-sm text-destructive">
+              Couldn&apos;t save this call. Please try again.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

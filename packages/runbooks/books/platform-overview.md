@@ -72,7 +72,7 @@ gp-api (53 controllers, 20+ Prisma models)
   │     findPerson (single voter lookup)
   │
   ├── HTTP + Clerk JWT M2M → election-api
-  │     GET /v1/positions/by-ballotready-id/:id  (gold flow: BR position → district → turnout)
+  │     GET /v1/positions/by-ballotready-id/:id  (gold flow: BR position → district)
   │     GET /v1/projectedTurnout                 (direct turnout lookup)
   │     GET /v1/districts/types                  (valid district types by state)
   │     GET /v1/districts/names                  (valid district names by type)
@@ -218,9 +218,9 @@ decommissioned. Environments: `dev`/`prod` only. Aurora PG prod:
 
 | Route                                        | Purpose                                                           |
 | -------------------------------------------- | ----------------------------------------------------------------- |
-| `GET /v1/positions/by-ballotready-id/:id`    | Gold flow: BallotReady position → district → projected turnout    |
+| `GET /v1/positions/by-ballotready-id/:id`    | Gold flow: BallotReady position → district (turnout is a separate call) |
 | `GET /v1/projectedTurnout`                   | Direct turnout lookup by state + district + election date         |
-| `GET /v1/districts/list`, `/types`, `/names` | District queries with optional turnout join                       |
+| `GET /v1/districts/list`, `/types`, `/names` | District queries; `excludeInvalid` keeps the turnout existence filter |
 | `GET /v1/races`                              | Filter races by state, date range, position level, primary/runoff |
 | `GET /v1/candidacies`                        | Filter candidacies by state, slug, race slug; include stances     |
 | `GET /v1/places`                             | Place hierarchy (counties → districts), children categorization   |
@@ -434,8 +434,8 @@ Other election-api marts: `m_election_api__place`, `m_election_api__race`, `m_el
 ### Gold Flow (preferred, higher confidence)
 
 1. Campaign onboarding captures a BallotReady position ID
-2. gp-api calls `election-api GET /v1/positions/by-ballotready-id/:brPositionId` with `includeDistrict=true&includeTurnout=true`
-3. election-api resolves the chain: `Position` (matched by Gemini LLM, confidence >= 90/95%) → `District` (L2 district type/name) → `ProjectedTurnout` (ML model prediction, filtered by election year + code)
+2. gp-api calls `election-api GET /v1/positions/by-ballotready-id/:brPositionId` with `includeDistrict=true` to resolve the district, then `GET /v1/projectedTurnout` with that `districtId` and the election date
+3. election-api resolves the chain: `Position` (matched by Gemini LLM, confidence >= 90/95%) → `District` (L2 district type/name); the turnout lookup is a separate district-keyed call, bound to the election code and year derived from the date
 4. gp-api calculates: `winNumber = ceil(projectedTurnout * 0.5) + 1`, `voterContactGoal = winNumber * 5`
 5. If turnout unavailable, returns sentinel values (-1) — partial match, district known but turnout not predicted
 6. The matched `district.L2DistrictType` and `district.L2DistrictName` are stored in the campaign's `PathToVictory` record — these are the same keys used to scope voter contacts in people-db

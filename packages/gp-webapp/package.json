@@ -94,6 +94,7 @@
     "clsx": "^1.2.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
     "es-toolkit": "^1.32.0",
     "fast-glob": "^3.3.3",
     "fuse.js": "^7.1.0",

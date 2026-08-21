@@ -9,10 +9,12 @@ import {
   buildRecordCallRequest,
   calledPeopleCount,
   draftFromInteraction,
+  draftWithEngagement,
   draftWithOutcome,
   draftWithSupportAnswer,
   draftWithWillVote,
   engagementStatusFor,
+  isDraftComplete,
   hasNoLiveEnrichment,
   isEntrySuppressed,
   outcomeCounts,
@@ -183,6 +185,20 @@ describe('cascade state machine (draftWith*)', () => {
     expect(changed.willVote).toBe('yes')
   })
 
+  it('changing the engagement clears support and will-vote; re-selecting is a no-op', () => {
+    const draft = draftWithWillVote(
+      draftWithSupportAnswer(
+        draftWithEngagement(draftWithOutcome({}, 'answered'), 'engaged'),
+        'supporter',
+      ),
+      'yes',
+    )
+    expect(draftWithEngagement(draft, 'engaged')).toBe(draft)
+
+    const changed = draftWithEngagement(draft, 'refused')
+    expect(changed).toEqual({ outcome: 'answered', engagement: 'refused' })
+  })
+
   it('draftFromInteraction seeds from a logged interaction, and empty from none', () => {
     expect(draftFromInteraction(null)).toEqual({})
     expect(
@@ -194,9 +210,72 @@ describe('cascade state machine (draftWith*)', () => {
       }),
     ).toEqual({
       outcome: 'answered',
+      engagement: 'engaged',
       supportAnswer: 'supporter',
       willVote: 'unsure',
     })
+  })
+
+  it('a bare answered row (household fill) reopens with the engage question unanswered', () => {
+    expect(
+      draftFromInteraction({
+        outcome: 'answered',
+        supportAnswer: null,
+        willVote: null,
+        occurredAt: new Date(),
+      }),
+    ).toEqual({ outcome: 'answered' })
+  })
+
+  it('a persisted refused reopens as answered + engage Refused so an unchanged re-save stays person-attributed', () => {
+    const draft = draftFromInteraction({
+      outcome: 'refused',
+      supportAnswer: null,
+      willVote: null,
+      occurredAt: new Date(),
+    })
+    expect(draft).toEqual({ outcome: 'answered', engagement: 'refused' })
+    expect(buildRecordCallRequest(5, draft, 'active-person', false)).toEqual({
+      entryId: 5,
+      outcome: 'refused',
+      personId: 'active-person',
+    })
+  })
+})
+
+describe('isDraftComplete (terminal states that reveal Save/Cancel)', () => {
+  it('is false with no outcome and true for any non-answered outcome', () => {
+    expect(isDraftComplete({})).toBe(false)
+    expect(isDraftComplete({ outcome: 'no_answer' })).toBe(true)
+    expect(isDraftComplete({ outcome: 'refused' })).toBe(true)
+  })
+
+  it('answered is incomplete until the whole engaged cascade is answered', () => {
+    expect(isDraftComplete({ outcome: 'answered' })).toBe(false)
+    expect(
+      isDraftComplete({ outcome: 'answered', engagement: 'engaged' }),
+    ).toBe(false)
+    expect(
+      isDraftComplete({
+        outcome: 'answered',
+        engagement: 'engaged',
+        supportAnswer: 'supporter',
+      }),
+    ).toBe(false)
+    expect(
+      isDraftComplete({
+        outcome: 'answered',
+        engagement: 'engaged',
+        supportAnswer: 'supporter',
+        willVote: 'yes',
+      }),
+    ).toBe(true)
+  })
+
+  it('answered + engage refused is terminal on its own', () => {
+    expect(
+      isDraftComplete({ outcome: 'answered', engagement: 'refused' }),
+    ).toBe(true)
   })
 })
 
@@ -236,6 +315,30 @@ describe('buildRecordCallRequest', () => {
       false,
     )
     expect(request).toEqual({ entryId: 5, outcome: 'no_answer' })
+  })
+
+  it('answered + engage refused posts a person-attributed refused with no cascade fields', () => {
+    const request = buildRecordCallRequest(
+      5,
+      { outcome: 'answered', engagement: 'refused' },
+      'active-person',
+      false,
+    )
+    expect(request).toEqual({
+      entryId: 5,
+      outcome: 'refused',
+      personId: 'active-person',
+    })
+  })
+
+  it('a top-level refused stays number-level (no personId)', () => {
+    const request = buildRecordCallRequest(
+      5,
+      { outcome: 'refused' },
+      'active-person',
+      false,
+    )
+    expect(request).toEqual({ entryId: 5, outcome: 'refused' })
   })
 
   it('throws when saving with no outcome selected', () => {

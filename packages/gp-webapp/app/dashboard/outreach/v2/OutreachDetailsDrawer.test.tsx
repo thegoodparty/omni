@@ -44,6 +44,7 @@ const baseDetail = {
   billableTextCount: null,
   campaignPlanDueDate: null,
   organizationSlug: null,
+  archivedAt: null,
 }
 
 const inProgressRow: HistoryRow = {
@@ -58,6 +59,59 @@ const completedRow: HistoryRow = {
   ...inProgressRow,
   status: 'completed',
 }
+
+// The list endpoint joins the whole VoterFileFilter row onto each envelope, so
+// a history row carries the saved list's name alongside its criteria flags.
+const rowWithFilter = (voterFileFilter: Record<string, unknown>): HistoryRow =>
+  ({ ...inProgressRow, voterFileFilter }) as HistoryRow
+
+describe('OutreachDetailsDrawer — applied filters', () => {
+  const mockDetail = () =>
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { ...baseDetail, status: 'in_progress' as const },
+    })
+
+  it('renders the saved list as an Audience pill alongside the Filters pills', async () => {
+    mockDetail()
+
+    render(
+      <OutreachDetailsDrawer
+        row={rowWithFilter({ name: 'Renters in 98103', age50Plus: true })}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(await screen.findByText('Applied filters')).toBeInTheDocument()
+    expect(screen.getByText('Audience')).toBeInTheDocument()
+    expect(screen.getByText('Renters in 98103')).toBeInTheDocument()
+    expect(screen.getByText('Filters')).toBeInTheDocument()
+  })
+
+  it('drops the Audience group for a row with no saved list, keeping Filters', async () => {
+    mockDetail()
+
+    render(
+      <OutreachDetailsDrawer
+        row={rowWithFilter({ age50Plus: true })}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(await screen.findByText('Applied filters')).toBeInTheDocument()
+    expect(screen.getByText('Filters')).toBeInTheDocument()
+    expect(screen.queryByText('Audience')).not.toBeInTheDocument()
+  })
+
+  it('hides the whole section when the row has neither a list nor filters', async () => {
+    mockDetail()
+
+    render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
+
+    expect(await screen.findByText('Overview')).toBeInTheDocument()
+    expect(screen.queryByText('Applied filters')).not.toBeInTheDocument()
+  })
+})
 
 describe('OutreachDetailsDrawer — phone banking', () => {
   it('renders the in-progress section order, progress math, and the Continue calling footer', async () => {
@@ -90,6 +144,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
     render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
 
     expect(await screen.findByText('92 of 480 reached')).toBeInTheDocument()
+    // Design-canvas progress card shows the rounded percentage on the right.
+    expect(screen.getByText('19%')).toBeInTheDocument()
     expect(screen.getByText('Completed')).toBeInTheDocument()
     expect(screen.getByText('Remaining')).toBeInTheDocument()
     // peopleTotal - peopleCalled = 388
@@ -106,7 +162,7 @@ describe('OutreachDetailsDrawer — phone banking', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('renders the completed results breakdown with percents and Delete-only footer (no archive)', async () => {
+  it('renders the completed results breakdown with percents and the Delete + Move to archive footer', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
       data: {
@@ -148,10 +204,138 @@ describe('OutreachDetailsDrawer — phone banking', () => {
 
     expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: /archive/i }),
-    ).not.toBeInTheDocument()
+      screen.getByRole('button', { name: 'Move to archive' }),
+    ).toBeInTheDocument()
     expect(
       screen.queryByRole('link', { name: 'Continue calling' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows Restore from archive for an already-archived completed row and fires the archive endpoint with archived: false', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        status: 'completed',
+        phoneBankingListId: 5,
+        archivedAt: new Date('2026-08-15T00:00:00Z'),
+        phoneBanking: {
+          listId: 5,
+          entriesTotal: 10,
+          entriesCalled: 10,
+          peopleTotal: 16,
+          peopleCalled: 16,
+          byOutcome: {
+            answered: 10,
+            no_answer: 0,
+            voicemail: 0,
+            wrong_number: 0,
+            refused: 0,
+          },
+          supporters: 16,
+          unsure: 0,
+          nonSupporters: 0,
+        },
+      },
+    })
+    let archiveBody: unknown
+    api.mock('PATCH /v1/outreach/:id/archive', ({ params, body }) => {
+      archiveBody = body
+      expect(params.id).toBe('30')
+      return { status: 200, data: { id: 30, archivedAt: null } }
+    })
+
+    const archivedRow: HistoryRow = {
+      ...completedRow,
+      archivedAt: '2026-08-15T00:00:00Z',
+    }
+    const onOpenChange = vi.fn()
+    render(
+      <OutreachDetailsDrawer row={archivedRow} onOpenChange={onOpenChange} />,
+    )
+
+    const restoreButton = await screen.findByRole('button', {
+      name: 'Restore from archive',
+    })
+    await userEvent.click(restoreButton)
+
+    expect(archiveBody).toEqual({ archived: false })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('archives a completed row and updates it in context', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        status: 'completed',
+        phoneBankingListId: 5,
+        phoneBanking: {
+          listId: 5,
+          entriesTotal: 10,
+          entriesCalled: 10,
+          peopleTotal: 16,
+          peopleCalled: 16,
+          byOutcome: {
+            answered: 10,
+            no_answer: 0,
+            voicemail: 0,
+            wrong_number: 0,
+            refused: 0,
+          },
+          supporters: 16,
+          unsure: 0,
+          nonSupporters: 0,
+        },
+      },
+    })
+    let archiveBody: unknown
+    api.mock('PATCH /v1/outreach/:id/archive', ({ params, body }) => {
+      archiveBody = body
+      expect(params.id).toBe('30')
+      return {
+        status: 200,
+        data: { id: 30, archivedAt: new Date('2026-08-20T00:00:00Z') },
+      }
+    })
+
+    const onOpenChange = vi.fn()
+    render(
+      <OutreachDetailsDrawer row={completedRow} onOpenChange={onOpenChange} />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Move to archive' }),
+    )
+
+    expect(archiveBody).toEqual({ archived: true })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('a completed non-phone-banking row gets Move to archive but no Delete', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        outreachType: 'robocall',
+        status: 'completed',
+      },
+    })
+
+    const robocallRow: HistoryRow = {
+      id: 30,
+      createdAt: '2026-08-10T00:00:00Z',
+      outreachType: 'robocall',
+      name: 'Budget hearing reminder',
+      status: 'completed',
+    }
+    render(<OutreachDetailsDrawer row={robocallRow} onOpenChange={vi.fn()} />)
+
+    expect(
+      await screen.findByRole('button', { name: 'Move to archive' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Delete' }),
     ).not.toBeInTheDocument()
   })
 

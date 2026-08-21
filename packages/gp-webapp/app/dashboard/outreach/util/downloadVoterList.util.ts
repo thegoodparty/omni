@@ -7,12 +7,18 @@ import {
 } from 'app/dashboard/outreach/util/audienceFilterKeyMap'
 import { dateUsHelper } from 'helpers/dateHelper'
 import { deleteCookie } from 'helpers/cookieHelper'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   DOWNLOAD_COOKIE_NAME,
   DOWNLOAD_COOKIE_POLL_MS,
   DOWNLOAD_FALLBACK_TIMEOUT_MS,
   readDownloadCookie,
 } from 'app/dashboard/contacts/crm/shared/useContactsDownload'
+
+// The two download surfaces this util serves. The third surface on the
+// Voter Data - List Exported event, 'listDetail', fires from ListDetailSheet
+// and never routes through here.
+export type VoterListExportSurface = 'outreachWizard' | 'outreachTable'
 
 interface DownloadVoterListParams {
   voterFileFilter?: VoterFileFilters | AudienceState
@@ -23,6 +29,10 @@ interface DownloadVoterListParams {
   // set, this takes the segment-export branch instead and voterFileFilter is
   // ignored entirely.
   savedListId?: number
+  // Required, not optional: an unlabelled export is indistinguishable from an
+  // untracked one in Amplitude, which is how these two surfaces went dark for
+  // seven weeks after the CRM rollout.
+  surface: VoterListExportSurface
 }
 
 // AudienceState is keyed by the underscore filter names; VoterFileFilters never
@@ -48,25 +58,34 @@ const isAudienceState = (
 // it in here instead would risk capturing gp-api's own fresh cookie if the
 // response is fast enough to land before this function runs, permanently
 // hiding the real "started" transition.
+//
+// Resolves true only when the cookie handshake confirmed the download started,
+// false when the fallback timed out. The analytics fire is gated on that
+// distinction so these surfaces count exactly like ListDetailSheet's, which
+// also fires only from the confirmed branch — counting the ambiguous fallback
+// here would inflate outreach exports relative to CRM ones.
 const awaitDownloadStarted = (
   cookieBeforeClick: string | null,
-): Promise<void> =>
+): Promise<boolean> =>
   new Promise((resolve) => {
-    const finish = () => {
+    const finish = (confirmed: boolean) => {
       clearInterval(pollInterval)
       clearTimeout(fallbackTimeout)
       deleteCookie(DOWNLOAD_COOKIE_NAME)
-      resolve()
+      resolve(confirmed)
     }
 
     const pollInterval = setInterval(() => {
       const current = readDownloadCookie()
       if (current && current !== cookieBeforeClick) {
-        finish()
+        finish(true)
       }
     }, DOWNLOAD_COOKIE_POLL_MS)
 
-    const fallbackTimeout = setTimeout(finish, DOWNLOAD_FALLBACK_TIMEOUT_MS)
+    const fallbackTimeout = setTimeout(
+      () => finish(false),
+      DOWNLOAD_FALLBACK_TIMEOUT_MS,
+    )
   })
 
 export const downloadVoterList = async (
@@ -74,7 +93,8 @@ export const downloadVoterList = async (
     voterFileFilter = {},
     outreachType = '',
     savedListId,
-  }: DownloadVoterListParams = {},
+    surface,
+  }: DownloadVoterListParams,
   setLoading: (loading: boolean) => void = noop,
   errorSnackbar: (message: string) => void = noop,
 ): Promise<void> => {
@@ -103,7 +123,9 @@ export const downloadVoterList = async (
     // Keeps `loading` (and DownloadStep's disabled guard) true until gp-api
     // confirms it started streaming or the fallback gives up — see
     // awaitDownloadStarted for why.
-    await awaitDownloadStarted(cookieBeforeClick)
+    if (await awaitDownloadStarted(cookieBeforeClick)) {
+      trackEvent(EVENTS.VoterData.ListExported, { surface })
+    }
 
     setLoading(false)
     return
@@ -140,7 +162,9 @@ export const downloadVoterList = async (
     link.click()
     link.remove()
 
-    await awaitDownloadStarted(cookieBeforeClick)
+    if (await awaitDownloadStarted(cookieBeforeClick)) {
+      trackEvent(EVENTS.VoterData.ListExported, { surface })
+    }
   } catch {
     errorSnackbar('Error downloading voter file')
   }
