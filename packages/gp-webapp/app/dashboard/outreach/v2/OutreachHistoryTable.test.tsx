@@ -482,4 +482,28 @@ describe('OutreachHistoryTable — unified history', () => {
     expect(table.getByText('Archived campaign')).toBeInTheDocument()
     expect(table.queryByText('Active campaign')).not.toBeInTheDocument()
   })
+
+  it('an active filter hiding every archived row reads as a filter miss, not an empty archive', async () => {
+    const rows: HistoryRow[] = [
+      {
+        id: 32,
+        date: '2026-07-01',
+        outreachType: 'robocall',
+        name: 'Archived robocall',
+        status: 'completed',
+        archivedAt: '2026-08-10T00:00:00Z',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Filters' }))
+    await userEvent.click(screen.getByLabelText('Robocall'))
+    await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+
+    expect(
+      within(desktopTable()).getByText('No campaigns match your filters.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('No archived campaigns.')).not.toBeInTheDocument()
+  })
 })

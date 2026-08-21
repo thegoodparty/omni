@@ -261,11 +261,14 @@ export const OutreachHistoryTable = ({
     setStatusFilter(new Set(STATUS_FILTERS))
   }
 
-  const emptyMessage = showArchive
-    ? 'No archived campaigns.'
-    : rows.length === 0
-      ? 'No campaigns yet. Pick a channel above to create your first.'
-      : 'No campaigns match your filters.'
+  const emptyMessage =
+    visible.length === 0 && activeFilterCount > 0
+      ? 'No campaigns match your filters.'
+      : showArchive
+        ? 'No archived campaigns.'
+        : rows.length === 0
+          ? 'No campaigns yet. Pick a channel above to create your first.'
+          : 'No campaigns match your filters.'
 
   return (
     <section className="space-y-3 mt-10 mb-32">
