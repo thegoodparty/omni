@@ -270,6 +270,11 @@ de-dup), `findPerson`, `samplePeople`, `VoterDoorKnockingService` and
 `VoterPackService` stay on Postgres with the flag on. Only the aggregate,
 list/search, overlap, stats and CSV-download surfaces cross over.
 
+One cross-store read is deliberate: `VoterSampleService` samples from Postgres
+but sizes its buckets from `StatsService.findTotalCounts`, which the flag routes
+to Databricks. The two stores agree on those totals, and routing it is what
+keeps the `VOTER_DATA_UNAVAILABLE` throw for a district with no voters.
+
 ### Wide-column district scoping — never the junction table
 
 Postgres scopes a district by joining `green."DistrictVoter"`. **Do not port
