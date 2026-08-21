@@ -114,13 +114,20 @@ export default function NativeDoorKnockingPage({
   // on the next open is a map missing an outline for a reason nobody remembers
   // setting. Nothing here reaches gp-api, so no contract moves.
   //
-  // "Ephemeral" covers leaving the landing map, not just closing the tab:
-  // `closeFlow` and `endWalk` clear it alongside the chips, because both modes
-  // unmount the manage surface and with it every eye toggle. Coming back to
-  // rings you can't remember quieting is the same stranding the chips reset
-  // for, and one rule for all of this page's display state is the rule a reader
-  // can predict. (The manage surface's own sheet-open state follows the same
-  // rule for free — it lives inside a surface these modes unmount.)
+  // "Ephemeral" covers leaving the landing map, not just closing the tab: both
+  // `closeFlow` and `endWalk` clear it, because both modes unmount the manage
+  // surface and with it every eye toggle, and coming back to rings you can't
+  // remember quieting is the same stranding the chips are reset for. (The
+  // manage surface's own sheet-open state follows the same rule for free — it
+  // lives inside a surface these modes unmount.)
+  //
+  // `statusFilter` is the one piece that does NOT follow it: `closeFlow` clears
+  // the chips and `endWalk` deliberately does not, which is pre-existing and
+  // not this refactor's to change. Read it before assuming it's an oversight —
+  // the chips are display state, but they also feed `selections`, so a chip
+  // left pressed narrows the landing dots on the way back from a walk exactly
+  // as it did before the seams landed. Closing that gap is a behavior change
+  // and belongs to whoever rebuilds the manage surface.
   const [hiddenTurfIds, setHiddenTurfIds] = useState<Set<number>>(new Set())
   // Renaming from the details drawer only invalidates the turfs query, and
   // `selectedTurf` is the snapshot captured when the row was clicked — read the
