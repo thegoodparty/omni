@@ -10,10 +10,12 @@ import type {
   WillVoteAnswer,
 } from '@goodparty_org/contracts'
 
-// The five top-level outcomes are peers here (unlike the door-knocking-style
-// answered->engaged/refused split some earlier design sketches carried) —
-// RecordPhoneBankingCallSchema models `refused` as its own outcome, not a
-// sub-branch of `answered`.
+// The five outcomes are peers in the CONTRACT, but the form renders the
+// canvas's answered -> "Did they engage?" split on top of them: Engaged
+// continues to the support/will-vote cascade (saves `answered`), Refused is
+// "answered but refused to engage" (saves `refused` attributed to the
+// active person). The top-level Refused pill stays the number-level
+// refused-without-identifying that fans out to the household.
 export const OUTCOME_ORDER: PhoneBankCallOutcome[] = [
   'answered',
   'no_answer',
@@ -110,8 +112,13 @@ export const engagementStatusFor = (
 // as a plain object + pure setters (rather than component state mutated
 // inline) so the cascade rule — changing the outcome clears everything
 // downstream — is one function, testable without rendering anything.
+// `engagement` is UI-only state; it never persists (the review dropped the
+// `engaged` column) — it selects which outcome the Save writes.
+export type PhoneBankingEngagement = 'engaged' | 'refused'
+
 export interface PhoneBankingOutcomeDraft {
   outcome?: PhoneBankCallOutcome
+  engagement?: PhoneBankingEngagement
   supportAnswer?: SupportAnswer
   willVote?: WillVoteAnswer
 }
@@ -127,7 +134,25 @@ export const draftWithOutcome = (
 ): PhoneBankingOutcomeDraft =>
   outcome === draft.outcome
     ? draft
-    : { outcome, supportAnswer: undefined, willVote: undefined }
+    : {
+        outcome,
+        engagement: undefined,
+        supportAnswer: undefined,
+        willVote: undefined,
+      }
+
+export const draftWithEngagement = (
+  draft: PhoneBankingOutcomeDraft,
+  engagement: PhoneBankingEngagement | undefined,
+): PhoneBankingOutcomeDraft =>
+  engagement === draft.engagement
+    ? draft
+    : {
+        ...draft,
+        engagement,
+        supportAnswer: undefined,
+        willVote: undefined,
+      }
 
 export const draftWithSupportAnswer = (
   draft: PhoneBankingOutcomeDraft,
@@ -139,16 +164,48 @@ export const draftWithWillVote = (
   willVote: WillVoteAnswer | undefined,
 ): PhoneBankingOutcomeDraft => ({ ...draft, willVote })
 
+// Reading a persisted row back into the cascade: an answered row that
+// carries conversation answers must have come through the engaged path; a
+// bare answered row (a markHouseholdDone fill) leaves engagement unpicked
+// so an edit re-asks the question. A `refused` row can't distinguish
+// person-level from fan-out on read, so EVERY refused reopens through the
+// answered -> engage-Refused path: an unchanged re-save then emits the
+// person-attributed write (one upsert on this person) instead of the
+// number-level fan-out, which would silently overwrite every housemate's
+// row. An originally fan-out refused loses nothing — its housemates' rows
+// already exist and the re-save only refreshes the active person's.
 export const draftFromInteraction = (
   interaction: PhoneBankingInteraction | null,
 ): PhoneBankingOutcomeDraft =>
   interaction
     ? {
-        outcome: interaction.outcome,
+        outcome:
+          interaction.outcome === 'refused' ? 'answered' : interaction.outcome,
+        engagement:
+          interaction.outcome === 'answered' &&
+          (interaction.supportAnswer || interaction.willVote)
+            ? 'engaged'
+            : interaction.outcome === 'refused'
+              ? 'refused'
+              : undefined,
         supportAnswer: interaction.supportAnswer ?? undefined,
         willVote: interaction.willVote ?? undefined,
       }
     : EMPTY_DRAFT
+
+// The design renders Save/Cancel only once the cascade reaches a terminal
+// state: immediately for a number-level outcome, after engage = Refused, or
+// after every question on the engaged path.
+export const isDraftComplete = (draft: PhoneBankingOutcomeDraft): boolean => {
+  if (!draft.outcome) return false
+  if (draft.outcome !== 'answered') return true
+  if (draft.engagement === 'refused') return true
+  return (
+    draft.engagement === 'engaged' &&
+    draft.supportAnswer !== undefined &&
+    draft.willVote !== undefined
+  )
+}
 
 // Builds the exact POST body for one Save. `markHouseholdDone` only ever
 // carries `true` (the schema's refine rejects it alongside a non-answered
@@ -164,6 +221,9 @@ export const buildRecordCallRequest = (
   }
   if (draft.outcome !== 'answered') {
     return { entryId, outcome: draft.outcome }
+  }
+  if (draft.engagement === 'refused') {
+    return { entryId, outcome: 'refused', personId: activePersonId }
   }
   return {
     entryId,
