@@ -146,7 +146,10 @@ export const useOutreachAudience = ({
       const detail = await fetchListDetailThrottled(selectedListId, signal)
       return detail.reachability[reachabilityKey]
     },
-    enabled: open && selectedListId !== null,
+    // Gate on `active` (like the builder count): selectedListId persists onto
+    // later steps, so without it every window-focus on a post-audience step
+    // would refetch under staleTime:0 and burn a MAX_IN_FLIGHT list-detail slot.
+    enabled: open && active && selectedListId !== null,
     // Refetch on every (re)selection so the isFetching-driven spinner below
     // actually fires: under the app's 5-min default staleTime a re-picked list
     // is still "fresh", no background refetch runs, isFetching stays false, and
@@ -237,6 +240,13 @@ export const useOutreachAudience = ({
     const created = await runCreateList()
     await queryClient.invalidateQueries({
       queryKey: outreachAudienceListsKey(orgSlug),
+    })
+    // The CRM lists tab reads the same endpoint under its own key; refresh it
+    // too (fire-and-forget — it isn't mounted here) so a list built in this
+    // flow shows up there without waiting out its default staleTime, mirroring
+    // the reverse sync the CRM dialogs now do for this key.
+    queryClient.invalidateQueries({
+      queryKey: ['custom-segments', orgSlug],
     })
     setSelectedListId(created.id)
     resetBuilder()

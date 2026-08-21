@@ -50,11 +50,13 @@ export default function RenameListDialog({
     if (open) setName(segment.name ?? '')
   }, [open, segment.name])
 
-  const invalidateSegments = () => {
-    queryClient.invalidateQueries({ queryKey: ['custom-segments', orgSlug] })
+  const invalidateSegments = async () => {
+    await queryClient.invalidateQueries({
+      queryKey: ['custom-segments', orgSlug],
+    })
     // Same endpoint backs the outreach audience picker's own list cache; keep
     // it in sync so a renamed list doesn't linger there.
-    queryClient.invalidateQueries({
+    await queryClient.invalidateQueries({
       queryKey: outreachAudienceListsKey(orgSlug),
     })
   }
