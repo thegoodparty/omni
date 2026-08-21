@@ -733,7 +733,6 @@ export {
   type OutreachDetail,
 } from './outreach/OutreachSocial.schema'
 export {
-  PHONE_BANKING_PURPOSE_VALUES,
   PhoneBankingScriptPurposeSchema,
   type PhoneBankingScriptPurpose,
   PHONE_BANKING_SCRIPT_MAX_LENGTH,
@@ -867,3 +866,38 @@ export {
   SetNotAVoterResponseSchema,
   type SetNotAVoterResponse,
 } from './doorKnocking/DoorKnockingNotAVoter.schema'
+
+export {
+  PHONE_BANKING_PURPOSE_VALUES,
+  PhoneBankingPurposeSchema,
+  type PhoneBankingPurpose,
+  PHONE_BANKING_NAME_MAX_LENGTH,
+  PHONE_BANKING_CREATE_SCRIPT_MAX_LENGTH,
+  PHONE_BANKING_FILTER_NAME_MAX_LENGTH,
+  PHONE_BANKING_MAX_SHEET_COUNT,
+  PhoneBankingFiltersSchema,
+  type PhoneBankingFilters,
+  PhoneBankingCreateSchema,
+  type PhoneBankingCreate,
+  PhoneBankingCreateResponseSchema,
+  type PhoneBankingCreateResponse,
+} from './phoneBanking/PhoneBankingCreate.schema'
+
+export {
+  PHONE_BANKING_CALL_NOTE_MAX_LENGTH,
+  RecordPhoneBankingCallSchema,
+  type RecordPhoneBankingCall,
+} from './phoneBanking/PhoneBankingCall.schema'
+
+export {
+  PhoneBankingInteractionSchema,
+  type PhoneBankingInteraction,
+  PhoneBankingListPersonSchema,
+  type PhoneBankingListPerson,
+  PhoneBankingListEntrySchema,
+  type PhoneBankingListEntry,
+  PhoneBankingListSchema,
+  type PhoneBankingList,
+  PhoneBankingOutreachDetailSchema,
+  type PhoneBankingOutreachDetail,
+} from './phoneBanking/PhoneBankingList.schema'

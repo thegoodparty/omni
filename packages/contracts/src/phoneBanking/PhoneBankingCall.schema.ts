@@ -1,0 +1,77 @@
+import { z } from 'zod'
+import {
+  PhoneBankCallOutcomeSchema,
+  SupportAnswerSchema,
+  WillVoteAnswerSchema,
+} from '../generated/enums'
+
+export const PHONE_BANKING_CALL_NOTE_MAX_LENGTH = 2_000
+
+// Logging a call: entryId identifies the dialed number, personId (when
+// present) is who picked up — server validates it against the entry's
+// persons. supportAnswer/willVote only carry meaning for an answered call
+// that reached the named person; a number-level outcome (no_answer,
+// voicemail, wrong_number, refused with no personId) fans out to every
+// person on the entry server-side.
+export const RecordPhoneBankingCallSchema = z
+  .object({
+    entryId: z.number().int().positive(),
+    outcome: PhoneBankCallOutcomeSchema,
+    personId: z.string().optional(),
+    supportAnswer: SupportAnswerSchema.optional(),
+    willVote: WillVoteAnswerSchema.optional(),
+    note: z.string().max(PHONE_BANKING_CALL_NOTE_MAX_LENGTH).optional(),
+    // After an answered upsert, log the entry's remaining un-logged
+    // household members as answered too, in the same request.
+    markHouseholdDone: z.boolean().optional(),
+  })
+  .strict()
+  .refine(
+    (v) =>
+      v.personId === undefined ||
+      v.outcome === PhoneBankCallOutcomeSchema.enum.answered,
+    {
+      message: 'personId is only valid when outcome is answered',
+      path: ['personId'],
+    },
+  )
+  .refine(
+    (v) =>
+      v.outcome !== PhoneBankCallOutcomeSchema.enum.answered ||
+      v.personId !== undefined,
+    {
+      message: 'personId is required when outcome is answered',
+      path: ['personId'],
+    },
+  )
+  .refine(
+    (v) =>
+      v.supportAnswer === undefined ||
+      v.outcome === PhoneBankCallOutcomeSchema.enum.answered,
+    {
+      message: 'supportAnswer is only valid when outcome is answered',
+      path: ['supportAnswer'],
+    },
+  )
+  .refine(
+    (v) =>
+      v.willVote === undefined ||
+      v.outcome === PhoneBankCallOutcomeSchema.enum.answered,
+    {
+      message: 'willVote is only valid when outcome is answered',
+      path: ['willVote'],
+    },
+  )
+  .refine(
+    (v) =>
+      !v.markHouseholdDone ||
+      v.outcome === PhoneBankCallOutcomeSchema.enum.answered,
+    {
+      message: 'markHouseholdDone is only valid when outcome is answered',
+      path: ['markHouseholdDone'],
+    },
+  )
+
+export type RecordPhoneBankingCall = z.infer<
+  typeof RecordPhoneBankingCallSchema
+>

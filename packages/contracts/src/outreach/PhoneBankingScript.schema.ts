@@ -1,20 +1,16 @@
 import { z } from 'zod'
 import { SocialToneSchema } from './OutreachSocial.schema'
+import {
+  PhoneBankingPurposeSchema,
+  type PhoneBankingPurpose,
+} from '../phoneBanking/PhoneBankingCreate.schema'
 
-export const PHONE_BANKING_PURPOSE_VALUES = [
-  'introduce',
-  'persuade',
-  'event',
-  'vote-early',
-  'election-day',
-  'custom',
-] as const
-export const PhoneBankingScriptPurposeSchema = z.enum(
-  PHONE_BANKING_PURPOSE_VALUES,
-)
-export type PhoneBankingScriptPurpose = z.infer<
-  typeof PhoneBankingScriptPurposeSchema
->
+// Same six purpose values as PhoneBankingCreateSchema's audience step
+// (canonical definition lives in phoneBanking/PhoneBankingCreate.schema.ts);
+// kept under this module's own names since outreachPhoneBankingGeneration
+// .service.ts imports them from here.
+export const PhoneBankingScriptPurposeSchema = PhoneBankingPurposeSchema
+export type PhoneBankingScriptPurpose = PhoneBankingPurpose
 
 export const PHONE_BANKING_SCRIPT_MAX_LENGTH = 2000
 
