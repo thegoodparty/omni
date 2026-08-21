@@ -134,7 +134,6 @@ export type District = {
   state: string
   L2DistrictType: string
   L2DistrictName: string
-  projectedTurnout: SourceProjectedTurnout | null
   // L2-derived voter aggregates. Only `GET /districts/:id` returns the whole
   // District row; the position lookup hand-shapes a district response without
   // them, hence optional. `null` means the aggregate hasn't been computed for
@@ -238,16 +237,4 @@ export type CampaignStrategyContextResponse = {
   win_number_estimate: number | null
   win_number_lower?: number | null
   win_number_upper?: number | null
-}
-
-type SourceProjectedTurnout = {
-  id: string
-  createdAt: Date
-  updatedAt: Date
-  electionYear: number
-  electionCode: ElectionCode
-  projectedTurnout: number
-  inferenceAt: Date
-  modelVersion: string
-  districtId: string
 }
