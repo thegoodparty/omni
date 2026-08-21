@@ -226,6 +226,21 @@ describe('cascade state machine (draftWith*)', () => {
       }),
     ).toEqual({ outcome: 'answered' })
   })
+
+  it('a persisted refused reopens as answered + engage Refused so an unchanged re-save stays person-attributed', () => {
+    const draft = draftFromInteraction({
+      outcome: 'refused',
+      supportAnswer: null,
+      willVote: null,
+      occurredAt: new Date(),
+    })
+    expect(draft).toEqual({ outcome: 'answered', engagement: 'refused' })
+    expect(buildRecordCallRequest(5, draft, 'active-person', false)).toEqual({
+      entryId: 5,
+      outcome: 'refused',
+      personId: 'active-person',
+    })
+  })
 })
 
 describe('isDraftComplete (terminal states that reveal Save/Cancel)', () => {

@@ -168,19 +168,26 @@ export const draftWithWillVote = (
 // carries conversation answers must have come through the engaged path; a
 // bare answered row (a markHouseholdDone fill) leaves engagement unpicked
 // so an edit re-asks the question. A `refused` row can't distinguish
-// person-level from fan-out on read, so it reopens as the top-level
-// Refused pill — the persisted semantics are identical either way.
+// person-level from fan-out on read, so EVERY refused reopens through the
+// answered -> engage-Refused path: an unchanged re-save then emits the
+// person-attributed write (one upsert on this person) instead of the
+// number-level fan-out, which would silently overwrite every housemate's
+// row. An originally fan-out refused loses nothing — its housemates' rows
+// already exist and the re-save only refreshes the active person's.
 export const draftFromInteraction = (
   interaction: PhoneBankingInteraction | null,
 ): PhoneBankingOutcomeDraft =>
   interaction
     ? {
-        outcome: interaction.outcome,
+        outcome:
+          interaction.outcome === 'refused' ? 'answered' : interaction.outcome,
         engagement:
           interaction.outcome === 'answered' &&
           (interaction.supportAnswer || interaction.willVote)
             ? 'engaged'
-            : undefined,
+            : interaction.outcome === 'refused'
+              ? 'refused'
+              : undefined,
         supportAnswer: interaction.supportAnswer ?? undefined,
         willVote: interaction.willVote ?? undefined,
       }
