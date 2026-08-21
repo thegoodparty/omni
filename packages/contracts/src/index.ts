@@ -733,7 +733,6 @@ export {
   type OutreachDetail,
 } from './outreach/OutreachSocial.schema'
 export {
-  PHONE_BANKING_PURPOSE_VALUES,
   PhoneBankingScriptPurposeSchema,
   type PhoneBankingScriptPurpose,
   PHONE_BANKING_SCRIPT_MAX_LENGTH,
@@ -873,7 +872,7 @@ export {
   PhoneBankingPurposeSchema,
   type PhoneBankingPurpose,
   PHONE_BANKING_NAME_MAX_LENGTH,
-  PHONE_BANKING_SCRIPT_MAX_LENGTH,
+  PHONE_BANKING_CREATE_SCRIPT_MAX_LENGTH,
   PHONE_BANKING_FILTER_NAME_MAX_LENGTH,
   PHONE_BANKING_MAX_SHEET_COUNT,
   PhoneBankingFiltersSchema,
