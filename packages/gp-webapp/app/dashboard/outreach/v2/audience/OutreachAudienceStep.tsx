@@ -5,6 +5,7 @@ import { Card, cn, Popover, PopoverContent, PopoverTrigger } from '@styleguide'
 import {
   CheckIcon,
   ChevronDownIcon,
+  FilterIcon,
   Loader2Icon,
   PlusIcon,
 } from '@styleguide/components/ui/icons'
@@ -25,15 +26,18 @@ export type OutreachAudienceMode = 'picker' | 'filters' | 'name'
 // "Call"/"landline") so the same component serves every outreach feature.
 export interface OutreachAudienceCopy {
   pickerTitle: string
-  // The one line that names the channel's reachability constraint, e.g.
-  // "We only call voters with a landline."
+  // The subtitle under the picker title, e.g. "We recommend reaching all your
+  // supporters to increase awareness."
   pickerBody: string
   filtersTitle: string
   filtersBody: string
   nameTitle: string
   nameBody: string
-  // Verb for the reachable-count line: "Call"/"Message" -> "Call 1,204 voters".
+  // Verb + noun for the reachable-count line, so the channel controls the whole
+  // phrasing: `${reachVerb} 1,204 ${reachNoun} for $X` — robocall
+  // "Reach"/"supporters with landlines", SMS "Message"/"supporters".
   reachVerb: string
+  reachNoun: string
   // Unit-cost line, e.g. "Each call costs".
   unitCostLabel: string
 }
@@ -147,12 +151,13 @@ export const OutreachAudienceStep = ({
       />
 
       <div className="space-y-2">
+        <p className="text-xs font-bold uppercase text-primary">All lists</p>
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <Card
               role="button"
               tabIndex={0}
-              className="cursor-pointer flex-row items-center justify-between gap-3 rounded-lg p-4"
+              className="cursor-pointer flex-row items-center justify-between gap-3 p-4 transition-colors hover:border-primary/50"
             >
               <div className="min-w-0">
                 <p className="truncate font-medium text-foreground">
@@ -170,7 +175,8 @@ export const OutreachAudienceStep = ({
                     ) : reachableCount !== null ? (
                       <>
                         {copy.reachVerb} {reachableCount.toLocaleString()}{' '}
-                        voters for ${money(reachableCount * pricePerContact)}
+                        {copy.reachNoun} for $
+                        {money(reachableCount * pricePerContact)}
                       </>
                     ) : (
                       "We couldn't count this list right now."
@@ -244,6 +250,13 @@ export const OutreachAudienceStep = ({
             </div>
           </PopoverContent>
         </Popover>
+        <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+          <FilterIcon className="mt-0.5 size-3.5 shrink-0" />
+          <span>
+            The number of reachable voters in each list may change based on the
+            mode of outreach you select.
+          </span>
+        </p>
       </div>
       <p className="text-sm text-muted-foreground">
         {copy.unitCostLabel} ${pricePerContact.toFixed(3)}

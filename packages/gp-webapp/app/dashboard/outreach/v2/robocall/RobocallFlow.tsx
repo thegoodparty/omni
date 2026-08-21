@@ -24,7 +24,7 @@ const STEP_ORDER: StepId[] = ['purpose', 'audience', 'schedule', 'placeholder']
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
-  audience: 'Who do you want to reach?',
+  audience: 'Who are you calling?',
   schedule: 'When should it go out?',
   placeholder: 'Robocall is coming soon',
 }
@@ -39,13 +39,15 @@ const MIN_LEAD_MS = MIN_LEAD_HOURS * 60 * 60 * 1000
 // list, and a { hasLandline: true } overlay on the builder count. The overlay
 // is count-only — the saved list itself stays general (see useOutreachAudience).
 const ROBOCALL_AUDIENCE_COPY: OutreachAudienceCopy = {
-  pickerTitle: 'Who do you want to reach?',
-  pickerBody: 'Pick a saved voter list. We only call voters with a landline.',
+  pickerTitle: 'Who are you calling?',
+  pickerBody:
+    'We recommend reaching all your supporters to increase awareness.',
   filtersTitle: 'Build a voter list',
-  filtersBody: 'Pick filters to define who this campaign calls.',
+  filtersBody: 'Pick filters to define who this campaign reaches.',
   nameTitle: 'Name your list',
   nameBody: 'You can rename it any time.',
-  reachVerb: 'Call',
+  reachVerb: 'Reach',
+  reachNoun: 'supporters with landlines',
   unitCostLabel: 'Each call costs',
 }
 
