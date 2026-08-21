@@ -8,6 +8,7 @@ import type {
   PhoneBankingScriptDraftRequest,
 } from '@goodparty_org/contracts'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { router } from 'helpers/test-utils/router-mocking'
 import { PhoneBankingFlow } from './PhoneBankingFlow'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -91,31 +92,27 @@ const openFlow = (onSaved?: (outreachId: number, name: string) => void) => {
 const advanceToWho = async () => {
   await user.click(screen.getByText('Introduce myself'))
   expect(
-    (await screen.findAllByText('Who do you want to call?')).length,
+    (await screen.findAllByText('Who are you calling?')).length,
   ).toBeGreaterThan(0)
 }
 
 const advanceToScript = async () => {
   await advanceToWho()
-  await user.type(screen.getByLabelText('List name'), 'My audience')
   await user.click(screen.getByRole('button', { name: 'Continue' }))
   expect(
-    (await screen.findAllByText('What do you want to say?')).length,
+    (await screen.findAllByText('Write your call script')).length,
   ).toBeGreaterThan(0)
 }
 
-const advanceToDownload = async () => {
+const advanceToSheets = async () => {
   await advanceToScript()
   await waitFor(() =>
     expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
   )
   await user.click(screen.getByRole('button', { name: 'Continue' }))
   expect(
-    (await screen.findAllByText('How many sheets do you need?')).length,
-  ).toBeGreaterThan(0)
-  await user.click(screen.getByRole('button', { name: 'Continue' }))
-  expect(
-    (await screen.findAllByText('Ready to build your call list')).length,
+    (await screen.findAllByText('How many lists would you like me to create?'))
+      .length,
   ).toBeGreaterThan(0)
 }
 
@@ -126,7 +123,7 @@ describe('PhoneBankingFlow', () => {
     mockCount()
   })
 
-  it('progresses purpose → who → script → sheets → download, creates, and shows success', async () => {
+  it('progresses purpose → who (default All voters) → script → sheets, creates on sheets Continue, and shows the ready screen', async () => {
     mockDraft()
     const createCalls: PhoneBankingCreate[] = []
     api.mock('POST /v1/phone-banking/lists', ({ body }) => {
@@ -138,22 +135,22 @@ describe('PhoneBankingFlow', () => {
     expect(
       screen.getAllByText('What do you want to do?').length,
     ).toBeGreaterThan(0)
-    await advanceToDownload()
+    await advanceToSheets()
 
-    const nameInput = screen.getByLabelText('Campaign name')
-    expect(nameInput).toHaveValue('Introduce myself')
-
-    await user.click(screen.getByRole('button', { name: 'Create' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
-      await screen.findByText('Your call list is ready!'),
-    ).toBeInTheDocument()
+      (await screen.findAllByText('Your call list is ready')).length,
+    ).toBeGreaterThan(0)
     expect(createCalls).toHaveLength(1)
     expect(createCalls[0]).toMatchObject({
       purpose: 'introduce',
       sheetCount: 1,
-      filterName: 'My audience',
+      filters: {},
+      filterName: 'All voters',
     })
+    expect(createCalls[0]).not.toHaveProperty('voterFileFilterId')
+
     const downloadLink = screen.getByRole('link', {
       name: 'Download call sheet (PDF)',
     })
@@ -170,16 +167,19 @@ describe('PhoneBankingFlow', () => {
       },
     )
 
-    // ENG-10918: the download-step link fires Call Sheet Downloaded on click
-    // (bare URL — the single-sheet case, no `?sheet=` param).
     await user.click(downloadLink)
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Outreach.PhoneBanking.SheetDownloaded,
       { listId: createResponse.id, contactCount: createResponse.personCount },
     )
+
+    await user.click(screen.getByRole('button', { name: 'Go to call list' }))
+    expect(router.push).toHaveBeenCalledWith(
+      `/dashboard/outreach/phone-banking/${createResponse.id}`,
+    )
   })
 
-  it('offers a ZIP link plus one per-sheet link, each firing Call Sheet Downloaded, for a multi-sheet list', async () => {
+  it('offers a ZIP download link for a multi-sheet list', async () => {
     mockDraft()
     const multiSheetResponse = { ...createResponse, sheetCount: 3 }
     api.mock('POST /v1/phone-banking/lists', {
@@ -187,37 +187,24 @@ describe('PhoneBankingFlow', () => {
       data: multiSheetResponse,
     })
     openFlow()
-    await advanceToScript()
-    await waitFor(() =>
-      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
-    )
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findAllByText('How many sheets do you need?')
-    await user.click(screen.getByRole('button', { name: '3' }))
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findAllByText('Ready to build your call list')
-    await user.click(screen.getByRole('button', { name: 'Create' }))
-    await screen.findByText('Your call list is ready!')
+    await advanceToSheets()
 
-    const basePath = `/dashboard/outreach/phone-banking/print/${multiSheetResponse.id}/pdf`
+    const sheetCountInput = screen.getByLabelText('Number of lists')
+    await user.clear(sheetCountInput)
+    await user.type(sheetCountInput, '3')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('Your call lists are ready')
+
     const zipLink = screen.getByRole('link', {
-      name: 'Download all sheets (ZIP)',
+      name: 'Download 3 call sheets (ZIP)',
     })
-    expect(zipLink).toHaveAttribute('href', basePath)
-    const sheet2Link = screen.getByRole('link', { name: 'Sheet 2 (PDF)' })
-    expect(sheet2Link).toHaveAttribute('href', `${basePath}?sheet=2`)
-
-    await user.click(sheet2Link)
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Outreach.PhoneBanking.SheetDownloaded,
-      {
-        listId: multiSheetResponse.id,
-        contactCount: multiSheetResponse.personCount,
-      },
+    expect(zipLink).toHaveAttribute(
+      'href',
+      `/dashboard/outreach/phone-banking/print/${multiSheetResponse.id}/pdf`,
     )
   })
 
-  it('renders the API 400 empty-audience message inline', async () => {
+  it('renders the API 400 empty-audience message inline on the sheets step', async () => {
     mockDraft()
     api.mock('POST /v1/phone-banking/lists', {
       status: 400,
@@ -226,15 +213,19 @@ describe('PhoneBankingFlow', () => {
       },
     })
     openFlow()
-    await advanceToDownload()
+    await advanceToSheets()
 
-    await user.click(screen.getByRole('button', { name: 'Create' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
       await screen.findByText(
         'No matching voters with a phone number — widen the filters',
       ),
     ).toBeInTheDocument()
+    // Stays on the sheets step — no ready screen.
+    expect(
+      screen.getAllByText('How many lists would you like me to create?').length,
+    ).toBeGreaterThan(0)
   })
 
   it('drafts the script with purpose + tone, and Improve with AI sends currentDraft', async () => {
@@ -250,6 +241,11 @@ describe('PhoneBankingFlow', () => {
         draftFor({ purpose: 'introduce', tone: 'warm' }),
       ),
     )
+
+    // Improve with AI is visible on a fresh AI draft — no manual-edit gate.
+    expect(
+      screen.getByRole('button', { name: /Improve with AI/ }),
+    ).toBeInTheDocument()
 
     const textarea = screen.getByLabelText('Call script')
     await user.clear(textarea)
@@ -270,6 +266,24 @@ describe('PhoneBankingFlow', () => {
     )
   })
 
+  it('auto-suggests the campaign name from the purpose on the script step, and an empty name blocks Continue', async () => {
+    mockDraft()
+    openFlow()
+    await advanceToScript()
+
+    const nameInput = screen.getByLabelText('Campaign name')
+    expect(nameInput).toHaveValue('Introduce myself')
+
+    await user.clear(nameInput)
+    await waitFor(() =>
+      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
+    )
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    await user.type(nameInput, 'GOTV calls')
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+  })
+
   it('sends voterFileFilterId (never filters) when a saved list is chosen', async () => {
     mockDraft()
     mockSavedLists([{ id: 3, name: 'Likely Dems' }])
@@ -282,23 +296,21 @@ describe('PhoneBankingFlow', () => {
     openFlow()
     await advanceToWho()
 
-    await user.click(screen.getByRole('combobox'))
+    await user.click(screen.getByRole('button', { name: 'All lists' }))
     await user.click(await screen.findByText('Likely Dems'))
     expect(
       await screen.findByText('reachable by phone banking'),
     ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findAllByText('What do you want to say?')
+    await screen.findAllByText('Write your call script')
     await waitFor(() =>
       expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findAllByText('How many sheets do you need?')
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findAllByText('Ready to build your call list')
+    await screen.findAllByText('How many lists would you like me to create?')
 
-    await user.click(screen.getByRole('button', { name: 'Create' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
     await waitFor(() => expect(createCalls).toHaveLength(1))
 
     expect(createCalls[0]?.voterFileFilterId).toBe(3)
@@ -306,25 +318,23 @@ describe('PhoneBankingFlow', () => {
     expect(createCalls[0]).not.toHaveProperty('filterName')
   })
 
-  it('sends filters + filterName (never voterFileFilterId) when building an inline audience', async () => {
+  it('disables Continue on the who step when the saved list count fails to load', async () => {
     mockDraft()
-    const createCalls: PhoneBankingCreate[] = []
-    api.mock('POST /v1/phone-banking/lists', ({ body }) => {
-      createCalls.push(body)
-      return { status: 200, data: createResponse }
-    })
+    mockSavedLists([{ id: 3, name: 'Likely Dems' }])
+    mockListDetail(null)
     openFlow()
-    await advanceToDownload()
+    await advanceToWho()
 
-    await user.click(screen.getByRole('button', { name: 'Create' }))
-    await waitFor(() => expect(createCalls).toHaveLength(1))
+    await user.click(screen.getByRole('button', { name: 'All lists' }))
+    await user.click(await screen.findByText('Likely Dems'))
 
-    expect(createCalls[0]?.filterName).toBe('My audience')
-    expect(createCalls[0]?.filters).toBeDefined()
-    expect(createCalls[0]).not.toHaveProperty('voterFileFilterId')
+    expect(
+      await screen.findByText("We couldn't count this list. Try again."),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
 
-  it('fires Call List Created with filtersApplied: true when a filter pill is toggled', async () => {
+  it('builds a custom audience via the builder → naming sub-states and sends filters + filterName', async () => {
     mockDraft()
     const createCalls: PhoneBankingCreate[] = []
     api.mock('POST /v1/phone-banking/lists', ({ body }) => {
@@ -334,22 +344,39 @@ describe('PhoneBankingFlow', () => {
     openFlow()
     await advanceToWho()
 
-    await user.type(screen.getByLabelText('List name'), 'My audience')
+    await user.click(screen.getByRole('button', { name: 'All lists' }))
+    await user.click(await screen.findByText('Create a new list'))
+    expect(
+      (await screen.findAllByText('Build a voter list')).length,
+    ).toBeGreaterThan(0)
+
     await user.click(screen.getByRole('button', { name: 'Democrat' }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /Continue \(\d+\)/ }),
+      ).toBeEnabled(),
+    )
+    await user.click(screen.getByRole('button', { name: /Continue \(\d+\)/ }))
+
+    expect(
+      (await screen.findAllByText('Name your list')).length,
+    ).toBeGreaterThan(0)
+    await user.type(screen.getByLabelText('List name'), 'My audience')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findAllByText('What do you want to say?')
+
+    await screen.findAllByText('Write your call script')
     await waitFor(() =>
       expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findAllByText('How many sheets do you need?')
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findAllByText('Ready to build your call list')
+    await screen.findAllByText('How many lists would you like me to create?')
 
-    await user.click(screen.getByRole('button', { name: 'Create' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
     await waitFor(() => expect(createCalls).toHaveLength(1))
 
+    expect(createCalls[0]?.filterName).toBe('My audience')
     expect(createCalls[0]?.filters).toMatchObject({ partyDemocrat: true })
+    expect(createCalls[0]).not.toHaveProperty('voterFileFilterId')
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Outreach.PhoneBanking.ListCreated,
       expect.objectContaining({ filtersApplied: true }),
@@ -364,10 +391,10 @@ describe('PhoneBankingFlow', () => {
     })
     const onSaved = vi.fn()
     openFlow(onSaved)
-    await advanceToDownload()
+    await advanceToSheets()
 
-    await user.click(screen.getByRole('button', { name: 'Create' }))
-    await screen.findByText('Your call list is ready!')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText('Your call list is ready')
 
     expect(onSaved).toHaveBeenCalledWith(
       createResponse.outreachId,
@@ -383,27 +410,11 @@ describe('PhoneBankingFlow', () => {
     })
     const onSaved = vi.fn()
     openFlow(onSaved)
-    await advanceToDownload()
+    await advanceToSheets()
 
-    await user.click(screen.getByRole('button', { name: 'Create' }))
-    await screen.findByText('Your call list is ready!')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText('Your call list is ready')
 
     expect(onSaved).not.toHaveBeenCalled()
-  })
-
-  it('disables Continue on the who step when the saved list count fails to load', async () => {
-    mockDraft()
-    mockSavedLists([{ id: 3, name: 'Likely Dems' }])
-    mockListDetail(null)
-    openFlow()
-    await advanceToWho()
-
-    await user.click(screen.getByRole('combobox'))
-    await user.click(await screen.findByText('Likely Dems'))
-
-    expect(
-      await screen.findByText("We couldn't count this list. Try again."),
-    ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
 })

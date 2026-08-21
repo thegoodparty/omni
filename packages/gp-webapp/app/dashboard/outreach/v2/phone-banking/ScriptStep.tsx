@@ -1,7 +1,12 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { SOCIAL_TONE_VALUES, type SocialTone } from '@goodparty_org/contracts'
+import {
+  PHONE_BANKING_NAME_MAX_LENGTH,
+  PHONE_BANKING_SCRIPT_MAX_LENGTH,
+  SOCIAL_TONE_VALUES,
+  type SocialTone,
+} from '@goodparty_org/contracts'
 import {
   Button,
   Card,
@@ -9,6 +14,8 @@ import {
   FilterPill,
   FilterPillGroup,
   IconButton,
+  Input,
+  Label,
   Textarea,
 } from '@styleguide'
 import {
@@ -23,7 +30,6 @@ import {
   TargetIcon,
 } from '@styleguide/components/ui/icons'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
-import { PHONE_BANKING_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import { ThinkingStream } from '../social/ThinkingStream'
 import { Intro } from '../social/Intro'
 
@@ -42,6 +48,9 @@ const TONE_ICONS: Record<SocialTone, ReactNode> = {
 }
 
 interface ScriptStepProps {
+  name: string
+  onNameChange: (name: string) => void
+  audienceLabel: string
   tone: SocialTone
   onToneChange: (tone: SocialTone) => void
   script: string
@@ -55,6 +64,9 @@ interface ScriptStepProps {
 }
 
 export const ScriptStep = ({
+  name,
+  onNameChange,
+  audienceLabel,
   tone,
   onToneChange,
   script,
@@ -72,14 +84,31 @@ export const ScriptStep = ({
     onChange: onScriptChange,
   })
   const isRecording = dictation.status === 'recording'
+  const captionText = isCustomPurpose
+    ? 'Your call script'
+    : `Suggested for ${audienceLabel}`
 
   return (
     <div className="space-y-6">
       <Intro
         channel="phoneBanking"
-        title="What do you want to say?"
-        body="Confirm the script. Volunteers will read this on their calls."
+        title="Write your call script"
+        body="This is the script your volunteers will read on the phone. Edit it to sound like you."
       />
+
+      <div className="space-y-2">
+        <Label htmlFor="phone-banking-campaign-name">Campaign name</Label>
+        <Input
+          id="phone-banking-campaign-name"
+          value={name}
+          maxLength={PHONE_BANKING_NAME_MAX_LENGTH}
+          onChange={(e) => onNameChange(e.target.value)}
+          placeholder="Name this campaign"
+        />
+        <p className="text-sm text-muted-foreground">
+          Internal name to identify this campaign in your history.
+        </p>
+      </div>
 
       <FilterPillGroup
         type="single"
@@ -96,7 +125,7 @@ export const ScriptStep = ({
 
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-muted-foreground">Your call script</p>
+          <p className="text-sm text-muted-foreground">{captionText}</p>
           {!isCustomPurpose && (
             <Button
               type="button"
@@ -200,6 +229,10 @@ export const ScriptStep = ({
           </p>
         )}
       </div>
+
+      <p className="text-sm text-muted-foreground">
+        Phone banking is free — your volunteers make the calls.
+      </p>
     </div>
   )
 }

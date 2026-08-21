@@ -1,56 +1,52 @@
 'use client'
 
 import { PHONE_BANKING_MAX_SHEET_COUNT } from '@goodparty_org/contracts'
-import { Card, cn } from '@styleguide'
+import { Input, Label } from '@styleguide'
 import { Intro } from '../social/Intro'
 
 interface SheetCountStepProps {
   sheetCount: number
   onSheetCountChange: (count: number) => void
+  createErrorMessage: string | null
 }
-
-const SHEET_COUNT_OPTIONS = Array.from(
-  { length: PHONE_BANKING_MAX_SHEET_COUNT },
-  (_, i) => i + 1,
-)
 
 export const SheetCountStep = ({
   sheetCount,
   onSheetCountChange,
+  createErrorMessage,
 }: SheetCountStepProps) => (
   <div className="space-y-6">
     <Intro
       channel="phoneBanking"
-      title="How many sheets do you need?"
-      body="Each sheet holds 60 numbers, split evenly across your volunteers."
+      title="How many lists would you like me to create?"
+      body="Creating multiple lists makes it simpler to share with volunteers, friends, and family."
     />
-    <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
-      {SHEET_COUNT_OPTIONS.map((count) => (
-        <Card
-          key={count}
-          role="button"
-          tabIndex={0}
-          onClick={() => onSheetCountChange(count)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              onSheetCountChange(count)
-            }
-          }}
-          className={cn(
-            'items-center justify-center rounded-lg p-3 text-center transition-colors',
-            count === sheetCount
-              ? 'border-primary bg-primary/5'
-              : 'hover:border-primary/50',
-          )}
-        >
-          <span className="text-lg font-semibold text-foreground">{count}</span>
-        </Card>
-      ))}
+    <div className="space-y-2">
+      <Label htmlFor="phone-banking-sheet-count">Number of lists</Label>
+      <Input
+        id="phone-banking-sheet-count"
+        type="number"
+        inputMode="numeric"
+        min={1}
+        max={PHONE_BANKING_MAX_SHEET_COUNT}
+        value={Number.isFinite(sheetCount) ? sheetCount : ''}
+        onChange={(e) => {
+          const n = parseInt(e.target.value, 10)
+          if (Number.isNaN(n)) {
+            onSheetCountChange(1)
+            return
+          }
+          onSheetCountChange(
+            Math.max(1, Math.min(PHONE_BANKING_MAX_SHEET_COUNT, n)),
+          )
+        }}
+      />
+      <p className="text-sm text-muted-foreground">
+        Between 1 and {PHONE_BANKING_MAX_SHEET_COUNT} lists.
+      </p>
     </div>
-    <p className="text-sm text-muted-foreground">
-      {sheetCount} sheet{sheetCount === 1 ? '' : 's'} ·{' '}
-      {(sheetCount * 60).toLocaleString()} numbers total
-    </p>
+    {createErrorMessage && (
+      <p className="text-sm text-destructive">{createErrorMessage}</p>
+    )}
   </div>
 )
