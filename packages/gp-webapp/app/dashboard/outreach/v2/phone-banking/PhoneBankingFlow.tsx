@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
 import type {
@@ -45,6 +45,7 @@ const GENERIC_CREATE_ERROR_MESSAGE =
 interface PhoneBankingFlowProps {
   open: boolean
   onClose: () => void
+  onSaved?: (outreachId: number, name: string) => void
 }
 
 // ENG-10918's route contract: a bare URL returns one PDF for a single-sheet
@@ -124,10 +125,16 @@ const SuccessScreen = ({
 // Flow state is flat client state owned here (phase 1 TDD, same convention
 // as SocialFlow): no server drafts — nothing persists until the final
 // create call, and reopening starts fresh.
-export const PhoneBankingFlow = ({ open, onClose }: PhoneBankingFlowProps) => {
+export const PhoneBankingFlow = ({
+  open,
+  onClose,
+  onSaved,
+}: PhoneBankingFlowProps) => {
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<PhoneBankingPurpose | null>(null)
   const [selectedListId, setSelectedListId] = useState<number | null>(null)
+  const [listCountFailed, setListCountFailed] = useState(false)
+  const [listCountPending, setListCountPending] = useState(false)
   const [filters, setFilters] = useState<PhoneBankingFilterState>({})
   const [filterName, setFilterName] = useState('')
   const [tone, setTone] = useState<SocialTone>('warm')
@@ -167,7 +174,7 @@ export const PhoneBankingFlow = ({ open, onClose }: PhoneBankingFlowProps) => {
   const draftMutation = useMutation({
     mutationFn: async (input: PhoneBankingScriptDraftRequest) => {
       const { data } = await clientRequest(
-        'POST /outreach/phone-banking/draft',
+        'POST /v1/outreach/phone-banking/draft',
         input,
       )
       return data.draft
@@ -205,6 +212,9 @@ export const PhoneBankingFlow = ({ open, onClose }: PhoneBankingFlowProps) => {
           selectedListId === null && Object.values(filters).some(Boolean),
         listSize: response.personCount,
       })
+      if (response.outreachId != null) {
+        onSaved?.(response.outreachId, response.name)
+      }
     },
   })
 
@@ -219,6 +229,8 @@ export const PhoneBankingFlow = ({ open, onClose }: PhoneBankingFlowProps) => {
     setStepId('purpose')
     setPurpose(null)
     setSelectedListId(null)
+    setListCountFailed(false)
+    setListCountPending(false)
     setFilters({})
     setFilterName('')
     setTone('warm')
@@ -296,6 +308,14 @@ export const PhoneBankingFlow = ({ open, onClose }: PhoneBankingFlowProps) => {
     if (previous) setStepId(previous)
   }
 
+  const handleCountStatusChange = useCallback(
+    ({ failed, pending }: { failed: boolean; pending: boolean }) => {
+      setListCountFailed(failed)
+      setListCountPending(pending)
+    },
+    [],
+  )
+
   const dirty =
     !saved &&
     (purpose !== null ||
@@ -318,7 +338,10 @@ export const PhoneBankingFlow = ({ open, onClose }: PhoneBankingFlowProps) => {
       ? {
           label: 'Continue',
           onClick: () => setStepId('script'),
-          disabled: selectedListId === null && filterName.trim().length === 0,
+          disabled:
+            selectedListId === null
+              ? filterName.trim().length === 0
+              : listCountFailed || listCountPending,
         }
       : stepId === 'script'
         ? {
@@ -369,6 +392,7 @@ export const PhoneBankingFlow = ({ open, onClose }: PhoneBankingFlowProps) => {
           onFiltersChange={setFilters}
           filterName={filterName}
           onFilterNameChange={setFilterName}
+          onCountStatusChange={handleCountStatusChange}
         />
       ) : stepId === 'script' ? (
         <ScriptStep

@@ -291,7 +291,7 @@ export type APIEndpoints = {
   // Stateless script draft/improve for the phone-banking create flow —
   // mirrors the social draft endpoint (purpose + tone; currentDraft polishes
   // in place instead of writing fresh). 502 on model failure.
-  'POST /outreach/phone-banking/draft': {
+  'POST /v1/outreach/phone-banking/draft': {
     Request: PhoneBankingScriptDraftRequest
     Response: PhoneBankingScriptDraftResponse
   }

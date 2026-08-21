@@ -42,7 +42,7 @@ const draftFor = ({
 
 const mockDraft = () => {
   const calls: PhoneBankingScriptDraftRequest[] = []
-  api.mock('POST /outreach/phone-banking/draft', ({ body }) => {
+  api.mock('POST /v1/outreach/phone-banking/draft', ({ body }) => {
     calls.push(body)
     return { status: 200, data: { draft: draftFor(body) } }
   })
@@ -82,9 +82,9 @@ const createResponse = {
 
 const user = userEvent.setup()
 
-const openFlow = () => {
+const openFlow = (onSaved?: (outreachId: number, name: string) => void) => {
   const onClose = vi.fn()
-  render(<PhoneBankingFlow open onClose={onClose} />)
+  render(<PhoneBankingFlow open onClose={onClose} onSaved={onSaved} />)
   return { onClose }
 }
 
@@ -322,5 +322,56 @@ describe('PhoneBankingFlow', () => {
     expect(createCalls[0]?.filterName).toBe('My audience')
     expect(createCalls[0]?.filters).toBeDefined()
     expect(createCalls[0]).not.toHaveProperty('voterFileFilterId')
+  })
+
+  it('notifies onSaved with the outreach id and name so the hub history can update without a refetch', async () => {
+    mockDraft()
+    api.mock('POST /v1/phone-banking/lists', {
+      status: 200,
+      data: createResponse,
+    })
+    const onSaved = vi.fn()
+    openFlow(onSaved)
+    await advanceToDownload()
+
+    await user.click(screen.getByRole('button', { name: 'Create' }))
+    await screen.findByText('Your call list is ready!')
+
+    expect(onSaved).toHaveBeenCalledWith(
+      createResponse.outreachId,
+      createResponse.name,
+    )
+  })
+
+  it('does not call onSaved when the create response has no outreachId', async () => {
+    mockDraft()
+    api.mock('POST /v1/phone-banking/lists', {
+      status: 200,
+      data: { ...createResponse, outreachId: null },
+    })
+    const onSaved = vi.fn()
+    openFlow(onSaved)
+    await advanceToDownload()
+
+    await user.click(screen.getByRole('button', { name: 'Create' }))
+    await screen.findByText('Your call list is ready!')
+
+    expect(onSaved).not.toHaveBeenCalled()
+  })
+
+  it('disables Continue on the who step when the saved list count fails to load', async () => {
+    mockDraft()
+    mockSavedLists([{ id: 3, name: 'Likely Dems' }])
+    mockListDetail(null)
+    openFlow()
+    await advanceToWho()
+
+    await user.click(screen.getByRole('combobox'))
+    await user.click(await screen.findByText('Likely Dems'))
+
+    expect(
+      await screen.findByText("We couldn't count this list. Try again."),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
 })

@@ -61,6 +61,21 @@ const OutreachHubContent = ({
     ])
   }
 
+  // The phone-banking create response is the list, not a full OutreachDetail
+  // (unlike social's save) — no detail to seed, just enough to prepend a row
+  // so the history table doesn't stay stale until the next full load.
+  const handlePhoneBankingSaved = (outreachId: number, name: string) => {
+    setOutreaches([
+      {
+        id: outreachId,
+        name,
+        outreachType: 'phoneBanking',
+        status: 'completed',
+      },
+      ...(outreaches ?? []),
+    ])
+  }
+
   // Consume-once (ENG-10769 conventions): strip the param, open the drawer
   // if the id resolves; the ref keeps an already-consumed id from reopening
   // while still accepting a new deep link arriving while mounted.
@@ -101,6 +116,7 @@ const OutreachHubContent = ({
       <PhoneBankingFlow
         open={phoneBankingFlowOpen}
         onClose={() => setPhoneBankingFlowOpen(false)}
+        onSaved={handlePhoneBankingSaved}
       />
       <Suspense>
         <OutreachComposeDeepLink tcrCompliance={tcrCompliance} />

@@ -65,6 +65,11 @@ interface WhoStepProps {
   onFiltersChange: (filters: PhoneBankingFilterState) => void
   filterName: string
   onFilterNameChange: (name: string) => void
+  // The saved-list reachability count is the only signal that can block
+  // Continue — the inline-audience count failing is caught at create time by
+  // the API's validation instead. Reported on every relevant change so the
+  // parent's CTA can't advance past a count it knows failed.
+  onCountStatusChange?: (status: { failed: boolean; pending: boolean }) => void
 }
 
 export const WhoStep = ({
@@ -75,6 +80,7 @@ export const WhoStep = ({
   onFiltersChange,
   filterName,
   onFilterNameChange,
+  onCountStatusChange,
 }: WhoStepProps) => {
   const selectedList =
     selectedListId === null
@@ -129,6 +135,25 @@ export const WhoStep = ({
   const savedListCount = listDetailQuery.data?.reachability.phoneBanking ?? null
   const savedListCountFailed =
     listDetailQuery.isError || savedListCount === null
+
+  // Mirrors the render order below (pending, then failed, then count) so the
+  // parent's Continue gate can never advance past a count it hasn't actually
+  // resolved.
+  useEffect(() => {
+    onCountStatusChange?.(
+      selectedListId === null
+        ? { failed: false, pending: false }
+        : {
+            failed: !listDetailQuery.isPending && savedListCountFailed,
+            pending: listDetailQuery.isPending,
+          },
+    )
+  }, [
+    selectedListId,
+    listDetailQuery.isPending,
+    savedListCountFailed,
+    onCountStatusChange,
+  ])
 
   return (
     <div className="space-y-6">
