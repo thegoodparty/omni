@@ -16,6 +16,9 @@ import {
   PhoneBankingCreateResponseSchema,
   PhoneBankingCreateSchema,
   PhoneBankingListSchema,
+  RecordPhoneBankingCall,
+  RecordPhoneBankingCallResponseSchema,
+  RecordPhoneBankingCallSchema,
 } from '@goodparty_org/contracts'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
@@ -25,6 +28,7 @@ import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
 import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { Campaign, Organization } from '../generated/prisma'
+import { PhoneBankingCallService } from './services/phoneBankingCall.service'
 import { PhoneBankingListService } from './services/phoneBankingList.service'
 
 // Every route is Pro-gated through ContactsService.assertProAccess in-method
@@ -35,6 +39,7 @@ import { PhoneBankingListService } from './services/phoneBankingList.service'
 export class PhoneBankingController {
   constructor(
     private readonly listService: PhoneBankingListService,
+    private readonly callService: PhoneBankingCallService,
     private readonly contacts: ContactsService,
   ) {}
 
@@ -61,6 +66,19 @@ export class PhoneBankingController {
   ) {
     await this.contacts.assertProAccess(organization)
     return this.listService.getForOrganization(id, organization)
+  }
+
+  @Post('lists/:id/calls')
+  @UseOrganization()
+  @ResponseSchema(RecordPhoneBankingCallResponseSchema)
+  async recordCall(
+    @Param('id', ParseIntPipe) id: number,
+    @ReqOrganization() organization: Organization,
+    @Body(new ZodValidationPipe(RecordPhoneBankingCallSchema))
+    input: RecordPhoneBankingCall,
+  ) {
+    await this.contacts.assertProAccess(organization)
+    return this.callService.recordCall(id, organization.slug, input)
   }
 
   @Delete('lists/:id')

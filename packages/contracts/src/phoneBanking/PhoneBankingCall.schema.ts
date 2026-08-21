@@ -4,6 +4,7 @@ import {
   SupportAnswerSchema,
   WillVoteAnswerSchema,
 } from '../generated/enums'
+import { PhoneBankingInteractionSchema } from './PhoneBankingList.schema'
 
 export const PHONE_BANKING_CALL_NOTE_MAX_LENGTH = 2_000
 
@@ -74,4 +75,26 @@ export const RecordPhoneBankingCallSchema = z
 
 export type RecordPhoneBankingCall = z.infer<
   typeof RecordPhoneBankingCallSchema
+>
+
+// The response reads from the persisted rows, never the request body, so a
+// retry always reports real state. `results` covers the selected person and
+// the full number-level fan-out; for markHouseholdDone it's every household
+// member's current row, including ones already logged before this call, not
+// just the ones this call inserted.
+export const PhoneBankingCallResultSchema = z.object({
+  personId: z.string(),
+  interaction: PhoneBankingInteractionSchema,
+})
+export type PhoneBankingCallResult = z.infer<
+  typeof PhoneBankingCallResultSchema
+>
+
+export const RecordPhoneBankingCallResponseSchema = z.object({
+  entryId: z.number().int(),
+  results: z.array(PhoneBankingCallResultSchema),
+  envelopeCompleted: z.boolean(),
+})
+export type RecordPhoneBankingCallResponse = z.infer<
+  typeof RecordPhoneBankingCallResponseSchema
 >
