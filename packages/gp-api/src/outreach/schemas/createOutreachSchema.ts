@@ -117,5 +117,14 @@ export class CreateOutreachSchema extends createZodDto(
             'transaction, not the client',
         })
       }
+      if (data.outreachType === OutreachType.nativePhoneBanking) {
+        ctx.addIssue({
+          path: ['outreachType'],
+          code: z.ZodIssueCode.custom,
+          message:
+            'nativePhoneBanking outreach is created only by the phone ' +
+            'banking freeze transaction, not the client',
+        })
+      }
     }),
 ) {}
