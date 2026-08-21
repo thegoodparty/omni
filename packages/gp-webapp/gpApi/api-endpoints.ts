@@ -12,6 +12,7 @@ import type {
   SetDoNotKnockResponse,
   SetNotAVoter,
   SetNotAVoterResponse,
+  PhoneBankingList,
   UpdateDoorKnockingTurf,
   CreateOrdinanceRequest,
   ExperimentVariantsResponse,
@@ -840,6 +841,12 @@ export type APIEndpoints = {
   'POST /v1/door-knocking/not-a-voter': {
     Request: SetNotAVoter
     Response: SetNotAVoterResponse
+  }
+  // The call sheet PDF route's only data source — entries, per-person
+  // interaction state, and the frozen script, all in one read.
+  'GET /v1/phone-banking/lists/:id': {
+    Request: {}
+    Response: PhoneBankingList
   }
   'GET /v1/contacts/list-detail': {
     // Omitted segment = the universe row's detail (ENG-10778): the whole
