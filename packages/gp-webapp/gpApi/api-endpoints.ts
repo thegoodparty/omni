@@ -35,6 +35,8 @@ import type {
   SocialGenerateRequest,
   SocialGenerateResponse,
   SocialSaveRequest,
+  RecordPhoneBankingCall,
+  RecordPhoneBankingCallResponse,
   PhoneBankingScriptDraftRequest,
   PhoneBankingScriptDraftResponse,
   PhoneBankingCreate,
@@ -862,12 +864,6 @@ export type APIEndpoints = {
     Request: SetNotAVoter
     Response: SetNotAVoterResponse
   }
-  // The call sheet PDF route's only data source — entries, per-person
-  // interaction state, and the frozen script, all in one read.
-  'GET /v1/phone-banking/lists/:id': {
-    Request: {}
-    Response: PhoneBankingList
-  }
   'GET /v1/contacts/list-detail': {
     // Omitted segment = the universe row's detail (ENG-10778): the whole
     // unfiltered district.
@@ -1281,6 +1277,31 @@ export type APIEndpoints = {
   'GET /v1/campaigns/mine/race-opponent/opponents/activity': {
     Request: {}
     Response: RaceOpponentActivityResponse
+  }
+
+  // The frozen phone-banking list plus its live per-person enrichment and
+  // logged interactions (PhoneBankingController.get). 404 when the list
+  // doesn't belong to the requester's organization.
+  'GET /v1/phone-banking/lists/:id': {
+    Request: {}
+    Response: PhoneBankingList
+  }
+
+  // Logs one call outcome. An answered call carries the active tab's
+  // personId (optionally markHouseholdDone); a number-level outcome
+  // (no_answer/voicemail/wrong_number/refused) carries no personId and
+  // fans out to every person on the entry server-side. The response reads
+  // from the persisted rows, so the caller can patch every affected
+  // person's cache entry from `results` without a refetch.
+  'POST /v1/phone-banking/lists/:id/calls': {
+    Request: RecordPhoneBankingCall
+    Response: RecordPhoneBankingCallResponse
+  }
+
+  // Deletes the list (and its entries/persons/interactions via cascade).
+  'DELETE /v1/phone-banking/lists/:id': {
+    Request: {}
+    Response: void
   }
 }
 

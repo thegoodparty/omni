@@ -208,7 +208,13 @@ import { dirname, join, relative } from 'node:path'
 // WhoStep, ScriptStep, SheetCountStep, DownloadStep) are all interactive
 // drawer-step surfaces mirroring SocialFlow's shape, so all six are client
 // components.
-const BASELINE = 590
+// 2026-08-21: 590 -> 594 for ENG-10921, the phone banking in-app caller page.
+// PhoneBankingCallerPage (progress/entries + delete + query wiring),
+// PhoneBankingEntryPanel (sheet/drawer switcher), PhoneBankingOutcomeForm
+// (the outcome cascade + save mutation), and PhoneBankingNotes (notes CRUD)
+// all hold client state, mutations, or event handlers, so all four must be
+// client components; the route's page.tsx stays a server component.
+const BASELINE = 594
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
