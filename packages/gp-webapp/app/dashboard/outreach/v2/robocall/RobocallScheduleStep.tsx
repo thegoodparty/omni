@@ -21,6 +21,7 @@ import {
 } from '@styleguide'
 import { CalendarIcon } from '@styleguide/components/ui/icons'
 import { Intro } from '../social/Intro'
+import { timeZoneShortLabel } from './scheduleTimeZone'
 
 // Hourly 9:00 AM–9:00 PM, matching the design's time dropdown but without its
 // "Send now"/"Custom time…" entries: robocalls carry a hard lead time and a
@@ -140,7 +141,9 @@ export const RobocallScheduleStep = ({
               ))}
             </SelectContent>
           </Select>
-          <p className="text-sm text-muted-foreground">{timeZone}</p>
+          <p className="text-sm text-muted-foreground">
+            {timeZoneShortLabel(timeZone, earliest)}
+          </p>
         </div>
       </div>
 
