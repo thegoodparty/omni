@@ -461,6 +461,32 @@ describe('activity conditions and supportStatus on a segment', () => {
     expect(result.status).toBe(400)
   })
 
+  it('rejects a phoneBanking condition with any outreachId', async () => {
+    const campaign = await seedWinCampaign()
+    const outreach = await seedCompletedOutreach(
+      campaign.id,
+      WIN_SLUG,
+      OutreachType.text,
+    )
+
+    const result = await service.client.post(
+      '/v1/voters/voter-file/filter',
+      {
+        name: 'Phone banked specific',
+        activityConditions: [
+          {
+            outreachType: 'phoneBanking',
+            outreachId: outreach.id,
+            actions: ['answered'],
+          },
+        ],
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(400)
+  })
+
   it('accepts a legacy outreach (organizationSlug null) via the campaign join', async () => {
     const campaign = await seedWinCampaign()
     const legacyOutreach = await seedCompletedOutreach(

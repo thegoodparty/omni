@@ -106,12 +106,13 @@ export const ACTIVITY_CONDITION_ACTION_LABELS: Record<
   refused: 'Refused',
 }
 
-// Door-knock interactions have no outreach linkage — gp-api rejects an
-// outreachId on a doorKnocking condition (voterFileFilter.service.ts's
-// validateActivityConditions), so the specific-campaign select never renders
-// for this channel.
+// Door-knock and phone-banking interactions carry no outreach linkage on
+// their interaction tables (phone banking hangs off phoneBankingListId, not
+// Outreach.id) — gp-api rejects an outreachId on either condition
+// (voterFileFilter.service.ts's validateActivityConditions), so the
+// specific-campaign select never renders for these channels.
 export const CHANNELS_WITHOUT_CAMPAIGN_PICKER =
-  new Set<ActivityConditionChannel>(['doorKnocking'])
+  new Set<ActivityConditionChannel>(['doorKnocking', 'phoneBanking'])
 
 // All five SupportStatusRollup values (ENG-10837 — product decision
 // 2026-07-28 to match the profile vocabulary). undecided/refused only ever
