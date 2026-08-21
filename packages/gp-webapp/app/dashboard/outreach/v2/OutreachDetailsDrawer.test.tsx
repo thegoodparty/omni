@@ -90,6 +90,8 @@ describe('OutreachDetailsDrawer — phone banking', () => {
     render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
 
     expect(await screen.findByText('92 of 480 reached')).toBeInTheDocument()
+    // Design-canvas progress card shows the rounded percentage on the right.
+    expect(screen.getByText('19%')).toBeInTheDocument()
     expect(screen.getByText('Completed')).toBeInTheDocument()
     expect(screen.getByText('Remaining')).toBeInTheDocument()
     // peopleTotal - peopleCalled = 388

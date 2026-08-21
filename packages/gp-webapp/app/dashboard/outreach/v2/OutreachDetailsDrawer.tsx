@@ -44,6 +44,7 @@ import {
   DollarSignIcon,
   FileTextIcon,
   Loader2Icon,
+  PhoneIcon,
   Share2Icon,
   UsersRoundIcon,
 } from '@styleguide/components/ui/icons'
@@ -343,33 +344,43 @@ export const OutreachDetailsDrawer = ({
                 {isPhoneBanking && phoneBanking && !isCompleted && (
                   <section className="space-y-3">
                     <Eyebrow>Progress</Eyebrow>
-                    <p className="text-sm font-medium text-foreground">
-                      {phoneBanking.peopleCalled.toLocaleString()} of{' '}
-                      {phoneBanking.peopleTotal.toLocaleString()} reached
-                    </p>
-                    <Progress
-                      value={
-                        phoneBanking.peopleTotal > 0
-                          ? (phoneBanking.peopleCalled /
-                              phoneBanking.peopleTotal) *
-                            100
-                          : 0
-                      }
-                    />
-                    <div className="grid grid-cols-2 gap-3">
-                      <Metric
-                        icon={<CheckCircleIcon />}
-                        label="Completed"
-                        value={phoneBanking.peopleCalled.toLocaleString()}
+                    <Card className="gap-3 rounded-lg p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">
+                          {phoneBanking.peopleCalled.toLocaleString()} of{' '}
+                          {phoneBanking.peopleTotal.toLocaleString()} reached
+                        </span>
+                        <span className="text-sm font-medium text-foreground">
+                          {percentLabel(
+                            phoneBanking.peopleCalled,
+                            phoneBanking.peopleTotal,
+                          )}
+                        </span>
+                      </div>
+                      <Progress
+                        value={
+                          phoneBanking.peopleTotal > 0
+                            ? (phoneBanking.peopleCalled /
+                                phoneBanking.peopleTotal) *
+                              100
+                            : 0
+                        }
                       />
-                      <Metric
-                        icon={<ClockIcon />}
-                        label="Remaining"
-                        value={(
-                          phoneBanking.peopleTotal - phoneBanking.peopleCalled
-                        ).toLocaleString()}
-                      />
-                    </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Metric
+                          icon={<CheckCircleIcon />}
+                          label="Completed"
+                          value={phoneBanking.peopleCalled.toLocaleString()}
+                        />
+                        <Metric
+                          icon={<ClockIcon />}
+                          label="Remaining"
+                          value={(
+                            phoneBanking.peopleTotal - phoneBanking.peopleCalled
+                          ).toLocaleString()}
+                        />
+                      </div>
+                    </Card>
                   </section>
                 )}
 
@@ -445,26 +456,31 @@ export const OutreachDetailsDrawer = ({
             </DrawerBody>
 
             {isPhoneBanking && phoneBanking && !isCompleted && (
-              <DrawerFooter className="border-t border-border">
-                <Button asChild className="w-full">
-                  <Link
-                    href={`/dashboard/outreach/phone-banking/${phoneBanking.listId}`}
-                  >
-                    Continue calling
-                  </Link>
-                </Button>
+              <DrawerFooter className="shrink-0 border-t border-border px-4 py-4 lg:px-6">
+                <div className="mx-auto flex w-full max-w-[608px] gap-3">
+                  <Button asChild className="flex-1">
+                    <Link
+                      href={`/dashboard/outreach/phone-banking/${phoneBanking.listId}`}
+                    >
+                      <PhoneIcon className="size-4" />
+                      Continue calling
+                    </Link>
+                  </Button>
+                </div>
               </DrawerFooter>
             )}
 
             {isPhoneBanking && phoneBanking && isCompleted && (
-              <DrawerFooter className="border-t border-border">
-                <Button
-                  variant="destructive"
-                  className="w-full"
-                  onClick={() => setDeleteConfirmOpen(true)}
-                >
-                  Delete
-                </Button>
+              <DrawerFooter className="shrink-0 border-t border-border px-4 py-4 lg:px-6">
+                <div className="mx-auto flex w-full max-w-[608px] gap-3">
+                  <Button
+                    variant="destructive"
+                    className="flex-1"
+                    onClick={() => setDeleteConfirmOpen(true)}
+                  >
+                    Delete
+                  </Button>
+                </div>
               </DrawerFooter>
             )}
           </>
