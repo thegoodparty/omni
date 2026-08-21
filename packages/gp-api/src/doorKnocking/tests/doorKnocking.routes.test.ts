@@ -331,6 +331,11 @@ describe('door-knocking routes', () => {
       const res = await complete(turf.id)
       expect(res.status).toBe(201)
       expect(res.data.completedAt).not.toBeNull()
+      // The response still carries counts. It is assembled from the row read
+      // inside the write transaction plus a counts read after it, rather than
+      // by re-fetching the turf — so this is what catches that split coming
+      // apart and silently answering nulls.
+      expect(res.data.doorCount).toEqual(expect.any(Number))
 
       // The envelope is the Win outreach history's copy of the same fact. It
       // is a mirror, not the source — hence asserting both moved together.
