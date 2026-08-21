@@ -304,6 +304,12 @@ describe('OutreachHistoryTable — unified history', () => {
     expect(
       within(desktopTable()).getByText('Phone banking'),
     ).toBeInTheDocument()
+    // in_progress means callers are actively dialing — never the non-p2p
+    // map's "Scheduled".
+    expect(within(desktopTable()).getByText('In progress')).toBeInTheDocument()
+    expect(
+      within(desktopTable()).queryByText('Scheduled'),
+    ).not.toBeInTheDocument()
   })
 
   it('leaves a legacy phoneBanking row rendering n/a and an em-dash', () => {
