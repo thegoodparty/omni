@@ -241,20 +241,13 @@ export class ElectionsService {
 
   async getPositionById(
     positionId: string,
-    options?: {
-      includeDistrict?: boolean
-      electionDate?: string
-    },
+    options?: { includeDistrict?: boolean },
   ) {
     return this.electionApiGet<
       PositionWithOptionalDistrict,
-      {
-        includeDistrict: boolean
-        electionDate?: string
-      }
+      { includeDistrict: boolean }
     >(`${ElectionApiRoutes.positions.findById.path}/${positionId}`, {
       includeDistrict: options?.includeDistrict ?? false,
-      electionDate: options?.electionDate,
     })
   }
 

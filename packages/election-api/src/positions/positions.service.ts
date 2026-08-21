@@ -28,6 +28,7 @@ type PositionWithOptionalDistrictRow = {
   isServeIcp: Position['isServeIcp']
   district?: {
     id: District['id']
+    state: District['state']
     L2DistrictType: District['L2DistrictType']
     L2DistrictName: District['L2DistrictName']
   } | null
@@ -140,10 +141,20 @@ export class PositionsService extends createPrismaBase(MODELS.Position) {
     }
     if (!district) return base
 
-    const { id: districtId, L2DistrictType, L2DistrictName } = district
+    const {
+      id: districtId,
+      state: districtState,
+      L2DistrictType,
+      L2DistrictName,
+    } = district
     return {
       ...base,
-      district: { id: districtId, L2DistrictType, L2DistrictName },
+      district: {
+        id: districtId,
+        state: districtState,
+        L2DistrictType,
+        L2DistrictName,
+      },
     }
   }
 

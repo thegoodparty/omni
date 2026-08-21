@@ -71,6 +71,7 @@ describe('PositionsService', () => {
       name: 'Mayor',
       district: {
         id: 'district-1',
+        state: 'CA',
         L2DistrictType: 'City',
         L2DistrictName: 'Los Angeles',
       },
@@ -87,6 +88,7 @@ describe('PositionsService', () => {
     })
     expect(result.district).toEqual({
       id: 'district-1',
+      state: 'CA',
       L2DistrictType: 'City',
       L2DistrictName: 'Los Angeles',
     })
@@ -285,6 +287,7 @@ describe('PositionsService', () => {
         ...positionRow,
         district: {
           id: 'district-1',
+          state: 'CA',
           L2DistrictType: 'City',
           L2DistrictName: 'Los Angeles',
         },
@@ -307,6 +310,7 @@ describe('PositionsService', () => {
 
       expect(result.district).toEqual({
         id: 'district-1',
+        state: 'CA',
         L2DistrictType: 'City',
         L2DistrictName: 'Los Angeles',
       })

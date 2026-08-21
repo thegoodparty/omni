@@ -72,7 +72,7 @@ gp-api (53 controllers, 20+ Prisma models)
   │     findPerson (single voter lookup)
   │
   ├── HTTP + Clerk JWT M2M → election-api
-  │     GET /v1/positions/by-ballotready-id/:id  (gold flow: BR position → district → turnout)
+  │     GET /v1/positions/by-ballotready-id/:id  (gold flow: BR position → district)
   │     GET /v1/projectedTurnout                 (direct turnout lookup)
   │     GET /v1/districts/types                  (valid district types by state)
   │     GET /v1/districts/names                  (valid district names by type)

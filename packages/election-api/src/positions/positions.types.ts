@@ -9,6 +9,7 @@ export type PositionWithOptionalDistrict = Pick<
   level: Position['level']
   district?: {
     id: string
+    state: string
     L2DistrictType: string
     L2DistrictName: string
   }
