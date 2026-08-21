@@ -24,6 +24,14 @@ import type { OutreachAudienceMode } from './OutreachAudienceStep'
 // list. `polls` is excluded: it isn't an outreach audience target.
 export type ReachabilityKey = keyof Omit<ListDetailReachability, 'polls'>
 
+// The saved-lists query key, exported as the single source of truth so the CRM
+// list mutations (rename/delete/duplicate) can invalidate it alongside their own
+// `custom-segments` key — both are backed by GET /v1/voters/voter-file/filters,
+// so a stale name/deleted/duplicated list must not linger in this picker. A
+// shared helper (vs. a re-typed string) keeps the two in sync if the key changes.
+export const outreachAudienceListsKey = (orgSlug: string | undefined) =>
+  ['outreach-audience-lists', orgSlug] as const
+
 interface UseOutreachAudienceParams {
   open: boolean
   // stepId === 'audience' — gates the debounced builder count so it doesn't
@@ -103,7 +111,7 @@ export const useOutreachAudience = ({
   const queryClient = useQueryClient()
 
   const listsQuery = useQuery({
-    queryKey: ['outreach-audience-lists', orgSlug],
+    queryKey: outreachAudienceListsKey(orgSlug),
     queryFn: async () => {
       const { data } = await clientRequest(
         'GET /v1/voters/voter-file/filters',
@@ -228,7 +236,7 @@ export const useOutreachAudience = ({
   const createList = useCallback(async (): Promise<SegmentResponse> => {
     const created = await runCreateList()
     await queryClient.invalidateQueries({
-      queryKey: ['outreach-audience-lists', orgSlug],
+      queryKey: outreachAudienceListsKey(orgSlug),
     })
     setSelectedListId(created.id)
     resetBuilder()

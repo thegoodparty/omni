@@ -18,6 +18,7 @@ import { useOrganization } from '@shared/organization-picker'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { useContactsTable } from '../ContactsTableProvider'
+import { outreachAudienceListsKey } from 'app/dashboard/outreach/v2/audience/useOutreachAudience'
 import { MAX_SEGMENT_NAME_LENGTH } from '../shared/segments.util'
 import { LOCKED_LIST_MESSAGE } from '../shared/constants'
 import type { SegmentResponse } from '../shared/contacts-types'
@@ -49,8 +50,14 @@ export default function RenameListDialog({
     if (open) setName(segment.name ?? '')
   }, [open, segment.name])
 
-  const invalidateSegments = () =>
+  const invalidateSegments = () => {
     queryClient.invalidateQueries({ queryKey: ['custom-segments', orgSlug] })
+    // Same endpoint backs the outreach audience picker's own list cache; keep
+    // it in sync so a renamed list doesn't linger there.
+    queryClient.invalidateQueries({
+      queryKey: outreachAudienceListsKey(orgSlug),
+    })
+  }
 
   const renameMutation = useMutation({
     mutationFn: (nextName: string) =>
