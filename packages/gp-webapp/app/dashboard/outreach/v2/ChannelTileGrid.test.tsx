@@ -194,6 +194,26 @@ describe('ChannelTileGrid — phone-banking tile swap flag + Pro redirect', () =
     expect(mockRouterPush).not.toHaveBeenCalled()
   })
 
+  it('flag on + elected official (no Pro sub): tile is not visually locked', () => {
+    mockCampaign = { id: 9, isPro: false }
+    mockElectedOffice = { data: { id: 1 }, isPending: false }
+    renderGrid()
+
+    expect(
+      screen.getByText('Phone banking').closest('button'),
+    ).not.toHaveAttribute('data-locked')
+  })
+
+  it('flag on + non-Pro, no elected office: tile is visually locked', () => {
+    mockCampaign = { id: 9, isPro: false }
+    mockElectedOffice = { data: null, isPending: false }
+    renderGrid()
+
+    expect(screen.getByText('Phone banking').closest('button')).toHaveAttribute(
+      'data-locked',
+    )
+  })
+
   it('flag on + non-Pro + pending elected-office state: does not redirect', async () => {
     mockCampaign = { id: 9, isPro: false }
     mockElectedOffice = { data: undefined, isPending: true }

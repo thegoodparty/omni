@@ -173,7 +173,12 @@ export const ChannelTileGrid = ({
               iconClassName={meta.iconTint}
               label={meta.label}
               subCopy={formatCost(option?.cost ?? 0)}
-              locked={Boolean(option?.requiresPro && !isPro)}
+              locked={Boolean(
+                option?.requiresPro &&
+                (type === OUTREACH_TYPES.phoneBanking
+                  ? !canUseProFeatures
+                  : !isPro),
+              )}
               onClick={() => handleTileClick(type, option?.requiresPro)}
             />
           )
