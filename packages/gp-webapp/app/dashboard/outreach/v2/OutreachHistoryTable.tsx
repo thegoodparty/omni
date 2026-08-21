@@ -59,6 +59,27 @@ const peopleUnit = (type: HistoryRow['outreachType']): string =>
     ? 'people called'
     : 'people'
 
+// nativePhoneBanking carries no send counts on the list payload either — the
+// live-called count lives on the detail's phoneBanking block, same pattern
+// as SocialPlatformsMetric.
+const PhoneBankingCalledMetric = ({ id }: { id: number }) => {
+  const { data } = useOutreachDetail(id)
+  const count = data?.phoneBanking?.peopleCalled
+  if (count === undefined) {
+    return <span className="text-muted-foreground">—</span>
+  }
+  return <>{count.toLocaleString()} people called</>
+}
+
+const PhoneBankingSupportersMetric = ({ id }: { id: number }) => {
+  const { data } = useOutreachDetail(id)
+  const count = data?.phoneBanking?.supporters
+  if (count === undefined) {
+    return <span className="text-muted-foreground">—</span>
+  }
+  return <>{count.toLocaleString()} supporters</>
+}
+
 // compact = the mobile card's flat text-xs line; the table cell splits the
 // number (text-sm) from the unit (text-xs) per the prototype.
 const RowMetric = ({
@@ -70,6 +91,9 @@ const RowMetric = ({
 }) => {
   if (row.outreachType === OUTREACH_TYPES.socialMedia) {
     return <SocialPlatformsMetric id={row.id} />
+  }
+  if (row.outreachType === OUTREACH_TYPES.nativePhoneBanking) {
+    return <PhoneBankingCalledMetric id={row.id} />
   }
   const sent = row.textCount ?? row.billableTextCount
   if (typeof sent === 'number') {
@@ -93,8 +117,14 @@ const RowMetric = ({
 // Result metrics (responses, answers, supporters) arrive with the per-channel
 // result sweeps in phases 2-4; until then every row shows the prototype's
 // missing-results placeholder. Social keeps it permanently (engagements are
-// cut from v1 by the social channel spec).
-const RowResults = () => <span className="text-muted-foreground">—</span>
+// cut from v1 by the social channel spec). nativePhoneBanking's results
+// (supporter count) are already computed on the detail, so it fills the slot.
+const RowResults = ({ row }: { row: HistoryRow }) => {
+  if (row.outreachType === OUTREACH_TYPES.nativePhoneBanking) {
+    return <PhoneBankingSupportersMetric id={row.id} />
+  }
+  return <span className="text-muted-foreground">—</span>
+}
 
 // Filter vocabulary: one entry per channel pill (text and p2p are both "SMS").
 const CHANNEL_FILTERS = [
@@ -108,7 +138,7 @@ const CHANNEL_FILTERS = [
   {
     key: 'phone-bank',
     label: 'Phone banking',
-    types: [OUTREACH_TYPES.phoneBanking],
+    types: [OUTREACH_TYPES.phoneBanking, OUTREACH_TYPES.nativePhoneBanking],
   },
   {
     key: 'door',
@@ -358,7 +388,7 @@ export const OutreachHistoryTable = ({
                     <RowMetric row={row} />
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                    <RowResults />
+                    <RowResults row={row} />
                   </TableCell>
                   <TableCell className="text-right">
                     <HistoryStatusText label={getHistoryStatusLabel(row)} />
@@ -402,7 +432,7 @@ export const OutreachHistoryTable = ({
                 {row.name || row.title || 'Untitled campaign'}
               </span>
               <span className="text-xs text-muted-foreground">
-                <RowMetric row={row} compact /> · <RowResults />
+                <RowMetric row={row} compact /> · <RowResults row={row} />
               </span>
             </Card>
           ))

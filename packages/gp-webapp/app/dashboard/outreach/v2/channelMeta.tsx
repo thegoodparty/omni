@@ -57,6 +57,12 @@ export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
     iconTint: 'bg-warning-light',
     badgeTint: 'border-transparent bg-warning-light text-foreground',
   },
+  nativePhoneBanking: {
+    label: 'Phone banking',
+    icon: <HeadphonesIcon />,
+    iconTint: 'bg-warning-light',
+    badgeTint: 'border-transparent bg-warning-light text-foreground',
+  },
   doorKnocking: {
     label: 'Door knocking',
     icon: <DoorOpenIcon />,

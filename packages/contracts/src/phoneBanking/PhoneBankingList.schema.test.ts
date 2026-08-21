@@ -85,6 +85,8 @@ describe('PhoneBankingOutreachDetailSchema', () => {
         refused: 0,
       },
       supporters: 1,
+      unsure: 0,
+      nonSupporters: 0,
     }
     expect(() => PhoneBankingOutreachDetailSchema.parse(detail)).not.toThrow()
   })

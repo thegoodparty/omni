@@ -1,37 +1,92 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import Link from 'next/link'
+import { useMutation } from '@tanstack/react-query'
+import type {
+  PhoneBankCallOutcome,
+  SupportAnswer,
+} from '@goodparty_org/contracts'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
   Card,
   Drawer,
   DrawerBody,
   DrawerClose,
   DrawerContent,
+  DrawerFooter,
   DrawerHandle,
   DrawerHeader,
   DrawerTitle,
   Eyebrow,
   FilterPill,
   FilterPillGroup,
+  Progress,
   StatusText,
+  Table,
+  TableBody,
+  TableCell,
+  TableRow,
   XMarkIcon,
 } from '@styleguide'
 import {
   CalendarIcon,
+  CheckCircleIcon,
+  ClockIcon,
+  DollarSignIcon,
   FileTextIcon,
   Loader2Icon,
   Share2Icon,
   UsersRoundIcon,
 } from '@styleguide/components/ui/icons'
 import { dateUsHelper } from 'helpers/dateHelper'
+import { useSnackbar } from 'helpers/useSnackbar'
 import type { VoterFileFilters } from 'helpers/types'
+import { clientRequest } from 'gpApi/typed-request'
 import { formatAudienceLabels } from 'app/dashboard/outreach/util/formatAudienceLabels.util'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
+import { useOutreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import { ChannelBadge, HistoryStatusText, getChannelLabel } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
 import { useOutreachDetail } from './useOutreachDetail'
 import { SocialAssetCard } from './SocialAssetCards'
 import { socialPurposeLabel } from './socialPurposes'
+
+// Copy verified against the phone-banking design screenshots — deliberately
+// its own vocabulary rather than a reuse of the caller page's
+// phoneBankingOutcome.util.ts labels (that page says "Refused"; this drawer
+// says "Refused to engage").
+const PHONE_BANKING_OUTCOME_ORDER: PhoneBankCallOutcome[] = [
+  'answered',
+  'no_answer',
+  'voicemail',
+  'wrong_number',
+  'refused',
+]
+const PHONE_BANKING_OUTCOME_LABEL: Record<PhoneBankCallOutcome, string> = {
+  answered: 'Answered',
+  no_answer: 'No answer',
+  voicemail: 'Voicemail left',
+  wrong_number: 'Wrong number',
+  refused: 'Refused to engage',
+}
+
+const SUPPORT_ANSWER_LABEL: Record<SupportAnswer, string> = {
+  supporter: 'Yes',
+  unsure: 'Unsure',
+  non_supporter: 'No',
+}
+
+const percentLabel = (count: number, total: number): string =>
+  total > 0 ? `${Math.round((count / total) * 100)}%` : '0%'
 
 interface OutreachDetailsDrawerProps {
   row: HistoryRow | null
@@ -69,8 +124,28 @@ export const OutreachDetailsDrawer = ({
   onOpenChange,
 }: OutreachDetailsDrawerProps) => {
   const isSocial = row?.outreachType === OUTREACH_TYPES.socialMedia
+  const isPhoneBanking = row?.outreachType === OUTREACH_TYPES.nativePhoneBanking
   const detailQuery = useOutreachDetail(row?.id ?? null, row !== null)
   const social = detailQuery.data?.social
+  const phoneBanking = detailQuery.data?.phoneBanking
+  const isCompleted = row?.status === 'completed'
+
+  const [outreaches, setOutreaches] = useOutreach()
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const { errorSnackbar } = useSnackbar()
+  const deleteMutation = useMutation({
+    mutationFn: () =>
+      clientRequest('DELETE /v1/phone-banking/lists/:id', {
+        id: String(phoneBanking?.listId),
+      }),
+    onSuccess: () => {
+      setOutreaches(outreaches.filter((o) => o.id !== row?.id))
+      setDeleteConfirmOpen(false)
+      onOpenChange(false)
+    },
+    onError: () =>
+      errorSnackbar("Couldn't delete this list. Please try again."),
+  })
 
   const displayDate = row?.date ?? row?.createdAt
   const audienceLabels = formatAudienceLabels(
@@ -183,6 +258,16 @@ export const OutreachDetailsDrawer = ({
                             : '—'
                         }
                       />
+                    ) : isPhoneBanking ? (
+                      <Metric
+                        icon={<UsersRoundIcon />}
+                        label="People"
+                        value={
+                          phoneBanking
+                            ? phoneBanking.peopleTotal.toLocaleString()
+                            : '—'
+                        }
+                      />
                     ) : (
                       <Metric
                         icon={<UsersRoundIcon />}
@@ -232,11 +317,176 @@ export const OutreachDetailsDrawer = ({
                     </div>
                   </section>
                 )}
+
+                {isPhoneBanking && detailQuery.isLoading && (
+                  <StatusText
+                    tone="muted"
+                    icon={<Loader2Icon />}
+                    spinning
+                    className="text-sm"
+                  >
+                    Loading call progress…
+                  </StatusText>
+                )}
+                {isPhoneBanking && detailQuery.isError && (
+                  <p className="text-sm text-muted-foreground">
+                    We couldn&apos;t load this campaign&apos;s call progress.
+                    Close and try again.
+                  </p>
+                )}
+
+                {isPhoneBanking && phoneBanking && !isCompleted && (
+                  <section className="space-y-3">
+                    <Eyebrow>Progress</Eyebrow>
+                    <p className="text-sm font-medium text-foreground">
+                      {phoneBanking.peopleCalled.toLocaleString()} of{' '}
+                      {phoneBanking.peopleTotal.toLocaleString()} reached
+                    </p>
+                    <Progress
+                      value={
+                        phoneBanking.peopleTotal > 0
+                          ? (phoneBanking.peopleCalled /
+                              phoneBanking.peopleTotal) *
+                            100
+                          : 0
+                      }
+                    />
+                    <div className="grid grid-cols-2 gap-3">
+                      <Metric
+                        icon={<CheckCircleIcon />}
+                        label="Completed"
+                        value={phoneBanking.peopleCalled.toLocaleString()}
+                      />
+                      <Metric
+                        icon={<ClockIcon />}
+                        label="Remaining"
+                        value={(
+                          phoneBanking.peopleTotal - phoneBanking.peopleCalled
+                        ).toLocaleString()}
+                      />
+                    </div>
+                  </section>
+                )}
+
+                {isPhoneBanking && phoneBanking && !isCompleted && (
+                  <section className="space-y-3">
+                    <Eyebrow>Payment details</Eyebrow>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Metric
+                        icon={<DollarSignIcon />}
+                        label="Total cost"
+                        value="Free"
+                      />
+                      <Metric
+                        icon={<DollarSignIcon />}
+                        label="Cost per outreach"
+                        value="—"
+                      />
+                    </div>
+                  </section>
+                )}
+
+                {isPhoneBanking && phoneBanking && isCompleted && (
+                  <section className="space-y-3">
+                    <Eyebrow>Results</Eyebrow>
+                    <p className="text-sm text-muted-foreground">
+                      Based on {phoneBanking.peopleCalled.toLocaleString()}{' '}
+                      phone banking contacts
+                    </p>
+                    <Card className="overflow-hidden p-0">
+                      <Table>
+                        <TableBody>
+                          {PHONE_BANKING_OUTCOME_ORDER.map((outcome) => (
+                            <TableRow key={outcome}>
+                              <TableCell>
+                                {PHONE_BANKING_OUTCOME_LABEL[outcome]}
+                              </TableCell>
+                              <TableCell className="text-right text-muted-foreground">
+                                {phoneBanking.byOutcome[outcome]}
+                              </TableCell>
+                              <TableCell className="text-right text-muted-foreground">
+                                {percentLabel(
+                                  phoneBanking.byOutcome[outcome],
+                                  phoneBanking.entriesCalled,
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                          {(
+                            [
+                              ['supporter', phoneBanking.supporters],
+                              ['unsure', phoneBanking.unsure],
+                              ['non_supporter', phoneBanking.nonSupporters],
+                            ] as [SupportAnswer, number][]
+                          ).map(([answer, count]) => (
+                            <TableRow key={answer}>
+                              <TableCell>
+                                Support: {SUPPORT_ANSWER_LABEL[answer]}
+                              </TableCell>
+                              <TableCell className="text-right text-muted-foreground">
+                                {count}
+                              </TableCell>
+                              <TableCell className="text-right text-muted-foreground">
+                                {percentLabel(count, phoneBanking.peopleCalled)}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </Card>
+                  </section>
+                )}
               </div>
             </DrawerBody>
+
+            {isPhoneBanking && phoneBanking && !isCompleted && (
+              <DrawerFooter className="border-t border-border">
+                <Button asChild className="w-full">
+                  <Link
+                    href={`/dashboard/outreach/phone-banking/${phoneBanking.listId}`}
+                  >
+                    Continue calling
+                  </Link>
+                </Button>
+              </DrawerFooter>
+            )}
+
+            {isPhoneBanking && phoneBanking && isCompleted && (
+              <DrawerFooter className="border-t border-border">
+                <Button
+                  variant="destructive"
+                  className="w-full"
+                  onClick={() => setDeleteConfirmOpen(true)}
+                >
+                  Delete
+                </Button>
+              </DrawerFooter>
+            )}
           </>
         )}
       </DrawerContent>
+
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this list?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This deletes the list and every logged call. This can not be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteMutation.isPending}
+              onClick={() => deleteMutation.mutate()}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Drawer>
   )
 }

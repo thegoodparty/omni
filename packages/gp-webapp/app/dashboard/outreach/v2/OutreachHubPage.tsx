@@ -72,7 +72,7 @@ const OutreachHubContent = ({
       {
         id: outreachId,
         name,
-        outreachType: 'phoneBanking',
+        outreachType: 'nativePhoneBanking',
         status: 'in_progress',
         // OutreachHistoryTable sorts newest-first off date ?? createdAt
         // (rowTime falls back to 0 with neither); the create response

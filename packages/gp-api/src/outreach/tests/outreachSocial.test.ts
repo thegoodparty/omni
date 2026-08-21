@@ -783,7 +783,53 @@ describe('GET /v1/outreach/:id — nativePhoneBanking', () => {
         refused: 0,
       },
       supporters: 1,
+      unsure: 0,
+      nonSupporters: 0,
     })
+  })
+
+  it('splits the support tally across supporter, unsure, and non_supporter', async () => {
+    const { outreachId, entries } = await buildList()
+    const [soloEntry, householdEntry] = entries
+    const [personA, personB] = householdEntry!.persons
+
+    // Deliberately asymmetric (1 supporter, 2 unsure, 0 non_supporter): a
+    // swapped SupportAnswer literal between any two of the three count
+    // queries changes at least one bucket's value, so the assertions below
+    // would fail rather than coincidentally still match.
+    const supporterCall = await postCall(soloEntry!.phoneBankingListId, {
+      entryId: soloEntry!.id,
+      outcome: 'answered',
+      personId: soloEntry!.persons[0]!.personId,
+      supportAnswer: 'supporter',
+    })
+    expect(supporterCall.status).toBe(HttpStatus.CREATED)
+
+    const unsureCallA = await postCall(householdEntry!.phoneBankingListId, {
+      entryId: householdEntry!.id,
+      outcome: 'answered',
+      personId: personA!.personId,
+      supportAnswer: 'unsure',
+    })
+    expect(unsureCallA.status).toBe(HttpStatus.CREATED)
+
+    const unsureCallB = await postCall(householdEntry!.phoneBankingListId, {
+      entryId: householdEntry!.id,
+      outcome: 'answered',
+      personId: personB!.personId,
+      supportAnswer: 'unsure',
+    })
+    expect(unsureCallB.status).toBe(HttpStatus.CREATED)
+
+    const res = await service.client.get(
+      `/v1/outreach/${outreachId}`,
+      pbOrgHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.phoneBanking.supporters).toBe(1)
+    expect(res.data.phoneBanking.unsure).toBe(2)
+    expect(res.data.phoneBanking.nonSupporters).toBe(0)
   })
 
   it('rolls an entry up to its most recent call when a housemate is corrected individually after a fan-out', async () => {

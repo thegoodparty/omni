@@ -3,6 +3,7 @@ export type OutreachType =
   | 'text'
   | 'doorKnocking'
   | 'phoneBanking'
+  | 'nativePhoneBanking'
   | 'socialMedia'
   | 'robocall'
   | 'p2p'
