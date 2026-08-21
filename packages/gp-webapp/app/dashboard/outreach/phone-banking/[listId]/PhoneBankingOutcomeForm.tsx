@@ -196,29 +196,31 @@ export default function PhoneBankingOutcomeForm({
             </div>
           </div>
 
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Will they vote this election?
-            </p>
-            <div className="mt-2">
-              <FilterPillGroup
-                type="single"
-                value={draft.willVote ?? ''}
-                onValueChange={(value) =>
-                  setDraft((current) =>
-                    draftWithWillVote(
-                      current,
-                      (value || undefined) as typeof draft.willVote,
-                    ),
-                  )
-                }
-              >
-                <FilterPill value="yes">Yes</FilterPill>
-                <FilterPill value="no">No</FilterPill>
-                <FilterPill value="unsure">Unsure</FilterPill>
-              </FilterPillGroup>
+          {draft.supportAnswer !== undefined && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Will they vote this election?
+              </p>
+              <div className="mt-2">
+                <FilterPillGroup
+                  type="single"
+                  value={draft.willVote ?? ''}
+                  onValueChange={(value) =>
+                    setDraft((current) =>
+                      draftWithWillVote(
+                        current,
+                        (value || undefined) as typeof draft.willVote,
+                      ),
+                    )
+                  }
+                >
+                  <FilterPill value="yes">Yes</FilterPill>
+                  <FilterPill value="no">No</FilterPill>
+                  <FilterPill value="unsure">Unsure</FilterPill>
+                </FilterPillGroup>
+              </div>
             </div>
-          </div>
+          )}
         </>
       )}
 

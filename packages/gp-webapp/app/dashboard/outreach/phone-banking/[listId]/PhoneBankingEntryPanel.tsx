@@ -9,12 +9,16 @@ import { useIsMobile } from '@styleguide/hooks/use-mobile'
 import {
   Button,
   Card,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   CircleUserRoundIcon,
   Drawer,
   DrawerContent,
   DrawerHandle,
   DrawerHeader,
   DrawerTitle,
+  IconButton,
+  NotebookPenIcon,
   PhoneIcon,
   ScrollTextIcon,
   Sheet,
@@ -38,8 +42,13 @@ interface PhoneBankingEntryPanelProps {
   listId: number
   script: string
   entry: PhoneBankingListEntry
+  entryIndex: number
   activePersonId: string
   onActivePersonChange: (personId: string) => void
+  onPrev: () => void
+  onNext: () => void
+  hasPrev: boolean
+  hasNext: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
   onSaved: (results: PhoneBankingCallResult[]) => void
@@ -53,8 +62,13 @@ export default function PhoneBankingEntryPanel({
   listId,
   script,
   entry,
+  entryIndex,
   activePersonId,
   onActivePersonChange,
+  onPrev,
+  onNext,
+  hasPrev,
+  hasNext,
   open,
   onOpenChange,
   onSaved,
@@ -89,49 +103,73 @@ export default function PhoneBankingEntryPanel({
 
   const body = (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {entry.persons.length > 1 && (
-          <Tabs
-            value={person.personId}
-            onValueChange={onActivePersonChange}
-            className="mb-4"
-          >
-            <TabsList>
-              {entry.persons.map((candidate) => (
-                <TabsTrigger
-                  key={candidate.personId}
-                  value={candidate.personId}
-                >
-                  {candidate.name}
-                  <span
-                    className={cn(
-                      'size-2 rounded-full',
-                      candidate.interaction
-                        ? OUTCOME_DOT_CLASS[candidate.interaction.outcome]
-                        : 'bg-muted-foreground/40',
-                    )}
-                  />
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-        )}
-
-        <h2 className="text-xl font-semibold text-foreground">{person.name}</h2>
-        <p className="text-sm text-muted-foreground">
-          {[person.age !== null ? `Age ${person.age}` : null, person.party]
-            .filter(Boolean)
-            .join(' · ') || 'No details on file'}
-        </p>
-
-        <Card className="mt-4 gap-3 p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-foreground">
-              Contact information
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="sticky top-0 z-10 bg-background px-4 pt-4 pb-3">
+          <div className="flex items-start gap-2">
+            <IconButton
+              variant="ghost"
+              size="small"
+              onClick={onPrev}
+              disabled={!hasPrev}
+              aria-label="Previous contact"
+              className="mt-1 shrink-0 rounded-full"
+            >
+              <ChevronLeftIcon size={20} />
+            </IconButton>
+            <span className="mt-1 inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+              {entryIndex}
             </span>
-            <CircleUserRoundIcon size={18} className="text-foreground" />
+            <div className="min-w-0 flex-1">
+              <h2 className="text-2xl font-bold leading-tight text-foreground">
+                {person.name}
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                {[
+                  person.age !== null ? `Age ${person.age}` : null,
+                  person.party,
+                ]
+                  .filter(Boolean)
+                  .join(' · ') || 'No details on file'}
+              </p>
+            </div>
+            <IconButton
+              variant="ghost"
+              size="small"
+              onClick={onNext}
+              disabled={!hasNext}
+              aria-label="Next contact"
+              className="mt-1 ml-auto shrink-0 rounded-full"
+            >
+              <ChevronRightIcon size={20} />
+            </IconButton>
           </div>
-          <div className="flex flex-col gap-3 text-sm">
+        </div>
+
+        <div className="flex flex-col gap-4 px-4 pb-4">
+          {entry.persons.length > 1 && (
+            <Tabs value={person.personId} onValueChange={onActivePersonChange}>
+              <TabsList>
+                {entry.persons.map((candidate) => (
+                  <TabsTrigger
+                    key={candidate.personId}
+                    value={candidate.personId}
+                  >
+                    {candidate.name}
+                    <span
+                      className={cn(
+                        'size-2 rounded-full',
+                        candidate.interaction
+                          ? OUTCOME_DOT_CLASS[candidate.interaction.outcome]
+                          : 'bg-muted-foreground/40',
+                      )}
+                    />
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          )}
+
+          <ProfileCard title="Contact information" icon={CircleUserRoundIcon}>
             <div>
               <p className="text-xs text-muted-foreground">Phone</p>
               <a className="underline" href={`tel:${dialDigits}`}>
@@ -178,25 +216,18 @@ export default function PhoneBankingEntryPanel({
                 from when this list was built.
               </p>
             )}
-          </div>
-        </Card>
+          </ProfileCard>
 
-        <Card className="mt-4 gap-3 p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-foreground">
-              Call script
-            </span>
-            <ScrollTextIcon size={18} className="text-foreground" />
-          </div>
-          <p className="whitespace-pre-line text-sm text-foreground">
-            {script}
-          </p>
-        </Card>
+          <ProfileCard title="Call script" icon={ScrollTextIcon}>
+            <p className="whitespace-pre-line text-sm text-foreground">
+              {script}
+            </p>
+          </ProfileCard>
 
-        <Card className="mt-4 gap-3 p-4">
-          <span className="text-sm font-semibold text-foreground">Notes</span>
-          <PhoneBankingNotes personId={person.personId} />
-        </Card>
+          <ProfileCard title="Notes" icon={NotebookPenIcon}>
+            <PhoneBankingNotes personId={person.personId} />
+          </ProfileCard>
+        </div>
       </div>
 
       <div className="shrink-0 border-t border-border p-4">
@@ -242,3 +273,23 @@ export default function PhoneBankingEntryPanel({
     </Sheet>
   )
 }
+
+const ProfileCard = ({
+  title,
+  icon: Icon,
+  children,
+}: {
+  title: string
+  icon: React.ComponentType<{ className?: string }>
+  children: React.ReactNode
+}) => (
+  <Card className="gap-0 overflow-hidden p-0">
+    <div className="flex items-center justify-between px-4 py-3">
+      <span className="text-base font-semibold text-foreground">{title}</span>
+      <Icon className="size-5 text-foreground" />
+    </div>
+    <div className="flex flex-col gap-3 border-t border-border px-4 py-4 text-sm">
+      {children}
+    </div>
+  </Card>
+)

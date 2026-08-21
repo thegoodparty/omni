@@ -16,8 +16,10 @@ import {
   AlertDialogTitle,
   ArrowLeftIcon,
   Badge,
+  Button,
   ChevronDownIcon,
   ChevronRightIcon,
+  ChevronUpIcon,
   Card,
   DownloadIcon,
   DropdownMenu,
@@ -95,6 +97,21 @@ export default function PhoneBankingCallerPage({
     ? (list?.entries.find((entry) => entry.id === activeSelection.entryId) ??
       null)
     : null
+  const activeEntryIndex =
+    list && activeSelection
+      ? list.entries.findIndex((entry) => entry.id === activeSelection.entryId)
+      : -1
+  const hasPrevEntry = activeEntryIndex > 0
+  const hasNextEntry = list
+    ? activeEntryIndex >= 0 && activeEntryIndex < list.entries.length - 1
+    : false
+
+  const goToEntryAt = (index: number) => {
+    const target = list?.entries[index]
+    const first = target?.persons[0]
+    if (target && first)
+      setActiveSelection({ entryId: target.id, personId: first.personId })
+  }
 
   const toggleExpanded = (entryId: number) =>
     setExpandedEntryIds((current) => {
@@ -145,10 +162,11 @@ export default function PhoneBankingCallerPage({
             </h1>
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            <IconButton
+            <Button
               asChild
               variant="outline"
               size="small"
+              className="rounded-full"
               aria-label="Download call sheet PDF"
               onClick={() =>
                 trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded)
@@ -156,8 +174,9 @@ export default function PhoneBankingCallerPage({
             >
               <a href={`/dashboard/outreach/phone-banking/print/${listId}/pdf`}>
                 <DownloadIcon size={16} />
+                <span className="hidden lg:inline">PDF</span>
               </a>
-            </IconButton>
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <IconButton
@@ -270,17 +289,29 @@ export default function PhoneBankingCallerPage({
                     const expanded = expandedEntryIds.has(entry.id)
                     const single = entry.persons.length === 1
                     const singlePerson = single ? entry.persons[0] : undefined
+                    const active = activeSelection?.entryId === entry.id
                     return (
                       <li key={entry.id}>
                         <button
                           type="button"
                           onClick={() => handleRowClick(entry)}
                           className={cn(
-                            'flex w-full flex-col gap-1.5 px-4 py-3.5 text-left transition-colors hover:bg-muted/50',
+                            'flex w-full flex-col gap-1.5 px-4 py-3.5 text-left transition-colors',
+                            active ? 'bg-primary/10' : 'hover:bg-muted/50',
                             suppressed && 'opacity-60',
                           )}
                         >
                           <div className="flex items-center gap-3">
+                            <span
+                              className={cn(
+                                'inline-flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-bold',
+                                active
+                                  ? 'bg-primary text-primary-foreground'
+                                  : 'bg-muted text-foreground',
+                              )}
+                            >
+                              {entry.seq}
+                            </span>
                             <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
                               {entry.persons.map((p) => p.name).join(', ')}
                             </span>
@@ -329,21 +360,25 @@ export default function PhoneBankingCallerPage({
                                   ))}
                                 </span>
                               )}
-                              {!single &&
-                                (expanded ? (
-                                  <ChevronDownIcon
-                                    size={16}
-                                    className="shrink-0 text-muted-foreground"
-                                  />
-                                ) : (
-                                  <ChevronRightIcon
-                                    size={16}
-                                    className="shrink-0 text-muted-foreground"
-                                  />
-                                ))}
+                              {single ? (
+                                <ChevronRightIcon
+                                  size={16}
+                                  className="shrink-0 text-muted-foreground"
+                                />
+                              ) : expanded ? (
+                                <ChevronUpIcon
+                                  size={16}
+                                  className="shrink-0 text-muted-foreground"
+                                />
+                              ) : (
+                                <ChevronDownIcon
+                                  size={16}
+                                  className="shrink-0 text-muted-foreground"
+                                />
+                              )}
                             </span>
                           </div>
-                          <span className="truncate pl-0 text-xs text-muted-foreground">
+                          <span className="truncate pl-9 text-xs text-muted-foreground">
                             {entry.phone}
                           </span>
                         </button>
@@ -405,10 +440,15 @@ export default function PhoneBankingCallerPage({
           listId={listId}
           script={list.script}
           entry={activeEntry}
+          entryIndex={activeEntry.seq}
           activePersonId={activeSelection.personId}
           onActivePersonChange={(personId) =>
             setActiveSelection({ entryId: activeEntry.id, personId })
           }
+          onPrev={() => goToEntryAt(activeEntryIndex - 1)}
+          onNext={() => goToEntryAt(activeEntryIndex + 1)}
+          hasPrev={hasPrevEntry}
+          hasNext={hasNextEntry}
           open
           onOpenChange={(open) => {
             if (!open) setActiveSelection(null)

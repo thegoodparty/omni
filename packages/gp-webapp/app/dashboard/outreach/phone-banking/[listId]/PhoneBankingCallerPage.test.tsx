@@ -174,11 +174,13 @@ describe('<PhoneBankingCallerPage>', () => {
       within(dialog).getByRole('tab', { name: /Casey Household/ }),
     )
     await user.click(within(dialog).getByRole('radio', { name: 'Answered' }))
-    // "Yes" appears twice once the outcome is Answered — support renders
-    // above will-vote, so DOM order gives support first, will-vote second.
-    const yesRadios = within(dialog).getAllByRole('radio', { name: 'Yes' })
-    await user.click(yesRadios[0]!)
-    await user.click(yesRadios[1]!)
+    // Will-vote only appears once a support answer is picked — click support
+    // Yes first (the only "Yes" on screen), then will-vote's own Yes appears.
+    await user.click(within(dialog).getByRole('radio', { name: 'Yes' }))
+    const willVoteYes = (
+      await within(dialog).findAllByRole('radio', { name: 'Yes' })
+    )[1]!
+    await user.click(willVoteYes)
     await user.click(within(dialog).getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(capturedRequest).toBeDefined())
@@ -224,13 +226,91 @@ describe('<PhoneBankingCallerPage>', () => {
     render(<PhoneBankingCallerPage listId={LIST_ID} />)
     await screen.findByText('August GOTV')
 
-    await user.click(
-      screen.getByRole('link', { name: 'Download call sheet PDF' }),
+    const pdfLink = screen.getByRole('link', {
+      name: 'Download call sheet PDF',
+    })
+    expect(pdfLink).toHaveAttribute(
+      'href',
+      `/dashboard/outreach/phone-banking/print/${LIST_ID}/pdf`,
     )
+
+    await user.click(pdfLink)
 
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Outreach.PhoneBanking.SheetDownloaded,
     )
+  })
+
+  it('shows a numbered circle per entry, highlighted for the open entry', async () => {
+    const user = userEvent.setup()
+    mockGetList(buildList())
+
+    render(<PhoneBankingCallerPage listId={LIST_ID} />)
+    await screen.findByText('August GOTV')
+
+    const list = screen.getByRole('list')
+    expect(within(list).getByText('1')).toBeInTheDocument()
+    expect(within(list).getByText('2')).toBeInTheDocument()
+    expect(within(list).getByText('1')).toHaveClass('bg-muted')
+
+    await user.click(within(list).getByText('Alex Solo'))
+    await screen.findByRole('dialog')
+
+    expect(within(list).getByText('1')).toHaveClass(
+      'bg-primary',
+      'text-primary-foreground',
+    )
+  })
+
+  it('prev/next in the panel move to the adjacent entry, disabled at the bounds', async () => {
+    const user = userEvent.setup()
+    mockGetList(buildList())
+
+    render(<PhoneBankingCallerPage listId={LIST_ID} />)
+    await screen.findByText('August GOTV')
+
+    await user.click(screen.getByText('Alex Solo'))
+    const dialog = await screen.findByRole('dialog')
+
+    expect(
+      within(dialog).getByRole('button', { name: 'Previous contact' }),
+    ).toBeDisabled()
+
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Next contact' }),
+    )
+
+    // Entry 2's first person is Casey Household — the sheet's sr-only title
+    // also reads "Casey Household", so assert on the visible age/party line
+    // instead of the ambiguous heading role.
+    expect(within(dialog).getByText('Age 55 · I')).toBeInTheDocument()
+    expect(
+      within(dialog).getByRole('button', { name: 'Next contact' }),
+    ).toBeDisabled()
+    expect(
+      within(dialog).getByRole('button', { name: 'Previous contact' }),
+    ).not.toBeDisabled()
+  })
+
+  it('shows the will-vote question only after a support answer is chosen', async () => {
+    const user = userEvent.setup()
+    mockGetList(buildList())
+
+    render(<PhoneBankingCallerPage listId={LIST_ID} />)
+    await screen.findByText('August GOTV')
+
+    await user.click(screen.getByText('Alex Solo'))
+    const dialog = await screen.findByRole('dialog')
+
+    await user.click(within(dialog).getByRole('radio', { name: 'Answered' }))
+    expect(
+      within(dialog).queryByText('Will they vote this election?'),
+    ).not.toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('radio', { name: 'Yes' }))
+    expect(
+      within(dialog).getByText('Will they vote this election?'),
+    ).toBeInTheDocument()
   })
 
   it('markHouseholdDone rides the same request when the household action is used', async () => {
