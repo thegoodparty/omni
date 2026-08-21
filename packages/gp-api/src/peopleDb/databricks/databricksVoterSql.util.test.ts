@@ -10,6 +10,7 @@ import {
   buildCsvSql,
   buildOverlapCountSql,
   buildPageSql,
+  buildSampleSql,
   buildScopeSql,
   buildSearchSql,
   buildVoterColumnsSql,
@@ -523,6 +524,77 @@ describe('aggregate and page queries', () => {
       { name: 'p2', value: '50', type: 'INT' },
       { name: 'p3', value: '100', type: 'INT' },
     ])
+  })
+
+  it('cuts the sample to a hash slice and binds size, seed and divisor', () => {
+    const { sql, params } = buildSampleSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+      columns: ['id'],
+      size: 500,
+      seed: 7,
+      hashDivisor: 400,
+      hasCellPhone: true,
+    })
+
+    expect(sql).toContain(
+      'AND v.`VoterTelephones_CellPhoneFormatted` IS NOT NULL',
+    )
+    expect(sql).toContain('AND pmod(xxhash64(v.`id`, :p2), :p3) = 0')
+    expect(sql.endsWith('LIMIT :p4')).toBe(true)
+    // No ORDER BY: sorting the population was 3-6s where the slice is ~2s.
+    expect(sql).not.toContain('ORDER BY')
+    expect(params).toEqual([
+      { name: 'p0', value: 'CA', type: 'STRING' },
+      { name: 'p1', value: '29', type: 'STRING' },
+      { name: 'p2', value: '7', type: 'INT' },
+      { name: 'p3', value: '400', type: 'INT' },
+      { name: 'p4', value: '500', type: 'INT' },
+    ])
+  })
+
+  it('drops the hash cut when the divisor is 1, rather than emitting pmod', () => {
+    const { sql } = buildSampleSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+      columns: ['id'],
+      size: 500,
+      seed: 7,
+      hashDivisor: 1,
+    })
+
+    expect(sql).not.toContain('pmod')
+  })
+
+  it('excludes the requested ids and negates hasCellPhone', () => {
+    const id = '0ac8551e-b5ab-2ef0-a941-94e8b43b1e1e'
+    const { sql } = buildSampleSql({
+      district: CONGRESSIONAL,
+      filters: noFilters(),
+      columns: ['id'],
+      size: 10,
+      seed: 1,
+      hashDivisor: 1,
+      hasCellPhone: false,
+      excludeIds: [id],
+    })
+
+    expect(sql).toContain('AND v.`VoterTelephones_CellPhoneFormatted` IS NULL')
+    expect(sql).toContain(`AND v.\`id\` NOT IN ('${id}')`)
+  })
+
+  it('refuses to inline a non-uuid exclude id', () => {
+    expect(() =>
+      buildSampleSql({
+        district: CONGRESSIONAL,
+        filters: noFilters(),
+        columns: ['id'],
+        size: 10,
+        seed: 1,
+        hashDivisor: 1,
+        excludeIds: ["' OR 1=1 --"],
+      }),
+    ).toThrow(/non-uuid/)
   })
 
   it('ORs the saved sets into the overlap count', () => {

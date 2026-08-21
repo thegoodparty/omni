@@ -12,7 +12,6 @@ import {
   SamplePeopleDTO,
 } from '../schemas/people.schema'
 import { createPeopleDbBase, PEOPLE_MODELS } from '../peopleDbBase.util'
-import { VoterSampleService } from './voterSample.service'
 
 import { Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { DistrictService } from './district.service'
@@ -62,7 +61,6 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   private readonly databricks!: DatabricksVoterService
 
   constructor(
-    private readonly sampleService: VoterSampleService,
     private readonly districtService: DistrictService,
     private readonly statsService: StatsService,
   ) {
@@ -176,9 +174,7 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   }
 
   async samplePeople(dto: SamplePeopleDTO) {
-    return this.sampleService
-      .samplePeople(dto)
-      .then((people) => people.map(transformToPersonOutput))
+    return this.databricks.samplePeople(dto)
   }
 
   // Households, not voters: COUNT(DISTINCT <household key>) matches the

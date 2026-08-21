@@ -58,7 +58,6 @@ const statementTimeoutError = () =>
 
 describe('VoterQueryService', () => {
   let service: VoterQueryService
-  let mockSampleService: { samplePeople: ReturnType<typeof vi.fn> }
   let mockDistrictService: {
     findDistrictById: ReturnType<typeof vi.fn>
   }
@@ -73,9 +72,6 @@ describe('VoterQueryService', () => {
   }
 
   beforeEach(() => {
-    mockSampleService = {
-      samplePeople: vi.fn().mockResolvedValue([]),
-    }
     mockDistrictService = {
       findDistrictById: vi.fn().mockResolvedValue({
         id: '0e5bafca-93a9-86a5-2522-f373979720df',
@@ -100,7 +96,6 @@ describe('VoterQueryService', () => {
     }
 
     service = new VoterQueryService(
-      mockSampleService as never,
       mockDistrictService as never,
       mockStatsService as never,
     )

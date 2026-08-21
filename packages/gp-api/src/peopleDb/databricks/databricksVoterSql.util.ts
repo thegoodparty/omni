@@ -671,6 +671,52 @@ export const buildPageSql = (
 // because the Statement Execution API renders a SQL NULL as the literal text
 // `null` in CSV, where Postgres COPY writes an empty field — without this the
 // download would be full of the word "null".
+// Sampling keeps Postgres's hash pre-cut, for a different reason. There it
+// existed to keep the planner off a sequential scan; here it exists to avoid a
+// sort. Ordering the whole population by a seeded hash and taking the top N
+// measured 3-6s because it sorts every matching row, while cutting to a
+// 1/divisor slice and letting LIMIT terminate early measured a flat 2.1-2.3s
+// from a 7.8k-voter ward to a 23M-voter state. The seed rotates which slice is
+// taken, so successive calls return different people.
+export const buildSampleSql = (
+  args: DbxScopeArgs & {
+    columns: readonly string[]
+    size: number
+    seed: number
+    hashDivisor: number
+    hasCellPhone?: boolean
+    excludeIds?: readonly string[]
+  },
+): DbxStatement => {
+  const bag = createBag()
+  const projection = args.columns
+    .map((column) => `${col(column)} AS ${ident(column)}`)
+    .join(', ')
+  const parts = [buildScopeSql(bag, args)]
+
+  const cell = col('VoterTelephones_CellPhoneFormatted')
+  if (args.hasCellPhone === true) parts.push(`AND ${cell} IS NOT NULL`)
+  if (args.hasCellPhone === false) parts.push(`AND ${cell} IS NULL`)
+
+  const excludeIds = args.excludeIds ?? []
+  if (excludeIds.length > 0) {
+    parts.push(`AND ${col('id')} NOT IN (${idList(excludeIds)})`)
+  }
+
+  const divisor = Math.max(1, Math.trunc(num(args.hashDivisor)))
+  if (divisor > 1) {
+    parts.push(
+      `AND pmod(xxhash64(${col('id')}, ${bag.bind(num(args.seed), 'INT')}),` +
+        ` ${bag.bind(divisor, 'INT')}) = 0`,
+    )
+  }
+
+  const sql =
+    `SELECT ${projection} FROM ${VOTER_TABLE} v ${parts.join(' ')}` +
+    ` LIMIT ${bag.bind(num(args.size), 'INT')}`
+  return { sql, params: bag.params }
+}
+
 export const buildCsvSql = (
   args: DbxScopeArgs & { excludeColumns?: ExcludableVoterColumn[] },
 ): DbxStatement => {

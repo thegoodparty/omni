@@ -17,7 +17,11 @@ import {
   AggregatesDTO,
   ListPeopleDTO,
   OverlapCountDTO,
+  SamplePeopleDTO,
 } from '../schemas/people.schema'
+import { filtersSchema } from '../schemas/filters.schema'
+import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from '@/shared/constants/voterData.consts'
+import { hash32 } from '../util/hash.util'
 import { buildVoterSelectSql, type BaseDbPerson } from '../voter.select'
 import { transformToPersonOutput } from '../utils/transformToPersonOutput.util'
 import type { DbxStatement } from './databricksVoterSql.util'
@@ -27,6 +31,7 @@ import {
   buildDistrictSql,
   buildOverlapCountSql,
   buildPageSql,
+  buildSampleSql,
   buildVoterColumnsSql,
   type DbxDistrict,
 } from './databricksVoterSql.util'
@@ -43,6 +48,23 @@ import {
 } from './peopleDbxStatement.client'
 
 const STATE_DISTRICT_TYPE = 'State'
+
+const DEFAULT_SAMPLE_SIZE = 500
+
+// Cut to roughly three times the requested size so the LIMIT has slack to fill
+// even when the hash slice lands unevenly, and cap the divisor so a huge
+// population cannot slice itself down to fewer rows than were asked for.
+const SAMPLE_OVERSAMPLE_FACTOR = 3
+const MAX_SAMPLE_HASH_DIVISOR = 10000
+
+const EMPTY_FILTERS = filtersSchema.parse({})
+
+// Rotates every minute so successive calls return different people, which is
+// what the sample is for; stable within a minute so a retry is idempotent.
+// `| 0` because hash32 returns unsigned 32-bit and the parameter binds as INT:
+// a district whose hash lands above 2^31-1 is otherwise rejected outright.
+const sampleSeed = (districtId: string): number =>
+  hash32(`${districtId}:${Math.floor(Date.now() / 60_000)}`) | 0
 
 const TIMEOUT_MESSAGE =
   'The voter query took too long to run. Narrow the audience and try again.'
@@ -214,6 +236,58 @@ export class DatabricksVoterService {
     const district = await this.resolveDistrict(districtId)
     const { rows } = await this.run(buildDistrictStatsSql(district))
     return mapDistrictStatsRow(districtId, rows[0], new Date())
+  }
+
+  // Sizing comes from the district's own totals: the pre-cut divisor needs to
+  // know how big the population is, and the two rejections below are product
+  // behavior the Postgres path enforced (a missing-stats district unmounts the
+  // surface rather than showing zero).
+  async samplePeople(dto: SamplePeopleDTO) {
+    const district = await this.resolveDistrict(dto.districtId)
+    const size = dto.size ?? DEFAULT_SAMPLE_SIZE
+    const hasCellPhone = dto.hasCellPhone ?? true
+    const excludeIds = dto.excludeIds ?? []
+
+    const stats = await this.findStats(dto.districtId)
+    if (!stats) {
+      throw new BadRequestException({
+        message: `District stats not available for districtId=${dto.districtId}`,
+        errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE,
+      })
+    }
+
+    const pool = hasCellPhone
+      ? stats.totalConstituentsWithCellPhone
+      : stats.totalConstituents
+    const remaining = pool - Math.min(excludeIds.length, pool)
+    if (remaining < size) {
+      throw new BadRequestException(
+        `Not enough non-excluded constituents ${remaining} to satisfy target: ${size}`,
+      )
+    }
+
+    const desiredRows = size * SAMPLE_OVERSAMPLE_FACTOR
+    const hashDivisor = Math.min(
+      MAX_SAMPLE_HASH_DIVISOR,
+      Math.max(1, Math.floor(remaining / desiredRows)),
+    )
+
+    const { columnNames } = buildVoterSelectSql()
+    const { rows } = await this.run(
+      buildSampleSql({
+        district,
+        filters: EMPTY_FILTERS,
+        columns: columnNames,
+        size,
+        seed: sampleSeed(dto.districtId),
+        hashDivisor,
+        hasCellPhone,
+        excludeIds,
+      }),
+    )
+    return rows
+      .map((row) => toDbPerson(columnNames, row))
+      .map(transformToPersonOutput)
   }
 
   private async run(statement: DbxStatement) {
