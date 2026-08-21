@@ -104,7 +104,7 @@ describe('RobocallFlow', () => {
   it('opens on the purpose step with the robocall purposes', () => {
     mockSavedLists()
     render(<RobocallFlow open onClose={vi.fn()} />)
-    expect(screen.getByText('Introduce myself')).toBeInTheDocument()
+    expect(screen.getByText('Introduce myself to voters')).toBeInTheDocument()
     expect(screen.getByText('Persuade likely voters')).toBeInTheDocument()
   })
 
@@ -114,14 +114,16 @@ describe('RobocallFlow', () => {
     expect(
       screen.getByText(/We only call voters with a landline/),
     ).toBeInTheDocument()
-    expect(screen.queryByText('Introduce myself')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Introduce myself to voters'),
+    ).not.toBeInTheDocument()
   })
 
   it('returns to the purpose step on Back from the audience picker', async () => {
     mockSavedLists()
     await gotoAudience()
     fireEvent.click(screen.getByLabelText('Back'))
-    expect(screen.getByText('Introduce myself')).toBeInTheDocument()
+    expect(screen.getByText('Introduce myself to voters')).toBeInTheDocument()
   })
 
   it('shows the landline reachable count and advances on Continue', async () => {
@@ -338,7 +340,7 @@ describe('RobocallFlow', () => {
     // Back to purpose discards the pick; re-entering audience is a fresh picker
     // with Continue disabled, not a resumed selection.
     fireEvent.click(screen.getByLabelText('Back'))
-    expect(screen.getByText('Introduce myself')).toBeInTheDocument()
+    expect(screen.getByText('Introduce myself to voters')).toBeInTheDocument()
     fireEvent.click(screen.getByText('Persuade likely voters'))
 
     expect(await screen.findByText('Choose a voter list')).toBeInTheDocument()
@@ -362,7 +364,7 @@ describe('RobocallFlow', () => {
     rerender(<RobocallFlow open={false} onClose={onClose} />)
     rerender(<RobocallFlow open onClose={onClose} />)
 
-    expect(screen.getByText('Introduce myself')).toBeInTheDocument()
+    expect(screen.getByText('Introduce myself to voters')).toBeInTheDocument()
     expect(
       screen.queryByText(/We only call voters with a landline/),
     ).not.toBeInTheDocument()

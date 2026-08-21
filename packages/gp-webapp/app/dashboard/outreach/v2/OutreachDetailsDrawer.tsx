@@ -94,6 +94,9 @@ interface OutreachDetailsDrawerProps {
   onOpenChange: (open: boolean) => void
 }
 
+// min-w-0 belongs on the card as well as the inner text span: `grid-cols-2`
+// lays down minmax(0,1fr) tracks, but a grid item's own min-width stays `auto`,
+// so anything the card can't shrink below still pushes past its track.
 const Metric = ({
   icon,
   label,
@@ -103,7 +106,7 @@ const Metric = ({
   label: string
   value: string
 }) => (
-  <Card className="flex flex-row items-start gap-2 rounded-lg p-3">
+  <Card className="flex min-w-0 flex-row items-start gap-2 rounded-lg p-3">
     <span className="mt-0.5 shrink-0 text-muted-foreground [&_svg]:size-4">
       {icon}
     </span>
@@ -116,8 +119,32 @@ const Metric = ({
   </Card>
 )
 
+// The canvas's Applied filters anatomy: a labelled pill group per dimension —
+// "Audience" (the saved list this campaign was sent to) above "Filters" (the
+// criteria that built it).
+const FilterGroup = ({
+  title,
+  values,
+}: {
+  title: string
+  values: string[]
+}) => (
+  <div className="space-y-1.5">
+    <p className="text-xs font-medium text-muted-foreground">{title}</p>
+    <FilterPillGroup type="multiple" value={values}>
+      {values.map((label) => (
+        <FilterPill key={label} value={label}>
+          {label}
+        </FilterPill>
+      ))}
+    </FilterPillGroup>
+  </div>
+)
+
 interface DetailRow extends HistoryRow {
-  voterFileFilter?: VoterFileFilters
+  // The list endpoint joins the whole VoterFileFilter row, so the saved list's
+  // name rides along with its criteria flags.
+  voterFileFilter?: VoterFileFilters & { name?: string | null }
 }
 
 export const OutreachDetailsDrawer = ({
@@ -154,9 +181,12 @@ export const OutreachDetailsDrawer = ({
   })
 
   const displayDate = row?.date ?? row?.createdAt
-  const audienceLabels = formatAudienceLabels(
-    (row as DetailRow | null)?.voterFileFilter || {},
-  )
+  const voterFileFilter = (row as DetailRow | null)?.voterFileFilter
+  const audienceLabels = formatAudienceLabels(voterFileFilter || {})
+  // The canvas always shows an audience pill; our rows only have one when the
+  // campaign was sent to a saved list (social has no audience at all, and
+  // phone banking's "all voters" source saves no filter).
+  const audienceName = voterFileFilter?.name?.trim() || null
   const sent = row?.textCount ?? row?.billableTextCount
 
   // Prototype byline verbs ("Scheduled for {date}" / "Sent {date}"); our
@@ -186,11 +216,13 @@ export const OutreachDetailsDrawer = ({
         </DrawerHeader>
         {row && (
           <>
-            <div className="px-4 py-4 lg:px-6">
+            {/* Desktop top padding clears the close button, which sits inside
+                the content column rather than on the sheet corner. */}
+            <div className="px-4 pt-6 pb-4 lg:px-6 lg:pt-14">
               <div className="mx-auto flex w-full max-w-[608px] items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <h2 className="text-base font-semibold text-foreground">
+                    <h2 className="text-[22px] font-semibold text-foreground">
                       {row.name || row.title || 'Untitled campaign'}
                     </h2>
                     <HistoryStatusText label={statusLabel} />
@@ -216,21 +248,15 @@ export const OutreachDetailsDrawer = ({
 
             <DrawerBody className="flex-1 overflow-y-auto px-4 pb-6 lg:px-6">
               <div className="mx-auto w-full max-w-[608px] space-y-6">
-                {audienceLabels.length > 0 && (
+                {(audienceName || audienceLabels.length > 0) && (
                   <section className="space-y-3">
                     <Eyebrow>Applied filters</Eyebrow>
-                    <div className="space-y-1.5">
-                      <p className="text-xs font-medium text-muted-foreground">
-                        Filters
-                      </p>
-                      <FilterPillGroup type="multiple" value={audienceLabels}>
-                        {audienceLabels.map((label) => (
-                          <FilterPill key={label} value={label}>
-                            {label}
-                          </FilterPill>
-                        ))}
-                      </FilterPillGroup>
-                    </div>
+                    {audienceName && (
+                      <FilterGroup title="Audience" values={[audienceName]} />
+                    )}
+                    {audienceLabels.length > 0 && (
+                      <FilterGroup title="Filters" values={audienceLabels} />
+                    )}
                   </section>
                 )}
 
