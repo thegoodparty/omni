@@ -746,6 +746,12 @@ export {
   PhoneBankingScriptDraftResponseSchema,
   type PhoneBankingScriptDraftResponse,
 } from './outreach/PhoneBankingScript.schema'
+export {
+  OutreachArchiveRequestSchema,
+  type OutreachArchiveRequest,
+  OutreachArchiveResponseSchema,
+  type OutreachArchiveResponse,
+} from './outreach/OutreachArchive.schema'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
 

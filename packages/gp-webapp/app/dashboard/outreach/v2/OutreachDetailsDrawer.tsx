@@ -38,6 +38,7 @@ import {
   XMarkIcon,
 } from '@styleguide'
 import {
+  ArchiveIcon,
   CalendarIcon,
   CheckCircleIcon,
   ClockIcon,
@@ -46,6 +47,7 @@ import {
   Loader2Icon,
   PhoneIcon,
   Share2Icon,
+  Trash2Icon,
   UsersRoundIcon,
 } from '@styleguide/components/ui/icons'
 import { dateUsHelper } from 'helpers/dateHelper'
@@ -178,6 +180,32 @@ export const OutreachDetailsDrawer = ({
     },
     onError: () =>
       errorSnackbar("Couldn't delete this list. Please try again."),
+  })
+
+  const isArchived = Boolean(row?.archivedAt)
+  const archiveMutation = useMutation({
+    mutationFn: () => {
+      const rowId = row?.id
+      if (!rowId) return Promise.reject(new Error('row unavailable'))
+      return clientRequest('PATCH /v1/outreach/:id/archive', {
+        id: String(rowId),
+        archived: !isArchived,
+      })
+    },
+    onSuccess: ({ data }) => {
+      setOutreaches(
+        outreaches.map((o) =>
+          o.id === row?.id ? { ...o, archivedAt: data.archivedAt } : o,
+        ),
+      )
+      onOpenChange(false)
+    },
+    onError: () =>
+      errorSnackbar(
+        isArchived
+          ? "Couldn't restore this campaign. Please try again."
+          : "Couldn't archive this campaign. Please try again.",
+      ),
   })
 
   const displayDate = row?.date ?? row?.createdAt
@@ -496,15 +524,30 @@ export const OutreachDetailsDrawer = ({
               </DrawerFooter>
             )}
 
-            {isPhoneBanking && phoneBanking && isCompleted && (
+            {/* Archive applies to every completed row (the history's
+                Archive toggle filters all types); Delete stays
+                phone-banking-only — it calls the list-delete endpoint. */}
+            {isCompleted && (
               <DrawerFooter className="shrink-0 border-t border-border px-4 py-4 lg:px-6">
                 <div className="mx-auto flex w-full max-w-[608px] gap-3">
+                  {isPhoneBanking && phoneBanking && (
+                    <Button
+                      variant="ghost"
+                      className="shrink-0 text-destructive hover:bg-destructive/10"
+                      onClick={() => setDeleteConfirmOpen(true)}
+                    >
+                      <Trash2Icon className="size-4" />
+                      Delete
+                    </Button>
+                  )}
                   <Button
-                    variant="destructive"
+                    variant="outline"
                     className="flex-1"
-                    onClick={() => setDeleteConfirmOpen(true)}
+                    disabled={archiveMutation.isPending}
+                    onClick={() => archiveMutation.mutate()}
                   >
-                    Delete
+                    <ArchiveIcon className="size-4" />
+                    {isArchived ? 'Restore from archive' : 'Move to archive'}
                   </Button>
                 </div>
               </DrawerFooter>

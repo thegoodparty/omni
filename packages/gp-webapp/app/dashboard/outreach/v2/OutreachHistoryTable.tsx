@@ -23,7 +23,10 @@ import {
   TableRow,
   cn,
 } from '@styleguide'
-import { SlidersHorizontalIcon } from '@styleguide/components/ui/icons'
+import {
+  ArchiveIcon,
+  SlidersHorizontalIcon,
+} from '@styleguide/components/ui/icons'
 import { dateUsHelper } from 'helpers/dateHelper'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { ChannelBadge, HistoryStatusText } from './channelMeta'
@@ -188,6 +191,7 @@ export const OutreachHistoryTable = ({
   onRowClick,
 }: OutreachHistoryTableProps) => {
   const [page, setPage] = useState(1)
+  const [showArchive, setShowArchive] = useState(false)
   const [channelFilter, setChannelFilter] = useState<Set<ChannelFilterKey>>(
     () => new Set(CHANNEL_FILTERS.map((c) => c.key)),
   )
@@ -199,6 +203,7 @@ export const OutreachHistoryTable = ({
     () =>
       [...rows]
         .filter((row) => {
+          if (Boolean(row.archivedAt) !== showArchive) return false
           // Rows outside both vocabularies (odd legacy types, null statuses)
           // always show — filters only subtract what they can name.
           const channel = channelFilterKey(row.outreachType)
@@ -211,7 +216,7 @@ export const OutreachHistoryTable = ({
           )
         })
         .sort((a, b) => rowTime(b) - rowTime(a)),
-    [rows, channelFilter, statusFilter],
+    [rows, showArchive, channelFilter, statusFilter],
   )
 
   const activeFilterCount =
@@ -233,7 +238,7 @@ export const OutreachHistoryTable = ({
 
   useEffect(() => {
     setPage(1)
-  }, [channelFilter, statusFilter])
+  }, [showArchive, channelFilter, statusFilter])
 
   const toggleChannel = (key: ChannelFilterKey, on: boolean) =>
     setChannelFilter((prev) => {
@@ -256,20 +261,30 @@ export const OutreachHistoryTable = ({
     setStatusFilter(new Set(STATUS_FILTERS))
   }
 
+  const activeRowCount = rows.filter((row) => !row.archivedAt).length
+
   const emptyMessage =
-    rows.length === 0
-      ? 'No campaigns yet. Pick a channel above to create your first.'
-      : 'No campaigns match your filters.'
+    visible.length === 0 && activeFilterCount > 0
+      ? 'No campaigns match your filters.'
+      : showArchive
+        ? 'No archived campaigns.'
+        : activeRowCount === 0 && rows.length > 0
+          ? 'All your campaigns are archived. Click “Archive” to view them.'
+          : activeRowCount === 0
+            ? 'No campaigns yet. Pick a channel above to create your first.'
+            : 'No campaigns match your filters.'
 
   return (
     <section className="space-y-3 mt-10 mb-32">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <h2 className="text-lg font-semibold text-foreground">
-            Outreach history
+            {showArchive ? 'Archived outreach' : 'Outreach history'}
           </h2>
           <p className="text-sm text-muted-foreground">
-            Every campaign you&apos;ve sent, most recent first.
+            {showArchive
+              ? 'Completed and cancelled campaigns from earlier cycles.'
+              : "Every campaign you've sent, most recent first."}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -326,6 +341,15 @@ export const OutreachHistoryTable = ({
               )}
             </PopoverContent>
           </Popover>
+          <Button
+            variant="outline"
+            size="small"
+            onClick={() => setShowArchive((v) => !v)}
+            aria-pressed={showArchive}
+          >
+            <ArchiveIcon className="size-4" />
+            {showArchive ? 'Back to active' : 'Archive'}
+          </Button>
         </div>
       </div>
 
