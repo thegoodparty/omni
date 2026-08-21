@@ -87,7 +87,7 @@ export type PeopleDbxCsvExport = {
   statementId: string
   totalRows: number
   totalChunks: number
-  firstChunk: PeopleDbxCsvChunk | null
+  firstChunk: PeopleDbxCsvChunk
 }
 
 // A statement that outlived the ceiling. Distinct from a query error so the
@@ -166,26 +166,36 @@ export class PeopleDbxStatementClient {
     })
     const settled = await this.awaitCompletion(config, first, startedAt)
     const [link] = settled.result?.external_links ?? []
+    // A succeeded export always carries chunk 0, even for an empty result set
+    // (verified: that chunk holds the header row alone, matching what Postgres
+    // COPY ... HEADER TRUE writes). No link means something is wrong, and an
+    // empty download would present as a legitimate answer.
+    if (!link) {
+      throw new Error('Databricks CSV export returned no first chunk')
+    }
     return {
       statementId: settled.statement_id ?? '',
       totalRows: settled.manifest?.total_row_count ?? 0,
       totalChunks: settled.manifest?.total_chunk_count ?? 0,
-      firstChunk: link
-        ? {
-            externalLink: link.external_link,
-            nextChunkLink: link.next_chunk_internal_link ?? null,
-          }
-        : null,
+      firstChunk: {
+        externalLink: link.external_link,
+        nextChunkLink: link.next_chunk_internal_link ?? null,
+      },
     }
   }
 
   // Presigned links expire in ~15 minutes, so a long export has to re-request
-  // them as it goes rather than resolving the whole chain up front.
-  async fetchCsvChunk(link: string): Promise<PeopleDbxCsvChunk | null> {
+  // them as it goes rather than resolving the whole chain up front. A chunk the
+  // manifest promised but that comes back linkless throws rather than ending
+  // the chain: silently stopping there would hand the user a truncated voter
+  // export that looks complete.
+  async fetchCsvChunk(link: string): Promise<PeopleDbxCsvChunk> {
     const config = this.config()
     const chunk = await this.fetchJson(config, link, chunkResponseSchema)
     const [external] = chunk.external_links ?? []
-    if (!external) return null
+    if (!external) {
+      throw new Error(`Databricks CSV chunk ${link} returned no link`)
+    }
     return {
       externalLink: external.external_link,
       nextChunkLink: external.next_chunk_internal_link ?? null,

@@ -43,7 +43,7 @@ export class DatabricksVoterDownloadService {
     // Start the export BEFORE committing response headers. Everything up to
     // the chunk plan can still fail into a structured 5xx; once headers are
     // flushed the connection is a binary download and we cannot.
-    let firstChunk: PeopleDbxCsvChunk | null
+    let firstChunk: PeopleDbxCsvChunk
     try {
       firstChunk = (await this.client.startCsvExport(sql)).firstChunk
     } catch (err) {
@@ -108,11 +108,11 @@ export class DatabricksVoterDownloadService {
   // (~8-20MB at the 76-column projection) and then awaited onto the gzip
   // stream, so at most one chunk per download is ever in memory.
   private async pumpChunks(
-    first: PeopleDbxCsvChunk | null,
+    first: PeopleDbxCsvChunk,
     gzip: NodeJS.WritableStream,
     isAborted: () => boolean,
   ): Promise<void> {
-    let chunk = first
+    let chunk: PeopleDbxCsvChunk | null = first
     while (chunk && !isAborted()) {
       const response = await fetch(chunk.externalLink)
       if (!response.ok) {
