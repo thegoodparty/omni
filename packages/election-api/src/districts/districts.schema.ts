@@ -7,10 +7,6 @@ export const districtColumns = Object.values(
   Prisma.DistrictScalarFieldEnum,
 ) as (keyof typeof Prisma.DistrictScalarFieldEnum)[]
 
-export const projectedTurnoutColumns = Object.values(
-  Prisma.ProjectedTurnoutScalarFieldEnum,
-) as (keyof typeof Prisma.ProjectedTurnoutScalarFieldEnum)[]
-
 const ElectionCode = z.nativeEnum(EC)
 
 const getDistrictTypesSchema = z.object({
@@ -66,23 +62,6 @@ const getDistrictsSchema = z.object({
       },
       {
         message: `Invalid district column provided. Allowed columns are: ${districtColumns.join(', ')}`,
-      },
-    ),
-  projectedTurnoutColumns: z
-    .string()
-    .optional()
-    .refine(
-      (val) => {
-        if (!val) return true
-        const columns = val.split(',').map((col) => col.trim())
-        return columns.every((col) =>
-          projectedTurnoutColumns.includes(
-            col as keyof typeof Prisma.ProjectedTurnoutScalarFieldEnum,
-          ),
-        )
-      },
-      {
-        message: `Invalid projectedTurnout column provided. Allowed columns are ${projectedTurnoutColumns}`,
       },
     ),
 })

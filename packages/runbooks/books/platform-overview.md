@@ -218,9 +218,9 @@ decommissioned. Environments: `dev`/`prod` only. Aurora PG prod:
 
 | Route                                        | Purpose                                                           |
 | -------------------------------------------- | ----------------------------------------------------------------- |
-| `GET /v1/positions/by-ballotready-id/:id`    | Gold flow: BallotReady position → district → projected turnout    |
+| `GET /v1/positions/by-ballotready-id/:id`    | Gold flow: BallotReady position → district (turnout is a separate call) |
 | `GET /v1/projectedTurnout`                   | Direct turnout lookup by state + district + election date         |
-| `GET /v1/districts/list`, `/types`, `/names` | District queries with optional turnout join                       |
+| `GET /v1/districts/list`, `/types`, `/names` | District queries; `excludeInvalid` keeps the turnout existence filter |
 | `GET /v1/races`                              | Filter races by state, date range, position level, primary/runoff |
 | `GET /v1/candidacies`                        | Filter candidacies by state, slug, race slug; include stances     |
 | `GET /v1/places`                             | Place hierarchy (counties → districts), children categorization   |
