@@ -1,7 +1,10 @@
+import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { Person } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { LlmService } from '@/llm/services/llm.service'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import {
   Campaign,
   OutreachStatus,
@@ -617,5 +620,236 @@ describe('GET /v1/outreach/:id', () => {
       orgHeaders(),
     )
     expect(missingRes.status).toBe(HttpStatus.NOT_FOUND)
+  })
+})
+
+describe('GET /v1/outreach/:id — nativePhoneBanking', () => {
+  const DISTRICT_ID = '457a1cd7-4184-f823-49d3-f207af693521'
+  const PEOPLE_PAGINATION = {
+    totalResults: 0,
+    currentPage: 1,
+    pageSize: 1000,
+    totalPages: 1,
+    hasNextPage: false,
+    hasPreviousPage: false,
+  }
+
+  const fakePerson = (overrides: Partial<Person> = {}): Person => ({
+    id: randomUUID(),
+    lalVoterId: `LAL-${randomUUID()}`,
+    firstName: 'Jane',
+    middleName: null,
+    lastName: 'Voter',
+    nameSuffix: null,
+    age: 42,
+    state: 'WY',
+    address: {
+      line1: '123 Main St',
+      line2: null,
+      city: 'Cheyenne',
+      state: 'WY',
+      zip: '82001',
+      zipPlus4: null,
+      latitude: null,
+      longitude: null,
+    },
+    cellPhone: '3075550001',
+    landline: null,
+    gender: null,
+    politicalParty: 'Independent',
+    registeredVoter: 'Yes',
+    estimatedIncomeAmount: null,
+    voterStatus: null,
+    maritalStatus: null,
+    hasChildrenUnder18: null,
+    veteranStatus: null,
+    homeowner: null,
+    businessOwner: null,
+    levelOfEducation: null,
+    ethnicityGroup: null,
+    language: 'English',
+    ...overrides,
+  })
+
+  let pbOrgSlug: string
+  let pbCampaign: Campaign
+
+  beforeEach(async () => {
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    pbOrgSlug = `campaign-pbdetail-${suffix}`
+    await service.prisma.organization.create({
+      data: {
+        slug: pbOrgSlug,
+        ownerId: service.user.id,
+        overrideDistrictId: DISTRICT_ID,
+      },
+    })
+    pbCampaign = await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: `pbdetail-campaign-${suffix}`,
+        organizationSlug: pbOrgSlug,
+        isPro: true,
+      },
+    })
+  })
+
+  const pbOrgHeaders = () => ({
+    headers: { 'x-organization-slug': pbOrgSlug },
+  })
+
+  // A one-person entry and a two-person (household) entry sharing a phone,
+  // so the fan-out math and the single-person math both land in the same
+  // list.
+  const buildList = async () => {
+    const filter = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: pbOrgSlug, name: 'PB detail audience' },
+    })
+    vi.spyOn(
+      service.app.get(VoterQueryService),
+      'findPeople',
+    ).mockResolvedValue({
+      pagination: PEOPLE_PAGINATION,
+      people: [
+        fakePerson({ id: randomUUID(), cellPhone: '3075552000' }),
+        fakePerson({ id: randomUUID(), cellPhone: '3075552001' }),
+        fakePerson({ id: randomUUID(), cellPhone: '3075552001' }),
+      ],
+    })
+    const res = await service.client.post(
+      '/v1/phone-banking/lists',
+      {
+        name: 'Tuesday calls',
+        script: 'Hi, this is a volunteer calling about the election.',
+        sheetCount: 1,
+        voterFileFilterId: filter.id,
+        purpose: 'introduce',
+      },
+      pbOrgHeaders(),
+    )
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const entries = await service.prisma.phoneBankingListEntry.findMany({
+      where: { phoneBankingListId: res.data.id },
+      include: { persons: true },
+      orderBy: { seq: Prisma.SortOrder.asc },
+    })
+    return { listId: res.data.id, outreachId: res.data.outreachId, entries }
+  }
+
+  const postCall = (listId: number, body: Record<string, unknown>) =>
+    service.client.post(
+      `/v1/phone-banking/lists/${listId}/calls`,
+      body,
+      pbOrgHeaders(),
+    )
+
+  it('reports entry/people progress, byOutcome, and supporters after an answered-with-support log and a no_answer household fan-out', async () => {
+    const { outreachId, entries } = await buildList()
+    const [soloEntry, householdEntry] = entries
+    expect(soloEntry?.persons).toHaveLength(1)
+    expect(householdEntry?.persons).toHaveLength(2)
+
+    const answered = await postCall(soloEntry!.phoneBankingListId, {
+      entryId: soloEntry!.id,
+      outcome: 'answered',
+      personId: soloEntry!.persons[0]!.personId,
+      supportAnswer: 'supporter',
+    })
+    expect(answered.status).toBe(HttpStatus.CREATED)
+
+    const noAnswer = await postCall(householdEntry!.phoneBankingListId, {
+      entryId: householdEntry!.id,
+      outcome: 'no_answer',
+    })
+    expect(noAnswer.status).toBe(HttpStatus.CREATED)
+
+    const res = await service.client.get(
+      `/v1/outreach/${outreachId}`,
+      pbOrgHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.phoneBanking).toEqual({
+      listId: soloEntry!.phoneBankingListId,
+      entriesTotal: 2,
+      entriesCalled: 2,
+      peopleTotal: 3,
+      peopleCalled: 3,
+      byOutcome: {
+        answered: 1,
+        no_answer: 1,
+        voicemail: 0,
+        wrong_number: 0,
+        refused: 0,
+      },
+      supporters: 1,
+    })
+  })
+
+  it('rolls an entry up to its most recent call when a housemate is corrected individually after a fan-out', async () => {
+    const { outreachId, entries } = await buildList()
+    const [, householdEntry] = entries
+    expect(householdEntry?.persons).toHaveLength(2)
+    const [personA, personB] = householdEntry!.persons
+
+    // Fan-out: both housemates land on no_answer with the same occurredAt.
+    const fanOut = await postCall(householdEntry!.phoneBankingListId, {
+      entryId: householdEntry!.id,
+      outcome: 'no_answer',
+    })
+    expect(fanOut.status).toBe(HttpStatus.CREATED)
+
+    // A later, separate call reaches just personA — the entry's two rows
+    // now genuinely diverge in both outcome and occurredAt.
+    const correction = await postCall(householdEntry!.phoneBankingListId, {
+      entryId: householdEntry!.id,
+      outcome: 'answered',
+      personId: personA!.personId,
+    })
+    expect(correction.status).toBe(HttpStatus.CREATED)
+
+    const rows = await service.prisma.contactInteractionPhoneBanking.findMany({
+      where: { phoneBankingListId: householdEntry!.phoneBankingListId },
+    })
+    const rowFor = (personId: string) =>
+      rows.find((row) => row.personId === personId)
+    expect(rowFor(personA!.personId)?.outcome).toBe('answered')
+    expect(rowFor(personB!.personId)?.outcome).toBe('no_answer')
+    expect(rowFor(personA!.personId)!.occurredAt.getTime()).toBeGreaterThan(
+      rowFor(personB!.personId)!.occurredAt.getTime(),
+    )
+
+    const res = await service.client.get(
+      `/v1/outreach/${outreachId}`,
+      pbOrgHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    // The household entry's rolled-up outcome must follow its most recent
+    // call (personA's answered), not personB's earlier no_answer.
+    expect(res.data.phoneBanking.entriesCalled).toBe(1)
+    expect(res.data.phoneBanking.byOutcome).toMatchObject({
+      answered: 1,
+      no_answer: 0,
+    })
+  })
+
+  it('returns no phoneBanking block for a legacy phoneBanking outreach row', async () => {
+    const legacy = await service.prisma.outreach.create({
+      data: {
+        campaignId: pbCampaign.id,
+        organizationSlug: pbOrgSlug,
+        outreachType: OutreachType.phoneBanking,
+        status: OutreachStatus.completed,
+      },
+    })
+
+    const res = await service.client.get(
+      `/v1/outreach/${legacy.id}`,
+      pbOrgHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data).not.toHaveProperty('phoneBanking')
   })
 })

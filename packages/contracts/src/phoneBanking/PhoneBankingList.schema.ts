@@ -63,6 +63,8 @@ export const PhoneBankingOutreachDetailSchema = z.object({
   listId: z.number().int(),
   entriesTotal: z.number().int(),
   entriesCalled: z.number().int(),
+  peopleTotal: z.number().int(),
+  peopleCalled: z.number().int(),
   byOutcome: z.record(PhoneBankCallOutcomeSchema, z.number().int()),
   supporters: z.number().int(),
 })
