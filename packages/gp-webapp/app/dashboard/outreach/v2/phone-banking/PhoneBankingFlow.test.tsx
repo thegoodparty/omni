@@ -334,6 +334,22 @@ describe('PhoneBankingFlow', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
 
+  it('disables the builder Continue when the live count fails to load', async () => {
+    mockDraft()
+    api.mock('POST /v1/contacts/count', { status: 500, data: {} })
+    openFlow()
+    await advanceToWho()
+
+    await user.click(screen.getByRole('button', { name: 'All lists' }))
+    await user.click(await screen.findByText('Create a new list'))
+    await user.click(screen.getByRole('button', { name: 'Democrat' }))
+
+    expect(
+      await screen.findByText("We couldn't count this audience. Try again."),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
   it('builds a custom audience via the builder → naming sub-states and sends filters + filterName', async () => {
     mockDraft()
     const createCalls: PhoneBankingCreate[] = []

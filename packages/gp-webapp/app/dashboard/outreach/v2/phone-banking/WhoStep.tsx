@@ -75,7 +75,7 @@ interface WhoStepProps {
   savedLists: SavedPhoneBankingList[]
   audienceSource: WhoAudienceSource
   selectedListId: number | null
-  customListName: string
+  audienceLabel: string
   onSelectAll: () => void
   onSelectSaved: (id: number) => void
   subStep: WhoSubStep
@@ -97,7 +97,7 @@ export const WhoStep = ({
   savedLists,
   audienceSource,
   selectedListId,
-  customListName,
+  audienceLabel,
   onSelectAll,
   onSelectSaved,
   subStep,
@@ -336,12 +336,6 @@ export const WhoStep = ({
   const allSelected = audienceSource === 'all'
   const allVotersCount = allVotersCountQuery.data?.count ?? null
 
-  const triggerTitle =
-    audienceSource === 'all'
-      ? 'All voters'
-      : audienceSource === 'saved'
-        ? (selectedList?.name ?? 'Saved list')
-        : customListName
   const triggerSubtitle =
     audienceSource === 'all'
       ? allVotersCountQuery.isPending
@@ -409,11 +403,17 @@ export const WhoStep = ({
               role="button"
               tabIndex={0}
               aria-label="All lists"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  setPopoverOpen(!popoverOpen)
+                }
+              }}
               className="cursor-pointer flex-row items-center justify-between gap-3 rounded-lg p-4"
             >
               <div className="min-w-0">
                 <p className="truncate font-medium text-foreground">
-                  {triggerTitle}
+                  {audienceLabel}
                 </p>
                 {triggerSubtitle && (
                   <p className="truncate text-sm text-muted-foreground">
