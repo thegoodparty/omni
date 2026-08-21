@@ -2,7 +2,7 @@
 
 A second, **read-only** Prisma client + raw-SQL voter engine inside gp-api,
 talking directly to the people-db Postgres cluster (the same `green`-schema
-Voter table, 200M+ L2 records, partitioned by state, that the now-retired
+Voter table, hundreds of millions of L2 records, partitioned by state, that the now-retired
 `people-api` package used to serve over HTTP). This module is the in-process
 replacement for that service — and the SOLE path: filter pipeline, id
 `in`/`notIn`, trigram search, stats/aggregates, CSV download, and
@@ -82,26 +82,23 @@ modules directly.
 connection URL. This is load-bearing, not tuning.
 
 Every filter value in `filters.sql.util.ts` is a **bound parameter**. Postgres
-plans a prepared statement custom for its first 5 executions, then may switch to
-a generic plan built without knowing the values. For a range filter it then
+plans a prepared statement custom for its first five executions, then may switch
+to a generic plan built without knowing the values. For a range filter it then
 assumes default selectivity and **inverts the join**: instead of driving from
 `DistrictVoter` for the one district, it bitmap-scans every voter in the state's
-age/income band (~116k estimated rows) and checks district membership after.
+age/income band and checks district membership after.
 
-Measured on prod 2026-08-16, a 7,828-voter district with an age + income range,
-through the real Prisma client:
+Without the option, the sixth and later executions of that statement shape run
+**orders of magnitude slower than the first five** — enough to blow the 25s
+statement timeout on a district small enough to be fast otherwise, which was the
+mechanism behind the `GET /v1/contacts/list-detail` 504s. With it, every
+execution stays at the fast plan.
 
-| execution | without the option | with it |
-| --------- | ------------------ | ------- |
-| 1–5       | ~140ms             | ~140ms  |
-| 6+        | **~17,700ms**      | ~150ms  |
-
-That ~130x cliff blew the 25s statement timeout and was the mechanism behind the
-`GET /v1/contacts/list-detail` 504s. It reads as intermittent because it depends
-on how many times a **pooled** connection has run that statement shape, so a
-fresh connection looks fine and a well-used one times out. It also inverts the
-usual cache intuition — the first hit is fast and later ones are slow — which is
-why it hid inside the benchmark's warm p95.
+It reads as intermittent because it depends on how many times a **pooled**
+connection has run that statement shape, so a fresh connection looks fine and a
+well-used one times out. It also inverts the usual cache intuition — the first
+hit is fast and later ones are slow — which is why it hid inside the benchmark's
+warm p95.
 
 Two traps when touching this:
 
@@ -132,22 +129,17 @@ materially different things, and the difference is the whole point:
 | Error surfaced | `P2010 Code: 57014` | `P2010 Code: N/A`, `Timed out during query execution` |
 | Maps to | classified 504 | unhandled 500 |
 
-So an unguarded query that goes pathological burns people-db CPU for a further
-**35 seconds** after the client has abandoned it — precisely the wrong
-behaviour when the datastore is already the thing under stress, and
-self-amplifying under retries.
+So an unguarded query that goes pathological keeps burning people-db CPU after
+the client has abandoned it — for the difference between the two timeouts,
+precisely the wrong behaviour when the datastore is already the thing under
+stress, and self-amplifying under retries.
 
 Prod 2026-08-20 is the natural experiment, and is why this rule is written down
-rather than left to taste. In one degradation window, on one cluster:
-
-| endpoint | guarded? | duration | outcome |
-| --- | --- | --- | --- |
-| `POST /v1/chats/:id/messages` | yes | 25,011 / 25,016ms | clean 504 |
-| `GET /v1/contacts/list-detail` | yes | 25,013ms | clean 504 |
-| `GET /v1/door-knocking/turfs/:id/route` | **no** | **60,209ms** | **unhandled 500** |
-
-Every guarded path died within 16ms of the 25s ceiling. The single unguarded
-path — `VoterDoorKnockingService.residents()` — rode the socket timeout to 60s.
+rather than left to taste. In one degradation window, on one cluster, every
+guarded path (`POST /v1/chats/:id/messages`, `GET /v1/contacts/list-detail`)
+died within milliseconds of the 25s ceiling as a clean 504, while the single
+unguarded path — `VoterDoorKnockingService.residents()` — rode the socket
+timeout all the way out and surfaced as an unhandled 500.
 `voterDoorKnocking.service.ts` predated the timeout convention (added
 2026-07-27; the guard landed 2026-07-31 in `voterQuery.service.ts` only) and was
 simply never retrofitted. Note what the fix does and does not do: it makes that
@@ -168,16 +160,16 @@ scan is bounded by a bbox (`buildBboxSql`) on indexed lat/long columns. It uses
 the computed key for output, not to constrain the scan. `residents()` uses it to
 constrain the scan, and that is the difference.
 
-This is a **latent fragility, not a live defect**. Measured reality as of
-2026-08-20: a two-second median on this endpoint, ten consecutive 200s for the
-same user and turf ~19h before the incident, and exactly one 5xx in seven days.
-It is best read as the reason `residents()` is the query that tips over *first*
-when people-db is degraded — not a cause of routine failure.
+This is a **latent fragility, not a live defect**. As of 2026-08-20 the endpoint
+was healthy in normal operation — a low single-digit-second median, and 5xxs
+rare enough over a week to be coincidental rather than routine. It is best read
+as the reason `residents()` is the query that tips over *first* when people-db is
+degraded, not as a cause of routine failure.
 
 **Do not propose an expression index on the strength of this alone.** The Voter
-table is a 200M-row partitioned production mirror; an index there is a human
-decision about lock behaviour and rollout, and one data point against a
-two-second median does not justify it. If this endpoint's failures ever become
+table is a large partitioned production mirror; an index there is a human
+decision about lock behaviour and rollout, and one data point against a healthy
+median does not justify it. If this endpoint's failures ever become
 routine rather than a once-in-seven-days coincidence with a datastore-wide
 slowdown, this is where to start, and the shape to evaluate is an expression
 index matching `buildDoorKnockingAddressKeySql` exactly.
@@ -241,8 +233,9 @@ as a **SQL literal**, never a bound parameter, in any join/filter comparing
 `v."State"` against the Voter table. A parameterized (or cast-of-a-bind)
 state breaks equivalence-class constant propagation across
 `v."State" = dv."State"` joins, so the planner falls back to a seq-scan of
-the entire state partition + hash join instead of a nested-loop index probe
-(~7.5s vs ~1.3s on a large district). This is safe because state is checked
+the entire state partition + hash join instead of a nested-loop index probe,
+which is several times slower on a large district. This is safe because state is
+checked
 against the fixed `USState` enum allowlist before being spliced in via
 `Prisma.raw`, never sourced from raw user input. **Do not "clean up" this
 inlining into a parameterized query** — it's a deliberate, measured
@@ -260,10 +253,22 @@ callers, contracts and the `perf/people-db/` benchmark suite are unchanged and
 the store is a config flip rather than a deploy.
 
 It queries `goodparty_data_catalog.dbt` (the dbt-modelled mirror of the same L2
-data) through the Statement Execution API using the `DATABRICKS_*`
-service-principal credential the LLM tools already resolve.
-`PEOPLE_DB_DATABRICKS_WAREHOUSE_ID` points voter scans at their own warehouse so
-they don't queue behind interactive chat.
+data) through the Statement Execution API, using the `PEOPLE_DATABRICKS_*`
+credential — its own service principal (`sp_people_db`) on its own dedicated
+warehouse, so voter scans never queue behind interactive chat. **Never the
+`DATABRICKS_*` (Serve) or `WIN_DATABRICKS_*` (Campaign Manager) credentials**:
+grants are per principal and those are scoped to their own marts.
+
+That principal's grant is least-privilege and covers exactly two tables,
+`m_people_api__voter` and `m_people_api__district`. Naming any other table in a
+query is a permission error in production, which is what
+`databricksVoterSql.util.test.ts`'s grant test pins.
+
+**The flag alone does not route.** `useDatabricksPeopleDb()` also requires the
+credential to resolve, so an environment with the flag on but
+`PEOPLE_DATABRICKS_*` unset keeps serving from Postgres (warning once) instead
+of failing every voter request. That is what lets the flag ship ahead of the
+service principal.
 
 **Not everything routes.** `groupByHousehold` (door-knocking's DISTINCT ON
 de-dup), `findPerson`, `samplePeople`, `VoterDoorKnockingService` and
@@ -278,34 +283,38 @@ keeps the `VOTER_DATA_UNAVAILABLE` throw for a district with no voters.
 ### Wide-column district scoping — never the junction table
 
 Postgres scopes a district by joining `green."DistrictVoter"`. **Do not port
-that join.** The Databricks equivalent (`m_people_api__districtvoter`, 2.6B
-rows) is clustered by `voter_id`, so a district predicate prunes nothing and
-runs 2-18s cold regardless of district size. `buildScopeSql` instead filters the
-voter row's own L2 district column: `m_people_api__district` gives
-`(id, state, type, name)` where **`type` IS the voter column name and `name` is
-its value**, so district `635757db-…` becomes ``WHERE `State` = 'CA' AND
-`US_Congressional_District` = '29'``. Verified equal to junction membership on
-four cohorts (7,828 / 64,689 / 398,619 / 898,598 voters).
+that join.** The membership table's Databricks equivalent is clustered by voter
+id rather than district, so a district predicate prunes nothing in it and its
+cost is insensitive to district size — and it is outside this principal's grant
+anyway. `buildScopeSql` instead filters the voter row's own L2 district column:
+`m_people_api__district` gives `(id, state, type, name)` where **`type` IS the
+voter column name and `name` is its value**, so a district becomes
+``WHERE `State` = 'CA' AND `US_Congressional_District` = '29'``.
 
-The `State` predicate stays on every query: the voter table (218.8M rows, 363
-columns) is liquid-clustered by `State`, and that is what prunes. The
-`useVoterOnlyPath` special case carries over unchanged — a `State` district
-whose name is the state has no junction rows at all, so it scopes on `State`
-alone.
+Two things were verified before relying on this, both re-runnable: wide-column
+scoping selects the same population as membership-table scoping, checked on the
+benchmark cohorts across three orders of magnitude of district size; and every
+`type` value in the district catalog is a real column on the voter table, so
+every district is addressable this way with none falling back.
+
+The `State` predicate stays on every query: the voter table is liquid-clustered
+by `State`, and that is what prunes. The `useVoterOnlyPath` special case carries
+over unchanged — a `State` district whose name is the state has no membership
+rows at all, so it scopes on `State` alone.
 
 ### `DistrictStats` is computed, not read
 
-The precomputed `m_people_api__districtstats` table runs 8-22 days stale, so
+The mirrored stats table lags the voter data by days at a time, so
 `databricksDistrictStatsSql.util.ts` recomputes the whole row on demand — one
-scan, a `count_if` per bucket label, measured at ~20-60ms over a single-row
-lookup and flat from 7.8k to 23.3M voters.
+scan, a `count_if` per bucket label. That costs little over a single-row lookup
+and stays roughly flat across district sizes, which is what makes reading a
+stale table not worth it. It is also outside this principal's grant.
 
-Verified exact against the precomputed table on the four benchmark cohorts
-(7,828 / 398,619 / 898,598 / 23,348,065 voters): same totals, same cell-phone
-count, same labels, counts, percents and ordering. Note the dbt mirror of that
-table lowercases its JSON keys (`estimatedincomerange`), while the shape gp-api
-and the webapp consume is camelCase (`estimatedIncomeRange`) — one more reason
-not to read it.
+Verified exact against the mirrored stats table on all four benchmark cohorts:
+same totals, same cell-phone count, same labels, counts, percents and ordering.
+Note that mirror lowercases its JSON keys (`estimatedincomerange`), while the
+shape gp-api and the webapp consume is camelCase (`estimatedIncomeRange`) — one
+more reason not to read it.
 
 Two things there are load-bearing:
 
@@ -335,23 +344,51 @@ so a search resolves to the same match set in both stores.
 
 `databricksVoterDownload.service.ts` uses `disposition: EXTERNAL_LINKS` with
 `format: CSV`, never the `@databricks/sql` driver's `fetchChunk` (which
-materializes every row through Thrift, 50-100x slower). Four things measured
+materializes every row through Thrift and is far slower). Four things verified
 against the real 76-column projection:
 
 - `SUCCEEDED` means the chunk **plan** is ready, not that bytes are written —
-  chunks materialize lazily on fetch, which is what lets the download start
-  streaming in ~4s (mega: 898,598 rows / 26 chunks / 0.46 GB) instead of after
-  the whole export.
+  chunks materialize lazily on fetch, which is what lets a large download start
+  streaming within seconds instead of after the whole export.
 - The first response carries **only chunk 0's link**; the rest arrive one at a
-  time via `next_chunk_internal_link`. Presigned links expire in ~15 minutes,
-  so a long export re-requests them mid-stream rather than resolving the chain
-  up front.
+  time via `next_chunk_internal_link`. Presigned links carry a short TTL
+  (~15 minutes at the time of writing), so a long export re-requests them
+  mid-stream rather than resolving the chain up front.
 - **Chunk 0 carries the CSV header row and later chunks do not**, so aliasing
   each column to its `DOWNLOAD_COLUMNS` header gives the curated header for
   free.
 - **Every column is `nvl(CAST(col AS STRING), '')`.** The API renders a SQL
   NULL as the literal text `null` in CSV where Postgres `COPY` writes an empty
   field — without the coalesce the download is full of the word "null".
+
+### Id sets are inlined, and 16 MiB is a hard ceiling
+
+The Statement Execution API has no array parameter type, so an id set is
+inlined as literals where the Postgres path binds one array parameter. Measured
+against the API: one set at the contract's 100k maximum is accepted inline, but
+the statement field is capped at **16,777,216 bytes** (an API limit, not a
+measurement), and a request carrying `filters.id` plus both id-override pairs at
+that maximum exceeds it. `PeopleDbxStatementClient` therefore checks the byte
+length before sending and throws `PeopleDbxStatementTooLargeError`, which the
+callers translate to a 400 — it is caused by the size of the caller's selection,
+not by a broken service. This is a real capability regression against the
+Postgres path, which has no such ceiling.
+
+Ids are also **lowercased** on the way in. Postgres compares them as `uuid`
+(case-normalizing); here the column is `STRING` and the comparison is
+byte-exact, so an uppercase id would match nothing — and an exclude set that
+matches nothing silently *widens* an audience.
+
+### Blank versus NULL: verified, not assumed
+
+Several filters define their buckets purely as `IS NULL` / `IS NOT NULL`
+(`businessOwner` most sharply: `Yes` is `IS NOT NULL`). If the dbt mirror stored
+L2's blanks as `''` where the Postgres loader wrote NULL, those buckets would be
+wrong with no error. Checked directly across a whole statewide cohort:
+`Business_Owner`, `Language_Code`, `Marital_Status`, `Veteran_Status`,
+`EthnicGroups_EthnicGroup1Desc`, `Gender`, `Voter_Status`, both phone columns and
+`Residence_Addresses_AddressLine` contain **zero** empty strings. The `IS NULL`
+semantics carry over unchanged.
 
 ### Timeout ceiling is 60s here, not 25s
 

@@ -23,7 +23,7 @@ fixes track under ENG-10744.
 ## The mental model — read this before touching anything
 
 - **There is no Contact table.** A "contact" is a people-db `Voter` row
-  (200M+ L2 records, partitioned Postgres, read-mostly), served live
+  (hundreds of millions of L2 records, partitioned Postgres, read-mostly), served live
   through `PeopleQueryModule` (`src/peopleDb/`, direct in-process access —
   the sole path; the legacy people-api HTTP client and its S2S JWT machinery
   are gone). `personId` everywhere is that Voter row's `id` — a stable hash

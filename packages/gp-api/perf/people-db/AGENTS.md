@@ -22,7 +22,7 @@ in their numbers.
 export PEOPLE_DATABASE_URL='<connection-string>'
 npm run perf:people-db -- --mode=latency --env=prod --store=postgres
 
-# Databricks. Needs the DATABRICKS_* credentials the peopleDb Databricks
+# Databricks. Needs the PEOPLE_DATABRICKS_* credentials the peopleDb Databricks
 # client reads (see src/peopleDb/AGENTS.md); no VPN.
 npm run perf:people-db -- --mode=latency --env=prod --store=databricks
 
@@ -47,19 +47,20 @@ off-peak. It exits non-zero if any scenario's error rate at the target
 concurrency (50, the `connection_limit`) is above its budget.
 
 Budgets are **per scenario**. The `large` scenarios carry `maxErrorRate: 1`
-(observation-only): that band already cold-runs past the 25s statement timeout
-single-shot, and at c=50 all 50 requests are cold at once, so a 0 budget there
-would make `FAIL` the permanent baseline instead of a regression signal. They
-still record numbers in the artifact — they just can't red the gate. Tighten
-them once a load pass gives a measured error rate to calibrate against. At
-least one scenario must keep a 0 budget or the gate is decorative.
+(observation-only): when that band's cold run is over the statement timeout
+single-shot, every request at c=50 is cold at once, so a 0 budget would make
+`FAIL` the permanent baseline instead of a regression signal. They still record
+numbers in the artifact — they just can't red the gate. Tighten them once a load
+pass gives a measured error rate to calibrate against. At least one scenario
+must keep a 0 budget or the gate is decorative.
 
 ## Cohort bands are NOT ordered by cost
 
-Bands are `small` (~8k) / `medium` (~65k) / `large` (~400k) / `mega` (~900k) /
-`statewide` (~23M), each pinned to one real district in `cohorts.ts`. The names
-describe **district membership**, which turns out to be a poor predictor of
-query time. Two things dominate it instead:
+Bands are `small` / `medium` / `large` / `mega` / `statewide`, each pinned to one
+real district in `cohorts.ts` (which carries the membership each band was picked
+for, and `checkDrift` warns when a district leaves its band). The names describe
+**district membership**, which turns out to be a poor predictor of query time.
+Two things dominate it instead:
 
 **1. Whether the query joins at all.** `resolveDistrict.util.ts` sets
 `useVoterOnlyPath` when a district's type is `State` and its name matches the
@@ -72,24 +73,22 @@ no-join control.
 probe into `Voter_<STATE>` per district member. Cost is dominated by how
 resident that partition is, not how many members the district has.
 
-Measured 2026-08-16 (prod, unfiltered base aggregate, warm):
+`large` (a CA congressional district) and `mega` (a FL county) are the pair that
+makes this visible: `mega` has substantially more members but sits in a smaller,
+more resident state partition, and it can run faster than `large` by an order of
+magnitude. `mega` was added 2026-08-16 as the suite's **first non-CA cohort**
+for exactly that reason — every other band is a California district, so before
+it the suite could not tell a district-size regression from a state-partition
+one. It is also the cohort behind most of one week's
+`GET /v1/contacts/list-detail` 504s while benchmarking fine single-shot, which
+points at contention or cold cache rather than a slow plan. That is what
+`load:count:mega` is for.
 
-| band  | district          | members | partition             | time                         |
-| ----- | ----------------- | ------- | --------------------- | ---------------------------- |
-| large | US Cong 29, CA    | 398,619 | CA — 429M rows / 63GB | **18.7s** (25s timeout cold) |
-| mega  | Orange County, FL | 898,598 | FL — 116M rows / 17GB | **1.7s**                     |
-
-`mega` has 2.3x the membership and runs 11x faster. It was added 2026-08-16 as
-the suite's **first non-CA cohort** for exactly this reason: every other band is
-a California district, so before it the suite could not tell a district-size
-regression from a state-partition one. It is also the org behind 175 of the 274
-`GET /v1/contacts/list-detail` 504s in the week to 2026-08-16 — which, given it
-benchmarks at 1.7s single-shot, points at contention or cold cache rather than a
-slow plan. That is what `load:count:mega` is for.
-
-**`large` is currently the slowest cell in the suite** and its cold run exceeds
-the 25s statement timeout, so `count:large:*` may legitimately report failures.
-Re-measure before assuming a regression is new.
+Which cell is slowest, and whether a band's cold run exceeds the statement
+timeout, both move with the cluster — so `count:large:*` reporting failures may
+be the standing baseline rather than a regression. **Run the suite and read the
+current artifact before concluding anything about relative cost**; that is what
+it is for, and it is the only non-stale source for these numbers.
 
 ## Add a benchmark when you add a query
 
@@ -121,8 +120,8 @@ behind a single tile.
 `ContactsService.fetchListDetailAggregates`: resolve the load-bearing base tile
 first, then fan out to the three channel tiles (`hasCellPhone` / `hasLandline` /
 `hasAddress`) in parallel. **Four aggregates, not one** — benchmarking `count`
-alone understates a real request by ~4x, and the serial-then-parallel shape is
-what decides how long a connection is held.
+alone understates a real request by roughly the tile count, and the
+serial-then-parallel shape is what decides how long a connection is held.
 
 It runs in latency mode at **every** band, in both the shapes the sheet actually
 opens in: unfiltered (the universe row) and filtered (a saved list — every 504
@@ -131,11 +130,11 @@ miss the failing shape).
 
 In load mode, concurrency for `load:list-detail:*` counts **saved lists, not
 queries**: `ListsIndex` fires one request per saved list on mount, so `c=10` is
-a ten-list page load and already ~40 aggregates in flight. On 2026-08-13 one org
-with ~20 lists produced 201 timeouts in 19 minutes — 22 inside a single second —
-while the same query single-shot measures ~1.7s. If `load:list-detail:mega`
-passes at `c=50` and prod still 504s, the gap is somewhere other than this
-query.
+a ten-list page load and already four times that many aggregates in flight. On
+2026-08-13 one org with ~20 lists produced a burst of timeouts within minutes,
+several inside a single second, while the same query was fine single-shot. If
+`load:list-detail:mega` passes at `c=50` and prod still 504s, the gap is
+somewhere other than this query.
 
 ## Read the cold number first
 
@@ -143,7 +142,7 @@ Cells print as `cold|median/max`. The median/max are warm runs; `cold` is the
 first hit. Cold is not noise to be discarded here — it is the production failure
 shape. The loader cuts prod to a **brand-new cluster** with an empty buffer
 pool, so in production every district is cold at once. A cell reading
-`ERR|18678/19201!1` means the cold run blew the 25s statement timeout and the
+`ERR|<median>/<max>!1` means the cold run blew the statement timeout while the
 warm runs passed; that is the real incident, not a flake.
 
 ## Prior-outreach id clauses
@@ -161,7 +160,7 @@ selection into SQL (`ContactsMadeResolutionService`, see
 They need real ids, so `harness.sampleIds` materializes one set per cohort.
 `runLatency`/`runLoad` call **`harness.prepare(cases)` before the timed loop** —
 sampling is setup, and folding it into the first outreach cell of each band
-inflated that one cell by ~50s. Whole-suite prepare measures ~14s.
+inflated that one cell badly enough to make it unreadable.
 
 Sets are memoized per district and seeded (`ID_SAMPLE_SEED`) so the same ids
 come back on every run: a delta between two passes has to be a real regression,
@@ -174,13 +173,13 @@ prod:
 
 - **The district path does NOT join `Voter`.** `dv."voter_id"` already is the
   id, and joining costs one random probe into a cold multi-GB state partition
-  per sampled row: 44-60s per cohort with the join, ~0.5-1.2s without it.
+  per sampled row — measurably slower per cohort, by enough to dominate setup.
 - **A State district has zero `DistrictVoter` rows** (verified: count is 0), so
   statewide *must* sample from `Voter` — the voter-only branch is required, not
   an optimization. It uses `stateEquals` rather than a hand-written cast: the
   enum lives in `public`, not `green`, and the state has to be inlined as a
   literal because a bound-and-cast parameter breaks the planner's constant
-  propagation. An md5-prefix bucket keeps that sort off all 23M rows.
+  propagation. An md5-prefix bucket keeps that sort off the whole partition.
 
 All three share one `ID_SET_SIZE` (5k) set, so the only thing differing between
 them is the SQL shape. The hard production cap is `MAX_RESOLVED_ID_SET_SIZE`
