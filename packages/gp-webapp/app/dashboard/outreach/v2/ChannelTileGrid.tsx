@@ -176,7 +176,7 @@ export const ChannelTileGrid = ({
               locked={Boolean(
                 option?.requiresPro &&
                 (type === OUTREACH_TYPES.phoneBanking
-                  ? !canUseProFeatures
+                  ? !canUseProFeatures && !electedOfficePending
                   : !isPro),
               )}
               onClick={() => handleTileClick(type, option?.requiresPro)}

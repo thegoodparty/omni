@@ -204,6 +204,16 @@ describe('ChannelTileGrid — phone-banking tile swap flag + Pro redirect', () =
     ).not.toHaveAttribute('data-locked')
   })
 
+  it('flag on + non-Pro + pending elected-office state: tile is not visually locked', () => {
+    mockCampaign = { id: 9, isPro: false }
+    mockElectedOffice = { data: undefined, isPending: true }
+    renderGrid()
+
+    expect(
+      screen.getByText('Phone banking').closest('button'),
+    ).not.toHaveAttribute('data-locked')
+  })
+
   it('flag on + non-Pro, no elected office: tile is visually locked', () => {
     mockCampaign = { id: 9, isPro: false }
     mockElectedOffice = { data: null, isPending: false }
@@ -237,6 +247,9 @@ describe('ChannelTileGrid — phone-banking tile swap flag + Pro redirect', () =
     expect(onCreatePhoneBanking).not.toHaveBeenCalled()
     expect(mockRouterPush).not.toHaveBeenCalled()
     expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
+    expect(
+      await screen.findByText('Get Pro voter data and tools'),
+    ).toBeInTheDocument()
   })
 
   it('flag unsettled: legacy TaskFlow behavior, unchanged', async () => {
