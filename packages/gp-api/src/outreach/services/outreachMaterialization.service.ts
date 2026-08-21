@@ -12,9 +12,11 @@ import { PeerlyPhoneListCaptureService } from '@/vendors/peerly/services/peerlyP
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 
 // Channels that materialize the resolved filter into per-recipient rows at
-// launch. phoneBanking/socialMedia have no ContactInteraction<channel> model
-// yet (task 15 of the epic); doorKnocking is permanently excluded — its rows
-// are written by the tool that performs the knock, not by outreach launch.
+// launch. phoneBanking has a ContactInteraction model (ENG-10910) but a
+// separate write path writes its rows directly, not through launch
+// materialization; socialMedia has no model yet. doorKnocking is
+// permanently excluded — its rows are written by the tool that performs the
+// knock, not by outreach launch.
 const MATERIALIZABLE_OUTREACH_TYPES = new Set<OutreachType>([
   OutreachType.text,
   OutreachType.p2p,
@@ -59,9 +61,9 @@ export class OutreachMaterializationService {
     outreach: Outreach,
   ): Promise<void> {
     // Stamped before the channel guard and the row writes: the lock records
-    // "this filter drove an outreach", so channels without a
-    // ContactInteraction model (phoneBanking, socialMedia) still lock.
-    // First-write-wins, no rollback — a stamped filter with a
+    // "this filter drove an outreach", so a channel not materialized here
+    // (phoneBanking, socialMedia) still locks. First-write-wins, no
+    // rollback — a stamped filter with a
     // partial/failed materialization is still correct. An outreach can
     // carry a phone list without a saved filter (voterFileFilterId is
     // optional on the p2p request), so the captured path below must not
