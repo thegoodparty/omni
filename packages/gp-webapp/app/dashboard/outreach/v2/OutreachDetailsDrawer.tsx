@@ -134,10 +134,15 @@ export const OutreachDetailsDrawer = ({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const { errorSnackbar } = useSnackbar()
   const deleteMutation = useMutation({
-    mutationFn: () =>
-      clientRequest('DELETE /v1/phone-banking/lists/:id', {
-        id: String(phoneBanking?.listId),
-      }),
+    mutationFn: () => {
+      // The AlertDialog renders outside the row guard, so the confirm can
+      // outlive the detail data — never let that send /lists/undefined.
+      const listId = phoneBanking?.listId
+      if (!listId) return Promise.reject(new Error('listId unavailable'))
+      return clientRequest('DELETE /v1/phone-banking/lists/:id', {
+        id: String(listId),
+      })
+    },
     onSuccess: () => {
       setOutreaches(outreaches.filter((o) => o.id !== row?.id))
       setDeleteConfirmOpen(false)
