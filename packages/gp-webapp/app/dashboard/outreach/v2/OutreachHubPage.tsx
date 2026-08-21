@@ -74,6 +74,11 @@ const OutreachHubContent = ({
         name,
         outreachType: 'phoneBanking',
         status: 'in_progress',
+        // OutreachHistoryTable sorts newest-first off date ?? createdAt
+        // (rowTime falls back to 0 with neither); the create response
+        // carries no timestamp, so without this the row sorts to the
+        // bottom despite being prepended.
+        createdAt: new Date().toISOString(),
       },
       ...(outreaches ?? []),
     ])
