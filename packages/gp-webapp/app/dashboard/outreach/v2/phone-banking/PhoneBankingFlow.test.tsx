@@ -154,9 +154,10 @@ describe('PhoneBankingFlow', () => {
       sheetCount: 1,
       filterName: 'My audience',
     })
-    expect(
-      screen.getByRole('link', { name: 'Download call sheets (PDF)' }),
-    ).toHaveAttribute(
+    const downloadLink = screen.getByRole('link', {
+      name: 'Download call sheet (PDF)',
+    })
+    expect(downloadLink).toHaveAttribute(
       'href',
       `/dashboard/outreach/phone-banking/print/${createResponse.id}/pdf`,
     )
@@ -166,6 +167,52 @@ describe('PhoneBankingFlow', () => {
         product: 'phoneBanking',
         filtersApplied: false,
         listSize: createResponse.personCount,
+      },
+    )
+
+    // ENG-10918: the download-step link fires Call Sheet Downloaded on click
+    // (bare URL — the single-sheet case, no `?sheet=` param).
+    await user.click(downloadLink)
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Outreach.PhoneBanking.SheetDownloaded,
+      { listId: createResponse.id, contactCount: createResponse.personCount },
+    )
+  })
+
+  it('offers a ZIP link plus one per-sheet link, each firing Call Sheet Downloaded, for a multi-sheet list', async () => {
+    mockDraft()
+    const multiSheetResponse = { ...createResponse, sheetCount: 3 }
+    api.mock('POST /v1/phone-banking/lists', {
+      status: 200,
+      data: multiSheetResponse,
+    })
+    openFlow()
+    await advanceToScript()
+    await waitFor(() =>
+      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText('How many sheets do you need?')
+    await user.click(screen.getByRole('button', { name: '3' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText('Ready to build your call list')
+    await user.click(screen.getByRole('button', { name: 'Create' }))
+    await screen.findByText('Your call list is ready!')
+
+    const basePath = `/dashboard/outreach/phone-banking/print/${multiSheetResponse.id}/pdf`
+    const zipLink = screen.getByRole('link', {
+      name: 'Download all sheets (ZIP)',
+    })
+    expect(zipLink).toHaveAttribute('href', basePath)
+    const sheet2Link = screen.getByRole('link', { name: 'Sheet 2 (PDF)' })
+    expect(sheet2Link).toHaveAttribute('href', `${basePath}?sheet=2`)
+
+    await user.click(sheet2Link)
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Outreach.PhoneBanking.SheetDownloaded,
+      {
+        listId: multiSheetResponse.id,
+        contactCount: multiSheetResponse.personCount,
       },
     )
   })

@@ -628,6 +628,10 @@ export const EVENTS = {
       Complete: 'Outreach - Phone Banking: Complete',
       // v2 create flow (phase 1 TDD): fires once the create call succeeds.
       ListCreated: 'Voter Outreach - Phone Banking Call List Created',
+      // Fires from every entry point that links to the print/[listId]/pdf
+      // route (the flow's download step, and later the call-session header
+      // button) — ENG-10918.
+      SheetDownloaded: 'Voter Outreach - Phone Banking Call Sheet Downloaded',
     },
     ActionClicked: 'Outreach - Action Clicked',
   },

@@ -47,44 +47,79 @@ interface PhoneBankingFlowProps {
   onClose: () => void
 }
 
+// ENG-10918's route contract: a bare URL returns one PDF for a single-sheet
+// list, or a ZIP of every sheet for a multi-sheet one; `?sheet=N` always
+// returns just that sheet's PDF. So a multi-sheet list offers the ZIP link
+// plus one link per sheet; a single-sheet list offers only the bare link.
+const downloadLinksFor = (
+  response: PhoneBankingCreateResponse,
+): { href: string; label: string }[] => {
+  const basePath = `/dashboard/outreach/phone-banking/print/${response.id}/pdf`
+  if (response.sheetCount === 1) {
+    return [{ href: basePath, label: 'Download call sheet (PDF)' }]
+  }
+  return [
+    { href: basePath, label: 'Download all sheets (ZIP)' },
+    ...Array.from({ length: response.sheetCount }, (_, i) => ({
+      href: `${basePath}?sheet=${i + 1}`,
+      label: `Sheet ${i + 1} (PDF)`,
+    })),
+  ]
+}
+
 const SuccessScreen = ({
   response,
   onDone,
 }: {
   response: PhoneBankingCreateResponse
   onDone: () => void
-}) => (
-  <div className="space-y-6 py-8 text-center">
-    <div className="flex justify-center">
-      <span className="flex size-16 items-center justify-center rounded-full bg-primary-light">
-        <CheckCircleIcon className="size-8 text-primary" />
-      </span>
+}) => {
+  const handleDownloadClick = () => {
+    trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded, {
+      listId: response.id,
+      contactCount: response.personCount,
+    })
+  }
+
+  return (
+    <div className="space-y-6 py-8 text-center">
+      <div className="flex justify-center">
+        <span className="flex size-16 items-center justify-center rounded-full bg-primary-light">
+          <CheckCircleIcon className="size-8 text-primary" />
+        </span>
+      </div>
+      <div className="space-y-2">
+        <h2 className="text-2xl font-semibold text-foreground">
+          Your call list is ready!
+        </h2>
+        <p className="text-muted-foreground">
+          {response.personCount.toLocaleString()} people across{' '}
+          {response.sheetCount} sheet{response.sheetCount === 1 ? '' : 's'}.
+        </p>
+      </div>
+      <div className="space-y-2">
+        {downloadLinksFor(response).map(({ href, label }) => (
+          <Button
+            key={href}
+            asChild
+            variant="secondary"
+            className="w-full"
+            onClick={handleDownloadClick}
+          >
+            {/* The PDF/ZIP is built by a route handler (ENG-10918) — a plain
+                anchor, same precedent as door-knocking's print link. */}
+            <a href={href} target="_blank" rel="noreferrer">
+              {label}
+            </a>
+          </Button>
+        ))}
+      </div>
+      <Button size="large" className="w-full" onClick={onDone}>
+        Done
+      </Button>
     </div>
-    <div className="space-y-2">
-      <h2 className="text-2xl font-semibold text-foreground">
-        Your call list is ready!
-      </h2>
-      <p className="text-muted-foreground">
-        {response.personCount.toLocaleString()} people across{' '}
-        {response.sheetCount} sheet{response.sheetCount === 1 ? '' : 's'}.
-      </p>
-    </div>
-    <Button asChild variant="secondary" className="w-full">
-      {/* The PDF is built by a route handler (task 09) — a plain anchor,
-          same precedent as door-knocking's print link. */}
-      <a
-        href={`/dashboard/outreach/phone-banking/print/${response.id}/pdf`}
-        target="_blank"
-        rel="noreferrer"
-      >
-        Download call sheets (PDF)
-      </a>
-    </Button>
-    <Button size="large" className="w-full" onClick={onDone}>
-      Done
-    </Button>
-  </div>
-)
+  )
+}
 
 // Flow state is flat client state owned here (phase 1 TDD, same convention
 // as SocialFlow): no server drafts — nothing persists until the final
