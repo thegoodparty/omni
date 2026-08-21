@@ -203,7 +203,12 @@ import { dirname, join, relative } from 'node:path'
 // RobocallFlow (flow state) and RobocallPurposeStep (onClick selection) are
 // interactive drawer surfaces mirroring the social flow, so both are client
 // components.
-const BASELINE = 584
+// 2026-08-20: 584 -> 590 for the phone-banking create flow (ENG-10919):
+// PhoneBankingFlow (flow state) and its five step components (PurposeStep,
+// WhoStep, ScriptStep, SheetCountStep, DownloadStep) are all interactive
+// drawer-step surfaces mirroring SocialFlow's shape, so all six are client
+// components.
+const BASELINE = 590
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

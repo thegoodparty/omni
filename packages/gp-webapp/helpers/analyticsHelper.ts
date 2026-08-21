@@ -626,6 +626,8 @@ export const EVENTS = {
     },
     PhoneBanking: {
       Complete: 'Outreach - Phone Banking: Complete',
+      // v2 create flow (phase 1 TDD): fires once the create call succeeds.
+      ListCreated: 'Voter Outreach - Phone Banking Call List Created',
     },
     ActionClicked: 'Outreach - Action Clicked',
   },

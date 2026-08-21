@@ -19,6 +19,7 @@ import { OutreachHistoryTable } from './OutreachHistoryTable'
 import { OutreachDetailsDrawer } from './OutreachDetailsDrawer'
 import { SocialFlow } from './social/SocialFlow'
 import { RobocallFlow } from './robocall/RobocallFlow'
+import { PhoneBankingFlow } from './phone-banking/PhoneBankingFlow'
 import { useSeedOutreachDetail } from './useOutreachDetail'
 import type { HistoryRow } from './historyStatus.util'
 
@@ -46,6 +47,7 @@ const OutreachHubContent = ({
   const [detailsRow, setDetailsRow] = useState<HistoryRow | null>(null)
   const [socialFlowOpen, setSocialFlowOpen] = useState(false)
   const [robocallFlowOpen, setRobocallFlowOpen] = useState(false)
+  const [phoneBankingFlowOpen, setPhoneBankingFlowOpen] = useState(false)
   const seedOutreachDetail = useSeedOutreachDetail()
 
   // The save response is the created row: seed the detail cache (so the
@@ -85,6 +87,7 @@ const OutreachHubContent = ({
         preselectedListId={preselectedListId}
         onCreateSocial={() => setSocialFlowOpen(true)}
         onCreateRobocall={() => setRobocallFlowOpen(true)}
+        onCreatePhoneBanking={() => setPhoneBankingFlowOpen(true)}
       />
       <SocialFlow
         open={socialFlowOpen}
@@ -94,6 +97,10 @@ const OutreachHubContent = ({
       <RobocallFlow
         open={robocallFlowOpen}
         onClose={() => setRobocallFlowOpen(false)}
+      />
+      <PhoneBankingFlow
+        open={phoneBankingFlowOpen}
+        onClose={() => setPhoneBankingFlowOpen(false)}
       />
       <Suspense>
         <OutreachComposeDeepLink tcrCompliance={tcrCompliance} />
