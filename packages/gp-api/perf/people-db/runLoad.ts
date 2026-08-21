@@ -4,6 +4,7 @@ import type { Harness } from './harness'
 import { LOAD_SCENARIOS, scenarioCase } from './loadScenarios'
 import { summarize, errorRate } from './stats'
 import { artifactPath, buildArtifact } from './report'
+import { writeArtifactHtml } from './writeArtifactHtml'
 import { COHORTS } from './cohorts'
 
 type LevelResult = {
@@ -24,6 +25,10 @@ export const runLoad = async (
 ): Promise<{ ok: boolean }> => {
   const scenarios: ScenarioResult[] = []
   let ok = true
+
+  // No load scenario uses an id-set variant today, but prepare() is a no-op
+  // when none do, and it keeps sampling out of the timings if one is added.
+  await harness.prepare(LOAD_SCENARIOS.map(scenarioCase))
 
   const bands = new Set(LOAD_SCENARIOS.map((s) => s.band))
   for (const band of bands) {
@@ -119,5 +124,6 @@ export const runLoad = async (
     ),
   )
   console.log(`\nartifact: ${path}\noverall: ${ok ? 'PASS' : 'FAIL'}`)
+  console.log(`artifact (html): ${writeArtifactHtml(path)}`)
   return { ok }
 }

@@ -1,5 +1,6 @@
 import {
   ContactInteractionDoorKnock,
+  ContactInteractionPhoneBanking,
   ContactInteractionRobocall,
   ContactInteractionText,
   SupportAnswer,
@@ -62,6 +63,7 @@ export type ContactInteraction = SatisfiesRecord<
   | ContactInteractionDoorKnock
   | ContactInteractionText
   | ContactInteractionRobocall
+  | ContactInteractionPhoneBanking
 >
 
 export const SUPPORT_STATUS_UNKNOWN: SupportStatusRollup = 'unknown'

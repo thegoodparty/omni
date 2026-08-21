@@ -145,6 +145,8 @@ export {
   type TextConstituentActivity,
   RobocallConstituentActivitySchema,
   type RobocallConstituentActivity,
+  PhoneBankingConstituentActivitySchema,
+  type PhoneBankingConstituentActivity,
   StatusChangeConstituentActivitySchema,
   type StatusChangeConstituentActivity,
   ConstituentActivitySchema,

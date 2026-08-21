@@ -23,6 +23,7 @@
     "migrate:dev": "npx prisma migrate dev",
     "migrate:reset": "tsx scripts/migrate-clean.ts --preserve-fixed --skip-db && npx prisma migrate reset --force",
     "perf:people-db": "node -r @swc-node/register perf/people-db/bench.ts",
+    "perf:people-db:html": "node -r @swc-node/register perf/people-db/renderArtifact.ts",
     "seed": "npx prisma db seed",
     "seed:all": "npx prisma db seed -- --type all",
     "seed:csv": "npx prisma db seed -- --type csv",
