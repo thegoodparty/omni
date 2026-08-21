@@ -626,6 +626,12 @@ export const EVENTS = {
     },
     PhoneBanking: {
       Complete: 'Outreach - Phone Banking: Complete',
+      // ENG-10921: the in-app caller page. Distinct from the legacy
+      // Dashboard.VoterContact.PhoneBanking group above, which belongs to
+      // the pre-native script/download surface.
+      ContactViewed: 'Outreach - Phone Banking: Contact Viewed',
+      CallLogged: 'Outreach - Phone Banking: Call Logged',
+      SheetDownloaded: 'Outreach - Phone Banking: Call Sheet Downloaded',
     },
     ActionClicked: 'Outreach - Action Clicked',
   },
