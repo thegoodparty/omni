@@ -137,8 +137,11 @@ export class OutreachSocialController {
 
   // Org-scoped, like the phone-banking list's own DELETE — an outreach row
   // is never re-scoped to a specific campaign, only to the organization that
-  // owns it.
+  // owns it. continueIfNotFound overrides the class-level @UseCampaign(),
+  // which would otherwise 404 a campaign-less (Serve) org before the
+  // organization guard runs.
   @Patch(':id/archive')
+  @UseCampaign({ continueIfNotFound: true })
   @UseOrganization()
   @ResponseSchema(OutreachArchiveResponseSchema)
   archive(
