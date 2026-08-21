@@ -60,9 +60,9 @@ export class OutreachMaterializationService {
     outreach: Outreach,
   ): Promise<void> {
     // Stamped before the channel guard and the row writes: the lock records
-    // "this filter drove an outreach", so channels without a
-    // ContactInteraction model (phoneBanking, socialMedia) still lock.
-    // First-write-wins, no rollback — a stamped filter with a
+    // "this filter drove an outreach", so a channel not materialized here
+    // (phoneBanking, socialMedia) still locks. First-write-wins, no
+    // rollback — a stamped filter with a
     // partial/failed materialization is still correct. An outreach can
     // carry a phone list without a saved filter (voterFileFilterId is
     // optional on the p2p request), so the captured path below must not
