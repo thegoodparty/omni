@@ -65,6 +65,9 @@ model Outreach {
   // no backfill.
   organizationSlug                  String?                            @map("organization_slug")
   organization                      Organization?                      @relation(fields: [organizationSlug], references: [slug], onDelete: SetNull)
+  // Set when the owning organization archives the row from the history
+  // drawer; cleared on restore. Never set at creation.
+  archivedAt                        DateTime?                          @map("archived_at")
   social                            OutreachSocial?
   voterActivities                   VoterOutreachActivity[]
   raceOpponentContrasts             RaceOpponentContrast[]

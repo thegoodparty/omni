@@ -29,6 +29,8 @@ import type {
   RaceOpponentResearchStatus,
   RaceOpponentFindingKind,
   SummarySource,
+  OutreachArchiveRequest,
+  OutreachArchiveResponse,
   OutreachDetail,
   SocialDraftRequest,
   SocialDraftResponse,
@@ -263,6 +265,14 @@ export type APIEndpoints = {
   'GET /v1/outreach/:id': {
     Request: {}
     Response: OutreachDetail
+  }
+
+  // Archive/restore for the v2 history drawer footer. Org-scoped (not
+  // campaign-scoped) — 404 when the row doesn't belong to the requester's
+  // organization. Response reads from the persisted row.
+  'PATCH /v1/outreach/:id/archive': {
+    Request: OutreachArchiveRequest
+    Response: OutreachArchiveResponse
   }
 
   // Synchronous, stateless: one structured LLM call writes the compose-step

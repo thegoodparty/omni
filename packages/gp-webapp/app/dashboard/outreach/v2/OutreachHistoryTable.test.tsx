@@ -229,6 +229,7 @@ describe('OutreachHistoryTable — unified history', () => {
         billableTextCount: null,
         campaignPlanDueDate: null,
         organizationSlug: null,
+        archivedAt: null,
         social: {
           purpose: 'introduce_myself',
           draftMessage: 'Hello neighbors',
@@ -344,6 +345,7 @@ describe('OutreachHistoryTable — unified history', () => {
         billableTextCount: null,
         campaignPlanDueDate: null,
         organizationSlug: null,
+        archivedAt: null,
         phoneBanking: {
           listId: 5,
           entriesTotal: 10,
@@ -434,5 +436,50 @@ describe('OutreachHistoryTable — unified history', () => {
       .getAllByText(/^(Old campaign|Freshly created)$/)
       .map((el) => el.textContent)
     expect(names).toEqual(['Freshly created', 'Old campaign'])
+  })
+
+  it('hides archived rows by default and shows only them once toggled', async () => {
+    const rows: HistoryRow[] = [
+      {
+        id: 30,
+        date: '2026-08-01',
+        outreachType: 'robocall',
+        name: 'Active campaign',
+        status: 'completed',
+      },
+      {
+        id: 31,
+        date: '2026-07-01',
+        outreachType: 'robocall',
+        name: 'Archived campaign',
+        status: 'completed',
+        archivedAt: '2026-08-10T00:00:00Z',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    let table = within(desktopTable())
+    expect(table.getByText('Active campaign')).toBeInTheDocument()
+    expect(table.queryByText('Archived campaign')).not.toBeInTheDocument()
+
+    const toggle = screen.getByRole('button', { name: 'Archive' })
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+
+    await userEvent.click(toggle)
+
+    expect(screen.getByText('Archived outreach')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Completed and cancelled campaigns from earlier cycles.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Back to active' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+
+    table = within(desktopTable())
+    expect(table.getByText('Archived campaign')).toBeInTheDocument()
+    expect(table.queryByText('Active campaign')).not.toBeInTheDocument()
   })
 })

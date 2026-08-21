@@ -113,6 +113,7 @@ const savedDetail = {
   billableTextCount: null,
   campaignPlanDueDate: null,
   organizationSlug: null,
+  archivedAt: null,
   social: {
     purpose: 'introduce_myself',
     draftMessage: 'draft',
