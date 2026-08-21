@@ -11,7 +11,7 @@ import { DoorOpenIcon, MessageSquareMoreIcon, PhoneIcon } from '@styleguide'
 // p2p shares text's model but isn't offered as its own channel here.
 export type ActivityConditionChannel = Extract<
   OutreachType,
-  'text' | 'doorKnocking' | 'robocall'
+  'text' | 'doorKnocking' | 'robocall' | 'phoneBanking'
 >
 
 // The exact shape gp-api's activityConditionSchema validates
@@ -47,6 +47,12 @@ export const ACTIVITY_CONDITION_CHANNELS: {
     anyLabel: 'Any robocall campaign',
     icon: <PhoneIcon size={16} />,
   },
+  {
+    value: 'phoneBanking',
+    label: 'Phone Banking',
+    anyLabel: 'Any phone banking campaign',
+    icon: <PhoneIcon size={16} />,
+  },
 ]
 
 // Per-channel outcome vocabulary. Mirrors gp-api's
@@ -68,6 +74,16 @@ export const ACTIVITY_CONDITION_CHANNEL_ACTIONS: Record<
     'support_no',
   ],
   robocall: ['answered', 'voicemail_left', 'no_answer'],
+  phoneBanking: [
+    'answered',
+    'no_answer',
+    'voicemail',
+    'wrong_number',
+    'refused',
+    'support_yes',
+    'support_unsure',
+    'support_no',
+  ],
 }
 
 export const ACTIVITY_CONDITION_ACTION_LABELS: Record<
@@ -85,14 +101,18 @@ export const ACTIVITY_CONDITION_ACTION_LABELS: Record<
   support_no: 'Support: No',
   voicemail_left: 'Voicemail Left',
   no_answer: 'No Answer',
+  voicemail: 'Voicemail',
+  wrong_number: 'Wrong Number',
+  refused: 'Refused',
 }
 
-// Door-knock interactions have no outreach linkage — gp-api rejects an
-// outreachId on a doorKnocking condition (voterFileFilter.service.ts's
-// validateActivityConditions), so the specific-campaign select never renders
-// for this channel.
+// Door-knock and phone-banking interactions carry no outreach linkage on
+// their interaction tables (phone banking hangs off phoneBankingListId, not
+// Outreach.id) — gp-api rejects an outreachId on either condition
+// (voterFileFilter.service.ts's validateActivityConditions), so the
+// specific-campaign select never renders for these channels.
 export const CHANNELS_WITHOUT_CAMPAIGN_PICKER =
-  new Set<ActivityConditionChannel>(['doorKnocking'])
+  new Set<ActivityConditionChannel>(['doorKnocking', 'phoneBanking'])
 
 // All five SupportStatusRollup values (ENG-10837 — product decision
 // 2026-07-28 to match the profile vocabulary). undecided/refused only ever
