@@ -78,9 +78,10 @@ export type RecordPhoneBankingCall = z.infer<
 >
 
 // The response reads from the persisted rows, never the request body, so a
-// retry always reports real state. `results` covers every person the
-// request wrote a row for: the selected person, any markHouseholdDone
-// fill-ins, or the full number-level fan-out.
+// retry always reports real state. `results` covers the selected person and
+// the full number-level fan-out; for markHouseholdDone it's every household
+// member's current row, including ones already logged before this call, not
+// just the ones this call inserted.
 export const PhoneBankingCallResultSchema = z.object({
   personId: z.string(),
   interaction: PhoneBankingInteractionSchema,

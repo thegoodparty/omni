@@ -203,6 +203,22 @@ describe('phone banking call outcome routes', () => {
       })
       expect(second.status).toBe(201)
 
+      // The response must reflect the whole household, including B's row
+      // logged by the earlier call — not just what this request inserted.
+      const resultFor = (personId: string) =>
+        second.data.results.find(
+          (result: { personId: string }) => result.personId === personId,
+        )
+      expect(resultFor(personA!.personId)).toMatchObject({
+        interaction: { outcome: 'answered', supportAnswer: 'supporter' },
+      })
+      expect(resultFor(personB!.personId)).toMatchObject({
+        interaction: { outcome: 'answered', supportAnswer: 'non_supporter' },
+      })
+      expect(resultFor(personC!.personId)).toMatchObject({
+        interaction: { outcome: 'answered', supportAnswer: null },
+      })
+
       const rows = await service.prisma.contactInteractionPhoneBanking.findMany(
         { where: { phoneBankingListId: listId } },
       )

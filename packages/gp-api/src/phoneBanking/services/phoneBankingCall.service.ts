@@ -190,10 +190,14 @@ export class PhoneBankingCallService extends createPrismaBase(
 
   // Fills bare `answered` rows for the entry's other household members,
   // skipping anyone who already has a logged row (any outcome) on this
-  // list. `createManyAndReturn` + `skipDuplicates` makes the "don't
-  // overwrite an existing row" check atomic with the write itself — a
-  // separate read-then-write would leave a window for a concurrent direct
-  // answer on the same person to be clobbered by this bare fill.
+  // list. `skipDuplicates` makes the "don't overwrite an existing row"
+  // check atomic with the write itself — a separate read-then-write would
+  // leave a window for a concurrent direct answer on the same person to be
+  // clobbered by this bare fill. The caller (a household member's own
+  // answer may not have made it back to the UI yet) expects every
+  // household member's current row in the response, not just the ones
+  // this call happened to insert, so this reads the household back after
+  // the write instead of returning `createMany`'s insert-only result.
   private async fillHouseholdDone(
     tx: Prisma.TransactionClient,
     organizationSlug: string,
@@ -207,7 +211,7 @@ export class PhoneBankingCallService extends createPrismaBase(
       .filter((personId) => personId !== excludePersonId)
     if (householdPersonIds.length === 0) return []
 
-    return tx.contactInteractionPhoneBanking.createManyAndReturn({
+    await tx.contactInteractionPhoneBanking.createMany({
       data: householdPersonIds.map((personId) => ({
         organizationSlug,
         phoneBankingListId: listId,
@@ -219,6 +223,13 @@ export class PhoneBankingCallService extends createPrismaBase(
         note: null,
       })),
       skipDuplicates: true,
+    })
+
+    return tx.contactInteractionPhoneBanking.findMany({
+      where: {
+        phoneBankingListId: listId,
+        personId: { in: householdPersonIds },
+      },
     })
   }
 
