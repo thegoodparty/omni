@@ -87,6 +87,43 @@ describe('walkListRows', () => {
     expect(JSON.stringify(rows)).not.toMatch(/555-010/)
   })
 
+  // Same rule, larger disclosure. The eleven-attribute demographic profile is
+  // screen-only for the reason the phone numbers are: paper leaves the building
+  // and stops being access-controlled when it does. Asserted against the whole
+  // model rather than the rendered page, because the renderer structurally
+  // cannot print what it was never handed — which is the property worth
+  // pinning, since a future column added to the row model would be reachable by
+  // every renderer at once.
+  //
+  // The fixture carries a value for all eleven, so this fails if the model ever
+  // starts carrying one.
+  it('never carries the demographic profile into the PDF model', () => {
+    const rows = walkListRows([
+      stop({ addresses: [household('105 Elm St', [target()])] }),
+    ])
+
+    const model = JSON.stringify(rows)
+    for (const leak of [
+      /Likely Married/,
+      /Graduate Degree/,
+      /Hispanic/,
+      /Spanish/,
+      /82000/,
+      /\$75k/,
+      /Super/,
+      /marital/i,
+      /veteran/i,
+      /homeowner/i,
+      /ethnicity/i,
+      /education/i,
+      /income/i,
+      /turnout/i,
+      /demographic/i,
+    ]) {
+      expect(model).not.toMatch(leak)
+    }
+  })
+
   // A door already logged in the app must not come back as a blank form —
   // that's how a knock gets repeated, or an answer overwritten on transcription.
   it('prints the recorded answer instead of a blank form', () => {

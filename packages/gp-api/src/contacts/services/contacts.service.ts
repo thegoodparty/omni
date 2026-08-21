@@ -1061,7 +1061,7 @@ export class ContactsService {
 
   // Demographics + reachable-by-channel aggregates shared by a saved list's
   // detail and the universe detail (ENG-10778 made the latter a second
-  // caller): one base count plus three channel-restricted counts. The four
+  // caller): one base count plus four channel-restricted counts. The five
   // calls settle independently (ENG-10806) — a saved list's demographics and
   // most reachability tiles shouldn't all flip to "Unavailable" because one
   // aggregate query failed. Only the base call is load-bearing: there's
@@ -1074,21 +1074,21 @@ export class ContactsService {
   ): Promise<
     Pick<ListDetailContactsResponse, 'demographics' | 'reachability'>
   > {
-    const [base, cellphone, landline, address] =
+    const [base, cellphone, landline, anyPhone, address] =
       await this.withOrgDistrictResolution(
         organization,
         async (districtParams) => {
-          // Resolve the load-bearing base tile FIRST, before firing the three
-          // channel scans. All four aggregates run the same DistrictVoter->Voter
+          // Resolve the load-bearing base tile FIRST, before firing the four
+          // channel scans. All five aggregates run the same DistrictVoter->Voter
           // membership scan (they differ only by an extra has-phone/has-address
           // predicate), and only `base` is load-bearing — a rejected base throws
           // below regardless. Under the people-db statement-timeout incidents a
-          // failing list-detail otherwise launches 4 concurrent scans (x2 with
-          // the fenced retry), 3 of which are pure collateral load the moment
+          // failing list-detail otherwise launches 5 concurrent scans (x2 with
+          // the fenced retry), 4 of which are pure collateral load the moment
           // base fails and can't render anything. Gating the channels on base
           // keeps a failing request to a single scan family instead of amplifying
           // the exact overload that's tripping the timeout. Healthy path is
-          // unchanged: base resolves fast, then the three channels still settle
+          // unchanged: base resolves fast, then the four channels still settle
           // INDEPENDENTLY (ENG-10806) so one slow channel can't blank the others.
           const [baseResult] = await Promise.allSettled([
             this.fetchPeopleAggregates(
@@ -1101,7 +1101,13 @@ export class ContactsService {
           if (baseResult.status === 'rejected') {
             // Reuse the rejected base as the channel placeholders: the route
             // throws on base below before any channel value is read.
-            return [baseResult, baseResult, baseResult, baseResult] as const
+            return [
+              baseResult,
+              baseResult,
+              baseResult,
+              baseResult,
+              baseResult,
+            ] as const
           }
           const channels = await Promise.allSettled([
             this.fetchPeopleAggregates(
@@ -1110,13 +1116,19 @@ export class ContactsService {
               idOverrides,
               contactsMadeIdOverrides,
             ),
-            // phoneBanking mirrors the built-in channel map
-            // (segmentsToFiltersMap.const.ts): it dials landlines, not cell
-            // phones — the legacy raw-SQL export's phoneBanking population is
-            // landline-only.
             this.fetchPeopleAggregates(
               districtParams,
               { ...baseFilters, hasLandline: true },
+              idOverrides,
+              contactsMadeIdOverrides,
+            ),
+            // phoneBanking (ENG-10914): reachable by any phone, cell or
+            // landline — the list builder freezes any phone, cell first, so
+            // this count must agree with the built list rather than the
+            // landline-only legacy raw-SQL export population.
+            this.fetchPeopleAggregates(
+              districtParams,
+              { ...baseFilters, hasAnyPhone: true },
               idOverrides,
               contactsMadeIdOverrides,
             ),
@@ -1138,6 +1150,8 @@ export class ContactsService {
       cellphone.status === 'fulfilled' ? cellphone.value : null
     const landlineValue =
       landline.status === 'fulfilled' ? landline.value : null
+    const anyPhoneValue =
+      anyPhone.status === 'fulfilled' ? anyPhone.value : null
     const addressValue = address.status === 'fulfilled' ? address.value : null
 
     return {
@@ -1151,7 +1165,7 @@ export class ContactsService {
         // Robocall/telemarketing reach landlines, not cell phones (mirrors
         // TYPE_OVERRIDES in voterFilePeopleFilter.util.ts).
         robocall: landlineValue?.count ?? null,
-        phoneBanking: landlineValue?.count ?? null,
+        phoneBanking: anyPhoneValue?.count ?? null,
         doorKnocking: addressValue?.count ?? null,
         // Polls are delivered by text, so reachability mirrors sms 1:1.
         polls: cellphoneValue?.count ?? null,

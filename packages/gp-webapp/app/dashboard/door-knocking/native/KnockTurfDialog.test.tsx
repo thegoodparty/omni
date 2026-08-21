@@ -29,6 +29,9 @@ const turf: DoorKnockingTurf = {
     ],
   },
   locked: false,
+  doorCount: null,
+  peopleCount: null,
+  loggedCount: null,
   createdAt: new Date('2026-07-21T00:00:00Z'),
   updatedAt: new Date('2026-07-21T00:00:00Z'),
 }

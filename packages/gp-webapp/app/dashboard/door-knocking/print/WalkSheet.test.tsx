@@ -28,6 +28,22 @@ const stop = (overrides: Partial<RoutePayloadStop> = {}): RoutePayloadStop => ({
           politicalParty: 'Independent',
           cellPhone: '(312) 555-0101',
           landline: null,
+          // Carried so the omission assertions below can fail. The
+          // eleven-attribute demographic profile rides the route payload for
+          // the app's person sheet and is deliberately absent from this page,
+          // for the reason the cell number above it is: paper leaves the
+          // building and stops being access-controlled when it does.
+          registeredVoter: true,
+          turnoutLikelihood: 'Super',
+          maritalStatus: 'Likely Married',
+          hasChildrenUnder18: 'Yes',
+          veteranStatus: 'Yes',
+          homeowner: 'Likely',
+          businessOwner: 'Yes',
+          levelOfEducation: 'Graduate Degree',
+          estimatedIncomeAmount: 82000,
+          language: 'Spanish',
+          ethnicityGroup: 'Hispanic',
           knockStatus: 'unknown',
           mayHaveMoved: false,
           doNotKnock: false,
@@ -189,6 +205,37 @@ describe('WalkSheet', () => {
     expect(screen.queryByText(/555-0101/)).toBeNull()
     expect(screen.queryByText(/Cell phone/i)).toBeNull()
     expect(screen.queryByText(/Landline/i)).toBeNull()
+  })
+
+  // The same rule as the phone numbers above, applied to a larger disclosure:
+  // the eleven-attribute demographic profile is screen-only, because a printed
+  // profile of a named voter stops being access-controlled the moment it leaves
+  // the building. The fixture carries all eleven, so this asserts the omission.
+  //
+  // Asserted against the page's whole text rather than field by field, since a
+  // leak would most likely arrive as a new block nobody thought to name here.
+  it('never prints the demographic profile', () => {
+    renderSheet([stop()])
+
+    const page = document.body.textContent ?? ''
+    for (const leak of [
+      /Likely Married/,
+      /Graduate Degree/,
+      /Hispanic/,
+      /Spanish/,
+      /82,?000/,
+      /\$75k/,
+      /marital/i,
+      /veteran/i,
+      /homeowner/i,
+      /ethnicity/i,
+      /education/i,
+      /income/i,
+      /turnout/i,
+      /demographic/i,
+    ]) {
+      expect(page).not.toMatch(leak)
+    }
   })
 
   // A door already logged in the app must not come back as a blank form —

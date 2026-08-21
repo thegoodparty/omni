@@ -8,6 +8,7 @@ import {
 } from '@goodparty_org/contracts'
 import {
   CircleUserRoundIcon,
+  ClipboardListIcon,
   HouseIcon,
   IconButton,
   MapPinIcon,
@@ -15,6 +16,7 @@ import {
   XMarkIcon,
 } from '@styleguide'
 import SheetSectionHeader from './SheetSectionHeader'
+import { demographicFacts } from './demographicFacts'
 import RecordKnockForm from './RecordKnockForm'
 import DoorScript from './DoorScript'
 import { useDoorScript } from './useDoorScript'
@@ -215,6 +217,36 @@ export default function PersonSheet({
                   May have moved since this route was built.
                 </p>
               )}
+            </div>
+          </section>
+
+          {/* The prototype's demographic profile, scoped to `target` so
+              switching resident switches the card — these are facts about one
+              person, and the resident switcher above is the only thing that
+              should change them.
+
+              Deliberately plain label-over-value rows: no badges and no
+              per-row icons, because eleven decorated rows read as eleven
+              things to act on when they are reference material a canvasser
+              scans mid-conversation. Two columns because eleven single-column
+              rows push the Household card and the activity feed off a phone
+              screen entirely.
+
+              **Targets only, and screen only.** Other residents behind the
+              same door stay name-only in the Household card below, and both
+              paper surfaces omit all of this — see the AGENTS.md note. */}
+          <section className="mb-4 rounded-lg border border-border">
+            <SheetSectionHeader
+              icon={ClipboardListIcon}
+              title="Demographic information"
+            />
+            <div className="grid grid-cols-2 gap-3 p-4 text-sm">
+              {demographicFacts(target).map(({ label, value }) => (
+                <div key={label}>
+                  <p className="text-xs text-muted-foreground">{label}</p>
+                  <p className="font-medium">{value}</p>
+                </div>
+              ))}
             </div>
           </section>
 

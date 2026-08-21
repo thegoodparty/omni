@@ -107,15 +107,37 @@ export default function TurfList({
               className={`h-3 w-3 shrink-0 rounded-full ${hidden ? 'opacity-30' : ''}`}
               style={{ backgroundColor: turf.color }}
             />
-            <button
-              type="button"
-              className={`min-w-0 flex-1 truncate text-left text-sm font-medium hover:underline ${
-                hidden ? 'text-muted-foreground' : ''
-              }`}
-              onClick={() => onFocusTurf(turf)}
-            >
-              {turf.name}
-            </button>
+            <div className="min-w-0 flex-1">
+              <button
+                type="button"
+                className={`block w-full truncate text-left text-sm font-medium hover:underline ${
+                  hidden ? 'text-muted-foreground' : ''
+                }`}
+                onClick={() => onFocusTurf(turf)}
+              >
+                {turf.name}
+              </button>
+              {/* Both figures come from gp-api, which derives them from the
+                  frozen route the details sheet reads — the rail and the sheet
+                  reporting one list differently is worse than the rail
+                  reporting nothing, which is why this is not computed here.
+                  Null on an unlocked list, which has no route and so nothing
+                  to count; a zero would claim a walked, empty list. */}
+              {turf.doorCount !== null &&
+                turf.peopleCount !== null &&
+                turf.loggedCount !== null && (
+                  // Doors and people are two different populations, so they
+                  // are two figures rather than one ratio — the logged pair is
+                  // people over people, the "People logged" quantity the
+                  // details sheet states. Screen readers get the noun the
+                  // visible line leaves to context.
+                  <p className="truncate text-xs tabular-nums text-muted-foreground">
+                    {turf.doorCount} {turf.doorCount === 1 ? 'door' : 'doors'} ·{' '}
+                    {turf.loggedCount} of {turf.peopleCount}{' '}
+                    <span className="sr-only">people </span>logged
+                  </p>
+                )}
+            </div>
             {/* Named for the list, so a rail of a dozen of these doesn't read
                 as a dozen identical buttons to a screen reader. */}
             <IconButton

@@ -40,6 +40,24 @@ export const target = (
   // a fixture with none would let the omission pass by accident.
   cellPhone: '(312) 555-0101',
   landline: null,
+  // Carried for the same reason, and it matters more here. The eleven-attribute
+  // demographic profile rides the route payload for `PersonSheet` and is
+  // deliberately absent from both paper surfaces — paper leaves the building
+  // and stops being access-controlled when it does, which is the argument that
+  // already keeps phone numbers off these pages and applies with more force to
+  // a profile of a named voter. Every value below is distinctive enough that a
+  // renderer leaking it fails a test rather than passing quietly.
+  registeredVoter: true,
+  turnoutLikelihood: 'Super',
+  maritalStatus: 'Likely Married',
+  hasChildrenUnder18: 'Yes',
+  veteranStatus: 'Yes',
+  homeowner: 'Likely',
+  businessOwner: 'Yes',
+  levelOfEducation: 'Graduate Degree',
+  estimatedIncomeAmount: 82000,
+  language: 'Spanish',
+  ethnicityGroup: 'Hispanic',
   knockStatus: 'unknown',
   mayHaveMoved: false,
   doNotKnock: false,
