@@ -259,6 +259,33 @@ describe('OutreachDetailsDrawer — phone banking', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
+  it('a completed non-phone-banking row gets Move to archive but no Delete', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        outreachType: 'robocall',
+        status: 'completed',
+      },
+    })
+
+    const robocallRow: HistoryRow = {
+      id: 30,
+      createdAt: '2026-08-10T00:00:00Z',
+      outreachType: 'robocall',
+      name: 'Budget hearing reminder',
+      status: 'completed',
+    }
+    render(<OutreachDetailsDrawer row={robocallRow} onOpenChange={vi.fn()} />)
+
+    expect(
+      await screen.findByRole('button', { name: 'Move to archive' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Delete' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('confirms before deleting and calls the delete endpoint', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,

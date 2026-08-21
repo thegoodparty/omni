@@ -498,17 +498,22 @@ export const OutreachDetailsDrawer = ({
               </DrawerFooter>
             )}
 
-            {isPhoneBanking && phoneBanking && isCompleted && (
+            {/* Archive applies to every completed row (the history's
+                Archive toggle filters all types); Delete stays
+                phone-banking-only — it calls the list-delete endpoint. */}
+            {isCompleted && (
               <DrawerFooter className="shrink-0 border-t border-border px-4 py-4 lg:px-6">
                 <div className="mx-auto flex w-full max-w-[608px] gap-3">
-                  <Button
-                    variant="ghost"
-                    className="shrink-0 text-destructive hover:bg-destructive/10"
-                    onClick={() => setDeleteConfirmOpen(true)}
-                  >
-                    <Trash2Icon className="size-4" />
-                    Delete
-                  </Button>
+                  {isPhoneBanking && phoneBanking && (
+                    <Button
+                      variant="ghost"
+                      className="shrink-0 text-destructive hover:bg-destructive/10"
+                      onClick={() => setDeleteConfirmOpen(true)}
+                    >
+                      <Trash2Icon className="size-4" />
+                      Delete
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     className="flex-1"
