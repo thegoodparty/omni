@@ -87,8 +87,12 @@ credentials from the environment. Three consumers exist today:
 - **gp-api's voter engine** — `packages/gp-api/src/peopleDb/databricks/` serves the
   CRM's voter queries (aggregates, list/search, overlap, district stats, CSV export)
   from `goodparty_data_catalog.dbt` instead of the people-db Postgres cluster, behind
-  `USE_DATABRICKS_PEOPLE_DB`. It talks to the Statement Execution API rather than the
-  SQL connector, because a CSV export needs `EXTERNAL_LINKS` chunks. See
+  `USE_DATABRICKS_PEOPLE_DB`. It uses the `PEOPLE_DATABRICKS_` prefix
+  (`sp_people_db`, its own warehouse, a least-privilege grant on
+  `m_people_api__voter` and `m_people_api__district` only), and talks to the
+  Statement Execution API rather than the SQL connector, because a CSV export needs
+  `EXTERNAL_LINKS` chunks. With the flag on but that credential unresolved it falls
+  back to Postgres rather than failing. See
   `packages/gp-api/src/peopleDb/AGENTS.md`.
 - **runbooks** — `packages/runbooks/scripts/python/databricks_query.py` uses a PAT.
 
@@ -96,8 +100,10 @@ credentials from the environment. Three consumers exist today:
 default `DATABRICKS_` prefix is the shared Serve credential (`sp_serve_agent`,
 Chief of Staff + briefing chats, `mart_serve_agents`); the `WIN_DATABRICKS_`
 prefix is the Campaign Manager's `sp_win_agent` (own warehouse,
-`mart_win_agents.win_agent_voters`). Grants are per service principal — the two
-identities are deliberately not interchangeable.
+`mart_win_agents.win_agent_voters`); the `PEOPLE_DATABRICKS_` prefix is the CRM
+voter engine's `sp_people_db` (own warehouse, and a least-privilege grant on two
+`dbt` tables). Grants are per service principal — these identities are
+deliberately not interchangeable.
 
 Both read the same connection coordinates from the environment:
 
@@ -110,6 +116,9 @@ Both read the same connection coordinates from the environment:
 | `WIN_DATABRICKS_SERVER_HOSTNAME`                    | `dbc-3d8ca484-79f3.cloud.databricks.com` (same workspace) |
 | `WIN_DATABRICKS_HTTP_PATH`                          | `/sql/1.0/warehouses/a6f5281417d1c869` (wh-win-agents)      |
 | `WIN_DATABRICKS_CLIENT_ID` / `WIN_DATABRICKS_CLIENT_SECRET` | OAuth M2M creds for `sp_win_agent` (Campaign Manager) |
+| `PEOPLE_DATABRICKS_SERVER_HOSTNAME`                 | `dbc-3d8ca484-79f3.cloud.databricks.com` (same workspace) |
+| `PEOPLE_DATABRICKS_HTTP_PATH`                       | the voter engine's own dedicated warehouse            |
+| `PEOPLE_DATABRICKS_CLIENT_ID` / `PEOPLE_DATABRICKS_CLIENT_SECRET` | OAuth M2M creds for `sp_people_db` (voter data) |
 
 The hostname and HTTP path are workspace identifiers, not secrets. The credentials
 are — never commit them; pull service-principal secrets from the deployment env, not

@@ -4,6 +4,7 @@ import { filtersSchema, type FilterData } from '../schemas/filters.schema'
 import {
   buildAggregatesSql,
   buildCountSql,
+  buildDistrictSql,
   buildCsvSql,
   buildOverlapCountSql,
   buildPageSql,
@@ -53,6 +54,31 @@ describe('buildScopeSql', () => {
 
     expect(sql.toLowerCase()).not.toContain('districtvoter')
     expect(sql.toLowerCase()).not.toContain('join')
+  })
+
+  // The service principal holds a least-privilege grant on exactly two tables.
+  // Any other table name reaching a query is a permission error in production,
+  // so pin the whole builder surface to those two.
+  it('only ever names the two tables the grant covers', () => {
+    const scope = { district: CONGRESSIONAL, filters: noFilters() }
+    const statements = [
+      buildCountSql(scope),
+      buildAggregatesSql(scope),
+      buildPageSql({ ...scope, columns: ['id'], take: 1, skip: 0 }),
+      buildOverlapCountSql({ ...scope, savedFilterSets: [] }),
+      buildCsvSql(scope),
+      buildDistrictSql(CONGRESSIONAL.districtId),
+    ]
+
+    for (const sql of statements) {
+      const tables = sql.match(/m_people_api__[a-z_]+/g) ?? []
+      expect(new Set(tables).size).toBeLessThanOrEqual(1)
+      for (const table of tables) {
+        expect(['m_people_api__voter', 'm_people_api__district']).toContain(
+          table,
+        )
+      }
+    }
   })
 
   it('drops the district predicate for a state-named State district', () => {
@@ -233,6 +259,43 @@ describe('buildVoterFiltersSql', () => {
     )
     expect(buildVoterFiltersSql(parseFilters({ id: { notIn: [id] } }))).toBe(
       `v.\`id\` NOT IN ('${id}')`,
+    )
+  })
+
+  // The comparison here is on STRING, not uuid. Postgres casts to `::uuid[]`,
+  // which normalizes case, so an uppercase id has to be lowercased or an
+  // exclude set would match nothing and silently widen the audience.
+  it('lowercases ids so a mixed-case uuid still matches', () => {
+    const mixed = '11111111-1111-4111-A111-111111111111'
+
+    expect(buildVoterFiltersSql(parseFilters({ id: { in: [mixed] } }))).toBe(
+      `v.\`id\` IN ('${mixed.toLowerCase()}')`,
+    )
+    expect(buildVoterFiltersSql(parseFilters({ id: { notIn: [mixed] } }))).toBe(
+      `v.\`id\` NOT IN ('${mixed.toLowerCase()}')`,
+    )
+  })
+
+  it('lowercases override id sets too', () => {
+    const include = ['AAAAAAAA-1111-4111-8111-111111111111']
+    const exclude = ['BBBBBBBB-2222-4222-8222-222222222222']
+    const sql = buildVoterFiltersSql(noFilters(), undefined, {
+      include,
+      exclude,
+    })
+
+    expect(sql).toContain(include[0]?.toLowerCase())
+    expect(sql).toContain(exclude[0]?.toLowerCase())
+    expect(sql).not.toContain('AAAAAAAA')
+    expect(sql).not.toContain('BBBBBBBB')
+  })
+
+  // Mirrors the Postgres path's `::integer[]` cast, which rounds. Without it a
+  // fractional value the contract permits would match zero rows here and some
+  // rows there.
+  it('rounds a fractional value in a numeric in-list', () => {
+    expect(buildVoterFiltersSql(parseFilters({ ageInt: { in: [30.5] } }))).toBe(
+      'v.`Age_Int` IN (31)',
     )
   })
 

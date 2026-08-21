@@ -110,11 +110,17 @@ describe('StatsService', () => {
 
     beforeEach(() => {
       ;(service as unknown as { databricks: unknown }).databricks = databricks
+      process.env.PEOPLE_DATABRICKS_SERVER_HOSTNAME = 'dbc.cloud.databricks.com'
+      process.env.PEOPLE_DATABRICKS_HTTP_PATH = '/sql/1.0/warehouses/wh-people'
+      process.env.PEOPLE_DATABRICKS_API_KEY = 'pat'
       process.env.USE_DATABRICKS_PEOPLE_DB = 'true'
     })
 
     afterEach(() => {
       process.env.USE_DATABRICKS_PEOPLE_DB = 'false'
+      delete process.env.PEOPLE_DATABRICKS_SERVER_HOSTNAME
+      delete process.env.PEOPLE_DATABRICKS_HTTP_PATH
+      delete process.env.PEOPLE_DATABRICKS_API_KEY
     })
 
     it('computes stats on demand instead of reading the stale table', async () => {

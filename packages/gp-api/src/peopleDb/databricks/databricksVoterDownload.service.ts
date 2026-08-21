@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -11,6 +12,7 @@ import { buildCsvSql } from './databricksVoterSql.util'
 import { DatabricksVoterService } from './databricksVoter.service'
 import {
   PeopleDbxStatementClient,
+  PeopleDbxStatementTooLargeError,
   type PeopleDbxCsvChunk,
 } from './peopleDbxStatement.client'
 
@@ -48,6 +50,14 @@ export class DatabricksVoterDownloadService {
       firstChunk = (await this.client.startCsvExport(sql)).firstChunk
     } catch (err) {
       this.logger.error({ err }, 'Failed to start Databricks CSV export')
+      // Caused by how many people the caller listed individually, so it earns a
+      // 400 rather than being flattened into the generic start failure.
+      if (err instanceof PeopleDbxStatementTooLargeError) {
+        throw new BadRequestException(
+          'This selection carries too many individually listed people to ' +
+            'export. Narrow it and try again.',
+        )
+      }
       throw new InternalServerErrorException('Failed to start download')
     }
 

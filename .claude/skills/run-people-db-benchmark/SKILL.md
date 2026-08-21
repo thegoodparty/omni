@@ -83,7 +83,7 @@ npm run perf:people-db -- --mode=load --env=prod --store=postgres
 `--store` picks the backing store for the run (`postgres`, the default, or
 `databricks`) by setting `USE_DATABRICKS_PEOPLE_DB` before the Nest graph
 boots. The cases and what they measure are identical either way — the
-Databricks run needs the `DATABRICKS_*` credentials instead of
+Databricks run needs the `PEOPLE_DATABRICKS_*` credentials instead of
 `PEOPLE_DATABASE_URL`, and no VPN. The store is part of the artifact filename
 and its provenance table, so the two runs never overwrite each other.
 

@@ -1,17 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   PeopleDbxStatementClient,
+  PeopleDbxStatementTooLargeError,
   PeopleDbxTimeoutError,
   PeopleDbxUnavailableError,
 } from './peopleDbxStatement.client'
 
 const ENV_KEYS = [
-  'DATABRICKS_SERVER_HOSTNAME',
-  'DATABRICKS_HTTP_PATH',
-  'DATABRICKS_CLIENT_ID',
-  'DATABRICKS_CLIENT_SECRET',
-  'DATABRICKS_API_KEY',
-  'PEOPLE_DB_DATABRICKS_WAREHOUSE_ID',
+  'PEOPLE_DATABRICKS_SERVER_HOSTNAME',
+  'PEOPLE_DATABRICKS_HTTP_PATH',
+  'PEOPLE_DATABRICKS_CLIENT_ID',
+  'PEOPLE_DATABRICKS_CLIENT_SECRET',
+  'PEOPLE_DATABRICKS_API_KEY',
 ] as const
 
 const jsonResponse = (body: object) => ({
@@ -46,9 +46,9 @@ describe('PeopleDbxStatementClient', () => {
       original.set(key, process.env[key])
       delete process.env[key]
     }
-    process.env.DATABRICKS_SERVER_HOSTNAME = 'dbc-1.cloud.databricks.com'
-    process.env.DATABRICKS_HTTP_PATH = '/sql/1.0/warehouses/wh1'
-    process.env.DATABRICKS_API_KEY = 'pat-token'
+    process.env.PEOPLE_DATABRICKS_SERVER_HOSTNAME = 'dbc-1.cloud.databricks.com'
+    process.env.PEOPLE_DATABRICKS_HTTP_PATH = '/sql/1.0/warehouses/wh1'
+    process.env.PEOPLE_DATABRICKS_API_KEY = 'pat-token'
 
     fetchMock = vi.fn(() => Promise.resolve(jsonResponse(succeeded([['1']]))))
     vi.stubGlobal('fetch', fetchMock)
@@ -170,8 +170,28 @@ describe('PeopleDbxStatementClient', () => {
       await expect(pending).rejects.toThrow(PeopleDbxTimeoutError)
     })
 
+    // Reachable because id sets are inlined rather than bound: the contract
+    // permits 100k ids per set, and the API rejects a statement over 16 MiB.
+    // Measured against the real API, so the number is not a guess.
+    it('refuses a statement over the API byte ceiling before sending it', async () => {
+      const oversized = `SELECT ${'x'.repeat(16_777_217)}`
+
+      await expect(client.query(oversized)).rejects.toThrow(
+        PeopleDbxStatementTooLargeError,
+      )
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it('sends a statement that is just within the ceiling', async () => {
+      const atLimit = 'S'.repeat(16_777_216)
+
+      await client.query(atLimit)
+
+      expect(fetchMock).toHaveBeenCalled()
+    })
+
     it('refuses to run when no credential is configured', async () => {
-      delete process.env.DATABRICKS_API_KEY
+      delete process.env.PEOPLE_DATABRICKS_API_KEY
 
       await expect(client.query('SELECT 1')).rejects.toThrow(
         PeopleDbxUnavailableError,
@@ -268,9 +288,9 @@ describe('PeopleDbxStatementClient', () => {
 
   describe('OAuth M2M', () => {
     beforeEach(() => {
-      delete process.env.DATABRICKS_API_KEY
-      process.env.DATABRICKS_CLIENT_ID = 'client'
-      process.env.DATABRICKS_CLIENT_SECRET = 'secret'
+      delete process.env.PEOPLE_DATABRICKS_API_KEY
+      process.env.PEOPLE_DATABRICKS_CLIENT_ID = 'client'
+      process.env.PEOPLE_DATABRICKS_CLIENT_SECRET = 'secret'
     })
 
     it('mints a token and reuses it across statements', async () => {

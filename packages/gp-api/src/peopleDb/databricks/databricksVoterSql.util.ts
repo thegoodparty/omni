@@ -248,7 +248,11 @@ const buildNumericFilter = (
   let base: string | null = null
 
   if (op.operator === 'in' && op.values && op.values.length > 0) {
-    base = `${target} IN (${op.values.map(num).join(', ')})`
+    // Rounded to mirror the Postgres path's `::integer[]` cast. Both numeric
+    // columns are non-negative, so half-away-from-zero and Math.round agree.
+    base = `${target} IN (${op.values
+      .map((value) => Math.round(Number(num(value))))
+      .join(', ')})`
   } else if (op.operator === 'eq' && op.value !== undefined) {
     base = `${target} = ${num(op.value)}`
   } else if (
@@ -293,8 +297,17 @@ const buildNumericFilter = (
 }
 
 // The whole id set is inlined rather than bound: the Statement Execution API
-// has no array parameter type, and the schema cap (MAX_RESOLVED_ID_SET_SIZE)
-// bounds how large this can get.
+// has no array parameter type. MAX_ID_FILTER_VALUES (100k per set, and
+// IdOverridesSchema allows that per side) is what bounds the size, and the
+// statement client enforces the API's 16 MiB ceiling on the result.
+//
+// Ids are lowercased because the comparison here is on STRING, not uuid: the
+// Postgres path casts to `::uuid[]`, which normalizes case, so an uppercase id
+// that matched there would match nothing here — and an exclude set that
+// matches nothing silently WIDENS the audience.
+const normalizedIds = (values: ReadonlyArray<string | number>): string =>
+  inList(values.map((value) => String(value).toLowerCase()))
+
 const buildIdFilter = (op?: FilterOperator): string | null => {
   if (!op) return null
   if (
@@ -302,7 +315,7 @@ const buildIdFilter = (op?: FilterOperator): string | null => {
     op.values &&
     op.values.length > 0
   ) {
-    const ids = inList(op.values.map(String))
+    const ids = normalizedIds(op.values)
     return op.operator === 'in'
       ? `${col('id')} IN (${ids})`
       : `${col('id')} NOT IN (${ids})`
@@ -319,10 +332,10 @@ const composeIdOverridesClause = (
 ): string => {
   const base = baseClause ?? 'TRUE'
   const scoped = idOverrides.exclude?.length
-    ? `(${base} AND ${col('id')} NOT IN (${inList(idOverrides.exclude)}))`
+    ? `(${base} AND ${col('id')} NOT IN (${normalizedIds(idOverrides.exclude)}))`
     : base
   return idOverrides.include?.length
-    ? `(${scoped} OR ${col('id')} IN (${inList(idOverrides.include)}))`
+    ? `(${scoped} OR ${col('id')} IN (${normalizedIds(idOverrides.include)}))`
     : scoped
 }
 
@@ -444,6 +457,10 @@ export const getNormalizedPhoneNumber = (phone: string): string | null => {
 // the identical match set in both stores. `lower(col) LIKE` rather than
 // isearch(): the latter is equally fast but its only documentation sits inside
 // a Beta feature page, so we take no dependency on it.
+//
+// The doubled backslash in `ESCAPE '\\'` is deliberate — it renders as a
+// one-character escape only while spark.sql.parser.escapedStringLiterals is
+// false, which is the default. Do not "simplify" it to a single backslash.
 export const buildSearchSql = (search: string): string | null => {
   const trimmed = search.trim()
   if (!trimmed) return null
@@ -475,11 +492,12 @@ export const buildSearchSql = (search: string): string | null => {
 }
 
 // District scoping goes through the L2 district column already on the voter
-// row, NEVER the junction table: the Databricks districtvoter equivalent is
-// clustered by voter_id, so a district filter prunes nothing there and runs in
-// seconds regardless of district size. `districtType` IS the voter column name
-// and `districtName` is its value. The State predicate stays on every query —
-// the voter table is liquid-clustered by State, so that is what prunes.
+// row, and NEVER through a district-membership join: that table is clustered
+// by voter id, so a district filter prunes nothing in it and runs in seconds
+// regardless of district size — and it is outside this principal's grant.
+// `districtType` IS the voter column name and `districtName` is its value. The
+// State predicate stays on every query: the voter table is liquid-clustered by
+// State, so that is what prunes.
 export const buildScopeSql = (args: DbxScopeArgs): string => {
   const { district, filters, search, idOverrides } = args
   const parts: string[] = [`${col('State')} = ${lit(district.state)}`]

@@ -13,6 +13,14 @@ import {
 // tail is compute startup, and killing it would turn every post-idle request
 // into a 504.
 const STATEMENT_TIMEOUT_MS = 60_000
+
+// The API's hard ceiling on the statement field, measured against it directly:
+// a 20MB statement is rejected with "must not exceed a length of 16777216
+// bytes". Reachable because id sets are inlined rather than bound — the
+// contract permits 100k ids per set, and a request carrying `filters.id` plus
+// both id-override pairs can exceed this where the Postgres path (one bound
+// array per set) would not.
+const MAX_STATEMENT_BYTES = 16_777_216
 const POLL_INTERVAL_MS = 500
 const TOKEN_EXPIRY_SKEW_MS = 60_000
 
@@ -96,6 +104,17 @@ export type PeopleDbxCsvExport = {
 export class PeopleDbxTimeoutError extends Error {
   constructor(elapsedMs: number) {
     super(`Databricks statement exceeded ${elapsedMs}ms`)
+  }
+}
+
+// Caused by the size of the caller's selection, so the caller translates this
+// to a 400 rather than a 500: it is actionable input, not a broken service.
+export class PeopleDbxStatementTooLargeError extends Error {
+  constructor(bytes: number) {
+    super(
+      `Databricks statement is ${bytes} bytes, over the ` +
+        `${MAX_STATEMENT_BYTES}-byte limit`,
+    )
   }
 }
 
@@ -250,6 +269,10 @@ export class PeopleDbxStatementClient {
     config: PeopleDbxConfig,
     body: Record<string, string>,
   ): Promise<StatementResponse> {
+    const bytes = Buffer.byteLength(body.statement ?? '', 'utf8')
+    if (bytes > MAX_STATEMENT_BYTES) {
+      throw new PeopleDbxStatementTooLargeError(bytes)
+    }
     const response = await this.request(
       config,
       '/api/2.0/sql/statements',

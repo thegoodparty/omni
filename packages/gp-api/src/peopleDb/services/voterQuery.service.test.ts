@@ -958,11 +958,17 @@ describe('VoterQueryService', () => {
       })
       databricks.getOverlapCount.mockResolvedValue({ count: 1 })
       ;(service as unknown as { databricks: unknown }).databricks = databricks
+      process.env.PEOPLE_DATABRICKS_SERVER_HOSTNAME = 'dbc.cloud.databricks.com'
+      process.env.PEOPLE_DATABRICKS_HTTP_PATH = '/sql/1.0/warehouses/wh-people'
+      process.env.PEOPLE_DATABRICKS_API_KEY = 'pat'
       process.env.USE_DATABRICKS_PEOPLE_DB = 'true'
     })
 
     afterEach(() => {
       process.env.USE_DATABRICKS_PEOPLE_DB = 'false'
+      delete process.env.PEOPLE_DATABRICKS_SERVER_HOSTNAME
+      delete process.env.PEOPLE_DATABRICKS_HTTP_PATH
+      delete process.env.PEOPLE_DATABRICKS_API_KEY
     })
 
     it('routes getAggregates to Databricks and issues no Postgres query', async () => {
@@ -997,6 +1003,26 @@ describe('VoterQueryService', () => {
 
       expect(databricks.findPeople).toHaveBeenCalledTimes(1)
       expect(mockClient.$queryRaw).not.toHaveBeenCalled()
+    })
+
+    // The flag can ship ahead of the service principal, so an environment with
+    // the flag on but no credential must keep answering from Postgres rather
+    // than failing every voter request.
+    it('stays on Postgres when the flag is on but unconfigured', async () => {
+      delete process.env.PEOPLE_DATABRICKS_SERVER_HOSTNAME
+      delete process.env.PEOPLE_DATABRICKS_HTTP_PATH
+      delete process.env.PEOPLE_DATABRICKS_API_KEY
+      mockClient.$queryRaw.mockResolvedValue([
+        { count: 5n, avgAge: null, avgIncome: null },
+      ])
+
+      await service.getAggregates({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+      } as never)
+
+      expect(databricks.getAggregates).not.toHaveBeenCalled()
+      expect(mockClient.$queryRaw).toHaveBeenCalled()
     })
 
     // Door-knocking de-dup has no Databricks equivalent yet, so it must keep

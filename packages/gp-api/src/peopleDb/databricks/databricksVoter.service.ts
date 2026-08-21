@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   GatewayTimeoutException,
   Injectable,
   Logger,
@@ -32,6 +33,7 @@ import {
 } from './databricksDistrictStatsSql.util'
 import {
   PeopleDbxStatementClient,
+  PeopleDbxStatementTooLargeError,
   PeopleDbxTimeoutError,
 } from './peopleDbxStatement.client'
 
@@ -39,6 +41,10 @@ const STATE_DISTRICT_TYPE = 'State'
 
 const TIMEOUT_MESSAGE =
   'The voter query took too long to run. Narrow the audience and try again.'
+
+const TOO_LARGE_MESSAGE =
+  'This selection carries too many individually listed people to query. ' +
+  'Narrow it and try again.'
 
 // Only these two columns of the list projection are integers; everything else
 // in the L2 uniform is text, and JSON_ARRAY hands every value back as a string
@@ -177,6 +183,10 @@ export class DatabricksVoterService {
     try {
       return await this.client.query(sql)
     } catch (err) {
+      if (err instanceof PeopleDbxStatementTooLargeError) {
+        this.logger.error({ err }, 'databricks voter query is too large')
+        throw new BadRequestException(TOO_LARGE_MESSAGE)
+      }
       if (!(err instanceof PeopleDbxTimeoutError)) throw err
       this.logger.error({ err }, 'databricks voter query exceeded its ceiling')
       throw new GatewayTimeoutException(TIMEOUT_MESSAGE)
