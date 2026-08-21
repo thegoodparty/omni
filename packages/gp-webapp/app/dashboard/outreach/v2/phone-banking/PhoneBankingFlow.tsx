@@ -17,7 +17,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { AUTO_VOTER_FILTER_NAME_PATTERN } from 'app/dashboard/components/tasks/flows/util/flowHandlers.util'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
-import { phoneBankingPurposeLabel } from '../phoneBankingPurposes'
+import { phoneBankingPurposeNameSuggestion } from '../phoneBankingPurposes'
 import { PurposeStep } from './PurposeStep'
 import {
   WhoStep,
@@ -283,13 +283,13 @@ export const PhoneBankingFlow = ({
 
   // Auto-suggests the campaign name from the purpose on entering the script
   // step — only while the user hasn't typed their own (nameEdited). The
-  // custom purpose gets no suggestion: its label is the card copy "Write my
-  // own script", not a campaign name.
+  // custom purpose gets no suggestion: the caller is writing their own script,
+  // so there is nothing to infer a name from.
   useEffect(() => {
     if (stepId !== 'script') return
     if (nameEdited) return
     if (!purpose || purpose === 'custom') return
-    setName(phoneBankingPurposeLabel(purpose))
+    setName(phoneBankingPurposeNameSuggestion(purpose))
   }, [stepId, purpose, nameEdited])
 
   const handleSelectAll = () => {
