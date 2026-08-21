@@ -234,7 +234,11 @@ export const useOutreachAudience = ({
     listsLoading: listsQuery.isLoading,
     selectedList,
     reachableCount,
-    reachableLoading: reachabilityQuery.isLoading,
+    // isFetching (not isLoading) so a re-selected, already-cached list still
+    // shows the spinner during its background refetch — isLoading is true only
+    // on the first-ever fetch, so under the 5-min default staleTime a stale
+    // count would otherwise render with no loading state.
+    reachableLoading: reachabilityQuery.isFetching,
     builderFilters,
     setBuilderFilters,
     builderSupportStatus,
