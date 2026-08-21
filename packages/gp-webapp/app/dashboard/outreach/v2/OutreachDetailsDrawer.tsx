@@ -390,7 +390,7 @@ export const OutreachDetailsDrawer = ({
                   <section className="space-y-3">
                     <Eyebrow>Results</Eyebrow>
                     <p className="text-sm text-muted-foreground">
-                      Based on {phoneBanking.peopleCalled.toLocaleString()}{' '}
+                      Based on {phoneBanking.entriesCalled.toLocaleString()}{' '}
                       phone banking contacts
                     </p>
                     <Card className="overflow-hidden p-0">

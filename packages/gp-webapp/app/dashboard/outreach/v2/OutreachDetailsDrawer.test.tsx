@@ -136,7 +136,7 @@ describe('OutreachDetailsDrawer — phone banking', () => {
     render(<OutreachDetailsDrawer row={completedRow} onOpenChange={vi.fn()} />)
 
     expect(
-      await screen.findByText('Based on 16 phone banking contacts'),
+      await screen.findByText('Based on 10 phone banking contacts'),
     ).toBeInTheDocument()
     expect(screen.getByText('Answered')).toBeInTheDocument()
     expect(screen.getByText('Refused to engage')).toBeInTheDocument()
