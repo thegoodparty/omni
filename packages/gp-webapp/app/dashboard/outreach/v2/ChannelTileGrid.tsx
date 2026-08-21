@@ -175,7 +175,9 @@ export const ChannelTileGrid = ({
               subCopy={formatCost(option?.cost ?? 0)}
               locked={Boolean(
                 option?.requiresPro &&
-                (type === OUTREACH_TYPES.phoneBanking
+                (type === OUTREACH_TYPES.phoneBanking &&
+                phoneBankingV2.ready &&
+                phoneBankingV2.enabled
                   ? !canUseProFeatures && !electedOfficePending
                   : !isPro),
               )}

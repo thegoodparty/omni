@@ -64,13 +64,16 @@ const OutreachHubContent = ({
   // The phone-banking create response is the list, not a full OutreachDetail
   // (unlike social's save) — no detail to seed, just enough to prepend a row
   // so the history table doesn't stay stale until the next full load.
+  // Status is in_progress (not completed) to match what
+  // phoneBankingList.service.ts actually creates — historyStatus.util.ts
+  // maps that to "Scheduled" until the user reloads and gets the real state.
   const handlePhoneBankingSaved = (outreachId: number, name: string) => {
     setOutreaches([
       {
         id: outreachId,
         name,
         outreachType: 'phoneBanking',
-        status: 'completed',
+        status: 'in_progress',
       },
       ...(outreaches ?? []),
     ])

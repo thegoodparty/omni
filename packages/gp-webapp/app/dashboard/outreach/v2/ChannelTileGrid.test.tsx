@@ -252,6 +252,27 @@ describe('ChannelTileGrid — phone-banking tile swap flag + Pro redirect', () =
     ).toBeInTheDocument()
   })
 
+  it('flag off + elected official + non-Pro: tile stays locked and click shows the legacy Pro modal (byte-identical legacy behavior)', async () => {
+    phoneBankingFlag.enabled = false
+    mockCampaign = { id: 9, isPro: false }
+    mockElectedOffice = { data: { id: 1 }, isPending: false }
+    const onCreatePhoneBanking = vi.fn()
+    renderGrid({ onCreatePhoneBanking })
+
+    expect(screen.getByText('Phone banking').closest('button')).toHaveAttribute(
+      'data-locked',
+    )
+
+    await userEvent.click(screen.getByText('Phone banking'))
+
+    expect(onCreatePhoneBanking).not.toHaveBeenCalled()
+    expect(mockRouterPush).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
+    expect(
+      await screen.findByText('Get Pro voter data and tools'),
+    ).toBeInTheDocument()
+  })
+
   it('flag unsettled: legacy TaskFlow behavior, unchanged', async () => {
     phoneBankingFlag.ready = false
     mockCampaign = { id: 9, isPro: true }
