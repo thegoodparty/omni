@@ -282,11 +282,13 @@ export const PhoneBankingFlow = ({
   }
 
   // Auto-suggests the campaign name from the purpose on entering the script
-  // step — only while the user hasn't typed their own (nameEdited).
+  // step — only while the user hasn't typed their own (nameEdited). The
+  // custom purpose gets no suggestion: its label is the card copy "Write my
+  // own script", not a campaign name.
   useEffect(() => {
     if (stepId !== 'script') return
     if (nameEdited) return
-    if (!purpose) return
+    if (!purpose || purpose === 'custom') return
     setName(phoneBankingPurposeLabel(purpose))
   }, [stepId, purpose, nameEdited])
 

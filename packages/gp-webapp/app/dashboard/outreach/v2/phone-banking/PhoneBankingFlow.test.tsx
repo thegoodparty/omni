@@ -284,6 +284,18 @@ describe('PhoneBankingFlow', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
+  it('does not auto-suggest a name for the custom purpose (its label is card copy, not a name)', async () => {
+    mockDraft()
+    openFlow()
+    await user.click(screen.getByText('Write my own script'))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText('Write your call script')
+
+    expect(screen.getByLabelText('Campaign name')).toHaveValue('')
+    await user.type(screen.getByLabelText('Call script'), 'My own script')
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
   it('sends voterFileFilterId (never filters) when a saved list is chosen', async () => {
     mockDraft()
     mockSavedLists([{ id: 3, name: 'Likely Dems' }])
