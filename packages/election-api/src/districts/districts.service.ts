@@ -25,37 +25,20 @@ export class DistrictsService extends createPrismaBase(MODELS.District) {
   }
 
   async getDistricts(dto: GetDistrictsDTO) {
-    const { districtColumns, projectedTurnoutColumns } = dto
+    const { districtColumns } = dto
 
+    // turnoutWhere still feeds the excludeInvalid existence filter below; only
+    // the eager turnout payload is gone.
     const turnoutWhere = this.buildTurnoutWhere(dto)
     const where = this.buildDistrictWhere(dto, turnoutWhere)
 
-    const districtSelectBase: Prisma.DistrictSelect | undefined =
-      districtColumns
-        ? (buildColumnSelect(districtColumns) as Prisma.DistrictSelect)
-        : undefined
+    const districtSelect: Prisma.DistrictSelect | undefined = districtColumns
+      ? (buildColumnSelect(districtColumns) as Prisma.DistrictSelect)
+      : undefined
 
-    const projectedTurnoutInclude = this.buildProjectedTurnoutInclude(
-      projectedTurnoutColumns,
-      turnoutWhere,
-    )
-
-    const districtQueryObj = {
-      ...(districtSelectBase ?? {}),
-      ...(projectedTurnoutInclude && {
-        ProjectedTurnouts: projectedTurnoutInclude,
-      }),
-    }
-
-    const districts = districtSelectBase
-      ? await this.model.findMany({
-          where,
-          select: districtQueryObj,
-        })
-      : await this.model.findMany({
-          where,
-          include: districtQueryObj,
-        })
+    const districts = districtSelect
+      ? await this.model.findMany({ where, select: districtSelect })
+      : await this.model.findMany({ where })
 
     if (!districts || districts.length === 0) {
       throw new NotFoundException(
@@ -116,24 +99,5 @@ export class DistrictsService extends createPrismaBase(MODELS.District) {
       distinct: [field],
       orderBy: { [field]: Prisma.SortOrder.asc },
     })
-  }
-
-  private buildProjectedTurnoutInclude(
-    projectedTurnoutColumns?: string | null,
-    turnoutWhere?: Prisma.ProjectedTurnoutWhereInput,
-  ) {
-    if (!projectedTurnoutColumns) return true
-
-    const select = buildColumnSelect(
-      projectedTurnoutColumns,
-    ) as Prisma.ProjectedTurnoutSelect
-
-    return {
-      select,
-      where:
-        turnoutWhere && Object.keys(turnoutWhere).length
-          ? turnoutWhere
-          : undefined,
-    }
   }
 }
