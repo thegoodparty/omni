@@ -4,7 +4,7 @@ import type { ListDetailReachability } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { useOrganization } from '@shared/organization-picker'
-import { fetchListDetail } from 'app/dashboard/contacts/crm/lists/useListRowDetail'
+import { fetchListDetailThrottled } from 'app/dashboard/contacts/crm/lists/useListRowDetail'
 import { AUTO_VOTER_FILTER_NAME_PATTERN } from 'app/dashboard/components/tasks/flows/util/flowHandlers.util'
 import type {
   SegmentResponse,
@@ -131,11 +131,11 @@ export const useOutreachAudience = ({
       reachabilityKey,
       selectedListId,
     ],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       // Guarded by `enabled` below; narrow rather than cast so a future change
       // to the enable condition can't silently pass null through.
       if (selectedListId === null) throw new Error('No list selected')
-      const detail = await fetchListDetail(selectedListId)
+      const detail = await fetchListDetailThrottled(selectedListId, signal)
       return detail.reachability[reachabilityKey]
     },
     enabled: open && selectedListId !== null,

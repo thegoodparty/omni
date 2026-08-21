@@ -144,6 +144,50 @@ describe('RobocallFlow', () => {
     expect(screen.getByText('More coming soon')).toBeInTheDocument()
   })
 
+  it('disables Continue while the reachable count is loading', async () => {
+    mockSavedLists()
+    // Hold list-detail open so reachabilityQuery stays fetching and the
+    // reachableLoading guard's window actually occurs (synchronous mocks would
+    // resolve before it could).
+    let releaseListDetail!: () => void
+    const gate = new Promise<void>((resolve) => {
+      releaseListDetail = resolve
+    })
+    api.mock('GET /v1/contacts/list-detail', async () => {
+      await gate
+      return {
+        status: 200,
+        data: {
+          demographics: { people: 1000, avgAge: null, avgIncome: null },
+          reachability: {
+            sms: 500,
+            robocall: 80,
+            phoneBanking: 80,
+            doorKnocking: 700,
+            polls: 500,
+          },
+          outreachHistory: [],
+        },
+      }
+    })
+    await gotoAudience()
+
+    await userEvent.click(await screen.findByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Renters in 98103'))
+
+    // Mid-fetch: the spinner shows and Continue must stay disabled.
+    expect(
+      await screen.findByText('Counting reachable voters…'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    // Once it settles, the count appears and Continue enables.
+    releaseListDetail()
+    expect(
+      await screen.findByRole('button', { name: /Continue \(80\)/ }),
+    ).toBeEnabled()
+  })
+
   it('treats a null landline count as unavailable, not zero', async () => {
     mockSavedLists()
     mockListDetail(null)
