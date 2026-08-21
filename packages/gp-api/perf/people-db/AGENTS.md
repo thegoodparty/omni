@@ -20,7 +20,17 @@ npm run perf:people-db -- --mode=load --env=dev        # concurrency sweep + gat
 npm run perf:people-db -- --smoke --env=dev            # one case, boot check
 ```
 
-Results print as a table and are written to `scripts/output/people-db-bench-<env>-<sha>-<mode>.json`.
+Results print as a table and are written to
+`scripts/output/people-db-bench-<env>-<sha>-<mode>.json`, plus a
+fixed-format HTML page beside it (`.html`) rendered by `artifactHtml.ts`.
+
+The HTML page is the reporting surface: publish it as a Claude artifact. Its
+format is deliberately constant (provenance, results table, failures, then one
+description table per axis) and carries **no generated prose** — every word is
+either boilerplate in `artifactHtml.ts` or a `description` string carried in the
+JSON. Interpretation goes in the chat reply, never on the page. Re-render an
+older JSON with `npm run perf:people-db:html -- <path>`. The end-to-end
+procedure lives in the `run-people-db-benchmark` skill.
 
 `load` mode adds real pool contention; run against prod (`--env=prod`) only
 off-peak. It exits non-zero if any scenario's error rate at the target
@@ -85,6 +95,13 @@ case here so it stays covered:
    **drops** anything missing from them, so the cases run and never print.
 5. Re-pin cohorts if `checkDrift` warns (re-run the discovery SQL in the plan).
 
+Every axis carries a human-language `description` and they are **not optional**:
+`FilterVariant.description`, `QUERY_DESCRIPTIONS` in `cases.ts`, and
+`Cohort.description`/`district`/`partition`. `buildArtifact` copies them into the
+JSON and `buildLegend` prints the same strings, so the console and the HTML can
+never disagree. A new variant or query type without one renders a blank cell in
+the artifact's description table.
+
 ## `count` vs `list-detail` — query vs request
 
 `count` is one `getAggregates` call: the `COUNT(*) + AVG(age) + AVG(income)`
@@ -119,12 +136,49 @@ pool, so in production every district is cold at once. A cell reading
 `ERR|18678/19201!1` means the cold run blew the 25s statement timeout and the
 warm runs passed; that is the real incident, not a flake.
 
+## Prior-outreach id clauses
+
+Three variants cover the three ways gp-api turns a "prior contacts made"
+selection into SQL (`ContactsMadeResolutionService`, see
+`src/contacts/AGENTS.md` §ENG-10839):
+
+| variant            | wire shape                | SQL                        |
+| ------------------ | ------------------------- | -------------------------- |
+| `outreach-include` | `filters.id.in`           | `v."id" = ANY($1::uuid[])` |
+| `outreach-exclude` | `filters.id.notIn`        | `v."id" != ALL($1::uuid[])`|
+| `outreach-mixed`   | `contactsMadeIdOverrides` | top-level AND of an OR     |
+
+They need real ids, so `harness.sampleIds` materializes one set per cohort.
+`runLatency`/`runLoad` call **`harness.prepare(cases)` before the timed loop** —
+sampling is setup, and folding it into the first outreach cell of each band
+inflated that one cell by ~50s. Whole-suite prepare measures ~14s.
+
+Sets are memoized per district and seeded (`ID_SAMPLE_SEED`) so the same ids
+come back on every run: a delta between two passes has to be a real regression,
+not a different sample. Ordering by a hash also scatters them across the
+partition the way a real outreach list does, rather than handing the planner a
+run of neighbours in index order.
+
+Two things about the sampling queries are load-bearing, both measured against
+prod:
+
+- **The district path does NOT join `Voter`.** `dv."voter_id"` already is the
+  id, and joining costs one random probe into a cold multi-GB state partition
+  per sampled row: 44-60s per cohort with the join, ~0.5-1.2s without it.
+- **A State district has zero `DistrictVoter` rows** (verified: count is 0), so
+  statewide *must* sample from `Voter` — the voter-only branch is required, not
+  an optimization. It uses `stateEquals` rather than a hand-written cast: the
+  enum lives in `public`, not `green`, and the state has to be inlined as a
+  literal because a bound-and-cast parameter breaks the planner's constant
+  propagation. An md5-prefix bucket keeps that sort off all 23M rows.
+
+All three share one `ID_SET_SIZE` (5k) set, so the only thing differing between
+them is the SQL shape. The hard production cap is `MAX_RESOLVED_ID_SET_SIZE`
+(100k); if you add a size axis, expect it to dominate the pass. At statewide
+these run at `HEAVY_ITERATIONS` for that reason.
+
 ## Deliberately out of scope (future additions)
 
-- `activity-condition` filtering: resolved gp-api-side into `idOverrides` /
-  `contactsMadeIdOverrides` from contact-interaction rows; not a `PeopleFilters`
-  field, so the pure harness cannot synthesize it.
-- `id-set` (`filters.id`) and `groupByHousehold`: expressible but need a per-run
-  setup step (sample real ids first); add as a separate axis when needed.
+- `groupByHousehold`: expressible but needs its own axis.
 - CI wiring: prod people-db is VPC-private; the intended path is a scheduled
   in-VPC ECS task (see the design doc). The JSON artifact is shaped for it.

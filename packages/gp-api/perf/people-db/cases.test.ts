@@ -5,9 +5,9 @@ describe('buildLatencyCases', () => {
   const cases = buildLatencyCases()
 
   it('applies list and count across every cohort x variant, others once per cohort', () => {
-    // list: 5x8, count: 5x8, list-detail: 5x2, search/sample/overlap/stats: 5
-    // each, csv: 3 (csv skips mega and statewide — they dominate the pass)
-    expect(cases.length).toBe(40 + 40 + 10 + 4 * 5 + 3)
+    // list: 5x11, count: 5x11, list-detail: 5x2, search/sample/overlap/stats:
+    // 5 each, csv: 3 (csv skips mega and statewide — they dominate the pass)
+    expect(cases.length).toBe(55 + 55 + 10 + 4 * 5 + 3)
   })
 
   it('latency-tests the whole list-detail request at every district size', () => {
