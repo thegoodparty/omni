@@ -280,4 +280,25 @@ describe('RobocallFlow', () => {
       await screen.findByRole('button', { name: /Continue \(50\)/ }),
     ).toBeInTheDocument()
   })
+
+  it('resets to the purpose step when reopened after cancelling mid-flow', async () => {
+    mockSavedLists()
+    const onClose = vi.fn()
+    const { rerender } = render(<RobocallFlow open onClose={onClose} />)
+
+    // Advance off the purpose step so a resume would be observable.
+    fireEvent.click(screen.getByText('Persuade likely voters'))
+    expect(
+      await screen.findByText(/We only call voters with a landline/),
+    ).toBeInTheDocument()
+
+    // Close (cancel), then reopen — the open effect must reset the flow.
+    rerender(<RobocallFlow open={false} onClose={onClose} />)
+    rerender(<RobocallFlow open onClose={onClose} />)
+
+    expect(screen.getByText('Introduce myself')).toBeInTheDocument()
+    expect(
+      screen.queryByText(/We only call voters with a landline/),
+    ).not.toBeInTheDocument()
+  })
 })
