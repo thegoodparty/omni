@@ -152,7 +152,11 @@ describe('RobocallFlow', () => {
     mockSavedLists()
     await gotoAudience()
     expect(
-      screen.getByText(/We only call voters with a landline/),
+      screen.getByText(/We recommend reaching all your supporters/),
+    ).toBeInTheDocument()
+    // The reachable-count note under the picker (design flowWho).
+    expect(
+      screen.getByText(/may change based on the mode of outreach/),
     ).toBeInTheDocument()
     expect(
       screen.queryByText('Introduce myself to voters'),
@@ -176,7 +180,7 @@ describe('RobocallFlow', () => {
 
     // 80 landline-reachable voters * $0.045 = $3.60
     expect(
-      await screen.findByText(/Call 80 voters for \$3\.60/),
+      await screen.findByText(/Reach 80 supporters with landlines for \$3\.60/),
     ).toBeInTheDocument()
 
     const continueBtn = await screen.findByRole('button', {
@@ -398,7 +402,7 @@ describe('RobocallFlow', () => {
     // Advance off the purpose step so a resume would be observable.
     fireEvent.click(screen.getByText('Persuade likely voters'))
     expect(
-      await screen.findByText(/We only call voters with a landline/),
+      await screen.findByText(/We recommend reaching all your supporters/),
     ).toBeInTheDocument()
 
     // Close (cancel), then reopen — the open effect must reset the flow.
@@ -407,7 +411,7 @@ describe('RobocallFlow', () => {
 
     expect(screen.getByText('Introduce myself to voters')).toBeInTheDocument()
     expect(
-      screen.queryByText(/We only call voters with a landline/),
+      screen.queryByText(/We recommend reaching all your supporters/),
     ).not.toBeInTheDocument()
   })
 
