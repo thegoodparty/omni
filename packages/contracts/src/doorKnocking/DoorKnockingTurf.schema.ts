@@ -61,6 +61,14 @@ export type UpdateDoorKnockingTurf = z.infer<
 >
 
 // `locked` is derived, not stored: a turf is locked iff its route exists.
+//
+// The three counts are derived too, and from the frozen route — so they are
+// null, not 0, on an unlocked turf: there is no route to count, and a zero
+// would claim a walked list that turned out to be empty. Doors are addresses
+// and people are knockable targets (do-not-knock and not-a-voter residents
+// dropped), the same two populations the walk surfaces report; `loggedCount`
+// is the subset of `peopleCount` whose derived knock status is not `unknown`,
+// so the pair reads as "N of M logged" and never mixes populations.
 export const DoorKnockingTurfSchema = z.object({
   id: z.number().int(),
   voterFileFilterId: z.number().int(),
@@ -68,6 +76,9 @@ export const DoorKnockingTurfSchema = z.object({
   color: z.string(),
   geoPoly: GeoJsonPolygonSchema,
   locked: z.boolean(),
+  doorCount: z.number().int().nullable(),
+  peopleCount: z.number().int().nullable(),
+  loggedCount: z.number().int().nullable(),
   createdAt: zDate(),
   updatedAt: zDate(),
 })

@@ -141,7 +141,9 @@ export const OutreachDetailSchema = z.object({
   imageUrl: z.string().nullable(),
   voterFileFilterId: z.number().nullable(),
   doorKnockingRouteId: z.number().nullable(),
-  phoneBankingListId: z.number().nullable(),
+  // .nullish() (not .nullable()): existing rows/fixtures predate this column
+  // and omit the key entirely, not just send it null (ENG-10543 lesson).
+  phoneBankingListId: z.number().nullish(),
   phoneListId: z.number().nullable(),
   identityId: z.string().nullable(),
   didState: z.string().nullable(),

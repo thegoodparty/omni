@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, screen, within } from '@testing-library/react'
 import {
   DoorKnockOutcome,
   RoutePayloadStop,
@@ -415,5 +415,156 @@ describe('PersonSheet activity feed', () => {
     expect(
       within(feed()).getByText('No previous outreach to this resident.'),
     ).toBeInTheDocument()
+  })
+})
+
+// The eleven attributes product asked to surface at the door. Every one is a
+// column already in `DOWNLOAD_COLUMNS` — handed to candidates as a CSV today
+// behind the same district access check and the same Pro gate — so this card is
+// a new surface for existing disclosure rather than new disclosure.
+describe('PersonSheet demographic information', () => {
+  const demographicCard = () =>
+    screen.getByRole('heading', { name: 'Demographic information' })
+      .parentElement!
+
+  const fullTarget = (overrides: Partial<RoutePayloadTarget> = {}) =>
+    target({
+      registeredVoter: true,
+      turnoutLikelihood: 'Super',
+      maritalStatus: 'Likely Married',
+      hasChildrenUnder18: 'Yes',
+      veteranStatus: 'Yes',
+      homeowner: 'Likely',
+      businessOwner: 'Yes',
+      levelOfEducation: 'Graduate Degree',
+      estimatedIncomeAmount: 82000,
+      language: 'Spanish',
+      ethnicityGroup: 'Hispanic',
+      ...overrides,
+    })
+
+  it('shows all eleven attributes for a target', () => {
+    renderSheet([fullTarget()])
+
+    const card = within(demographicCard())
+    for (const [label, value] of [
+      ['Registered voter', 'Yes'],
+      ['Turnout likelihood', 'Super'],
+      ['Marital status', 'Likely Married'],
+      ['Has children under 18', 'Yes'],
+      ['Veteran', 'Yes'],
+      ['Homeowner', 'Likely'],
+      ['Business owner', 'Yes'],
+      ['Level of education', 'Graduate Degree'],
+      ['Estimated household income', '$75k - $100k'],
+      ['Language', 'Spanish'],
+      ['Ethnicity', 'Hispanic'],
+    ]) {
+      const row = card.getByText(label!).parentElement!
+      expect(within(row).getByText(value!)).toBeInTheDocument()
+    }
+  })
+
+  // Not the prototype's "Voter status", which means active-or-inactive
+  // registration. This column is turnout propensity, and the prototype's label
+  // would name it as something it isn't.
+  it('names the turnout column for what it holds', () => {
+    renderSheet([fullTarget()])
+
+    const card = within(demographicCard())
+    expect(card.getByText('Turnout likelihood')).toBeInTheDocument()
+    expect(card.queryByText('Voter status')).toBeNull()
+  })
+
+  // Sparseness is the common case in this file, not the edge. The default
+  // fixture carries no demographic keys at all, which is also exactly what a
+  // route snapshotted offline before this shipped looks like on a phone that
+  // cannot refetch.
+  it('renders every absent attribute as Not on file', () => {
+    renderSheet([target()])
+
+    expect(within(demographicCard()).getAllByText('Not on file')).toHaveLength(
+      11,
+    )
+  })
+
+  // The two presence-only columns hold a value meaning yes or nothing at all,
+  // so absence is indistinguishable from unknown. Printing "No" would tell a
+  // canvasser at the door that someone is not a veteran on no data at all.
+  it.each(['Veteran', 'Business owner'])(
+    'says Not on file rather than No for an absent %s',
+    (label) => {
+      renderSheet([fullTarget({ veteranStatus: null, businessOwner: null })])
+
+      const row = within(demographicCard()).getByText(label).parentElement!
+      expect(within(row).getByText('Not on file')).toBeInTheDocument()
+      expect(within(row).queryByText('No')).toBeNull()
+    },
+  )
+
+  // `registeredVoter` is a real boolean off `StateVoterID IS NOT NULL`, so
+  // unlike the two above it does have an honest No — and it must still not
+  // print one when the key is simply missing.
+  it('distinguishes a known No from a missing registration answer', () => {
+    renderSheet([fullTarget({ registeredVoter: false })])
+    const known =
+      within(demographicCard()).getByText('Registered voter').parentElement!
+    expect(within(known).getByText('No')).toBeInTheDocument()
+
+    cleanup()
+
+    renderSheet([fullTarget({ registeredVoter: null })])
+    const missing =
+      within(demographicCard()).getByText('Registered voter').parentElement!
+    expect(within(missing).getByText('Not on file')).toBeInTheDocument()
+    expect(within(missing).queryByText('No')).toBeNull()
+  })
+
+  // A mover has no live row, so the profile describes nobody rather than
+  // whoever lives at the address now — the same rule the phone numbers follow.
+  it('shows nothing on file for a target who may have moved', () => {
+    renderSheet([target({ mayHaveMoved: true })])
+
+    expect(within(demographicCard()).getAllByText('Not on file')).toHaveLength(
+      11,
+    )
+  })
+
+  // Household context is for the conversation, not a second profile: a
+  // non-target resident is not someone the candidate asked to contact.
+  it('leaves other residents name-only', () => {
+    render(
+      <PersonSheet
+        stop={{
+          ...stop([fullTarget()]),
+          addresses: [
+            {
+              addressKey: '105|elm|st',
+              address: '105 Elm St',
+              targets: [fullTarget()],
+              otherResidents: [{ name: 'Ruben Vega' }],
+            },
+          ],
+        }}
+        selectedTargetId={21}
+        onSelectTarget={vi.fn()}
+        statusFor={() => 'unknown'}
+        clientKeyFor={() => 'key'}
+        onRecorded={vi.fn()}
+        onDoNotKnockChanged={vi.fn()}
+        onNotAVoterChanged={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+
+    const household = within(
+      screen.getByRole('heading', { name: 'Household' }).parentElement!,
+    )
+    expect(household.getByText('Ruben Vega')).toBeInTheDocument()
+    expect(household.getByText('Not targeted')).toBeInTheDocument()
+    // The neighbor's row carries a name and a status and nothing else — the
+    // profile above belongs to the target alone.
+    expect(household.queryByText('Likely Married')).toBeNull()
+    expect(household.queryByText('Graduate Degree')).toBeNull()
   })
 })

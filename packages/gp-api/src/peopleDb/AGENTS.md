@@ -189,6 +189,43 @@ partition regardless of how low the LIMIT is — and on a large route it is high
 enough that it stops meaningfully bounding anything. It exists to reject rather
 than truncate (see below), not to make the query cheap.
 
+### Its projection is wide, and that is not the same risk
+
+`residents()` selects eleven demographic columns (`Voter_Status`,
+`Marital_Status`, `Presence_Of_Children`, `Veteran_Status`,
+`Homeowner_Probability_Model`, `Business_Owner`, `Education_Of_Person`,
+`Estimated_Income_Amount_Int`, `Language_Code`,
+`EthnicGroups_EthnicGroup1Desc`, plus a computed
+`("StateVoterID" IS NOT NULL) AS "registered"`) on top of name/age/party/phones,
+so the door can show a canvasser who they are talking to.
+
+Read that against the note above rather than as a contradiction of it. The cost
+this query carries is in the **scan** — a computed key compared against an
+array, with no index to probe — and the column list does not move it: every one
+of these is read off a row the scan already had to visit, and the result is
+bounded by `residentsCap` either way. Widening the **projection** here is
+routine. Widening the **predicate**, raising the LIMIT, or softening the
+reject-rather-than-truncate guard is not, and none of those changed.
+
+`registered` is computed rather than selected raw on purpose: it is the pack's
+own definition of the word (`voterPack.service.ts` derives `registered` the same
+way), and it keeps a raw state voter id out of a payload with no use for one.
+Note the `Person` contract's `registeredVoter` is a hardcoded `'Yes'` that reads
+no column at all — don't reach for it as a model.
+
+Display mapping is **not** duplicated here. The service calls the same exported
+mappers `/v1/contacts` person detail uses
+(`utils/transformToPersonOutput.util.ts`), so `Inferred Married` reaches a door
+as "Likely Married" and `Completed Graduate School Likely` as "Graduate Degree",
+worded identically in both products. Two of those mappers are **presence-only**
+— `mapVeteranStatus` and `mapBusinessOwner` return `'Yes'` or null, because the
+columns hold a value meaning yes or nothing at all — so absence is
+indistinguishable from unknown and no consumer may render "No" for them. The one
+deliberate departure is `language`: `mapLanguage` returns `'Other'` for an
+absent value, which is right for a CSV column that must always have a cell and
+wrong at a door, so the service keeps a null column null and only maps a present
+value. That mirrors the `politicalParty` rule three lines above it.
+
 ## Reject rather than truncate — do not "fix" this into pagination
 
 Both `evaluate()` and `residents()` deliberately fail the whole request rather

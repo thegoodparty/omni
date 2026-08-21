@@ -44,6 +44,9 @@ const turf = (overrides: Partial<DoorKnockingTurf> = {}): DoorKnockingTurf => ({
     ],
   },
   locked: false,
+  doorCount: null,
+  peopleCount: null,
+  loggedCount: null,
   createdAt: new Date('2026-07-21T00:00:00Z'),
   updatedAt: new Date('2026-07-21T00:00:00Z'),
   ...overrides,
@@ -438,6 +441,90 @@ describe('TurfDetailsSheet overview', () => {
 
     expect(await screen.findByText('People logged')).toBeInTheDocument()
     expect(screen.queryByText(/reached/i)).toBeNull()
+  })
+
+  // The bar is a picture of the value above it rather than a second claim, so
+  // it is aria-hidden and holds no text — the only way to it is through the
+  // card that owns it.
+  const loggedBar = () =>
+    screen
+      .getByText('People logged')
+      .parentElement?.querySelector<HTMLElement>('.bg-info') ?? null
+
+  // One of three targets logged. The width and the printed percent come off
+  // one expression, so this asserts they agree rather than that a bar exists.
+  it('draws the logged bar at the percentage it prints', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: {
+        ...routeWithDoors,
+        stops: routeWithDoors.stops.map((stop) => ({
+          ...stop,
+          addresses: stop.addresses.map((address) => ({
+            ...address,
+            targets: address.targets.map((target) =>
+              target.stopTargetId === 21
+                ? { ...target, knockStatus: 'not_home' as const }
+                : target,
+            ),
+          })),
+        })),
+      } satisfies DoorKnockingRoutePayload,
+    })
+    renderSheet({ prop: { locked: true }, listStats: listStats() })
+
+    expect(await screen.findByText('1 of 3 · 33%')).toBeInTheDocument()
+    expect(loggedBar()).toHaveStyle({ width: '33%' })
+  })
+
+  // Zero is a real answer here — a locked list nobody has started — so unlike
+  // the audience breakdown's bars this one is not floored to a visible
+  // sliver. A hairline would draw a door that was never knocked.
+  it('draws the logged bar empty rather than as a sliver at zero', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: routeWithDoors,
+    })
+    renderSheet({ prop: { locked: true }, listStats: listStats() })
+
+    expect(await screen.findByText('0 of 3 · 0%')).toBeInTheDocument()
+    expect(loggedBar()).toHaveStyle({ width: '0%' })
+  })
+
+  // An unlocked list has no route and reads "Not knocked yet". A 0% bar there
+  // draws an untouched list as a walk barely begun — the bar hangs off the
+  // route existing, not off the percentage, which is 0 in both cases.
+  it('draws no logged bar on a list that was never knocked', () => {
+    renderSheet({ listStats: listStats() })
+
+    // Twice: route type and people logged, per the pack-loading test above.
+    expect(screen.getAllByText('Not knocked yet')).toHaveLength(2)
+    expect(loggedBar()).toBeNull()
+  })
+
+  // The same rule through the two states that also have no figure to draw.
+  it('draws no logged bar while the route is loading', async () => {
+    api.mock(
+      'GET /v1/door-knocking/turfs/:id/route',
+      () => new Promise(() => undefined),
+    )
+    renderSheet({ prop: { locked: true }, listStats: listStats() })
+
+    await waitFor(() =>
+      expect(screen.getAllByText('Loading').length).toBeGreaterThan(0),
+    )
+    expect(loggedBar()).toBeNull()
+  })
+
+  it('draws no logged bar when the route fails to load', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+    renderSheet({ prop: { locked: true }, listStats: listStats() })
+
+    expect(await screen.findByText(/could not be loaded/)).toBeInTheDocument()
+    expect(loggedBar()).toBeNull()
   })
 
   // An empty shape has no evening to estimate, so the stat keeps its old copy

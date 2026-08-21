@@ -732,6 +732,15 @@ export {
   OutreachDetailSchema,
   type OutreachDetail,
 } from './outreach/OutreachSocial.schema'
+export {
+  PhoneBankingScriptPurposeSchema,
+  type PhoneBankingScriptPurpose,
+  PHONE_BANKING_SCRIPT_MAX_LENGTH,
+  PhoneBankingScriptDraftRequestSchema,
+  type PhoneBankingScriptDraftRequest,
+  PhoneBankingScriptDraftResponseSchema,
+  type PhoneBankingScriptDraftResponse,
+} from './outreach/PhoneBankingScript.schema'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
 
@@ -768,6 +777,7 @@ export {
 export {
   DoorKnockingResidentsRequestSchema,
   type DoorKnockingResidentsRequest,
+  DoorKnockingDemographicsShape,
   DoorKnockingResidentTargetSchema,
   type DoorKnockingResidentTarget,
   DoorKnockingResidentsAddressSchema,
@@ -862,7 +872,7 @@ export {
   PhoneBankingPurposeSchema,
   type PhoneBankingPurpose,
   PHONE_BANKING_NAME_MAX_LENGTH,
-  PHONE_BANKING_SCRIPT_MAX_LENGTH,
+  PHONE_BANKING_CREATE_SCRIPT_MAX_LENGTH,
   PHONE_BANKING_FILTER_NAME_MAX_LENGTH,
   PHONE_BANKING_MAX_SHEET_COUNT,
   PhoneBankingFiltersSchema,

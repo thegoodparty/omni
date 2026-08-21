@@ -200,7 +200,6 @@ describe('PositionsService', () => {
 
     expect(projectedTurnoutService.determineElectionCode).toHaveBeenCalledWith(
       '2024-11-05',
-      'CA',
     )
     expect(findUnique).toHaveBeenCalledWith({
       where: { id: 'pos-1' },

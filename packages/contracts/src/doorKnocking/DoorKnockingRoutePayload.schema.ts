@@ -6,6 +6,7 @@ import {
   TextConstituentActivitySchema,
 } from '../people/ContactActivity.schema'
 import { NotAVoterReasonSchema } from '../people/ContactStatus.schema'
+import { DoorKnockingDemographicsShape } from './DoorKnockingResidents.schema'
 import { DoorKnockingRouteHeaderSchema } from './DoorKnockingTurf.schema'
 
 // ADR 0009. Previous outreach to one resident, riding the route payload so
@@ -29,6 +30,28 @@ export const RouteTargetActivitySchema = z.discriminatedUnion('type', [
 ])
 
 export type RouteTargetActivity = z.infer<typeof RouteTargetActivitySchema>
+
+// `DoorKnockingDemographicsShape` with every member made optional, built by
+// mapping rather than re-declared, so the eleven attributes are still written
+// down exactly once (in DoorKnockingResidents.schema.ts, next to the column
+// each one reads and the mapper that produced it). A hand-copied optional twin
+// is a second list to keep in step, and the first thing to fall out of step is
+// the one nobody re-reads.
+const optionalDemographics = (): {
+  [K in keyof typeof DoorKnockingDemographicsShape]: z.ZodOptional<
+    (typeof DoorKnockingDemographicsShape)[K]
+  >
+} =>
+  Object.fromEntries(
+    Object.entries(DoorKnockingDemographicsShape).map(([key, schema]) => [
+      key,
+      schema.optional(),
+    ]),
+  ) as {
+    [K in keyof typeof DoorKnockingDemographicsShape]: z.ZodOptional<
+      (typeof DoorKnockingDemographicsShape)[K]
+    >
+  }
 
 // Most-recent-first, capped server-side. The cap is what makes the payload's
 // cost independent of how long a person's CRM history runs: a person with two
@@ -70,6 +93,34 @@ export const RoutePayloadTargetSchema = z.object({
   // walk sheet deliberately omits these, since paper leaves the building.
   cellPhone: z.string().nullable(),
   landline: z.string().nullable(),
+  // The eleven-attribute demographic profile, derived from the residents
+  // contract's shape so the two cannot drift — `serve()` copies these across
+  // one for one, and a field added on one side without the other would be a
+  // silent hole rather than a type error.
+  //
+  // Live-only like age, party and the phones: a `mayHaveMoved` target has no
+  // live row, so every one of these is null for them rather than describing
+  // whoever lives there now. Screen only — both paper surfaces omit them, for
+  // the reason they omit the phone numbers, and with more force: a demographic
+  // profile of a named voter on a page that leaves the building is a larger
+  // disclosure than a phone number is.
+  //
+  // Targets only. `otherResidents` below stays name-only.
+  //
+  // **Optional here and required on the residents response**, which is the same
+  // split `history` and `notAVoterReason` above make and for the same reason:
+  // this payload is what a service worker snapshots for a walk with no signal,
+  // so one taken before this shipped carries none of these keys and has to keep
+  // parsing on a phone that cannot refetch. The residents response is an
+  // in-process S2S read with no snapshot, so required there is what actually
+  // enforces that the SELECT widened.
+  //
+  // Consequence for renderers, and it is the whole reason this is written down:
+  // absent means the same thing as null and must render the same way. A
+  // `boolean | null | undefined` fed to a bare ternary makes `undefined` false,
+  // which would print "No" against `registeredVoter` on every pre-ship
+  // snapshot — see `demographicFacts.ts`, which normalizes both.
+  ...optionalDemographics(),
   knockStatus: DoorKnockStatusSchema,
   mayHaveMoved: z.boolean(),
   // ADR 0007. A flag rather than a DoorKnockStatus member: a knock status is
@@ -115,7 +166,8 @@ export const RoutePayloadAddressSchema = z.object({
   // from live data, so the walk view matches what was routed.
   address: z.string(),
   targets: z.array(RoutePayloadTargetSchema),
-  // Live household context, deliberately name-only.
+  // Live household context, deliberately name-only — the demographic profile
+  // above is for targets alone.
   otherResidents: z.array(z.object({ name: z.string().nullable() })),
 })
 
