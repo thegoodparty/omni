@@ -203,6 +203,11 @@ import { dirname, join, relative } from 'node:path'
 // RobocallFlow (flow state) and RobocallPurposeStep (onClick selection) are
 // interactive drawer surfaces mirroring the social flow, so both are client
 // components.
+// 2026-08-20: 584 -> 585 for the robocall audience step (phase 3, slice 2):
+// OutreachAudienceStep — the shared, reusable saved-list picker + in-flow
+// builder — owns the popover open state and click handlers, so it's a client
+// component. Its data hook useOutreachAudience.ts stays directive-free (no JSX,
+// pulled into the client graph by its importers).
 // 2026-08-20: 584 -> 590 for the phone-banking create flow (ENG-10919):
 // PhoneBankingFlow (flow state) and its five step components (PurposeStep,
 // WhoStep, ScriptStep, SheetCountStep, DownloadStep) are all interactive
@@ -214,7 +219,9 @@ import { dirname, join, relative } from 'node:path'
 // (the outcome cascade + save mutation), and PhoneBankingNotes (notes CRUD)
 // all hold client state, mutations, or event handlers, so all four must be
 // client components; the route's page.tsx stays a server component.
-const BASELINE = 594
+// 2026-08-21: merge reconciliation — main's 594 (phone banking) plus this
+// branch's OutreachAudienceStep (+1) = 595.
+const BASELINE = 595
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

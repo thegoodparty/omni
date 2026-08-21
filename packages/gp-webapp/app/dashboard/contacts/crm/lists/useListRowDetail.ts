@@ -53,6 +53,27 @@ const releaseSlot = () => {
   waiting.shift()?.()
 }
 
+// Same call as fetchListDetail, but queued through the MAX_IN_FLIGHT throttle so
+// callers outside this hook (e.g. the outreach audience step's cost-preview
+// fetch) share the cap instead of adding list-detail fan-out invisible to
+// `inFlight` — otherwise opening that flow while the lists index is mounted can
+// push concurrent people-db aggregates back past the statement timeout above.
+export const fetchListDetailThrottled = async (
+  segmentId: number,
+  signal?: AbortSignal,
+) => {
+  await acquireSlot()
+  try {
+    // Queued behind other callers long enough to be dropped (rapid reselection,
+    // flow close): don't spend a request + its four people-db aggregates on a
+    // result nothing will read (mirrors the queryFn's own abort check below).
+    if (signal?.aborted) throw new Error('list-detail request aborted')
+    return await fetchListDetail(segmentId)
+  } finally {
+    releaseSlot()
+  }
+}
+
 // `enabled` is required, not defaulted: this hook ran unconditionally for every
 // saved list, and getListDetail is pro-gated, so a non-pro user 400d once per row
 // on mount without touching anything. A default would let that reappear silently.
