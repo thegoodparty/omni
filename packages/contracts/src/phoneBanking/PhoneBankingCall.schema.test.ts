@@ -43,14 +43,36 @@ describe('RecordPhoneBankingCallSchema', () => {
     )
   })
 
-  it('rejects personId on a non-answered outcome', () => {
+  it('accepts a person-attributed refused (answered but refused to engage)', () => {
+    const call = { entryId: 1, outcome: 'refused', personId: 'person-1' }
+    expect(() => RecordPhoneBankingCallSchema.parse(call)).not.toThrow()
+  })
+
+  it('accepts a bare refused with no personId (number-level fan-out)', () => {
+    const call = { entryId: 1, outcome: 'refused' }
+    expect(() => RecordPhoneBankingCallSchema.parse(call)).not.toThrow()
+  })
+
+  it('rejects personId on a number-only outcome', () => {
     const call = {
       entryId: 1,
       outcome: 'wrong_number',
       personId: 'person-1',
     }
     expect(() => RecordPhoneBankingCallSchema.parse(call)).toThrow(
-      /personId is only valid when outcome is answered/,
+      /personId is only valid when outcome is answered or refused/,
+    )
+  })
+
+  it('rejects supportAnswer on a person-attributed refused', () => {
+    const call = {
+      entryId: 1,
+      outcome: 'refused',
+      personId: 'person-1',
+      supportAnswer: 'supporter',
+    }
+    expect(() => RecordPhoneBankingCallSchema.parse(call)).toThrow(
+      /supportAnswer is only valid when outcome is answered/,
     )
   })
 
