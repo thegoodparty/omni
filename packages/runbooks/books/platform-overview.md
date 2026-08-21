@@ -239,7 +239,7 @@ District (state + L2 type/name, unique constraint)
   └── Position (BallotReady position ID → district link — key for gold flow)
 ```
 
-**Election code logic**: `determineElectionCode(date, state)` classifies election dates — General (even year, first Tues after first Mon in Nov), ConsolidatedGeneral (LA/MS/NJ/VA odd years, KS 4-year cycle), everything else LocalOrMunicipal.
+**Election code logic**: `determineElectionCode(date)` classifies election dates in UTC — General (even year, first Tues after first Mon in Nov), everything else LocalOrMunicipal. It does not depend on state: the retrained turnout model dropped the ConsolidatedGeneral category the odd-November states used to read, and primary days arrive pre-tagged on the race row from the warehouse calendar.
 
 **Deploy**: Docker → ECR → Pulumi → ECS Fargate (`packages/election-api/deploy/`). Local port 3001. Aurora Serverless v2. Not part of the full-stack PR-preview pairing — gp-webapp doesn't call it directly (election data is proxied through gp-api), and there is no per-PR election-api stack; PR previews use the shared dev election-api.
 

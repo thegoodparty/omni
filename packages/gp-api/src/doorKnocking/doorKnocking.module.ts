@@ -11,6 +11,8 @@ import { DoorKnockingTurfService } from './services/doorKnockingTurf.service'
 import { DoorKnockingKnockService } from './services/doorKnockingKnock.service'
 import { DoorKnockingPeopleApiService } from './services/doorKnockingPeopleApi.service'
 import { DoorKnockingServeService } from './services/doorKnockingServe.service'
+import { DoorKnockingStatusService } from './services/doorKnockingStatus.service'
+import { DoorKnockingTurfCountsService } from './services/doorKnockingTurfCounts.service'
 import { DoorKnockingInteractionService } from './services/doorKnockingInteraction.service'
 import { DoorKnockingPackService } from './services/doorKnockingPack.service'
 import { DoorKnockingPreviewService } from './services/doorKnockingPreview.service'
@@ -28,9 +30,11 @@ import { DoorKnockingPreviewService } from './services/doorKnockingPreview.servi
   providers: [
     DoorKnockingActivityService,
     DoorKnockingTurfService,
+    DoorKnockingTurfCountsService,
     DoorKnockingKnockService,
     DoorKnockingPeopleApiService,
     DoorKnockingServeService,
+    DoorKnockingStatusService,
     DoorKnockingInteractionService,
     DoorKnockingPackService,
     DoorKnockingPreviewService,

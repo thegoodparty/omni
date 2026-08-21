@@ -437,13 +437,7 @@ export const PathToVictoryStep = ({
   const winNumber = metrics?.winNumber ?? 0
   const winNumberLower = metrics?.winNumberLower ?? null
   const winNumberUpper = metrics?.winNumberUpper ?? null
-  // Prefer the general-election-anchored voter-turnout baseline (the number
-  // win-number and contact targets are sized against on election-api) over
-  // the race's own election-code turnout — for a primary or off-cycle
-  // municipal race the latter is a much smaller figure and reads as
-  // "incorrect" next to the copy "voters we expect to cast a ballot".
-  const projectedTurnout =
-    metrics?.projectedVoterTurnout ?? metrics?.projectedTurnout ?? 0
+  const projectedTurnout = metrics?.projectedTurnout ?? 0
 
   useEffect(() => {
     onLoadingChange?.(!showResults)
