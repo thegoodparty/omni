@@ -506,4 +506,28 @@ describe('OutreachHistoryTable — unified history', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText('No archived campaigns.')).not.toBeInTheDocument()
   })
+
+  it('an all-archived history points at the Archive toggle, not the filters', () => {
+    const rows: HistoryRow[] = [
+      {
+        id: 33,
+        date: '2026-07-01',
+        outreachType: 'robocall',
+        name: 'Archived robocall',
+        status: 'completed',
+        archivedAt: '2026-08-10T00:00:00Z',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    expect(
+      within(desktopTable()).getByText(
+        'All your campaigns are archived. Click “Archive” to view them.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('No campaigns match your filters.'),
+    ).not.toBeInTheDocument()
+  })
 })

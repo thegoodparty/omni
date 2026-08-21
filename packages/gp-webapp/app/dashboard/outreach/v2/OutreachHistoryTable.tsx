@@ -261,14 +261,18 @@ export const OutreachHistoryTable = ({
     setStatusFilter(new Set(STATUS_FILTERS))
   }
 
+  const activeRowCount = rows.filter((row) => !row.archivedAt).length
+
   const emptyMessage =
     visible.length === 0 && activeFilterCount > 0
       ? 'No campaigns match your filters.'
       : showArchive
         ? 'No archived campaigns.'
-        : rows.length === 0
-          ? 'No campaigns yet. Pick a channel above to create your first.'
-          : 'No campaigns match your filters.'
+        : activeRowCount === 0 && rows.length > 0
+          ? 'All your campaigns are archived. Click “Archive” to view them.'
+          : activeRowCount === 0
+            ? 'No campaigns yet. Pick a channel above to create your first.'
+            : 'No campaigns match your filters.'
 
   return (
     <section className="space-y-3 mt-10 mb-32">
