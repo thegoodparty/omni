@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { StatsService } from './stats.service'
 import type { PeopleDbService } from '../peopleDb.service'
 
@@ -104,5 +104,62 @@ describe('StatsService', () => {
     await expect(
       service.findTotalCounts('missing-district-id'),
     ).resolves.toBeNull()
+  })
+  describe('store routing', () => {
+    const databricks = { findStats: vi.fn() }
+
+    beforeEach(() => {
+      ;(service as unknown as { databricks: unknown }).databricks = databricks
+      process.env.USE_DATABRICKS_PEOPLE_DB = 'true'
+    })
+
+    afterEach(() => {
+      process.env.USE_DATABRICKS_PEOPLE_DB = 'false'
+    })
+
+    it('computes stats on demand instead of reading the stale table', async () => {
+      databricks.findStats.mockResolvedValue({
+        districtId: 'district-1',
+        totalConstituents: 100,
+        totalConstituentsWithCellPhone: 40,
+      })
+
+      const result = await service.findStats({
+        districtId: 'district-1',
+      } as never)
+
+      expect(result?.totalConstituents).toBe(100)
+      expect(mockPrisma.districtStats.findUnique).not.toHaveBeenCalled()
+    })
+
+    // A zero-voter district has to keep presenting as "no stats row" — polls
+    // and the webapp's empty state both branch on the null.
+    it('passes a null computed result straight through', async () => {
+      databricks.findStats.mockResolvedValue(null)
+
+      await expect(
+        service.findStats({ districtId: 'district-1' } as never),
+      ).resolves.toBeNull()
+      await expect(
+        service.findTotalConstituents('district-1'),
+      ).resolves.toBeNull()
+      await expect(service.findTotalCounts('district-1')).resolves.toBeNull()
+    })
+
+    it('derives both totals from the computed row', async () => {
+      databricks.findStats.mockResolvedValue({
+        districtId: 'district-1',
+        totalConstituents: 100,
+        totalConstituentsWithCellPhone: 40,
+      })
+
+      await expect(service.findTotalCounts('district-1')).resolves.toEqual({
+        totalConstituents: 100,
+        totalConstituentsWithCellPhone: 40,
+      })
+      await expect(service.findTotalConstituents('district-1')).resolves.toBe(
+        100,
+      )
+    })
   })
 })

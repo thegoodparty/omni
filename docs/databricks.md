@@ -77,13 +77,19 @@ names and worked examples. That script is the documented path for real query wor
 ## Programmatic access (services and scripts)
 
 Application code does **not** use the CLI. It connects with the SQL connector using
-credentials from the environment. Two consumers exist today:
+credentials from the environment. Three consumers exist today:
 
 - **gp-api** — `packages/gp-api/src/llm/tools/databricksConnection.ts` resolves the
   connection from env and powers the `queryDatabricks` / `queryConstituentData` /
   `districtInsights` LLM tools. It prefers OAuth **M2M** (`DATABRICKS_CLIENT_ID` +
   `DATABRICKS_CLIENT_SECRET`) and falls back to a PAT (`DATABRICKS_API_KEY`); the
   tool stays unregistered if neither host/path nor a usable credential is set.
+- **gp-api's voter engine** — `packages/gp-api/src/peopleDb/databricks/` serves the
+  CRM's voter queries (aggregates, list/search, overlap, district stats, CSV export)
+  from `goodparty_data_catalog.dbt` instead of the people-db Postgres cluster, behind
+  `USE_DATABRICKS_PEOPLE_DB`. It talks to the Statement Execution API rather than the
+  SQL connector, because a CSV export needs `EXTERNAL_LINKS` chunks. See
+  `packages/gp-api/src/peopleDb/AGENTS.md`.
 - **runbooks** — `packages/runbooks/scripts/python/databricks_query.py` uses a PAT.
 
 `resolveDatabricksConnection(prefix)` resolves per-identity credentials: the

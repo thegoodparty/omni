@@ -74,6 +74,22 @@ describe('buildArtifactHtml', () => {
     expect(sections(withFailure)).toEqual(sections(buildArtifactHtml(data())))
   })
 
+  it('names the store it measured, and defaults to postgres', () => {
+    const dbx = buildArtifactHtml(data({ store: 'databricks' }))
+    expect(dbx).toContain('Store')
+    expect(dbx).toContain('databricks')
+    // an artifact written before --store existed still renders a store
+    expect(buildArtifactHtml(data())).toContain('postgres')
+  })
+
+  it('puts the store in the filename and the reproduce command', () => {
+    const html = buildArtifactHtml(data({ store: 'databricks' }))
+    expect(html).toContain(
+      'people-db-bench-prod-databricks-abc1234-latency.json',
+    )
+    expect(html).toContain('--env=prod --store=databricks')
+  })
+
   it('carries the id-set provenance so a set size is never guessed at', () => {
     expect(buildArtifactHtml(data())).toContain('people-db-bench-v1')
     expect(buildArtifactHtml(data())).toContain('5000')
@@ -125,6 +141,7 @@ describe('buildArtifactHtml', () => {
     const load: LoadArtifactData = {
       env: 'prod',
       mode: 'load',
+      store: 'databricks',
       gitSha: 'abc1234',
       startedAt: '2026-08-20T16:16:59.219Z',
       descriptions: data().descriptions,
@@ -148,6 +165,7 @@ describe('buildArtifactHtml', () => {
     }
     const html = buildArtifactHtml(load)
     expect(html).toContain('Concurrency sweep')
+    expect(html).toContain('databricks')
     expect(html).toContain('c=50')
     expect(html).toContain('12% err')
     expect(html).toContain('FAIL')

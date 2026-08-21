@@ -18,15 +18,23 @@ export type CaseResult = {
 export const artifactPath = (meta: {
   env: string
   mode: string
+  store: string
   gitSha: string
 }): string =>
-  `scripts/output/people-db-bench-${meta.env}-${meta.gitSha}-${meta.mode}.json`
+  `scripts/output/people-db-bench-${meta.env}-${meta.store}` +
+  `-${meta.gitSha}-${meta.mode}.json`
 
 // The descriptions travel WITH the results so anything downstream (the HTML
 // artifact, a future CI dashboard) renders the same words the console legend
 // printed, without re-deriving them from a copy that can drift.
 export const buildArtifact = (
-  meta: { env: string; mode: string; gitSha: string; startedAt: string },
+  meta: {
+    env: string
+    mode: string
+    store: string
+    gitSha: string
+    startedAt: string
+  },
   results: unknown[],
 ): object => ({
   ...meta,

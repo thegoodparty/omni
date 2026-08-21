@@ -10,6 +10,10 @@ import { DistrictService } from '@/peopleDb/services/district.service'
 import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
 import { resolveDistrict } from '@/peopleDb/utils/resolveDistrict.util'
 import { stateEquals } from '@/peopleDb/utils/buildVoterWhereSql.util'
+import { DatabricksVoterService } from '@/peopleDb/databricks/databricksVoter.service'
+import { PeopleDbxStatementClient } from '@/peopleDb/databricks/peopleDbxStatement.client'
+import { useDatabricksPeopleDb } from '@/peopleDb/databricks/peopleDbx.config'
+import { lit, VOTER_TABLE } from '@/peopleDb/databricks/databricksVoterSql.util'
 import {
   listPeopleSchema,
   aggregatesSchema,
@@ -45,7 +49,8 @@ export type Harness = {
 }
 
 export const createHarness = async (): Promise<Harness> => {
-  if (!process.env.PEOPLE_DATABASE_URL) {
+  const useDbx = useDatabricksPeopleDb()
+  if (!useDbx && !process.env.PEOPLE_DATABASE_URL) {
     throw new Error(
       'PEOPLE_DATABASE_URL must be set before booting the harness',
     )
@@ -58,15 +63,48 @@ export const createHarness = async (): Promise<Harness> => {
   const download = app.get(VoterDownloadService)
   const districts = app.get(DistrictService)
   const peopleDb = app.get(PeopleDbService)
+  const dbxVoters = app.get(DatabricksVoterService)
+  const dbxClient = app.get(PeopleDbxStatementClient)
 
   const idSets = new Map<string, string[]>()
 
   // Setup, not measurement. Call prepare() before the timed loop: sampling
   // costs ~0.5-1.5s per cohort and would otherwise land inside the first
   // outreach cell's timing.
+  // The Databricks store scopes on the voter row's own L2 district column, so
+  // there is no junction table to sample from — and no separate voter-only
+  // branch beyond dropping that column predicate.
+  const sampleIdsFromDbx = async (districtId: string): Promise<string[]> => {
+    const district = await dbxVoters.resolveDistrict(districtId)
+    const scope = [`v.\`State\` = ${lit(district.state)}`]
+    if (district.useVoterOnlyPath) {
+      scope.push(`substr(md5(v.\`id\`), 1, 2) = ${lit(STATEWIDE_ID_BUCKET)}`)
+    } else {
+      scope.push(
+        `v.\`${district.districtType}\` = ${lit(district.districtName)}`,
+      )
+    }
+    const { rows } = await dbxClient.query(
+      `SELECT v.\`id\` FROM ${VOTER_TABLE} v WHERE ${scope.join(' AND ')}` +
+        ` ORDER BY md5(concat(v.\`id\`, ${lit(ID_SAMPLE_SEED)}))` +
+        ` LIMIT ${ID_SET_SIZE}`,
+    )
+    return rows
+      .map(([id]) => id)
+      .filter((id): id is string => typeof id === 'string')
+  }
+
   const sampleIds = async (districtId: string): Promise<string[]> => {
     const cached = idSets.get(districtId)
     if (cached) return cached
+    if (useDbx) {
+      const dbxIds = await sampleIdsFromDbx(districtId)
+      if (dbxIds.length === 0) {
+        throw new Error(`no ids sampled for district ${districtId}`)
+      }
+      idSets.set(districtId, dbxIds)
+      return dbxIds
+    }
     const { useVoterOnlyPath, state } = await resolveDistrict(districts, {
       districtId,
     })

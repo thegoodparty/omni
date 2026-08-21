@@ -10,18 +10,28 @@ MUST run with the swc-node loader (the `perf:people-db` npm script does this).
 `tsx` does NOT work: esbuild drops decorator metadata and Nest DI resolves to
 `undefined`.
 
+`--store` chooses which store the run measures: it sets
+`USE_DATABRICKS_PEOPLE_DB` for the process (`postgres` -> `false`, the default;
+`databricks` -> `true`) before the harness boots the Nest graph. The same cases,
+iterations, and measurements run against either store, so two passes differ only
+in their numbers.
+
 ```bash
-# On the VPN. Export the target people-db read-only URL first (SSM/Secrets
+# Postgres. Export the target people-db read-only URL first (SSM/Secrets
 # Manager per the workspace CLAUDE.md). prod requires the VPN.
 export PEOPLE_DATABASE_URL='<connection-string>'
+npm run perf:people-db -- --mode=latency --env=prod --store=postgres
 
-npm run perf:people-db -- --mode=latency --env=dev    # the matrix, p50/p95
-npm run perf:people-db -- --mode=load --env=dev        # concurrency sweep + gate
-npm run perf:people-db -- --smoke --env=dev            # one case, boot check
+# Databricks. Needs the DATABRICKS_* credentials the peopleDb Databricks
+# client reads (see src/peopleDb/AGENTS.md); no VPN.
+npm run perf:people-db -- --mode=latency --env=prod --store=databricks
+
+npm run perf:people-db -- --mode=load --env=dev   # concurrency sweep + gate
+npm run perf:people-db -- --smoke --env=dev       # one case, boot check
 ```
 
 Results print as a table and are written to
-`scripts/output/people-db-bench-<env>-<sha>-<mode>.json`, plus a
+`scripts/output/people-db-bench-<env>-<store>-<sha>-<mode>.json`, plus a
 fixed-format HTML page beside it (`.html`) rendered by `artifactHtml.ts`.
 
 The HTML page is the reporting surface: publish it as a Claude artifact. Its

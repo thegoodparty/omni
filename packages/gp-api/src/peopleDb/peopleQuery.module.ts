@@ -6,9 +6,15 @@ import { VoterQueryService } from './services/voterQuery.service'
 import { VoterDownloadService } from './services/voterDownload.service'
 import { VoterDoorKnockingService } from './services/voterDoorKnocking.service'
 import { VoterPackService } from './services/voterPack.service'
+import { PeopleDbxStatementClient } from './databricks/peopleDbxStatement.client'
+import { DatabricksVoterService } from './databricks/databricksVoter.service'
+import { DatabricksVoterDownloadService } from './databricks/databricksVoterDownload.service'
 
 @Module({
   providers: [
+    PeopleDbxStatementClient,
+    DatabricksVoterService,
+    DatabricksVoterDownloadService,
     DistrictService,
     StatsService,
     VoterSampleService,
@@ -18,6 +24,8 @@ import { VoterPackService } from './services/voterPack.service'
     VoterPackService,
   ],
   exports: [
+    DatabricksVoterService,
+    DatabricksVoterDownloadService,
     DistrictService,
     StatsService,
     VoterSampleService,

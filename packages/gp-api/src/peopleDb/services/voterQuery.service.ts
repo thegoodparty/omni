@@ -16,7 +16,7 @@ import {
 import { createPeopleDbBase, PEOPLE_MODELS } from '../peopleDbBase.util'
 import { VoterSampleService } from './voterSample.service'
 
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { DistrictService } from './district.service'
 import { transformToPersonOutput } from '../utils/transformToPersonOutput.util'
 import { FilterData } from '../schemas/filters.schema'
@@ -36,6 +36,8 @@ import { buildAggregatesSql } from '../utils/buildAggregatesSql.util'
 import { buildOverlapCountSql } from '../utils/buildOverlapCountSql.utils'
 import { buildHouseholdKeySql } from '../utils/buildHouseholdKeySql.util'
 import { runUnderStatementTimeout } from '../utils/statementTimeout.util'
+import { DatabricksVoterService } from '../databricks/databricksVoter.service'
+import { useDatabricksPeopleDb } from '../databricks/peopleDbx.config'
 
 export const DATABASE_SCHEMA = 'green'
 
@@ -58,6 +60,12 @@ type RawPeopleQueryArgs = {
 
 @Injectable()
 export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
+  // Property-injected, not constructor-injected: the Postgres path is still
+  // the default, and this keeps its constructor (and every test that builds
+  // it) untouched while the store is behind a flag.
+  @Inject(DatabricksVoterService)
+  private readonly databricks!: DatabricksVoterService
+
   constructor(
     private readonly sampleService: VoterSampleService,
     private readonly districtService: DistrictService,
@@ -94,6 +102,11 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   }
 
   async findPeople(dto: ListPeopleDTO) {
+    // groupByHousehold stays on Postgres: its DISTINCT ON de-dup has no direct
+    // Databricks equivalent and door-knocking was not part of this cutover.
+    if (useDatabricksPeopleDb() && !dto.groupByHousehold) {
+      return this.databricks.findPeople(dto)
+    }
     const resolved = await resolveDistrict(this.districtService, dto)
     const { state, useVoterOnlyPath, districtId } = resolved
     const {
@@ -201,6 +214,9 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   // membership (ENG-10706) — distinct from StatsService.getStats, which only
   // serves the precomputed, unfiltered DistrictStats row.
   async getAggregates(dto: AggregatesDTO): Promise<PeopleAggregatesResponse> {
+    if (useDatabricksPeopleDb()) {
+      return this.databricks.getAggregates(dto)
+    }
     const resolved = await resolveDistrict(this.districtService, dto)
     const { state, useVoterOnlyPath, districtId } = resolved
     const effectiveDistrictId = useVoterOnlyPath ? null : districtId
@@ -238,6 +254,9 @@ export class VoterQueryService extends createPeopleDbBase(PEOPLE_MODELS.Voter) {
   async getOverlapCount(
     dto: OverlapCountDTO,
   ): Promise<PeopleOverlapCountResponse> {
+    if (useDatabricksPeopleDb()) {
+      return this.databricks.getOverlapCount(dto)
+    }
     const resolved = await resolveDistrict(this.districtService, dto)
     const { state, useVoterOnlyPath, districtId } = resolved
     const effectiveDistrictId = useVoterOnlyPath ? null : districtId

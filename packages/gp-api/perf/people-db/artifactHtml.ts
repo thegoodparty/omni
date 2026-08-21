@@ -46,6 +46,7 @@ export type Descriptions = {
 type Meta = {
   env: string
   mode: string
+  store?: string
   gitSha: string
   startedAt: string
   idSet?: { size: number; seed: string }
@@ -300,6 +301,7 @@ const page = (
   opts: { bands?: string[]; extra?: string; script?: string } = {},
 ): string => {
   const d = meta.descriptions ?? {}
+  const store = meta.store ?? 'postgres'
   const bands = opts.bands ?? BAND_ORDER.filter((b) => d.bands?.[b])
   const cohortRows = bands.map((b) => [
     `<span class="mono">${esc(b)}</span>`,
@@ -366,8 +368,8 @@ ${notes}
 </section>
 
 <footer>
-  <div class="mono">people-db-bench-${esc(meta.env)}-${esc(meta.gitSha)}-${esc(meta.mode)}.json</div>
-  <div class="mono">npm run perf:people-db -- --mode=${esc(meta.mode)} --env=${esc(meta.env)}</div>
+  <div class="mono">people-db-bench-${esc(meta.env)}-${esc(store)}-${esc(meta.gitSha)}-${esc(meta.mode)}.json</div>
+  <div class="mono">npm run perf:people-db -- --mode=${esc(meta.mode)} --env=${esc(meta.env)} --store=${esc(store)}</div>
 </footer>
 </div>
 ${opts.script ?? ''}
@@ -394,6 +396,7 @@ const buildLatencyHtml = (data: ArtifactData): string => {
   const prov: [string, string][] = [
     ['Mode', data.mode],
     ['Environment', data.env],
+    ['Store', data.store ?? 'postgres'],
     ['Commit', data.gitSha],
     ['Recorded', data.startedAt],
     ['Cells', String(data.results.length)],
@@ -593,6 +596,7 @@ const buildLoadHtml = (data: LoadArtifactData): string => {
   const prov: [string, string][] = [
     ['Mode', data.mode],
     ['Environment', data.env],
+    ['Store', data.store ?? 'postgres'],
     ['Commit', data.gitSha],
     ['Recorded', data.startedAt],
     ['Scenarios', String(data.results.length)],

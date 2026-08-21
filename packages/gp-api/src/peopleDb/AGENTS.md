@@ -250,6 +250,123 @@ perf-critical invariant, not an oversight. `PEOPLE_STATE_ENUM=false` switches
 the comparison to plain text for loader-built (non-Prisma-managed) clusters;
 the default keeps the `"public"."USState"` cast.
 
+## The Databricks store: `USE_DATABRICKS_PEOPLE_DB`
+
+`databricks/` is a second backing store for the same voter queries, selected at
+request time by `USE_DATABRICKS_PEOPLE_DB=true` (default false = the Postgres
+path above). The services keep their interfaces — `VoterQueryService`,
+`StatsService` and `VoterDownloadService` each branch at their entry point — so
+callers, contracts and the `perf/people-db/` benchmark suite are unchanged and
+the store is a config flip rather than a deploy.
+
+It queries `goodparty_data_catalog.dbt` (the dbt-modelled mirror of the same L2
+data) through the Statement Execution API using the `DATABRICKS_*`
+service-principal credential the LLM tools already resolve.
+`PEOPLE_DB_DATABRICKS_WAREHOUSE_ID` points voter scans at their own warehouse so
+they don't queue behind interactive chat.
+
+**Not everything routes.** `groupByHousehold` (door-knocking's DISTINCT ON
+de-dup), `findPerson`, `samplePeople`, `VoterDoorKnockingService` and
+`VoterPackService` stay on Postgres with the flag on. Only the aggregate,
+list/search, overlap, stats and CSV-download surfaces cross over.
+
+### Wide-column district scoping — never the junction table
+
+Postgres scopes a district by joining `green."DistrictVoter"`. **Do not port
+that join.** The Databricks equivalent (`m_people_api__districtvoter`, 2.6B
+rows) is clustered by `voter_id`, so a district predicate prunes nothing and
+runs 2-18s cold regardless of district size. `buildScopeSql` instead filters the
+voter row's own L2 district column: `m_people_api__district` gives
+`(id, state, type, name)` where **`type` IS the voter column name and `name` is
+its value**, so district `635757db-…` becomes ``WHERE `State` = 'CA' AND
+`US_Congressional_District` = '29'``. Verified equal to junction membership on
+four cohorts (7,828 / 64,689 / 398,619 / 898,598 voters).
+
+The `State` predicate stays on every query: the voter table (218.8M rows, 363
+columns) is liquid-clustered by `State`, and that is what prunes. The
+`useVoterOnlyPath` special case carries over unchanged — a `State` district
+whose name is the state has no junction rows at all, so it scopes on `State`
+alone.
+
+### `DistrictStats` is computed, not read
+
+The precomputed `m_people_api__districtstats` table runs 8-22 days stale, so
+`databricksDistrictStatsSql.util.ts` recomputes the whole row on demand — one
+scan, a `count_if` per bucket label, measured at ~20-60ms over a single-row
+lookup and flat from 7.8k to 23.3M voters.
+
+Verified exact against the precomputed table on the four benchmark cohorts
+(7,828 / 398,619 / 898,598 / 23,348,065 voters): same totals, same cell-phone
+count, same labels, counts, percents and ordering. Note the dbt mirror of that
+table lowercases its JSON keys (`estimatedincomerange`), while the shape gp-api
+and the webapp consume is camelCase (`estimatedIncomeRange`) — one more reason
+not to read it.
+
+Two things there are load-bearing:
+
+- **A zero-voter district must map back to `null`.** "No stats row" is product
+  behavior, not an absence of data: `polls.controller.ts` gates poll creation on
+  `totalConstituentsWithCellPhone`, `computeHashDivisorAndPrelimit` and
+  `fetchStatsByDistrictId` throw `VOTER_DATA_UNAVAILABLE` on null, and the
+  webapp renders a dedicated "no constituent data for this office yet" screen
+  keyed on that code. An on-demand query returns 0, never null, so
+  `mapDistrictStatsRow` does the mapping.
+- **`'Probable Home Owner'` folds into `Yes`**, and there is no `Likely`
+  bucket. That deliberately disagrees with `VALUE_MAPPERS.homeowner` in
+  `filters.sql.util.ts`, which maps the same value to `Likely`. The
+  inconsistency between the stats table and the filter pipeline predates this
+  code; reproducing the stats-table behavior is what keeps these numbers
+  identical to the ones the product shows today.
+
+### Name search uses `lower(col) LIKE`, not `isearch()`
+
+`isearch()` works and is equally fast, but its only documentation sits inside a
+Beta feature page, so we take no dependency on it. The tokenizer is a
+character-for-character port of `buildVoterWhereSql`'s search branch — phone
+normalization, 3+ char infix vs 1-2 char prefix, LIKE-metacharacter escaping —
+so a search resolves to the same match set in both stores.
+
+### CSV export mechanics
+
+`databricksVoterDownload.service.ts` uses `disposition: EXTERNAL_LINKS` with
+`format: CSV`, never the `@databricks/sql` driver's `fetchChunk` (which
+materializes every row through Thrift, 50-100x slower). Four things measured
+against the real 76-column projection:
+
+- `SUCCEEDED` means the chunk **plan** is ready, not that bytes are written —
+  chunks materialize lazily on fetch, which is what lets the download start
+  streaming in ~4s (mega: 898,598 rows / 26 chunks / 0.46 GB) instead of after
+  the whole export.
+- The first response carries **only chunk 0's link**; the rest arrive one at a
+  time via `next_chunk_internal_link`. Presigned links expire in ~15 minutes,
+  so a long export re-requests them mid-stream rather than resolving the chain
+  up front.
+- **Chunk 0 carries the CSV header row and later chunks do not**, so aliasing
+  each column to its `DOWNLOAD_COLUMNS` header gives the curated header for
+  free.
+- **Every column is `nvl(CAST(col AS STRING), '')`.** The API renders a SQL
+  NULL as the literal text `null` in CSV where Postgres `COPY` writes an empty
+  field — without the coalesce the download is full of the word "null".
+
+### Timeout ceiling is 60s here, not 25s
+
+The Postgres 25s ceiling guards against a pathological plan on a warm cluster.
+On a serverless warehouse the long tail is compute startup instead, so killing
+at 25s would turn every post-idle request into a 504. `PeopleDbxTimeoutError`
+still maps to the same `GatewayTimeoutException`, so the 504 stays classified
+and alertable.
+
+### Blocked: the Unity Catalog grant
+
+Neither gp-api service principal can read `goodparty_data_catalog.dbt` today —
+both `DATABRICKS_*` and `WIN_DATABRICKS_*` fail with `INSUFFICIENT_PERMISSIONS:
+User does not have USE SCHEMA`. The schema is owned by another service
+principal, with a `data users` group holding SELECT/USE_SCHEMA. So this path can
+be developed and benchmarked with a personal-identity token, but **cannot
+function in dev, preview or prod until that grant is issued**. Issuing it is a
+production access-control decision about restricted voter data, not a code
+change.
+
 ## Testing
 
 All tests here are **mock-based** — there is no people-db test container in
@@ -258,7 +375,9 @@ construction is mocked (see `peopleDb.service.test.ts`'s `vi.mock('../generated/
 pattern); SQL-builder utils assert the generated SQL string + params
 (`filters.sql.util.test.ts` pattern) rather than executing against Postgres.
 Keep new tests in this module to that pattern — don't reach for
-`useTestService()` here, it boots gp-api's own Postgres, not people-db.
+`useTestService()` here, it boots gp-api's own Postgres, not people-db. The
+`databricks/` tests follow it too: the SQL builders assert generated SQL
+strings, and the services are driven through a stubbed statement client.
 
 ## Key files
 
@@ -282,6 +401,12 @@ Keep new tests in this module to that pattern — don't reach for
 | `utils/buildAggregatesSql.util.ts`      | Aggregate/stats SQL builders                                          |
 | `utils/resolveDistrict.util.ts`         | District join/resolution helper                                       |
 | `util/hash.util.ts`                     | `personId` hash derivation (stable hash of `LALVOTERID`)              |
+| `databricks/peopleDbx.config.ts`        | `USE_DATABRICKS_PEOPLE_DB` flag + connection/warehouse resolution     |
+| `databricks/peopleDbxStatement.client.ts` | Statement Execution API client (queries + CSV external links)       |
+| `databricks/databricksVoterSql.util.ts` | Filter/search/scope → Databricks SQL, incl. wide-column scoping       |
+| `databricks/databricksDistrictStatsSql.util.ts` | On-demand DistrictStats query + bucket mapping                |
+| `databricks/databricksVoter.service.ts` | Aggregates, list/search, overlap, stats against Databricks            |
+| `databricks/databricksVoterDownload.service.ts` | Streaming CSV export via EXTERNAL_LINKS chunks                |
 
 ## Benchmarks
 
@@ -292,3 +417,7 @@ add or adjust a case so it stays covered: a new query type needs a branch in
 `perf/people-db/harness.ts`'s `invoke` and cases in `perf/people-db/cases.ts`;
 a new filter shape worth measuring is a `FilterVariant` in
 `perf/people-db/filterVariants.ts`. See `perf/people-db/CLAUDE.md`.
+
+The suite runs against either store — `--store=postgres` (default) or
+`--store=databricks` sets `USE_DATABRICKS_PEOPLE_DB` before the Nest graph
+boots, and the same cases exercise the production code path either way.

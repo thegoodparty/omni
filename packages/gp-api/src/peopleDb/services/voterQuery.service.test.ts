@@ -1,5 +1,5 @@
 import { GatewayTimeoutException, NotFoundException } from '@nestjs/common'
-import { describe, expect, it, beforeEach, vi } from 'vitest'
+import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest'
 import { Prisma } from '../../generated/people-prisma'
 import { VoterQueryService } from './voterQuery.service'
 import type { PeopleDbService } from '../peopleDb.service'
@@ -937,6 +937,83 @@ describe('VoterQueryService', () => {
       const sql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
       // Union of zero saved sets is the empty set (FALSE), not "unfiltered".
       expect(sql).toContain('AND FALSE')
+    })
+  })
+  // The flag is the whole rollback story: with it off nothing about the
+  // Postgres path changes, and with it on these three entry points hand the
+  // query to Databricks instead.
+  describe('store routing', () => {
+    const databricks = {
+      findPeople: vi.fn(),
+      getAggregates: vi.fn(),
+      getOverlapCount: vi.fn(),
+    }
+
+    beforeEach(() => {
+      databricks.findPeople.mockResolvedValue({ pagination: {}, people: [] })
+      databricks.getAggregates.mockResolvedValue({
+        count: 1,
+        avgAge: null,
+        avgIncome: null,
+      })
+      databricks.getOverlapCount.mockResolvedValue({ count: 1 })
+      ;(service as unknown as { databricks: unknown }).databricks = databricks
+      process.env.USE_DATABRICKS_PEOPLE_DB = 'true'
+    })
+
+    afterEach(() => {
+      process.env.USE_DATABRICKS_PEOPLE_DB = 'false'
+    })
+
+    it('routes getAggregates to Databricks and issues no Postgres query', async () => {
+      await service.getAggregates({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+      } as never)
+
+      expect(databricks.getAggregates).toHaveBeenCalledTimes(1)
+      expect(mockClient.$queryRaw).not.toHaveBeenCalled()
+    })
+
+    it('routes getOverlapCount to Databricks', async () => {
+      await service.getOverlapCount({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        savedFilterSets: [],
+      } as never)
+
+      expect(databricks.getOverlapCount).toHaveBeenCalledTimes(1)
+      expect(mockClient.$queryRaw).not.toHaveBeenCalled()
+    })
+
+    it('routes an ungrouped findPeople to Databricks', async () => {
+      await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        page: 1,
+        resultsPerPage: 50,
+        groupByHousehold: false,
+      } as never)
+
+      expect(databricks.findPeople).toHaveBeenCalledTimes(1)
+      expect(mockClient.$queryRaw).not.toHaveBeenCalled()
+    })
+
+    // Door-knocking de-dup has no Databricks equivalent yet, so it must keep
+    // going to Postgres even with the flag on.
+    it('keeps a household-grouped findPeople on Postgres', async () => {
+      mockClient.$queryRaw.mockResolvedValue([])
+
+      await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        page: 1,
+        resultsPerPage: 50,
+        groupByHousehold: true,
+      } as never)
+
+      expect(databricks.findPeople).not.toHaveBeenCalled()
+      expect(mockClient.$queryRaw).toHaveBeenCalled()
     })
   })
 })
