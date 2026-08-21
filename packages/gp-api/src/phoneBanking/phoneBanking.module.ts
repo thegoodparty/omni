@@ -5,6 +5,7 @@ import { ContactInteractionModule } from '@/contactInteraction/contactInteractio
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { PhoneBankingController } from './phoneBanking.controller'
+import { PhoneBankingCallService } from './services/phoneBankingCall.service'
 import { PhoneBankingListService } from './services/phoneBankingList.service'
 
 @Module({
@@ -16,6 +17,6 @@ import { PhoneBankingListService } from './services/phoneBankingList.service'
     PeopleQueryModule,
   ],
   controllers: [PhoneBankingController],
-  providers: [PhoneBankingListService],
+  providers: [PhoneBankingListService, PhoneBankingCallService],
 })
 export class PhoneBankingModule {}

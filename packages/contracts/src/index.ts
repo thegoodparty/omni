@@ -887,6 +887,10 @@ export {
   PHONE_BANKING_CALL_NOTE_MAX_LENGTH,
   RecordPhoneBankingCallSchema,
   type RecordPhoneBankingCall,
+  PhoneBankingCallResultSchema,
+  type PhoneBankingCallResult,
+  RecordPhoneBankingCallResponseSchema,
+  type RecordPhoneBankingCallResponse,
 } from './phoneBanking/PhoneBankingCall.schema'
 
 export {

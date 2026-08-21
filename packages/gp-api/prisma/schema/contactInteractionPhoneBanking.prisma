@@ -9,6 +9,10 @@ enum PhoneBankCallOutcome {
 model ContactInteractionPhoneBanking {
   id                 String               @id @default(uuid(7))
   createdAt          DateTime             @default(now()) @map("created_at")
+  // Drives the voter_likelihood sourceId mint (`${id}:${updatedAt}`) so a
+  // corrected willVote answer on the same row records a new status event
+  // instead of the door-knock sync's replay-dedup no-op.
+  updatedAt          DateTime             @updatedAt @map("updated_at")
   organizationSlug   String               @map("organization_slug")
   organization       Organization         @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
   personId           String               @map("person_id")

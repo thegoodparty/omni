@@ -12,7 +12,7 @@ phone banking also carries `@UseOrganization()` for the Pro gate)
 | --- | --- | --- |
 | `POST /outreach` (multipart) + `GET /outreach` | `outreach.controller.ts` | Legacy create/list. Create accepts `draft: true` (p2p only) → row stored `pending_payment`, hidden from the list. Image required for text/p2p |
 | `POST /outreach/social/draft` / `social/generate` / `social` (save), `GET /outreach/:id` | `outreachSocial.controller.ts` | Social flow (VO 2.0 phase 1): stateless draft/improve, per-platform asset generation, atomic save, detail read |
-| `POST /outreach/phone-banking/draft` | `outreachPhoneBanking.controller.ts` | Phone banking script draft/improve (VO 2.0 phone banking): stateless, Pro-gated (`@UseOrganization()` + `ContactsService.assertProAccess`) — the create flow freezes the chosen text onto the list itself via a separate, not-yet-landed `phone-banking/lists` endpoint |
+| `POST /outreach/phone-banking/draft` | `outreachPhoneBanking.controller.ts` | Phone banking script draft/improve (VO 2.0 phone banking): stateless, Pro-gated (`@UseOrganization()` + `ContactsService.assertProAccess`) — the create flow freezes the chosen text onto the list itself via `POST /phone-banking/lists` (`src/phoneBanking/`) |
 
 `GET /outreach/:id` deliberately lives on the social controller: detail reads
 must stay outside `OutreachNotificationInterceptor` — a 404 there would fire
@@ -69,15 +69,24 @@ never send `pending_payment` themselves.
   list itself, not onto an `Outreach` row.
 - Tone vocabulary (`util/messageTone.util.ts`) is shared across every
   stateless compose endpoint — don't redefine `TONE_STYLES` per channel.
+- `nativePhoneBanking` and `nativeDoorKnocking` envelopes are never touched
+  by `OutreachMaterializationService` — same reasoning as the exclusion
+  above. The nativePhoneBanking envelope flips to `completed` from inside
+  `PhoneBankingCallService` (`src/phoneBanking/`, ENG-10915), in the same
+  transaction as the interaction-row upsert that logs the last un-logged
+  person, once every person on every entry has a row. `nativeDoorKnocking`
+  has no such flip today — it stays `in_progress` for the life of the route.
 
 ## Contracts / models
 
 - `@goodparty_org/contracts` `src/outreach/`: `OutreachSocial.schema.ts`,
   `OutreachScript.const.ts`, `PhoneBankingScript.schema.ts`.
 - Prisma: `outreach.prisma` (spine), `outreachSocial.prisma` +
-  `outreachSocialAsset.prisma` (satellite). Phone banking has no Prisma
-  model here — it's stateless, and its own tables land in a separate
-  `phoneBanking` module.
+  `outreachSocialAsset.prisma` (satellite). Phone banking's own tables
+  (`PhoneBankingList`, `PhoneBankingListEntry[Person]`,
+  `ContactInteractionPhoneBanking`, `PhoneBankingSuppressedPhone`) and
+  controller/service live in a separate `src/phoneBanking/` module — this
+  package only owns the stateless draft/improve endpoint above.
 
 ## Tests
 
