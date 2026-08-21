@@ -172,10 +172,14 @@ export const useOutreachAudience = ({
     countPayload,
     open && active && mode !== 'picker',
   )
+  // Guard the undefined-count clause with !isError: on a non-cap count failure
+  // the count is undefined but the query has settled, so treating it as "still
+  // counting" would spin the CTA forever with no recovery (matches the isError
+  // guard on builderZeroMatch below).
   const builderCounting =
     builderCountResult.isLoading ||
     builderCountResult.isStale ||
-    builderCountResult.count === undefined
+    (!builderCountResult.isError && builderCountResult.count === undefined)
   const builderZeroMatch =
     !builderCountResult.isLoading &&
     !builderCountResult.isStale &&
