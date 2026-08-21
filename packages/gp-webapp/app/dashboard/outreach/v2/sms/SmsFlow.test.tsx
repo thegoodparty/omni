@@ -4,7 +4,15 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type { SmsDraftRequest } from '@goodparty_org/contracts'
+import type { TcrCompliance } from 'helpers/types'
 import { SmsFlow } from './SmsFlow'
+
+// A cleared (VERIFIED) compliance keeps the default flow on the 48-hour
+// scheduling floor; the verification-pending test omits it to exercise
+// the 14-day floor.
+const verifiedCompliance = {
+  peerlyCvStatus: 'VERIFIED',
+} as TcrCompliance
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -121,10 +129,20 @@ const attachImage = async () => {
   await userEvent.upload(input, file)
 }
 
-const openFlow = () => {
+// null = render with NO compliance record (verification pending); the
+// explicit sentinel avoids the default-parameter trap where a passed
+// undefined silently becomes verifiedCompliance.
+const openFlow = (tcrCompliance: TcrCompliance | null = verifiedCompliance) => {
   const onClose = vi.fn()
   const onScheduled = vi.fn().mockResolvedValue(undefined)
-  render(<SmsFlow open onClose={onClose} onScheduled={onScheduled} />)
+  render(
+    <SmsFlow
+      open
+      onClose={onClose}
+      tcrCompliance={tcrCompliance ?? undefined}
+      onScheduled={onScheduled}
+    />,
+  )
   return { onClose, onScheduled }
 }
 
@@ -133,6 +151,38 @@ describe('SmsFlow', () => {
     mockLists()
     mockListDetail()
     mockOutreachList()
+  })
+
+  it('pushes the earliest send to 14 days while verification is pending', async () => {
+    mockDraft()
+    openFlow(null)
+
+    await userEvent.click(screen.getByText('Introduce myself'))
+    expect(await screen.findByText('Who are you texting?')).toBeInTheDocument()
+    await userEvent.click(screen.getByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Likely voters'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+    )
+
+    expect(
+      await screen.findByText('When do you want to send it?'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/sends must be at least 14 days out/),
+    ).toBeInTheDocument()
+
+    // A date 4 days out satisfies the 48h floor but not the 14-day one; the
+    // calendar disables it outright.
+    const target = new Date()
+    target.setDate(target.getDate() + 4)
+    await userEvent.click(screen.getByText('Pick a date'))
+    const dayButton = await screen.findByRole('button', {
+      name: new RegExp(
+        `^${target.toLocaleDateString('en-US', { weekday: 'long' })}, ${target.toLocaleDateString('en-US', { month: 'long' })} ${target.getDate()}`,
+      ),
+    })
+    expect(dayButton).toBeDisabled()
   })
 
   it('runs purpose → audience → schedule → compose → review and schedules free', async () => {

@@ -57,6 +57,9 @@ const fmtDateTime = (d: Date) =>
   `${d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
 
 interface SmsScheduleStepProps {
+  // Verification pending: the 14-day minimum applies (see SmsFlow's
+  // earliestSend) and the copy explains why.
+  notCleared: boolean
   name: string
   onNameChange: (value: string) => void
   date: Date | undefined
@@ -72,6 +75,7 @@ interface SmsScheduleStepProps {
 
 export const SmsScheduleStep = ({
   name,
+  notCleared,
   onNameChange,
   date,
   onDateChange,
@@ -102,7 +106,11 @@ export const SmsScheduleStep = ({
       <Intro
         channel="text"
         title="When do you want to send it?"
-        body="We recommend mid-morning or early evening for higher engagement. Sends require at least 48 hours' notice."
+        body={
+          notCleared
+            ? 'We recommend mid-morning or early evening for higher engagement. While your identity verification is pending, sends must be at least 14 days out so it has time to clear.'
+            : "We recommend mid-morning or early evening for higher engagement. Sends require at least 48 hours' notice."
+        }
       />
 
       <div className="space-y-2">
@@ -148,7 +156,9 @@ export const SmsScheduleStep = ({
                 disabled={(day) => day < earliestDay}
               />
               <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
-                Dates inside the 48-hour window can&apos;t be scheduled.
+                {notCleared
+                  ? 'Dates inside the 14-day verification window can\u2019t be scheduled.'
+                  : 'Dates inside the 48-hour window can\u2019t be scheduled.'}
               </div>
             </PopoverContent>
           </Popover>
@@ -186,8 +196,11 @@ export const SmsScheduleStep = ({
       {violates48h && (
         <Alert variant="destructive" icon={<CircleAlertIcon />}>
           <AlertDescription>
-            Sends need at least 48 hours&apos; notice. Pick a date and time on
-            or after {fmtDateTime(new Date(earliestSend))}.
+            {notCleared
+              ? 'Sends need at least 14 days while verification is pending. '
+              : "Sends need at least 48 hours' notice. "}
+            Pick a date and time on or after{' '}
+            {fmtDateTime(new Date(earliestSend))}.
           </AlertDescription>
         </Alert>
       )}

@@ -307,7 +307,20 @@ export const SmsFlow = ({
   const composedLength = composedMessage.length
   const missingIdentification = !hasIdentification(body, user?.firstName ?? '')
 
-  const earliestSend = useMemo(() => Date.now() + 48 * 60 * 60 * 1000, [open])
+  // The design's flowEarliest: while identity verification is pending
+  // (CampaignVerify not VERIFIED), the earliest send moves from 48 hours to
+  // 14 days out so verification has time to clear before the job runs; the
+  // review step's not-cleared banner covers the case where it still hasn't.
+  const notCleared =
+    tcrCompliance?.peerlyCvStatus !== PeerlyCvVerificationStatus.VERIFIED
+  const earliestSend = useMemo(
+    () =>
+      Date.now() +
+      (notCleared ? 14 * 24 * 60 * 60 * 1000 : 48 * 60 * 60 * 1000),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recompute on
+    // each open, like the fresh-state reset
+    [open, notCleared],
+  )
 
   const scheduledAt = useMemo(() => {
     if (!date) return null
@@ -730,6 +743,7 @@ export const SmsFlow = ({
       ) : stepId === 'schedule' ? (
         <SmsScheduleStep
           name={name}
+          notCleared={notCleared}
           onNameChange={(value) => {
             setName(value)
             setNameEdited(true)
@@ -783,10 +797,7 @@ export const SmsFlow = ({
         >
           <SmsReviewStep
             name={name}
-            notCleared={
-              tcrCompliance?.peerlyCvStatus !==
-              PeerlyCvVerificationStatus.VERIFIED
-            }
+            notCleared={notCleared}
             audienceName={selectedList?.name ?? 'Saved list'}
             sendAt={scheduledAt ?? new Date()}
             composedMessage={composedMessage}
