@@ -70,8 +70,9 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   const [campaignName, setCampaignName] = useState('')
   const [scheduledDay, setScheduledDay] = useState<Date | undefined>(undefined)
   const [time, setTime] = useState('')
-  // Pinned per open so the lead-time floor and picker bounds don't drift as the
-  // component re-renders while the user fills the step in.
+  // Re-pinned on entry to the schedule step (see goToSchedule) so the lead-time
+  // floor is measured from when the user reaches it, then held stable while they
+  // fill the step in rather than drifting on every re-render.
   const [now, setNow] = useState<Date>(() => new Date())
   // The last name we auto-filled; lets us refresh it when the list changes
   // without clobbering a name the user typed themselves.
@@ -142,6 +143,10 @@ export const RobocallFlow = ({ open, onClose }: RobocallFlowProps) => {
   }
 
   const goToSchedule = () => {
+    // Re-pin `now` on entry so the 48h floor is measured from when the user
+    // actually reaches this step, not from flow-open (they may have spent a
+    // while on earlier steps).
+    setNow(new Date())
     // Auto-fill the campaign name from the chosen list (the design auto-fills
     // it). Refresh it when the list changes as long as the user hasn't edited
     // it (tracked via lastAutoName), so the name can't silently mismatch the
