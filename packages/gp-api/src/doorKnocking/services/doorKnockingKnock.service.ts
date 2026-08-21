@@ -28,6 +28,7 @@ import {
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { pointInPolygon, polygonBbox } from '../utils/geo.util'
 import { lockTurf } from '../utils/turfLock.util'
+import { activeTurfScope } from '../utils/turfScope.util'
 import {
   assertWaypointQuota,
   recordWaypointSpend,
@@ -130,10 +131,7 @@ export class DoorKnockingKnockService extends createPrismaBase(
         // edit can't slip a changed polygon between read and freeze — turf
         // update/delete take the same lock.
         const turf = await tx.doorKnockingTurf.findFirst({
-          where: {
-            id: turfId,
-            voterFileFilter: { organizationSlug: organization.slug },
-          },
+          where: { id: turfId, ...activeTurfScope(organization.slug) },
           // activityConditions is a relation, so it has to be pulled in
           // explicitly — without it the resolution below sees a list with no
           // conditions and knocks the unfiltered roster.

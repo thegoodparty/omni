@@ -822,6 +822,8 @@ export {
   type UpdateDoorKnockingTurf,
   DoorKnockingTurfSchema,
   type DoorKnockingTurf,
+  DoorKnockingArchiveRequestSchema,
+  type DoorKnockingArchiveRequest,
   DoorKnockingKnockRequestSchema,
   type DoorKnockingKnockRequest,
   DoorKnockingRouteHeaderSchema,

@@ -299,6 +299,183 @@ describe('door-knocking routes', () => {
     })
   })
 
+  describe('list lifecycle', () => {
+    const complete = (turfId: number) =>
+      service.client.post(
+        `/v1/door-knocking/turfs/${turfId}/complete`,
+        {},
+        {
+          ...orgHeaders(),
+          validateStatus: () => true,
+        },
+      )
+
+    const setArchived = (turfId: number, archived: boolean) =>
+      service.client.post(
+        `/v1/door-knocking/turfs/${turfId}/archive`,
+        { archived },
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+
+    const knockedTurf = async (name = 'Elm St turf') => {
+      const turf = await createTurf(name)
+      stubVendors()
+      const res = await knock(turf.id)
+      expect(res.status).toBe(201)
+      return { turf, routeId: res.data.route.id as number }
+    }
+
+    it('completing a walk stamps the turf and closes its outreach envelope', async () => {
+      const { turf, routeId } = await knockedTurf()
+
+      const res = await complete(turf.id)
+      expect(res.status).toBe(201)
+      expect(res.data.completedAt).not.toBeNull()
+
+      // The envelope is the Win outreach history's copy of the same fact. It
+      // is a mirror, not the source — hence asserting both moved together.
+      const envelope = await service.prisma.outreach.findFirst({
+        where: { doorKnockingRouteId: routeId },
+      })
+      expect(envelope?.status).toBe(OutreachStatus.completed)
+    })
+
+    // The card renders the completion date, so a stray second tap must not
+    // move it — that would misreport when the walk actually finished.
+    it('completing twice keeps the original timestamp', async () => {
+      const { turf } = await knockedTurf()
+
+      const first = await complete(turf.id)
+      const second = await complete(turf.id)
+
+      expect(second.status).toBe(201)
+      expect(second.data.completedAt).toBe(first.data.completedAt)
+    })
+
+    it('refuses to complete a list nobody has knocked', async () => {
+      const turf = await createTurf()
+
+      const res = await complete(turf.id)
+      expect(res.status).toBe(409)
+    })
+
+    // Archived is a shelf the client renders differently, not a hidden state:
+    // the row keeps coming back so there is something to restore, and so the
+    // print path can still resolve the list's name.
+    it('archives and restores, leaving the row in the list either way', async () => {
+      const { turf } = await knockedTurf()
+
+      const archived = await setArchived(turf.id, true)
+      expect(archived.status).toBe(201)
+      expect(archived.data.archivedAt).not.toBeNull()
+
+      const list = await service.client.get(
+        '/v1/door-knocking/turfs',
+        orgHeaders(),
+      )
+      expect(list.data).toHaveLength(1)
+      expect(list.data[0].archivedAt).not.toBeNull()
+
+      const restored = await setArchived(turf.id, false)
+      expect(restored.data.archivedAt).toBeNull()
+    })
+
+    it('hard-deletes an unknocked list, because there is nothing to keep', async () => {
+      const turf = await createTurf()
+
+      const res = await service.client.delete(
+        `/v1/door-knocking/turfs/${turf.id}`,
+        orgHeaders(),
+      )
+      expect(res.status).toBe(204)
+
+      const row = await service.prisma.doorKnockingTurf.findUnique({
+        where: { id: turf.id },
+      })
+      expect(row).toBeNull()
+    })
+
+    // The reason soft delete exists. A hard delete here would cascade the
+    // route someone was billed for, its frozen addresses, and the outreach
+    // envelope — so this asserts each of those survives while the list itself
+    // becomes unreachable.
+    it('tombstones a knocked list instead of cascading its paid route away', async () => {
+      const { turf, routeId } = await knockedTurf()
+
+      const target =
+        await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+          where: { stop: { doorKnockingRouteId: routeId } },
+        })
+      const logged = await service.client.post(
+        '/v1/door-knocking/interactions',
+        {
+          stopTargetId: target.id,
+          clientKey: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+          outcome: 'answered',
+        },
+        orgHeaders(),
+      )
+      expect(logged.status).toBe(201)
+
+      const res = await service.client.delete(
+        `/v1/door-knocking/turfs/${turf.id}`,
+        orgHeaders(),
+      )
+      expect(res.status).toBe(204)
+
+      const row = await service.prisma.doorKnockingTurf.findUnique({
+        where: { id: turf.id },
+      })
+      expect(row?.deletedAt).not.toBeNull()
+
+      expect(
+        await service.prisma.doorKnockingRoute.findUnique({
+          where: { id: routeId },
+        }),
+      ).not.toBeNull()
+      expect(
+        await service.prisma.outreach.findFirst({
+          where: { doorKnockingRouteId: routeId },
+        }),
+      ).not.toBeNull()
+      // Knock history hangs off the organization rather than this chain, so it
+      // was never at risk — asserted anyway, because that independence is the
+      // premise the whole delete policy rests on.
+      expect(await service.prisma.contactInteractionDoorKnock.count()).toBe(1)
+    })
+
+    it('treats a tombstoned list as gone from every read and write path', async () => {
+      const { turf } = await knockedTurf()
+      await service.client.delete(
+        `/v1/door-knocking/turfs/${turf.id}`,
+        orgHeaders(),
+      )
+
+      const opts = { ...orgHeaders(), validateStatus: () => true }
+      const list = await service.client.get(
+        '/v1/door-knocking/turfs',
+        orgHeaders(),
+      )
+      expect(list.data).toHaveLength(0)
+
+      expect(
+        (await service.client.get(`/v1/door-knocking/turfs/${turf.id}`, opts))
+          .status,
+      ).toBe(404)
+      expect(
+        (
+          await service.client.get(
+            `/v1/door-knocking/turfs/${turf.id}/route`,
+            opts,
+          )
+        ).status,
+      ).toBe(404)
+      // The one that would be silent: re-knocking a deleted list would bill a
+      // second route against a list the candidate believes is gone.
+      expect((await knock(turf.id)).status).toBe(404)
+    })
+  })
+
   describe('knock', () => {
     it('freezes the route atomically: stops in vendor order, targets, envelope, filter lock', async () => {
       const turf = await createTurf()
@@ -2864,6 +3041,18 @@ describe('door-knocking routes', () => {
           `/v1/door-knocking/turfs/${turfId}/knock`,
           { mode: 'walk', loop: false },
         ],
+        // After the knock above, so both find a route and exercise their real
+        // path rather than the not-yet-knocked 409. `complete` takes no body
+        // but still needs `{}`: the loop below only passes headers as the
+        // third argument, and axios reads a POST's second argument as data —
+        // so `undefined` would send the headers as the payload and lose the
+        // org, 404ing before the gate it is here to test.
+        ['post', `/v1/door-knocking/turfs/${turfId}/complete`, {}],
+        [
+          'post',
+          `/v1/door-knocking/turfs/${turfId}/archive`,
+          { archived: true },
+        ],
         // Last on purpose: the Pro-org loop below shares one turf, and a delete
         // in the middle would leave every route after it answering 404 without
         // ever reaching the gate under test. Order is irrelevant to the non-Pro
@@ -2904,8 +3093,8 @@ describe('door-knocking routes', () => {
       // Then the whole list, asserted by the absence of the gate's own message
       // rather than by status. Run against a live Pro org most of these answer
       // 2xx, but a couple legitimately fail on their own terms — POST
-      // /interactions carries a synthetic stopTargetId (404), and PUT/DELETE
-      // meet assertNotLocked once the knock above them has run (409). A status
+      // /interactions carries a synthetic stopTargetId (404), and PUT meets
+      // assertNotLocked once the knock above it has run (409). A status
       // assertion would be testing those reasons; this asserts exactly the one
       // thing the gate could get wrong, which is refusing an entitled org.
       for (const [method, path, body] of gatedRoutes(turf.id)) {

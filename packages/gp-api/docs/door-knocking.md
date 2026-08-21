@@ -20,7 +20,7 @@ only mutable record — one row per knock on a person.
 
 | Table                            | Role                                                                  | Key invariants                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | -------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `door_knocking_turf`             | The drawn area: name, color, geoPoly                                  | `voterFileFilterId` NOT unique (N turfs per filter). Locked (derived) iff its route exists                                                                                                                                                                                                                                                                                                                                                                 |
+| `door_knocking_turf`             | The drawn area: name, color, geoPoly                                  | `voterFileFilterId` NOT unique (N turfs per filter). Locked (derived) iff its route exists. `completedAt`/`archivedAt`/`deletedAt` carry the list lifecycle — see below                                                                                                                                                                                                                                                                                    |
 | `door_knocking_route`            | Frozen route header                                                   | `doorKnockingTurfId` UNIQUE — locked/idempotent both mean "this row exists". Never mutated after creation                                                                                                                                                                                                                                                                                                                                                  |
 | `door_knocking_stop`             | One per unique lat/lng, in visit order                                | `(routeId, seq)` unique; `displayAddress` copied verbatim from `Residence_Addresses_AddressLine` at freeze                                                                                                                                                                                                                                                                                                                                                 |
 | `door_knocking_stop_target`      | Bare-minimum person snapshot                                          | personId (people-db UUID — never raw LALVOTERIDs), name, addressKey. Redact-in-place on deletion requests                                                                                                                                                                                                                                                                                                                                                  |
@@ -36,6 +36,56 @@ Shared-table touches: `OutreachType.nativeDoorKnocking` (new value — legacy
 `pending` in prod; never mix them) and `Outreach.doorKnockingRouteId`
 (nullable unique pointer — the per-channel pointer idiom, like
 `phoneListId`).
+
+## The list lifecycle
+
+Three nullable timestamps on `door_knocking_turf`, driven by
+`POST turfs/:id/complete`, `POST turfs/:id/archive` (`{ archived: boolean }`),
+and the existing `DELETE turfs/:id`. All three apply only to a knocked list.
+
+**Why the turf and not the `Outreach` envelope.** The envelope already has a
+`status` enum that spells `in_progress` and `completed`, so it looks like the
+obvious home. It isn't: the envelope requires a `campaignId`, and a Serve org
+knocks without a campaign, so the knock transaction skips creating one
+entirely. A lifecycle stored there would be invisible to an org the Pro gate
+deliberately admits. The turf is the one row every knocker has. The envelope's
+`status` is written alongside `completedAt` as a **mirror** for the Win
+outreach history — `updateMany`, so the Serve case is a no-op rather than an
+error.
+
+**Why delete is two different operations.** Delete is now offered at every
+stage; the confirmation dialog is the guard, not the lock. Which delete runs
+depends on the lock, because the two cases destroy very different amounts:
+
+- **Unlocked** — a drawing. Nothing frozen, nothing billed. Hard delete.
+- **Locked** — hard-deleting cascades turf → route → stops → targets **and**
+  the `Outreach` envelope. That throws away a Geoapify route that was billed
+  once and is documented here as never re-bought, the frozen addresses, and
+  the name snapshots privacy deletion redacts in place. So it is tombstoned
+  with `deletedAt` instead: unreachable from every read and write path, intact
+  underneath.
+
+`contact_interaction_door_knock` survives either way — it hangs off the
+organization, not this chain. That independence is the premise the policy
+rests on, so it is asserted directly in the routes suite rather than assumed.
+
+**Reads.** `activeTurfScope()` (`utils/turfScope.util.ts`) is the shared
+`where` fragment carrying both the org scope and `deletedAt: null`. It exists
+as one value because the two halves fail differently when forgotten: a missing
+org scope is a cross-tenant read that review catches, while a missing
+`deletedAt` is invisible — every endpoint keeps working on every list anyone
+actually has, and only misbehaves on a deleted one. Four call sites need it,
+across three services.
+
+**Archived rows are still returned by `GET turfs`.** They carry `archivedAt`
+and the client sections them. Filtering them out server-side would leave
+nothing to restore, and would silently degrade the print path:
+`door-knocking/print/walkListData.ts` resolves a list's _name_ by scanning
+that endpoint and falls back to "Walk list".
+
+**Archive does not require completion.** The design only offers it after Done,
+but a candidate who abandons a half-walked list still needs it off the rail,
+and refusing that would leave delete as the only way out.
 
 ## Where the code lives
 
@@ -348,7 +398,7 @@ Three things about it are load-bearing:
   the feature has a standing rule against. ADR 0010 is the whole argument.
 - **One request per explicit press.** The ring changes with every vertex, so
   nothing is fetched by drawing: the candidate asks, and a shape edited
-  afterwards makes the answer *stale* rather than triggering another scan. A
+  afterwards makes the answer _stale_ rather than triggering another scan. A
   debounce was rejected — it bills every shape passed through on the way to the
   intended one.
 - **An empty shape returns zeros, not a 400.** The knock throws there because a
