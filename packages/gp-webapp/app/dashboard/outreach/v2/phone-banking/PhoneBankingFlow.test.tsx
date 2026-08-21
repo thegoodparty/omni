@@ -324,6 +324,38 @@ describe('PhoneBankingFlow', () => {
     expect(createCalls[0]).not.toHaveProperty('voterFileFilterId')
   })
 
+  it('fires Call List Created with filtersApplied: true when a filter pill is toggled', async () => {
+    mockDraft()
+    const createCalls: PhoneBankingCreate[] = []
+    api.mock('POST /v1/phone-banking/lists', ({ body }) => {
+      createCalls.push(body)
+      return { status: 200, data: createResponse }
+    })
+    openFlow()
+    await advanceToWho()
+
+    await user.type(screen.getByLabelText('List name'), 'My audience')
+    await user.click(screen.getByRole('button', { name: 'Democrat' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText('What do you want to say?')
+    await waitFor(() =>
+      expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText('How many sheets do you need?')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText('Ready to build your call list')
+
+    await user.click(screen.getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(createCalls).toHaveLength(1))
+
+    expect(createCalls[0]?.filters).toMatchObject({ partyDemocrat: true })
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Outreach.PhoneBanking.ListCreated,
+      expect.objectContaining({ filtersApplied: true }),
+    )
+  })
+
   it('notifies onSaved with the outreach id and name so the hub history can update without a refetch', async () => {
     mockDraft()
     api.mock('POST /v1/phone-banking/lists', {

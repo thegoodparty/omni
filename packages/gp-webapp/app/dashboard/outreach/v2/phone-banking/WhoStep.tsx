@@ -105,13 +105,18 @@ export const WhoStep = ({
     return () => clearTimeout(timeout)
   }, [filters, selectedListId])
 
+  // Without this, the count query fires on mount with an empty filter body
+  // and shows the full voter-file count as if it meant something before the
+  // user has chosen any filter.
+  const hasActiveFilter = Object.values(debouncedFilters).some(Boolean)
+
   const countQuery = useQuery({
     queryKey: ['phone-banking-who-count', debouncedFilters],
     queryFn: () =>
       clientRequest('POST /v1/contacts/count', { ...debouncedFilters }).then(
         (res) => res.data,
       ),
-    enabled: selectedListId === null,
+    enabled: selectedListId === null && hasActiveFilter,
     refetchOnWindowFocus: false,
   })
 
@@ -268,7 +273,11 @@ export const WhoStep = ({
           ))}
 
           <div className="text-sm">
-            {countQuery.isPending || isDebouncing ? (
+            {!hasActiveFilter ? (
+              <p className="text-muted-foreground">
+                Select at least one filter to see how many voters match.
+              </p>
+            ) : countQuery.isPending || isDebouncing ? (
               <p className="flex items-center gap-2 text-muted-foreground">
                 <Loader2Icon className="size-4 animate-spin" />
                 Counting matching voters…
