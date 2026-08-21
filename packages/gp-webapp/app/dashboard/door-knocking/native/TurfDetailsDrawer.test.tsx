@@ -35,6 +35,11 @@ vi.mock('./TurfDetailsSheet', () => ({
 // ring; person 3 sits at dot 1 outside it. So the ring holds 3 people with no
 // filters and 1 once the list's own party filter is applied — the difference
 // this drawer exists to report.
+//
+// The income and language planes exist for the re-expansion tests below, and
+// are laid out so each filter alone leaves 2 of the 3 in-ring people and the
+// two together leave 1. Three distinguishable counts, so a dropped filter
+// reads as a different number rather than as a coincidence.
 const pack = {
   manifest: {
     version: 1,
@@ -43,6 +48,8 @@ const pack = {
     dims: [
       { key: 'canvassStatus', values: ['unknown', 'not_home', 'supporter'] },
       { key: 'party', values: ['Unknown', 'Democratic', 'Republican'] },
+      { key: 'income', values: ['Unknown', '$50k - $75k', '$200k+'] },
+      { key: 'language', values: ['English', 'Spanish', 'Other'] },
     ],
     arrays: [],
   },
@@ -52,6 +59,8 @@ const pack = {
   dimPlanes: new Map([
     ['canvassStatus', new Uint8Array([2, 0, 0, 0])],
     ['party', new Uint8Array([1, 2, 0, 0])],
+    ['income', new Uint8Array([1, 1, 0, 1])],
+    ['language', new Uint8Array([1, 0, 1, 1])],
   ]),
 } as unknown as DecodedPack
 
@@ -139,6 +148,47 @@ describe('TurfDetailsDrawer seam', () => {
 
     await waitFor(() => expect(sheetProps.current?.listStatsPending).toBe(true))
     expect(sheetProps.current?.listStats).toBeNull()
+  })
+
+  // Income and language are the two filters the backend does NOT store as
+  // booleans, so `savedListFilterKeys` has to re-expand them through a reversed
+  // map before the pack can see them at all. The failure is silent and it is
+  // one-directional — a broken map drops the filter and the list looks like it
+  // targets MORE people than it does, which is the direction nobody reports.
+  // Asserting 2 rather than 3 is the whole point: 3 is the answer for a ring
+  // with no filters applied.
+  it('re-expands a list’s income ranges before counting', async () => {
+    renderDrawer([{ id: 7, incomeRanges: ['$50k - $75k'] } as SegmentResponse])
+
+    await waitFor(() => expect(sheetProps.current?.listStats).not.toBeNull())
+    expect(sheetProps.current?.listStats?.people).toBe(2)
+  })
+
+  // Language round-trips through the key rather than the code, which is the
+  // part worth pinning: the list stores 'es', the pack bucket is 'Spanish', and
+  // nothing would line those two up if the reversal stopped going via
+  // `languageSpanish`.
+  it('re-expands a list’s language codes before counting', async () => {
+    renderDrawer([{ id: 7, languageCodes: ['es'] } as SegmentResponse])
+
+    await waitFor(() => expect(sheetProps.current?.listStats).not.toBeNull())
+    expect(sheetProps.current?.listStats?.people).toBe(2)
+  })
+
+  // Both at once, because a list carrying two re-expanded filters is where a
+  // reversal that returns the right keys but loses one of them still reads as
+  // plausible on the single-filter cases above.
+  it('applies both re-expanded filters together', async () => {
+    renderDrawer([
+      {
+        id: 7,
+        incomeRanges: ['$50k - $75k'],
+        languageCodes: ['es'],
+      } as SegmentResponse,
+    ])
+
+    await waitFor(() => expect(sheetProps.current?.listStats).not.toBeNull())
+    expect(sheetProps.current?.listStats?.people).toBe(1)
   })
 
   // The saved list's unshadeable filters, not the create flow's draft — which
